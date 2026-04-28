@@ -21,6 +21,7 @@ from gas_calibrator.v2.core.run001_r1_conditioning_only_probe import (
 
 A2_SCHEMA_VERSION = "v2.run001.a2_co2_7_pressure_no_write_probe.1"
 A2_1_HEARTBEAT_GAP_ACCOUNTING_FIX_PRESENT = True
+A2_3_V1_PRESSURE_GAUGE_READ_POLICY_PRESENT = True
 A2_ENV_VAR = "GAS_CAL_V2_A2_CO2_7_PRESSURE_NO_WRITE_REAL_COM"
 A2_ENV_VALUE = "1"
 A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
@@ -691,6 +692,31 @@ def _first_metric_from_rows(rows: list[dict[str, Any]], *keys: str) -> Any:
     return None
 
 
+def _a2_3_pressure_source_strategy(raw_cfg: Mapping[str, Any]) -> str:
+    value = str(
+        _first_value(
+            raw_cfg,
+            (
+                "workflow.pressure.a2_conditioning_pressure_source",
+                "workflow.pressure.conditioning_pressure_source",
+                "a2_co2_7_pressure_no_write_probe.workflow.pressure.a2_conditioning_pressure_source",
+                "run001_a2.workflow.pressure.a2_conditioning_pressure_source",
+            ),
+        )
+        or "continuous"
+    ).strip().lower()
+    aliases = {
+        "p3": "p3_fast_poll",
+        "p3_fast": "p3_fast_poll",
+        "fast_poll": "p3_fast_poll",
+        "continuous_stream": "continuous",
+        "v1": "v1_aligned",
+        "v1_aligned_p3": "v1_aligned",
+    }
+    value = aliases.get(value, value)
+    return value if value in {"v1_aligned", "continuous", "p3_fast_poll", "auto"} else "continuous"
+
+
 def _sample_count_by_pressure(sample_rows: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in sample_rows:
@@ -1022,6 +1048,8 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     if final_decision != "PASS" and not rejection_reasons:
         rejection_reasons.append("a2_pass_conditions_not_met")
     rejection_reasons = list(dict.fromkeys(rejection_reasons))
+    evidence_metric_rows = route_rows + pressure_rows + sample_rows
+    a2_3_strategy = _a2_3_pressure_source_strategy(raw_cfg)
 
     pressure_ready_rows = [
         {
@@ -1082,6 +1110,41 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "v1_untouched": True,
         "run_app_py_untouched": bool(run_app_py_untouched),
         "a2_1_heartbeat_gap_accounting_fix_present": A2_1_HEARTBEAT_GAP_ACCOUNTING_FIX_PRESENT,
+        "a2_3_v1_pressure_gauge_read_policy_present": A2_3_V1_PRESSURE_GAUGE_READ_POLICY_PRESENT,
+        "a2_3_pressure_source_strategy": a2_3_strategy,
+        "pressure_source_selected": _first_metric_from_rows(evidence_metric_rows, "pressure_source_selected"),
+        "pressure_source_selection_reason": _first_metric_from_rows(
+            evidence_metric_rows,
+            "pressure_source_selection_reason",
+            "source_selection_reason",
+        ),
+        "critical_window_uses_latest_frame": _as_bool(
+            _first_metric_from_rows(evidence_metric_rows, "critical_window_uses_latest_frame")
+        )
+        is True,
+        "critical_window_uses_query": _as_bool(
+            _first_metric_from_rows(evidence_metric_rows, "critical_window_uses_query")
+        )
+        is True,
+        "p3_fast_fallback_attempted": _as_bool(
+            _first_metric_from_rows(evidence_metric_rows, "p3_fast_fallback_attempted")
+        )
+        is True,
+        "p3_fast_fallback_result": _first_metric_from_rows(evidence_metric_rows, "p3_fast_fallback_result") or "",
+        "normal_p3_fallback_attempted": _as_bool(
+            _first_metric_from_rows(evidence_metric_rows, "normal_p3_fallback_attempted")
+        )
+        is True,
+        "normal_p3_fallback_result": _first_metric_from_rows(evidence_metric_rows, "normal_p3_fallback_result") or "",
+        "digital_gauge_stream_stale": _as_bool(
+            _first_metric_from_rows(evidence_metric_rows, "digital_gauge_stream_stale")
+        )
+        is True,
+        "continuous_restart_attempted": _as_bool(
+            _first_metric_from_rows(evidence_metric_rows, "continuous_restart_attempted")
+        )
+        is True,
+        "continuous_restart_result": _first_metric_from_rows(evidence_metric_rows, "continuous_restart_result") or "",
         "a2_pressure_sweep_executed": bool(executed),
         "real_probe_executed": bool(executed),
         "underlying_execution_dir": str(execution.get("execution_run_dir") or ""),

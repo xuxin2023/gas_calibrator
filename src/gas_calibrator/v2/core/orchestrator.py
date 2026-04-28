@@ -1579,7 +1579,7 @@ class WorkflowOrchestrator:
         stream_state: dict[str, Any] = {}
         pressure_source_mode = self._a2_conditioning_pressure_source_mode()
         stream_starter = getattr(self.pressure_control_service, "_start_a2_high_pressure_digital_gauge_stream", None)
-        if pressure_source_mode in {"continuous", "auto"} and callable(stream_starter):
+        if pressure_source_mode in {"continuous", "auto", "v1_aligned"} and callable(stream_starter):
             stream_state = dict(
                 stream_starter(stage="co2_route_conditioning_at_atmosphere", point_index=point.index) or {}
             )
@@ -1602,7 +1602,11 @@ class WorkflowOrchestrator:
             "pressure_source": (
                 "digital_pressure_gauge_p3_fast_poll"
                 if pressure_source_mode == "p3_fast_poll"
-                else "digital_pressure_gauge_continuous"
+                else (
+                    "digital_pressure_gauge_v1_aligned"
+                    if pressure_source_mode == "v1_aligned"
+                    else "digital_pressure_gauge_continuous"
+                )
             ),
             "pressure_source_selected": pressure_source_mode,
             "pressure_source_selection_reason": "a2_conditioning_pressure_source_config",
@@ -1633,6 +1637,7 @@ class WorkflowOrchestrator:
             "did_not_seal_during_conditioning": True,
             "stream_state_at_start": stream_state,
             "a2_conditioning_pressure_source": pressure_source_mode,
+            "a2_3_pressure_source_strategy": pressure_source_mode,
         }
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", True)
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
@@ -1668,9 +1673,11 @@ class WorkflowOrchestrator:
             "p3_fast": "p3_fast_poll",
             "fast_poll": "p3_fast_poll",
             "continuous_stream": "continuous",
+            "v1": "v1_aligned",
+            "v1_aligned_p3": "v1_aligned",
         }
         value = aliases.get(value, value)
-        return value if value in {"continuous", "p3_fast_poll", "auto"} else "continuous"
+        return value if value in {"continuous", "p3_fast_poll", "auto", "v1_aligned"} else "continuous"
 
     def _a2_conditioning_vent_heartbeat_interval_s(self) -> float:
         value = self._as_float(
@@ -1872,6 +1879,16 @@ class WorkflowOrchestrator:
             details=context,
         )
 
+    def _a2_v1_aligned_pressure_fallback_allowed(self) -> bool:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        return bool(
+            getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)
+            and context.get("atmosphere_vent_enabled", True)
+            and not bool(context.get("seal_command_sent", False))
+            and not str(context.get("vent_off_sent_at") or "").strip()
+            and not bool(context.get("pressure_setpoint_command_sent", False))
+        )
+
     def _a2_conditioning_pressure_sample(self, point: CalibrationPoint, *, phase: str) -> dict[str, Any]:
         stage = "co2_route_conditioning_at_atmosphere"
         pressure_source_mode = self._a2_conditioning_pressure_source_mode()
@@ -1908,6 +1925,66 @@ class WorkflowOrchestrator:
         if callable(high_pressure_reader):
             sample = high_pressure_reader(stage=stage, point_index=point.index)
             sample = dict(sample) if isinstance(sample, Mapping) else {}
+            sample.setdefault("a2_3_pressure_source_strategy", pressure_source_mode)
+            if pressure_source_mode == "v1_aligned":
+                continuous_stale = bool(sample.get("is_stale", sample.get("pressure_sample_is_stale")))
+                continuous_pressure = self._as_float(sample.get("pressure_hpa", sample.get("digital_gauge_pressure_hpa")))
+                if not continuous_stale and continuous_pressure is not None:
+                    sample.update(
+                        {
+                            "pressure_source_selected": "digital_pressure_gauge_continuous",
+                            "pressure_source_selection_reason": "digital_gauge_continuous_latest_fresh",
+                            "source_selection_reason": "digital_gauge_continuous_latest_fresh",
+                            "critical_window_uses_latest_frame": True,
+                            "critical_window_uses_query": False,
+                            "p3_fast_fallback_attempted": False,
+                            "p3_fast_fallback_result": "",
+                            "normal_p3_fallback_attempted": False,
+                            "normal_p3_fallback_result": "",
+                        }
+                    )
+                    return sample
+                if not self._a2_v1_aligned_pressure_fallback_allowed():
+                    sample.update(
+                        {
+                            "pressure_source_selected": "",
+                            "pressure_source_selection_reason": "v1_aligned_fallback_not_allowed_outside_atmosphere_conditioning",
+                            "source_selection_reason": "v1_aligned_fallback_not_allowed_outside_atmosphere_conditioning",
+                            "critical_window_uses_latest_frame": True,
+                            "critical_window_uses_query": False,
+                            "p3_fast_fallback_attempted": False,
+                            "p3_fast_fallback_result": "",
+                            "normal_p3_fallback_attempted": False,
+                            "normal_p3_fallback_result": "",
+                            "fail_closed_reason": "digital_gauge_v1_aligned_fallback_not_allowed",
+                        }
+                    )
+                    return sample
+                v1_reader = getattr(self.pressure_control_service, "_a2_v1_aligned_pressure_gauge_sample", None)
+                if callable(v1_reader):
+                    fallback = v1_reader(stage=stage, point_index=point.index, continuous_sample=sample)
+                    fallback = dict(fallback) if isinstance(fallback, Mapping) else {}
+                    fallback.setdefault("a2_3_pressure_source_strategy", "v1_aligned")
+                    fallback.setdefault("critical_window_uses_latest_frame", False)
+                    fallback.setdefault("critical_window_uses_query", True)
+                    fallback.setdefault("pressure_source_selection_reason", "continuous_stale_fallback_to_p3_fast")
+                    fallback.setdefault("source_selection_reason", fallback.get("pressure_source_selection_reason"))
+                    return fallback
+                sample.update(
+                    {
+                        "pressure_source_selected": "",
+                        "pressure_source_selection_reason": "digital_gauge_v1_aligned_reader_unavailable",
+                        "source_selection_reason": "digital_gauge_v1_aligned_reader_unavailable",
+                        "critical_window_uses_latest_frame": True,
+                        "critical_window_uses_query": False,
+                        "p3_fast_fallback_attempted": False,
+                        "p3_fast_fallback_result": "",
+                        "normal_p3_fallback_attempted": False,
+                        "normal_p3_fallback_result": "",
+                        "fail_closed_reason": "digital_gauge_v1_aligned_read_unavailable",
+                    }
+                )
+                return sample
             if pressure_source_mode == "auto" and bool(sample.get("is_stale", sample.get("pressure_sample_is_stale"))) and callable(direct_reader):
                 fallback = direct_reader("digital_pressure_gauge")
                 fallback = dict(fallback) if isinstance(fallback, Mapping) else {}
@@ -2026,7 +2103,6 @@ class WorkflowOrchestrator:
         )
         max_age_s = self._a2_conditioning_digital_gauge_max_age_s()
         digital_expected = bool(context.get("digital_gauge_monitoring_required", False))
-        continuous_source = "continuous" in source_text or "digital_pressure_gauge" in source_text
         pressure_source_mode = str(
             sample.get("digital_gauge_mode")
             or sample.get("pressure_source_selected")
@@ -2047,19 +2123,40 @@ class WorkflowOrchestrator:
             or ""
         )
         continuous_interruption_unrecovered = bool(
-            continuous_interrupted and "p3_fast_poll" not in pressure_source_mode and restart_result != "recovered"
+            continuous_interrupted
+            and "p3" not in pressure_source_mode
+            and pressure_source_mode != "v1_aligned"
+            and restart_result != "recovered"
         )
-        stream_stale = bool(
-            (digital_expected or continuous_source)
-            and (
-                age_s is None
-                or float(age_s) > max_age_s
-                or (sequence_value is None and digital_expected)
-                or sequence_progress is False
-                or (pressure_hpa is None and str(sample.get("error") or digital_sample.get("error") or ""))
-                or continuous_interruption_unrecovered
+        p3_direct_source = bool("p3" in source_text or "p3" in str(sample.get("pressure_source_selected") or ""))
+        continuous_source = bool(
+            "continuous" in source_text
+            or (
+                not p3_direct_source
+                and str(context.get("a2_conditioning_pressure_source") or self._a2_conditioning_pressure_source_mode())
+                in {"continuous", "auto", "v1_aligned"}
             )
         )
+        if p3_direct_source:
+            stream_stale = bool(
+                pressure_hpa is None
+                or age_s is None
+                or float(age_s) > max_age_s
+                or bool(sample.get("is_stale", sample.get("pressure_sample_is_stale", False)))
+                or bool(str(sample.get("error") or digital_sample.get("error") or ""))
+            )
+        else:
+            stream_stale = bool(
+                (digital_expected or continuous_source)
+                and (
+                    age_s is None
+                    or float(age_s) > max_age_s
+                    or (sequence_value is None and digital_expected)
+                    or sequence_progress is False
+                    or (pressure_hpa is None and str(sample.get("error") or digital_sample.get("error") or ""))
+                    or continuous_interruption_unrecovered
+                )
+            )
         abort_hpa = self._a2_conditioning_pressure_abort_hpa()
         fresh_for_abort = bool(pressure_hpa is not None and not stream_stale)
         pressure_overlimit = bool(fresh_for_abort and float(pressure_hpa) > float(abort_hpa))
@@ -2149,6 +2246,12 @@ class WorkflowOrchestrator:
                 or snapshot.get("last_pressure_command_may_cancel_continuous")
             ),
             "continuous_interrupted_by_command": continuous_interrupted,
+            "continuous_restart_required_before_return_to_continuous": bool(
+                sample.get("continuous_restart_required_before_return_to_continuous")
+                or digital_sample.get("continuous_restart_required_before_return_to_continuous")
+                or snapshot.get("continuous_restart_required_before_return_to_continuous")
+                or context.get("continuous_restart_required_before_return_to_continuous")
+            ),
             "continuous_restart_attempted": bool(
                 sample.get("continuous_restart_attempted")
                 or digital_sample.get("continuous_restart_attempted")
@@ -2157,6 +2260,16 @@ class WorkflowOrchestrator:
             "continuous_restart_result": restart_result,
             "pressure_source_selected": selected_source,
             "pressure_source_selection_reason": selection_reason,
+            "a2_3_pressure_source_strategy": sample.get("a2_3_pressure_source_strategy")
+            or context.get("a2_3_pressure_source_strategy")
+            or self._a2_conditioning_pressure_source_mode(),
+            "critical_window_uses_latest_frame": bool(sample.get("critical_window_uses_latest_frame")),
+            "critical_window_uses_query": bool(sample.get("critical_window_uses_query")),
+            "p3_fast_fallback_attempted": bool(sample.get("p3_fast_fallback_attempted")),
+            "p3_fast_fallback_result": sample.get("p3_fast_fallback_result") or "",
+            "normal_p3_fallback_attempted": bool(sample.get("normal_p3_fallback_attempted")),
+            "normal_p3_fallback_result": sample.get("normal_p3_fallback_result") or "",
+            "fail_closed_reason": sample.get("fail_closed_reason") or "",
             "conditioning_pressure_abort_hpa": abort_hpa,
             "pressure_overlimit_seen": pressure_overlimit,
             "pressure_overlimit_source": source_for_decision if pressure_overlimit else "",
@@ -2178,10 +2291,19 @@ class WorkflowOrchestrator:
             "last_pressure_command",
             "last_pressure_command_may_cancel_continuous",
             "continuous_interrupted_by_command",
+            "continuous_restart_required_before_return_to_continuous",
             "continuous_restart_attempted",
             "continuous_restart_result",
             "pressure_source_selected",
             "pressure_source_selection_reason",
+            "a2_3_pressure_source_strategy",
+            "critical_window_uses_latest_frame",
+            "critical_window_uses_query",
+            "p3_fast_fallback_attempted",
+            "p3_fast_fallback_result",
+            "normal_p3_fallback_attempted",
+            "normal_p3_fallback_result",
+            "fail_closed_reason",
         )
         return {key: details.get(key) for key in keys if key in details}
 
@@ -2277,9 +2399,10 @@ class WorkflowOrchestrator:
             route_state=monitor_state,
         )
         if details.get("digital_gauge_stream_stale"):
+            reason = str(details.get("fail_closed_reason") or "digital_gauge_stream_stale")
             self._fail_a2_co2_route_conditioning_closed(
                 point,
-                reason="digital_gauge_stream_stale",
+                reason=reason,
                 details={**monitor_state, "stream_stale": True},
                 event_name="co2_route_conditioning_stream_stale",
                 route_trace_action="co2_route_conditioning_stream_stale",
@@ -2514,9 +2637,10 @@ class WorkflowOrchestrator:
                 pressure_hpa=pressure_hpa,
             )
         if sample_stale:
+            reason = str(details.get("fail_closed_reason") or "digital_gauge_stream_stale")
             self._fail_a2_co2_route_conditioning_closed(
                 point,
-                reason="digital_gauge_stream_stale",
+                reason=reason,
                 details={**tick, "stream_stale": True},
                 event_name="co2_route_conditioning_stream_stale",
                 route_trace_action="co2_route_conditioning_stream_stale",

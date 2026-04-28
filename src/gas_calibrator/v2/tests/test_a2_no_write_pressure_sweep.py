@@ -164,11 +164,33 @@ class _QueuedPressureGauge:
         self.continuous_mode = ""
         self.continuous_sequence_id = 0
         self.blocking_read_count = 0
+        self.fast_read_count = 0
+        self.normal_read_count = 0
         self.continuous_read_count = 0
         self.continuous_return_none = False
+        self.fast_read_error: Exception | None = None
+        self.normal_read_error: Exception | None = None
 
     def read_pressure_hpa(self) -> float:
         self.blocking_read_count += 1
+        self.normal_read_count += 1
+        if self.values:
+            self.last = float(self.values.pop(0))
+        return float(self.last)
+
+    def read_pressure(self, **_kwargs) -> float:
+        self.normal_read_count += 1
+        if self.normal_read_error is not None:
+            raise self.normal_read_error
+        self.blocking_read_count += 1
+        if self.values:
+            self.last = float(self.values.pop(0))
+        return float(self.last)
+
+    def read_pressure_fast(self, **_kwargs) -> float:
+        self.fast_read_count += 1
+        if self.fast_read_error is not None:
+            raise self.fast_read_error
         if self.values:
             self.last = float(self.values.pop(0))
         return float(self.last)
@@ -682,7 +704,7 @@ def test_a2_conditioning_p3_query_while_continuous_active_is_marked_as_may_cance
     snapshot = service.digital_gauge_continuous_stream_snapshot()
 
     assert sample["pressure_hpa"] == 1010.2
-    assert sample["last_pressure_command"] == "read_pressure_hpa"
+    assert sample["last_pressure_command"] == "read_pressure"
     assert sample["last_pressure_command_may_cancel_continuous"] is True
     assert sample["continuous_interrupted_by_command"] is True
     assert snapshot["continuous_interrupted_by_command"] is True
@@ -970,6 +992,38 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
             **extra,
         }
 
+    def v1_aligned_sample(**kwargs) -> dict:
+        sample = direct_sample("digital_pressure_gauge")
+        ok = bool(sample.get("pressure_hpa") is not None and not sample.get("is_stale") and sample.get("parse_ok"))
+        sample.update(
+            {
+                **kwargs,
+                "source": "digital_pressure_gauge_p3",
+                "pressure_sample_source": "digital_pressure_gauge_p3",
+                "digital_gauge_mode": "v1_aligned_p3_fast",
+                "a2_3_pressure_source_strategy": "v1_aligned",
+                "pressure_source_selected": "digital_pressure_gauge_p3" if ok else "",
+                "pressure_source_selection_reason": (
+                    "continuous_stale_fallback_to_p3_fast"
+                    if ok
+                    else "digital_gauge_v1_aligned_read_unavailable"
+                ),
+                "source_selection_reason": (
+                    "continuous_stale_fallback_to_p3_fast"
+                    if ok
+                    else "digital_gauge_v1_aligned_read_unavailable"
+                ),
+                "critical_window_uses_latest_frame": False,
+                "critical_window_uses_query": True,
+                "p3_fast_fallback_attempted": True,
+                "p3_fast_fallback_result": "success" if ok else "failed",
+                "normal_p3_fallback_attempted": False,
+                "normal_p3_fallback_result": "",
+                "fail_closed_reason": "" if ok else "digital_gauge_v1_aligned_read_unavailable",
+            }
+        )
+        return sample
+
     def snapshot() -> dict:
         frame = dict(last_frame)
         pressure_raw = frame.get("pressure_hpa")
@@ -1008,6 +1062,7 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
         digital_gauge_continuous_stream_snapshot=snapshot,
         _current_high_pressure_first_point_sample=sample,
         _pressure_sample_from_device=direct_sample,
+        _a2_v1_aligned_pressure_gauge_sample=v1_aligned_sample,
     )
     point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
     orchestrator._a2_co2_route_conditioning_at_atmosphere_active = True
@@ -1180,6 +1235,149 @@ def test_co2_conditioning_p3_fast_poll_unfresh_read_fails_closed(monkeypatch) ->
     assert context["vent_off_sent_at"] == ""
     assert context["seal_command_sent"] is False
     assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+
+
+def test_co2_conditioning_v1_aligned_continuous_fresh_does_not_trigger_p3(monkeypatch) -> None:
+    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 8}],
+        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
+    )
+
+    def fail_if_called(**_kwargs):
+        raise AssertionError("P3 fallback should not run while continuous frame is fresh")
+
+    orchestrator.pressure_control_service._a2_v1_aligned_pressure_gauge_sample = fail_if_called
+
+    tick = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+
+    assert tick["pressure_source_selected"] == "digital_pressure_gauge_continuous"
+    assert tick["pressure_source_selection_reason"] == "digital_gauge_continuous_latest_fresh"
+    assert tick["critical_window_uses_latest_frame"] is True
+    assert tick["critical_window_uses_query"] is False
+    assert tick["p3_fast_fallback_attempted"] is False
+    assert tick["whether_safe_to_continue"] is True
+    assert route_traces == []
+
+
+def test_co2_conditioning_v1_aligned_continuous_stale_uses_p3_fast(monkeypatch) -> None:
+    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True},
+            {"pressure_hpa": 1009.2, "age_s": 0.0, "sequence_id": 9, "raw_response": "1009.200"},
+        ],
+        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
+    )
+
+    tick = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+
+    assert tick["pressure_source_selected"] == "digital_pressure_gauge_p3"
+    assert tick["pressure_source_selection_reason"] == "continuous_stale_fallback_to_p3_fast"
+    assert tick["critical_window_uses_latest_frame"] is False
+    assert tick["critical_window_uses_query"] is True
+    assert tick["p3_fast_fallback_attempted"] is True
+    assert tick["p3_fast_fallback_result"] == "success"
+    assert tick["digital_gauge_stream_stale"] is False
+    assert tick["whether_safe_to_continue"] is True
+    assert route_traces == []
+
+
+def test_co2_conditioning_v1_aligned_blocks_fallback_after_seal(monkeypatch) -> None:
+    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
+        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
+    )
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["seal_command_sent"] = True
+
+    def fail_if_called(**_kwargs):
+        raise AssertionError("P3 fallback must not run after seal")
+
+    orchestrator.pressure_control_service._a2_v1_aligned_pressure_gauge_sample = fail_if_called
+
+    with pytest.raises(WorkflowValidationError):
+        orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["pressure_source_selection_reason"] == "v1_aligned_fallback_not_allowed_outside_atmosphere_conditioning"
+    assert context["fail_closed_before_vent_off"] is True
+    assert context["vent_off_sent_at"] == ""
+    assert context["seal_command_sent"] is True
+    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+
+
+def test_a2_v1_aligned_service_fast_p3_success_marks_continuous_interruption() -> None:
+    service, host, _controller, _status = _positive_preseal_service([1010.2])
+    _seed_digital_stream_latest(service, 1009.0, age_s=2.0, sequence=1)
+    gauge = host._device("pressure_meter")
+
+    sample = service._a2_v1_aligned_pressure_gauge_sample(
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        continuous_sample={"is_stale": True},
+    )
+
+    assert sample["pressure_source_selected"] == "digital_pressure_gauge_p3"
+    assert sample["pressure_source_selection_reason"] == "continuous_stale_fallback_to_p3_fast"
+    assert sample["p3_fast_fallback_attempted"] is True
+    assert sample["p3_fast_fallback_result"] == "success"
+    assert sample["normal_p3_fallback_attempted"] is False
+    assert sample["critical_window_uses_query"] is True
+    assert sample["last_pressure_command"] == "read_pressure_fast"
+    assert sample["last_pressure_command_may_cancel_continuous"] is True
+    assert sample["continuous_interrupted_by_command"] is True
+    assert sample["continuous_restart_required_before_return_to_continuous"] is True
+    assert gauge.fast_read_count == 1
+    assert gauge.normal_read_count == 0
+    assert any(event["event_name"] == "digital_gauge_continuous_command_may_cancel" for event in host._recorded_timing)
+
+
+def test_a2_v1_aligned_service_fast_p3_failure_falls_back_to_normal_p3() -> None:
+    service, host, _controller, _status = _positive_preseal_service([1010.4])
+    _seed_digital_stream_latest(service, 1009.0, age_s=2.0, sequence=1)
+    gauge = host._device("pressure_meter")
+    gauge.fast_read_error = RuntimeError("fast timeout")
+
+    sample = service._a2_v1_aligned_pressure_gauge_sample(
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        continuous_sample={"is_stale": True},
+    )
+
+    assert sample["pressure_source_selected"] == "digital_pressure_gauge_p3"
+    assert sample["pressure_source_selection_reason"] == "p3_fast_failed_fallback_normal_p3"
+    assert sample["p3_fast_fallback_attempted"] is True
+    assert sample["p3_fast_fallback_result"] == "failed"
+    assert sample["normal_p3_fallback_attempted"] is True
+    assert sample["normal_p3_fallback_result"] == "success"
+    assert sample["pressure_hpa"] == 1010.4
+    assert gauge.fast_read_count == 1
+    assert gauge.normal_read_count == 1
+
+
+def test_a2_v1_aligned_service_all_p3_reads_fail_closed_payload() -> None:
+    service, host, _controller, _status = _positive_preseal_service([1010.4])
+    _seed_digital_stream_latest(service, 1009.0, age_s=2.0, sequence=1)
+    gauge = host._device("pressure_meter")
+    gauge.fast_read_error = RuntimeError("fast timeout")
+    gauge.normal_read_error = RuntimeError("normal timeout")
+
+    sample = service._a2_v1_aligned_pressure_gauge_sample(
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        continuous_sample={"is_stale": True},
+    )
+
+    assert sample["pressure_source_selected"] == ""
+    assert sample["pressure_source_selection_reason"] == "digital_gauge_v1_aligned_read_unavailable"
+    assert sample["p3_fast_fallback_result"] == "failed"
+    assert sample["normal_p3_fallback_attempted"] is True
+    assert sample["normal_p3_fallback_result"] == "failed"
+    assert sample["fail_closed_reason"] == "digital_gauge_v1_aligned_read_unavailable"
+    assert sample["usable_for_abort"] is False
+    assert gauge.fast_read_count == 1
+    assert gauge.normal_read_count == 1
 
 
 def test_co2_runner_conditioning_fail_closed_does_not_vent_off_seal_or_sample() -> None:

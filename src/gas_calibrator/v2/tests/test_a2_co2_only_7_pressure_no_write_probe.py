@@ -306,6 +306,63 @@ def test_a2_probe_writes_required_artifacts_and_passes_with_complete_points(tmp_
     assert all(point["blocking_operation_duration_ms"] == 1180.0 for point in points)
 
 
+def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    config["workflow"] = {"pressure": {"a2_conditioning_pressure_source": "v1_aligned"}}
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["route_trace_rows"].append(
+            {
+                "timestamp": "2026-04-27T00:00:03+00:00",
+                "action": "co2_route_conditioning_pressure_sample",
+                "point_index": 1,
+                "actual": {
+                    "pressure_source_selected": "digital_pressure_gauge_p3",
+                    "pressure_source_selection_reason": "continuous_stale_fallback_to_p3_fast",
+                    "critical_window_uses_latest_frame": False,
+                    "critical_window_uses_query": True,
+                    "p3_fast_fallback_attempted": True,
+                    "p3_fast_fallback_result": "success",
+                    "normal_p3_fallback_attempted": False,
+                    "normal_p3_fallback_result": "",
+                    "digital_gauge_stream_stale": False,
+                    "continuous_restart_attempted": True,
+                    "continuous_restart_result": "recovered",
+                },
+                "result": "ok",
+            }
+        )
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_v1_aligned",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["a2_3_v1_pressure_gauge_read_policy_present"] is True
+    assert summary["a2_3_pressure_source_strategy"] == "v1_aligned"
+    assert summary["pressure_source_selected"] == "digital_pressure_gauge_p3"
+    assert summary["pressure_source_selection_reason"] == "continuous_stale_fallback_to_p3_fast"
+    assert summary["critical_window_uses_latest_frame"] is False
+    assert summary["critical_window_uses_query"] is True
+    assert summary["p3_fast_fallback_attempted"] is True
+    assert summary["p3_fast_fallback_result"] == "success"
+    assert summary["normal_p3_fallback_attempted"] is False
+    assert summary["digital_gauge_stream_stale"] is False
+    assert summary["continuous_restart_attempted"] is True
+    assert summary["continuous_restart_result"] == "recovered"
+    assert summary["a3_allowed"] is False
+
+
 def test_a2_probe_fails_closed_on_stale_pressure_and_downstream_execution(tmp_path: Path) -> None:
     config, config_path, op_path = _config_and_operator(tmp_path)
 

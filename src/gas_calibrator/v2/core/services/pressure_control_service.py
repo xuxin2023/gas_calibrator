@@ -371,6 +371,7 @@ class PressureControlService:
             "last_pressure_command",
             "last_pressure_command_may_cancel_continuous",
             "continuous_interrupted_by_command",
+            "continuous_restart_required_before_return_to_continuous",
             "continuous_restart_attempted",
             "continuous_restart_result",
             "continuous_restart_reason",
@@ -390,6 +391,10 @@ class PressureControlService:
             "digital_gauge_latest_age_s",
             "stream_stale",
             "fail_closed_before_vent_off",
+            "p3_fast_fallback_attempted",
+            "p3_fast_fallback_result",
+            "normal_p3_fallback_attempted",
+            "normal_p3_fallback_result",
         ):
             if extra_key in data:
                 payload[extra_key] = data.get(extra_key)
@@ -499,6 +504,7 @@ class PressureControlService:
                 "last_pressure_command": "",
                 "last_pressure_command_may_cancel_continuous": False,
                 "continuous_interrupted_by_command": False,
+                "continuous_restart_required_before_return_to_continuous": False,
                 "continuous_restart_attempted": False,
                 "continuous_restart_result": "",
                 "continuous_restart_reason": "",
@@ -627,6 +633,9 @@ class PressureControlService:
                 snapshot.get("last_pressure_command_may_cancel_continuous")
             ),
             "continuous_interrupted_by_command": bool(snapshot.get("continuous_interrupted_by_command")),
+            "continuous_restart_required_before_return_to_continuous": bool(
+                snapshot.get("continuous_restart_required_before_return_to_continuous")
+            ),
             "continuous_restart_attempted": bool(snapshot.get("continuous_restart_attempted")),
             "continuous_restart_result": snapshot.get("continuous_restart_result") or "",
             "continuous_restart_reason": snapshot.get("continuous_restart_reason") or "",
@@ -642,6 +651,7 @@ class PressureControlService:
             state["last_pressure_command_may_cancel_continuous"] = may_cancel
             if may_cancel:
                 state["continuous_interrupted_by_command"] = True
+                state["continuous_restart_required_before_return_to_continuous"] = True
             payload = self._digital_gauge_state_payload(state)
         if may_cancel:
             self._record_pressure_timing_event(
@@ -908,6 +918,7 @@ class PressureControlService:
                     "last_pressure_command": "start_pressure_continuous",
                     "last_pressure_command_may_cancel_continuous": False,
                     "continuous_interrupted_by_command": False,
+                    "continuous_restart_required_before_return_to_continuous": False,
                     "continuous_unavailable_reason": "" if active_now else "continuous_start_not_active",
                     "pressure_source_selected": "digital_pressure_gauge_continuous",
                     "pressure_source_selection_reason": "continuous_start",
@@ -1546,6 +1557,246 @@ class PressureControlService:
             serial_port=serial_port,
             error="pressure_read_method_unavailable",
         )
+
+    def _a2_v1_pressure_gauge_fast_timeout_s(self) -> float:
+        value = self.host._cfg_get(
+            "workflow.pressure.fast_gauge_response_timeout_s",
+            self.host._cfg_get("workflow.pressure.a2_v1_aligned_fast_gauge_response_timeout_s", 0.6),
+        )
+        try:
+            return max(0.05, float(value))
+        except Exception:
+            return 0.6
+
+    def _a2_v1_pressure_gauge_normal_timeout_s(self) -> float:
+        value = self.host._cfg_get(
+            "workflow.pressure.normal_gauge_response_timeout_s",
+            self.host._cfg_get("workflow.pressure.a2_v1_aligned_normal_gauge_response_timeout_s", 2.2),
+        )
+        try:
+            return max(0.05, float(value))
+        except Exception:
+            return 2.2
+
+    def _a2_v1_pressure_gauge_read_retries(self) -> int:
+        value = self.host._cfg_get(
+            "workflow.pressure.fast_gauge_read_retries",
+            self.host._cfg_get("workflow.pressure.a2_v1_aligned_gauge_read_retries", 1),
+        )
+        try:
+            return max(1, int(value))
+        except Exception:
+            return 1
+
+    def _a2_v1_aligned_p3_method_sample(
+        self,
+        *,
+        method_name: str,
+        stage: str,
+        point_index: Any = None,
+        selection_reason: str,
+        fast: bool,
+    ) -> dict[str, Any]:
+        device = self._pressure_device_for_source("digital_pressure_gauge")
+        if device is None:
+            return self._pressure_sample_payload(
+                {
+                    "stage": stage,
+                    "point_index": point_index,
+                    "parse_ok": False,
+                    "pressure_source_selected": "",
+                    "pressure_source_selection_reason": "digital_gauge_v1_aligned_read_unavailable",
+                    "source_selection_reason": "digital_gauge_v1_aligned_read_unavailable",
+                    "critical_window_uses_latest_frame": False,
+                    "critical_window_uses_query": True,
+                },
+                source="digital_pressure_gauge_p3",
+                error="pressure_device_unavailable",
+            )
+        method = getattr(device, method_name, None)
+        if not callable(method):
+            return self._pressure_sample_payload(
+                {
+                    "stage": stage,
+                    "point_index": point_index,
+                    "parse_ok": False,
+                    "pressure_source_selected": "",
+                    "pressure_source_selection_reason": "digital_gauge_v1_aligned_read_unavailable",
+                    "source_selection_reason": "digital_gauge_v1_aligned_read_unavailable",
+                    "critical_window_uses_latest_frame": False,
+                    "critical_window_uses_query": True,
+                },
+                source="digital_pressure_gauge_p3",
+                error=f"{method_name}_unavailable",
+            )
+
+        command_state = self._mark_digital_gauge_command_may_cancel_continuous(
+            command=method_name,
+            reason="a2_v1_aligned_p3_query_while_continuous_active",
+        )
+        request_at = datetime.now(timezone.utc)
+        request_monotonic = time.monotonic()
+        try:
+            if fast:
+                raw = self._call_pressure_method(
+                    method,
+                    response_timeout_s=self._a2_v1_pressure_gauge_fast_timeout_s(),
+                    retries=self._a2_v1_pressure_gauge_read_retries(),
+                    retry_sleep_s=0.0,
+                    clear_buffer=False,
+                )
+            else:
+                raw = self._call_pressure_method(
+                    method,
+                    response_timeout_s=self._a2_v1_pressure_gauge_normal_timeout_s(),
+                    retries=1,
+                    retry_sleep_s=0.0,
+                    clear_buffer=False,
+                )
+            response_at = datetime.now(timezone.utc)
+            response_monotonic = time.monotonic()
+            latency_s = max(0.0, response_monotonic - request_monotonic)
+            self._record_critical_window_blocking_query(
+                source="digital_pressure_gauge",
+                command=method_name,
+                duration_s=latency_s,
+                reason="a2_v1_aligned_p3_query",
+            )
+            payload_raw = dict(raw) if isinstance(raw, Mapping) else {"pressure_hpa": self._coerce_float(raw)}
+            return self._pressure_sample_payload(
+                {
+                    **payload_raw,
+                    **command_state,
+                    "stage": stage,
+                    "point_index": point_index,
+                    "source": "digital_pressure_gauge_p3",
+                    "pressure_sample_source": "digital_pressure_gauge_p3",
+                    "digital_gauge_mode": "v1_aligned_p3_fast" if fast else "v1_aligned_p3_normal",
+                    "read_latency_s": latency_s,
+                    "pressure_source_selected": "digital_pressure_gauge_p3",
+                    "pressure_source_selection_reason": selection_reason,
+                    "source_selection_reason": selection_reason,
+                    "critical_window_uses_latest_frame": False,
+                    "critical_window_uses_query": True,
+                    "parse_ok": self._coerce_float(payload_raw.get("pressure_hpa")) is not None,
+                },
+                source="digital_pressure_gauge_p3",
+                request_sent_at=request_at.isoformat(),
+                response_received_at=response_at.isoformat(),
+                request_sent_monotonic_s=request_monotonic,
+                response_received_monotonic_s=response_monotonic,
+                serial_port=self._pressure_device_port(device),
+                command=method_name,
+                raw_response=raw,
+            )
+        except Exception as exc:
+            response_at = datetime.now(timezone.utc)
+            response_monotonic = time.monotonic()
+            latency_s = max(0.0, response_monotonic - request_monotonic)
+            self._record_critical_window_blocking_query(
+                source="digital_pressure_gauge",
+                command=method_name,
+                duration_s=latency_s,
+                reason="a2_v1_aligned_p3_query_failed",
+            )
+            return self._pressure_sample_payload(
+                {
+                    **command_state,
+                    "stage": stage,
+                    "point_index": point_index,
+                    "source": "digital_pressure_gauge_p3",
+                    "pressure_sample_source": "digital_pressure_gauge_p3",
+                    "digital_gauge_mode": "v1_aligned_p3_fast" if fast else "v1_aligned_p3_normal",
+                    "read_latency_s": latency_s,
+                    "pressure_source_selected": "",
+                    "pressure_source_selection_reason": selection_reason,
+                    "source_selection_reason": selection_reason,
+                    "critical_window_uses_latest_frame": False,
+                    "critical_window_uses_query": True,
+                    "parse_ok": False,
+                },
+                source="digital_pressure_gauge_p3",
+                request_sent_at=request_at.isoformat(),
+                response_received_at=response_at.isoformat(),
+                request_sent_monotonic_s=request_monotonic,
+                response_received_monotonic_s=response_monotonic,
+                serial_port=self._pressure_device_port(device),
+                command=method_name,
+                error=str(exc),
+            )
+
+    def _a2_v1_aligned_pressure_gauge_sample(
+        self,
+        *,
+        stage: str,
+        point_index: Any = None,
+        continuous_sample: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        fast_sample = self._a2_v1_aligned_p3_method_sample(
+            method_name="read_pressure_fast",
+            stage=stage,
+            point_index=point_index,
+            selection_reason="continuous_stale_fallback_to_p3_fast",
+            fast=True,
+        )
+        fast_ok = self._pressure_sample_usable(fast_sample, "abort") and bool(fast_sample.get("parse_ok", True))
+        if fast_ok:
+            fast_sample.update(
+                {
+                    "a2_3_pressure_source_strategy": "v1_aligned",
+                    "continuous_pressure_sample": dict(continuous_sample or {}),
+                    "p3_fast_fallback_attempted": True,
+                    "p3_fast_fallback_result": "success",
+                    "normal_p3_fallback_attempted": False,
+                    "normal_p3_fallback_result": "",
+                    "pressure_source_selected": "digital_pressure_gauge_p3",
+                    "pressure_source_selection_reason": "continuous_stale_fallback_to_p3_fast",
+                    "source_selection_reason": "continuous_stale_fallback_to_p3_fast",
+                    "usable_for_abort": True,
+                    "usable_for_ready": True,
+                    "usable_for_seal": True,
+                }
+            )
+            return fast_sample
+
+        normal_method = "read_pressure"
+        device = self._pressure_device_for_source("digital_pressure_gauge")
+        if device is not None and not callable(getattr(device, normal_method, None)):
+            normal_method = "read_pressure_hpa"
+        normal_sample = self._a2_v1_aligned_p3_method_sample(
+            method_name=normal_method,
+            stage=stage,
+            point_index=point_index,
+            selection_reason="p3_fast_failed_fallback_normal_p3",
+            fast=False,
+        )
+        normal_ok = self._pressure_sample_usable(normal_sample, "abort") and bool(normal_sample.get("parse_ok", True))
+        normal_sample.update(
+            {
+                "a2_3_pressure_source_strategy": "v1_aligned",
+                "continuous_pressure_sample": dict(continuous_sample or {}),
+                "p3_fast_fallback_attempted": True,
+                "p3_fast_fallback_result": "failed",
+                "normal_p3_fallback_attempted": True,
+                "normal_p3_fallback_result": "success" if normal_ok else "failed",
+                "pressure_source_selected": "digital_pressure_gauge_p3" if normal_ok else "",
+                "pressure_source_selection_reason": (
+                    "p3_fast_failed_fallback_normal_p3"
+                    if normal_ok
+                    else "digital_gauge_v1_aligned_read_unavailable"
+                ),
+                "source_selection_reason": (
+                    "p3_fast_failed_fallback_normal_p3"
+                    if normal_ok
+                    else "digital_gauge_v1_aligned_read_unavailable"
+                ),
+                "fail_closed_reason": "" if normal_ok else "digital_gauge_v1_aligned_read_unavailable",
+                "usable_for_abort": bool(normal_ok),
+                "usable_for_ready": bool(normal_ok),
+                "usable_for_seal": bool(normal_ok),
+            }
+        )
+        return normal_sample
 
     def _primary_pressure_source(self) -> str:
         value = str(
