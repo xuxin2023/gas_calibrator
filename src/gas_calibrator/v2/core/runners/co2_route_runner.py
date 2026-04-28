@@ -168,14 +168,29 @@ class Co2RouteRunner:
                 )
                 if callable(stream_snapshot):
                     route_open_state["digital_gauge_stream"] = stream_snapshot()
-            self.service._record_workflow_timing(
-                "co2_route_open_end",
-                "end",
-                stage="co2_route_open",
-                point=point,
-                pressure_hpa=route_open_pressure,
-                route_state=route_open_state,
-            )
+            a2_timing_recorder = getattr(self.service, "_record_a2_conditioning_workflow_timing", None)
+            if conditioning_active and callable(a2_timing_recorder):
+                route_conditioning_context = dict(
+                    getattr(self.service, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {}
+                )
+                a2_timing_recorder(
+                    route_conditioning_context,
+                    "co2_route_open_end",
+                    "end",
+                    stage="co2_route_open",
+                    point=point,
+                    pressure_hpa=route_open_pressure,
+                    route_state=route_open_state,
+                )
+            else:
+                self.service._record_workflow_timing(
+                    "co2_route_open_end",
+                    "end",
+                    stage="co2_route_open",
+                    point=point,
+                    pressure_hpa=route_open_pressure,
+                    route_state=route_open_state,
+                )
             route_soak_ok = self._wait_route_soak_before_seal(point)
             route_soak_actual = dict(getattr(self.service, "_last_co2_route_dewpoint_gate_summary", {}) or {})
             end_conditioning = getattr(self.service, "_end_a2_co2_route_conditioning_at_atmosphere", None)

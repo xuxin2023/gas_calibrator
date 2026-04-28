@@ -2292,6 +2292,9 @@ def test_co2_runner_conditioning_fail_closed_does_not_vent_off_seal_or_sample() 
     service.sampling_service = SimpleNamespace(collect_samples=lambda *args, **kwargs: order.append("sample") or [])
     service.qc_service = SimpleNamespace(run_point_qc=lambda *args, **kwargs: None)
     service._record_workflow_timing = lambda event_name, event_type="info", **kwargs: order.append(event_name)
+    service._record_a2_conditioning_workflow_timing = (
+        lambda context, event_name, event_type="info", **kwargs: order.append(f"a2_timing:{event_name}") or {}
+    )
     service._begin_a2_co2_route_conditioning_at_atmosphere = lambda point, pressure_refs: order.append("conditioning_start")
     service._wait_co2_route_soak_before_seal = lambda point: (_ for _ in ()).throw(
         WorkflowValidationError("conditioning fail closed", details={"fail_closed_before_vent_off": True})
@@ -2352,6 +2355,9 @@ def test_co2_runner_defers_high_pressure_until_after_conditioning() -> None:
     )
     service.pressure_control_service = SlowPressure()
     service._record_workflow_timing = lambda event_name, event_type="info", **kwargs: order.append(event_name)
+    service._record_a2_conditioning_workflow_timing = (
+        lambda context, event_name, event_type="info", **kwargs: order.append(f"a2_timing:{event_name}") or {}
+    )
 
     def begin_conditioning(point, pressure_refs):
         order.append("conditioning_start")
@@ -2407,6 +2413,7 @@ def test_co2_runner_defers_high_pressure_until_after_conditioning() -> None:
     assert order.index("conditioning_end") < order.index("preseal_gate") < order.index("seal_preparation")
     assert order.index("seal_preparation") < order.index("prearm") < order.index("preclose_vent")
     assert order.index("preclose_vent") < order.index("first_pressure_request") < order.index("pressurize")
+    assert "a2_timing:co2_route_open_end" in order
     assert "route_open_pressure_snapshot" not in order
 
 
