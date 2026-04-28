@@ -3515,6 +3515,156 @@ class PressureControlService:
     def _remember_startup_pressure_precheck_result(self, result: StartupPressurePrecheckResult) -> None:
         setattr(self.host, "_startup_pressure_precheck_result", result)
 
+    def set_pressure_controller_vent_fast_reassert(
+        self,
+        vent_on: bool,
+        reason: str = "",
+        *,
+        max_duration_s: Optional[float] = None,
+        wait_after_command: bool = False,
+        capture_pressure: bool = False,
+        query_state: bool = False,
+        confirm_transition: bool = False,
+    ) -> dict[str, Any]:
+        controller = self.host._device("pressure_controller")
+        resolved_max_s = float(
+            max_duration_s
+            if max_duration_s is not None
+            else self.host._cfg_get("workflow.pressure.route_conditioning_fast_vent_max_duration_s", 0.5)
+        )
+        resolved_max_s = max(0.05, resolved_max_s)
+        write_started_monotonic_s = time.monotonic()
+        write_started_at = datetime.now(timezone.utc).isoformat()
+        diagnostics: dict[str, Any] = {
+            "fast_vent_reassert_supported": False,
+            "fast_vent_reassert_used": False,
+            "vent_command_write_started_at": write_started_at,
+            "vent_command_write_sent_at": write_started_at,
+            "vent_command_write_completed_at": "",
+            "vent_command_write_started_monotonic_s": write_started_monotonic_s,
+            "vent_command_write_sent_monotonic_s": write_started_monotonic_s,
+            "vent_command_write_completed_monotonic_s": None,
+            "vent_command_write_duration_ms": None,
+            "vent_command_total_duration_ms": None,
+            "vent_command_wait_after_command_s": 0.0 if not wait_after_command else None,
+            "vent_command_capture_pressure_enabled": bool(capture_pressure),
+            "vent_command_query_state_enabled": bool(query_state),
+            "vent_command_confirm_transition_enabled": bool(confirm_transition),
+            "vent_command_blocking_phase": "fast_vent_write",
+            "route_conditioning_fast_vent_command_timeout": False,
+            "route_conditioning_fast_vent_not_supported": False,
+            "command_result": "ok",
+            "command_error": "",
+            "command_method": "",
+            "vent_on": bool(vent_on),
+            "reason": reason,
+        }
+        if controller is None or not vent_on:
+            diagnostics.update(
+                {
+                    "route_conditioning_fast_vent_not_supported": True,
+                    "command_result": "unsupported",
+                    "command_error": "route_conditioning_fast_vent_not_supported",
+                }
+            )
+            return diagnostics
+        if vent_on:
+            guard = getattr(self.host, "_guard_a2_conditioning_vent_command", None)
+            if callable(guard):
+                blocked = guard(reason=reason)
+                if isinstance(blocked, Mapping) and bool(blocked.get("vent_command_blocked")):
+                    diagnostics.update(dict(blocked))
+                    diagnostics.update(
+                        {
+                            "command_result": "blocked",
+                            "command_error": str(
+                                blocked.get("vent_pulse_blocked_reason") or "vent_command_blocked"
+                            ),
+                        }
+                    )
+                    self._record_route_trace(
+                        action="set_vent",
+                        target={"vent_on": True, "fast_reassert": True},
+                        actual=diagnostics,
+                        result="blocked",
+                        message=diagnostics["command_error"],
+                    )
+                    return diagnostics
+        trace_result = "ok"
+        trace_message = reason or "fast vent reassert"
+        try:
+            fast_reassert = getattr(controller, "fast_vent_reassert", None)
+            if callable(fast_reassert):
+                diagnostics["fast_vent_reassert_supported"] = True
+                diagnostics["fast_vent_reassert_used"] = True
+                diagnostics["command_method"] = "fast_vent_reassert"
+                fast_reassert(True)
+            else:
+                raw_writer = getattr(controller, "write", None)
+                if callable(raw_writer):
+                    diagnostics["fast_vent_reassert_supported"] = True
+                    diagnostics["fast_vent_reassert_used"] = True
+                    diagnostics["command_method"] = "raw_write_vent_true"
+                    raw_writer(":SOUR:PRES:LEV:IMM:AMPL:VENT 1")
+                else:
+                    process_command = getattr(controller, "process_command", None)
+                    if callable(process_command):
+                        diagnostics["fast_vent_reassert_supported"] = True
+                        diagnostics["fast_vent_reassert_used"] = True
+                        diagnostics["command_method"] = "process_command_vent_true"
+                        process_command(":SOUR:PRES:LEV:IMM:AMPL:VENT 1")
+            if not diagnostics["command_method"]:
+                trace_result = "fail"
+                trace_message = "route_conditioning_fast_vent_not_supported"
+                diagnostics.update(
+                    {
+                        "route_conditioning_fast_vent_not_supported": True,
+                        "command_result": "unsupported",
+                        "command_error": trace_message,
+                    }
+                )
+        except Exception as exc:
+            trace_result = "fail"
+            trace_message = str(exc)
+            diagnostics.update({"command_result": "fail", "command_error": trace_message})
+        write_completed_monotonic_s = time.monotonic()
+        write_completed_at = datetime.now(timezone.utc).isoformat()
+        write_duration_ms = round(
+            max(0.0, write_completed_monotonic_s - write_started_monotonic_s) * 1000.0,
+            3,
+        )
+        diagnostics.update(
+            {
+                "vent_command_write_completed_at": write_completed_at,
+                "vent_command_write_completed_monotonic_s": write_completed_monotonic_s,
+                "vent_command_write_duration_ms": write_duration_ms,
+                "vent_command_total_duration_ms": write_duration_ms,
+            }
+        )
+        if (
+            diagnostics.get("command_result") == "ok"
+            and write_completed_monotonic_s - write_started_monotonic_s > resolved_max_s
+        ):
+            trace_result = "fail"
+            trace_message = "route_conditioning_fast_vent_command_timeout"
+            diagnostics.update(
+                {
+                    "command_result": "timeout",
+                    "command_error": trace_message,
+                    "route_conditioning_fast_vent_command_timeout": True,
+                }
+            )
+        self._record_route_trace(
+            action="set_vent",
+            target={"vent_on": True, "fast_reassert": True},
+            actual=diagnostics,
+            result=trace_result,
+            message=trace_message,
+        )
+        if trace_result == "ok":
+            self._clear_pressure_route_seal_state()
+        return diagnostics
+
     def set_pressure_controller_vent(
         self,
         vent_on: bool,
@@ -3529,6 +3679,19 @@ class PressureControlService:
         controller = self.host._device("pressure_controller")
         if controller is None:
             return {}
+        if vent_on:
+            guard = getattr(self.host, "_guard_a2_conditioning_vent_command", None)
+            if callable(guard):
+                blocked = guard(reason=reason)
+                if isinstance(blocked, Mapping) and bool(blocked.get("vent_command_blocked")):
+                    self._record_route_trace(
+                        action="set_vent",
+                        target={"vent_on": True},
+                        actual=blocked,
+                        result="blocked",
+                        message=str(blocked.get("vent_pulse_blocked_reason") or "vent command blocked"),
+                    )
+                    return dict(blocked)
         extra = f" ({reason})" if reason else ""
         trace_result = "ok"
         trace_message = reason or ("vent on" if vent_on else "vent off")

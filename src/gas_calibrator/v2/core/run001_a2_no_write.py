@@ -1937,6 +1937,8 @@ def _build_co2_route_conditioning_evidence(
         event for event in events if str(event.get("event_name") or "") == "co2_route_conditioning_vent_tick"
     ]
     vent_gaps: list[float] = []
+    vent_pulse_gaps_ms: list[float] = []
+    scheduler_loop_gaps_ms: list[float] = []
     previous_vent_time: Optional[float] = None
     for event in vent_tick_events:
         state = event_state(event)
@@ -1948,6 +1950,14 @@ def _build_co2_route_conditioning_evidence(
             vent_gaps.append(float(gap))
         if current_time is not None:
             previous_vent_time = current_time
+        for value in list(state.get("vent_pulse_interval_ms") or []):
+            parsed = _as_float(value)
+            if parsed is not None:
+                vent_pulse_gaps_ms.append(float(parsed))
+        for value in list(state.get("vent_scheduler_loop_gap_ms") or []):
+            parsed = _as_float(value)
+            if parsed is not None:
+                scheduler_loop_gaps_ms.append(float(parsed))
     route_open_end_time = event_time(route_open_end)
     first_vent_after_route = next(
         (
@@ -1968,6 +1978,43 @@ def _build_co2_route_conditioning_evidence(
     terminal_state = event_state(terminal_event)
     all_conditioning_events = vent_tick_events + pressure_events + guard_events
     all_conditioning_states = [event_state(event) for event in all_conditioning_events]
+    start_time = event_time(start_event)
+    end_time = event_time(end_event)
+
+    def during_conditioning(event: Mapping[str, Any]) -> bool:
+        current = event_time(event)
+        if current is None or start_time is None:
+            return False
+        return float(current) >= float(start_time) and (end_time is None or float(current) <= float(end_time))
+
+    unsafe_vent_after_flush = [
+        event
+        for event in vent_tick_events
+        if bool(event_state(event).get("ready_to_seal_phase_started"))
+        or str(event_state(event).get("route_conditioning_phase") or "") != "route_conditioning_flush_phase"
+        or bool(event_state(event).get("seal_command_sent"))
+        or bool(event_state(event).get("pressure_setpoint_command_sent"))
+        or bool(event_state(event).get("sampling_started"))
+    ]
+    vent_off_during_flush = any(
+        during_conditioning(event) and str(event.get("event_name") or "") == "seal_preparation_vent_off"
+        for event in events
+    )
+    seal_during_flush = any(
+        during_conditioning(event)
+        and str(event.get("event_name") or "")
+        in {"high_pressure_seal_command_sent", "positive_preseal_seal_start", "seal_start", "seal_end"}
+        for event in events
+    )
+    pressure_setpoint_during_flush = any(
+        during_conditioning(event)
+        and str(event.get("event_name") or "") in {"pressure_setpoint_start", "pressure_ready", "pressure_timeout"}
+        for event in events
+    )
+    sample_during_flush = any(
+        during_conditioning(event) and str(event.get("event_name") or "") in {"sample_start", "sample_end"}
+        for event in events
+    )
     pressure_overlimit_states = [
         state
         for state in all_conditioning_states
@@ -2019,8 +2066,30 @@ def _build_co2_route_conditioning_evidence(
     latest_age_candidates = [value for value in latest_age_candidates if value is not None]
     vent_gap_exceeded = any(
         bool(state.get("vent_heartbeat_gap_exceeded"))
+        or bool(state.get("route_conditioning_vent_gap_exceeded"))
         or str(event.get("event_name") or "")
         in {"co2_route_conditioning_vent_heartbeat_gap", "co2_route_conditioning_route_open_first_vent_gap"}
+        for event, state in zip(all_conditioning_events, all_conditioning_states)
+    )
+    fast_vent_timeout = any(
+        bool(state.get("route_conditioning_fast_vent_command_timeout"))
+        or bool(state.get("pre_route_fast_vent_timeout"))
+        or str(event.get("event_name") or "") == "co2_route_conditioning_fast_vent_command_timeout"
+        for event, state in zip(all_conditioning_events, all_conditioning_states)
+    )
+    fast_vent_not_supported = any(
+        bool(state.get("route_conditioning_fast_vent_not_supported"))
+        or str(event.get("event_name") or "") == "co2_route_conditioning_fast_vent_not_supported"
+        for event, state in zip(all_conditioning_events, all_conditioning_states)
+    )
+    diagnostic_blocked_scheduler = any(
+        bool(state.get("route_conditioning_diagnostic_blocked_vent_scheduler"))
+        or str(event.get("event_name") or "") == "co2_route_conditioning_diagnostic_blocked_vent_scheduler"
+        for event, state in zip(all_conditioning_events, all_conditioning_states)
+    )
+    vent_command_failed = any(
+        str(state.get("command_result") or "").lower() in {"fail", "failed", "blocked"}
+        or str(event.get("event_name") or "") == "co2_route_conditioning_vent_command_failed"
         for event, state in zip(all_conditioning_events, all_conditioning_states)
     )
     stream_state_at_start = start_state.get("stream_state_at_start")
@@ -2062,6 +2131,38 @@ def _build_co2_route_conditioning_evidence(
         "ready_to_seal_phase_started": bool(latest_state_value("ready_to_seal_phase_started", False)),
         "route_conditioning_flush_min_time_completed": bool(
             latest_state_value("route_conditioning_flush_min_time_completed", False)
+        ),
+        "route_conditioning_vent_maintenance_active": bool(
+            latest_state_value("route_conditioning_vent_maintenance_active", bool(vent_ticks))
+        ),
+        "vent_maintenance_started_at": latest_state_value(
+            "vent_maintenance_started_at",
+            (start_event or {}).get("timestamp_local"),
+        ),
+        "vent_maintenance_started_monotonic_s": latest_state_value(
+            "vent_maintenance_started_monotonic_s",
+            event_time(start_event),
+        ),
+        "route_conditioning_high_frequency_vent_interval_s": latest_state_value(
+            "route_conditioning_high_frequency_vent_interval_s"
+        ),
+        "route_conditioning_high_frequency_max_gap_s": latest_state_value(
+            "route_conditioning_high_frequency_max_gap_s"
+        ),
+        "route_conditioning_high_frequency_vent_window_s": latest_state_value(
+            "route_conditioning_high_frequency_vent_window_s"
+        ),
+        "route_conditioning_vent_maintenance_interval_s": latest_state_value(
+            "route_conditioning_vent_maintenance_interval_s"
+        ),
+        "route_conditioning_vent_maintenance_max_gap_s": latest_state_value(
+            "route_conditioning_vent_maintenance_max_gap_s"
+        ),
+        "route_conditioning_effective_vent_interval_s": latest_state_value(
+            "route_conditioning_effective_vent_interval_s"
+        ),
+        "route_conditioning_effective_max_gap_s": latest_state_value(
+            "route_conditioning_effective_max_gap_s"
         ),
         "vent_off_blocked_during_flush": bool(latest_state_value("vent_off_blocked_during_flush", True)),
         "seal_blocked_during_flush": bool(latest_state_value("seal_blocked_during_flush", True)),
@@ -2188,7 +2289,66 @@ def _build_co2_route_conditioning_evidence(
         "vent_tick_count": len(vent_ticks),
         "vent_pulse_count": int(latest_state_value("vent_pulse_count", len(vent_ticks)) or 0),
         "vent_pulse_interval_ms": latest_state_value("vent_pulse_interval_ms", []),
+        "max_vent_pulse_gap_ms": latest_state_value(
+            "max_vent_pulse_gap_ms",
+            None if not vent_pulse_gaps_ms else round(max(vent_pulse_gaps_ms), 3),
+        ),
+        "max_vent_pulse_write_gap_ms": latest_state_value("max_vent_pulse_write_gap_ms"),
+        "max_vent_command_total_duration_ms": latest_state_value("max_vent_command_total_duration_ms"),
+        "max_vent_pulse_gap_limit_ms": latest_state_value("max_vent_pulse_gap_limit_ms"),
+        "vent_scheduler_tick_count": int(latest_state_value("vent_scheduler_tick_count", 0) or 0),
+        "vent_scheduler_loop_gap_ms": latest_state_value("vent_scheduler_loop_gap_ms", scheduler_loop_gaps_ms),
+        "max_vent_scheduler_loop_gap_ms": latest_state_value(
+            "max_vent_scheduler_loop_gap_ms",
+            None if not scheduler_loop_gaps_ms else round(max(scheduler_loop_gaps_ms), 3),
+        ),
         "pressure_drop_after_vent_hpa": latest_state_value("pressure_drop_after_vent_hpa", []),
+        "pre_route_vent_phase_started": bool(latest_state_value("pre_route_vent_phase_started", False)),
+        "pre_route_fast_vent_required": bool(latest_state_value("pre_route_fast_vent_required", True)),
+        "pre_route_fast_vent_sent": bool(latest_state_value("pre_route_fast_vent_sent", False)),
+        "pre_route_fast_vent_duration_ms": latest_state_value("pre_route_fast_vent_duration_ms"),
+        "pre_route_fast_vent_timeout": bool(latest_state_value("pre_route_fast_vent_timeout", fast_vent_timeout)),
+        "fast_vent_reassert_supported": bool(latest_state_value("fast_vent_reassert_supported", False)),
+        "fast_vent_reassert_used": bool(latest_state_value("fast_vent_reassert_used", False)),
+        "vent_command_write_started_at": latest_state_value("vent_command_write_started_at", ""),
+        "vent_command_write_sent_at": latest_state_value("vent_command_write_sent_at", ""),
+        "vent_command_write_completed_at": latest_state_value("vent_command_write_completed_at", ""),
+        "vent_command_write_duration_ms": latest_state_value("vent_command_write_duration_ms"),
+        "vent_command_total_duration_ms": latest_state_value("vent_command_total_duration_ms"),
+        "vent_command_wait_after_command_s": latest_state_value("vent_command_wait_after_command_s"),
+        "vent_command_capture_pressure_enabled": bool(
+            latest_state_value("vent_command_capture_pressure_enabled", False)
+        ),
+        "vent_command_query_state_enabled": bool(latest_state_value("vent_command_query_state_enabled", False)),
+        "vent_command_confirm_transition_enabled": bool(
+            latest_state_value("vent_command_confirm_transition_enabled", False)
+        ),
+        "vent_command_blocking_phase": latest_state_value("vent_command_blocking_phase", ""),
+        "route_conditioning_fast_vent_command_timeout": bool(
+            latest_state_value("route_conditioning_fast_vent_command_timeout", fast_vent_timeout)
+        ),
+        "route_conditioning_fast_vent_not_supported": bool(
+            latest_state_value("route_conditioning_fast_vent_not_supported", fast_vent_not_supported)
+        ),
+        "route_conditioning_diagnostic_blocked_vent_scheduler": bool(
+            latest_state_value("route_conditioning_diagnostic_blocked_vent_scheduler", diagnostic_blocked_scheduler)
+        ),
+        "route_open_high_frequency_vent_phase_started": bool(
+            latest_state_value("route_open_high_frequency_vent_phase_started", False)
+        ),
+        "route_open_to_first_vent_write_ms": latest_state_value("route_open_to_first_vent_write_ms"),
+        "selected_pressure_source_for_conditioning_monitor": latest_state_value(
+            "selected_pressure_source_for_conditioning_monitor",
+            "",
+        ),
+        "selected_pressure_source_for_pressure_gate": latest_state_value(
+            "selected_pressure_source_for_pressure_gate",
+            "",
+        ),
+        "a2_conditioning_pressure_source_strategy": latest_state_value(
+            "a2_conditioning_pressure_source_strategy",
+            latest_state_value("a2_conditioning_pressure_source", ""),
+        ),
         "route_open_to_first_pressure_read_ms": latest_state_value("route_open_to_first_pressure_read_ms"),
         "route_open_to_overlimit_ms": latest_state_value("route_open_to_overlimit_ms"),
         "route_conditioning_pressure_before_route_open_hpa": latest_state_value(
@@ -2204,17 +2364,39 @@ def _build_co2_route_conditioning_evidence(
         "route_conditioning_pressure_overlimit": bool(
             latest_state_value("route_conditioning_pressure_overlimit", bool(pressure_overlimit_states))
         ),
+        "route_conditioning_vent_gap_exceeded": bool(
+            latest_state_value("route_conditioning_vent_gap_exceeded", vent_gap_exceeded)
+        ),
+        "vent_command_failed_during_flush": bool(vent_command_failed),
         "fail_closed_reason": latest_state_value("fail_closed_reason", ""),
         "vent_tick_avg_gap_s": None if not vent_gaps else round(sum(vent_gaps) / len(vent_gaps), 3),
         "vent_tick_max_gap_s": None if not vent_gaps else round(max(vent_gaps), 3),
         "route_open_to_first_vent_s": route_open_to_first_vent_s
         if route_open_to_first_vent_s is not None
         else terminal_state.get("route_open_to_first_vent_s"),
+        "route_open_to_first_vent_ms": latest_state_value(
+            "route_open_to_first_vent_ms",
+            None if route_open_to_first_vent_s is None else round(float(route_open_to_first_vent_s) * 1000.0, 3),
+        ),
         "last_vent_command_age_s": terminal_state.get("last_vent_command_age_s")
         or end_state.get("last_vent_command_age_s"),
         "vent_heartbeat_interval_s": start_state.get("vent_heartbeat_interval_s")
         or terminal_state.get("vent_heartbeat_interval_s"),
         "vent_heartbeat_gap_exceeded": vent_gap_exceeded,
+        "vent_pulse_blocked_after_flush_phase": bool(
+            latest_state_value("vent_pulse_blocked_after_flush_phase", False)
+        ),
+        "vent_pulse_blocked_reason": latest_state_value("vent_pulse_blocked_reason", ""),
+        "attempted_unsafe_vent_after_seal_or_pressure_control": bool(
+            latest_state_value("attempted_unsafe_vent_after_seal_or_pressure_control", bool(unsafe_vent_after_flush))
+        ),
+        "unsafe_vent_after_seal_or_pressure_control_command_sent": bool(
+            latest_state_value("unsafe_vent_after_seal_or_pressure_control_command_sent", False)
+        ),
+        "vent_off_command_during_flush": bool(vent_off_during_flush),
+        "seal_command_during_flush": bool(seal_during_flush),
+        "pressure_setpoint_command_during_flush": bool(pressure_setpoint_during_flush),
+        "sample_command_during_flush": bool(sample_during_flush),
         "pressure_monitor_interval_s": start_state.get("pressure_monitor_interval_s")
         or terminal_state.get("pressure_monitor_interval_s"),
         "fail_closed_before_vent_off": bool(
@@ -3780,8 +3962,24 @@ def _finalize_artifact_decision(payload: dict[str, Any], run_dir: str | Path) ->
             reasons.append("a2_co2_route_conditioning_sealed_before_completion")
         if conditioning and bool(conditioning.get("vent_heartbeat_gap_exceeded")):
             reasons.append("a2_co2_route_conditioning_vent_heartbeat_gap_exceeded")
+        if conditioning and bool(conditioning.get("route_conditioning_vent_gap_exceeded")):
+            reasons.append("a2_co2_route_conditioning_vent_gap_exceeded")
+        if conditioning and bool(conditioning.get("vent_command_failed_during_flush")):
+            reasons.append("a2_co2_route_conditioning_vent_command_failed")
         if conditioning and bool(conditioning.get("pressure_overlimit_seen")):
             reasons.append("a2_co2_route_conditioning_pressure_overlimit")
+        if conditioning and bool(conditioning.get("vent_off_command_during_flush")):
+            reasons.append("a2_co2_route_conditioning_vent_off_before_flush_completed")
+        if conditioning and bool(conditioning.get("seal_command_during_flush")):
+            reasons.append("a2_co2_route_conditioning_seal_before_flush_completed")
+        if conditioning and bool(conditioning.get("pressure_setpoint_command_during_flush")):
+            reasons.append("a2_co2_route_conditioning_pressure_setpoint_before_flush_completed")
+        if conditioning and bool(conditioning.get("sample_command_during_flush")):
+            reasons.append("a2_co2_route_conditioning_sample_before_flush_completed")
+        if conditioning and bool(conditioning.get("unsafe_vent_after_seal_or_pressure_control_command_sent")):
+            reasons.append("a2_co2_route_conditioning_unsafe_vent_after_seal_or_pressure_control")
+        if conditioning and bool(conditioning.get("vent_pulse_blocked_after_flush_phase")):
+            reasons.append("a2_co2_route_conditioning_vent_blocked_after_flush_phase")
         if conditioning and conditioning.get("selected_pressure_freshness_ok") is False:
             reason = str(conditioning.get("selected_pressure_fail_closed_reason") or "").strip()
             reasons.append(reason or "a2_co2_route_conditioning_selected_pressure_not_fresh")
@@ -4069,6 +4267,73 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "co2_route_conditioning_vent_pulse_interval_ms": co2_route_conditioning_payload.get(
                 "vent_pulse_interval_ms"
             ),
+            "route_conditioning_vent_maintenance_active": co2_route_conditioning_payload.get(
+                "route_conditioning_vent_maintenance_active"
+            ),
+            "vent_maintenance_started_at": co2_route_conditioning_payload.get("vent_maintenance_started_at"),
+            "vent_maintenance_started_monotonic_s": co2_route_conditioning_payload.get(
+                "vent_maintenance_started_monotonic_s"
+            ),
+            "pre_route_vent_phase_started": co2_route_conditioning_payload.get("pre_route_vent_phase_started"),
+            "pre_route_fast_vent_required": co2_route_conditioning_payload.get("pre_route_fast_vent_required"),
+            "pre_route_fast_vent_sent": co2_route_conditioning_payload.get("pre_route_fast_vent_sent"),
+            "pre_route_fast_vent_duration_ms": co2_route_conditioning_payload.get(
+                "pre_route_fast_vent_duration_ms"
+            ),
+            "pre_route_fast_vent_timeout": co2_route_conditioning_payload.get("pre_route_fast_vent_timeout"),
+            "fast_vent_reassert_supported": co2_route_conditioning_payload.get("fast_vent_reassert_supported"),
+            "fast_vent_reassert_used": co2_route_conditioning_payload.get("fast_vent_reassert_used"),
+            "vent_command_write_started_at": co2_route_conditioning_payload.get("vent_command_write_started_at"),
+            "vent_command_write_sent_at": co2_route_conditioning_payload.get("vent_command_write_sent_at"),
+            "vent_command_write_completed_at": co2_route_conditioning_payload.get(
+                "vent_command_write_completed_at"
+            ),
+            "vent_command_write_duration_ms": co2_route_conditioning_payload.get(
+                "vent_command_write_duration_ms"
+            ),
+            "vent_command_total_duration_ms": co2_route_conditioning_payload.get(
+                "vent_command_total_duration_ms"
+            ),
+            "vent_command_wait_after_command_s": co2_route_conditioning_payload.get(
+                "vent_command_wait_after_command_s"
+            ),
+            "vent_command_capture_pressure_enabled": co2_route_conditioning_payload.get(
+                "vent_command_capture_pressure_enabled"
+            ),
+            "vent_command_query_state_enabled": co2_route_conditioning_payload.get(
+                "vent_command_query_state_enabled"
+            ),
+            "vent_command_confirm_transition_enabled": co2_route_conditioning_payload.get(
+                "vent_command_confirm_transition_enabled"
+            ),
+            "vent_command_blocking_phase": co2_route_conditioning_payload.get("vent_command_blocking_phase"),
+            "route_conditioning_fast_vent_command_timeout": co2_route_conditioning_payload.get(
+                "route_conditioning_fast_vent_command_timeout"
+            ),
+            "route_conditioning_fast_vent_not_supported": co2_route_conditioning_payload.get(
+                "route_conditioning_fast_vent_not_supported"
+            ),
+            "route_conditioning_diagnostic_blocked_vent_scheduler": co2_route_conditioning_payload.get(
+                "route_conditioning_diagnostic_blocked_vent_scheduler"
+            ),
+            "route_open_high_frequency_vent_phase_started": co2_route_conditioning_payload.get(
+                "route_open_high_frequency_vent_phase_started"
+            ),
+            "route_open_to_first_vent_ms": co2_route_conditioning_payload.get("route_open_to_first_vent_ms"),
+            "route_open_to_first_vent_write_ms": co2_route_conditioning_payload.get(
+                "route_open_to_first_vent_write_ms"
+            ),
+            "max_vent_pulse_gap_ms": co2_route_conditioning_payload.get("max_vent_pulse_gap_ms"),
+            "max_vent_pulse_write_gap_ms": co2_route_conditioning_payload.get("max_vent_pulse_write_gap_ms"),
+            "max_vent_command_total_duration_ms": co2_route_conditioning_payload.get(
+                "max_vent_command_total_duration_ms"
+            ),
+            "max_vent_pulse_gap_limit_ms": co2_route_conditioning_payload.get("max_vent_pulse_gap_limit_ms"),
+            "vent_scheduler_tick_count": co2_route_conditioning_payload.get("vent_scheduler_tick_count"),
+            "vent_scheduler_loop_gap_ms": co2_route_conditioning_payload.get("vent_scheduler_loop_gap_ms"),
+            "max_vent_scheduler_loop_gap_ms": co2_route_conditioning_payload.get(
+                "max_vent_scheduler_loop_gap_ms"
+            ),
             "co2_route_conditioning_pressure_drop_after_vent_hpa": co2_route_conditioning_payload.get(
                 "pressure_drop_after_vent_hpa"
             ),
@@ -4091,6 +4356,25 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "route_conditioning_pressure_overlimit": co2_route_conditioning_payload.get(
                 "route_conditioning_pressure_overlimit"
             ),
+            "route_conditioning_vent_gap_exceeded": co2_route_conditioning_payload.get(
+                "route_conditioning_vent_gap_exceeded"
+            ),
+            "vent_pulse_blocked_after_flush_phase": co2_route_conditioning_payload.get(
+                "vent_pulse_blocked_after_flush_phase"
+            ),
+            "vent_pulse_blocked_reason": co2_route_conditioning_payload.get("vent_pulse_blocked_reason"),
+            "attempted_unsafe_vent_after_seal_or_pressure_control": co2_route_conditioning_payload.get(
+                "attempted_unsafe_vent_after_seal_or_pressure_control"
+            ),
+            "unsafe_vent_after_seal_or_pressure_control_command_sent": co2_route_conditioning_payload.get(
+                "unsafe_vent_after_seal_or_pressure_control_command_sent"
+            ),
+            "vent_off_command_during_flush": co2_route_conditioning_payload.get("vent_off_command_during_flush"),
+            "seal_command_during_flush": co2_route_conditioning_payload.get("seal_command_during_flush"),
+            "pressure_setpoint_command_during_flush": co2_route_conditioning_payload.get(
+                "pressure_setpoint_command_during_flush"
+            ),
+            "sample_command_during_flush": co2_route_conditioning_payload.get("sample_command_during_flush"),
             "route_conditioning_phase": co2_route_conditioning_payload.get("route_conditioning_phase"),
             "ready_to_seal_phase_started": co2_route_conditioning_payload.get("ready_to_seal_phase_started"),
             "route_conditioning_flush_min_time_completed": co2_route_conditioning_payload.get(
@@ -4106,6 +4390,15 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "continuous_stream_age_s": co2_route_conditioning_payload.get("continuous_stream_age_s"),
             "digital_gauge_stream_stale": co2_route_conditioning_payload.get("digital_gauge_stream_stale"),
             "selected_pressure_source": co2_route_conditioning_payload.get("selected_pressure_source"),
+            "selected_pressure_source_for_conditioning_monitor": co2_route_conditioning_payload.get(
+                "selected_pressure_source_for_conditioning_monitor"
+            ),
+            "selected_pressure_source_for_pressure_gate": co2_route_conditioning_payload.get(
+                "selected_pressure_source_for_pressure_gate"
+            ),
+            "a2_conditioning_pressure_source_strategy": co2_route_conditioning_payload.get(
+                "a2_conditioning_pressure_source_strategy"
+            ),
             "selected_pressure_sample_age_s": co2_route_conditioning_payload.get(
                 "selected_pressure_sample_age_s"
             ),

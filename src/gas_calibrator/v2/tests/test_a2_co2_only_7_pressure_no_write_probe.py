@@ -56,6 +56,10 @@ def _base_config(tmp_path: Path) -> dict[str, Any]:
         "v1_fallback_required": True,
         "pressure_points_hpa": list(A2_ALLOWED_PRESSURE_POINTS_HPA),
         "sample_min_count_per_pressure": 4,
+        "pressure_source": "v1_aligned",
+        "temperature_stabilization_wait_skipped": True,
+        "temperature_gate_mode": "current_pv_engineering_probe",
+        "temperature_not_part_of_acceptance": True,
         "a3_enabled": False,
         "h2o_enabled": False,
         "full_group_enabled": False,
@@ -89,6 +93,15 @@ def _base_config(tmp_path: Path) -> dict[str, Any]:
             "route_mode": "co2_only",
             "selected_temps_c": [20.0],
             "skip_co2_ppm": [0],
+            "pressure": {"a2_conditioning_pressure_source": "v1_aligned"},
+            "stability": {
+                "temperature": {
+                    "skip_temperature_stabilization_wait": True,
+                    "temperature_stabilization_wait_skipped": True,
+                    "temperature_gate_mode": "current_pv_engineering_probe",
+                    "temperature_not_part_of_acceptance": True,
+                },
+            },
         },
         "devices": {
             "dewpoint_meter": {"enabled": False},
@@ -109,6 +122,10 @@ def _base_config(tmp_path: Path) -> dict[str, Any]:
             "pressure_points_hpa": list(A2_ALLOWED_PRESSURE_POINTS_HPA),
             "sample_min_count_per_pressure": 4,
             "pressure_cache_max_age_ms": 2000,
+            "pressure_source": "v1_aligned",
+            "temperature_stabilization_wait_skipped": True,
+            "temperature_gate_mode": "current_pv_engineering_probe",
+            "temperature_not_part_of_acceptance": True,
             "a3_enabled": False,
             "h2o_enabled": False,
             "full_group_enabled": False,
@@ -134,6 +151,7 @@ def _operator_confirmation(tmp_path: Path, config_path: Path, config: Mapping[st
         "config_path": str(config_path),
         "a1r_output_dir": config["a1r_output_dir"],
         "pressure_points_hpa": list(A2_ALLOWED_PRESSURE_POINTS_HPA),
+        "pressure_source": "v1_aligned",
         "port_manifest": {
             "pressure_controller": "COM31",
             "pressure_gauge": "COM30",
@@ -147,6 +165,7 @@ def _operator_confirmation(tmp_path: Path, config_path: Path, config: Mapping[st
             "skip0": True,
             "single_route": True,
             "single_temperature": True,
+            "skip_temperature_stabilization_wait": True,
             "seven_pressure_points": True,
             "no_write": True,
             "no_id_write": True,
@@ -577,6 +596,9 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
                     "selected_pressure_freshness_ok": True,
                     "pressure_freshness_decision_source": "digital_pressure_gauge_p3",
                     "selected_pressure_fail_closed_reason": "",
+                    "selected_pressure_source_for_conditioning_monitor": "digital_pressure_gauge_continuous",
+                    "selected_pressure_source_for_pressure_gate": "digital_pressure_gauge_p3",
+                    "a2_conditioning_pressure_source_strategy": "v1_aligned",
                     "continuous_restart_attempted": True,
                     "continuous_restart_result": "recovered",
                 },
@@ -599,7 +621,13 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     )
 
     assert summary["a2_3_v1_pressure_gauge_read_policy_present"] is True
+    assert summary["evidence_source"] == "real_probe_a2_5_co2_7_pressure_no_write"
     assert summary["a2_3_pressure_source_strategy"] == "v1_aligned"
+    assert summary["a2_4_v1_pressure_gauge_read_policy_present"] is True
+    assert summary["a2_4_pressure_source_strategy"] == "v1_aligned"
+    assert summary["temperature_stabilization_wait_skipped"] is True
+    assert summary["temperature_gate_mode"] == "current_pv_engineering_probe"
+    assert summary["temperature_not_part_of_acceptance"] is True
     assert summary["pressure_source_selected"] == "digital_pressure_gauge_p3"
     assert summary["pressure_source_selection_reason"] == "continuous_stale_fallback_to_p3_fast"
     assert summary["critical_window_uses_latest_frame"] is False
@@ -616,8 +644,171 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     assert summary["selected_pressure_freshness_ok"] is True
     assert summary["pressure_freshness_decision_source"] == "digital_pressure_gauge_p3"
     assert summary["selected_pressure_fail_closed_reason"] == ""
+    assert summary["selected_pressure_source_for_conditioning_monitor"] == "digital_pressure_gauge_continuous"
+    assert summary["selected_pressure_source_for_pressure_gate"] == "digital_pressure_gauge_p3"
+    assert summary["a2_conditioning_pressure_source_strategy"] == "v1_aligned"
     assert summary["continuous_restart_attempted"] is True
     assert summary["continuous_restart_result"] == "recovered"
+    assert summary["a3_allowed"] is False
+
+
+def test_a2_probe_fails_closed_on_route_conditioning_vent_gap_gate(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["service_summary"] = {
+            "route_conditioning_vent_maintenance_active": True,
+            "vent_maintenance_started_at": "2026-04-27T00:00:00+00:00",
+            "vent_maintenance_started_monotonic_s": 100.0,
+            "route_open_to_first_vent_ms": 998.0,
+            "route_open_to_first_pressure_read_ms": 1.0,
+            "vent_pulse_count": 4,
+            "vent_pulse_interval_ms": [500.0, 11438.41],
+            "max_vent_pulse_gap_ms": 11438.41,
+            "max_vent_pulse_gap_limit_ms": 1000.0,
+            "vent_scheduler_tick_count": 20,
+            "vent_scheduler_loop_gap_ms": [100.0, 100.0],
+            "max_vent_scheduler_loop_gap_ms": 100.0,
+            "pressure_drop_after_vent_hpa": [None, -5.884],
+            "route_conditioning_pressure_before_route_open_hpa": 1009.0,
+            "route_conditioning_pressure_after_route_open_hpa": 1010.0,
+            "route_conditioning_peak_pressure_hpa": 1010.0,
+            "route_conditioning_pressure_rise_rate_hpa_per_s": 0.5,
+            "route_conditioning_pressure_overlimit": False,
+            "route_conditioning_vent_gap_exceeded": True,
+            "vent_pulse_blocked_after_flush_phase": False,
+            "unsafe_vent_after_seal_or_pressure_control_command_sent": False,
+            "vent_off_blocked_during_flush": True,
+            "seal_blocked_during_flush": True,
+            "pressure_setpoint_blocked_during_flush": True,
+            "sample_blocked_during_flush": True,
+        }
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_gap",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert "a2_route_conditioning_vent_gap_exceeded" in summary["rejection_reasons"]
+    assert summary["route_conditioning_vent_maintenance_active"] is True
+    assert summary["max_vent_pulse_gap_ms"] == 11438.41
+    assert summary["max_vent_pulse_gap_limit_ms"] == 1000.0
+    assert summary["vent_scheduler_tick_count"] == 20
+    assert summary["route_open_to_first_vent_ms"] == 998.0
+    assert summary["unsafe_vent_after_seal_or_pressure_control_command_sent"] is False
+    assert summary["a3_allowed"] is False
+
+
+@pytest.mark.parametrize(
+    ("service_update", "expected_reason"),
+    [
+        (
+            {
+                "pre_route_vent_phase_started": True,
+                "pre_route_fast_vent_required": True,
+                "pre_route_fast_vent_sent": False,
+                "pre_route_fast_vent_duration_ms": 800.0,
+                "pre_route_fast_vent_timeout": True,
+                "fast_vent_reassert_supported": True,
+                "fast_vent_reassert_used": True,
+                "route_conditioning_fast_vent_command_timeout": True,
+                "route_conditioning_fast_vent_not_supported": False,
+                "route_conditioning_diagnostic_blocked_vent_scheduler": False,
+                "vent_command_write_duration_ms": 800.0,
+                "vent_command_total_duration_ms": 800.0,
+                "max_vent_command_total_duration_ms": 800.0,
+            },
+            "a2_route_conditioning_fast_vent_command_timeout",
+        ),
+        (
+            {
+                "pre_route_vent_phase_started": True,
+                "pre_route_fast_vent_required": True,
+                "pre_route_fast_vent_sent": False,
+                "fast_vent_reassert_supported": False,
+                "fast_vent_reassert_used": False,
+                "route_conditioning_fast_vent_command_timeout": False,
+                "route_conditioning_fast_vent_not_supported": True,
+                "route_conditioning_diagnostic_blocked_vent_scheduler": False,
+            },
+            "a2_route_conditioning_fast_vent_not_supported",
+        ),
+        (
+            {
+                "fast_vent_reassert_supported": True,
+                "fast_vent_reassert_used": True,
+                "route_conditioning_fast_vent_command_timeout": False,
+                "route_conditioning_fast_vent_not_supported": False,
+                "route_conditioning_diagnostic_blocked_vent_scheduler": True,
+                "diagnostic_duration_ms": 2400.0,
+            },
+            "a2_route_conditioning_diagnostic_blocked_vent_scheduler",
+        ),
+    ],
+)
+def test_a2_probe_fails_closed_on_a2_5_fast_vent_gates(
+    tmp_path: Path,
+    service_update: dict[str, Any],
+    expected_reason: str,
+) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["service_summary"] = {
+            "route_conditioning_vent_maintenance_active": True,
+            "vent_maintenance_started_at": "2026-04-27T00:00:00+00:00",
+            "vent_maintenance_started_monotonic_s": 100.0,
+            "vent_command_write_started_at": "2026-04-27T00:00:00+00:00",
+            "vent_command_write_sent_at": "2026-04-27T00:00:00+00:00",
+            "vent_command_write_completed_at": "2026-04-27T00:00:00.800000+00:00",
+            "vent_command_wait_after_command_s": 0.0,
+            "vent_command_capture_pressure_enabled": False,
+            "vent_command_query_state_enabled": False,
+            "vent_command_confirm_transition_enabled": False,
+            "vent_command_blocking_phase": "fast_vent_write",
+            "route_open_high_frequency_vent_phase_started": False,
+            "route_open_to_first_vent_write_ms": None,
+            "max_vent_pulse_write_gap_ms": None,
+            "selected_pressure_source_for_conditioning_monitor": "digital_pressure_gauge_continuous",
+            "selected_pressure_source_for_pressure_gate": "digital_pressure_gauge_p3",
+            "a2_conditioning_pressure_source_strategy": "v1_aligned",
+            **service_update,
+        }
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_5_fast_vent_gate",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert expected_reason in summary["rejection_reasons"]
+    assert summary["vent_command_wait_after_command_s"] == 0.0
+    assert summary["vent_command_capture_pressure_enabled"] is False
+    assert summary["vent_command_query_state_enabled"] is False
+    assert summary["vent_command_confirm_transition_enabled"] is False
+    assert summary["selected_pressure_source_for_pressure_gate"] == "digital_pressure_gauge_p3"
+    assert summary["a2_conditioning_pressure_source_strategy"] == "v1_aligned"
     assert summary["a3_allowed"] is False
 
 

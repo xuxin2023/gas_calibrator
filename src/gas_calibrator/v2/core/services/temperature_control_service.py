@@ -107,6 +107,92 @@ class TemperatureControlService:
                 )
             )
 
+        temperature_gate_mode = str(
+            self.host._cfg_get("workflow.stability.temperature.temperature_gate_mode", "")
+            or self.host._cfg_get("workflow.stability.temperature.gate_mode", "")
+            or ""
+        ).strip()
+        skip_stabilization_wait = bool(
+            self.host._cfg_get("workflow.stability.temperature.skip_temperature_stabilization_wait", False)
+            or self.host._cfg_get("workflow.stability.temperature.temperature_stabilization_wait_skipped", False)
+            or temperature_gate_mode == "current_pv_engineering_probe"
+        )
+        if skip_stabilization_wait:
+            reader = self._make_temperature_reader(chamber)
+            current_temp = self._safe_read(reader) if reader is not None else None
+            recorded_at = self._mark_temperature_chamber_settle("skipped")
+            gate_mode = temperature_gate_mode or "current_pv_engineering_probe"
+            diagnostics = {
+                "wait_skipped": True,
+                "temperature_stabilization_wait_skipped": True,
+                "temperature_gate_mode": gate_mode,
+                "temperature_not_part_of_acceptance": True,
+                "current_pv_only": True,
+                "current_pv_c": current_temp,
+                "target_c": target_c,
+                "temperature_chamber_settle_status": "skipped",
+                "temperature_chamber_settle_passed_at": recorded_at,
+                "chamber_set_temperature_command_sent": False,
+                "chamber_start_command_sent": False,
+                "chamber_stop_command_sent": False,
+            }
+            setattr(self.host, "_temperature_stabilization_wait_skipped", True)
+            setattr(self.host, "_temperature_gate_mode", gate_mode)
+            setattr(self.host, "_temperature_not_part_of_acceptance", True)
+            self._record_temperature_timing(
+                "temperature_chamber_settle_start",
+                "start",
+                stage="temperature_chamber_settle",
+                point=point,
+                expected_max_s=chamber_expected_max_s,
+                wait_reason=gate_mode,
+                route_state=diagnostics,
+            )
+            self._record_temperature_timing(
+                "temperature_chamber_settle_end",
+                "end",
+                stage="temperature_chamber_settle",
+                point=point,
+                duration_s=0.0,
+                expected_max_s=chamber_expected_max_s,
+                decision="skipped",
+                chamber_temperature_c=current_temp,
+                route_state=diagnostics,
+            )
+            self._publish_analyzer_chamber_temp_evidence(
+                {
+                    "schema_version": "run001_a1.temperature_stability.1",
+                    "artifact_type": "temperature_stability_evidence",
+                    "stage": "analyzer_chamber_temperature_stability",
+                    "target_c": target_c,
+                    "enabled": False,
+                    "decision": "SKIPPED",
+                    "failure_stage": "",
+                    "failure_reason": "",
+                    "temperature_stabilization_wait_skipped": True,
+                    "temperature_gate_mode": gate_mode,
+                    "temperature_not_part_of_acceptance": True,
+                    "current_pv_only": True,
+                    "current_pv_c": current_temp,
+                    "samples": [],
+                    "route_opened": False,
+                    "no_write_guard_active": self._no_write_guard_active(),
+                }
+            )
+            self.host._log(
+                "Temperature stabilization wait skipped for engineering probe; "
+                f"current_pv={current_temp}C target={target_c:g}C"
+            )
+            return self._store_result(
+                WaitResult(
+                    ok=True,
+                    target_c=target_c,
+                    final_temp_c=current_temp,
+                    attempt_count=1,
+                    diagnostics=diagnostics,
+                )
+            )
+
         tol_c = abs(float(self.host._cfg_get("workflow.stability.temperature.tol", 0.2)))
         timeout_s = chamber_expected_max_s
         command_offset_c = float(self.host._cfg_get("workflow.stability.temperature.command_offset_c", 0.0) or 0.0)

@@ -58,7 +58,10 @@ class Co2RouteRunner:
                 route=phase,
                 point=point,
                 target={"temp_c": point.temp_chamber_c},
-                actual={"temp_c": getattr(temperature_wait, "final_temp_c", None)},
+                actual={
+                    "temp_c": getattr(temperature_wait, "final_temp_c", None),
+                    **dict(getattr(temperature_wait, "diagnostics", {}) or {}),
+                },
                 result="ok"
                 if bool(getattr(temperature_wait, "ok", False))
                 else ("timeout" if bool(getattr(temperature_wait, "timed_out", False)) else "fail"),
