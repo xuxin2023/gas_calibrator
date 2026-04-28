@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import pytest
 
@@ -13,6 +13,8 @@ from gas_calibrator.v2.core.run001_a2_co2_only_7_pressure_no_write_probe import 
     evaluate_a2_co2_7_pressure_no_write_gate,
     write_a2_co2_7_pressure_no_write_probe_artifacts,
 )
+from gas_calibrator.v2.core.run001_a1_dry_run import load_point_rows
+from gas_calibrator.v2.core.run001_a2_no_write import evaluate_run001_a2_readiness
 from gas_calibrator.v2.core.run001_r1_conditioning_only_probe import load_json_mapping
 from gas_calibrator.v2.scripts.run001_a2_co2_only_7_pressure_no_write_probe import main as a2_probe_main
 
@@ -66,6 +68,35 @@ def _base_config(tmp_path: Path) -> dict[str, Any]:
         "chamber_start_enabled": False,
         "chamber_stop_enabled": False,
         "real_primary_latest_refresh": False,
+        "run001_a2": {
+            "scope": "run001_a2_co2_no_write_pressure_sweep",
+            "mode": "real_machine_dry_run",
+            "no_write": True,
+            "co2_only": True,
+            "skip_co2_ppm": [0],
+            "single_route": True,
+            "single_temperature_group": True,
+            "default_cutover_to_v2": False,
+            "disable_v1": False,
+            "full_h2o_co2_group": False,
+            "authorized_pressure_points_hpa": list(A2_ALLOWED_PRESSURE_POINTS_HPA),
+            "allow_write_coefficients": False,
+            "allow_write_zero": False,
+            "allow_write_span": False,
+            "allow_write_calibration_parameters": False,
+        },
+        "workflow": {
+            "route_mode": "co2_only",
+            "selected_temps_c": [20.0],
+            "skip_co2_ppm": [0],
+        },
+        "devices": {
+            "dewpoint_meter": {"enabled": False},
+            "humidity_generator": {"enabled": False},
+        },
+        "paths": {
+            "output_dir": str(tmp_path / "downstream_output"),
+        },
         "a2_co2_7_pressure_no_write_probe": {
             "scope": "a2_co2_7_pressure_no_write",
             "a1r_output_dir": str(a1r_dir),
@@ -211,6 +242,147 @@ def test_a2_script_accepts_bom_config_before_admission_gate(tmp_path: Path) -> N
     assert summary["execution_error"] == ""
     assert not any("invalid_operator_confirmation_json" in reason for reason in summary["rejection_reasons"])
     assert not any("JSONDecodeError" in reason for reason in summary["rejection_reasons"])
+
+
+def test_a2_wrapper_generates_downstream_co2_points_json_and_passes_points_gate(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(aligned_config_path: str | Path) -> dict[str, Any]:
+        aligned_cfg = load_json_mapping(aligned_config_path)
+        rows = load_point_rows(aligned_config_path, aligned_cfg)
+        readiness = evaluate_run001_a2_readiness(aligned_cfg, config_path=aligned_config_path, point_rows=rows)
+        assert len(rows) == 7
+        assert [row["route"] for row in rows] == ["co2"] * 7
+        assert [row["pressure_hpa"] for row in rows] == list(A2_ALLOWED_PRESSURE_POINTS_HPA)
+        assert [row["target_pressure_hpa"] for row in rows] == list(A2_ALLOWED_PRESSURE_POINTS_HPA)
+        assert "a2_point_pressure_list_mismatch" not in readiness["hard_stop_reasons"]
+        assert "a2_points_not_co2_only" not in readiness["hard_stop_reasons"]
+        payload = _passing_executor(aligned_config_path)
+        payload["downstream_readiness"] = readiness
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_generated_points",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    points_path = Path(summary["generated_points_json_path"])
+    assert summary["final_decision"] == "PASS"
+    assert summary["points_config_alignment_ready"] is True
+    assert summary["downstream_points_generated"] is True
+    assert points_path.name == "a2_3_v1_aligned_points.json"
+    assert points_path.exists()
+    assert len(json.loads(points_path.read_text(encoding="utf-8"))) == 7
+    assert summary["generated_points_json_sha256"]
+    assert summary["generated_points_json_sha256"] == summary["effective_points_json_sha256"]
+    assert summary["downstream_points_row_count"] == 7
+    assert summary["downstream_point_routes"] == ["co2"] * 7
+    assert summary["downstream_point_pressures_hpa"] == list(A2_ALLOWED_PRESSURE_POINTS_HPA)
+    assert summary["downstream_points_gate_reasons"] == []
+    assert summary["a3_allowed"] is False
+    assert summary["attempted_write_count"] == 0
+    assert summary["any_write_command_sent"] is False
+    assert summary["chamber_write_register_command_sent"] is False
+
+
+def _write_existing_points(path: Path, rows: list[Mapping[str, Any]]) -> None:
+    path.write_text(json.dumps([dict(row) for row in rows], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _valid_existing_rows() -> list[dict[str, Any]]:
+    return [
+        {
+            "index": index,
+            "route": "co2",
+            "pressure_hpa": pressure,
+            "target_pressure_hpa": pressure,
+            "co2_ppm": 100.0,
+            "temperature_c": 20.0,
+            "temp_chamber_c": 20.0,
+        }
+        for index, pressure in enumerate(A2_ALLOWED_PRESSURE_POINTS_HPA, start=1)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mutator", "expected_reason"),
+    [
+        (lambda rows: rows[0].pop("route"), "a2_point_route_missing"),
+        (
+            lambda rows: (rows[0].pop("pressure_hpa"), rows[0].pop("target_pressure_hpa")),
+            "a2_point_pressure_missing",
+        ),
+        (lambda rows: rows.reverse(), "a2_point_pressure_list_mismatch"),
+    ],
+)
+def test_a2_wrapper_fails_closed_for_invalid_existing_points_json(
+    tmp_path: Path,
+    mutator: Callable[[list[dict[str, Any]]], object],
+    expected_reason: str,
+) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    rows = _valid_existing_rows()
+    mutator(rows)
+    points_path = tmp_path / "existing_points.json"
+    _write_existing_points(points_path, rows)
+    config["paths"]["points_excel"] = str(points_path)
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    def executor(_aligned_config_path: str | Path) -> dict[str, Any]:
+        raise AssertionError("invalid points must fail before downstream execution")
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_invalid_points",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert summary["points_config_alignment_ready"] is False
+    assert any(expected_reason in reason for reason in summary["rejection_reasons"])
+    assert summary["attempted_write_count"] == 0
+    assert summary["any_write_command_sent"] is False
+    assert summary["a3_allowed"] is False
+
+
+def test_a2_wrapper_fails_closed_for_non_json_points_suffix(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    points_path = tmp_path / "existing_points.txt"
+    _write_existing_points(points_path, _valid_existing_rows())
+    config["paths"]["points_excel"] = str(points_path)
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_bad_suffix",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=lambda _path: _passing_executor(_path),
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert summary["points_config_alignment_ready"] is False
+    assert any("a2_points_json_suffix_not_json" in reason for reason in summary["rejection_reasons"])
 
 
 def _passing_executor(_config_path: str | Path) -> dict[str, Any]:

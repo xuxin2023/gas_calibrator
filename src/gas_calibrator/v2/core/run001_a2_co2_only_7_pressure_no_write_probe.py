@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import csv
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -98,6 +99,10 @@ class A2Admission:
     operator_confirmation: dict[str, Any]
     operator_validation: dict[str, Any]
     prereq_summaries: dict[str, dict[str, Any]]
+
+
+class A2PointsConfigAlignmentError(RuntimeError):
+    """Raised when wrapper/downstream A2 points config cannot be aligned safely."""
 
 
 def _now() -> str:
@@ -506,6 +511,174 @@ def evaluate_a2_co2_7_pressure_no_write_gate(
 def _default_output_dir() -> Path:
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M")
     return Path(f"D:/gas_calibrator_step3a_a2_co2_7_pressure_no_write_probe_{timestamp}").resolve()
+
+
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _json_clone_mapping(raw_cfg: Mapping[str, Any]) -> dict[str, Any]:
+    return json.loads(json.dumps(dict(raw_cfg), ensure_ascii=False))
+
+
+def _selected_temperature_c(raw_cfg: Mapping[str, Any]) -> float:
+    value = _first_value(
+        raw_cfg,
+        (
+            "workflow.selected_temps_c",
+            "selected_temps_c",
+            "a2_co2_7_pressure_no_write_probe.temperature_c",
+            "a2_co2_7_pressure_no_write_probe.temp_chamber_c",
+        ),
+    )
+    if isinstance(value, list) and value:
+        parsed = _as_float(value[0])
+    else:
+        parsed = _as_float(value)
+    return float(parsed) if parsed is not None else 20.0
+
+
+def _co2_point_ppm(raw_cfg: Mapping[str, Any]) -> float:
+    value = _first_value(
+        raw_cfg,
+        (
+            "a2_co2_7_pressure_no_write_probe.co2_ppm",
+            "a2_co2_7_pressure_no_write_probe.target_co2_ppm",
+            "run001_a2.co2_ppm",
+            "run001_a2.target_co2_ppm",
+            "workflow.co2_ppm",
+        ),
+    )
+    parsed = _as_float(value)
+    return float(parsed) if parsed is not None else 100.0
+
+
+def _build_a2_downstream_point_rows(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
+    temperature_c = _selected_temperature_c(raw_cfg)
+    co2_ppm = _co2_point_ppm(raw_cfg)
+    rows: list[dict[str, Any]] = []
+    for index, pressure in enumerate(A2_ALLOWED_PRESSURE_POINTS_HPA, start=1):
+        rows.append(
+            {
+                "index": index,
+                "route": "co2",
+                "pressure_hpa": float(pressure),
+                "target_pressure_hpa": float(pressure),
+                "co2_ppm": co2_ppm,
+                "temperature_c": temperature_c,
+                "temp_chamber_c": temperature_c,
+                "co2_group": "A",
+                "cylinder_nominal_ppm": co2_ppm,
+            }
+        )
+    return rows
+
+
+def _point_row_pressure(row: Mapping[str, Any]) -> Optional[float]:
+    for key in ("pressure_hpa", "target_pressure_hpa", "pressure"):
+        parsed = _as_float(row.get(key))
+        if parsed is not None:
+            return float(parsed)
+    return None
+
+
+def _validate_a2_downstream_point_rows(rows: list[Mapping[str, Any]]) -> list[str]:
+    reasons: list[str] = []
+    if len(rows) != len(A2_ALLOWED_PRESSURE_POINTS_HPA):
+        reasons.append("a2_point_count_mismatch")
+    routes = []
+    pressures = []
+    for row in rows:
+        route = str(row.get("route", "") or "").strip().lower()
+        routes.append(route)
+        pressure = _point_row_pressure(row)
+        if not route:
+            reasons.append("a2_point_route_missing")
+        if pressure is None:
+            reasons.append("a2_point_pressure_missing")
+        else:
+            pressures.append(pressure)
+    if set(routes) != {"co2"}:
+        reasons.append("a2_points_not_co2_only")
+    if not _same_pressure_points(pressures):
+        reasons.append("a2_point_pressure_list_mismatch")
+    return list(dict.fromkeys(reasons))
+
+
+def _write_json_no_bom(path: Path, payload: Mapping[str, Any] | list[Mapping[str, Any]]) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def prepare_a2_downstream_points_config(
+    raw_cfg: Mapping[str, Any],
+    *,
+    config_path: str | Path,
+    output_dir: str | Path,
+) -> tuple[Path, dict[str, Any]]:
+    from gas_calibrator.v2.core.run001_a1_dry_run import load_point_rows, resolve_config_relative_path
+
+    run_dir = Path(output_dir).expanduser().resolve()
+    run_dir.mkdir(parents=True, exist_ok=True)
+    original_config_path = Path(config_path).expanduser().resolve()
+    raw_paths = raw_cfg.get("paths") if isinstance(raw_cfg.get("paths"), Mapping) else {}
+    raw_points_value = str((raw_paths or {}).get("points_excel") or "").strip()
+    resolved_points = resolve_config_relative_path(original_config_path, raw_points_value)
+
+    if raw_points_value:
+        suffix = Path(raw_points_value).suffix.lower() or (resolved_points.suffix.lower() if resolved_points else "")
+        if suffix and suffix != ".json":
+            raise A2PointsConfigAlignmentError("a2_points_json_suffix_not_json")
+
+    generated = False
+    if resolved_points is not None and resolved_points.exists():
+        points_path = resolved_points
+        rows = load_point_rows(original_config_path, raw_cfg)
+        reasons = _validate_a2_downstream_point_rows(rows)
+        if reasons:
+            raise A2PointsConfigAlignmentError("; ".join(reasons))
+    else:
+        generated = True
+        rows = _build_a2_downstream_point_rows(raw_cfg)
+        reasons = _validate_a2_downstream_point_rows(rows)
+        if reasons:
+            raise A2PointsConfigAlignmentError("; ".join(reasons))
+        points_path = run_dir / "a2_3_v1_aligned_points.json"
+        _write_json_no_bom(points_path, rows)
+
+    aligned_raw_cfg = _json_clone_mapping(raw_cfg)
+    paths = aligned_raw_cfg.setdefault("paths", {})
+    if not isinstance(paths, dict):
+        paths = {}
+        aligned_raw_cfg["paths"] = paths
+    paths["points_excel"] = str(points_path)
+    aligned_config_path = run_dir / "a2_3_v1_aligned_downstream_config.json"
+    _write_json_no_bom(aligned_config_path, aligned_raw_cfg)
+
+    loaded_rows = load_point_rows(aligned_config_path, aligned_raw_cfg)
+    loaded_reasons = _validate_a2_downstream_point_rows(loaded_rows)
+    if loaded_reasons:
+        raise A2PointsConfigAlignmentError("; ".join(loaded_reasons))
+
+    point_pressures = [float(_point_row_pressure(row) or 0.0) for row in loaded_rows]
+    point_routes = [str(row.get("route", "") or "").strip().lower() for row in loaded_rows]
+    metadata = {
+        "points_config_alignment_ready": True,
+        "generated_points_json_path": str(points_path) if generated else "",
+        "generated_points_json_sha256": _sha256_file(points_path) if generated else "",
+        "effective_points_json_path": str(points_path),
+        "effective_points_json_sha256": _sha256_file(points_path),
+        "downstream_aligned_config_path": str(aligned_config_path),
+        "downstream_points_row_count": len(loaded_rows),
+        "downstream_point_routes": point_routes,
+        "downstream_point_pressures_hpa": point_pressures,
+        "downstream_points_gate_reasons": [],
+        "downstream_points_generated": generated,
+    }
+    return aligned_config_path, metadata
 
 
 def execute_existing_v2_a2_pressure_sweep(config_path: str | Path) -> dict[str, Any]:
@@ -940,16 +1113,41 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     executed = bool(admission.approved and execute_probe)
     execution_error = ""
     execution: Mapping[str, Any] = {}
+    points_alignment: dict[str, Any] = {
+        "points_config_alignment_ready": False,
+        "generated_points_json_path": "",
+        "generated_points_json_sha256": "",
+        "effective_points_json_path": "",
+        "effective_points_json_sha256": "",
+        "downstream_aligned_config_path": "",
+        "downstream_points_row_count": 0,
+        "downstream_point_routes": [],
+        "downstream_point_pressures_hpa": [],
+        "downstream_points_gate_reasons": [],
+        "downstream_points_generated": False,
+    }
+    execution_config_path = str(config_path)
     if not execute_probe:
         rejection_reasons.append("execute_probe_not_requested")
     elif not admission.approved:
         rejection_reasons.append("admission_not_approved")
     else:
         try:
-            execution = (executor or execute_existing_v2_a2_pressure_sweep)(str(config_path))
+            aligned_config_path, points_alignment = prepare_a2_downstream_points_config(
+                raw_cfg,
+                config_path=config_path,
+                output_dir=run_dir,
+            )
+            execution_config_path = str(aligned_config_path)
+            execution = (executor or execute_existing_v2_a2_pressure_sweep)(execution_config_path)
+            if isinstance(execution, Mapping) and isinstance(execution.get("points_alignment"), Mapping):
+                points_alignment.update(dict(execution.get("points_alignment") or {}))
+            else:
+                execution = {**dict(execution), "points_alignment": points_alignment}
         except Exception as exc:
             execution_error = str(exc)
-            rejection_reasons.append(f"execution_error:{exc}")
+            prefix = "points_config_alignment_error" if isinstance(exc, A2PointsConfigAlignmentError) else "execution_error"
+            rejection_reasons.append(f"{prefix}:{exc}")
 
     point_results, route_rows, pressure_rows, sample_rows = _point_results_from_execution(execution, raw_cfg)
     if not point_results:
@@ -1141,6 +1339,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "real_probe_executed": bool(executed),
         "underlying_execution_dir": str(execution.get("execution_run_dir") or ""),
         "execution_error": execution_error,
+        "execution_config_path": execution_config_path,
         "co2_only": True,
         "skip0": True,
         "single_route": True,
@@ -1165,6 +1364,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "all_pressure_points_route_conditioning_ready_before_sample": bool(all_route),
         "a3_allowed": False,
         "artifact_paths": artifact_paths,
+        **points_alignment,
         **safety_assertions,
     }
     operator_record = {
