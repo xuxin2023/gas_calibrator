@@ -2050,6 +2050,27 @@ class WorkflowOrchestrator:
         latest = dict(latest) if isinstance(latest, Mapping) else {}
         digital_sample = sample.get("digital_gauge_pressure_sample")
         digital_sample = dict(digital_sample) if isinstance(digital_sample, Mapping) else {}
+
+        def truthy(value: Any) -> bool:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+            return bool(value)
+
+        def parse_bool(value: Any) -> Optional[bool]:
+            if value is None or value == "":
+                return None
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"1", "true", "yes", "y", "on"}:
+                    return True
+                if lowered in {"0", "false", "no", "n", "off"}:
+                    return False
+            return bool(value)
+
         source_text = str(
             digital_sample.get("pressure_sample_source")
             or digital_sample.get("source")
@@ -2057,22 +2078,33 @@ class WorkflowOrchestrator:
             or sample.get("source")
             or ""
         )
+        selected_source = (
+            sample.get("pressure_source_selected")
+            or sample.get("pressure_source_used_for_decision")
+            or source_text
+            or "digital_pressure_gauge_continuous"
+        )
+        selected_source_text = str(selected_source or source_text or "")
         pressure_hpa = self._a2_conditioning_first_float(
             digital_sample.get("pressure_hpa"),
             sample.get("digital_gauge_pressure_hpa"),
             sample.get("pressure_hpa"),
             latest.get("pressure_hpa"),
         )
-        age_s = self._a2_conditioning_first_float(
+        continuous_age_s = self._a2_conditioning_first_float(
             sample.get("latest_frame_age_s"),
             sample.get("digital_gauge_age_s"),
             digital_sample.get("latest_frame_age_s"),
-            digital_sample.get("pressure_sample_age_s"),
-            digital_sample.get("sample_age_s"),
             snapshot.get("latest_frame_age_s"),
             latest.get("latest_frame_age_s"),
-            latest.get("pressure_sample_age_s"),
             latest.get("sample_age_s"),
+        )
+        selected_age_s = self._a2_conditioning_first_float(
+            sample.get("pressure_sample_age_s"),
+            sample.get("sample_age_s"),
+            digital_sample.get("pressure_sample_age_s"),
+            digital_sample.get("sample_age_s"),
+            latest.get("pressure_sample_age_s"),
         )
         sequence_raw = (
             sample.get("latest_frame_sequence_id")
@@ -2128,37 +2160,83 @@ class WorkflowOrchestrator:
             and pressure_source_mode != "v1_aligned"
             and restart_result != "recovered"
         )
-        p3_direct_source = bool("p3" in source_text or "p3" in str(sample.get("pressure_source_selected") or ""))
+        p3_direct_source = bool(
+            "p3" in source_text
+            or "p3" in selected_source_text
+            or "p3" in pressure_source_mode
+        )
+        if selected_age_s is None and not p3_direct_source:
+            selected_age_s = continuous_age_s
         continuous_source = bool(
             "continuous" in source_text
+            or "continuous" in selected_source_text
             or (
                 not p3_direct_source
                 and str(context.get("a2_conditioning_pressure_source") or self._a2_conditioning_pressure_source_mode())
                 in {"continuous", "auto", "v1_aligned"}
             )
         )
-        if p3_direct_source:
-            stream_stale = bool(
-                pressure_hpa is None
-                or age_s is None
-                or float(age_s) > max_age_s
-                or bool(sample.get("is_stale", sample.get("pressure_sample_is_stale", False)))
-                or bool(str(sample.get("error") or digital_sample.get("error") or ""))
-            )
-        else:
-            stream_stale = bool(
-                (digital_expected or continuous_source)
-                and (
-                    age_s is None
-                    or float(age_s) > max_age_s
-                    or (sequence_value is None and digital_expected)
-                    or sequence_progress is False
-                    or (pressure_hpa is None and str(sample.get("error") or digital_sample.get("error") or ""))
-                    or continuous_interruption_unrecovered
+        continuous_stream_stale = bool(
+            (digital_expected or continuous_source)
+            and (
+                continuous_age_s is None
+                or float(continuous_age_s) > max_age_s
+                or truthy(sample.get("digital_gauge_stale"))
+                or truthy(snapshot.get("latest_frame_stale"))
+                or truthy(latest.get("is_stale"))
+                or (sequence_value is None and digital_expected and not p3_direct_source)
+                or sequence_progress is False
+                or (
+                    pressure_hpa is None
+                    and not p3_direct_source
+                    and str(sample.get("error") or digital_sample.get("error") or "")
                 )
+                or continuous_interruption_unrecovered
             )
+        )
+        selected_parse_ok = parse_bool(sample.get("parse_ok"))
+        if selected_parse_ok is None:
+            selected_parse_ok = parse_bool(digital_sample.get("parse_ok"))
+        if selected_parse_ok is None:
+            selected_parse_ok = parse_bool(latest.get("parse_ok"))
+        selected_error_text = str(sample.get("error") or digital_sample.get("error") or "")
+        if (
+            not p3_direct_source
+            and pressure_hpa is not None
+            and not continuous_stream_stale
+            and selected_error_text in {"", "conditioning_pressure_sample_unavailable"}
+        ):
+            selected_error_text = ""
+            selected_parse_ok = True
+        if selected_parse_ok is None:
+            selected_parse_ok = bool(pressure_hpa is not None and not selected_error_text)
+        selected_pressure_controller_primary = bool(
+            "pressure_controller" in selected_source_text
+            or "pace" in selected_source_text.lower()
+        )
+        selected_pressure_sample_is_stale = bool(
+            selected_age_s is None
+            or float(selected_age_s) > max_age_s
+            or truthy(sample.get("is_stale"))
+            or truthy(sample.get("pressure_sample_is_stale"))
+            or truthy(digital_sample.get("is_stale"))
+            or truthy(digital_sample.get("pressure_sample_is_stale"))
+            or (not p3_direct_source and continuous_stream_stale)
+        )
+        selected_pressure_fail_closed_reason = ""
+        if selected_pressure_controller_primary:
+            selected_pressure_fail_closed_reason = "selected_pressure_unavailable"
+        elif pressure_hpa is None or not bool(selected_parse_ok) or selected_error_text:
+            selected_pressure_fail_closed_reason = "selected_pressure_unavailable"
+        elif selected_pressure_sample_is_stale:
+            selected_pressure_fail_closed_reason = "selected_pressure_sample_stale"
+        selected_pressure_freshness_ok = not bool(selected_pressure_fail_closed_reason)
+        pressure_freshness_decision_source = str(selected_source or source_for_decision or source_text or "")
+        stream_stale = bool(selected_pressure_sample_is_stale)
+        if selected_pressure_freshness_ok:
+            stream_stale = False
         abort_hpa = self._a2_conditioning_pressure_abort_hpa()
-        fresh_for_abort = bool(pressure_hpa is not None and not stream_stale)
+        fresh_for_abort = bool(pressure_hpa is not None and selected_pressure_freshness_ok)
         pressure_overlimit = bool(fresh_for_abort and float(pressure_hpa) > float(abort_hpa))
         first_frame_at = (
             sample.get("digital_gauge_stream_first_frame_at")
@@ -2186,11 +2264,6 @@ class WorkflowOrchestrator:
             if sample.get("digital_gauge_drain_nonempty_count") is not None
             else snapshot.get("digital_gauge_drain_nonempty_count")
         )
-        selected_source = (
-            sample.get("pressure_source_selected")
-            or sample.get("pressure_source_used_for_decision")
-            or source_for_decision
-        )
         selection_reason = (
             sample.get("pressure_source_selection_reason")
             or sample.get("source_selection_reason")
@@ -2198,16 +2271,23 @@ class WorkflowOrchestrator:
             or digital_sample.get("source_selection_reason")
             or ""
         )
+        fail_closed_reason = str(sample.get("fail_closed_reason") or "")
+        if selected_pressure_fail_closed_reason and "fallback_not_allowed" not in str(selection_reason):
+            fail_closed_reason = selected_pressure_fail_closed_reason
         return {
             "sample": dict(sample),
             "digital_sample": digital_sample,
             "pressure_hpa": pressure_hpa,
             "pressure_sample_source": source_for_decision,
-            "digital_gauge_latest_age_s": None if age_s is None else round(float(age_s), 3),
+            "pressure_sample_age_s": None if selected_age_s is None else round(float(selected_age_s), 3),
+            "pressure_sample_is_stale": selected_pressure_sample_is_stale,
+            "digital_gauge_latest_age_s": None if continuous_age_s is None else round(float(continuous_age_s), 3),
+            "continuous_stream_age_s": None if continuous_age_s is None else round(float(continuous_age_s), 3),
             "latest_frame_sequence_id": None if sequence_value is None else int(sequence_value),
             "digital_gauge_latest_sequence_id": None if sequence_value is None else int(sequence_value),
             "digital_gauge_sequence_progress": sequence_progress,
-            "digital_gauge_stream_stale": stream_stale,
+            "continuous_stream_stale": continuous_stream_stale,
+            "digital_gauge_stream_stale": continuous_stream_stale,
             "stream_stale": stream_stale,
             "digital_gauge_stream_stale_threshold_s": max_age_s,
             "digital_gauge_max_age_s": max_age_s,
@@ -2260,6 +2340,13 @@ class WorkflowOrchestrator:
             "continuous_restart_result": restart_result,
             "pressure_source_selected": selected_source,
             "pressure_source_selection_reason": selection_reason,
+            "selected_pressure_source": selected_source,
+            "selected_pressure_sample_age_s": None if selected_age_s is None else round(float(selected_age_s), 3),
+            "selected_pressure_sample_is_stale": selected_pressure_sample_is_stale,
+            "selected_pressure_parse_ok": bool(selected_parse_ok),
+            "selected_pressure_freshness_ok": selected_pressure_freshness_ok,
+            "pressure_freshness_decision_source": pressure_freshness_decision_source,
+            "selected_pressure_fail_closed_reason": selected_pressure_fail_closed_reason,
             "a2_3_pressure_source_strategy": sample.get("a2_3_pressure_source_strategy")
             or context.get("a2_3_pressure_source_strategy")
             or self._a2_conditioning_pressure_source_mode(),
@@ -2269,7 +2356,7 @@ class WorkflowOrchestrator:
             "p3_fast_fallback_result": sample.get("p3_fast_fallback_result") or "",
             "normal_p3_fallback_attempted": bool(sample.get("normal_p3_fallback_attempted")),
             "normal_p3_fallback_result": sample.get("normal_p3_fallback_result") or "",
-            "fail_closed_reason": sample.get("fail_closed_reason") or "",
+            "fail_closed_reason": fail_closed_reason,
             "conditioning_pressure_abort_hpa": abort_hpa,
             "pressure_overlimit_seen": pressure_overlimit,
             "pressure_overlimit_source": source_for_decision if pressure_overlimit else "",
@@ -2284,6 +2371,8 @@ class WorkflowOrchestrator:
             "digital_gauge_stream_first_frame_at",
             "digital_gauge_stream_last_frame_at",
             "digital_gauge_latest_sequence_id",
+            "continuous_stream_stale",
+            "continuous_stream_age_s",
             "digital_gauge_stream_stale",
             "digital_gauge_stream_stale_threshold_s",
             "digital_gauge_drain_empty_count",
@@ -2296,6 +2385,13 @@ class WorkflowOrchestrator:
             "continuous_restart_result",
             "pressure_source_selected",
             "pressure_source_selection_reason",
+            "selected_pressure_source",
+            "selected_pressure_sample_age_s",
+            "selected_pressure_sample_is_stale",
+            "selected_pressure_parse_ok",
+            "selected_pressure_freshness_ok",
+            "pressure_freshness_decision_source",
+            "selected_pressure_fail_closed_reason",
             "a2_3_pressure_source_strategy",
             "critical_window_uses_latest_frame",
             "critical_window_uses_query",
@@ -2375,7 +2471,7 @@ class WorkflowOrchestrator:
         context["last_blocking_operation_completed_monotonic_s"] = monitor_completed_monotonic_s
         context["last_blocking_operation_duration_s"] = monitor_duration_s
         context["last_blocking_operation_safe_to_continue"] = bool(
-            not details.get("digital_gauge_stream_stale") and not details.get("pressure_overlimit_seen")
+            details.get("selected_pressure_freshness_ok") and not details.get("pressure_overlimit_seen")
         )
         context = self._a2_conditioning_context_with_counts(context)
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
@@ -2398,12 +2494,20 @@ class WorkflowOrchestrator:
             error_code="conditioning_pressure_abort_hpa_exceeded" if details.get("pressure_overlimit_seen") else None,
             route_state=monitor_state,
         )
-        if details.get("digital_gauge_stream_stale"):
-            reason = str(details.get("fail_closed_reason") or "digital_gauge_stream_stale")
+        if not bool(details.get("selected_pressure_freshness_ok")):
+            reason = str(
+                details.get("fail_closed_reason")
+                or details.get("selected_pressure_fail_closed_reason")
+                or "selected_pressure_sample_stale"
+            )
             self._fail_a2_co2_route_conditioning_closed(
                 point,
                 reason=reason,
-                details={**monitor_state, "stream_stale": True},
+                details={
+                    **monitor_state,
+                    "stream_stale": bool(details.get("selected_pressure_sample_is_stale")),
+                    "continuous_stream_stale": bool(details.get("continuous_stream_stale")),
+                },
                 event_name="co2_route_conditioning_stream_stale",
                 route_trace_action="co2_route_conditioning_stream_stale",
                 pressure_hpa=details.get("pressure_hpa"),
@@ -2491,10 +2595,12 @@ class WorkflowOrchestrator:
         tick_completed_monotonic_s = time.monotonic()
         blocking_duration_s = max(0.0, tick_completed_monotonic_s - tick_started_monotonic_s)
         pressure_hpa = details.get("pressure_hpa")
-        latest_age_s = details.get("digital_gauge_latest_age_s")
+        latest_age_s = details.get("selected_pressure_sample_age_s")
+        continuous_age_s = details.get("digital_gauge_latest_age_s")
         abort_hpa = details.get("conditioning_pressure_abort_hpa")
         pressure_abnormal = bool(details.get("pressure_overlimit_seen"))
-        sample_stale = bool(details.get("digital_gauge_stream_stale"))
+        selected_freshness_ok = bool(details.get("selected_pressure_freshness_ok"))
+        sample_stale = bool(details.get("selected_pressure_sample_is_stale"))
         elapsed_s = max(0.0, time.monotonic() - float(context.get("conditioning_started_monotonic_s") or tick_started_monotonic_s))
         tick = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -2510,8 +2616,9 @@ class WorkflowOrchestrator:
             "pressure_hpa": pressure_hpa,
             "pressure_sample_source": details.get("pressure_sample_source"),
             "pressure_sample_age_s": latest_age_s,
-            "digital_gauge_latest_age_s": latest_age_s,
+            "digital_gauge_latest_age_s": continuous_age_s,
             "pressure_sample_stale": sample_stale,
+            "pressure_freshness_ok": selected_freshness_ok,
             "pressure_abnormal": pressure_abnormal,
             "abort_pressure_hpa": abort_hpa,
             "conditioning_pressure_abort_hpa": abort_hpa,
@@ -2535,7 +2642,7 @@ class WorkflowOrchestrator:
             ),
             "blocking_operation_name": "a2_conditioning_vent_tick",
             "blocking_operation_duration_ms": round(blocking_duration_s * 1000.0, 3),
-            "whether_safe_to_continue": bool(command_result == "ok" and not pressure_abnormal and not sample_stale),
+            "whether_safe_to_continue": bool(command_result == "ok" and not pressure_abnormal and selected_freshness_ok),
             "route_open_to_first_vent_s": (
                 None if route_open_to_first_vent_s is None else round(float(route_open_to_first_vent_s), 3)
             ),
@@ -2557,7 +2664,7 @@ class WorkflowOrchestrator:
         context["last_blocking_operation_completed_monotonic_s"] = tick_completed_monotonic_s
         context["last_blocking_operation_duration_s"] = blocking_duration_s
         context["last_blocking_operation_safe_to_continue"] = bool(
-            command_result == "ok" and not pressure_abnormal and not sample_stale
+            command_result == "ok" and not pressure_abnormal and selected_freshness_ok
         )
         context["vent_heartbeat_interval_s"] = self._a2_conditioning_vent_heartbeat_interval_s()
         context["atmosphere_vent_max_gap_s"] = max_gap_s
@@ -2576,11 +2683,11 @@ class WorkflowOrchestrator:
         if pressure_values:
             context["pressure_max_during_conditioning_hpa"] = max(float(value) for value in pressure_values if value is not None)
             context["pressure_min_during_conditioning_hpa"] = min(float(value) for value in pressure_values if value is not None)
-        if latest_age_s is not None:
-            context["digital_gauge_latest_age_s"] = latest_age_s
+        if continuous_age_s is not None:
+            context["digital_gauge_latest_age_s"] = continuous_age_s
             previous_max = self._as_float(context.get("latest_frame_age_max_s"))
             context["latest_frame_age_max_s"] = (
-                latest_age_s if previous_max is None else max(float(previous_max), float(latest_age_s))
+                continuous_age_s if previous_max is None else max(float(previous_max), float(continuous_age_s))
             )
         if details.get("latest_frame_sequence_id") is not None:
             context["last_digital_gauge_sequence_id"] = details.get("latest_frame_sequence_id")
@@ -2636,12 +2743,20 @@ class WorkflowOrchestrator:
                 route_trace_action="co2_route_conditioning_vent_command_failed",
                 pressure_hpa=pressure_hpa,
             )
-        if sample_stale:
-            reason = str(details.get("fail_closed_reason") or "digital_gauge_stream_stale")
+        if not selected_freshness_ok:
+            reason = str(
+                details.get("fail_closed_reason")
+                or details.get("selected_pressure_fail_closed_reason")
+                or "selected_pressure_sample_stale"
+            )
             self._fail_a2_co2_route_conditioning_closed(
                 point,
                 reason=reason,
-                details={**tick, "stream_stale": True},
+                details={
+                    **tick,
+                    "stream_stale": sample_stale,
+                    "continuous_stream_stale": bool(details.get("continuous_stream_stale")),
+                },
                 event_name="co2_route_conditioning_stream_stale",
                 route_trace_action="co2_route_conditioning_stream_stale",
                 pressure_hpa=pressure_hpa,

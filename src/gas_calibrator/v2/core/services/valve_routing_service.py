@@ -346,7 +346,15 @@ class ValveRoutingService:
         return summary
 
     def safe_stop_after_run(self, *, baseline_already_restored: bool = False, reason: str = "") -> dict[str, Any]:
-        summary: dict[str, Any] = {}
+        summary: dict[str, Any] = {
+            "final_safe_stop_warning_count": 0,
+            "final_safe_stop_warnings": [],
+            "final_safe_stop_chamber_stop_warning": "",
+            "final_safe_stop_chamber_stop_attempted": False,
+            "final_safe_stop_chamber_stop_command_sent": False,
+            "final_safe_stop_chamber_stop_result": "not_attempted",
+        }
+        safe_stop_warnings: list[str] = []
         relay_state = {} if baseline_already_restored else self.apply_valve_states([])
         physical = self._physical_route_evidence([], relay_state) if relay_state else None
         if relay_state:
@@ -359,10 +367,17 @@ class ValveRoutingService:
 
         chamber = self.host._device("temperature_chamber")
         if chamber is not None:
+            summary["final_safe_stop_chamber_stop_attempted"] = True
             try:
+                summary["final_safe_stop_chamber_stop_command_sent"] = True
                 self.host._call_first(chamber, ("stop",))
+                summary["final_safe_stop_chamber_stop_result"] = "success"
             except Exception as exc:
-                self.host._log(f"Final safe stop warning: chamber stop failed: {exc}")
+                warning = f"chamber stop failed: {exc}"
+                summary["final_safe_stop_chamber_stop_warning"] = warning
+                summary["final_safe_stop_chamber_stop_result"] = "failed"
+                safe_stop_warnings.append(warning)
+                self.host._log(f"Final safe stop warning: {warning}")
             chamber_state = self._chamber_state(chamber)
             if chamber_state:
                 summary["chamber"] = chamber_state
@@ -380,10 +395,17 @@ class ValveRoutingService:
                     else:
                         self.host._call_first(generator, ("disable_control",), False)
             except Exception as exc:
-                self.host._log(f"Final safe stop warning: humidity generator stop failed: {exc}")
+                warning = f"humidity generator stop failed: {exc}"
+                safe_stop_warnings.append(warning)
+                self.host._log(f"Final safe stop warning: {warning}")
             stop_check = self._humidity_generator_stop_check(generator)
             if stop_check:
                 summary["hgen_stop_check"] = stop_check
+                if not bool(stop_check.get("ok", True)) and stop_check.get("error"):
+                    safe_stop_warnings.append(f"humidity generator verify failed: {stop_check.get('error')}")
+
+        summary["final_safe_stop_warnings"] = list(dict.fromkeys(safe_stop_warnings))
+        summary["final_safe_stop_warning_count"] = len(summary["final_safe_stop_warnings"])
 
         self._record_route_trace(
             action="final_safe_stop_routes",

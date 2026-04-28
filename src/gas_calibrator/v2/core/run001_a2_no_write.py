@@ -133,6 +133,8 @@ PRESSURE_READ_LATENCY_SAMPLE_FIELDS = [
     "digital_gauge_continuous_active",
     "digital_gauge_stream_first_frame_at",
     "digital_gauge_stream_last_frame_at",
+    "continuous_stream_stale",
+    "continuous_stream_age_s",
     "digital_gauge_stream_stale",
     "digital_gauge_stream_stale_threshold_s",
     "digital_gauge_drain_empty_count",
@@ -148,6 +150,13 @@ PRESSURE_READ_LATENCY_SAMPLE_FIELDS = [
     "continuous_restart_result",
     "pressure_source_selected",
     "pressure_source_selection_reason",
+    "selected_pressure_source",
+    "selected_pressure_sample_age_s",
+    "selected_pressure_sample_is_stale",
+    "selected_pressure_parse_ok",
+    "selected_pressure_freshness_ok",
+    "pressure_freshness_decision_source",
+    "selected_pressure_fail_closed_reason",
     "critical_window_blocking_query_count",
     "critical_window_blocking_query_total_s",
     "critical_window_uses_latest_frame",
@@ -511,6 +520,49 @@ def _load_route_trace_rows(run_dir: str | Path) -> list[dict[str, Any]]:
         if isinstance(item, Mapping):
             rows.append(dict(item))
     return rows
+
+
+def _final_safe_stop_evidence(run_dir: str | Path) -> dict[str, Any]:
+    defaults: dict[str, Any] = {
+        "final_safe_stop_warning_count": 0,
+        "final_safe_stop_warnings": [],
+        "final_safe_stop_chamber_stop_warning": "",
+        "final_safe_stop_chamber_stop_attempted": False,
+        "final_safe_stop_chamber_stop_command_sent": False,
+        "final_safe_stop_chamber_stop_result": "not_observed",
+    }
+    for row in reversed(_load_route_trace_rows(run_dir)):
+        if str(row.get("action") or "") != "final_safe_stop_routes":
+            continue
+        actual = row.get("actual")
+        actual = actual if isinstance(actual, Mapping) else {}
+        warnings = actual.get("final_safe_stop_warnings")
+        warnings = list(warnings) if isinstance(warnings, list) else []
+        payload = dict(defaults)
+        payload.update(
+            {
+                "final_safe_stop_warning_count": int(
+                    actual.get("final_safe_stop_warning_count")
+                    if actual.get("final_safe_stop_warning_count") is not None
+                    else len(warnings)
+                ),
+                "final_safe_stop_warnings": warnings,
+                "final_safe_stop_chamber_stop_warning": str(
+                    actual.get("final_safe_stop_chamber_stop_warning") or ""
+                ),
+                "final_safe_stop_chamber_stop_attempted": bool(
+                    actual.get("final_safe_stop_chamber_stop_attempted", False)
+                ),
+                "final_safe_stop_chamber_stop_command_sent": bool(
+                    actual.get("final_safe_stop_chamber_stop_command_sent", False)
+                ),
+                "final_safe_stop_chamber_stop_result": str(
+                    actual.get("final_safe_stop_chamber_stop_result") or "not_observed"
+                ),
+            }
+        )
+        return payload
+    return defaults
 
 
 def _status_to_mapping(status: Any) -> dict[str, Any]:
@@ -1919,11 +1971,30 @@ def _build_co2_route_conditioning_evidence(
         or _as_float(state.get("pressure_overlimit_hpa")) is not None
     ]
     first_pressure_overlimit = pressure_overlimit_states[0] if pressure_overlimit_states else {}
-    stream_stale_seen = any(
-        bool(state.get("stream_stale") or state.get("digital_gauge_stream_stale"))
+    continuous_stream_stale_seen = any(
+        bool(state.get("continuous_stream_stale") or state.get("digital_gauge_stream_stale"))
+        for state in all_conditioning_states
+    )
+    selected_pressure_freshness_values = [
+        state.get("selected_pressure_freshness_ok")
+        for state in all_conditioning_states
+        if state.get("selected_pressure_freshness_ok") is not None
+    ]
+    selected_pressure_sample_stale_seen = any(
+        bool(
+            state.get("selected_pressure_sample_is_stale")
+            or state.get("pressure_sample_stale")
+            or state.get("stream_stale")
+        )
         or str(event.get("event_name") or "") == "co2_route_conditioning_stream_stale"
         for event, state in zip(all_conditioning_events, all_conditioning_states)
     )
+    selected_pressure_freshness_ok = (
+        None
+        if not selected_pressure_freshness_values
+        else all(bool(value) for value in selected_pressure_freshness_values)
+    )
+    stream_stale_seen = bool(selected_pressure_sample_stale_seen)
     sequence_progress_values = [
         state.get("digital_gauge_sequence_progress")
         for state in all_conditioning_states
@@ -2018,7 +2089,14 @@ def _build_co2_route_conditioning_evidence(
             "digital_gauge_stream_last_frame_at",
             stream_state_at_start.get("stream_last_frame_at"),
         ),
-        "digital_gauge_stream_stale": bool(latest_state_value("digital_gauge_stream_stale", stream_stale_seen)),
+        "continuous_stream_stale": bool(latest_state_value("continuous_stream_stale", continuous_stream_stale_seen)),
+        "continuous_stream_age_s": latest_state_value(
+            "continuous_stream_age_s",
+            latest_state_value("digital_gauge_latest_age_s"),
+        ),
+        "digital_gauge_stream_stale": bool(
+            latest_state_value("digital_gauge_stream_stale", continuous_stream_stale_seen)
+        ),
         "digital_gauge_stream_stale_threshold_s": latest_state_value(
             "digital_gauge_stream_stale_threshold_s",
             latest_state_value("digital_gauge_max_age_s"),
@@ -2059,6 +2137,20 @@ def _build_co2_route_conditioning_evidence(
             "pressure_source_selection_reason",
             start_state.get("pressure_source_selection_reason"),
         ),
+        "selected_pressure_source": latest_state_value(
+            "selected_pressure_source",
+            latest_state_value("pressure_source_selected", start_state.get("pressure_source_selected")),
+        ),
+        "selected_pressure_sample_age_s": latest_state_value("selected_pressure_sample_age_s"),
+        "selected_pressure_sample_is_stale": bool(
+            latest_state_value("selected_pressure_sample_is_stale", selected_pressure_sample_stale_seen)
+        ),
+        "selected_pressure_parse_ok": latest_state_value("selected_pressure_parse_ok"),
+        "selected_pressure_freshness_ok": selected_pressure_freshness_ok
+        if selected_pressure_freshness_ok is not None
+        else latest_state_value("selected_pressure_freshness_ok"),
+        "pressure_freshness_decision_source": latest_state_value("pressure_freshness_decision_source"),
+        "selected_pressure_fail_closed_reason": latest_state_value("selected_pressure_fail_closed_reason", ""),
         "conditioning_pressure_abort_hpa": (
             terminal_state.get("conditioning_pressure_abort_hpa")
             or end_state.get("conditioning_pressure_abort_hpa")
@@ -3656,6 +3748,9 @@ def _finalize_artifact_decision(payload: dict[str, Any], run_dir: str | Path) ->
             reasons.append("a2_co2_route_conditioning_vent_heartbeat_gap_exceeded")
         if conditioning and bool(conditioning.get("pressure_overlimit_seen")):
             reasons.append("a2_co2_route_conditioning_pressure_overlimit")
+        if conditioning and conditioning.get("selected_pressure_freshness_ok") is False:
+            reason = str(conditioning.get("selected_pressure_fail_closed_reason") or "").strip()
+            reasons.append(reason or "a2_co2_route_conditioning_selected_pressure_not_fresh")
         if conditioning and bool(conditioning.get("stream_stale")):
             reasons.append("a2_co2_route_conditioning_digital_gauge_stream_stale")
         if conditioning and conditioning.get("digital_gauge_sequence_progress") is False:
@@ -3815,6 +3910,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         json.dumps(co2_route_conditioning_payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    final_safe_stop_payload = _final_safe_stop_evidence(directory)
     high_pressure_first_point_payload = _build_high_pressure_first_point_evidence(
         directory,
         enriched,
@@ -3854,6 +3950,11 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "positive_preseal_timing_diagnostics": positive_preseal_timing_payload,
             "co2_route_conditioning_evidence_artifact": str(co2_route_conditioning_path),
             "co2_route_conditioning_evidence": co2_route_conditioning_payload,
+            **final_safe_stop_payload,
+            "chamber_stop_command_sent": bool(
+                enriched.get("chamber_stop_command_sent")
+                or final_safe_stop_payload.get("final_safe_stop_chamber_stop_command_sent")
+            ),
             "route_open_pressure_surge_evidence_artifact": str(route_open_surge_path),
             "route_open_pressure_surge_evidence": route_open_surge_payload,
             "pressure_read_latency_diagnostics_artifact": str(pressure_latency_path),
@@ -3936,6 +4037,26 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "vent_heartbeat_gap_exceeded": co2_route_conditioning_payload.get("vent_heartbeat_gap_exceeded"),
             "pressure_monitor_interval_s": co2_route_conditioning_payload.get("pressure_monitor_interval_s"),
             "digital_gauge_latest_age_s": co2_route_conditioning_payload.get("digital_gauge_latest_age_s"),
+            "continuous_stream_stale": co2_route_conditioning_payload.get("continuous_stream_stale"),
+            "continuous_stream_age_s": co2_route_conditioning_payload.get("continuous_stream_age_s"),
+            "digital_gauge_stream_stale": co2_route_conditioning_payload.get("digital_gauge_stream_stale"),
+            "selected_pressure_source": co2_route_conditioning_payload.get("selected_pressure_source"),
+            "selected_pressure_sample_age_s": co2_route_conditioning_payload.get(
+                "selected_pressure_sample_age_s"
+            ),
+            "selected_pressure_sample_is_stale": co2_route_conditioning_payload.get(
+                "selected_pressure_sample_is_stale"
+            ),
+            "selected_pressure_parse_ok": co2_route_conditioning_payload.get("selected_pressure_parse_ok"),
+            "selected_pressure_freshness_ok": co2_route_conditioning_payload.get(
+                "selected_pressure_freshness_ok"
+            ),
+            "pressure_freshness_decision_source": co2_route_conditioning_payload.get(
+                "pressure_freshness_decision_source"
+            ),
+            "selected_pressure_fail_closed_reason": co2_route_conditioning_payload.get(
+                "selected_pressure_fail_closed_reason"
+            ),
             "digital_gauge_sequence_progress": co2_route_conditioning_payload.get("digital_gauge_sequence_progress"),
             "conditioning_pressure_abort_hpa": co2_route_conditioning_payload.get("conditioning_pressure_abort_hpa"),
             "pressure_overlimit_seen": co2_route_conditioning_payload.get("pressure_overlimit_seen"),
@@ -3950,6 +4071,10 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "sealed_during_conditioning": co2_route_conditioning_payload.get("sealed_during_conditioning"),
         }
     )
+    if bool(final_safe_stop_payload.get("final_safe_stop_chamber_stop_command_sent")):
+        reasons = list(enriched.get("a2_decision_reasons") or [])
+        reasons.append("chamber_stop_command_sent")
+        enriched["a2_decision_reasons"] = list(dict.fromkeys(reasons))
     enriched = _finalize_artifact_decision(enriched, directory)
 
     (directory / "summary.json").write_text(json.dumps(enriched, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -3962,6 +4087,17 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "blocked_write_events": enriched.get("blocked_write_events"),
                 "identity_write_command_sent": enriched.get("identity_write_command_sent"),
                 "persistent_write_command_sent": enriched.get("persistent_write_command_sent"),
+                "chamber_stop_command_sent": enriched.get("chamber_stop_command_sent"),
+                "final_safe_stop_warning_count": enriched.get("final_safe_stop_warning_count"),
+                "final_safe_stop_warnings": enriched.get("final_safe_stop_warnings"),
+                "final_safe_stop_chamber_stop_warning": enriched.get("final_safe_stop_chamber_stop_warning"),
+                "final_safe_stop_chamber_stop_attempted": enriched.get(
+                    "final_safe_stop_chamber_stop_attempted"
+                ),
+                "final_safe_stop_chamber_stop_command_sent": enriched.get(
+                    "final_safe_stop_chamber_stop_command_sent"
+                ),
+                "final_safe_stop_chamber_stop_result": enriched.get("final_safe_stop_chamber_stop_result"),
                 "readiness_result": enriched.get("readiness_result"),
                 "a2_final_decision": enriched.get("a2_final_decision"),
                 "a2_execution_result": enriched.get("a2_execution_result"),
@@ -3990,6 +4126,17 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "attempted_write_count": enriched.get("attempted_write_count"),
                 "identity_write_command_sent": enriched.get("identity_write_command_sent"),
                 "persistent_write_command_sent": enriched.get("persistent_write_command_sent"),
+                "chamber_stop_command_sent": enriched.get("chamber_stop_command_sent"),
+                "final_safe_stop_warning_count": enriched.get("final_safe_stop_warning_count"),
+                "final_safe_stop_warnings": enriched.get("final_safe_stop_warnings"),
+                "final_safe_stop_chamber_stop_warning": enriched.get("final_safe_stop_chamber_stop_warning"),
+                "final_safe_stop_chamber_stop_attempted": enriched.get(
+                    "final_safe_stop_chamber_stop_attempted"
+                ),
+                "final_safe_stop_chamber_stop_command_sent": enriched.get(
+                    "final_safe_stop_chamber_stop_command_sent"
+                ),
+                "final_safe_stop_chamber_stop_result": enriched.get("final_safe_stop_chamber_stop_result"),
                 "effective_analyzer_mapping_status": enriched.get("effective_analyzer_mapping_status"),
                 "all_enabled_analyzers_mode2_ready": enriched.get("all_enabled_analyzers_mode2_ready"),
                 "preseal_atmosphere_hold_decision": enriched.get("preseal_atmosphere_hold_decision"),

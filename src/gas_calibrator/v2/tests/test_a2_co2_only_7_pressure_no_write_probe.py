@@ -568,7 +568,15 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
                     "p3_fast_fallback_result": "success",
                     "normal_p3_fallback_attempted": False,
                     "normal_p3_fallback_result": "",
-                    "digital_gauge_stream_stale": False,
+                    "continuous_stream_stale": True,
+                    "digital_gauge_stream_stale": True,
+                    "selected_pressure_source": "digital_pressure_gauge_p3",
+                    "selected_pressure_sample_age_s": 0.05,
+                    "selected_pressure_sample_is_stale": False,
+                    "selected_pressure_parse_ok": True,
+                    "selected_pressure_freshness_ok": True,
+                    "pressure_freshness_decision_source": "digital_pressure_gauge_p3",
+                    "selected_pressure_fail_closed_reason": "",
                     "continuous_restart_attempted": True,
                     "continuous_restart_result": "recovered",
                 },
@@ -599,7 +607,15 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     assert summary["p3_fast_fallback_attempted"] is True
     assert summary["p3_fast_fallback_result"] == "success"
     assert summary["normal_p3_fallback_attempted"] is False
-    assert summary["digital_gauge_stream_stale"] is False
+    assert summary["continuous_stream_stale"] is True
+    assert summary["digital_gauge_stream_stale"] is True
+    assert summary["selected_pressure_source"] == "digital_pressure_gauge_p3"
+    assert summary["selected_pressure_sample_age_s"] == 0.05
+    assert summary["selected_pressure_sample_is_stale"] is False
+    assert summary["selected_pressure_parse_ok"] is True
+    assert summary["selected_pressure_freshness_ok"] is True
+    assert summary["pressure_freshness_decision_source"] == "digital_pressure_gauge_p3"
+    assert summary["selected_pressure_fail_closed_reason"] == ""
     assert summary["continuous_restart_attempted"] is True
     assert summary["continuous_restart_result"] == "recovered"
     assert summary["a3_allowed"] is False

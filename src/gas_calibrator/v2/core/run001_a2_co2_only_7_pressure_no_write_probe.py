@@ -927,6 +927,16 @@ def _coerce_point_result(row: Mapping[str, Any], raw_cfg: Mapping[str, Any]) -> 
         "heartbeat_emission_gap_ms": row.get("heartbeat_emission_gap_ms"),
         "blocking_operation_duration_ms": row.get("blocking_operation_duration_ms"),
         "route_conditioning_ready_before_sample": _as_bool(row.get("route_conditioning_ready_before_sample")) is True,
+        "pressure_source_selected": row.get("pressure_source_selected"),
+        "pressure_source_selection_reason": row.get("pressure_source_selection_reason"),
+        "selected_pressure_source": row.get("selected_pressure_source"),
+        "selected_pressure_sample_age_s": row.get("selected_pressure_sample_age_s"),
+        "selected_pressure_sample_is_stale": _as_bool(row.get("selected_pressure_sample_is_stale")) is True,
+        "selected_pressure_parse_ok": _as_bool(row.get("selected_pressure_parse_ok")) is True,
+        "selected_pressure_freshness_ok": _as_bool(row.get("selected_pressure_freshness_ok")) is True,
+        "pressure_freshness_decision_source": row.get("pressure_freshness_decision_source"),
+        "selected_pressure_fail_closed_reason": row.get("selected_pressure_fail_closed_reason") or "",
+        "continuous_stream_stale": _as_bool(row.get("continuous_stream_stale")) is True,
         "sample_count": sample_count,
         "valid_frame_count": valid_count,
         "frame_has_data": _as_bool(row.get("frame_has_data")) is True,
@@ -1018,6 +1028,42 @@ def _point_results_from_execution(
                 "blocking_operation_duration_ms",
             ),
             "route_conditioning_ready_before_sample": route_ready,
+            "pressure_source_selected": _first_metric_from_rows(metric_rows, "pressure_source_selected"),
+            "pressure_source_selection_reason": _first_metric_from_rows(
+                metric_rows,
+                "pressure_source_selection_reason",
+                "source_selection_reason",
+            ),
+            "selected_pressure_source": _first_metric_from_rows(metric_rows, "selected_pressure_source"),
+            "selected_pressure_sample_age_s": _first_metric_from_rows(
+                metric_rows,
+                "selected_pressure_sample_age_s",
+            ),
+            "selected_pressure_sample_is_stale": _as_bool(
+                _first_metric_from_rows(metric_rows, "selected_pressure_sample_is_stale")
+            )
+            is True,
+            "selected_pressure_parse_ok": _as_bool(
+                _first_metric_from_rows(metric_rows, "selected_pressure_parse_ok")
+            )
+            is True,
+            "selected_pressure_freshness_ok": _as_bool(
+                _first_metric_from_rows(metric_rows, "selected_pressure_freshness_ok")
+            )
+            is True,
+            "pressure_freshness_decision_source": _first_metric_from_rows(
+                metric_rows,
+                "pressure_freshness_decision_source",
+            ),
+            "selected_pressure_fail_closed_reason": _first_metric_from_rows(
+                metric_rows,
+                "selected_pressure_fail_closed_reason",
+            )
+            or "",
+            "continuous_stream_stale": _as_bool(
+                _first_metric_from_rows(metric_rows, "continuous_stream_stale")
+            )
+            is True,
             "sample_count": int(sample_count),
             "valid_frame_count": int(sample_count),
             "frame_has_data": sample_count > 0,
@@ -1057,6 +1103,16 @@ def _write_point_results_csv(path: Path, point_results: list[Mapping[str, Any]])
         "heartbeat_gap_observed_ms",
         "heartbeat_emission_gap_ms",
         "blocking_operation_duration_ms",
+        "pressure_source_selected",
+        "pressure_source_selection_reason",
+        "selected_pressure_source",
+        "selected_pressure_sample_age_s",
+        "selected_pressure_sample_is_stale",
+        "selected_pressure_parse_ok",
+        "selected_pressure_freshness_ok",
+        "pressure_freshness_decision_source",
+        "selected_pressure_fail_closed_reason",
+        "continuous_stream_stale",
         "sample_count",
         "valid_frame_count",
         "point_completed",
@@ -1200,6 +1256,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     if downstream_after_failure:
         rejection_reasons.append("downstream_point_executed_after_fail_closed_point")
 
+    service_summary = dict(execution.get("service_summary") or {}) if isinstance(execution, Mapping) else {}
     no_write_ok = True
     safety_assertions = {
         **A2_EVIDENCE_MARKERS,
@@ -1213,6 +1270,29 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "vent_off_command_scope": "authorized_a2_pressure_control_scope",
         "seal_command_sent": any(str(row.get("action") or "") in {"seal_route", "seal_transition"} for row in route_rows),
         "seal_command_scope": "authorized_a2_pressure_control_scope",
+        "chamber_stop_command_sent": _as_bool(
+            service_summary.get("chamber_stop_command_sent")
+            or service_summary.get("final_safe_stop_chamber_stop_command_sent")
+        )
+        is True,
+        "final_safe_stop_warning_count": int(service_summary.get("final_safe_stop_warning_count") or 0),
+        "final_safe_stop_warnings": list(service_summary.get("final_safe_stop_warnings") or []),
+        "final_safe_stop_chamber_stop_warning": service_summary.get(
+            "final_safe_stop_chamber_stop_warning",
+            "",
+        ),
+        "final_safe_stop_chamber_stop_attempted": _as_bool(
+            service_summary.get("final_safe_stop_chamber_stop_attempted")
+        )
+        is True,
+        "final_safe_stop_chamber_stop_command_sent": _as_bool(
+            service_summary.get("final_safe_stop_chamber_stop_command_sent")
+        )
+        is True,
+        "final_safe_stop_chamber_stop_result": service_summary.get(
+            "final_safe_stop_chamber_stop_result",
+            "not_observed",
+        ),
         "high_pressure_1100_hpa_prearm_recorded": any(
             str(row.get("action") or "") == "high_pressure_first_point_mode_enabled" for row in route_rows
         ),
@@ -1220,6 +1300,19 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "pressure_points_completed": int(pressure_points_completed),
         "no_write": no_write_ok,
     }
+    no_write_ok = bool(
+        int(safety_assertions.get("attempted_write_count") or 0) == 0
+        and _as_bool(safety_assertions.get("any_write_command_sent")) is not True
+        and _as_bool(safety_assertions.get("identity_write_command_sent")) is not True
+        and _as_bool(safety_assertions.get("mode_switch_command_sent")) is not True
+        and _as_bool(safety_assertions.get("senco_write_command_sent")) is not True
+        and _as_bool(safety_assertions.get("calibration_write_command_sent")) is not True
+        and _as_bool(safety_assertions.get("chamber_write_register_command_sent")) is not True
+        and _as_bool(safety_assertions.get("chamber_set_temperature_command_sent")) is not True
+        and _as_bool(safety_assertions.get("chamber_start_command_sent")) is not True
+        and _as_bool(safety_assertions.get("chamber_stop_command_sent")) is not True
+    )
+    safety_assertions["no_write"] = no_write_ok
 
     pass_conditions = [
         admission.approved,
@@ -1241,6 +1334,15 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     evidence_metric_rows = route_rows + pressure_rows + sample_rows
     a2_3_strategy = _a2_3_pressure_source_strategy(raw_cfg)
 
+    def metric_or_summary(*keys: str) -> Any:
+        value = _first_metric_from_rows(evidence_metric_rows, *keys)
+        if value is not None:
+            return value
+        for key in keys:
+            if key in service_summary:
+                return service_summary.get(key)
+        return None
+
     pressure_ready_rows = [
         {
             "timestamp": _now(),
@@ -1256,6 +1358,16 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             "heartbeat_gap_observed_ms": point.get("heartbeat_gap_observed_ms"),
             "heartbeat_emission_gap_ms": point.get("heartbeat_emission_gap_ms"),
             "blocking_operation_duration_ms": point.get("blocking_operation_duration_ms"),
+            "pressure_source_selected": point.get("pressure_source_selected"),
+            "pressure_source_selection_reason": point.get("pressure_source_selection_reason"),
+            "selected_pressure_source": point.get("selected_pressure_source"),
+            "selected_pressure_sample_age_s": point.get("selected_pressure_sample_age_s"),
+            "selected_pressure_sample_is_stale": point.get("selected_pressure_sample_is_stale"),
+            "selected_pressure_parse_ok": point.get("selected_pressure_parse_ok"),
+            "selected_pressure_freshness_ok": point.get("selected_pressure_freshness_ok"),
+            "pressure_freshness_decision_source": point.get("pressure_freshness_decision_source"),
+            "selected_pressure_fail_closed_reason": point.get("selected_pressure_fail_closed_reason"),
+            "continuous_stream_stale": point.get("continuous_stream_stale"),
         }
         for point in point_results
     ]
@@ -1308,6 +1420,20 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             "pressure_source_selection_reason",
             "source_selection_reason",
         ),
+        "continuous_stream_stale": _as_bool(metric_or_summary("continuous_stream_stale")) is True,
+        "selected_pressure_source": metric_or_summary("selected_pressure_source"),
+        "selected_pressure_sample_age_s": metric_or_summary("selected_pressure_sample_age_s"),
+        "selected_pressure_sample_is_stale": _as_bool(
+            metric_or_summary("selected_pressure_sample_is_stale")
+        )
+        is True,
+        "selected_pressure_parse_ok": _as_bool(metric_or_summary("selected_pressure_parse_ok")) is True,
+        "selected_pressure_freshness_ok": _as_bool(
+            metric_or_summary("selected_pressure_freshness_ok")
+        )
+        is True,
+        "pressure_freshness_decision_source": metric_or_summary("pressure_freshness_decision_source"),
+        "selected_pressure_fail_closed_reason": metric_or_summary("selected_pressure_fail_closed_reason") or "",
         "critical_window_uses_latest_frame": _as_bool(
             _first_metric_from_rows(evidence_metric_rows, "critical_window_uses_latest_frame")
         )
