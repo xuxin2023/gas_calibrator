@@ -29,8 +29,8 @@ A2_ENV_VALUE = "1"
 A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
 A2_ALLOWED_PRESSURE_POINTS_HPA = (1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
 A2_EVIDENCE_MARKERS = {
-    "evidence_source": "real_probe_a2_5_co2_7_pressure_no_write",
-    "legacy_evidence_source": "real_probe_a2_4_co2_7_pressure_no_write",
+    "evidence_source": "real_probe_a2_6_co2_7_pressure_no_write",
+    "legacy_evidence_source": "real_probe_a2_5_co2_7_pressure_no_write",
     "acceptance_level": "engineering_probe_only",
     "not_real_acceptance_evidence": True,
     "promotion_state": "blocked",
