@@ -1258,6 +1258,41 @@ def test_co2_conditioning_route_open_settle_wait_is_sliced_and_keeps_terminal_ga
     assert route_traces == []
 
 
+def test_co2_route_open_transition_timing_write_is_deferred_in_high_frequency_window(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+        cfg_overrides={
+            "workflow.pressure.route_open_settle_wait_s": 0.2,
+            "workflow.pressure.route_open_settle_wait_slice_s": 0.1,
+            "workflow.pressure.route_conditioning_high_frequency_vent_interval_s": 0.5,
+            "workflow.pressure.route_conditioning_high_frequency_max_gap_s": 1.0,
+            "workflow.pressure.route_conditioning_trace_write_budget_ms": 50.0,
+        },
+    )
+
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open")
+    orchestrator._begin_a2_co2_route_open_transition(point)
+    orchestrator._mark_a2_co2_route_open_command_write_started(point)
+
+    def blocking_timing_write(*args, **kwargs):
+        clock["now"] += 3.8
+        raise AssertionError("high-frequency workflow timing write must be deferred")
+
+    orchestrator._record_workflow_timing = blocking_timing_write
+    clock["now"] += 0.01
+    orchestrator._mark_a2_co2_route_open_command_write_completed(point)
+    orchestrator._wait_a2_co2_route_open_settle_before_conditioning(point)
+    orchestrator._complete_a2_co2_route_open_transition(point)
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["trace_write_deferred_for_vent_priority"] is True
+    assert context["trace_write_blocked_vent_scheduler"] is False
+    assert context["route_conditioning_vent_gap_exceeded"] is False
+    assert context["max_vent_pulse_write_gap_ms_including_terminal_gap"] <= 1000.0
+    assert route_traces == []
+
+
 def test_co2_conditioning_terminal_gap_enters_including_terminal_gate(monkeypatch) -> None:
     orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,

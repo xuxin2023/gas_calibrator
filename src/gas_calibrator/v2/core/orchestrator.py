@@ -3838,7 +3838,8 @@ class WorkflowOrchestrator:
             }
         )
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
-        self._record_workflow_timing(
+        self._record_a2_conditioning_workflow_timing(
+            context,
             "co2_route_open_transition_start",
             "start",
             stage="co2_route_open_transition",
@@ -3861,7 +3862,8 @@ class WorkflowOrchestrator:
             }
         )
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
-        self._record_workflow_timing(
+        self._record_a2_conditioning_workflow_timing(
+            context,
             "co2_route_open_command_write_start",
             "start",
             stage="co2_route_open_transition",
@@ -3889,7 +3891,8 @@ class WorkflowOrchestrator:
         )
         setattr(self, "_a2_co2_route_open_monotonic_s", now_mono)
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
-        self._record_workflow_timing(
+        self._record_a2_conditioning_workflow_timing(
+            context,
             "co2_route_open_command_write_end",
             "end",
             stage="co2_route_open_transition",
@@ -4019,7 +4022,8 @@ class WorkflowOrchestrator:
             )
         context = self._a2_conditioning_context_with_counts(context)
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
-        self._record_workflow_timing(
+        self._record_a2_conditioning_workflow_timing(
+            context,
             "co2_route_open_settle_wait",
             "end",
             stage="co2_route_open_transition",
@@ -4065,7 +4069,8 @@ class WorkflowOrchestrator:
         context["route_open_transition_completed"] = True
         context = self._a2_conditioning_context_with_counts(context)
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
-        self._record_workflow_timing(
+        self._record_a2_conditioning_workflow_timing(
+            context,
             "co2_route_open_transition_end",
             "end",
             stage="co2_route_open_transition",
