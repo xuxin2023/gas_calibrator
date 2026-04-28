@@ -448,6 +448,15 @@ def _passing_executor(_config_path: str | Path) -> dict[str, Any]:
                 "heartbeat_emission_gap_ms": 20.0,
                 "blocking_operation_duration_ms": 1180.0,
                 "route_conditioning_ready_before_sample": True,
+                "pressure_source_selected": "digital_pressure_gauge_p3",
+                "pressure_source_selection_reason": "v1_aligned_pressure_gate",
+                "selected_pressure_source": "digital_pressure_gauge_p3",
+                "selected_pressure_sample_age_s": 0.05,
+                "selected_pressure_sample_is_stale": False,
+                "selected_pressure_parse_ok": True,
+                "selected_pressure_freshness_ok": True,
+                "pressure_freshness_decision_source": "digital_pressure_gauge_p3",
+                "selected_pressure_fail_closed_reason": "",
                 "sample_count": 4,
                 "valid_frame_count": 4,
                 "frame_has_data": True,
@@ -621,7 +630,7 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     )
 
     assert summary["a2_3_v1_pressure_gauge_read_policy_present"] is True
-    assert summary["evidence_source"] == "real_probe_a2_7_co2_7_pressure_no_write"
+    assert summary["evidence_source"] == "real_probe_a2_8_co2_7_pressure_no_write"
     assert summary["a2_3_pressure_source_strategy"] == "v1_aligned"
     assert summary["a2_4_v1_pressure_gauge_read_policy_present"] is True
     assert summary["a2_4_pressure_source_strategy"] == "v1_aligned"
@@ -646,10 +655,118 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     assert summary["selected_pressure_fail_closed_reason"] == ""
     assert summary["selected_pressure_source_for_conditioning_monitor"] == "digital_pressure_gauge_continuous"
     assert summary["selected_pressure_source_for_pressure_gate"] == "digital_pressure_gauge_p3"
+    assert summary["conditioning_monitor_pressure_source_allowed"] is True
+    assert summary["pressure_gate_reached"] is True
+    assert summary["pressure_gate_source_required"] == "v1_aligned"
+    assert summary["pressure_gate_source_observed"] == "digital_pressure_gauge_p3"
+    assert summary["pressure_gate_source_alignment_ready"] is True
+    assert summary["pressure_gate_source_alignment_reasons"] == []
     assert summary["a2_conditioning_pressure_source_strategy"] == "v1_aligned"
     assert summary["continuous_restart_attempted"] is True
     assert summary["continuous_restart_result"] == "recovered"
     assert summary["a3_allowed"] is False
+
+
+def test_a2_probe_does_not_reject_pressure_gate_source_before_gate_reached(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["point_results"] = []
+        payload["pressure_trace_rows"] = []
+        payload["sample_rows"] = []
+        payload["route_trace_rows"] = [
+            {
+                "timestamp": "2026-04-27T00:00:03+00:00",
+                "action": "co2_route_conditioning_vent_heartbeat_gap",
+                "actual": {
+                    "route_conditioning_phase": "route_conditioning_flush_phase",
+                    "route_conditioning_vent_gap_exceeded": True,
+                    "route_conditioning_vent_gap_exceeded_source": "defer_path_no_reschedule",
+                    "terminal_gap_source": "defer_path_no_reschedule",
+                    "terminal_vent_write_age_ms_at_gap_gate": 4917.728,
+                    "max_vent_pulse_write_gap_ms_including_terminal_gap": 4917.728,
+                    "max_vent_pulse_gap_limit_ms": 1000.0,
+                    "selected_pressure_source_for_conditioning_monitor": "digital_pressure_gauge_continuous",
+                    "selected_pressure_source_for_pressure_gate": "",
+                    "pressure_monitor_nonblocking": True,
+                    "conditioning_monitor_pressure_deferred": True,
+                    "fail_closed_reason": "route_conditioning_vent_gap_exceeded",
+                },
+                "result": "fail",
+            }
+        ]
+        payload["service_summary"] = {
+            "route_conditioning_vent_gap_exceeded": True,
+            "route_conditioning_vent_gap_exceeded_source": "defer_path_no_reschedule",
+            "terminal_gap_source": "defer_path_no_reschedule",
+            "terminal_vent_write_age_ms_at_gap_gate": 4917.728,
+            "max_vent_pulse_write_gap_ms_including_terminal_gap": 4917.728,
+            "max_vent_pulse_gap_limit_ms": 1000.0,
+            "selected_pressure_source_for_conditioning_monitor": "digital_pressure_gauge_continuous",
+            "selected_pressure_source_for_pressure_gate": "",
+            "pressure_monitor_nonblocking": True,
+            "conditioning_monitor_pressure_deferred": True,
+        }
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_gate_not_reached",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert "a2_route_conditioning_vent_gap_exceeded" in summary["rejection_reasons"]
+    assert "a2_4_pressure_source_not_v1_aligned" not in summary["rejection_reasons"]
+    assert "a2_pressure_gate_source_not_v1_aligned" not in summary["rejection_reasons"]
+    assert summary["conditioning_monitor_pressure_source_allowed"] is True
+    assert summary["pressure_gate_reached"] is False
+    assert summary["pressure_gate_not_reached_reason"] == "route_conditioning_fail_closed"
+    assert summary["pressure_gate_source_required"] == "v1_aligned"
+    assert summary["pressure_gate_source_observed"] == ""
+    assert summary["pressure_gate_source_alignment_ready"] is False
+    assert summary["pressure_gate_source_alignment_reasons"] == []
+
+
+def test_a2_probe_rejects_non_v1_aligned_source_only_after_pressure_gate_reached(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["service_summary"] = {
+            "selected_pressure_source_for_conditioning_monitor": "digital_pressure_gauge_continuous",
+            "selected_pressure_source_for_pressure_gate": "digital_pressure_gauge_continuous",
+        }
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_bad_gate_source",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["pressure_gate_reached"] is True
+    assert summary["conditioning_monitor_pressure_source_allowed"] is True
+    assert summary["pressure_gate_source_observed"] == "digital_pressure_gauge_continuous"
+    assert summary["pressure_gate_source_alignment_ready"] is False
+    assert summary["pressure_gate_source_alignment_reasons"] == ["pressure_gate_source_not_v1_aligned"]
+    assert "a2_pressure_gate_source_not_v1_aligned" in summary["rejection_reasons"]
+    assert "a2_4_pressure_source_not_v1_aligned" not in summary["rejection_reasons"]
 
 
 def test_a2_probe_fails_closed_on_route_conditioning_vent_gap_gate(tmp_path: Path) -> None:
@@ -668,7 +785,15 @@ def test_a2_probe_fails_closed_on_route_conditioning_vent_gap_gate(tmp_path: Pat
             "max_vent_pulse_gap_ms": 11438.41,
             "terminal_vent_write_age_ms_at_gap_gate": 2218.567,
             "max_vent_pulse_write_gap_ms_including_terminal_gap": 11438.41,
-            "route_conditioning_vent_gap_exceeded_source": "terminal_gap",
+            "route_conditioning_vent_gap_exceeded_source": "defer_path_no_reschedule",
+            "terminal_gap_source": "defer_path_no_reschedule",
+            "terminal_gap_operation": "selected_pressure_sample_stale",
+            "terminal_gap_duration_ms": 2218.567,
+            "defer_returned_to_vent_loop": False,
+            "defer_to_next_vent_loop_ms": 2218.567,
+            "terminal_gap_after_defer": True,
+            "terminal_gap_after_defer_ms": 2218.567,
+            "defer_path_no_reschedule": True,
             "max_vent_pulse_gap_limit_ms": 1000.0,
             "vent_scheduler_tick_count": 20,
             "vent_scheduler_loop_gap_ms": [100.0, 100.0],
@@ -708,7 +833,11 @@ def test_a2_probe_fails_closed_on_route_conditioning_vent_gap_gate(tmp_path: Pat
     assert summary["max_vent_pulse_gap_ms"] == 11438.41
     assert summary["terminal_vent_write_age_ms_at_gap_gate"] == 2218.567
     assert summary["max_vent_pulse_write_gap_ms_including_terminal_gap"] == 11438.41
-    assert summary["route_conditioning_vent_gap_exceeded_source"] == "terminal_gap"
+    assert summary["route_conditioning_vent_gap_exceeded_source"] == "defer_path_no_reschedule"
+    assert summary["terminal_gap_source"] == "defer_path_no_reschedule"
+    assert summary["terminal_gap_operation"] == "selected_pressure_sample_stale"
+    assert summary["terminal_gap_after_defer"] is True
+    assert summary["defer_path_no_reschedule"] is True
     assert summary["max_vent_pulse_gap_limit_ms"] == 1000.0
     assert summary["vent_scheduler_tick_count"] == 20
     assert summary["route_open_to_first_vent_ms"] == 998.0

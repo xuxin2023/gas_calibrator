@@ -2434,6 +2434,32 @@ def _build_co2_route_conditioning_evidence(
             "route_conditioning_vent_gap_exceeded_source",
             "",
         ),
+        "terminal_gap_source": latest_state_value("terminal_gap_source", ""),
+        "terminal_gap_operation": latest_state_value("terminal_gap_operation", ""),
+        "terminal_gap_duration_ms": latest_state_value("terminal_gap_duration_ms"),
+        "terminal_gap_started_at": latest_state_value("terminal_gap_started_at", ""),
+        "terminal_gap_detected_at": latest_state_value("terminal_gap_detected_at", ""),
+        "terminal_gap_stack_marker": latest_state_value("terminal_gap_stack_marker", ""),
+        "defer_returned_to_vent_loop": bool(latest_state_value("defer_returned_to_vent_loop", False)),
+        "defer_to_next_vent_loop_ms": latest_state_value("defer_to_next_vent_loop_ms"),
+        "vent_tick_after_defer_ms": latest_state_value("vent_tick_after_defer_ms"),
+        "terminal_gap_after_defer": bool(latest_state_value("terminal_gap_after_defer", False)),
+        "terminal_gap_after_defer_ms": latest_state_value("terminal_gap_after_defer_ms"),
+        "defer_path_no_reschedule": bool(latest_state_value("defer_path_no_reschedule", False)),
+        "fail_closed_path_started": bool(latest_state_value("fail_closed_path_started", False)),
+        "fail_closed_path_started_while_route_open": bool(
+            latest_state_value("fail_closed_path_started_while_route_open", False)
+        ),
+        "fail_closed_path_vent_maintenance_required": bool(
+            latest_state_value("fail_closed_path_vent_maintenance_required", False)
+        ),
+        "fail_closed_path_vent_maintenance_active": bool(
+            latest_state_value("fail_closed_path_vent_maintenance_active", False)
+        ),
+        "fail_closed_path_duration_ms": latest_state_value("fail_closed_path_duration_ms"),
+        "fail_closed_path_blocked_vent_scheduler": bool(
+            latest_state_value("fail_closed_path_blocked_vent_scheduler", False)
+        ),
         "route_open_high_frequency_vent_phase_started": bool(
             latest_state_value("route_open_high_frequency_vent_phase_started", False)
         ),
@@ -4511,6 +4537,32 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             ),
             "route_conditioning_vent_gap_exceeded_source": co2_route_conditioning_payload.get(
                 "route_conditioning_vent_gap_exceeded_source"
+            ),
+            "terminal_gap_source": co2_route_conditioning_payload.get("terminal_gap_source"),
+            "terminal_gap_operation": co2_route_conditioning_payload.get("terminal_gap_operation"),
+            "terminal_gap_duration_ms": co2_route_conditioning_payload.get("terminal_gap_duration_ms"),
+            "terminal_gap_started_at": co2_route_conditioning_payload.get("terminal_gap_started_at"),
+            "terminal_gap_detected_at": co2_route_conditioning_payload.get("terminal_gap_detected_at"),
+            "terminal_gap_stack_marker": co2_route_conditioning_payload.get("terminal_gap_stack_marker"),
+            "defer_returned_to_vent_loop": co2_route_conditioning_payload.get("defer_returned_to_vent_loop"),
+            "defer_to_next_vent_loop_ms": co2_route_conditioning_payload.get("defer_to_next_vent_loop_ms"),
+            "vent_tick_after_defer_ms": co2_route_conditioning_payload.get("vent_tick_after_defer_ms"),
+            "terminal_gap_after_defer": co2_route_conditioning_payload.get("terminal_gap_after_defer"),
+            "terminal_gap_after_defer_ms": co2_route_conditioning_payload.get("terminal_gap_after_defer_ms"),
+            "defer_path_no_reschedule": co2_route_conditioning_payload.get("defer_path_no_reschedule"),
+            "fail_closed_path_started": co2_route_conditioning_payload.get("fail_closed_path_started"),
+            "fail_closed_path_started_while_route_open": co2_route_conditioning_payload.get(
+                "fail_closed_path_started_while_route_open"
+            ),
+            "fail_closed_path_vent_maintenance_required": co2_route_conditioning_payload.get(
+                "fail_closed_path_vent_maintenance_required"
+            ),
+            "fail_closed_path_vent_maintenance_active": co2_route_conditioning_payload.get(
+                "fail_closed_path_vent_maintenance_active"
+            ),
+            "fail_closed_path_duration_ms": co2_route_conditioning_payload.get("fail_closed_path_duration_ms"),
+            "fail_closed_path_blocked_vent_scheduler": co2_route_conditioning_payload.get(
+                "fail_closed_path_blocked_vent_scheduler"
             ),
             "route_open_high_frequency_vent_phase_started": co2_route_conditioning_payload.get(
                 "route_open_high_frequency_vent_phase_started"

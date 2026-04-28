@@ -29,7 +29,7 @@ A2_ENV_VALUE = "1"
 A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
 A2_ALLOWED_PRESSURE_POINTS_HPA = (1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
 A2_EVIDENCE_MARKERS = {
-    "evidence_source": "real_probe_a2_7_co2_7_pressure_no_write",
+    "evidence_source": "real_probe_a2_8_co2_7_pressure_no_write",
     "legacy_evidence_source": "real_probe_a2_5_co2_7_pressure_no_write",
     "acceptance_level": "engineering_probe_only",
     "not_real_acceptance_evidence": True,
@@ -929,6 +929,15 @@ def _a2_3_pressure_source_strategy(raw_cfg: Mapping[str, Any]) -> str:
     return value if value in {"v1_aligned", "continuous", "p3_fast_poll", "auto"} else "continuous"
 
 
+def _pressure_gate_source_is_v1_aligned(source: Any) -> bool:
+    text = str(source or "").strip().lower()
+    if not text:
+        return False
+    if text in {"v1_aligned", "digital_pressure_gauge_p3", "digital_pressure_gauge_p3_fast_poll"}:
+        return True
+    return bool("digital_pressure_gauge" in text and "p3" in text)
+
+
 def _sample_count_by_pressure(sample_rows: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in sample_rows:
@@ -1512,8 +1521,77 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         a2_4_temperature_skip_requested
         or str(admission.operator_confirmation.get("pressure_source") or "").strip().lower() == "v1_aligned"
     )
-    if a2_4_probe_required and a2_3_strategy != "v1_aligned":
-        rejection_reasons.append("a2_4_pressure_source_not_v1_aligned")
+    conditioning_monitor_source = str(
+        metric_or_summary("selected_pressure_source_for_conditioning_monitor") or ""
+    ).strip()
+    pressure_gate_source_observed = str(
+        metric_or_summary("selected_pressure_source_for_pressure_gate") or ""
+    ).strip()
+    if not pressure_gate_source_observed:
+        for point in reversed(point_results):
+            if not isinstance(point, Mapping):
+                continue
+            if not (
+                _as_bool(point.get("point_completed")) is True
+                or int(point.get("sample_count") or 0) > 0
+                or point.get("pressure_gauge_hpa_before_ready") not in (None, "")
+                or point.get("pressure_gauge_hpa_before_sample") not in (None, "")
+            ):
+                continue
+            pressure_gate_source_observed = str(
+                point.get("selected_pressure_source")
+                or point.get("pressure_source_selected")
+                or point.get("pressure_freshness_decision_source")
+                or ""
+            ).strip()
+            if pressure_gate_source_observed:
+                break
+    conditioning_monitor_pressure_source_allowed = bool(
+        not conditioning_monitor_source
+        or conditioning_monitor_source == "digital_pressure_gauge_continuous"
+        or _pressure_gate_source_is_v1_aligned(conditioning_monitor_source)
+    )
+    pressure_gate_evidence_present = bool(
+        pressure_gate_source_observed
+        or any(
+            _as_bool(point.get("point_completed")) is True
+            or int(point.get("sample_count") or 0) > 0
+            or point.get("pressure_gauge_hpa_before_ready") not in (None, "")
+            or point.get("pressure_gauge_hpa_before_sample") not in (None, "")
+            for point in point_results
+        )
+    )
+    route_conditioning_fail_closed = bool(
+        pressure_points_completed == 0
+        and (
+            route_conditioning_pressure_overlimit
+            or route_conditioning_vent_gap_exceeded
+            or route_conditioning_fast_vent_timeout
+            or route_conditioning_fast_vent_not_supported
+            or route_conditioning_diagnostic_blocked
+            or route_open_transition_blocked
+            or route_open_settle_wait_blocked
+            or route_conditioning_vent_command_failed
+            or unsafe_flush_action_seen
+            or unsafe_vent_command_sent
+            or vent_blocked_after_flush
+        )
+    )
+    pressure_gate_reached = bool(pressure_gate_evidence_present and not route_conditioning_fail_closed)
+    pressure_gate_not_reached_reason = ""
+    if not pressure_gate_reached:
+        pressure_gate_not_reached_reason = "route_conditioning_fail_closed" if route_conditioning_fail_closed else ""
+    pressure_gate_source_required = "v1_aligned" if a2_4_probe_required else ""
+    pressure_gate_source_alignment_reasons: list[str] = []
+    pressure_gate_source_alignment_ready: Optional[bool] = None
+    if a2_4_probe_required:
+        if pressure_gate_reached:
+            pressure_gate_source_alignment_ready = _pressure_gate_source_is_v1_aligned(pressure_gate_source_observed)
+            if not pressure_gate_source_alignment_ready:
+                pressure_gate_source_alignment_reasons.append("pressure_gate_source_not_v1_aligned")
+                rejection_reasons.append("a2_pressure_gate_source_not_v1_aligned")
+        else:
+            pressure_gate_source_alignment_ready = False
     if a2_4_temperature_skip_requested and not temperature_stabilization_wait_skipped:
         rejection_reasons.append("a2_4_temperature_stabilization_wait_not_skipped")
     if a2_4_temperature_skip_requested and temperature_gate_mode != "current_pv_engineering_probe":
@@ -1630,8 +1708,14 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             "selected_pressure_source_for_conditioning_monitor"
         )
         or "",
-        "selected_pressure_source_for_pressure_gate": metric_or_summary("selected_pressure_source_for_pressure_gate")
-        or "",
+        "selected_pressure_source_for_pressure_gate": pressure_gate_source_observed,
+        "conditioning_monitor_pressure_source_allowed": conditioning_monitor_pressure_source_allowed,
+        "pressure_gate_reached": pressure_gate_reached,
+        "pressure_gate_not_reached_reason": pressure_gate_not_reached_reason,
+        "pressure_gate_source_required": pressure_gate_source_required,
+        "pressure_gate_source_observed": pressure_gate_source_observed,
+        "pressure_gate_source_alignment_ready": pressure_gate_source_alignment_ready,
+        "pressure_gate_source_alignment_reasons": pressure_gate_source_alignment_reasons,
         "a2_conditioning_pressure_source_strategy": metric_or_summary(
             "a2_conditioning_pressure_source_strategy",
             "a2_conditioning_pressure_source",
@@ -1790,6 +1874,36 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             "route_conditioning_vent_gap_exceeded_source"
         )
         or "",
+        "terminal_gap_source": metric_or_summary("terminal_gap_source") or "",
+        "terminal_gap_operation": metric_or_summary("terminal_gap_operation") or "",
+        "terminal_gap_duration_ms": metric_or_summary("terminal_gap_duration_ms"),
+        "terminal_gap_started_at": metric_or_summary("terminal_gap_started_at") or "",
+        "terminal_gap_detected_at": metric_or_summary("terminal_gap_detected_at") or "",
+        "terminal_gap_stack_marker": metric_or_summary("terminal_gap_stack_marker") or "",
+        "defer_returned_to_vent_loop": _as_bool(metric_or_summary("defer_returned_to_vent_loop")) is True,
+        "defer_to_next_vent_loop_ms": metric_or_summary("defer_to_next_vent_loop_ms"),
+        "vent_tick_after_defer_ms": metric_or_summary("vent_tick_after_defer_ms"),
+        "terminal_gap_after_defer": _as_bool(metric_or_summary("terminal_gap_after_defer")) is True,
+        "terminal_gap_after_defer_ms": metric_or_summary("terminal_gap_after_defer_ms"),
+        "defer_path_no_reschedule": _as_bool(metric_or_summary("defer_path_no_reschedule")) is True,
+        "fail_closed_path_started": _as_bool(metric_or_summary("fail_closed_path_started")) is True,
+        "fail_closed_path_started_while_route_open": _as_bool(
+            metric_or_summary("fail_closed_path_started_while_route_open")
+        )
+        is True,
+        "fail_closed_path_vent_maintenance_required": _as_bool(
+            metric_or_summary("fail_closed_path_vent_maintenance_required")
+        )
+        is True,
+        "fail_closed_path_vent_maintenance_active": _as_bool(
+            metric_or_summary("fail_closed_path_vent_maintenance_active")
+        )
+        is True,
+        "fail_closed_path_duration_ms": metric_or_summary("fail_closed_path_duration_ms"),
+        "fail_closed_path_blocked_vent_scheduler": _as_bool(
+            metric_or_summary("fail_closed_path_blocked_vent_scheduler")
+        )
+        is True,
         "route_open_high_frequency_vent_phase_started": _as_bool(
             metric_or_summary("route_open_high_frequency_vent_phase_started")
         )
