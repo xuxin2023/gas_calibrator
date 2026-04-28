@@ -165,6 +165,7 @@ class _QueuedPressureGauge:
         self.continuous_sequence_id = 0
         self.blocking_read_count = 0
         self.continuous_read_count = 0
+        self.continuous_return_none = False
 
     def read_pressure_hpa(self) -> float:
         self.blocking_read_count += 1
@@ -182,8 +183,14 @@ class _QueuedPressureGauge:
             self.continuous_sequence_id = 0
         return True
 
+    def stop_pressure_continuous(self) -> bool:
+        self.continuous_active = False
+        return True
+
     def read_pressure_continuous_latest(self, drain_s: float = 0.0, read_timeout_s: float = 0.0) -> dict:
         self.continuous_read_count += 1
+        if self.continuous_return_none:
+            return None
         if self.values:
             self.last = float(self.values.pop(0))
         self.continuous_sequence_id += 1
@@ -603,6 +610,85 @@ def test_a2_critical_window_blocking_digital_query_is_counted() -> None:
     assert any(event["event_name"] == "critical_window_blocking_query" for event in host._recorded_timing)
 
 
+def test_a2_conditioning_continuous_stream_stale_restart_recovers_fresh_frame() -> None:
+    service, host, _controller, _status = _positive_preseal_service(
+        [1019.5],
+        cfg_overrides={
+            "workflow.pressure.a2_conditioning_restart_continuous_on_stale": True,
+            "workflow.pressure.a2_conditioning_continuous_restart_fresh_timeout_s": 0.2,
+            "workflow.pressure.pace_aux_enabled": False,
+        },
+    )
+    _seed_digital_stream_latest(service, 1018.0, age_s=1.0, sequence=3)
+
+    try:
+        sample = service._current_high_pressure_first_point_sample(
+            stage="co2_route_conditioning_at_atmosphere",
+            point_index=1,
+        )
+    finally:
+        stop_event = getattr(service, "_digital_gauge_continuous_stop_event", None)
+        if stop_event is not None:
+            stop_event.set()
+
+    gauge = host._device("pressure_gauge")
+    assert sample["pressure_sample_is_stale"] is False
+    assert sample["continuous_restart_attempted"] is True
+    assert sample["continuous_restart_result"] == "recovered"
+    assert sample["pressure_source_used_for_abort"] == "digital_pressure_gauge_continuous"
+    assert gauge.continuous_read_count >= 1
+    assert any(event["event_name"] == "digital_gauge_stream_restart_result" for event in host._recorded_timing)
+
+
+def test_a2_conditioning_continuous_stream_stale_restart_failure_stays_fail_closed() -> None:
+    service, host, _controller, _status = _positive_preseal_service(
+        [],
+        cfg_overrides={
+            "workflow.pressure.a2_conditioning_restart_continuous_on_stale": True,
+            "workflow.pressure.a2_conditioning_continuous_restart_fresh_timeout_s": 0.05,
+            "workflow.pressure.digital_gauge_stream_first_frame_timeout_s": 0.05,
+            "workflow.pressure.pace_aux_enabled": False,
+        },
+    )
+    gauge = host._device("pressure_gauge")
+    gauge.continuous_return_none = True
+    _seed_digital_stream_latest(service, 1018.0, age_s=1.0, sequence=3)
+
+    try:
+        sample = service._current_high_pressure_first_point_sample(
+            stage="co2_route_conditioning_at_atmosphere",
+            point_index=1,
+        )
+    finally:
+        stop_event = getattr(service, "_digital_gauge_continuous_stop_event", None)
+        if stop_event is not None:
+            stop_event.set()
+
+    assert sample["pressure_sample_is_stale"] is True
+    assert sample["continuous_restart_attempted"] is True
+    assert sample["continuous_restart_result"] == "failed"
+    assert sample["pressure_source_used_for_abort"] == ""
+    assert any(
+        event["event_name"] == "digital_gauge_stream_restart_result" and event["event_type"] == "fail"
+        for event in host._recorded_timing
+    )
+
+
+def test_a2_conditioning_p3_query_while_continuous_active_is_marked_as_may_cancel() -> None:
+    service, host, _controller, _status = _positive_preseal_service([1010.2])
+    _seed_digital_stream_latest(service, 1010.0, age_s=0.1, sequence=2)
+
+    sample = service._pressure_sample_from_device("digital_pressure_gauge")
+    snapshot = service.digital_gauge_continuous_stream_snapshot()
+
+    assert sample["pressure_hpa"] == 1010.2
+    assert sample["last_pressure_command"] == "read_pressure_hpa"
+    assert sample["last_pressure_command_may_cancel_continuous"] is True
+    assert sample["continuous_interrupted_by_command"] is True
+    assert snapshot["continuous_interrupted_by_command"] is True
+    assert any(event["event_name"] == "digital_gauge_continuous_command_may_cancel" for event in host._recorded_timing)
+
+
 def test_a2_high_pressure_first_point_mode_enables_when_1100_exceeds_ambient() -> None:
     orchestrator, timing_events, route_traces, remembered = _high_pressure_orchestrator(
         _high_pressure_sample(1009.0)
@@ -816,22 +902,30 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
 
     def sample(**kwargs):
         frame = next_frame()
-        pressure = float(frame["pressure_hpa"])
+        pressure_raw = frame.get("pressure_hpa")
+        pressure = None if pressure_raw is None else float(pressure_raw)
         age = float(frame.get("age_s", 0.1))
         sequence = int(frame.get("sequence_id", 1))
+        extra = {
+            key: value
+            for key, value in frame.items()
+            if key not in {"pressure_hpa", "age_s", "sequence_id"}
+        }
+        parse_ok = bool(extra.get("parse_ok", pressure is not None))
         digital = {
             "pressure_hpa": pressure,
             "source": "digital_pressure_gauge_continuous",
             "pressure_sample_source": "digital_pressure_gauge_continuous",
             "sample_age_s": age,
             "pressure_sample_age_s": age,
-            "is_stale": False,
-            "pressure_sample_is_stale": False,
+            "is_stale": bool(extra.get("is_stale", False)),
+            "pressure_sample_is_stale": bool(extra.get("pressure_sample_is_stale", extra.get("is_stale", False))),
             "sequence_id": sequence,
             "pressure_sample_sequence_id": sequence,
             "latest_frame_age_s": age,
             "latest_frame_sequence_id": sequence,
-            "parse_ok": True,
+            "parse_ok": parse_ok,
+            **extra,
         }
         return {
             **digital,
@@ -841,26 +935,64 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
             "digital_gauge_pressure_sample": dict(digital),
             "digital_gauge_pressure_hpa": pressure,
             "digital_gauge_age_s": age,
-            "digital_gauge_stale": False,
+            "digital_gauge_stale": bool(digital.get("is_stale")),
             "critical_window_uses_latest_frame": True,
             "critical_window_uses_query": False,
         }
 
-    def snapshot() -> dict:
-        frame = dict(last_frame)
-        pressure = float(frame["pressure_hpa"])
+    def direct_sample(source: str) -> dict:
+        frame = next_frame()
+        pressure_raw = frame.get("pressure_hpa")
+        pressure = None if pressure_raw is None else float(pressure_raw)
         age = float(frame.get("age_s", 0.1))
         sequence = int(frame.get("sequence_id", 1))
+        extra = {
+            key: value
+            for key, value in frame.items()
+            if key not in {"pressure_hpa", "age_s", "sequence_id"}
+        }
+        stale = bool(extra.get("is_stale", extra.get("pressure_sample_is_stale", False)))
+        parse_ok = bool(extra.get("parse_ok", pressure is not None))
+        return {
+            "pressure_hpa": pressure,
+            "source": source,
+            "pressure_sample_source": source,
+            "sample_age_s": age,
+            "pressure_sample_age_s": age,
+            "is_stale": stale,
+            "pressure_sample_is_stale": stale,
+            "sequence_id": sequence,
+            "pressure_sample_sequence_id": sequence,
+            "read_latency_s": extra.get("read_latency_s", 0.05),
+            "raw_response": extra.get("raw_response", "" if pressure is None else f"{pressure:.3f}"),
+            "parse_ok": parse_ok,
+            "error": extra.get("error", "" if parse_ok else "pressure_read_failed"),
+            **extra,
+        }
+
+    def snapshot() -> dict:
+        frame = dict(last_frame)
+        pressure_raw = frame.get("pressure_hpa")
+        pressure = None if pressure_raw is None else float(pressure_raw)
+        age = float(frame.get("age_s", 0.1))
+        sequence = int(frame.get("sequence_id", 1))
+        extra = {
+            key: value
+            for key, value in frame.items()
+            if key not in {"pressure_hpa", "age_s", "sequence_id"}
+        }
         return {
             "stream_frame_count": sequence,
             "latest_frame_age_s": age,
             "latest_frame_sequence_id": sequence,
-            "latest_frame_stale": False,
+            "latest_frame_stale": bool(extra.get("is_stale", False)),
+            **extra,
             "latest_frame": {
                 "pressure_hpa": pressure,
                 "sample_age_s": age,
                 "sequence_id": sequence,
                 "latest_frame_interval_s": 0.1,
+                **extra,
             },
         }
 
@@ -875,6 +1007,7 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
         or {"output_state": 0, "isolation_state": 1, "vent_status_raw": 1},
         digital_gauge_continuous_stream_snapshot=snapshot,
         _current_high_pressure_first_point_sample=sample,
+        _pressure_sample_from_device=direct_sample,
     )
     point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
     orchestrator._a2_co2_route_conditioning_at_atmosphere_active = True
@@ -977,6 +1110,76 @@ def test_co2_conditioning_gauge_sequence_stop_fails_inside_conditioning(monkeypa
     assert context["fail_closed_before_vent_off"] is True
     assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
     assert any(event["event_name"] == "co2_route_conditioning_stream_stale" for event in timing_events)
+
+
+def test_co2_conditioning_p3_interruption_without_restart_blocks_vent_off_and_seal(monkeypatch) -> None:
+    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {
+                "pressure_hpa": 1009.0,
+                "age_s": 0.1,
+                "sequence_id": 4,
+                "continuous_interrupted_by_command": True,
+                "continuous_restart_attempted": False,
+                "continuous_restart_result": "",
+            }
+        ],
+    )
+
+    with pytest.raises(WorkflowValidationError):
+        orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["continuous_interrupted_by_command"] is True
+    assert context["continuous_restart_result"] == ""
+    assert context["fail_closed_before_vent_off"] is True
+    assert context["vent_off_sent_at"] == ""
+    assert context["seal_command_sent"] is False
+    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+
+
+def test_co2_conditioning_p3_fast_poll_fresh_read_passes_freshness_gate(monkeypatch) -> None:
+    orchestrator, point, _clock, timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.0, "sequence_id": 8, "raw_response": "1009.000"}],
+        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "p3_fast_poll"},
+    )
+
+    tick = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+
+    assert tick["pressure_source_selected"] == "digital_pressure_gauge_p3_fast_poll"
+    assert tick["pressure_source_selection_reason"] == "a2_conditioning_p3_fast_poll_config"
+    assert tick["digital_gauge_stream_stale"] is False
+    assert tick["whether_safe_to_continue"] is True
+    assert route_traces == []
+    assert any(event["event_name"] == "co2_route_conditioning_pressure_sample" for event in timing_events)
+
+
+def test_co2_conditioning_p3_fast_poll_unfresh_read_fails_closed(monkeypatch) -> None:
+    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {
+                "pressure_hpa": None,
+                "age_s": 0.0,
+                "sequence_id": 1,
+                "parse_ok": False,
+                "error": "p3_fast_poll_no_pressure_frame",
+            }
+        ],
+        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "p3_fast_poll"},
+    )
+
+    with pytest.raises(WorkflowValidationError):
+        orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["pressure_source_selected"] == "digital_pressure_gauge_p3_fast_poll"
+    assert context["fail_closed_before_vent_off"] is True
+    assert context["vent_off_sent_at"] == ""
+    assert context["seal_command_sent"] is False
+    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
 
 
 def test_co2_runner_conditioning_fail_closed_does_not_vent_off_seal_or_sample() -> None:

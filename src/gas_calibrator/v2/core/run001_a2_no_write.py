@@ -128,10 +128,26 @@ PRESSURE_READ_LATENCY_SAMPLE_FIELDS = [
     "source_disagreement_hpa",
     "source_disagreement_warning",
     "digital_gauge_mode",
+    "digital_gauge_continuous_mode",
+    "digital_gauge_continuous_started",
     "digital_gauge_continuous_active",
+    "digital_gauge_stream_first_frame_at",
+    "digital_gauge_stream_last_frame_at",
+    "digital_gauge_stream_stale",
+    "digital_gauge_stream_stale_threshold_s",
+    "digital_gauge_drain_empty_count",
+    "digital_gauge_drain_nonempty_count",
     "latest_frame_age_s",
     "latest_frame_interval_s",
     "latest_frame_sequence_id",
+    "digital_gauge_latest_sequence_id",
+    "last_pressure_command",
+    "last_pressure_command_may_cancel_continuous",
+    "continuous_interrupted_by_command",
+    "continuous_restart_attempted",
+    "continuous_restart_result",
+    "pressure_source_selected",
+    "pressure_source_selection_reason",
     "critical_window_blocking_query_count",
     "critical_window_blocking_query_total_s",
     "critical_window_uses_latest_frame",
@@ -1932,6 +1948,18 @@ def _build_co2_route_conditioning_evidence(
         in {"co2_route_conditioning_vent_heartbeat_gap", "co2_route_conditioning_route_open_first_vent_gap"}
         for event, state in zip(all_conditioning_events, all_conditioning_states)
     )
+    stream_state_at_start = start_state.get("stream_state_at_start")
+    stream_state_at_start = stream_state_at_start if isinstance(stream_state_at_start, Mapping) else {}
+
+    def latest_state_value(key: str, default: Any = None) -> Any:
+        for state in [terminal_state, end_state] + list(reversed(all_conditioning_states)) + [start_state]:
+            if key not in state:
+                continue
+            value = state.get(key)
+            if value is not None and value != "":
+                return value
+        return default
+
     sealed_during_conditioning = bool(timing.get("sealed_during_conditioning"))
     if not sealed_during_conditioning and seal_event and start_event:
         seal_time = event_time(seal_event)
@@ -1969,13 +1997,68 @@ def _build_co2_route_conditioning_evidence(
         if timing.get("co2_route_conditioning_pressure_min_hpa") is not None
         else (min(pressure_values) if pressure_values else None),
         "pressure_source": start_state.get("pressure_source") or "digital_pressure_gauge_continuous",
+        "digital_gauge_continuous_mode": latest_state_value(
+            "digital_gauge_continuous_mode",
+            stream_state_at_start.get("digital_gauge_continuous_mode"),
+        ),
+        "digital_gauge_continuous_started": bool(
+            latest_state_value("digital_gauge_continuous_started", stream_state_at_start.get("stream_started_at"))
+        ),
+        "digital_gauge_continuous_active": bool(
+            latest_state_value(
+                "digital_gauge_continuous_active",
+                stream_state_at_start.get("digital_gauge_continuous_active"),
+            )
+        ),
+        "digital_gauge_stream_first_frame_at": latest_state_value(
+            "digital_gauge_stream_first_frame_at",
+            stream_state_at_start.get("stream_first_frame_at"),
+        ),
+        "digital_gauge_stream_last_frame_at": latest_state_value(
+            "digital_gauge_stream_last_frame_at",
+            stream_state_at_start.get("stream_last_frame_at"),
+        ),
+        "digital_gauge_stream_stale": bool(latest_state_value("digital_gauge_stream_stale", stream_stale_seen)),
+        "digital_gauge_stream_stale_threshold_s": latest_state_value(
+            "digital_gauge_stream_stale_threshold_s",
+            latest_state_value("digital_gauge_max_age_s"),
+        ),
+        "digital_gauge_drain_empty_count": latest_state_value(
+            "digital_gauge_drain_empty_count",
+            stream_state_at_start.get("digital_gauge_drain_empty_count", 0),
+        ),
+        "digital_gauge_drain_nonempty_count": latest_state_value(
+            "digital_gauge_drain_nonempty_count",
+            stream_state_at_start.get("digital_gauge_drain_nonempty_count", 0),
+        ),
         "latest_frame_age_max_s": end_state.get("latest_frame_age_max_s")
         if end_state.get("latest_frame_age_max_s") is not None
         else (max(latest_frame_ages) if latest_frame_ages else None),
         "digital_gauge_latest_age_s": terminal_state.get("digital_gauge_latest_age_s")
         if terminal_state.get("digital_gauge_latest_age_s") is not None
         else (latest_age_candidates[-1] if latest_age_candidates else None),
+        "digital_gauge_latest_sequence_id": latest_state_value(
+            "digital_gauge_latest_sequence_id",
+            latest_state_value("latest_frame_sequence_id"),
+        ),
         "digital_gauge_sequence_progress": digital_gauge_sequence_progress,
+        "last_pressure_command": latest_state_value("last_pressure_command"),
+        "last_pressure_command_may_cancel_continuous": bool(
+            latest_state_value("last_pressure_command_may_cancel_continuous", False)
+        ),
+        "continuous_interrupted_by_command": bool(
+            latest_state_value("continuous_interrupted_by_command", False)
+        ),
+        "continuous_restart_attempted": bool(latest_state_value("continuous_restart_attempted", False)),
+        "continuous_restart_result": latest_state_value("continuous_restart_result", ""),
+        "pressure_source_selected": latest_state_value(
+            "pressure_source_selected",
+            start_state.get("pressure_source_selected"),
+        ),
+        "pressure_source_selection_reason": latest_state_value(
+            "pressure_source_selection_reason",
+            start_state.get("pressure_source_selection_reason"),
+        ),
         "conditioning_pressure_abort_hpa": (
             terminal_state.get("conditioning_pressure_abort_hpa")
             or end_state.get("conditioning_pressure_abort_hpa")
