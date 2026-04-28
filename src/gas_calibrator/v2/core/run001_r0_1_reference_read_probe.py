@@ -78,7 +78,7 @@ R0_1_REQUIRED_FALSE_ACKS = ["real_primary_latest_refresh"]
 
 
 def load_json_mapping(path: str | Path) -> dict[str, Any]:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     if not isinstance(payload, Mapping):
         raise ValueError(f"JSON payload must be an object: {path}")
     return dict(payload)

@@ -292,15 +292,7 @@ def _load_prereq_summary(output_dir: str | Path, *, expected_source: str = "") -
 
 
 def _load_json_mapping_accept_bom(path: str | Path) -> dict[str, Any]:
-    try:
-        return load_json_mapping(path)
-    except json.JSONDecodeError as exc:
-        if "utf-8-sig" not in str(exc).lower() and "bom" not in str(exc).lower():
-            raise
-    payload = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    if not isinstance(payload, Mapping):
-        raise TypeError("JSON payload must be an object")
-    return dict(payload)
+    return load_json_mapping(path)
 
 
 def _validate_operator_confirmation(

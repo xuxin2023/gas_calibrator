@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 from typing import Any, Mapping
+
+import pytest
 
 from gas_calibrator.v2.core.run001_a2_co2_only_7_pressure_no_write_probe import (
     A2_ALLOWED_PRESSURE_POINTS_HPA,
@@ -10,10 +13,13 @@ from gas_calibrator.v2.core.run001_a2_co2_only_7_pressure_no_write_probe import 
     evaluate_a2_co2_7_pressure_no_write_gate,
     write_a2_co2_7_pressure_no_write_probe_artifacts,
 )
+from gas_calibrator.v2.core.run001_r1_conditioning_only_probe import load_json_mapping
+from gas_calibrator.v2.scripts.run001_a2_co2_only_7_pressure_no_write_probe import main as a2_probe_main
 
 
 BRANCH = "codex/run001-a1-no-write-dry-run"
 HEAD = "134a68188e9a3c53d720efccdb1b6de3cc0703e2"
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _write_a1r_prereq(tmp_path: Path, extra: dict[str, Any] | None = None) -> Path:
@@ -143,6 +149,68 @@ def _config_and_operator(tmp_path: Path) -> tuple[dict[str, Any], Path, Path]:
     config_path.write_text(json.dumps(config), encoding="utf-8")
     op_path = _operator_confirmation(tmp_path, config_path, config)
     return config, config_path, op_path
+
+
+def test_load_json_mapping_accepts_utf8_json_without_bom(tmp_path: Path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+    assert load_json_mapping(path) == {"ok": True}
+
+
+def test_load_json_mapping_accepts_utf8_bom_json(tmp_path: Path) -> None:
+    path = tmp_path / "config_bom.json"
+    path.write_text(json.dumps({"ok": True}), encoding="utf-8-sig")
+
+    assert load_json_mapping(path) == {"ok": True}
+
+
+def test_load_json_mapping_rejects_non_object_json(tmp_path: Path) -> None:
+    path = tmp_path / "list.json"
+    path.write_text(json.dumps([{"ok": True}]), encoding="utf-8-sig")
+
+    with pytest.raises(ValueError, match="JSON payload must be an object"):
+        load_json_mapping(path)
+
+
+def test_load_json_mapping_does_not_swallow_syntax_errors(tmp_path: Path) -> None:
+    path = tmp_path / "broken.json"
+    path.write_text('{"missing": ', encoding="utf-8-sig")
+
+    with pytest.raises(json.JSONDecodeError):
+        load_json_mapping(path)
+
+
+def test_a2_script_accepts_bom_config_before_admission_gate(tmp_path: Path) -> None:
+    config = _base_config(tmp_path)
+    config_path = tmp_path / "config_bom.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8-sig")
+    op_path = _operator_confirmation(tmp_path, config_path, config)
+    output_dir = tmp_path / "a2_bom_config"
+
+    result = a2_probe_main(
+        [
+            "--config",
+            str(config_path),
+            "--operator-confirmation",
+            str(op_path),
+            "--output-dir",
+            str(output_dir),
+            "--branch",
+            BRANCH,
+            "--head",
+            HEAD,
+        ]
+    )
+
+    assert result == 2
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert summary["operator_confirmation_valid"] is True
+    assert summary["a2_pressure_sweep_executed"] is False
+    assert summary["execution_error"] == ""
+    assert not any("invalid_operator_confirmation_json" in reason for reason in summary["rejection_reasons"])
+    assert not any("JSONDecodeError" in reason for reason in summary["rejection_reasons"])
 
 
 def _passing_executor(_config_path: str | Path) -> dict[str, Any]:
@@ -283,6 +351,7 @@ def test_a2_probe_writes_required_artifacts_and_passes_with_complete_points(tmp_
     assert summary["all_pressure_points_have_fresh_pressure_before_sample"] is True
     assert summary["all_pressure_points_have_samples"] is True
     assert summary["a2_1_heartbeat_gap_accounting_fix_present"] is True
+    assert summary["operator_confirmation_valid"] is True
     assert summary["a3_allowed"] is False
     assert summary["attempted_write_count"] == 0
     assert summary["any_write_command_sent"] is False
@@ -290,6 +359,7 @@ def test_a2_probe_writes_required_artifacts_and_passes_with_complete_points(tmp_
     assert summary["mode_switch_command_sent"] is False
     assert summary["senco_write_command_sent"] is False
     assert summary["calibration_write_command_sent"] is False
+    assert summary["chamber_write_register_command_sent"] is False
     assert summary["chamber_set_temperature_command_sent"] is False
     assert summary["chamber_start_command_sent"] is False
     assert summary["chamber_stop_command_sent"] is False
@@ -361,6 +431,62 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     assert summary["continuous_restart_attempted"] is True
     assert summary["continuous_restart_result"] == "recovered"
     assert summary["a3_allowed"] is False
+
+
+@pytest.mark.parametrize(
+    ("field", "reason"),
+    [
+        ("a3_enabled", "config_a3_enabled_not_disabled"),
+        ("h2o_enabled", "config_h2o_enabled_not_disabled"),
+        ("full_group_enabled", "config_full_group_enabled_not_disabled"),
+        ("multi_temperature_enabled", "config_multi_temperature_enabled_not_disabled"),
+    ],
+)
+def test_a2_gate_still_rejects_stage_expansion_after_bom_safe_loader(
+    tmp_path: Path,
+    field: str,
+    reason: str,
+) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    config[field] = True
+    config["a2_co2_7_pressure_no_write_probe"][field] = True
+
+    admission = evaluate_a2_co2_7_pressure_no_write_gate(
+        config,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        config_path=str(config_path),
+    )
+
+    assert admission.approved is False
+    assert reason in admission.reasons
+
+
+def test_run_app_py_untouched_by_a2_bom_safe_loader_change() -> None:
+    result = subprocess.run(
+        ["git", "diff", "--quiet", "--", "run_app.py"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_v1_untouched_by_a2_bom_safe_loader_change() -> None:
+    result = subprocess.run(
+        ["git", "diff", "--quiet", "--", "src/gas_calibrator/v1"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_a2_probe_fails_closed_on_stale_pressure_and_downstream_execution(tmp_path: Path) -> None:
