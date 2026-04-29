@@ -2544,12 +2544,21 @@ def _build_co2_route_conditioning_evidence(
         "terminal_gap_started_at": latest_state_value("terminal_gap_started_at", ""),
         "terminal_gap_detected_at": latest_state_value("terminal_gap_detected_at", ""),
         "terminal_gap_stack_marker": latest_state_value("terminal_gap_stack_marker", ""),
+        "defer_source": latest_state_value("defer_source", ""),
+        "defer_operation": latest_state_value("defer_operation", ""),
+        "defer_started_at": latest_state_value("defer_started_at", ""),
         "defer_returned_to_vent_loop": bool(latest_state_value("defer_returned_to_vent_loop", False)),
         "defer_to_next_vent_loop_ms": latest_state_value("defer_to_next_vent_loop_ms"),
+        "defer_reschedule_requested": bool(latest_state_value("defer_reschedule_requested", False)),
+        "defer_reschedule_completed": bool(latest_state_value("defer_reschedule_completed", False)),
+        "defer_reschedule_reason": latest_state_value("defer_reschedule_reason", ""),
         "vent_tick_after_defer_ms": latest_state_value("vent_tick_after_defer_ms"),
+        "fast_vent_after_defer_sent": bool(latest_state_value("fast_vent_after_defer_sent", False)),
+        "fast_vent_after_defer_write_ms": latest_state_value("fast_vent_after_defer_write_ms"),
         "terminal_gap_after_defer": bool(latest_state_value("terminal_gap_after_defer", False)),
         "terminal_gap_after_defer_ms": latest_state_value("terminal_gap_after_defer_ms"),
         "defer_path_no_reschedule": bool(latest_state_value("defer_path_no_reschedule", False)),
+        "defer_path_no_reschedule_reason": latest_state_value("defer_path_no_reschedule_reason", ""),
         "fail_closed_path_started": bool(latest_state_value("fail_closed_path_started", False)),
         "fail_closed_path_started_while_route_open": bool(
             latest_state_value("fail_closed_path_started_while_route_open", False)
@@ -2583,6 +2592,10 @@ def _build_co2_route_conditioning_evidence(
         "route_open_to_first_pressure_read_ms": latest_state_value("route_open_to_first_pressure_read_ms"),
         "route_open_to_overlimit_ms": latest_state_value("route_open_to_overlimit_ms"),
         "measured_atmospheric_pressure_hpa": latest_state_value("measured_atmospheric_pressure_hpa"),
+        "measured_atmospheric_pressure_source": latest_state_value("measured_atmospheric_pressure_source", ""),
+        "measured_atmospheric_pressure_sample_age_s": latest_state_value(
+            "measured_atmospheric_pressure_sample_age_s"
+        ),
         "route_conditioning_pressure_before_route_open_hpa": latest_state_value(
             "route_conditioning_pressure_before_route_open_hpa"
         ),
@@ -2625,6 +2638,21 @@ def _build_co2_route_conditioning_evidence(
         "route_open_transient_accepted": bool(latest_state_value("route_open_transient_accepted", False)),
         "route_open_transient_rejection_reason": latest_state_value(
             "route_open_transient_rejection_reason",
+            "",
+        ),
+        "route_open_transient_evaluation_state": latest_state_value(
+            "route_open_transient_evaluation_state",
+            "not_started",
+        ),
+        "route_open_transient_interrupted_by_vent_gap": bool(
+            latest_state_value("route_open_transient_interrupted_by_vent_gap", False)
+        ),
+        "route_open_transient_interrupted_reason": latest_state_value(
+            "route_open_transient_interrupted_reason",
+            "",
+        ),
+        "route_open_transient_summary_source": latest_state_value(
+            "route_open_transient_summary_source",
             "",
         ),
         "sustained_pressure_rise_after_route_open": bool(
@@ -4790,12 +4818,23 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "terminal_gap_started_at": co2_route_conditioning_payload.get("terminal_gap_started_at"),
             "terminal_gap_detected_at": co2_route_conditioning_payload.get("terminal_gap_detected_at"),
             "terminal_gap_stack_marker": co2_route_conditioning_payload.get("terminal_gap_stack_marker"),
+            "defer_source": co2_route_conditioning_payload.get("defer_source"),
+            "defer_operation": co2_route_conditioning_payload.get("defer_operation"),
+            "defer_started_at": co2_route_conditioning_payload.get("defer_started_at"),
             "defer_returned_to_vent_loop": co2_route_conditioning_payload.get("defer_returned_to_vent_loop"),
             "defer_to_next_vent_loop_ms": co2_route_conditioning_payload.get("defer_to_next_vent_loop_ms"),
+            "defer_reschedule_requested": co2_route_conditioning_payload.get("defer_reschedule_requested"),
+            "defer_reschedule_completed": co2_route_conditioning_payload.get("defer_reschedule_completed"),
+            "defer_reschedule_reason": co2_route_conditioning_payload.get("defer_reschedule_reason"),
             "vent_tick_after_defer_ms": co2_route_conditioning_payload.get("vent_tick_after_defer_ms"),
+            "fast_vent_after_defer_sent": co2_route_conditioning_payload.get("fast_vent_after_defer_sent"),
+            "fast_vent_after_defer_write_ms": co2_route_conditioning_payload.get("fast_vent_after_defer_write_ms"),
             "terminal_gap_after_defer": co2_route_conditioning_payload.get("terminal_gap_after_defer"),
             "terminal_gap_after_defer_ms": co2_route_conditioning_payload.get("terminal_gap_after_defer_ms"),
             "defer_path_no_reschedule": co2_route_conditioning_payload.get("defer_path_no_reschedule"),
+            "defer_path_no_reschedule_reason": co2_route_conditioning_payload.get(
+                "defer_path_no_reschedule_reason"
+            ),
             "fail_closed_path_started": co2_route_conditioning_payload.get("fail_closed_path_started"),
             "fail_closed_path_started_while_route_open": co2_route_conditioning_payload.get(
                 "fail_closed_path_started_while_route_open"
@@ -4837,6 +4876,12 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "route_open_to_overlimit_ms": co2_route_conditioning_payload.get("route_open_to_overlimit_ms"),
             "measured_atmospheric_pressure_hpa": co2_route_conditioning_payload.get(
                 "measured_atmospheric_pressure_hpa"
+            ),
+            "measured_atmospheric_pressure_source": co2_route_conditioning_payload.get(
+                "measured_atmospheric_pressure_source"
+            ),
+            "measured_atmospheric_pressure_sample_age_s": co2_route_conditioning_payload.get(
+                "measured_atmospheric_pressure_sample_age_s"
             ),
             "route_conditioning_pressure_before_route_open_hpa": co2_route_conditioning_payload.get(
                 "route_conditioning_pressure_before_route_open_hpa"
@@ -4891,6 +4936,18 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             ),
             "route_open_transient_rejection_reason": co2_route_conditioning_payload.get(
                 "route_open_transient_rejection_reason"
+            ),
+            "route_open_transient_evaluation_state": co2_route_conditioning_payload.get(
+                "route_open_transient_evaluation_state"
+            ),
+            "route_open_transient_interrupted_by_vent_gap": co2_route_conditioning_payload.get(
+                "route_open_transient_interrupted_by_vent_gap"
+            ),
+            "route_open_transient_interrupted_reason": co2_route_conditioning_payload.get(
+                "route_open_transient_interrupted_reason"
+            ),
+            "route_open_transient_summary_source": co2_route_conditioning_payload.get(
+                "route_open_transient_summary_source"
             ),
             "sustained_pressure_rise_after_route_open": co2_route_conditioning_payload.get(
                 "sustained_pressure_rise_after_route_open"

@@ -1311,6 +1311,7 @@ class WorkflowOrchestrator:
             }:
                 break
             if conditioning_at_atmosphere:
+                self._maybe_reassert_a2_conditioning_vent(point)
                 context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
                 self._record_a2_conditioning_workflow_timing(
                     context,
@@ -1333,7 +1334,7 @@ class WorkflowOrchestrator:
                     expected_max_s=soak_s,
                     wait_reason=soak_key,
                 )
-            self._maybe_reassert_a2_conditioning_vent(point)
+                self._maybe_reassert_a2_conditioning_vent(point)
             if conditioning_at_atmosphere:
                 time.sleep(
                     min(
@@ -1768,12 +1769,21 @@ class WorkflowOrchestrator:
             "terminal_gap_started_at": "",
             "terminal_gap_detected_at": "",
             "terminal_gap_stack_marker": "",
+            "defer_source": "",
+            "defer_operation": "",
+            "defer_started_at": "",
             "defer_returned_to_vent_loop": False,
             "defer_to_next_vent_loop_ms": None,
+            "defer_reschedule_requested": False,
+            "defer_reschedule_completed": False,
+            "defer_reschedule_reason": "",
             "vent_tick_after_defer_ms": None,
+            "fast_vent_after_defer_sent": False,
+            "fast_vent_after_defer_write_ms": None,
             "terminal_gap_after_defer": False,
             "terminal_gap_after_defer_ms": None,
             "defer_path_no_reschedule": False,
+            "defer_path_no_reschedule_reason": "",
             "fail_closed_path_started": False,
             "fail_closed_path_started_while_route_open": False,
             "fail_closed_path_vent_maintenance_required": False,
@@ -1841,6 +1851,12 @@ class WorkflowOrchestrator:
             "route_open_transient_stable_pressure_slope_hpa_per_s": None,
             "route_open_transient_accepted": False,
             "route_open_transient_rejection_reason": "",
+            "route_open_transient_evaluation_state": "not_started",
+            "route_open_transient_interrupted_by_vent_gap": False,
+            "route_open_transient_interrupted_reason": "",
+            "route_open_transient_summary_source": "route_conditioning_context",
+            "measured_atmospheric_pressure_source": "",
+            "measured_atmospheric_pressure_sample_age_s": None,
             "sustained_pressure_rise_after_route_open": False,
             "pressure_rise_despite_valid_vent_scheduler": False,
             "vent_pulse_blocked_after_flush_phase": False,
@@ -2252,19 +2268,27 @@ class WorkflowOrchestrator:
         if defer_started is not None and not bool(updated.get("_last_diagnostic_defer_reschedule_recorded", False)):
             defer_loop_ms = round(max(0.0, float(now_mono) - float(defer_started)) * 1000.0, 3)
             returned_to_loop = defer_loop_ms <= 200.0
+            operation = str(
+                updated.get("last_diagnostic_defer_operation")
+                or updated.get("defer_operation")
+                or updated.get("diagnostic_blocking_operation")
+                or "deferred_diagnostic"
+            )
             updated["defer_to_next_vent_loop_ms"] = defer_loop_ms
             updated["vent_tick_after_defer_ms"] = defer_loop_ms
             updated["defer_returned_to_vent_loop"] = returned_to_loop
+            updated["defer_reschedule_requested"] = True
+            updated["defer_reschedule_completed"] = returned_to_loop
+            updated["defer_reschedule_reason"] = str(
+                updated.get("defer_reschedule_reason") or f"return_to_vent_loop_after_{operation}"
+            )
             updated["terminal_gap_after_defer"] = not returned_to_loop
             updated["terminal_gap_after_defer_ms"] = None if returned_to_loop else defer_loop_ms
             if not returned_to_loop:
                 updated["defer_path_no_reschedule"] = True
+                updated["defer_path_no_reschedule_reason"] = "defer_to_next_vent_loop_exceeded_200ms"
                 updated["terminal_gap_source"] = "defer_path_no_reschedule"
-                updated["terminal_gap_operation"] = str(
-                    updated.get("last_diagnostic_defer_operation")
-                    or updated.get("diagnostic_blocking_operation")
-                    or "deferred_diagnostic"
-                )
+                updated["terminal_gap_operation"] = operation
                 updated["terminal_gap_duration_ms"] = defer_loop_ms
                 updated["terminal_gap_detected_at"] = datetime.now(timezone.utc).isoformat()
                 updated["terminal_gap_stack_marker"] = str(
@@ -2318,12 +2342,21 @@ class WorkflowOrchestrator:
             "terminal_gap_started_at",
             "terminal_gap_detected_at",
             "terminal_gap_stack_marker",
+            "defer_source",
+            "defer_operation",
+            "defer_started_at",
             "defer_returned_to_vent_loop",
             "defer_to_next_vent_loop_ms",
+            "defer_reschedule_requested",
+            "defer_reschedule_completed",
+            "defer_reschedule_reason",
             "vent_tick_after_defer_ms",
+            "fast_vent_after_defer_sent",
+            "fast_vent_after_defer_write_ms",
             "terminal_gap_after_defer",
             "terminal_gap_after_defer_ms",
             "defer_path_no_reschedule",
+            "defer_path_no_reschedule_reason",
             "fail_closed_path_started",
             "fail_closed_path_started_while_route_open",
             "fail_closed_path_vent_maintenance_required",
@@ -2401,6 +2434,9 @@ class WorkflowOrchestrator:
         pressure_monitor: bool = False,
     ) -> dict[str, Any]:
         updated = dict(context)
+        defer_started_at = datetime.now(timezone.utc).isoformat()
+        component_text = str(component or "unknown")
+        operation_text = str(operation or "deferred_for_vent_priority")
         updated.update(
             {
                 "vent_scheduler_priority_mode": True,
@@ -2409,22 +2445,31 @@ class WorkflowOrchestrator:
                 "diagnostic_deferred_count": int(updated.get("diagnostic_deferred_count") or 0) + 1,
                 "diagnostic_budget_ms": self._a2_conditioning_diagnostic_budget_ms(),
                 "diagnostic_budget_exceeded": bool(updated.get("diagnostic_budget_exceeded", False)),
-                "diagnostic_blocking_component": str(component or "unknown"),
-                "diagnostic_blocking_operation": str(operation or "deferred_for_vent_priority"),
+                "diagnostic_blocking_component": component_text,
+                "diagnostic_blocking_operation": operation_text,
                 "diagnostic_blocking_duration_ms": 0.0,
                 "last_pressure_monitor_monotonic_s": float(now_mono),
                 "last_diagnostic_defer_monotonic_s": float(now_mono),
-                "last_diagnostic_defer_at": datetime.now(timezone.utc).isoformat(),
-                "last_diagnostic_defer_component": str(component or "unknown"),
-                "last_diagnostic_defer_operation": str(operation or "deferred_for_vent_priority"),
+                "last_diagnostic_defer_at": defer_started_at,
+                "last_diagnostic_defer_component": component_text,
+                "last_diagnostic_defer_operation": operation_text,
+                "defer_source": component_text,
+                "defer_operation": operation_text,
+                "defer_started_at": defer_started_at,
                 "_last_diagnostic_defer_reschedule_recorded": False,
                 "defer_returned_to_vent_loop": False,
                 "defer_to_next_vent_loop_ms": None,
+                "defer_reschedule_requested": True,
+                "defer_reschedule_completed": False,
+                "defer_reschedule_reason": f"return_to_vent_loop_after_{operation_text}",
                 "vent_tick_after_defer_ms": None,
+                "fast_vent_after_defer_sent": False,
+                "fast_vent_after_defer_write_ms": None,
                 "terminal_gap_after_defer": False,
                 "terminal_gap_after_defer_ms": None,
                 "defer_path_no_reschedule": False,
-                "terminal_gap_stack_marker": f"defer:{component or 'unknown'}:{operation or 'deferred_for_vent_priority'}",
+                "defer_path_no_reschedule_reason": "",
+                "terminal_gap_stack_marker": f"defer:{component_text}:{operation_text}",
                 "route_conditioning_diagnostic_blocked_vent_scheduler": False,
                 "route_conditioning_vent_gap_exceeded": bool(
                     updated.get("route_conditioning_vent_gap_exceeded", False)
@@ -2975,6 +3020,8 @@ class WorkflowOrchestrator:
     def _a2_route_open_transient_evidence(self, context: Mapping[str, Any]) -> dict[str, Any]:
         keys = (
             "measured_atmospheric_pressure_hpa",
+            "measured_atmospheric_pressure_source",
+            "measured_atmospheric_pressure_sample_age_s",
             "route_conditioning_pressure_before_route_open_hpa",
             "route_open_transient_window_enabled",
             "route_open_transient_peak_pressure_hpa",
@@ -2990,12 +3037,47 @@ class WorkflowOrchestrator:
             "route_open_transient_stable_pressure_slope_hpa_per_s",
             "route_open_transient_accepted",
             "route_open_transient_rejection_reason",
+            "route_open_transient_evaluation_state",
+            "route_open_transient_interrupted_by_vent_gap",
+            "route_open_transient_interrupted_reason",
+            "route_open_transient_summary_source",
             "sustained_pressure_rise_after_route_open",
             "pressure_rise_despite_valid_vent_scheduler",
             "route_conditioning_hard_abort_pressure_hpa",
             "route_conditioning_hard_abort_exceeded",
         )
         return {key: context.get(key) for key in keys if key in context}
+
+    def _a2_route_open_transient_mark_interrupted_by_vent_gap(
+        self,
+        context: Mapping[str, Any],
+        *,
+        reason: str = "vent_gap_exceeded_before_recovery_evaluation",
+    ) -> dict[str, Any]:
+        updated = dict(context)
+        if not bool(updated.get("route_open_transient_window_enabled", True)):
+            updated["route_open_transient_evaluation_state"] = "not_started"
+            return updated
+        route_open_monotonic = self._as_float(
+            updated.get("route_open_completed_monotonic_s")
+            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+        )
+        if route_open_monotonic is None:
+            return updated
+        if bool(updated.get("route_open_transient_accepted", False)):
+            return updated
+        if bool(updated.get("route_conditioning_hard_abort_exceeded", False)):
+            updated["route_open_transient_evaluation_state"] = "hard_abort"
+            return updated
+        reason_text = str(reason or "vent_gap_exceeded_before_recovery_evaluation")
+        updated["route_open_transient_evaluation_state"] = "interrupted_by_vent_gap"
+        updated["route_open_transient_interrupted_by_vent_gap"] = True
+        updated["route_open_transient_interrupted_reason"] = reason_text
+        updated["route_open_transient_rejection_reason"] = str(
+            updated.get("route_open_transient_rejection_reason") or reason_text
+        )
+        updated["route_open_transient_summary_source"] = "route_conditioning_vent_gap"
+        return updated
 
     def _a2_route_open_transient_target_hpa(self, context: Mapping[str, Any]) -> Optional[float]:
         return self._a2_conditioning_first_float(
@@ -3025,6 +3107,8 @@ class WorkflowOrchestrator:
         elapsed_ms = round(max(0.0, float(event_monotonic_s) - float(route_open_monotonic)) * 1000.0, 3)
         target_hpa = self._a2_route_open_transient_target_hpa(updated)
         if target_hpa is None:
+            updated["route_open_transient_evaluation_state"] = "not_started"
+            updated["route_open_transient_summary_source"] = "missing_measured_atmospheric_pressure"
             return updated
         target_hpa = round(float(target_hpa), 3)
         band_hpa = self._as_float(updated.get("route_open_transient_recovery_band_hpa"))
@@ -3034,6 +3118,8 @@ class WorkflowOrchestrator:
         updated["route_open_transient_recovery_target_hpa"] = target_hpa
         updated["route_open_transient_recovery_band_hpa"] = round(band_hpa, 3)
         updated.setdefault("route_open_transient_stable_hold_s", self._a2_route_open_transient_stable_hold_s())
+        updated["route_open_transient_evaluation_state"] = "evaluating"
+        updated["route_open_transient_summary_source"] = "route_conditioning_pressure_monitor"
         samples = [item for item in list(updated.get("route_open_transient_pressure_samples") or []) if isinstance(item, Mapping)]
         samples.append({"elapsed_ms": elapsed_ms, "pressure_hpa": round(float(pressure_hpa), 3)})
         updated["route_open_transient_pressure_samples"] = samples[-200:]
@@ -3059,6 +3145,7 @@ class WorkflowOrchestrator:
             updated["route_open_transient_stable_start_ms"] = None
             if bool(updated.get("route_open_transient_recovered_to_atmosphere", False)):
                 updated["route_open_transient_rejection_reason"] = "route_open_transient_unstable_after_recovery"
+                updated["route_open_transient_evaluation_state"] = "rejected"
 
         stable_start_ms = self._as_float(updated.get("route_open_transient_stable_start_ms"))
         stable_hold_s = self._as_float(updated.get("route_open_transient_stable_hold_s"))
@@ -3093,8 +3180,10 @@ class WorkflowOrchestrator:
                 if span_hpa <= span_limit and abs(slope_hpa_per_s) <= slope_limit:
                     updated["route_open_transient_accepted"] = True
                     updated["route_open_transient_rejection_reason"] = ""
+                    updated["route_open_transient_evaluation_state"] = "accepted"
                 else:
                     updated["route_open_transient_rejection_reason"] = "route_open_transient_unstable_after_recovery"
+                    updated["route_open_transient_evaluation_state"] = "rejected"
 
         post_open_values = [
             float(self._as_float(item.get("pressure_hpa")) or 0.0)
@@ -3108,6 +3197,7 @@ class WorkflowOrchestrator:
             if sustained and recent[-1] > target_hpa + band_hpa:
                 updated["sustained_pressure_rise_after_route_open"] = True
                 updated["route_open_transient_rejection_reason"] = "sustained_pressure_rise_after_route_open"
+                updated["route_open_transient_evaluation_state"] = "rejected"
 
         pressure_rise_since_last_vent = self._as_float(updated.get("pressure_rise_since_last_vent_hpa"))
         if (
@@ -3120,6 +3210,7 @@ class WorkflowOrchestrator:
         ):
             updated["pressure_rise_despite_valid_vent_scheduler"] = True
             updated["route_open_transient_rejection_reason"] = "pressure_rise_despite_valid_vent_scheduler"
+            updated["route_open_transient_evaluation_state"] = "rejected"
 
         timeout_ms = self._a2_route_open_transient_recovery_timeout_s() * 1000.0
         if elapsed_ms > timeout_ms and not bool(updated.get("route_open_transient_accepted", False)):
@@ -3130,6 +3221,7 @@ class WorkflowOrchestrator:
                 )
             else:
                 updated["route_open_transient_rejection_reason"] = "route_open_transient_recovery_timeout"
+            updated["route_open_transient_evaluation_state"] = "rejected"
         return updated
 
     def _a2_conditioning_update_pressure_metrics(
@@ -3160,6 +3252,8 @@ class WorkflowOrchestrator:
             if before_route_open:
                 updated["route_conditioning_pressure_before_route_open_hpa"] = round(float(pressure_value), 3)
                 updated["measured_atmospheric_pressure_hpa"] = round(float(pressure_value), 3)
+                updated["measured_atmospheric_pressure_source"] = "route_conditioning_pressure_before_route_open"
+                updated["measured_atmospheric_pressure_sample_age_s"] = 0.0
                 updated["route_open_transient_recovery_target_hpa"] = round(float(pressure_value), 3)
             else:
                 if updated.get("route_conditioning_pressure_after_route_open_hpa") in (None, ""):
@@ -3194,6 +3288,7 @@ class WorkflowOrchestrator:
             if hard_abort_hpa is not None and float(pressure_value) > float(hard_abort_hpa):
                 updated["route_conditioning_hard_abort_exceeded"] = True
                 updated["route_conditioning_pressure_overlimit"] = True
+                updated["route_open_transient_evaluation_state"] = "hard_abort"
                 if updated.get("route_open_to_overlimit_ms") in (None, "") and route_open_monotonic is not None:
                     updated["route_open_to_overlimit_ms"] = round(
                         max(0.0, float(event_monotonic_s) - float(route_open_monotonic)) * 1000.0,
@@ -3470,6 +3565,128 @@ class WorkflowOrchestrator:
             return "route_open_transition"
         return "unknown"
 
+    def _a2_conditioning_fail_if_defer_not_rescheduled(
+        self,
+        point: CalibrationPoint,
+        context: Mapping[str, Any],
+        *,
+        now_mono: float,
+        max_gap_s: float,
+        interval_s: float,
+        schedule: Mapping[str, Any],
+        phase: str,
+    ) -> None:
+        if not bool(context.get("defer_path_no_reschedule") or context.get("terminal_gap_after_defer")):
+            return
+        terminal = self._a2_conditioning_terminal_gap_details(
+            context,
+            now_mono=now_mono,
+            max_gap_s=max_gap_s,
+            source="defer_path_no_reschedule",
+        )
+        details = {
+            **context,
+            **terminal,
+            "phase": phase,
+            "vent_heartbeat_interval_s": interval_s,
+            "atmosphere_vent_max_gap_s": max_gap_s,
+            "route_conditioning_vent_gap_exceeded": True,
+            "vent_heartbeat_gap_exceeded": True,
+            "fail_closed_reason": "route_conditioning_vent_gap_exceeded",
+            "whether_safe_to_continue": False,
+            **dict(schedule),
+        }
+        details = self._a2_route_open_transient_mark_interrupted_by_vent_gap(
+            details,
+            reason="vent_gap_exceeded_before_recovery_evaluation",
+        )
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", details)
+        self._fail_a2_co2_route_conditioning_closed(
+            point,
+            reason="route_conditioning_vent_gap_exceeded",
+            details=details,
+            event_name="co2_route_conditioning_defer_no_reschedule",
+            route_trace_action="co2_route_conditioning_defer_no_reschedule",
+        )
+
+    def _a2_conditioning_reschedule_after_defer(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {}
+        defer_started = self._as_float(context.get("last_diagnostic_defer_monotonic_s"))
+        if defer_started is None:
+            return context
+        now_mono = time.monotonic()
+        schedule = self._a2_conditioning_vent_schedule(context, now_mono=now_mono)
+        max_gap_s = float(schedule["route_conditioning_effective_max_gap_s"])
+        interval_s = float(schedule["route_conditioning_effective_vent_interval_s"])
+        defer_loop_ms = round(max(0.0, float(now_mono) - float(defer_started)) * 1000.0, 3)
+        returned_to_loop = defer_loop_ms <= 200.0
+        context.update(schedule)
+        context.update(
+            {
+                "defer_returned_to_vent_loop": returned_to_loop,
+                "defer_to_next_vent_loop_ms": defer_loop_ms,
+                "vent_tick_after_defer_ms": defer_loop_ms,
+                "defer_reschedule_requested": True,
+                "defer_reschedule_completed": returned_to_loop,
+                "defer_reschedule_reason": str(reason or "return_to_vent_loop_after_defer"),
+                "_last_diagnostic_defer_reschedule_recorded": True,
+            }
+        )
+        if not returned_to_loop:
+            context.update(
+                {
+                    "terminal_gap_after_defer": True,
+                    "terminal_gap_after_defer_ms": defer_loop_ms,
+                    "defer_path_no_reschedule": True,
+                    "defer_path_no_reschedule_reason": "defer_to_next_vent_loop_exceeded_200ms",
+                    "terminal_gap_source": "defer_path_no_reschedule",
+                    "terminal_gap_operation": str(
+                        context.get("defer_operation")
+                        or context.get("last_diagnostic_defer_operation")
+                        or "deferred_diagnostic"
+                    ),
+                    "terminal_gap_duration_ms": defer_loop_ms,
+                    "terminal_gap_detected_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self._a2_conditioning_fail_if_defer_not_rescheduled(
+                point,
+                context,
+                now_mono=now_mono,
+                max_gap_s=max_gap_s,
+                interval_s=interval_s,
+                schedule=schedule,
+                phase=phase,
+            )
+        last_write = self._a2_conditioning_last_vent_write_monotonic_s(context)
+        age_s = None if last_write is None else max(0.0, float(now_mono) - float(last_write))
+        should_vent = bool(last_write is None or (age_s is not None and age_s >= interval_s))
+        if not should_vent and age_s is not None:
+            should_vent = bool((float(max_gap_s) - float(age_s)) * 1000.0 <= 200.0)
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        if should_vent:
+            tick = self._record_a2_co2_conditioning_vent_tick(point, phase=phase)
+            context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+            context["fast_vent_after_defer_sent"] = bool(
+                isinstance(tick, Mapping) and str(tick.get("command_result") or "").lower() == "ok"
+            )
+            context["fast_vent_after_defer_write_ms"] = (
+                tick.get("vent_command_write_duration_ms")
+                if isinstance(tick, Mapping)
+                else context.get("fast_vent_after_defer_write_ms")
+            )
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        return dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or context)
+
     def _a2_conditioning_heartbeat_gap_state(
         self,
         context: Mapping[str, Any],
@@ -3613,6 +3830,11 @@ class WorkflowOrchestrator:
                 "point_index": getattr(point, "index", None),
             }
         )
+        if bool(context.get("route_conditioning_vent_gap_exceeded", False)):
+            context = self._a2_route_open_transient_mark_interrupted_by_vent_gap(
+                context,
+                reason="vent_gap_exceeded_before_recovery_evaluation",
+            )
         context = self._a2_conditioning_context_with_counts(context)
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
         return context
@@ -5095,19 +5317,27 @@ class WorkflowOrchestrator:
         if defer_started is not None and context.get("vent_tick_after_defer_ms") in (None, ""):
             vent_after_defer_ms = round(max(0.0, tick_started_monotonic_s - float(defer_started)) * 1000.0, 3)
             returned_to_loop = bool(context.get("defer_returned_to_vent_loop")) or vent_after_defer_ms <= 200.0
+            operation = str(
+                context.get("defer_operation")
+                or context.get("last_diagnostic_defer_operation")
+                or context.get("diagnostic_blocking_operation")
+                or "deferred_diagnostic"
+            )
             context["vent_tick_after_defer_ms"] = vent_after_defer_ms
             context["defer_to_next_vent_loop_ms"] = context.get("defer_to_next_vent_loop_ms", vent_after_defer_ms)
             context["defer_returned_to_vent_loop"] = returned_to_loop
+            context["defer_reschedule_requested"] = True
+            context["defer_reschedule_completed"] = returned_to_loop
+            context["defer_reschedule_reason"] = str(
+                context.get("defer_reschedule_reason") or f"fast_vent_tick_after_{operation}"
+            )
             if vent_after_defer_ms > 200.0:
                 context["terminal_gap_after_defer"] = True
                 context["terminal_gap_after_defer_ms"] = vent_after_defer_ms
                 context["defer_path_no_reschedule"] = True
+                context["defer_path_no_reschedule_reason"] = "defer_to_next_vent_loop_exceeded_200ms"
                 context["terminal_gap_source"] = "defer_path_no_reschedule"
-                context["terminal_gap_operation"] = str(
-                    context.get("last_diagnostic_defer_operation")
-                    or context.get("diagnostic_blocking_operation")
-                    or "deferred_diagnostic"
-                )
+                context["terminal_gap_operation"] = operation
                 context["terminal_gap_duration_ms"] = vent_after_defer_ms
                 context["terminal_gap_detected_at"] = datetime.now(timezone.utc).isoformat()
         context.setdefault("vent_scheduler_priority_mode", True)
@@ -5333,6 +5563,12 @@ class WorkflowOrchestrator:
                 "a2_conditioning_pressure_source_strategy": context.get("a2_conditioning_pressure_source", self._a2_conditioning_pressure_source_mode()),
             }
         )
+        if defer_started is not None:
+            context["fast_vent_after_defer_sent"] = bool(command_result == "ok")
+            context["fast_vent_after_defer_write_ms"] = (
+                diagnostics.get("vent_command_write_duration_ms")
+                or diagnostics.get("vent_command_total_duration_ms")
+            )
         tick = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "phase": phase,
@@ -5703,6 +5939,15 @@ class WorkflowOrchestrator:
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
         interval_s = float(schedule["route_conditioning_effective_vent_interval_s"])
         max_gap_s = float(schedule["route_conditioning_effective_max_gap_s"])
+        self._a2_conditioning_fail_if_defer_not_rescheduled(
+            point,
+            context,
+            now_mono=now_mono,
+            max_gap_s=max_gap_s,
+            interval_s=interval_s,
+            schedule=schedule,
+            phase=str(schedule.get("vent_phase") or "route_conditioning_vent_loop"),
+        )
         last_tick = self._as_float(context.get("last_vent_tick_monotonic_s"))
         gap_state = self._a2_conditioning_heartbeat_gap_state(
             context,
@@ -5810,6 +6055,20 @@ class WorkflowOrchestrator:
                 phase="conditioning_pressure_monitor",
             )
             context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+            if (
+                isinstance(monitor, Mapping)
+                and bool(
+                    monitor.get("diagnostic_deferred_for_vent_priority")
+                    or monitor.get("conditioning_monitor_pressure_deferred")
+                    or monitor.get("pressure_monitor_deferred_for_vent_priority")
+                )
+            ):
+                self._a2_conditioning_reschedule_after_defer(
+                    point,
+                    phase=str(schedule.get("vent_phase") or "route_conditioning_defer_reschedule"),
+                    reason="pressure_monitor_defer_return_to_vent_loop",
+                )
+                return
             diagnostic_duration_s = self._as_float(
                 monitor.get("blocking_operation_duration_ms") if isinstance(monitor, Mapping) else None
             )

@@ -630,7 +630,8 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     )
 
     assert summary["a2_3_v1_pressure_gauge_read_policy_present"] is True
-    assert summary["evidence_source"] == "real_probe_a2_10_co2_7_pressure_no_write"
+    assert summary["evidence_source"] == "real_probe_a2_12_co2_7_pressure_no_write"
+    assert summary["legacy_evidence_source"] == "real_probe_a2_10_co2_7_pressure_no_write"
     assert summary["a2_3_pressure_source_strategy"] == "v1_aligned"
     assert summary["a2_4_v1_pressure_gauge_read_policy_present"] is True
     assert summary["a2_4_pressure_source_strategy"] == "v1_aligned"
@@ -865,6 +866,93 @@ def test_a2_probe_does_not_reject_pressure_gate_source_before_gate_reached(tmp_p
     assert summary["pressure_gate_source_observed"] == ""
     assert summary["pressure_gate_source_alignment_ready"] is False
     assert summary["pressure_gate_source_alignment_reasons"] == []
+
+
+def test_a2_probe_propagates_route_trace_atmosphere_and_transient_interruption(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["point_results"] = []
+        payload["pressure_trace_rows"] = []
+        payload["sample_rows"] = []
+        payload["route_trace_rows"] = [
+            {
+                "timestamp": "2026-04-29T13:02:17+00:00",
+                "action": "set_vent",
+                "target": {"vent_on": True},
+                "message": "Vent atmosphere before CO2 route conditioning",
+                "actual": {
+                    "pressure_hpa": 1014.361,
+                    "atmosphere_ready": True,
+                    "vent_status_raw": 1,
+                    "vent_status_interpreted": "in_progress",
+                },
+                "result": "ok",
+            },
+            {
+                "timestamp": "2026-04-29T13:06:22+00:00",
+                "action": "co2_route_conditioning_vent_heartbeat_gap",
+                "actual": {
+                    "route_conditioning_vent_gap_exceeded": True,
+                    "route_conditioning_vent_gap_exceeded_source": "defer_path_no_reschedule",
+                    "terminal_gap_source": "defer_path_no_reschedule",
+                    "terminal_vent_write_age_ms_at_gap_gate": 2113.793,
+                    "max_vent_pulse_write_gap_ms_including_terminal_gap": 2113.793,
+                    "max_vent_pulse_gap_limit_ms": 2000.0,
+                    "route_conditioning_hard_abort_exceeded": False,
+                    "route_conditioning_pressure_overlimit": False,
+                    "route_conditioning_peak_pressure_hpa": 1195.639,
+                    "defer_path_no_reschedule": True,
+                    "terminal_gap_after_defer": True,
+                    "pressure_monitor_nonblocking": True,
+                    "fail_closed_reason": "route_conditioning_vent_gap_exceeded",
+                },
+                "result": "fail",
+            },
+        ]
+        payload["service_summary"] = {
+            "route_conditioning_vent_gap_exceeded": True,
+            "route_conditioning_vent_gap_exceeded_source": "defer_path_no_reschedule",
+            "terminal_gap_source": "defer_path_no_reschedule",
+            "terminal_vent_write_age_ms_at_gap_gate": 2113.793,
+            "max_vent_pulse_write_gap_ms_including_terminal_gap": 2113.793,
+            "max_vent_pulse_gap_limit_ms": 2000.0,
+            "route_conditioning_hard_abort_pressure_hpa": 1250.0,
+            "route_conditioning_hard_abort_exceeded": False,
+            "route_conditioning_pressure_overlimit": False,
+            "route_conditioning_peak_pressure_hpa": 1195.639,
+        }
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_atmosphere_fallback",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert summary["evidence_source"] == "real_probe_a2_12_co2_7_pressure_no_write"
+    assert summary["measured_atmospheric_pressure_hpa"] == 1014.361
+    assert summary["measured_atmospheric_pressure_source"] == "route_trace_pre_route_vent_pressure"
+    assert summary["route_conditioning_pressure_before_route_open_hpa"] == 1014.361
+    assert summary["route_open_transient_recovery_target_hpa"] == 1014.361
+    assert summary["route_open_transient_evaluation_state"] == "interrupted_by_vent_gap"
+    assert summary["route_open_transient_interrupted_by_vent_gap"] is True
+    assert summary["route_open_transient_rejection_reason"] == (
+        "vent_gap_exceeded_before_recovery_evaluation"
+    )
+    assert summary["route_open_transient_interrupted_reason"] == (
+        "vent_gap_exceeded_before_recovery_evaluation"
+    )
+    assert summary["route_open_transient_summary_source"] == "route_conditioning_vent_gap"
 
 
 def test_a2_probe_rejects_non_v1_aligned_source_only_after_pressure_gate_reached(tmp_path: Path) -> None:

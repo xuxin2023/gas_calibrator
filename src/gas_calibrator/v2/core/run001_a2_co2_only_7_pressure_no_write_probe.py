@@ -29,8 +29,8 @@ A2_ENV_VALUE = "1"
 A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
 A2_ALLOWED_PRESSURE_POINTS_HPA = (1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
 A2_EVIDENCE_MARKERS = {
-    "evidence_source": "real_probe_a2_10_co2_7_pressure_no_write",
-    "legacy_evidence_source": "real_probe_a2_9_co2_7_pressure_no_write",
+    "evidence_source": "real_probe_a2_12_co2_7_pressure_no_write",
+    "legacy_evidence_source": "real_probe_a2_10_co2_7_pressure_no_write",
     "acceptance_level": "engineering_probe_only",
     "not_real_acceptance_evidence": True,
     "promotion_state": "blocked",
@@ -911,6 +911,44 @@ def _first_metric_from_rows(rows: list[dict[str, Any]], *keys: str) -> Any:
     return None
 
 
+def _pre_route_atmosphere_pressure_from_route_rows(route_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    for row in route_rows:
+        if not isinstance(row, Mapping):
+            continue
+        action = str(row.get("action") or "").strip()
+        if action != "set_vent":
+            continue
+        target = row.get("target")
+        actual = row.get("actual")
+        if not isinstance(actual, Mapping):
+            continue
+        target_vent_on = _as_bool(target.get("vent_on")) if isinstance(target, Mapping) else None
+        message = str(row.get("message") or "").lower()
+        route_phase = str(actual.get("route_conditioning_phase") or "").lower()
+        before_route_context = bool(
+            target_vent_on is True
+            and (
+                "before co2 route conditioning" in message
+                or "before_route" in route_phase
+                or actual.get("route_open_completed_monotonic_s") in (None, "")
+            )
+        )
+        atmosphere_ready = _as_bool(actual.get("atmosphere_ready"))
+        pressure_hpa = _as_float(actual.get("pressure_hpa"))
+        if before_route_context and pressure_hpa is not None and atmosphere_ready is not False:
+            age_s = _as_float(
+                actual.get("pressure_sample_age_s")
+                or actual.get("selected_pressure_sample_age_s")
+                or actual.get("sample_age_s")
+            )
+            return {
+                "pressure_hpa": round(float(pressure_hpa), 3),
+                "source": "route_trace_pre_route_vent_pressure",
+                "sample_age_s": 0.0 if age_s is None else round(float(age_s), 3),
+            }
+    return {"pressure_hpa": None, "source": "", "sample_age_s": None}
+
+
 def _a2_3_pressure_source_strategy(raw_cfg: Mapping[str, Any]) -> str:
     value = str(
         _first_value(
@@ -1459,6 +1497,31 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         )
     )
 
+    atmosphere_fallback = _pre_route_atmosphere_pressure_from_route_rows(route_rows)
+    measured_atmospheric_pressure_hpa = _as_float(metric_or_summary("measured_atmospheric_pressure_hpa"))
+    measured_atmospheric_pressure_source = str(
+        metric_or_summary("measured_atmospheric_pressure_source") or ""
+    ).strip()
+    measured_atmospheric_pressure_sample_age_s = _as_float(
+        metric_or_summary("measured_atmospheric_pressure_sample_age_s")
+    )
+    if measured_atmospheric_pressure_hpa is None and atmosphere_fallback.get("pressure_hpa") is not None:
+        measured_atmospheric_pressure_hpa = _as_float(atmosphere_fallback.get("pressure_hpa"))
+        measured_atmospheric_pressure_source = str(atmosphere_fallback.get("source") or "")
+        measured_atmospheric_pressure_sample_age_s = _as_float(atmosphere_fallback.get("sample_age_s"))
+    if measured_atmospheric_pressure_source == "" and measured_atmospheric_pressure_hpa is not None:
+        measured_atmospheric_pressure_source = "route_conditioning_summary"
+    route_conditioning_pressure_before_route_open_hpa = _as_float(
+        metric_or_summary("route_conditioning_pressure_before_route_open_hpa")
+    )
+    if route_conditioning_pressure_before_route_open_hpa is None:
+        route_conditioning_pressure_before_route_open_hpa = measured_atmospheric_pressure_hpa
+    route_open_transient_recovery_target_hpa = _as_float(
+        metric_or_summary("route_open_transient_recovery_target_hpa")
+    )
+    if route_open_transient_recovery_target_hpa is None:
+        route_open_transient_recovery_target_hpa = measured_atmospheric_pressure_hpa
+
     route_conditioning_pressure_overlimit = _as_bool(
         metric_or_summary("route_conditioning_pressure_overlimit", "pressure_overlimit_seen")
     ) is True
@@ -1546,6 +1609,60 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         or _as_bool(metric_or_summary("positive_preseal_overlimit_fail_closed")) is True
         or positive_preseal_abort_reason == "preseal_abort_pressure_exceeded"
     )
+    route_open_transient_interrupted_by_vent_gap = _as_bool(
+        metric_or_summary("route_open_transient_interrupted_by_vent_gap")
+    ) is True
+    if (
+        route_conditioning_vent_gap_exceeded
+        and not route_open_transient_accepted
+        and not route_conditioning_hard_abort_exceeded
+    ):
+        route_open_transient_interrupted_by_vent_gap = True
+        if not route_open_transient_rejection_reason:
+            route_open_transient_rejection_reason = "vent_gap_exceeded_before_recovery_evaluation"
+    route_open_transient_interrupted_reason = str(
+        metric_or_summary("route_open_transient_interrupted_reason") or ""
+    ).strip()
+    if route_open_transient_interrupted_by_vent_gap and not route_open_transient_interrupted_reason:
+        route_open_transient_interrupted_reason = route_open_transient_rejection_reason
+    route_open_transient_evaluation_state = str(
+        metric_or_summary("route_open_transient_evaluation_state") or ""
+    ).strip()
+    if route_open_transient_evaluation_state not in {
+        "not_started",
+        "evaluating",
+        "accepted",
+        "rejected",
+        "interrupted_by_vent_gap",
+        "hard_abort",
+    }:
+        if route_conditioning_hard_abort_exceeded:
+            route_open_transient_evaluation_state = "hard_abort"
+        elif route_open_transient_accepted:
+            route_open_transient_evaluation_state = "accepted"
+        elif route_open_transient_interrupted_by_vent_gap:
+            route_open_transient_evaluation_state = "interrupted_by_vent_gap"
+        elif route_open_transient_rejection_reason or (
+            route_open_transient_recovery_required and not route_open_transient_accepted
+        ):
+            route_open_transient_evaluation_state = "rejected"
+        elif metric_or_summary("route_open_transient_peak_pressure_hpa") is not None:
+            route_open_transient_evaluation_state = "evaluating"
+        else:
+            route_open_transient_evaluation_state = "not_started"
+    route_open_transient_summary_source = str(
+        metric_or_summary("route_open_transient_summary_source") or ""
+    ).strip()
+    if not route_open_transient_summary_source:
+        route_open_transient_summary_source = (
+            "route_conditioning_vent_gap"
+            if route_open_transient_interrupted_by_vent_gap
+            else (
+                "route_trace_pre_route_vent_pressure"
+                if atmosphere_fallback.get("pressure_hpa") is not None
+                else "route_conditioning_summary"
+            )
+        )
     if route_conditioning_hard_abort_exceeded:
         rejection_reasons.append("a2_route_conditioning_hard_abort_pressure_exceeded")
     if route_conditioning_pressure_overlimit:
@@ -2075,12 +2192,27 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "terminal_gap_started_at": metric_or_summary("terminal_gap_started_at") or "",
         "terminal_gap_detected_at": metric_or_summary("terminal_gap_detected_at") or "",
         "terminal_gap_stack_marker": metric_or_summary("terminal_gap_stack_marker") or "",
+        "defer_source": metric_or_summary("defer_source") or "",
+        "defer_operation": metric_or_summary("defer_operation") or "",
+        "defer_started_at": metric_or_summary("defer_started_at") or "",
         "defer_returned_to_vent_loop": _as_bool(metric_or_summary("defer_returned_to_vent_loop")) is True,
         "defer_to_next_vent_loop_ms": metric_or_summary("defer_to_next_vent_loop_ms"),
+        "defer_reschedule_requested": _as_bool(
+            metric_or_summary("defer_reschedule_requested")
+        )
+        is True,
+        "defer_reschedule_completed": _as_bool(
+            metric_or_summary("defer_reschedule_completed")
+        )
+        is True,
+        "defer_reschedule_reason": metric_or_summary("defer_reschedule_reason") or "",
         "vent_tick_after_defer_ms": metric_or_summary("vent_tick_after_defer_ms"),
+        "fast_vent_after_defer_sent": _as_bool(metric_or_summary("fast_vent_after_defer_sent")) is True,
+        "fast_vent_after_defer_write_ms": metric_or_summary("fast_vent_after_defer_write_ms"),
         "terminal_gap_after_defer": _as_bool(metric_or_summary("terminal_gap_after_defer")) is True,
         "terminal_gap_after_defer_ms": metric_or_summary("terminal_gap_after_defer_ms"),
         "defer_path_no_reschedule": _as_bool(metric_or_summary("defer_path_no_reschedule")) is True,
+        "defer_path_no_reschedule_reason": metric_or_summary("defer_path_no_reschedule_reason") or "",
         "fail_closed_path_started": _as_bool(metric_or_summary("fail_closed_path_started")) is True,
         "fail_closed_path_started_while_route_open": _as_bool(
             metric_or_summary("fail_closed_path_started_while_route_open")
@@ -2118,9 +2250,11 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "vent_pulse_count": int(metric_or_summary("vent_pulse_count") or 0),
         "vent_pulse_interval_ms": metric_or_summary("vent_pulse_interval_ms") or [],
         "pressure_drop_after_vent_hpa": metric_or_summary("pressure_drop_after_vent_hpa") or [],
-        "measured_atmospheric_pressure_hpa": metric_or_summary("measured_atmospheric_pressure_hpa"),
-        "route_conditioning_pressure_before_route_open_hpa": metric_or_summary(
-            "route_conditioning_pressure_before_route_open_hpa"
+        "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
+        "measured_atmospheric_pressure_source": measured_atmospheric_pressure_source,
+        "measured_atmospheric_pressure_sample_age_s": measured_atmospheric_pressure_sample_age_s,
+        "route_conditioning_pressure_before_route_open_hpa": (
+            route_conditioning_pressure_before_route_open_hpa
         ),
         "route_conditioning_pressure_after_route_open_hpa": metric_or_summary(
             "route_conditioning_pressure_after_route_open_hpa"
@@ -2144,9 +2278,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         )
         is True,
         "route_open_transient_recovery_time_ms": metric_or_summary("route_open_transient_recovery_time_ms"),
-        "route_open_transient_recovery_target_hpa": metric_or_summary(
-            "route_open_transient_recovery_target_hpa"
-        ),
+        "route_open_transient_recovery_target_hpa": route_open_transient_recovery_target_hpa,
         "route_open_transient_recovery_band_hpa": metric_or_summary("route_open_transient_recovery_band_hpa"),
         "route_open_transient_stable_hold_s": metric_or_summary("route_open_transient_stable_hold_s"),
         "route_open_transient_stable_pressure_mean_hpa": metric_or_summary(
@@ -2159,10 +2291,11 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             "route_open_transient_stable_pressure_slope_hpa_per_s"
         ),
         "route_open_transient_accepted": _as_bool(metric_or_summary("route_open_transient_accepted")) is True,
-        "route_open_transient_rejection_reason": metric_or_summary(
-            "route_open_transient_rejection_reason"
-        )
-        or "",
+        "route_open_transient_rejection_reason": route_open_transient_rejection_reason,
+        "route_open_transient_evaluation_state": route_open_transient_evaluation_state,
+        "route_open_transient_interrupted_by_vent_gap": route_open_transient_interrupted_by_vent_gap,
+        "route_open_transient_interrupted_reason": route_open_transient_interrupted_reason,
+        "route_open_transient_summary_source": route_open_transient_summary_source,
         "sustained_pressure_rise_after_route_open": _as_bool(
             metric_or_summary("sustained_pressure_rise_after_route_open")
         )
