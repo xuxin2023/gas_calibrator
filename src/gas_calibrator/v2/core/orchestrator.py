@@ -2644,6 +2644,8 @@ class WorkflowOrchestrator:
             {
                 "vent_pulse_blocked_after_flush_phase": True,
                 "vent_pulse_blocked_reason": reason,
+                "normal_maintenance_vent_blocked_after_flush_phase": True,
+                "cleanup_vent_classification": "normal_maintenance_vent",
                 "attempted_unsafe_vent_after_seal_or_pressure_control": bool(unsafe_after_control),
                 "unsafe_vent_after_seal_or_pressure_control_command_sent": False,
             }
@@ -2661,10 +2663,203 @@ class WorkflowOrchestrator:
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
         return updated
 
-    def _guard_a2_conditioning_vent_command(self, *, reason: str = "") -> dict[str, Any]:
+    def _record_positive_preseal_fail_closed_context(self, actual: Mapping[str, Any]) -> dict[str, Any]:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        actual_data = dict(actual or {})
+        pressure_hpa = self._as_float(
+            actual_data.get("emergency_abort_relief_pressure_hpa")
+            or actual_data.get("positive_preseal_pressure_hpa")
+            or actual_data.get("pressure_hpa")
+            or actual_data.get("current_line_pressure_hpa")
+        )
+        overlimit = bool(
+            actual_data.get("positive_preseal_pressure_overlimit")
+            or actual_data.get("positive_preseal_overlimit_fail_closed")
+            or str(actual_data.get("positive_preseal_abort_reason") or actual_data.get("abort_reason") or "")
+            == "preseal_abort_pressure_exceeded"
+        )
+        updated = dict(context)
+        for key in (
+            "positive_preseal_phase_started",
+            "positive_preseal_phase_started_at",
+            "positive_preseal_pressure_guard_checked",
+            "positive_preseal_pressure_hpa",
+            "positive_preseal_pressure_source",
+            "positive_preseal_pressure_sample_age_s",
+            "positive_preseal_abort_pressure_hpa",
+            "positive_preseal_pressure_overlimit",
+            "positive_preseal_abort_reason",
+            "positive_preseal_setpoint_sent",
+            "positive_preseal_setpoint_hpa",
+            "positive_preseal_output_enabled",
+            "positive_preseal_route_open",
+            "positive_preseal_seal_command_sent",
+            "positive_preseal_pressure_setpoint_command_sent",
+            "positive_preseal_sample_started",
+            "positive_preseal_overlimit_fail_closed",
+            "seal_command_sent",
+            "pressure_setpoint_command_sent",
+            "sampling_started",
+        ):
+            if key in actual_data:
+                updated[key] = actual_data.get(key)
+        updated["route_conditioning_phase"] = "positive_preseal_pressurization"
+        if pressure_hpa is not None:
+            updated["emergency_abort_relief_pressure_hpa"] = float(pressure_hpa)
+        if overlimit:
+            updated.update(
+                {
+                    "emergency_abort_relief_vent_required": True,
+                    "emergency_abort_relief_reason": "positive_preseal_abort_pressure_exceeded",
+                }
+            )
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        return updated
+
+    def _a2_conditioning_emergency_abort_relief_decision(
+        self,
+        context: Mapping[str, Any],
+        *,
+        reason: str = "",
+        relief_context: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        merged = dict(context)
+        if isinstance(relief_context, Mapping):
+            merged.update(dict(relief_context))
+        phase = str(merged.get("route_conditioning_phase") or "unknown")
+        pressure_hpa = self._as_float(
+            merged.get("emergency_abort_relief_pressure_hpa")
+            or merged.get("positive_preseal_pressure_hpa")
+            or merged.get("pressure_hpa")
+        )
+        relief_reason = str(
+            merged.get("emergency_abort_relief_reason")
+            or merged.get("positive_preseal_abort_reason")
+            or merged.get("abort_reason")
+            or reason
+            or ""
+        )
+        seal_sent = bool(
+            merged.get("seal_command_sent")
+            or merged.get("positive_preseal_seal_command_sent")
+            or merged.get("sealed")
+        )
+        setpoint_sent = bool(
+            merged.get("pressure_setpoint_command_sent")
+            or merged.get("positive_preseal_pressure_setpoint_command_sent")
+        )
+        sample_started = bool(
+            merged.get("sampling_started")
+            or merged.get("sample_started")
+            or merged.get("positive_preseal_sample_started")
+            or int(merged.get("sample_count") or 0) > 0
+            or int(merged.get("points_completed") or 0) > 0
+        )
+        pressure_ready_started = bool(
+            merged.get("pressure_ready_started")
+            or merged.get("pressure_gate_reached")
+        )
+        write_state = bool(
+            merged.get("any_write_command_sent")
+            or merged.get("identity_write_command_sent")
+            or merged.get("senco_write_command_sent")
+            or merged.get("calibration_write_command_sent")
+        )
+        route_open = bool(
+            merged.get(
+                "positive_preseal_route_open",
+                not bool(merged.get("route_valve_closed") or merged.get("route_valve_closing")),
+            )
+        )
+        may_mix_air = bool(seal_sent or sample_started or pressure_ready_started)
+        block_reasons: list[str] = []
+        if not bool(
+            merged.get("emergency_abort_relief_vent_required")
+            or merged.get("positive_preseal_pressure_overlimit")
+            or relief_reason == "preseal_abort_pressure_exceeded"
+            or relief_reason == "positive_preseal_abort_pressure_exceeded"
+        ):
+            block_reasons.append("emergency_abort_relief_not_required")
+        if seal_sent:
+            block_reasons.append("seal_command_sent")
+        if setpoint_sent:
+            block_reasons.append("pressure_setpoint_command_sent")
+        if pressure_ready_started:
+            block_reasons.append("pressure_ready_started")
+        if sample_started:
+            block_reasons.append("sample_started")
+        if write_state:
+            block_reasons.append("write_state_not_clean")
+        if may_mix_air and not any(
+            item in block_reasons for item in ("seal_command_sent", "pressure_ready_started", "sample_started")
+        ):
+            block_reasons.append("may_mix_air_into_measurement_path")
+        allowed = not block_reasons
+        block_reason = ",".join(block_reasons)
+        updated = dict(context)
+        updated.update(
+            {
+                "emergency_abort_relief_vent_required": True,
+                "emergency_abort_relief_vent_allowed": allowed,
+                "emergency_abort_relief_vent_blocked_reason": block_reason,
+                "emergency_abort_relief_vent_command_sent": allowed,
+                "emergency_abort_relief_vent_phase": phase,
+                "emergency_abort_relief_reason": relief_reason,
+                "emergency_abort_relief_pressure_hpa": pressure_hpa,
+                "emergency_abort_relief_route_open": route_open,
+                "emergency_abort_relief_seal_command_sent": seal_sent,
+                "emergency_abort_relief_pressure_setpoint_command_sent": setpoint_sent,
+                "emergency_abort_relief_sample_started": sample_started,
+                "emergency_abort_relief_may_mix_air": may_mix_air,
+                "normal_maintenance_vent_blocked_after_flush_phase": False,
+                "cleanup_vent_classification": "emergency_abort_relief",
+                "safe_stop_pressure_relief_result": "command_sent" if allowed else f"blocked:{block_reason}",
+            }
+        )
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        payload = {key: updated.get(key) for key in (
+            "emergency_abort_relief_vent_required",
+            "emergency_abort_relief_vent_allowed",
+            "emergency_abort_relief_vent_blocked_reason",
+            "emergency_abort_relief_vent_command_sent",
+            "emergency_abort_relief_vent_phase",
+            "emergency_abort_relief_reason",
+            "emergency_abort_relief_pressure_hpa",
+            "emergency_abort_relief_route_open",
+            "emergency_abort_relief_seal_command_sent",
+            "emergency_abort_relief_pressure_setpoint_command_sent",
+            "emergency_abort_relief_sample_started",
+            "emergency_abort_relief_may_mix_air",
+            "normal_maintenance_vent_blocked_after_flush_phase",
+            "cleanup_vent_classification",
+            "safe_stop_pressure_relief_result",
+        )}
+        if not allowed:
+            payload.update(
+                {
+                    "vent_command_blocked": True,
+                    "reason": reason,
+                }
+            )
+        return payload
+
+    def _guard_a2_conditioning_vent_command(
+        self,
+        *,
+        reason: str = "",
+        vent_classification: str = "normal_maintenance_vent",
+        emergency_abort_relief: bool = False,
+        relief_context: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
         context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
         if not context:
             return {}
+        if emergency_abort_relief or vent_classification == "emergency_abort_relief":
+            return self._a2_conditioning_emergency_abort_relief_decision(
+                context,
+                reason=reason,
+                relief_context=relief_context,
+            )
         blocked_reason = self._a2_conditioning_unsafe_vent_reason(context)
         if not blocked_reason:
             return {}
@@ -2678,6 +2873,8 @@ class WorkflowOrchestrator:
                 False,
             ),
             "unsafe_vent_after_seal_or_pressure_control_command_sent": False,
+            "normal_maintenance_vent_blocked_after_flush_phase": True,
+            "cleanup_vent_classification": "normal_maintenance_vent",
             "reason": reason,
         }
 

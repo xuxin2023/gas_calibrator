@@ -630,7 +630,7 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     )
 
     assert summary["a2_3_v1_pressure_gauge_read_policy_present"] is True
-    assert summary["evidence_source"] == "real_probe_a2_9_co2_7_pressure_no_write"
+    assert summary["evidence_source"] == "real_probe_a2_10_co2_7_pressure_no_write"
     assert summary["a2_3_pressure_source_strategy"] == "v1_aligned"
     assert summary["a2_4_v1_pressure_gauge_read_policy_present"] is True
     assert summary["a2_4_pressure_source_strategy"] == "v1_aligned"
@@ -665,6 +665,137 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     assert summary["continuous_restart_attempted"] is True
     assert summary["continuous_restart_result"] == "recovered"
     assert summary["a3_allowed"] is False
+
+
+def test_a2_probe_pressure_source_strategy_uses_downstream_aligned_config_without_runtime_metric(
+    tmp_path: Path,
+) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    config["workflow"]["pressure"]["a2_conditioning_pressure_source"] = "continuous"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["service_summary"] = {
+            "a2_conditioning_pressure_source_strategy": "continuous",
+        }
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_downstream_aligned_strategy",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["raw_config_pressure_source_strategy"] == "continuous"
+    assert summary["downstream_aligned_pressure_source_strategy"] == "v1_aligned"
+    assert summary["runtime_pressure_source_strategy_observed"] == ""
+    assert summary["a2_conditioning_pressure_source_strategy"] == "v1_aligned"
+    assert summary["a2_conditioning_pressure_source_strategy_source"] == "downstream_aligned_config"
+    assert summary["pressure_source_strategy_aggregation_mismatch"] is False
+    assert summary["pressure_source_strategy_aggregation_mismatch_reason"] == ""
+
+
+def test_a2_probe_summary_records_positive_preseal_abort_and_emergency_relief(
+    tmp_path: Path,
+) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["point_results"] = []
+        payload["pressure_trace_rows"] = []
+        payload["sample_rows"] = []
+        payload["route_trace_rows"] = [
+            {
+                "timestamp": "2026-04-29T03:43:00+00:00",
+                "action": "positive_preseal_abort",
+                "result": "fail",
+                "actual": {
+                    "positive_preseal_phase_started": True,
+                    "positive_preseal_phase_started_at": "2026-04-29T03:43:00+00:00",
+                    "positive_preseal_pressure_guard_checked": True,
+                    "positive_preseal_pressure_hpa": 1280.989,
+                    "positive_preseal_pressure_source": "digital_pressure_gauge_p3",
+                    "positive_preseal_pressure_sample_age_s": 0.05,
+                    "positive_preseal_abort_pressure_hpa": 1150.0,
+                    "positive_preseal_pressure_overlimit": True,
+                    "positive_preseal_abort_reason": "preseal_abort_pressure_exceeded",
+                    "positive_preseal_setpoint_sent": False,
+                    "positive_preseal_setpoint_hpa": None,
+                    "positive_preseal_output_enabled": False,
+                    "positive_preseal_route_open": True,
+                    "positive_preseal_seal_command_sent": False,
+                    "positive_preseal_pressure_setpoint_command_sent": False,
+                    "positive_preseal_sample_started": False,
+                    "positive_preseal_overlimit_fail_closed": True,
+                    "pressure_hpa": 1280.989,
+                    "abort_reason": "preseal_abort_pressure_exceeded",
+                },
+            },
+            {
+                "timestamp": "2026-04-29T03:43:01+00:00",
+                "action": "set_vent",
+                "target": {"vent_on": True},
+                "result": "ok",
+                "actual": {
+                    "emergency_abort_relief_vent_required": True,
+                    "emergency_abort_relief_vent_allowed": True,
+                    "emergency_abort_relief_vent_blocked_reason": "",
+                    "emergency_abort_relief_vent_command_sent": True,
+                    "emergency_abort_relief_vent_phase": "positive_preseal_pressurization",
+                    "emergency_abort_relief_reason": "positive_preseal_abort_pressure_exceeded",
+                    "emergency_abort_relief_pressure_hpa": 1280.989,
+                    "emergency_abort_relief_route_open": True,
+                    "emergency_abort_relief_seal_command_sent": False,
+                    "emergency_abort_relief_pressure_setpoint_command_sent": False,
+                    "emergency_abort_relief_sample_started": False,
+                    "emergency_abort_relief_may_mix_air": False,
+                    "normal_maintenance_vent_blocked_after_flush_phase": False,
+                    "cleanup_vent_classification": "emergency_abort_relief",
+                    "safe_stop_pressure_relief_result": "command_sent",
+                },
+            },
+        ]
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_positive_preseal_abort",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert "a2_positive_preseal_pressure_overlimit" in summary["rejection_reasons"]
+    assert "a2_route_conditioning_vent_blocked_after_flush_phase" not in summary["rejection_reasons"]
+    assert summary["positive_preseal_pressure_guard_checked"] is True
+    assert summary["positive_preseal_pressure_hpa"] == 1280.989
+    assert summary["positive_preseal_abort_pressure_hpa"] == 1150.0
+    assert summary["positive_preseal_pressure_overlimit"] is True
+    assert summary["positive_preseal_setpoint_sent"] is False
+    assert summary["positive_preseal_seal_command_sent"] is False
+    assert summary["positive_preseal_sample_started"] is False
+    assert summary["emergency_abort_relief_vent_allowed"] is True
+    assert summary["emergency_abort_relief_vent_command_sent"] is True
+    assert summary["cleanup_vent_classification"] == "emergency_abort_relief"
+    assert summary["normal_maintenance_vent_blocked_after_flush_phase"] is False
+    assert summary["safe_stop_pressure_relief_result"] == "command_sent"
+    assert summary["attempted_write_count"] == 0
+    assert summary["any_write_command_sent"] is False
 
 
 def test_a2_probe_does_not_reject_pressure_gate_source_before_gate_reached(tmp_path: Path) -> None:

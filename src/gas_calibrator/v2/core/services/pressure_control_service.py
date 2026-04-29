@@ -2351,8 +2351,25 @@ class PressureControlService:
         extra: Optional[dict[str, Any]] = None,
     ) -> PressureWaitResult:
         elapsed_s = max(0.0, time.time() - started_at)
+        extra_data = dict(extra or {})
+        overlimit = bool(
+            reason in {"preseal_abort_pressure_exceeded", "preseal_abort_pressure_exceeded_before_positive_preseal"}
+            or (
+                pressure_hpa is not None
+                and abort_pressure_hpa is not None
+                and float(pressure_hpa) >= float(abort_pressure_hpa)
+            )
+        )
         actual = {
             "stage": "positive_preseal_pressurization",
+            "positive_preseal_phase_started": True,
+            "positive_preseal_phase_started_at": extra_data.get(
+                "positive_preseal_phase_started_at",
+                datetime.fromtimestamp(started_at, timezone.utc).isoformat(),
+            ),
+            "positive_preseal_pressure_guard_checked": bool(
+                extra_data.get("positive_preseal_pressure_guard_checked", True)
+            ),
             "target_pressure_hpa": target_pressure_hpa,
             "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
             **dict(ambient_reference or {}),
@@ -2366,18 +2383,42 @@ class PressureControlService:
             "pressure_hpa": pressure_hpa,
             "current_line_pressure_hpa": pressure_hpa,
             "positive_preseal_pressure_hpa": pressure_hpa,
+            "positive_preseal_pressure_source": extra_data.get(
+                "positive_preseal_pressure_source",
+                extra_data.get("pressure_sample_source", extra_data.get("source", "")),
+            ),
+            "positive_preseal_pressure_sample_age_s": extra_data.get(
+                "positive_preseal_pressure_sample_age_s",
+                extra_data.get("pressure_sample_age_s", extra_data.get("sample_age_s")),
+            ),
+            "positive_preseal_abort_pressure_hpa": abort_pressure_hpa,
+            "positive_preseal_pressure_overlimit": overlimit,
+            "positive_preseal_abort_reason": reason,
+            "positive_preseal_setpoint_sent": False,
+            "positive_preseal_setpoint_hpa": None,
+            "positive_preseal_output_enabled": False,
+            "positive_preseal_route_open": bool(extra_data.get("positive_preseal_route_open", True)),
+            "positive_preseal_seal_command_sent": False,
+            "positive_preseal_pressure_setpoint_command_sent": False,
+            "positive_preseal_sample_started": False,
+            "positive_preseal_overlimit_fail_closed": overlimit,
+            "emergency_abort_relief_vent_required": overlimit,
+            "emergency_abort_relief_reason": (
+                "positive_preseal_abort_pressure_exceeded" if overlimit else ""
+            ),
+            "emergency_abort_relief_pressure_hpa": pressure_hpa if overlimit else None,
             "preseal_pressure_peak_hpa": pressure_peak_hpa,
             "preseal_pressure_last_hpa": pressure_last_hpa,
-            "pressure_max_hpa": (extra or {}).get("pressure_max_hpa", pressure_peak_hpa),
-            "pressure_min_hpa": (extra or {}).get("pressure_min_hpa", pressure_last_hpa),
-            "pressure_samples_count": int((extra or {}).get("pressure_samples_count", 0) or 0),
+            "pressure_max_hpa": extra_data.get("pressure_max_hpa", pressure_peak_hpa),
+            "pressure_min_hpa": extra_data.get("pressure_min_hpa", pressure_last_hpa),
+            "pressure_samples_count": int(extra_data.get("pressure_samples_count", 0) or 0),
             "ready_reached": False,
             "seal_command_sent": False,
             "sealed": False,
             "pressure_control_started": False,
             "abort_reason": reason,
             "decision": "FAIL",
-            **dict(extra or {}),
+            **extra_data,
         }
         self._record_route_trace(
             action="positive_preseal_abort",
@@ -2437,6 +2478,9 @@ class PressureControlService:
                     decision="seal_command_blocked",
                     warning_code="positive_preseal_ready_without_seal_start",
                 )
+        context_recorder = getattr(self.host, "_record_positive_preseal_fail_closed_context", None)
+        if callable(context_recorder):
+            context_recorder(actual)
         return PressureWaitResult(
             ok=False,
             timed_out=reason == "preseal_ready_timeout",
@@ -2699,6 +2743,7 @@ class PressureControlService:
         )
         started_at = time.time()
         started_monotonic_s = time.monotonic()
+        phase_started_at = datetime.fromtimestamp(started_at, timezone.utc).isoformat()
         preseal_arm_context = getattr(self.host, "_a2_preseal_vent_close_arm_context", None)
         preseal_arm_context = dict(preseal_arm_context) if isinstance(preseal_arm_context, Mapping) else {}
         vent_close_command_timeout_s = max(
@@ -2754,6 +2799,9 @@ class PressureControlService:
             point=point,
             actual={
                 "stage": "positive_preseal_pressurization",
+                "positive_preseal_phase_started": True,
+                "positive_preseal_phase_started_at": phase_started_at,
+                "positive_preseal_pressure_guard_checked": False,
                 "target_pressure_hpa": target_pressure_hpa,
                 "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
                 **dict(ambient_reference or {}),
@@ -2766,12 +2814,112 @@ class PressureControlService:
                 "ready_reached": False,
                 "sealed": False,
                 "pressure_control_started": False,
+                "positive_preseal_setpoint_sent": False,
+                "positive_preseal_setpoint_hpa": None,
+                "positive_preseal_output_enabled": False,
+                "positive_preseal_route_open": True,
+                "positive_preseal_seal_command_sent": False,
+                "positive_preseal_pressure_setpoint_command_sent": False,
+                "positive_preseal_sample_started": False,
                 **preseal_arm_context,
                 "decision": "START",
             },
             result="ok",
             message="Positive preseal pressurization started",
         )
+        guard_started = time.monotonic()
+        guard_sample: dict[str, Any] = {}
+        guard_pressure = self._coerce_float(preseal_arm_context.get("vent_close_arm_pressure_hpa"))
+        if guard_pressure is not None:
+            guard_sample = dict(preseal_arm_context)
+            guard_sample.setdefault("pressure_hpa", guard_pressure)
+        elif pressure_reader is not None:
+            guard_sample = self._read_pressure_sample(pressure_reader, source="pressure_gauge")
+            guard_pressure = self._coerce_float(guard_sample.get("pressure_hpa"))
+        guard_duration_ms = round(max(0.0, time.monotonic() - guard_started) * 1000.0, 3)
+        guard_source = str(
+            guard_sample.get("pressure_sample_source")
+            or guard_sample.get("source")
+            or ("pressure_gauge" if guard_pressure is not None else "")
+        )
+        guard_sample_age_s = self._coerce_float(
+            guard_sample.get("pressure_sample_age_s", guard_sample.get("sample_age_s"))
+        )
+        guard_stale = bool(
+            guard_sample.get("pressure_sample_is_stale", guard_sample.get("is_stale", False))
+        )
+        guard_overlimit = bool(
+            guard_pressure is not None
+            and abort_pressure_hpa is not None
+            and not guard_stale
+            and float(guard_pressure) >= float(abort_pressure_hpa)
+        )
+        guard_payload = {
+            "stage": "positive_preseal_pressure_guard",
+            "positive_preseal_phase_started": True,
+            "positive_preseal_phase_started_at": phase_started_at,
+            "positive_preseal_pressure_guard_checked": True,
+            "positive_preseal_pressure_hpa": guard_pressure,
+            "positive_preseal_pressure_source": guard_source,
+            "positive_preseal_pressure_sample_age_s": guard_sample_age_s,
+            "positive_preseal_abort_pressure_hpa": abort_pressure_hpa,
+            "positive_preseal_pressure_overlimit": guard_overlimit,
+            "positive_preseal_abort_reason": (
+                "preseal_abort_pressure_exceeded" if guard_overlimit else ""
+            ),
+            "positive_preseal_setpoint_sent": False,
+            "positive_preseal_setpoint_hpa": None,
+            "positive_preseal_output_enabled": False,
+            "positive_preseal_route_open": True,
+            "positive_preseal_seal_command_sent": False,
+            "positive_preseal_pressure_setpoint_command_sent": False,
+            "positive_preseal_sample_started": False,
+            "positive_preseal_overlimit_fail_closed": guard_overlimit,
+            "positive_preseal_pressure_guard_duration_ms": guard_duration_ms,
+            "positive_preseal_pressure_guard_stale": guard_stale,
+            **guard_sample,
+        }
+        self._record_route_trace(
+            action="positive_preseal_pressure_guard",
+            route=route,
+            point=point,
+            actual=guard_payload,
+            result="fail" if guard_overlimit else "ok",
+            message=(
+                "Positive preseal pressure guard exceeded abort pressure"
+                if guard_overlimit
+                else "Positive preseal pressure guard checked"
+            ),
+        )
+        if guard_overlimit:
+            return self._fail_positive_preseal(
+                point,
+                route=route,
+                started_at=started_at,
+                target_pressure_hpa=target_pressure_hpa,
+                measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                ambient_reference=ambient_reference,
+                ready_pressure_hpa=ready_pressure_hpa,
+                abort_pressure_hpa=abort_pressure_hpa,
+                timeout_s=timeout_s,
+                poll_interval_s=poll_interval_s,
+                pressure_hpa=float(guard_pressure),
+                pressure_peak_hpa=float(guard_pressure),
+                pressure_last_hpa=float(guard_pressure),
+                reason="preseal_abort_pressure_exceeded",
+                message="Positive preseal pressurization exceeded abort pressure",
+                extra={
+                    **preseal_arm_context,
+                    **{key: value for key, value in guard_payload.items() if key != "stage"},
+                    "pressure_samples_count": 1,
+                    "pressure_max_hpa": float(guard_pressure),
+                    "pressure_min_hpa": float(guard_pressure),
+                    "seal_command_blocked_reason": "preseal_abort_pressure_exceeded",
+                    "emergency_abort_relief_vent_required": True,
+                    "emergency_abort_relief_reason": "positive_preseal_abort_pressure_exceeded",
+                    "emergency_abort_relief_pressure_hpa": float(guard_pressure),
+                },
+            )
         if callable(timing_recorder):
             timing_recorder(
                 "positive_preseal_vent_close_start",
@@ -3048,7 +3196,7 @@ class PressureControlService:
             and float(pressure_at_arm) >= float(ready_pressure_hpa)
             and not bool(arm_sample_meta.get("pressure_sample_is_stale", False))
         ):
-            if abort_pressure_hpa is not None and float(pressure_at_arm) > float(abort_pressure_hpa):
+            if abort_pressure_hpa is not None and float(pressure_at_arm) >= float(abort_pressure_hpa):
                 return self._fail_positive_preseal(
                     point,
                     route=route,
@@ -3084,6 +3232,9 @@ class PressureControlService:
             ready_elapsed_s = max(0.0, time.time() - started_at)
             ready_payload = {
                 "stage": "positive_preseal_pressurization",
+                "positive_preseal_phase_started": True,
+                "positive_preseal_phase_started_at": phase_started_at,
+                "positive_preseal_pressure_guard_checked": True,
                 "target_pressure_hpa": target_pressure_hpa,
                 "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
                 **dict(ambient_reference or {}),
@@ -3102,6 +3253,28 @@ class PressureControlService:
                 "pressure_hpa": float(pressure_at_arm),
                 "current_line_pressure_hpa": float(pressure_at_arm),
                 "positive_preseal_pressure_hpa": float(pressure_at_arm),
+                "positive_preseal_pressure_source": str(
+                    arm_sample_meta.get("pressure_sample_source")
+                    or preseal_arm_context.get("pressure_sample_source")
+                    or ""
+                ),
+                "positive_preseal_pressure_sample_age_s": self._coerce_float(
+                    arm_sample_meta.get(
+                        "pressure_sample_age_s",
+                        preseal_arm_context.get("pressure_sample_age_s"),
+                    )
+                ),
+                "positive_preseal_abort_pressure_hpa": abort_pressure_hpa,
+                "positive_preseal_pressure_overlimit": False,
+                "positive_preseal_abort_reason": "",
+                "positive_preseal_setpoint_sent": False,
+                "positive_preseal_setpoint_hpa": None,
+                "positive_preseal_output_enabled": False,
+                "positive_preseal_route_open": True,
+                "positive_preseal_seal_command_sent": False,
+                "positive_preseal_pressure_setpoint_command_sent": False,
+                "positive_preseal_sample_started": False,
+                "positive_preseal_overlimit_fail_closed": False,
                 "pressure_samples_count": 1,
                 "pressure_max_hpa": pressure_peak_hpa,
                 "pressure_min_hpa": pressure_min_hpa,
@@ -3342,6 +3515,9 @@ class PressureControlService:
                     previous_elapsed = float(elapsed_s)
             check_payload = {
                 "stage": "positive_preseal_pressurization",
+                "positive_preseal_phase_started": True,
+                "positive_preseal_phase_started_at": phase_started_at,
+                "positive_preseal_pressure_guard_checked": True,
                 "target_pressure_hpa": target_pressure_hpa,
                 "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
                 **dict(ambient_reference or {}),
@@ -3360,6 +3536,28 @@ class PressureControlService:
                 "pressure_hpa": pressure_hpa,
                 "current_line_pressure_hpa": pressure_hpa,
                 "positive_preseal_pressure_hpa": pressure_hpa,
+                "positive_preseal_pressure_source": str(
+                    sample_meta.get("pressure_sample_source") or sample_meta.get("source") or ""
+                ),
+                "positive_preseal_pressure_sample_age_s": self._coerce_float(
+                    sample_meta.get("pressure_sample_age_s", sample_meta.get("sample_age_s"))
+                ),
+                "positive_preseal_abort_pressure_hpa": abort_pressure_hpa,
+                "positive_preseal_pressure_overlimit": bool(
+                    pressure_hpa is not None
+                    and abort_pressure_hpa is not None
+                    and not sample_is_stale
+                    and float(pressure_hpa) >= float(abort_pressure_hpa)
+                ),
+                "positive_preseal_abort_reason": "",
+                "positive_preseal_setpoint_sent": False,
+                "positive_preseal_setpoint_hpa": None,
+                "positive_preseal_output_enabled": False,
+                "positive_preseal_route_open": True,
+                "positive_preseal_seal_command_sent": False,
+                "positive_preseal_pressure_setpoint_command_sent": False,
+                "positive_preseal_sample_started": False,
+                "positive_preseal_overlimit_fail_closed": False,
                 "pressure_samples_count": pressure_samples_count,
                 "pressure_max_hpa": pressure_peak_hpa,
                 "pressure_min_hpa": pressure_min_hpa,
@@ -3444,7 +3642,7 @@ class PressureControlService:
             if (
                 pressure_hpa is not None
                 and abort_pressure_hpa is not None
-                and float(pressure_hpa) > float(abort_pressure_hpa)
+                and float(pressure_hpa) >= float(abort_pressure_hpa)
             ):
                 return self._fail_positive_preseal(
                     point,
@@ -3827,6 +4025,35 @@ class PressureControlService:
             self._clear_pressure_route_seal_state()
         return diagnostics
 
+    def _a2_emergency_abort_relief_context_for_reason(self, reason: str) -> dict[str, Any]:
+        context = dict(getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {}
+        required = bool(
+            context.get("emergency_abort_relief_vent_required")
+            or context.get("positive_preseal_pressure_overlimit")
+            or str(context.get("positive_preseal_abort_reason") or context.get("abort_reason") or "")
+            == "preseal_abort_pressure_exceeded"
+        )
+        if not required:
+            return {}
+        reason_text = str(reason or "").strip().lower()
+        if not reason_text or any(
+            token in reason_text
+            for token in (
+                "abort",
+                "cleanup",
+                "failure",
+                "safe stop",
+                "pressure-seal",
+                "pressure seal",
+                "relief",
+                "final",
+            )
+        ):
+            return context
+        return {}
+
     def set_pressure_controller_vent(
         self,
         vent_on: bool,
@@ -3837,14 +4064,34 @@ class PressureControlService:
         transition_timeout_s: Optional[float] = None,
         snapshot_after_command: bool = True,
         prefer_direct_command: bool = False,
+        vent_classification: str = "normal_maintenance_vent",
+        emergency_abort_relief: bool = False,
+        emergency_abort_relief_context: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
         controller = self.host._device("pressure_controller")
         if controller is None:
             return {}
+        guard_payload: dict[str, Any] = {}
+        if vent_on and not emergency_abort_relief:
+            inferred_context = self._a2_emergency_abort_relief_context_for_reason(reason)
+            if inferred_context:
+                emergency_abort_relief = True
+                emergency_abort_relief_context = inferred_context
+                vent_classification = "emergency_abort_relief"
+        if vent_on and emergency_abort_relief:
+            vent_classification = "emergency_abort_relief"
         if vent_on:
             guard = getattr(self.host, "_guard_a2_conditioning_vent_command", None)
             if callable(guard):
-                blocked = guard(reason=reason)
+                try:
+                    blocked = guard(
+                        reason=reason,
+                        vent_classification=vent_classification,
+                        emergency_abort_relief=emergency_abort_relief,
+                        relief_context=emergency_abort_relief_context,
+                    )
+                except TypeError:
+                    blocked = guard(reason=reason)
                 if isinstance(blocked, Mapping) and bool(blocked.get("vent_command_blocked")):
                     self._record_route_trace(
                         action="set_vent",
@@ -3854,6 +4101,8 @@ class PressureControlService:
                         message=str(blocked.get("vent_pulse_blocked_reason") or "vent command blocked"),
                     )
                     return dict(blocked)
+                if isinstance(blocked, Mapping):
+                    guard_payload = dict(blocked)
         extra = f" ({reason})" if reason else ""
         trace_result = "ok"
         trace_message = reason or ("vent on" if vent_on else "vent off")
@@ -3937,9 +4186,23 @@ class PressureControlService:
                 command_method=command_method,
                 command_error=command_error,
             )
+            if guard_payload:
+                diagnostics.update(guard_payload)
+            if emergency_abort_relief:
+                diagnostics.update(
+                    {
+                        "cleanup_vent_classification": "emergency_abort_relief",
+                        "emergency_abort_relief_vent_command_sent": trace_result == "ok",
+                        "safe_stop_pressure_relief_result": (
+                            "command_sent" if trace_result == "ok" else "command_failed"
+                        ),
+                    }
+                )
             if not bool(diagnostics.get("atmosphere_ready")) and trace_result == "ok":
                 trace_result = "fail"
                 trace_message = "pressure_controller_atmosphere_not_verified"
+            if emergency_abort_relief and trace_result != "ok":
+                diagnostics["safe_stop_pressure_relief_result"] = "command_failed"
         if not vent_on and controller is not None:
             state = (
                 self._pressure_controller_state_snapshot(controller)
@@ -4065,8 +4328,18 @@ class PressureControlService:
             self.disable_pressure_controller_output(reason=message)
         except Exception as exc:
             self.host._log(f"Final pressure safe stop warning: output disable failed: {exc}")
+        vent_diagnostics: dict[str, Any] = {}
         try:
-            self.set_pressure_controller_vent(True, reason=message)
+            relief_context = self._a2_emergency_abort_relief_context_for_reason(message)
+            vent_diagnostics = self.set_pressure_controller_vent(
+                True,
+                reason=message,
+                emergency_abort_relief=bool(relief_context),
+                emergency_abort_relief_context=relief_context or None,
+                vent_classification=(
+                    "emergency_abort_relief" if relief_context else "normal_maintenance_vent"
+                ),
+            )
         except Exception as exc:
             self.host._log(f"Final pressure safe stop warning: vent command failed: {exc}")
 
@@ -4082,6 +4355,24 @@ class PressureControlService:
         )
         summary["vent_on"] = self._pressure_controller_vent_on()
         summary["output_enabled"] = self._pressure_controller_output_enabled()
+        for key in (
+            "emergency_abort_relief_vent_required",
+            "emergency_abort_relief_vent_allowed",
+            "emergency_abort_relief_vent_blocked_reason",
+            "emergency_abort_relief_vent_command_sent",
+            "emergency_abort_relief_vent_phase",
+            "emergency_abort_relief_reason",
+            "emergency_abort_relief_pressure_hpa",
+            "emergency_abort_relief_route_open",
+            "emergency_abort_relief_seal_command_sent",
+            "emergency_abort_relief_pressure_setpoint_command_sent",
+            "emergency_abort_relief_sample_started",
+            "emergency_abort_relief_may_mix_air",
+            "cleanup_vent_classification",
+            "safe_stop_pressure_relief_result",
+        ):
+            if key in vent_diagnostics:
+                summary[key] = vent_diagnostics.get(key)
         result = "ok" if summary.get("output_enabled") in (False, None) else "warn"
         self._record_route_trace(
             action="final_safe_stop_pressure",

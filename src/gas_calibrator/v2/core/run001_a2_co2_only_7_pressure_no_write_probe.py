@@ -29,8 +29,8 @@ A2_ENV_VALUE = "1"
 A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
 A2_ALLOWED_PRESSURE_POINTS_HPA = (1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
 A2_EVIDENCE_MARKERS = {
-    "evidence_source": "real_probe_a2_9_co2_7_pressure_no_write",
-    "legacy_evidence_source": "real_probe_a2_8_co2_7_pressure_no_write",
+    "evidence_source": "real_probe_a2_10_co2_7_pressure_no_write",
+    "legacy_evidence_source": "real_probe_a2_9_co2_7_pressure_no_write",
     "acceptance_level": "engineering_probe_only",
     "not_real_acceptance_evidence": True,
     "promotion_state": "blocked",
@@ -929,6 +929,16 @@ def _a2_3_pressure_source_strategy(raw_cfg: Mapping[str, Any]) -> str:
     return value if value in {"v1_aligned", "continuous", "p3_fast_poll", "auto"} else "continuous"
 
 
+def _pressure_source_strategy_from_config_path(path: str | Path | None) -> str:
+    if not path:
+        return ""
+    try:
+        cfg = load_json_mapping(Path(path))
+    except Exception:
+        return ""
+    return _a2_3_pressure_source_strategy(cfg)
+
+
 def _pressure_gate_source_is_v1_aligned(source: Any) -> bool:
     text = str(source or "").strip().lower()
     if not text:
@@ -1392,6 +1402,56 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
                 return service_summary.get(key)
         return None
 
+    raw_config_pressure_source_strategy = _a2_3_pressure_source_strategy(raw_cfg)
+    downstream_aligned_config_path = str(
+        points_alignment.get("downstream_aligned_config_path") or execution_config_path or ""
+    )
+    downstream_aligned_pressure_source_strategy = _pressure_source_strategy_from_config_path(
+        downstream_aligned_config_path
+    )
+    runtime_pressure_source_strategy_observed = _first_metric_from_rows(
+        evidence_metric_rows,
+        "a2_conditioning_pressure_source_strategy",
+        "a2_conditioning_pressure_source",
+    )
+    runtime_pressure_source_strategy_observed = (
+        str(runtime_pressure_source_strategy_observed).strip().lower()
+        if runtime_pressure_source_strategy_observed not in (None, "")
+        else ""
+    )
+    service_summary_pressure_source_strategy = str(
+        service_summary.get("a2_conditioning_pressure_source_strategy")
+        or service_summary.get("a2_conditioning_pressure_source")
+        or ""
+    ).strip().lower()
+    if runtime_pressure_source_strategy_observed:
+        a2_conditioning_pressure_source_strategy = runtime_pressure_source_strategy_observed
+        a2_conditioning_pressure_source_strategy_source = "runtime_metric"
+    elif downstream_aligned_pressure_source_strategy:
+        a2_conditioning_pressure_source_strategy = downstream_aligned_pressure_source_strategy
+        a2_conditioning_pressure_source_strategy_source = "downstream_aligned_config"
+    elif service_summary_pressure_source_strategy:
+        a2_conditioning_pressure_source_strategy = service_summary_pressure_source_strategy
+        a2_conditioning_pressure_source_strategy_source = "service_summary"
+    else:
+        a2_conditioning_pressure_source_strategy = raw_config_pressure_source_strategy
+        a2_conditioning_pressure_source_strategy_source = "raw_config"
+    pressure_source_strategy_aggregation_mismatch = bool(
+        downstream_aligned_pressure_source_strategy
+        and a2_conditioning_pressure_source_strategy
+        and downstream_aligned_pressure_source_strategy != a2_conditioning_pressure_source_strategy
+    )
+    pressure_source_strategy_aggregation_mismatch_reason = (
+        "runtime_strategy_differs_from_downstream_aligned_config"
+        if pressure_source_strategy_aggregation_mismatch
+        and a2_conditioning_pressure_source_strategy_source == "runtime_metric"
+        else (
+            "summary_strategy_differs_from_downstream_aligned_config"
+            if pressure_source_strategy_aggregation_mismatch
+            else ""
+        )
+    )
+
     route_conditioning_pressure_overlimit = _as_bool(
         metric_or_summary("route_conditioning_pressure_overlimit", "pressure_overlimit_seen")
     ) is True
@@ -1461,6 +1521,14 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         metric_or_summary("unsafe_vent_after_seal_or_pressure_control_command_sent")
     ) is True
     vent_blocked_after_flush = _as_bool(metric_or_summary("vent_pulse_blocked_after_flush_phase")) is True
+    positive_preseal_abort_reason = str(
+        metric_or_summary("positive_preseal_abort_reason", "abort_reason") or ""
+    ).strip()
+    positive_preseal_pressure_overlimit = bool(
+        _as_bool(metric_or_summary("positive_preseal_pressure_overlimit")) is True
+        or _as_bool(metric_or_summary("positive_preseal_overlimit_fail_closed")) is True
+        or positive_preseal_abort_reason == "preseal_abort_pressure_exceeded"
+    )
     if route_conditioning_pressure_overlimit:
         rejection_reasons.append("a2_route_conditioning_pressure_overlimit")
     if route_conditioning_vent_gap_exceeded:
@@ -1483,8 +1551,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         rejection_reasons.append("a2_route_conditioning_unsafe_vent_after_seal_or_pressure_control")
     if vent_blocked_after_flush:
         rejection_reasons.append("a2_route_conditioning_vent_blocked_after_flush_phase")
+    if positive_preseal_pressure_overlimit:
+        rejection_reasons.append("a2_positive_preseal_pressure_overlimit")
 
-    a2_3_strategy = _a2_3_pressure_source_strategy(raw_cfg)
+    a2_3_strategy = a2_conditioning_pressure_source_strategy or raw_config_pressure_source_strategy
     a2_4_temperature_skip_requested = _as_bool(
         _first_value(
             raw_cfg,
@@ -1584,10 +1654,15 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             or vent_blocked_after_flush
         )
     )
+    positive_preseal_fail_closed = bool(pressure_points_completed == 0 and positive_preseal_pressure_overlimit)
     pressure_gate_reached = bool(pressure_gate_evidence_present and not route_conditioning_fail_closed)
     pressure_gate_not_reached_reason = ""
     if not pressure_gate_reached:
-        pressure_gate_not_reached_reason = "route_conditioning_fail_closed" if route_conditioning_fail_closed else ""
+        pressure_gate_not_reached_reason = (
+            "route_conditioning_fail_closed"
+            if route_conditioning_fail_closed
+            else ("positive_preseal_fail_closed" if positive_preseal_fail_closed else "")
+        )
     pressure_gate_source_required = "v1_aligned" if a2_4_probe_required else ""
     pressure_gate_source_alignment_reasons: list[str] = []
     pressure_gate_source_alignment_ready: Optional[bool] = None
@@ -1700,6 +1775,14 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "a2_4_v1_pressure_gauge_read_policy_present": A2_4_V1_PRESSURE_GAUGE_READ_POLICY_PRESENT,
         "a2_3_pressure_source_strategy": a2_3_strategy,
         "a2_4_pressure_source_strategy": a2_3_strategy,
+        "raw_config_pressure_source_strategy": raw_config_pressure_source_strategy,
+        "downstream_aligned_pressure_source_strategy": downstream_aligned_pressure_source_strategy,
+        "runtime_pressure_source_strategy_observed": runtime_pressure_source_strategy_observed,
+        "a2_conditioning_pressure_source_strategy_source": a2_conditioning_pressure_source_strategy_source,
+        "pressure_source_strategy_aggregation_mismatch": pressure_source_strategy_aggregation_mismatch,
+        "pressure_source_strategy_aggregation_mismatch_reason": (
+            pressure_source_strategy_aggregation_mismatch_reason
+        ),
         "temperature_stabilization_wait_skipped": temperature_stabilization_wait_skipped,
         "temperature_gate_mode": temperature_gate_mode,
         "temperature_not_part_of_acceptance": temperature_not_part_of_acceptance,
@@ -1723,11 +1806,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "pressure_gate_source_observed": pressure_gate_source_observed,
         "pressure_gate_source_alignment_ready": pressure_gate_source_alignment_ready,
         "pressure_gate_source_alignment_reasons": pressure_gate_source_alignment_reasons,
-        "a2_conditioning_pressure_source_strategy": metric_or_summary(
-            "a2_conditioning_pressure_source_strategy",
-            "a2_conditioning_pressure_source",
-        )
-        or a2_3_strategy,
+        "a2_conditioning_pressure_source_strategy": a2_conditioning_pressure_source_strategy,
         "selected_pressure_sample_age_s": metric_or_summary("selected_pressure_sample_age_s"),
         "selected_pressure_sample_is_stale": _as_bool(
             metric_or_summary("selected_pressure_sample_is_stale")
@@ -2025,6 +2104,86 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "route_conditioning_peak_pressure_hpa": metric_or_summary("route_conditioning_peak_pressure_hpa"),
         "route_conditioning_pressure_overlimit": route_conditioning_pressure_overlimit,
         "route_conditioning_vent_gap_exceeded": route_conditioning_vent_gap_exceeded,
+        "positive_preseal_phase_started": _as_bool(metric_or_summary("positive_preseal_phase_started")) is True,
+        "positive_preseal_phase_started_at": metric_or_summary("positive_preseal_phase_started_at") or "",
+        "positive_preseal_pressure_guard_checked": _as_bool(
+            metric_or_summary("positive_preseal_pressure_guard_checked")
+        )
+        is True,
+        "positive_preseal_pressure_hpa": metric_or_summary("positive_preseal_pressure_hpa"),
+        "positive_preseal_pressure_source": metric_or_summary("positive_preseal_pressure_source") or "",
+        "positive_preseal_pressure_sample_age_s": metric_or_summary(
+            "positive_preseal_pressure_sample_age_s"
+        ),
+        "positive_preseal_abort_pressure_hpa": metric_or_summary(
+            "positive_preseal_abort_pressure_hpa",
+            "preseal_abort_pressure_hpa",
+            "abort_pressure_hpa",
+        ),
+        "positive_preseal_pressure_overlimit": positive_preseal_pressure_overlimit,
+        "positive_preseal_abort_reason": positive_preseal_abort_reason,
+        "positive_preseal_setpoint_sent": _as_bool(metric_or_summary("positive_preseal_setpoint_sent")) is True,
+        "positive_preseal_setpoint_hpa": metric_or_summary("positive_preseal_setpoint_hpa"),
+        "positive_preseal_output_enabled": _as_bool(metric_or_summary("positive_preseal_output_enabled")) is True,
+        "positive_preseal_route_open": _as_bool(metric_or_summary("positive_preseal_route_open")) is True,
+        "positive_preseal_seal_command_sent": _as_bool(
+            metric_or_summary("positive_preseal_seal_command_sent")
+        )
+        is True,
+        "positive_preseal_pressure_setpoint_command_sent": _as_bool(
+            metric_or_summary("positive_preseal_pressure_setpoint_command_sent")
+        )
+        is True,
+        "positive_preseal_sample_started": _as_bool(metric_or_summary("positive_preseal_sample_started")) is True,
+        "positive_preseal_overlimit_fail_closed": _as_bool(
+            metric_or_summary("positive_preseal_overlimit_fail_closed")
+        )
+        is True,
+        "emergency_abort_relief_vent_required": _as_bool(
+            metric_or_summary("emergency_abort_relief_vent_required")
+        )
+        is True,
+        "emergency_abort_relief_vent_allowed": _as_bool(
+            metric_or_summary("emergency_abort_relief_vent_allowed")
+        )
+        is True,
+        "emergency_abort_relief_vent_blocked_reason": metric_or_summary(
+            "emergency_abort_relief_vent_blocked_reason"
+        )
+        or "",
+        "emergency_abort_relief_vent_command_sent": _as_bool(
+            metric_or_summary("emergency_abort_relief_vent_command_sent")
+        )
+        is True,
+        "emergency_abort_relief_vent_phase": metric_or_summary("emergency_abort_relief_vent_phase") or "",
+        "emergency_abort_relief_reason": metric_or_summary("emergency_abort_relief_reason") or "",
+        "emergency_abort_relief_pressure_hpa": metric_or_summary("emergency_abort_relief_pressure_hpa"),
+        "emergency_abort_relief_route_open": _as_bool(
+            metric_or_summary("emergency_abort_relief_route_open")
+        )
+        is True,
+        "emergency_abort_relief_seal_command_sent": _as_bool(
+            metric_or_summary("emergency_abort_relief_seal_command_sent")
+        )
+        is True,
+        "emergency_abort_relief_pressure_setpoint_command_sent": _as_bool(
+            metric_or_summary("emergency_abort_relief_pressure_setpoint_command_sent")
+        )
+        is True,
+        "emergency_abort_relief_sample_started": _as_bool(
+            metric_or_summary("emergency_abort_relief_sample_started")
+        )
+        is True,
+        "emergency_abort_relief_may_mix_air": _as_bool(
+            metric_or_summary("emergency_abort_relief_may_mix_air")
+        )
+        is True,
+        "normal_maintenance_vent_blocked_after_flush_phase": _as_bool(
+            metric_or_summary("normal_maintenance_vent_blocked_after_flush_phase")
+        )
+        is True,
+        "cleanup_vent_classification": metric_or_summary("cleanup_vent_classification") or "",
+        "safe_stop_pressure_relief_result": metric_or_summary("safe_stop_pressure_relief_result") or "",
         "vent_pulse_blocked_after_flush_phase": vent_blocked_after_flush,
         "vent_pulse_blocked_reason": metric_or_summary("vent_pulse_blocked_reason") or "",
         "attempted_unsafe_vent_after_seal_or_pressure_control": _as_bool(

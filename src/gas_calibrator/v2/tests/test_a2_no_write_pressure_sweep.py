@@ -2045,6 +2045,82 @@ def test_co2_conditioning_overlimit_safety_vent_is_blocked_after_seal(monkeypatc
     assert route_traces[-1]["action"] == "co2_route_conditioning_vent_blocked_after_flush_phase"
 
 
+def test_positive_preseal_abort_emergency_relief_allowed_when_unsealed() -> None:
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context = {
+        "route_conditioning_phase": "positive_preseal_pressurization",
+        "positive_preseal_pressure_overlimit": True,
+        "positive_preseal_abort_reason": "preseal_abort_pressure_exceeded",
+        "positive_preseal_pressure_hpa": 1280.989,
+        "positive_preseal_route_open": True,
+        "seal_command_sent": False,
+        "pressure_setpoint_command_sent": False,
+        "sampling_started": False,
+        "sample_count": 0,
+        "points_completed": 0,
+        "any_write_command_sent": False,
+    }
+
+    decision = orchestrator._guard_a2_conditioning_vent_command(
+        reason="final safe stop after positive preseal abort",
+        vent_classification="emergency_abort_relief",
+        emergency_abort_relief=True,
+    )
+
+    assert decision.get("vent_command_blocked") is not True
+    assert decision["emergency_abort_relief_vent_required"] is True
+    assert decision["emergency_abort_relief_vent_allowed"] is True
+    assert decision["emergency_abort_relief_vent_command_sent"] is True
+    assert decision["emergency_abort_relief_pressure_hpa"] == 1280.989
+    assert decision["emergency_abort_relief_may_mix_air"] is False
+    assert decision["normal_maintenance_vent_blocked_after_flush_phase"] is False
+    assert decision["cleanup_vent_classification"] == "emergency_abort_relief"
+    assert decision["safe_stop_pressure_relief_result"] == "command_sent"
+
+
+@pytest.mark.parametrize(
+    ("context_update", "blocked_reason"),
+    [
+        ({"seal_command_sent": True}, "seal_command_sent"),
+        ({"sampling_started": True}, "sample_started"),
+        ({"pressure_setpoint_command_sent": True}, "pressure_setpoint_command_sent"),
+    ],
+)
+def test_positive_preseal_abort_emergency_relief_blocks_mix_risk(
+    context_update: dict,
+    blocked_reason: str,
+) -> None:
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    context = {
+        "route_conditioning_phase": "positive_preseal_pressurization",
+        "positive_preseal_pressure_overlimit": True,
+        "positive_preseal_abort_reason": "preseal_abort_pressure_exceeded",
+        "positive_preseal_pressure_hpa": 1280.989,
+        "positive_preseal_route_open": True,
+        "seal_command_sent": False,
+        "pressure_setpoint_command_sent": False,
+        "sampling_started": False,
+        "sample_count": 0,
+        "points_completed": 0,
+        "any_write_command_sent": False,
+    }
+    context.update(context_update)
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context = context
+
+    decision = orchestrator._guard_a2_conditioning_vent_command(
+        reason="final safe stop after positive preseal abort",
+        vent_classification="emergency_abort_relief",
+        emergency_abort_relief=True,
+    )
+
+    assert decision["vent_command_blocked"] is True
+    assert decision["emergency_abort_relief_vent_allowed"] is False
+    assert decision["emergency_abort_relief_vent_command_sent"] is False
+    assert blocked_reason in decision["emergency_abort_relief_vent_blocked_reason"]
+    assert decision["cleanup_vent_classification"] == "emergency_abort_relief"
+    assert decision["normal_maintenance_vent_blocked_after_flush_phase"] is False
+
+
 def test_co2_conditioning_gauge_sequence_stop_defers_pressure_monitor(monkeypatch) -> None:
     orchestrator, point, clock, timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
@@ -4640,6 +4716,31 @@ def test_positive_preseal_abort_pressure_hard_fails_before_seal() -> None:
     assert any(event["event_name"] == "positive_preseal_abort" for event in host._recorded_timing)
 
 
+def test_positive_preseal_pressure_guard_blocks_before_vent_close() -> None:
+    service, _host, _controller, status = _positive_preseal_service([1150.0])
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is False
+    assert result.error == "Positive preseal pressurization exceeded abort pressure"
+    assert result.diagnostics["positive_preseal_pressure_guard_checked"] is True
+    assert result.diagnostics["positive_preseal_pressure_overlimit"] is True
+    assert result.diagnostics["positive_preseal_overlimit_fail_closed"] is True
+    assert result.diagnostics["positive_preseal_seal_command_sent"] is False
+    assert result.diagnostics["positive_preseal_pressure_setpoint_command_sent"] is False
+    assert result.diagnostics["positive_preseal_sample_started"] is False
+    assert result.diagnostics["emergency_abort_relief_vent_required"] is True
+    actions = [row["action"] for row in status.rows]
+    assert "positive_preseal_pressure_guard" in actions
+    assert "positive_preseal_abort" in actions
+    assert not any(row["action"] == "seal_route" for row in status.rows)
+    assert not any(
+        row["action"] == "set_vent" and row.get("target", {}).get("vent_on") is False
+        for row in status.rows
+    )
+
+
 def test_positive_preseal_ignores_stale_pressure_sample_for_abort() -> None:
     service, host, controller, status = _positive_preseal_service([])
 
@@ -4689,7 +4790,7 @@ def test_positive_preseal_ignores_stale_pressure_sample_for_abort() -> None:
     stale_check = next(
         row
         for row in status.rows
-        if row["action"] == "positive_preseal_pressure_check"
+        if row["action"] in {"positive_preseal_pressure_guard", "positive_preseal_pressure_check"}
         and row["actual"].get("pressure_sample_is_stale") is True
     )
     assert stale_check["actual"]["pressure_hpa"] == 1200.0
