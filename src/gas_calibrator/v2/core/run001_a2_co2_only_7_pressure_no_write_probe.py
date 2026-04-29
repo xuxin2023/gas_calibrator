@@ -681,6 +681,13 @@ def prepare_a2_downstream_points_config(
     pressure_cfg.setdefault("route_conditioning_diagnostic_budget_ms", 100.0)
     pressure_cfg.setdefault("route_conditioning_pressure_monitor_budget_ms", 100.0)
     pressure_cfg.setdefault("route_conditioning_trace_write_budget_ms", 50.0)
+    pressure_cfg.setdefault("route_conditioning_hard_abort_pressure_hpa", 1250.0)
+    pressure_cfg.setdefault("route_open_transient_window_enabled", True)
+    pressure_cfg.setdefault("route_open_transient_recovery_timeout_s", 10.0)
+    pressure_cfg.setdefault("route_open_transient_recovery_band_hpa", 10.0)
+    pressure_cfg.setdefault("route_open_transient_stable_hold_s", 2.0)
+    pressure_cfg.setdefault("route_open_transient_stable_span_hpa", 10.0)
+    pressure_cfg.setdefault("route_open_transient_stable_slope_hpa_per_s", 1.0)
     stability_cfg = workflow.setdefault("stability", {})
     if not isinstance(stability_cfg, dict):
         stability_cfg = {}
@@ -1455,6 +1462,16 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     route_conditioning_pressure_overlimit = _as_bool(
         metric_or_summary("route_conditioning_pressure_overlimit", "pressure_overlimit_seen")
     ) is True
+    route_conditioning_hard_abort_exceeded = _as_bool(
+        metric_or_summary("route_conditioning_hard_abort_exceeded")
+    ) is True
+    route_open_transient_recovery_required = _as_bool(
+        metric_or_summary("route_open_transient_recovery_required")
+    ) is True
+    route_open_transient_accepted = _as_bool(metric_or_summary("route_open_transient_accepted")) is True
+    route_open_transient_rejection_reason = str(
+        metric_or_summary("route_open_transient_rejection_reason") or ""
+    ).strip()
     route_conditioning_vent_gap_exceeded = _as_bool(
         metric_or_summary(
             "route_conditioning_vent_gap_exceeded",
@@ -1529,8 +1546,15 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         or _as_bool(metric_or_summary("positive_preseal_overlimit_fail_closed")) is True
         or positive_preseal_abort_reason == "preseal_abort_pressure_exceeded"
     )
+    if route_conditioning_hard_abort_exceeded:
+        rejection_reasons.append("a2_route_conditioning_hard_abort_pressure_exceeded")
     if route_conditioning_pressure_overlimit:
         rejection_reasons.append("a2_route_conditioning_pressure_overlimit")
+    if route_open_transient_recovery_required and not route_open_transient_accepted:
+        rejection_reasons.append(
+            route_open_transient_rejection_reason
+            or "a2_route_conditioning_route_open_transient_not_recovered"
+        )
     if route_conditioning_vent_gap_exceeded:
         rejection_reasons.append("a2_route_conditioning_vent_gap_exceeded")
     if route_conditioning_vent_command_failed:
@@ -1641,7 +1665,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     route_conditioning_fail_closed = bool(
         pressure_points_completed == 0
         and (
-            route_conditioning_pressure_overlimit
+            route_conditioning_hard_abort_exceeded
+            or route_conditioning_pressure_overlimit
+            or (route_open_transient_recovery_required and not route_open_transient_accepted)
             or route_conditioning_vent_gap_exceeded
             or route_conditioning_fast_vent_timeout
             or route_conditioning_fast_vent_not_supported
@@ -2092,6 +2118,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "vent_pulse_count": int(metric_or_summary("vent_pulse_count") or 0),
         "vent_pulse_interval_ms": metric_or_summary("vent_pulse_interval_ms") or [],
         "pressure_drop_after_vent_hpa": metric_or_summary("pressure_drop_after_vent_hpa") or [],
+        "measured_atmospheric_pressure_hpa": metric_or_summary("measured_atmospheric_pressure_hpa"),
         "route_conditioning_pressure_before_route_open_hpa": metric_or_summary(
             "route_conditioning_pressure_before_route_open_hpa"
         ),
@@ -2102,6 +2129,55 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             "route_conditioning_pressure_rise_rate_hpa_per_s"
         ),
         "route_conditioning_peak_pressure_hpa": metric_or_summary("route_conditioning_peak_pressure_hpa"),
+        "route_open_transient_window_enabled": _as_bool(
+            metric_or_summary("route_open_transient_window_enabled")
+        )
+        is True,
+        "route_open_transient_peak_pressure_hpa": metric_or_summary("route_open_transient_peak_pressure_hpa"),
+        "route_open_transient_peak_time_ms": metric_or_summary("route_open_transient_peak_time_ms"),
+        "route_open_transient_recovery_required": _as_bool(
+            metric_or_summary("route_open_transient_recovery_required")
+        )
+        is True,
+        "route_open_transient_recovered_to_atmosphere": _as_bool(
+            metric_or_summary("route_open_transient_recovered_to_atmosphere")
+        )
+        is True,
+        "route_open_transient_recovery_time_ms": metric_or_summary("route_open_transient_recovery_time_ms"),
+        "route_open_transient_recovery_target_hpa": metric_or_summary(
+            "route_open_transient_recovery_target_hpa"
+        ),
+        "route_open_transient_recovery_band_hpa": metric_or_summary("route_open_transient_recovery_band_hpa"),
+        "route_open_transient_stable_hold_s": metric_or_summary("route_open_transient_stable_hold_s"),
+        "route_open_transient_stable_pressure_mean_hpa": metric_or_summary(
+            "route_open_transient_stable_pressure_mean_hpa"
+        ),
+        "route_open_transient_stable_pressure_span_hpa": metric_or_summary(
+            "route_open_transient_stable_pressure_span_hpa"
+        ),
+        "route_open_transient_stable_pressure_slope_hpa_per_s": metric_or_summary(
+            "route_open_transient_stable_pressure_slope_hpa_per_s"
+        ),
+        "route_open_transient_accepted": _as_bool(metric_or_summary("route_open_transient_accepted")) is True,
+        "route_open_transient_rejection_reason": metric_or_summary(
+            "route_open_transient_rejection_reason"
+        )
+        or "",
+        "sustained_pressure_rise_after_route_open": _as_bool(
+            metric_or_summary("sustained_pressure_rise_after_route_open")
+        )
+        is True,
+        "pressure_rise_despite_valid_vent_scheduler": _as_bool(
+            metric_or_summary("pressure_rise_despite_valid_vent_scheduler")
+        )
+        is True,
+        "route_conditioning_hard_abort_pressure_hpa": metric_or_summary(
+            "route_conditioning_hard_abort_pressure_hpa"
+        ),
+        "route_conditioning_hard_abort_exceeded": _as_bool(
+            metric_or_summary("route_conditioning_hard_abort_exceeded")
+        )
+        is True,
         "route_conditioning_pressure_overlimit": route_conditioning_pressure_overlimit,
         "route_conditioning_vent_gap_exceeded": route_conditioning_vent_gap_exceeded,
         "positive_preseal_phase_started": _as_bool(metric_or_summary("positive_preseal_phase_started")) is True,

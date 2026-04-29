@@ -1599,6 +1599,14 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
         "workflow.pressure.pressure_monitor_interval_s": 0.5,
         "workflow.pressure.conditioning_digital_gauge_max_age_s": 3.0,
         "workflow.pressure.conditioning_pressure_abort_hpa": 1150.0,
+        "workflow.pressure.route_conditioning_hard_abort_pressure_hpa": 1150.0,
+        "workflow.pressure.route_open_transient_window_enabled": True,
+        "workflow.pressure.route_open_transient_recovery_timeout_s": 3.0,
+        "workflow.pressure.route_open_transient_recovery_band_hpa": 10.0,
+        "workflow.pressure.route_open_transient_stable_hold_s": 0.2,
+        "workflow.pressure.route_open_transient_stable_pressure_span_hpa": 10.0,
+        "workflow.pressure.route_open_transient_stable_span_hpa": 10.0,
+        "workflow.pressure.route_open_transient_stable_slope_hpa_per_s": 10.0,
         "workflow.pressure.preseal_atmosphere_hold_reassert_timeout_s": 0.1,
         "workflow.pressure.pressure_read_latency_warn_s": 0.5,
     }
@@ -2015,6 +2023,8 @@ def test_co2_conditioning_fresh_gauge_over_abort_fails_closed(monkeypatch) -> No
     assert context["pressure_overlimit_seen"] is True
     assert context["pressure_overlimit_hpa"] == 1155.0
     assert context["conditioning_pressure_abort_hpa"] == 1150.0
+    assert context["route_conditioning_hard_abort_pressure_hpa"] == 1150.0
+    assert context["route_conditioning_hard_abort_exceeded"] is True
     assert context["fail_closed_before_vent_off"] is True
     assert context["fail_closed_reason"] == "route_conditioning_pressure_overlimit"
     assert context["route_conditioning_pressure_overlimit"] is True
@@ -2025,6 +2035,127 @@ def test_co2_conditioning_fresh_gauge_over_abort_fails_closed(monkeypatch) -> No
     assert route_traces[-1]["action"] == "co2_preseal_atmosphere_hold_pressure_guard"
     assert context["trace_write_deferred_for_vent_priority"] is True
     assert not any(event["event_name"] == "co2_route_conditioning_pressure_overlimit" for event in timing_events)
+
+
+def test_co2_conditioning_accepts_route_open_transient_after_recovery(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2},
+            {"pressure_hpa": 1160.0, "age_s": 0.1, "sequence_id": 3},
+            {"pressure_hpa": 1011.0, "age_s": 0.1, "sequence_id": 4},
+            {"pressure_hpa": 1009.5, "age_s": 0.1, "sequence_id": 5},
+        ],
+        cfg_overrides={
+            "workflow.pressure.route_conditioning_hard_abort_pressure_hpa": 1250.0,
+            "workflow.pressure.route_open_transient_recovery_band_hpa": 5.0,
+            "workflow.pressure.route_open_transient_recovery_timeout_s": 2.0,
+            "workflow.pressure.route_open_transient_stable_hold_s": 0.2,
+            "workflow.pressure.route_open_transient_stable_pressure_span_hpa": 5.0,
+            "workflow.pressure.route_open_transient_stable_slope_hpa_per_s": 10.0,
+        },
+    )
+    baseline = orchestrator._record_a2_co2_conditioning_pressure_monitor(
+        point,
+        phase="before_route_open_atmospheric_baseline",
+    )
+    clock["now"] += 0.1
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+    spike = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    clock["now"] += 0.1
+    recovered = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    clock["now"] += 0.3
+    stable = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+
+    assert baseline["measured_atmospheric_pressure_hpa"] == 1009.0
+    assert spike["route_open_transient_peak_pressure_hpa"] == 1160.0
+    assert spike["route_open_transient_recovery_required"] is True
+    assert spike["route_conditioning_hard_abort_exceeded"] is False
+    assert spike["route_conditioning_hard_abort_pressure_hpa"] == 1250.0
+    assert recovered["route_open_transient_recovered_to_atmosphere"] is True
+    assert stable["route_open_transient_accepted"] is True
+    assert stable["route_open_transient_recovery_target_hpa"] == 1009.0
+    assert stable["route_open_transient_rejection_reason"] == ""
+    assert stable["vent_off_blocked_during_flush"] is True
+    assert stable["seal_blocked_during_flush"] is True
+    assert stable["pressure_setpoint_blocked_during_flush"] is True
+    assert stable["sample_blocked_during_flush"] is True
+    assert route_traces == []
+
+
+def test_co2_conditioning_route_open_transient_rise_after_valid_vent_fails_closed(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2},
+            {"pressure_hpa": 1120.0, "age_s": 0.1, "sequence_id": 3},
+            {"pressure_hpa": 1130.0, "age_s": 0.1, "sequence_id": 4},
+            {"pressure_hpa": 1140.0, "age_s": 0.1, "sequence_id": 5},
+        ],
+        cfg_overrides={
+            "workflow.pressure.route_conditioning_hard_abort_pressure_hpa": 1250.0,
+            "workflow.pressure.route_open_transient_recovery_band_hpa": 5.0,
+            "workflow.pressure.route_open_transient_sustained_rise_min_samples": 3,
+        },
+    )
+    orchestrator._record_a2_co2_conditioning_pressure_monitor(
+        point,
+        phase="before_route_open_atmospheric_baseline",
+    )
+    clock["now"] += 0.1
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+    orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    clock["now"] += 0.1
+
+    with pytest.raises(WorkflowValidationError):
+        orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["route_conditioning_hard_abort_exceeded"] is False
+    assert context["pressure_rise_despite_valid_vent_scheduler"] is True
+    assert context["route_open_transient_rejection_reason"] == "pressure_rise_despite_valid_vent_scheduler"
+    assert route_traces[-1]["action"] == "co2_route_conditioning_transient_recovery_failed"
+
+
+def test_co2_conditioning_route_open_transient_sustained_rise_fails_closed(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2},
+            {"pressure_hpa": 1120.0, "age_s": 0.1, "sequence_id": 3},
+            {"pressure_hpa": 1130.0, "age_s": 0.1, "sequence_id": 4},
+            {"pressure_hpa": 1140.0, "age_s": 0.1, "sequence_id": 5},
+        ],
+        cfg_overrides={
+            "workflow.pressure.route_conditioning_hard_abort_pressure_hpa": 1250.0,
+            "workflow.pressure.route_open_transient_recovery_band_hpa": 5.0,
+            "workflow.pressure.route_open_transient_sustained_rise_min_samples": 3,
+            "workflow.pressure.route_conditioning_pressure_rise_vent_trigger_hpa": 999.0,
+        },
+    )
+    orchestrator._record_a2_co2_conditioning_pressure_monitor(
+        point,
+        phase="before_route_open_atmospheric_baseline",
+    )
+    clock["now"] += 0.1
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+    orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    clock["now"] += 0.1
+    orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    clock["now"] += 0.1
+
+    with pytest.raises(WorkflowValidationError):
+        orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["route_conditioning_hard_abort_exceeded"] is False
+    assert context["sustained_pressure_rise_after_route_open"] is True
+    assert context.get("pressure_rise_despite_valid_vent_scheduler") is not True
+    assert context["route_open_transient_rejection_reason"] == "sustained_pressure_rise_after_route_open"
+    assert route_traces[-1]["action"] == "co2_route_conditioning_transient_recovery_failed"
 
 
 def test_co2_conditioning_overlimit_safety_vent_is_blocked_after_seal(monkeypatch) -> None:
@@ -4358,6 +4489,37 @@ def test_co2_preseal_soak_handoffs_ready_pressure_without_hard_fail(monkeypatch)
     assert any(event["event_name"] == "preseal_vent_close_arm_triggered" for event in timing_events)
 
 
+def test_orchestrator_vent_wrapper_returns_diagnostics() -> None:
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    expected = {
+        "vent_command_ack": True,
+        "vent_status_raw": 0,
+        "command_method": "exit_atmosphere_mode",
+    }
+    calls: list[dict] = []
+
+    def set_pressure_controller_vent(vent_on: bool, **kwargs):
+        calls.append({"vent_on": vent_on, **kwargs})
+        return expected
+
+    orchestrator.pressure_control_service = SimpleNamespace(
+        set_pressure_controller_vent=set_pressure_controller_vent
+    )
+
+    result = orchestrator._set_pressure_controller_vent(False, reason="before CO2 pressure seal")
+
+    assert result == expected
+    assert calls == [
+        {
+            "vent_on": False,
+            "reason": "before CO2 pressure seal",
+            "wait_after_command": True,
+            "capture_pressure": True,
+            "transition_timeout_s": None,
+        }
+    ]
+
+
 def _preseal_arm_orchestrator(monkeypatch, pressures: list[float], *, cfg_overrides: dict | None = None):
     orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
     route_traces: list[dict] = []
@@ -4535,6 +4697,58 @@ def test_positive_preseal_ready_closes_vent_and_seals_before_pressure_control() 
     assert ready_event_index < seal_start_index
     assert seal_start_event["duration_s"] is not None
     assert seal_start_event["duration_s"] <= 0.5
+
+
+def test_preseal_gate_refreshes_controller_after_verified_vent_off() -> None:
+    class LaggingVentStatusController(_FakePressureController):
+        simulated_device = True
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._status_reads = [0, 1, 1]
+
+        def get_vent_status(self) -> int:
+            if self._status_reads:
+                return self._status_reads.pop(0)
+            return self.vent_status
+
+    service, host, stale_controller, status = _positive_preseal_service(
+        [1013.25],
+        cfg_overrides={
+            "workflow.pressure.positive_preseal_pressurization_enabled": False,
+            "workflow.pressure.pressurize_wait_after_vent_off_s": 0.0,
+            "workflow.pressure.fail_if_sealed_pressure_below_target": False,
+        },
+    )
+    active_controller = LaggingVentStatusController()
+    stale_controller.vent_on = True
+    stale_controller.vent_status = 1
+    active_controller.vent_on = True
+    active_controller.vent_status = 1
+    original_device = host._device
+    pressure_controller_calls = {"count": 0}
+
+    def refreshed_device(*names):
+        if "pressure_controller" in names or "pace" in names:
+            pressure_controller_calls["count"] += 1
+            return stale_controller if pressure_controller_calls["count"] == 1 else active_controller
+        return original_device(*names)
+
+    host._device = refreshed_device
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is True
+    preseal_exit = next(row for row in status.rows if row["action"] == "preseal_final_atmosphere_exit")
+    assert preseal_exit["result"] == "ok"
+    assert preseal_exit["actual"]["pressure_controller_vent_status"] == 1
+    assert preseal_exit["actual"]["preseal_controller_refreshed_after_vent_off"] is True
+    assert preseal_exit["actual"]["preseal_final_vent_off_snapshot_status"] == 0
+    assert preseal_exit["actual"]["preseal_final_vent_off_snapshot_idle"] is True
+    assert preseal_exit["actual"]["preseal_final_vent_off_snapshot_accepted"] is True
+    assert preseal_exit["actual"]["preseal_final_vent_off_snapshot_acceptance_scope"] == "simulation_only"
+    assert any(row["action"] == "seal_route" for row in status.rows)
 
 
 def test_high_pressure_first_point_ready_sends_seal_command_immediately() -> None:

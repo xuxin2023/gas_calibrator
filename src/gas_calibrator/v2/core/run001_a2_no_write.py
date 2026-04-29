@@ -1929,6 +1929,7 @@ def _build_co2_route_conditioning_evidence(
             "co2_route_conditioning_route_open_first_vent_gap",
             "co2_route_conditioning_stream_stale",
             "co2_route_conditioning_pressure_overlimit",
+            "co2_route_conditioning_transient_recovery_failed",
             "co2_route_conditioning_vent_command_failed",
             "co2_route_conditioning_diagnostic_blocked_vent_scheduler",
             "co2_route_conditioning_terminal_vent_gap",
@@ -2397,6 +2398,15 @@ def _build_co2_route_conditioning_evidence(
             or end_state.get("conditioning_pressure_abort_hpa")
             or start_state.get("conditioning_pressure_abort_hpa")
         ),
+        "route_conditioning_hard_abort_pressure_hpa": latest_state_value(
+            "route_conditioning_hard_abort_pressure_hpa",
+            terminal_state.get("conditioning_pressure_abort_hpa")
+            or end_state.get("conditioning_pressure_abort_hpa")
+            or start_state.get("conditioning_pressure_abort_hpa"),
+        ),
+        "route_conditioning_hard_abort_exceeded": bool(
+            latest_state_value("route_conditioning_hard_abort_exceeded", bool(pressure_overlimit_states))
+        ),
         "pressure_overlimit_seen": bool(pressure_overlimit_states),
         "pressure_overlimit_source": first_pressure_overlimit.get("pressure_overlimit_source")
         or first_pressure_overlimit.get("pressure_sample_source")
@@ -2572,6 +2582,7 @@ def _build_co2_route_conditioning_evidence(
         ),
         "route_open_to_first_pressure_read_ms": latest_state_value("route_open_to_first_pressure_read_ms"),
         "route_open_to_overlimit_ms": latest_state_value("route_open_to_overlimit_ms"),
+        "measured_atmospheric_pressure_hpa": latest_state_value("measured_atmospheric_pressure_hpa"),
         "route_conditioning_pressure_before_route_open_hpa": latest_state_value(
             "route_conditioning_pressure_before_route_open_hpa"
         ),
@@ -2584,6 +2595,43 @@ def _build_co2_route_conditioning_evidence(
         "route_conditioning_peak_pressure_hpa": latest_state_value("route_conditioning_peak_pressure_hpa"),
         "route_conditioning_pressure_overlimit": bool(
             latest_state_value("route_conditioning_pressure_overlimit", bool(pressure_overlimit_states))
+        ),
+        "route_open_transient_window_enabled": bool(
+            latest_state_value("route_open_transient_window_enabled", True)
+        ),
+        "route_open_transient_peak_pressure_hpa": latest_state_value("route_open_transient_peak_pressure_hpa"),
+        "route_open_transient_peak_time_ms": latest_state_value("route_open_transient_peak_time_ms"),
+        "route_open_transient_recovery_required": bool(
+            latest_state_value("route_open_transient_recovery_required", False)
+        ),
+        "route_open_transient_recovered_to_atmosphere": bool(
+            latest_state_value("route_open_transient_recovered_to_atmosphere", False)
+        ),
+        "route_open_transient_recovery_time_ms": latest_state_value("route_open_transient_recovery_time_ms"),
+        "route_open_transient_recovery_target_hpa": latest_state_value(
+            "route_open_transient_recovery_target_hpa"
+        ),
+        "route_open_transient_recovery_band_hpa": latest_state_value("route_open_transient_recovery_band_hpa"),
+        "route_open_transient_stable_hold_s": latest_state_value("route_open_transient_stable_hold_s"),
+        "route_open_transient_stable_pressure_mean_hpa": latest_state_value(
+            "route_open_transient_stable_pressure_mean_hpa"
+        ),
+        "route_open_transient_stable_pressure_span_hpa": latest_state_value(
+            "route_open_transient_stable_pressure_span_hpa"
+        ),
+        "route_open_transient_stable_pressure_slope_hpa_per_s": latest_state_value(
+            "route_open_transient_stable_pressure_slope_hpa_per_s"
+        ),
+        "route_open_transient_accepted": bool(latest_state_value("route_open_transient_accepted", False)),
+        "route_open_transient_rejection_reason": latest_state_value(
+            "route_open_transient_rejection_reason",
+            "",
+        ),
+        "sustained_pressure_rise_after_route_open": bool(
+            latest_state_value("sustained_pressure_rise_after_route_open", False)
+        ),
+        "pressure_rise_despite_valid_vent_scheduler": bool(
+            latest_state_value("pressure_rise_despite_valid_vent_scheduler", False)
         ),
         "route_conditioning_vent_gap_exceeded": bool(
             latest_state_value("route_conditioning_vent_gap_exceeded", vent_gap_exceeded)
@@ -3855,6 +3903,21 @@ def build_run001_a2_evidence_payload(
                 if pressure_cfg.get("conditioning_pressure_abort_hpa") is not None
                 else pressure_cfg.get("preseal_atmosphere_flush_abort_pressure_hpa", pressure_cfg.get("preseal_abort_pressure_hpa", 1150.0))
             ),
+            "route_conditioning_hard_abort_pressure_hpa": _as_float(
+                pressure_cfg.get("route_conditioning_hard_abort_pressure_hpa", 1250.0)
+            ),
+            "route_open_transient_window_enabled": _as_bool(
+                pressure_cfg.get("route_open_transient_window_enabled", True)
+            ),
+            "route_open_transient_recovery_band_hpa": _as_float(
+                pressure_cfg.get("route_open_transient_recovery_band_hpa", 10.0)
+            ),
+            "route_open_transient_recovery_timeout_s": _as_float(
+                pressure_cfg.get("route_open_transient_recovery_timeout_s", 10.0)
+            ),
+            "route_open_transient_stable_hold_s": _as_float(
+                pressure_cfg.get("route_open_transient_stable_hold_s", 2.0)
+            ),
             "preseal_atmosphere_hold_pressure_limit_hpa": _preseal_atmosphere_hold_limit_hpa(raw_cfg, rows),
             "positive_preseal_pressurization_enabled": _as_bool(
                 pressure_cfg.get("positive_preseal_pressurization_enabled")
@@ -4193,8 +4256,19 @@ def _finalize_artifact_decision(payload: dict[str, Any], run_dir: str | Path) ->
             reasons.append("a2_co2_route_conditioning_diagnostic_blocked_vent_scheduler")
         if conditioning and bool(conditioning.get("vent_command_failed_during_flush")):
             reasons.append("a2_co2_route_conditioning_vent_command_failed")
+        if conditioning and bool(conditioning.get("route_conditioning_hard_abort_exceeded")):
+            reasons.append("a2_co2_route_conditioning_hard_abort_pressure_exceeded")
         if conditioning and bool(conditioning.get("pressure_overlimit_seen")):
             reasons.append("a2_co2_route_conditioning_pressure_overlimit")
+        if conditioning and bool(conditioning.get("route_open_transient_recovery_required")) and not bool(
+            conditioning.get("route_open_transient_accepted")
+        ):
+            reason = str(conditioning.get("route_open_transient_rejection_reason") or "").strip()
+            reasons.append(reason or "a2_co2_route_conditioning_route_open_transient_not_recovered")
+        if conditioning and bool(conditioning.get("sustained_pressure_rise_after_route_open")):
+            reasons.append("a2_co2_route_conditioning_sustained_pressure_rise_after_route_open")
+        if conditioning and bool(conditioning.get("pressure_rise_despite_valid_vent_scheduler")):
+            reasons.append("a2_co2_route_conditioning_pressure_rise_despite_valid_vent_scheduler")
         if conditioning and bool(conditioning.get("vent_off_command_during_flush")):
             reasons.append("a2_co2_route_conditioning_vent_off_before_flush_completed")
         if conditioning and bool(conditioning.get("seal_command_during_flush")):
@@ -4761,6 +4835,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "route_open_to_first_pressure_read_ms"
             ),
             "route_open_to_overlimit_ms": co2_route_conditioning_payload.get("route_open_to_overlimit_ms"),
+            "measured_atmospheric_pressure_hpa": co2_route_conditioning_payload.get(
+                "measured_atmospheric_pressure_hpa"
+            ),
             "route_conditioning_pressure_before_route_open_hpa": co2_route_conditioning_payload.get(
                 "route_conditioning_pressure_before_route_open_hpa"
             ),
@@ -4772,6 +4849,60 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             ),
             "route_conditioning_peak_pressure_hpa": co2_route_conditioning_payload.get(
                 "route_conditioning_peak_pressure_hpa"
+            ),
+            "route_open_transient_window_enabled": co2_route_conditioning_payload.get(
+                "route_open_transient_window_enabled"
+            ),
+            "route_open_transient_peak_pressure_hpa": co2_route_conditioning_payload.get(
+                "route_open_transient_peak_pressure_hpa"
+            ),
+            "route_open_transient_peak_time_ms": co2_route_conditioning_payload.get(
+                "route_open_transient_peak_time_ms"
+            ),
+            "route_open_transient_recovery_required": co2_route_conditioning_payload.get(
+                "route_open_transient_recovery_required"
+            ),
+            "route_open_transient_recovered_to_atmosphere": co2_route_conditioning_payload.get(
+                "route_open_transient_recovered_to_atmosphere"
+            ),
+            "route_open_transient_recovery_time_ms": co2_route_conditioning_payload.get(
+                "route_open_transient_recovery_time_ms"
+            ),
+            "route_open_transient_recovery_target_hpa": co2_route_conditioning_payload.get(
+                "route_open_transient_recovery_target_hpa"
+            ),
+            "route_open_transient_recovery_band_hpa": co2_route_conditioning_payload.get(
+                "route_open_transient_recovery_band_hpa"
+            ),
+            "route_open_transient_stable_hold_s": co2_route_conditioning_payload.get(
+                "route_open_transient_stable_hold_s"
+            ),
+            "route_open_transient_stable_pressure_mean_hpa": co2_route_conditioning_payload.get(
+                "route_open_transient_stable_pressure_mean_hpa"
+            ),
+            "route_open_transient_stable_pressure_span_hpa": co2_route_conditioning_payload.get(
+                "route_open_transient_stable_pressure_span_hpa"
+            ),
+            "route_open_transient_stable_pressure_slope_hpa_per_s": co2_route_conditioning_payload.get(
+                "route_open_transient_stable_pressure_slope_hpa_per_s"
+            ),
+            "route_open_transient_accepted": co2_route_conditioning_payload.get(
+                "route_open_transient_accepted"
+            ),
+            "route_open_transient_rejection_reason": co2_route_conditioning_payload.get(
+                "route_open_transient_rejection_reason"
+            ),
+            "sustained_pressure_rise_after_route_open": co2_route_conditioning_payload.get(
+                "sustained_pressure_rise_after_route_open"
+            ),
+            "pressure_rise_despite_valid_vent_scheduler": co2_route_conditioning_payload.get(
+                "pressure_rise_despite_valid_vent_scheduler"
+            ),
+            "route_conditioning_hard_abort_pressure_hpa": co2_route_conditioning_payload.get(
+                "route_conditioning_hard_abort_pressure_hpa"
+            ),
+            "route_conditioning_hard_abort_exceeded": co2_route_conditioning_payload.get(
+                "route_conditioning_hard_abort_exceeded"
             ),
             "route_conditioning_pressure_overlimit": co2_route_conditioning_payload.get(
                 "route_conditioning_pressure_overlimit"
