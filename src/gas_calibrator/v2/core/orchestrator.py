@@ -1846,7 +1846,27 @@ class WorkflowOrchestrator:
         self._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open")
         return dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
 
-    def _a2_conditioning_stream_snapshot(self) -> dict[str, Any]:
+    def _a2_conditioning_stream_snapshot(
+        self,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "",
+        fast: bool = False,
+        budget_ms: Any = None,
+    ) -> dict[str, Any]:
+        if fast:
+            fast_snapshotter = getattr(
+                self.pressure_control_service,
+                "digital_gauge_continuous_latest_fast_snapshot",
+                None,
+            )
+            if callable(fast_snapshotter):
+                snapshot = fast_snapshotter(
+                    stage="co2_route_conditioning_at_atmosphere",
+                    point_index=None if point is None else point.index,
+                    budget_ms=budget_ms,
+                )
+                return dict(snapshot) if isinstance(snapshot, Mapping) else {}
         snapshotter = getattr(self.pressure_control_service, "digital_gauge_continuous_stream_snapshot", None)
         if not callable(snapshotter):
             return {}
@@ -1958,6 +1978,33 @@ class WorkflowOrchestrator:
             )
         )
         return min(200.0, max(10.0, float(self._a2_conditioning_diagnostic_budget_ms() if value is None else value)))
+
+    def _a2_conditioning_continuous_latest_fresh_budget_ms(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.continuous_latest_fresh_budget_ms",
+                self._cfg_get("workflow.pressure.conditioning_continuous_latest_fresh_budget_ms", 5.0),
+            )
+        )
+        return min(50.0, max(1.0, float(5.0 if value is None else value)))
+
+    def _a2_conditioning_selected_pressure_sample_stale_budget_ms(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.selected_pressure_sample_stale_budget_ms",
+                self._cfg_get("workflow.pressure.conditioning_selected_pressure_sample_stale_budget_ms", 10.0),
+            )
+        )
+        return min(50.0, max(1.0, float(10.0 if value is None else value)))
+
+    def _a2_conditioning_monitor_pressure_max_defer_ms(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.conditioning_monitor_pressure_max_defer_ms",
+                self._cfg_get("workflow.pressure.route_conditioning_pressure_max_defer_ms", 5000.0),
+            )
+        )
+        return max(100.0, float(5000.0 if value is None else value))
 
     def _a2_conditioning_trace_write_budget_ms(self) -> float:
         value = self._as_float(
@@ -2165,6 +2212,15 @@ class WorkflowOrchestrator:
             "pressure_monitor_duration_ms",
             "pressure_monitor_blocked_vent_scheduler",
             "conditioning_monitor_pressure_deferred",
+            "conditioning_monitor_latest_frame_age_s",
+            "conditioning_monitor_latest_frame_fresh",
+            "conditioning_monitor_latest_frame_unavailable",
+            "conditioning_monitor_pressure_deferred_count",
+            "conditioning_monitor_pressure_deferred_elapsed_ms",
+            "conditioning_monitor_max_defer_ms",
+            "conditioning_monitor_pressure_stale_timeout",
+            "conditioning_monitor_pressure_unavailable_fail_closed",
+            "selected_pressure_sample_stale_deferred_for_vent_priority",
             "trace_write_budget_ms",
             "trace_write_duration_ms",
             "trace_write_blocked_vent_scheduler",
@@ -2289,6 +2345,13 @@ class WorkflowOrchestrator:
             }
         )
         if pressure_monitor:
+            defer_count = int(updated.get("conditioning_monitor_pressure_deferred_count") or 0) + 1
+            first_defer = self._as_float(updated.get("conditioning_monitor_pressure_first_deferred_monotonic_s"))
+            if first_defer is None:
+                first_defer = float(now_mono)
+            max_defer_ms = self._a2_conditioning_monitor_pressure_max_defer_ms()
+            deferred_ms = max(0.0, float(now_mono) - float(first_defer)) * 1000.0
+            stale_timeout = bool(deferred_ms > max_defer_ms)
             updated.update(
                 {
                     "pressure_monitor_nonblocking": True,
@@ -2297,6 +2360,16 @@ class WorkflowOrchestrator:
                     "pressure_monitor_duration_ms": 0.0,
                     "pressure_monitor_blocked_vent_scheduler": False,
                     "conditioning_monitor_pressure_deferred": True,
+                    "conditioning_monitor_pressure_deferred_count": defer_count,
+                    "conditioning_monitor_pressure_first_deferred_monotonic_s": first_defer,
+                    "conditioning_monitor_pressure_deferred_elapsed_ms": round(deferred_ms, 3),
+                    "conditioning_monitor_max_defer_ms": round(float(max_defer_ms), 3),
+                    "conditioning_monitor_pressure_stale_timeout": stale_timeout,
+                    "conditioning_monitor_pressure_unavailable_fail_closed": bool(
+                        updated.get("conditioning_monitor_pressure_unavailable_fail_closed", False)
+                        or stale_timeout
+                    ),
+                    "selected_pressure_sample_stale_deferred_for_vent_priority": True,
                     "selected_pressure_source_for_conditioning_monitor": (
                         updated.get("selected_pressure_source_for_conditioning_monitor")
                         or "digital_pressure_gauge_continuous"
@@ -2370,14 +2443,35 @@ class WorkflowOrchestrator:
             latest.get("sample_age_s"),
             latest.get("pressure_sample_age_s"),
         )
+        max_age_s = self._a2_conditioning_digital_gauge_max_age_s()
         sequence_id = (
             snapshot.get("latest_frame_sequence_id")
             or snapshot.get("digital_gauge_latest_sequence_id")
             or latest.get("sequence_id")
             or latest.get("pressure_sample_sequence_id")
         )
-        stale = bool(snapshot.get("latest_frame_stale") or latest.get("is_stale"))
+        stale = bool(
+            snapshot.get("latest_frame_stale")
+            or latest.get("is_stale")
+            or age_s is None
+            or float(age_s) > max_age_s
+        )
         parse_ok = bool(pressure_hpa is not None and not bool(latest.get("parse_ok") is False))
+        latest_unavailable = bool(not latest or pressure_hpa is None or not parse_ok)
+        latest_fresh = bool(parse_ok and not stale and pressure_hpa is not None)
+        selection_reason = str(
+            snapshot.get("pressure_source_selection_reason")
+            or snapshot.get("source_selection_reason")
+            or (
+                "digital_gauge_continuous_latest_fresh"
+                if latest_fresh
+                else (
+                    "digital_gauge_continuous_latest_unavailable"
+                    if latest_unavailable
+                    else "digital_gauge_continuous_latest_stale"
+                )
+            )
+        )
         return {
             "stage": "co2_route_conditioning_at_atmosphere",
             "phase": phase,
@@ -2387,8 +2481,8 @@ class WorkflowOrchestrator:
             "source": "digital_pressure_gauge_continuous",
             "pressure_sample_source": "digital_pressure_gauge_continuous",
             "pressure_source_selected": "digital_pressure_gauge_continuous" if parse_ok and not stale else "",
-            "pressure_source_selection_reason": "digital_gauge_continuous_snapshot_nonblocking",
-            "source_selection_reason": "digital_gauge_continuous_snapshot_nonblocking",
+            "pressure_source_selection_reason": selection_reason,
+            "source_selection_reason": selection_reason,
             "pressure_source_used_for_decision": "digital_pressure_gauge_continuous" if parse_ok and not stale else "",
             "pressure_source_used_for_abort": "digital_pressure_gauge_continuous" if parse_ok and not stale else "",
             "sample_age_s": age_s,
@@ -2409,6 +2503,34 @@ class WorkflowOrchestrator:
             "p3_fast_fallback_result": "deferred_for_vent_priority" if not parse_ok or stale else "",
             "normal_p3_fallback_attempted": False,
             "normal_p3_fallback_result": "",
+            "conditioning_monitor_latest_frame_age_s": age_s,
+            "conditioning_monitor_latest_frame_fresh": latest_fresh,
+            "conditioning_monitor_latest_frame_unavailable": latest_unavailable,
+            "continuous_latest_fresh_fast_path_used": bool(
+                snapshot.get("continuous_latest_fresh_fast_path_used", False)
+            ),
+            "continuous_latest_fresh_duration_ms": snapshot.get("continuous_latest_fresh_duration_ms"),
+            "continuous_latest_fresh_lock_acquire_ms": snapshot.get("continuous_latest_fresh_lock_acquire_ms"),
+            "continuous_latest_fresh_lock_timeout": bool(snapshot.get("continuous_latest_fresh_lock_timeout", False)),
+            "continuous_latest_fresh_waited_for_frame": bool(
+                snapshot.get("continuous_latest_fresh_waited_for_frame", False)
+            ),
+            "continuous_latest_fresh_performed_io": bool(
+                snapshot.get("continuous_latest_fresh_performed_io", False)
+            ),
+            "continuous_latest_fresh_triggered_stream_restart": bool(
+                snapshot.get("continuous_latest_fresh_triggered_stream_restart", False)
+            ),
+            "continuous_latest_fresh_triggered_drain": bool(
+                snapshot.get("continuous_latest_fresh_triggered_drain", False)
+            ),
+            "continuous_latest_fresh_triggered_p3_fallback": bool(
+                snapshot.get("continuous_latest_fresh_triggered_p3_fallback", False)
+            ),
+            "continuous_latest_fresh_budget_ms": snapshot.get("continuous_latest_fresh_budget_ms"),
+            "continuous_latest_fresh_budget_exceeded": bool(
+                snapshot.get("continuous_latest_fresh_budget_exceeded", False)
+            ),
             "digital_gauge_pressure_sample": {
                 "pressure_hpa": pressure_hpa,
                 "source": "digital_pressure_gauge_continuous",
@@ -3304,6 +3426,7 @@ class WorkflowOrchestrator:
         latest = dict(latest) if isinstance(latest, Mapping) else {}
         digital_sample = sample.get("digital_gauge_pressure_sample")
         digital_sample = dict(digital_sample) if isinstance(digital_sample, Mapping) else {}
+        selected_stale_started = time.monotonic()
 
         def truthy(value: Any) -> bool:
             if isinstance(value, bool):
@@ -3477,6 +3600,9 @@ class WorkflowOrchestrator:
             or truthy(digital_sample.get("pressure_sample_is_stale"))
             or (not p3_direct_source and continuous_stream_stale)
         )
+        selected_stale_duration_ms = round(max(0.0, time.monotonic() - selected_stale_started) * 1000.0, 3)
+        selected_stale_budget_ms = self._a2_conditioning_selected_pressure_sample_stale_budget_ms()
+        selected_stale_budget_exceeded = bool(selected_stale_duration_ms > selected_stale_budget_ms)
         selected_pressure_fail_closed_reason = ""
         if selected_pressure_controller_primary:
             selected_pressure_fail_closed_reason = "selected_pressure_unavailable"
@@ -3601,6 +3727,47 @@ class WorkflowOrchestrator:
             "selected_pressure_freshness_ok": selected_pressure_freshness_ok,
             "pressure_freshness_decision_source": pressure_freshness_decision_source,
             "selected_pressure_fail_closed_reason": selected_pressure_fail_closed_reason,
+            "selected_pressure_sample_stale_duration_ms": selected_stale_duration_ms,
+            "selected_pressure_sample_stale_budget_ms": round(float(selected_stale_budget_ms), 3),
+            "selected_pressure_sample_stale_budget_exceeded": selected_stale_budget_exceeded,
+            "selected_pressure_sample_stale_performed_io": False,
+            "selected_pressure_sample_stale_triggered_source_selection": False,
+            "selected_pressure_sample_stale_triggered_p3_fallback": False,
+            "selected_pressure_sample_stale_deferred_for_vent_priority": False,
+            "conditioning_monitor_latest_frame_age_s": sample.get(
+                "conditioning_monitor_latest_frame_age_s",
+                None if continuous_age_s is None else round(float(continuous_age_s), 3),
+            ),
+            "conditioning_monitor_latest_frame_fresh": bool(
+                sample.get(
+                    "conditioning_monitor_latest_frame_fresh",
+                    pressure_hpa is not None and not continuous_stream_stale,
+                )
+            ),
+            "conditioning_monitor_latest_frame_unavailable": bool(
+                sample.get("conditioning_monitor_latest_frame_unavailable", pressure_hpa is None)
+            ),
+            "continuous_latest_fresh_fast_path_used": bool(sample.get("continuous_latest_fresh_fast_path_used")),
+            "continuous_latest_fresh_duration_ms": sample.get("continuous_latest_fresh_duration_ms"),
+            "continuous_latest_fresh_lock_acquire_ms": sample.get("continuous_latest_fresh_lock_acquire_ms"),
+            "continuous_latest_fresh_lock_timeout": bool(sample.get("continuous_latest_fresh_lock_timeout", False)),
+            "continuous_latest_fresh_waited_for_frame": bool(
+                sample.get("continuous_latest_fresh_waited_for_frame", False)
+            ),
+            "continuous_latest_fresh_performed_io": bool(sample.get("continuous_latest_fresh_performed_io", False)),
+            "continuous_latest_fresh_triggered_stream_restart": bool(
+                sample.get("continuous_latest_fresh_triggered_stream_restart", False)
+            ),
+            "continuous_latest_fresh_triggered_drain": bool(
+                sample.get("continuous_latest_fresh_triggered_drain", False)
+            ),
+            "continuous_latest_fresh_triggered_p3_fallback": bool(
+                sample.get("continuous_latest_fresh_triggered_p3_fallback", False)
+            ),
+            "continuous_latest_fresh_budget_ms": sample.get("continuous_latest_fresh_budget_ms"),
+            "continuous_latest_fresh_budget_exceeded": bool(
+                sample.get("continuous_latest_fresh_budget_exceeded", False)
+            ),
             "a2_3_pressure_source_strategy": sample.get("a2_3_pressure_source_strategy")
             or context.get("a2_3_pressure_source_strategy")
             or self._a2_conditioning_pressure_source_mode(),
@@ -3646,6 +3813,32 @@ class WorkflowOrchestrator:
             "selected_pressure_freshness_ok",
             "pressure_freshness_decision_source",
             "selected_pressure_fail_closed_reason",
+            "selected_pressure_sample_stale_duration_ms",
+            "selected_pressure_sample_stale_budget_ms",
+            "selected_pressure_sample_stale_budget_exceeded",
+            "selected_pressure_sample_stale_performed_io",
+            "selected_pressure_sample_stale_triggered_source_selection",
+            "selected_pressure_sample_stale_triggered_p3_fallback",
+            "selected_pressure_sample_stale_deferred_for_vent_priority",
+            "conditioning_monitor_latest_frame_age_s",
+            "conditioning_monitor_latest_frame_fresh",
+            "conditioning_monitor_latest_frame_unavailable",
+            "conditioning_monitor_pressure_deferred_count",
+            "conditioning_monitor_pressure_deferred_elapsed_ms",
+            "conditioning_monitor_max_defer_ms",
+            "conditioning_monitor_pressure_stale_timeout",
+            "conditioning_monitor_pressure_unavailable_fail_closed",
+            "continuous_latest_fresh_fast_path_used",
+            "continuous_latest_fresh_duration_ms",
+            "continuous_latest_fresh_lock_acquire_ms",
+            "continuous_latest_fresh_lock_timeout",
+            "continuous_latest_fresh_waited_for_frame",
+            "continuous_latest_fresh_performed_io",
+            "continuous_latest_fresh_triggered_stream_restart",
+            "continuous_latest_fresh_triggered_drain",
+            "continuous_latest_fresh_triggered_p3_fallback",
+            "continuous_latest_fresh_budget_ms",
+            "continuous_latest_fresh_budget_exceeded",
             "a2_3_pressure_source_strategy",
             "critical_window_uses_latest_frame",
             "critical_window_uses_query",
@@ -3682,6 +3875,17 @@ class WorkflowOrchestrator:
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
         monitor_budget_ms = self._a2_conditioning_pressure_monitor_budget_ms()
         high_frequency_window = bool(schedule.get("route_conditioning_high_frequency_window_active"))
+        flush_maintenance_window = bool(
+            str(context.get("route_conditioning_phase") or "route_conditioning_flush_phase")
+            == "route_conditioning_flush_phase"
+            and context.get("route_conditioning_vent_maintenance_active", True)
+            and not bool(context.get("ready_to_seal_phase_started", False))
+            and not bool(context.get("seal_command_sent", False))
+            and not bool(context.get("pressure_setpoint_command_sent", False))
+            and not bool(context.get("pressure_ready_started", False))
+            and not bool(context.get("sampling_started", False))
+        )
+        nonblocking_pressure_monitor = bool(high_frequency_window or flush_maintenance_window)
         deferred = self._a2_conditioning_defer_if_diagnostic_budget_unsafe(
             point,
             context,
@@ -3697,9 +3901,14 @@ class WorkflowOrchestrator:
         last_vent = self._as_float(context.get("last_vent_tick_monotonic_s"))
         if last_vent is not None:
             context["last_vent_command_age_s"] = round(max(0.0, now_mono - float(last_vent)), 3)
-        if high_frequency_window:
+        if nonblocking_pressure_monitor:
             snapshot_started = time.monotonic()
-            snapshot = self._a2_conditioning_stream_snapshot()
+            snapshot = self._a2_conditioning_stream_snapshot(
+                point=point,
+                phase=phase,
+                fast=True,
+                budget_ms=self._a2_conditioning_continuous_latest_fresh_budget_ms(),
+            )
             snapshot_completed = time.monotonic()
             snapshot_duration_ms = round(max(0.0, snapshot_completed - snapshot_started) * 1000.0, 3)
             sample = self._a2_conditioning_pressure_sample_from_snapshot(snapshot, point, phase=phase)
@@ -3710,14 +3919,32 @@ class WorkflowOrchestrator:
         else:
             sample = self._a2_conditioning_pressure_sample(point, phase=phase)
             snapshot_started = time.monotonic()
-            snapshot = self._a2_conditioning_stream_snapshot()
+            snapshot = self._a2_conditioning_stream_snapshot(point=point, phase=phase)
             snapshot_completed = time.monotonic()
             snapshot_duration_ms = round(max(0.0, snapshot_completed - snapshot_started) * 1000.0, 3)
-        snapshot_budget_exceeded = bool(high_frequency_window and snapshot_duration_ms > monitor_budget_ms)
+        snapshot_budget_exceeded = bool(nonblocking_pressure_monitor and snapshot_duration_ms > monitor_budget_ms)
         monitor_completed_monotonic_s = time.monotonic()
         monitor_duration_s = max(0.0, monitor_completed_monotonic_s - monitor_started_monotonic_s)
         details = self._a2_conditioning_pressure_details(sample, snapshot, context=context)
-        if high_frequency_window and not bool(details.get("selected_pressure_freshness_ok")):
+        if nonblocking_pressure_monitor and (
+            not bool(details.get("selected_pressure_freshness_ok"))
+            or bool(details.get("continuous_latest_fresh_budget_exceeded"))
+            or bool(details.get("selected_pressure_sample_stale_budget_exceeded"))
+        ):
+            operation = str(
+                details.get("selected_pressure_fail_closed_reason")
+                or (
+                    "continuous_latest_fresh_budget_exceeded"
+                    if details.get("continuous_latest_fresh_budget_exceeded")
+                    else ""
+                )
+                or (
+                    "selected_pressure_sample_stale_budget_exceeded"
+                    if details.get("selected_pressure_sample_stale_budget_exceeded")
+                    else ""
+                )
+                or "continuous_snapshot_not_fresh"
+            )
             deferred_context = self._a2_conditioning_defer_diagnostic_for_vent_priority(
                 {
                     **context,
@@ -3726,7 +3953,7 @@ class WorkflowOrchestrator:
                 },
                 point=point,
                 component="pressure_monitor",
-                operation=str(details.get("selected_pressure_fail_closed_reason") or "continuous_snapshot_not_fresh"),
+                operation=operation,
                 now_mono=monitor_completed_monotonic_s,
                 pressure_monitor=True,
             )
@@ -3784,17 +4011,30 @@ class WorkflowOrchestrator:
             ),
             "diagnostic_blocking_component": "pressure_monitor",
             "diagnostic_blocking_operation": (
-                "stream_snapshot"
-                if high_frequency_window
+                str(details.get("pressure_source_selection_reason") or "continuous_latest_fast_snapshot")
+                if nonblocking_pressure_monitor
                 else str(details.get("pressure_source_selection_reason") or "pressure_monitor")
             ),
             "diagnostic_blocking_duration_ms": round(monitor_duration_s * 1000.0, 3),
-            "pressure_monitor_nonblocking": bool(high_frequency_window),
+            "pressure_monitor_nonblocking": bool(nonblocking_pressure_monitor),
             "pressure_monitor_deferred_for_vent_priority": False,
             "pressure_monitor_budget_ms": monitor_budget_ms,
             "pressure_monitor_duration_ms": round(monitor_duration_s * 1000.0, 3),
             "pressure_monitor_blocked_vent_scheduler": False,
             "conditioning_monitor_pressure_deferred": False,
+            "conditioning_monitor_pressure_deferred_count": int(
+                context.get("conditioning_monitor_pressure_deferred_count") or 0
+            ),
+            "conditioning_monitor_max_defer_ms": context.get(
+                "conditioning_monitor_max_defer_ms",
+                self._a2_conditioning_monitor_pressure_max_defer_ms(),
+            ),
+            "conditioning_monitor_pressure_stale_timeout": bool(
+                context.get("conditioning_monitor_pressure_stale_timeout", False)
+            ),
+            "conditioning_monitor_pressure_unavailable_fail_closed": bool(
+                context.get("conditioning_monitor_pressure_unavailable_fail_closed", False)
+            ),
             "trace_write_budget_ms": self._a2_conditioning_trace_write_budget_ms(),
             "trace_write_duration_ms": context.get("trace_write_duration_ms"),
             "trace_write_blocked_vent_scheduler": bool(context.get("trace_write_blocked_vent_scheduler", False)),

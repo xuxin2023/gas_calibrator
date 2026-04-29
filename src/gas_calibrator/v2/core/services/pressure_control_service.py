@@ -395,6 +395,17 @@ class PressureControlService:
             "p3_fast_fallback_result",
             "normal_p3_fallback_attempted",
             "normal_p3_fallback_result",
+            "continuous_latest_fresh_fast_path_used",
+            "continuous_latest_fresh_duration_ms",
+            "continuous_latest_fresh_lock_acquire_ms",
+            "continuous_latest_fresh_lock_timeout",
+            "continuous_latest_fresh_waited_for_frame",
+            "continuous_latest_fresh_performed_io",
+            "continuous_latest_fresh_triggered_stream_restart",
+            "continuous_latest_fresh_triggered_drain",
+            "continuous_latest_fresh_triggered_p3_fallback",
+            "continuous_latest_fresh_budget_ms",
+            "continuous_latest_fresh_budget_exceeded",
         ):
             if extra_key in data:
                 payload[extra_key] = data.get(extra_key)
@@ -2106,6 +2117,157 @@ class PressureControlService:
             state["digital_gauge_stream_stale_threshold_s"] = self._digital_gauge_latest_frame_stale_max_s()
             state["digital_gauge_stream_stale"] = bool(state.get("latest_frame_stale", False))
             return state
+
+    def _continuous_latest_fresh_budget_ms(self, budget_ms: Any = None) -> float:
+        configured = self._coerce_float(
+            budget_ms
+            if budget_ms is not None
+            else self.host._cfg_get("workflow.pressure.continuous_latest_fresh_budget_ms", 5.0)
+        )
+        return min(50.0, max(1.0, float(5.0 if configured is None else configured)))
+
+    def digital_gauge_continuous_latest_fast_snapshot(
+        self,
+        *,
+        stage: str = "",
+        point_index: Any = None,
+        budget_ms: Any = None,
+    ) -> dict[str, Any]:
+        budget_value_ms = self._continuous_latest_fresh_budget_ms(budget_ms)
+        started = time.monotonic()
+        lock = self._digital_gauge_stream_lock()
+        acquired = False
+        try:
+            acquired = bool(lock.acquire(timeout=budget_value_ms / 1000.0))
+        except TypeError:
+            acquired = bool(lock.acquire(False))
+        acquired_at = time.monotonic()
+        lock_acquire_ms = round(max(0.0, acquired_at - started) * 1000.0, 3)
+        base = {
+            "stage": stage,
+            "point_index": point_index,
+            "source": "digital_pressure_gauge_continuous",
+            "pressure_sample_source": "digital_pressure_gauge_continuous",
+            "digital_gauge_mode": "continuous",
+            "critical_window_uses_latest_frame": True,
+            "critical_window_uses_query": False,
+            "continuous_latest_fresh_fast_path_used": True,
+            "continuous_latest_fresh_lock_acquire_ms": lock_acquire_ms,
+            "continuous_latest_fresh_lock_timeout": not acquired,
+            "continuous_latest_fresh_waited_for_frame": False,
+            "continuous_latest_fresh_performed_io": False,
+            "continuous_latest_fresh_triggered_stream_restart": False,
+            "continuous_latest_fresh_triggered_drain": False,
+            "continuous_latest_fresh_triggered_p3_fallback": False,
+            "continuous_latest_fresh_budget_ms": round(float(budget_value_ms), 3),
+            "continuous_latest_fresh_budget_exceeded": False,
+            "p3_fast_fallback_attempted": False,
+            "p3_fast_fallback_result": "",
+            "normal_p3_fallback_attempted": False,
+            "normal_p3_fallback_result": "",
+        }
+        if not acquired:
+            duration_ms = round(max(0.0, time.monotonic() - started) * 1000.0, 3)
+            base.update(
+                {
+                    "latest_frame": None,
+                    "latest_frame_age_s": None,
+                    "latest_frame_sequence_id": None,
+                    "latest_frame_stale": True,
+                    "digital_gauge_stream_stale": True,
+                    "digital_gauge_stream_stale_threshold_s": self._digital_gauge_latest_frame_stale_max_s(),
+                    "digital_gauge_continuous_started": False,
+                    "digital_gauge_continuous_active": False,
+                    "digital_gauge_continuous_enabled": self._digital_gauge_continuous_enabled(),
+                    "digital_gauge_continuous_mode": self._digital_gauge_continuous_mode(),
+                    "pressure_hpa": None,
+                    "parse_ok": False,
+                    "error": "continuous_latest_fresh_lock_timeout",
+                    "pressure_source_selected": "",
+                    "pressure_source_selection_reason": "continuous_latest_fresh_lock_timeout",
+                    "source_selection_reason": "continuous_latest_fresh_lock_timeout",
+                    "continuous_latest_fresh_duration_ms": duration_ms,
+                    "continuous_latest_fresh_budget_exceeded": duration_ms > budget_value_ms,
+                }
+            )
+            return base
+        try:
+            state = dict(self._digital_gauge_stream_state())
+            latest = state.get("latest_frame")
+            latest = dict(latest) if isinstance(latest, Mapping) else None
+        finally:
+            lock.release()
+        now_mono = time.monotonic()
+        threshold = self._digital_gauge_latest_frame_stale_max_s()
+        latest_age_s: Optional[float] = None
+        latest_sequence = None
+        pressure_hpa: Optional[float] = None
+        parse_ok = False
+        unavailable = latest is None
+        if latest is not None:
+            frame_mono = self._coerce_float(
+                latest.get("sample_recorded_monotonic_s", latest.get("monotonic_timestamp"))
+            )
+            latest_age_s = max(0.0, now_mono - float(frame_mono)) if frame_mono is not None else None
+            latest_sequence = latest.get("sequence_id", latest.get("pressure_sample_sequence_id"))
+            pressure_hpa = self._coerce_float(latest.get("pressure_hpa"))
+            parse_ok_value = self._coerce_bool(latest.get("parse_ok"))
+            parse_ok = bool(pressure_hpa is not None) if parse_ok_value is None else bool(parse_ok_value)
+            unavailable = bool(pressure_hpa is None or not parse_ok)
+        stale = bool(unavailable or latest_age_s is None or float(latest_age_s) > threshold)
+        selection_reason = (
+            "digital_gauge_continuous_latest_fresh"
+            if not stale
+            else ("digital_gauge_continuous_latest_unavailable" if unavailable else "digital_gauge_continuous_latest_stale")
+        )
+        if latest is not None:
+            latest.update(
+                {
+                    "latest_frame_age_s": latest_age_s,
+                    "sample_age_s": latest_age_s,
+                    "pressure_sample_age_s": latest_age_s,
+                    "latest_frame_sequence_id": latest_sequence,
+                    "pressure_sample_sequence_id": latest_sequence,
+                    "is_stale": stale,
+                    "pressure_sample_is_stale": stale,
+                    "parse_ok": parse_ok,
+                }
+            )
+        duration_ms = round(max(0.0, time.monotonic() - started) * 1000.0, 3)
+        payload = {
+            **state,
+            **base,
+            "latest_frame": latest,
+            "latest_frame_age_s": None if latest_age_s is None else round(float(latest_age_s), 3),
+            "latest_frame_sequence_id": latest_sequence,
+            "digital_gauge_latest_sequence_id": latest_sequence,
+            "latest_frame_stale": stale,
+            "digital_gauge_stream_stale": stale,
+            "digital_gauge_stream_stale_threshold_s": threshold,
+            "digital_gauge_stream_last_frame_at": (
+                state.get("stream_last_frame_at")
+                or ((latest or {}).get("frame_received_at") if latest else "")
+                or ((latest or {}).get("sample_recorded_at") if latest else "")
+                or ""
+            ),
+            "digital_gauge_continuous_started": bool(state.get("stream_started_at")),
+            "digital_gauge_continuous_active": bool(state.get("digital_gauge_continuous_active")),
+            "digital_gauge_continuous_enabled": bool(state.get("digital_gauge_continuous_enabled")),
+            "digital_gauge_continuous_mode": state.get("digital_gauge_continuous_mode") or "",
+            "pressure_hpa": pressure_hpa,
+            "sample_age_s": latest_age_s,
+            "pressure_sample_age_s": latest_age_s,
+            "is_stale": stale,
+            "pressure_sample_is_stale": stale,
+            "parse_ok": parse_ok,
+            "error": "" if not unavailable else "digital_gauge_continuous_latest_unavailable",
+            "pressure_source_selected": "digital_pressure_gauge_continuous" if not stale else "",
+            "pressure_source_selection_reason": selection_reason,
+            "source_selection_reason": selection_reason,
+            "continuous_latest_fresh_duration_ms": duration_ms,
+            "continuous_latest_fresh_budget_exceeded": duration_ms > budget_value_ms,
+        }
+        return payload
 
     def _remember_ambient_reference_pressure(
         self,

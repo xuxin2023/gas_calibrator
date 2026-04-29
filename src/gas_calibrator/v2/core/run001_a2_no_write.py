@@ -157,6 +157,32 @@ PRESSURE_READ_LATENCY_SAMPLE_FIELDS = [
     "selected_pressure_freshness_ok",
     "pressure_freshness_decision_source",
     "selected_pressure_fail_closed_reason",
+    "selected_pressure_sample_stale_duration_ms",
+    "selected_pressure_sample_stale_budget_ms",
+    "selected_pressure_sample_stale_budget_exceeded",
+    "selected_pressure_sample_stale_performed_io",
+    "selected_pressure_sample_stale_triggered_source_selection",
+    "selected_pressure_sample_stale_triggered_p3_fallback",
+    "selected_pressure_sample_stale_deferred_for_vent_priority",
+    "conditioning_monitor_latest_frame_age_s",
+    "conditioning_monitor_latest_frame_fresh",
+    "conditioning_monitor_latest_frame_unavailable",
+    "conditioning_monitor_pressure_deferred_count",
+    "conditioning_monitor_pressure_deferred_elapsed_ms",
+    "conditioning_monitor_max_defer_ms",
+    "conditioning_monitor_pressure_stale_timeout",
+    "conditioning_monitor_pressure_unavailable_fail_closed",
+    "continuous_latest_fresh_fast_path_used",
+    "continuous_latest_fresh_duration_ms",
+    "continuous_latest_fresh_lock_acquire_ms",
+    "continuous_latest_fresh_lock_timeout",
+    "continuous_latest_fresh_waited_for_frame",
+    "continuous_latest_fresh_performed_io",
+    "continuous_latest_fresh_triggered_stream_restart",
+    "continuous_latest_fresh_triggered_drain",
+    "continuous_latest_fresh_triggered_p3_fallback",
+    "continuous_latest_fresh_budget_ms",
+    "continuous_latest_fresh_budget_exceeded",
     "critical_window_blocking_query_count",
     "critical_window_blocking_query_total_s",
     "critical_window_uses_latest_frame",
@@ -2298,6 +2324,74 @@ def _build_co2_route_conditioning_evidence(
         else latest_state_value("selected_pressure_freshness_ok"),
         "pressure_freshness_decision_source": latest_state_value("pressure_freshness_decision_source"),
         "selected_pressure_fail_closed_reason": latest_state_value("selected_pressure_fail_closed_reason", ""),
+        "selected_pressure_sample_stale_duration_ms": latest_state_value(
+            "selected_pressure_sample_stale_duration_ms"
+        ),
+        "selected_pressure_sample_stale_budget_ms": latest_state_value("selected_pressure_sample_stale_budget_ms"),
+        "selected_pressure_sample_stale_budget_exceeded": bool(
+            latest_state_value("selected_pressure_sample_stale_budget_exceeded", False)
+        ),
+        "selected_pressure_sample_stale_performed_io": bool(
+            latest_state_value("selected_pressure_sample_stale_performed_io", False)
+        ),
+        "selected_pressure_sample_stale_triggered_source_selection": bool(
+            latest_state_value("selected_pressure_sample_stale_triggered_source_selection", False)
+        ),
+        "selected_pressure_sample_stale_triggered_p3_fallback": bool(
+            latest_state_value("selected_pressure_sample_stale_triggered_p3_fallback", False)
+        ),
+        "selected_pressure_sample_stale_deferred_for_vent_priority": bool(
+            latest_state_value("selected_pressure_sample_stale_deferred_for_vent_priority", False)
+        ),
+        "conditioning_monitor_latest_frame_age_s": latest_state_value("conditioning_monitor_latest_frame_age_s"),
+        "conditioning_monitor_latest_frame_fresh": bool(
+            latest_state_value("conditioning_monitor_latest_frame_fresh", False)
+        ),
+        "conditioning_monitor_latest_frame_unavailable": bool(
+            latest_state_value("conditioning_monitor_latest_frame_unavailable", False)
+        ),
+        "conditioning_monitor_pressure_deferred_count": int(
+            latest_state_value("conditioning_monitor_pressure_deferred_count", 0) or 0
+        ),
+        "conditioning_monitor_pressure_deferred_elapsed_ms": latest_state_value(
+            "conditioning_monitor_pressure_deferred_elapsed_ms"
+        ),
+        "conditioning_monitor_max_defer_ms": latest_state_value("conditioning_monitor_max_defer_ms"),
+        "conditioning_monitor_pressure_stale_timeout": bool(
+            latest_state_value("conditioning_monitor_pressure_stale_timeout", False)
+        ),
+        "conditioning_monitor_pressure_unavailable_fail_closed": bool(
+            latest_state_value("conditioning_monitor_pressure_unavailable_fail_closed", False)
+        ),
+        "continuous_latest_fresh_fast_path_used": bool(
+            latest_state_value("continuous_latest_fresh_fast_path_used", False)
+        ),
+        "continuous_latest_fresh_duration_ms": latest_state_value("continuous_latest_fresh_duration_ms"),
+        "continuous_latest_fresh_lock_acquire_ms": latest_state_value(
+            "continuous_latest_fresh_lock_acquire_ms"
+        ),
+        "continuous_latest_fresh_lock_timeout": bool(
+            latest_state_value("continuous_latest_fresh_lock_timeout", False)
+        ),
+        "continuous_latest_fresh_waited_for_frame": bool(
+            latest_state_value("continuous_latest_fresh_waited_for_frame", False)
+        ),
+        "continuous_latest_fresh_performed_io": bool(
+            latest_state_value("continuous_latest_fresh_performed_io", False)
+        ),
+        "continuous_latest_fresh_triggered_stream_restart": bool(
+            latest_state_value("continuous_latest_fresh_triggered_stream_restart", False)
+        ),
+        "continuous_latest_fresh_triggered_drain": bool(
+            latest_state_value("continuous_latest_fresh_triggered_drain", False)
+        ),
+        "continuous_latest_fresh_triggered_p3_fallback": bool(
+            latest_state_value("continuous_latest_fresh_triggered_p3_fallback", False)
+        ),
+        "continuous_latest_fresh_budget_ms": latest_state_value("continuous_latest_fresh_budget_ms"),
+        "continuous_latest_fresh_budget_exceeded": bool(
+            latest_state_value("continuous_latest_fresh_budget_exceeded", False)
+        ),
         "conditioning_pressure_abort_hpa": (
             terminal_state.get("conditioning_pressure_abort_hpa")
             or end_state.get("conditioning_pressure_abort_hpa")
@@ -4479,6 +4573,84 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             ),
             "conditioning_monitor_pressure_deferred": co2_route_conditioning_payload.get(
                 "conditioning_monitor_pressure_deferred"
+            ),
+            "conditioning_monitor_latest_frame_age_s": co2_route_conditioning_payload.get(
+                "conditioning_monitor_latest_frame_age_s"
+            ),
+            "conditioning_monitor_latest_frame_fresh": co2_route_conditioning_payload.get(
+                "conditioning_monitor_latest_frame_fresh"
+            ),
+            "conditioning_monitor_latest_frame_unavailable": co2_route_conditioning_payload.get(
+                "conditioning_monitor_latest_frame_unavailable"
+            ),
+            "conditioning_monitor_pressure_deferred_count": co2_route_conditioning_payload.get(
+                "conditioning_monitor_pressure_deferred_count"
+            ),
+            "conditioning_monitor_pressure_deferred_elapsed_ms": co2_route_conditioning_payload.get(
+                "conditioning_monitor_pressure_deferred_elapsed_ms"
+            ),
+            "conditioning_monitor_max_defer_ms": co2_route_conditioning_payload.get(
+                "conditioning_monitor_max_defer_ms"
+            ),
+            "conditioning_monitor_pressure_stale_timeout": co2_route_conditioning_payload.get(
+                "conditioning_monitor_pressure_stale_timeout"
+            ),
+            "conditioning_monitor_pressure_unavailable_fail_closed": co2_route_conditioning_payload.get(
+                "conditioning_monitor_pressure_unavailable_fail_closed"
+            ),
+            "selected_pressure_sample_stale_duration_ms": co2_route_conditioning_payload.get(
+                "selected_pressure_sample_stale_duration_ms"
+            ),
+            "selected_pressure_sample_stale_budget_ms": co2_route_conditioning_payload.get(
+                "selected_pressure_sample_stale_budget_ms"
+            ),
+            "selected_pressure_sample_stale_budget_exceeded": co2_route_conditioning_payload.get(
+                "selected_pressure_sample_stale_budget_exceeded"
+            ),
+            "selected_pressure_sample_stale_performed_io": co2_route_conditioning_payload.get(
+                "selected_pressure_sample_stale_performed_io"
+            ),
+            "selected_pressure_sample_stale_triggered_source_selection": co2_route_conditioning_payload.get(
+                "selected_pressure_sample_stale_triggered_source_selection"
+            ),
+            "selected_pressure_sample_stale_triggered_p3_fallback": co2_route_conditioning_payload.get(
+                "selected_pressure_sample_stale_triggered_p3_fallback"
+            ),
+            "selected_pressure_sample_stale_deferred_for_vent_priority": co2_route_conditioning_payload.get(
+                "selected_pressure_sample_stale_deferred_for_vent_priority"
+            ),
+            "continuous_latest_fresh_fast_path_used": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_fast_path_used"
+            ),
+            "continuous_latest_fresh_duration_ms": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_duration_ms"
+            ),
+            "continuous_latest_fresh_lock_acquire_ms": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_lock_acquire_ms"
+            ),
+            "continuous_latest_fresh_lock_timeout": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_lock_timeout"
+            ),
+            "continuous_latest_fresh_waited_for_frame": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_waited_for_frame"
+            ),
+            "continuous_latest_fresh_performed_io": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_performed_io"
+            ),
+            "continuous_latest_fresh_triggered_stream_restart": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_triggered_stream_restart"
+            ),
+            "continuous_latest_fresh_triggered_drain": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_triggered_drain"
+            ),
+            "continuous_latest_fresh_triggered_p3_fallback": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_triggered_p3_fallback"
+            ),
+            "continuous_latest_fresh_budget_ms": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_budget_ms"
+            ),
+            "continuous_latest_fresh_budget_exceeded": co2_route_conditioning_payload.get(
+                "continuous_latest_fresh_budget_exceeded"
             ),
             "trace_write_budget_ms": co2_route_conditioning_payload.get("trace_write_budget_ms"),
             "trace_write_duration_ms": co2_route_conditioning_payload.get("trace_write_duration_ms"),

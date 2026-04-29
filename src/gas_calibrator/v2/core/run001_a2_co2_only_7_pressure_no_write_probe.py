@@ -29,8 +29,8 @@ A2_ENV_VALUE = "1"
 A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
 A2_ALLOWED_PRESSURE_POINTS_HPA = (1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
 A2_EVIDENCE_MARKERS = {
-    "evidence_source": "real_probe_a2_8_co2_7_pressure_no_write",
-    "legacy_evidence_source": "real_probe_a2_5_co2_7_pressure_no_write",
+    "evidence_source": "real_probe_a2_9_co2_7_pressure_no_write",
+    "legacy_evidence_source": "real_probe_a2_8_co2_7_pressure_no_write",
     "acceptance_level": "engineering_probe_only",
     "not_real_acceptance_evidence": True,
     "promotion_state": "blocked",
@@ -1168,6 +1168,13 @@ def _write_point_results_csv(path: Path, point_results: list[Mapping[str, Any]])
         "selected_pressure_freshness_ok",
         "pressure_freshness_decision_source",
         "selected_pressure_fail_closed_reason",
+        "selected_pressure_sample_stale_duration_ms",
+        "selected_pressure_sample_stale_budget_ms",
+        "selected_pressure_sample_stale_budget_exceeded",
+        "selected_pressure_sample_stale_deferred_for_vent_priority",
+        "continuous_latest_fresh_fast_path_used",
+        "continuous_latest_fresh_duration_ms",
+        "continuous_latest_fresh_budget_exceeded",
         "continuous_stream_stale",
         "sample_count",
         "valid_frame_count",
@@ -1733,6 +1740,89 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         is True,
         "pressure_freshness_decision_source": metric_or_summary("pressure_freshness_decision_source"),
         "selected_pressure_fail_closed_reason": metric_or_summary("selected_pressure_fail_closed_reason") or "",
+        "selected_pressure_sample_stale_duration_ms": metric_or_summary(
+            "selected_pressure_sample_stale_duration_ms"
+        ),
+        "selected_pressure_sample_stale_budget_ms": metric_or_summary("selected_pressure_sample_stale_budget_ms"),
+        "selected_pressure_sample_stale_budget_exceeded": _as_bool(
+            metric_or_summary("selected_pressure_sample_stale_budget_exceeded")
+        )
+        is True,
+        "selected_pressure_sample_stale_performed_io": _as_bool(
+            metric_or_summary("selected_pressure_sample_stale_performed_io")
+        )
+        is True,
+        "selected_pressure_sample_stale_triggered_source_selection": _as_bool(
+            metric_or_summary("selected_pressure_sample_stale_triggered_source_selection")
+        )
+        is True,
+        "selected_pressure_sample_stale_triggered_p3_fallback": _as_bool(
+            metric_or_summary("selected_pressure_sample_stale_triggered_p3_fallback")
+        )
+        is True,
+        "selected_pressure_sample_stale_deferred_for_vent_priority": _as_bool(
+            metric_or_summary("selected_pressure_sample_stale_deferred_for_vent_priority")
+        )
+        is True,
+        "conditioning_monitor_latest_frame_age_s": metric_or_summary("conditioning_monitor_latest_frame_age_s"),
+        "conditioning_monitor_latest_frame_fresh": _as_bool(
+            metric_or_summary("conditioning_monitor_latest_frame_fresh")
+        )
+        is True,
+        "conditioning_monitor_latest_frame_unavailable": _as_bool(
+            metric_or_summary("conditioning_monitor_latest_frame_unavailable")
+        )
+        is True,
+        "conditioning_monitor_pressure_deferred_count": int(
+            metric_or_summary("conditioning_monitor_pressure_deferred_count") or 0
+        ),
+        "conditioning_monitor_pressure_deferred_elapsed_ms": metric_or_summary(
+            "conditioning_monitor_pressure_deferred_elapsed_ms"
+        ),
+        "conditioning_monitor_max_defer_ms": metric_or_summary("conditioning_monitor_max_defer_ms"),
+        "conditioning_monitor_pressure_stale_timeout": _as_bool(
+            metric_or_summary("conditioning_monitor_pressure_stale_timeout")
+        )
+        is True,
+        "conditioning_monitor_pressure_unavailable_fail_closed": _as_bool(
+            metric_or_summary("conditioning_monitor_pressure_unavailable_fail_closed")
+        )
+        is True,
+        "continuous_latest_fresh_fast_path_used": _as_bool(
+            metric_or_summary("continuous_latest_fresh_fast_path_used")
+        )
+        is True,
+        "continuous_latest_fresh_duration_ms": metric_or_summary("continuous_latest_fresh_duration_ms"),
+        "continuous_latest_fresh_lock_acquire_ms": metric_or_summary("continuous_latest_fresh_lock_acquire_ms"),
+        "continuous_latest_fresh_lock_timeout": _as_bool(
+            metric_or_summary("continuous_latest_fresh_lock_timeout")
+        )
+        is True,
+        "continuous_latest_fresh_waited_for_frame": _as_bool(
+            metric_or_summary("continuous_latest_fresh_waited_for_frame")
+        )
+        is True,
+        "continuous_latest_fresh_performed_io": _as_bool(
+            metric_or_summary("continuous_latest_fresh_performed_io")
+        )
+        is True,
+        "continuous_latest_fresh_triggered_stream_restart": _as_bool(
+            metric_or_summary("continuous_latest_fresh_triggered_stream_restart")
+        )
+        is True,
+        "continuous_latest_fresh_triggered_drain": _as_bool(
+            metric_or_summary("continuous_latest_fresh_triggered_drain")
+        )
+        is True,
+        "continuous_latest_fresh_triggered_p3_fallback": _as_bool(
+            metric_or_summary("continuous_latest_fresh_triggered_p3_fallback")
+        )
+        is True,
+        "continuous_latest_fresh_budget_ms": metric_or_summary("continuous_latest_fresh_budget_ms"),
+        "continuous_latest_fresh_budget_exceeded": _as_bool(
+            metric_or_summary("continuous_latest_fresh_budget_exceeded")
+        )
+        is True,
         "critical_window_uses_latest_frame": _as_bool(
             _first_metric_from_rows(evidence_metric_rows, "critical_window_uses_latest_frame")
         )

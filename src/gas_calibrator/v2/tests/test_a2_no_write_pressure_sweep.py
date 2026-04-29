@@ -461,6 +461,96 @@ def _seed_digital_stream_latest(
     return frame
 
 
+def test_a2_continuous_latest_fast_snapshot_is_metadata_only() -> None:
+    service, host, _controller, _status = _positive_preseal_service(
+        [1010.0],
+        cfg_overrides={"workflow.pressure.continuous_latest_fresh_budget_ms": 10.0},
+    )
+    gauge = host._device("pressure_meter")
+    _seed_digital_stream_latest(service, 1009.5, age_s=0.01, sequence=3)
+
+    snapshot = service.digital_gauge_continuous_latest_fast_snapshot(
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        budget_ms=10.0,
+    )
+
+    assert snapshot["pressure_source_selection_reason"] == "digital_gauge_continuous_latest_fresh"
+    assert snapshot["continuous_latest_fresh_fast_path_used"] is True
+    assert snapshot["continuous_latest_fresh_duration_ms"] <= 10.0
+    assert snapshot["continuous_latest_fresh_lock_timeout"] is False
+    assert snapshot["continuous_latest_fresh_waited_for_frame"] is False
+    assert snapshot["continuous_latest_fresh_performed_io"] is False
+    assert snapshot["continuous_latest_fresh_triggered_stream_restart"] is False
+    assert snapshot["continuous_latest_fresh_triggered_drain"] is False
+    assert snapshot["continuous_latest_fresh_triggered_p3_fallback"] is False
+    assert snapshot["continuous_latest_fresh_budget_exceeded"] is False
+    assert gauge.continuous_read_count == 0
+    assert gauge.fast_read_count == 0
+    assert gauge.normal_read_count == 0
+    assert host._recorded_timing == []
+
+
+def test_a2_continuous_latest_fast_snapshot_lock_timeout_defers_without_io() -> None:
+    service, host, _controller, _status = _positive_preseal_service(
+        [1010.0],
+        cfg_overrides={"workflow.pressure.continuous_latest_fresh_budget_ms": 1.0},
+    )
+    gauge = host._device("pressure_meter")
+    _seed_digital_stream_latest(service, 1009.5, age_s=0.01, sequence=3)
+
+    class TimeoutLock:
+        def acquire(self, *args, **kwargs):
+            return False
+
+        def release(self):
+            raise AssertionError("release must not be called when acquire returns false")
+
+    service._digital_gauge_stream_lock_obj = TimeoutLock()
+
+    snapshot = service.digital_gauge_continuous_latest_fast_snapshot(
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        budget_ms=1.0,
+    )
+
+    assert snapshot["pressure_source_selected"] == ""
+    assert snapshot["pressure_source_selection_reason"] == "continuous_latest_fresh_lock_timeout"
+    assert snapshot["continuous_latest_fresh_lock_timeout"] is True
+    assert snapshot["continuous_latest_fresh_waited_for_frame"] is False
+    assert snapshot["continuous_latest_fresh_performed_io"] is False
+    assert snapshot["continuous_latest_fresh_triggered_stream_restart"] is False
+    assert snapshot["continuous_latest_fresh_triggered_drain"] is False
+    assert snapshot["continuous_latest_fresh_triggered_p3_fallback"] is False
+    assert gauge.continuous_read_count == 0
+    assert gauge.fast_read_count == 0
+    assert gauge.normal_read_count == 0
+    assert host._recorded_timing == []
+
+
+def test_a2_continuous_latest_fast_snapshot_stale_does_not_restart_or_fallback() -> None:
+    service, host, _controller, _status = _positive_preseal_service([1010.0])
+    gauge = host._device("pressure_meter")
+    _seed_digital_stream_latest(service, 1009.5, age_s=5.0, sequence=3)
+
+    snapshot = service.digital_gauge_continuous_latest_fast_snapshot(
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        budget_ms=10.0,
+    )
+
+    assert snapshot["pressure_source_selected"] == ""
+    assert snapshot["pressure_source_selection_reason"] == "digital_gauge_continuous_latest_stale"
+    assert snapshot["latest_frame_stale"] is True
+    assert snapshot["continuous_latest_fresh_waited_for_frame"] is False
+    assert snapshot["continuous_latest_fresh_performed_io"] is False
+    assert snapshot["continuous_latest_fresh_triggered_stream_restart"] is False
+    assert snapshot["continuous_latest_fresh_triggered_p3_fallback"] is False
+    assert gauge.continuous_read_count == 0
+    assert gauge.fast_read_count == 0
+    assert gauge.normal_read_count == 0
+
+
 def test_dual_pressure_sample_records_source_latency_and_age() -> None:
     service, _host, controller, _status = _positive_preseal_service(
         [1010.0],
@@ -1123,6 +1213,16 @@ def test_co2_conditioning_pressure_read_blocking_span_is_deferred_before_silent_
     assert monitor["pressure_monitor_nonblocking"] is True
     assert monitor["critical_window_uses_latest_frame"] is True
     assert monitor["critical_window_uses_query"] is False
+    assert monitor["continuous_latest_fresh_fast_path_used"] is True
+    assert monitor["continuous_latest_fresh_duration_ms"] <= monitor["continuous_latest_fresh_budget_ms"]
+    assert monitor["continuous_latest_fresh_waited_for_frame"] is False
+    assert monitor["continuous_latest_fresh_performed_io"] is False
+    assert monitor["continuous_latest_fresh_triggered_stream_restart"] is False
+    assert monitor["continuous_latest_fresh_triggered_drain"] is False
+    assert monitor["continuous_latest_fresh_triggered_p3_fallback"] is False
+    assert monitor["selected_pressure_sample_stale_performed_io"] is False
+    assert monitor["selected_pressure_sample_stale_triggered_source_selection"] is False
+    assert monitor["selected_pressure_sample_stale_triggered_p3_fallback"] is False
     assert monitor["pressure_monitor_duration_ms"] <= monitor["pressure_monitor_budget_ms"]
     assert context["vent_scheduler_checked_before_diagnostic"] is True
     assert context["pressure_monitor_blocked_vent_scheduler"] is False
@@ -1648,6 +1748,46 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
             },
         }
 
+    def fast_snapshot(**kwargs) -> dict:
+        payload = snapshot()
+        latest = dict(payload.get("latest_frame") or {})
+        pressure = latest.get("pressure_hpa")
+        age = float(payload.get("latest_frame_age_s", 0.0) or 0.0)
+        stale = bool(payload.get("latest_frame_stale") or age > float(values["workflow.pressure.conditioning_digital_gauge_max_age_s"]))
+        selection_reason = (
+            "digital_gauge_continuous_latest_fresh"
+            if pressure is not None and not stale
+            else ("digital_gauge_continuous_latest_unavailable" if pressure is None else "digital_gauge_continuous_latest_stale")
+        )
+        payload.update(
+            {
+                **kwargs,
+                "pressure_hpa": pressure,
+                "source": "digital_pressure_gauge_continuous",
+                "pressure_sample_source": "digital_pressure_gauge_continuous",
+                "pressure_sample_age_s": age,
+                "sample_age_s": age,
+                "is_stale": stale,
+                "pressure_sample_is_stale": stale,
+                "parse_ok": pressure is not None,
+                "pressure_source_selected": "digital_pressure_gauge_continuous" if pressure is not None and not stale else "",
+                "pressure_source_selection_reason": selection_reason,
+                "source_selection_reason": selection_reason,
+                "continuous_latest_fresh_fast_path_used": True,
+                "continuous_latest_fresh_duration_ms": 0.0,
+                "continuous_latest_fresh_lock_acquire_ms": 0.0,
+                "continuous_latest_fresh_lock_timeout": False,
+                "continuous_latest_fresh_waited_for_frame": False,
+                "continuous_latest_fresh_performed_io": False,
+                "continuous_latest_fresh_triggered_stream_restart": False,
+                "continuous_latest_fresh_triggered_drain": False,
+                "continuous_latest_fresh_triggered_p3_fallback": False,
+                "continuous_latest_fresh_budget_ms": kwargs.get("budget_ms", 5.0),
+                "continuous_latest_fresh_budget_exceeded": False,
+            }
+        )
+        return payload
+
     def fast_vent_reassert(vent_on, **kwargs):
         started = clock["now"]
         duration_s = float(kwargs.pop("duration_s", 0.0) or 0.0)
@@ -1689,6 +1829,7 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
         or {"output_state": 0, "isolation_state": 1, "vent_status_raw": 1},
         set_pressure_controller_vent_fast_reassert=fast_vent_reassert,
         digital_gauge_continuous_stream_snapshot=snapshot,
+        digital_gauge_continuous_latest_fast_snapshot=fast_snapshot,
         _current_high_pressure_first_point_sample=sample,
         _pressure_sample_from_device=direct_sample,
         _a2_v1_aligned_pressure_gauge_sample=v1_aligned_sample,
@@ -1904,7 +2045,7 @@ def test_co2_conditioning_overlimit_safety_vent_is_blocked_after_seal(monkeypatc
     assert route_traces[-1]["action"] == "co2_route_conditioning_vent_blocked_after_flush_phase"
 
 
-def test_co2_conditioning_gauge_sequence_stop_fails_inside_conditioning(monkeypatch) -> None:
+def test_co2_conditioning_gauge_sequence_stop_defers_pressure_monitor(monkeypatch) -> None:
     orchestrator, point, clock, timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [
@@ -1915,18 +2056,21 @@ def test_co2_conditioning_gauge_sequence_stop_fails_inside_conditioning(monkeypa
     first = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
     clock["now"] += 0.6
 
-    with pytest.raises(WorkflowValidationError):
-        orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    second = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
     assert first["digital_gauge_sequence_progress"] is True
     assert context["digital_gauge_sequence_progress"] is False
-    assert context["fail_closed_before_vent_off"] is True
-    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
-    assert any(event["event_name"] == "co2_route_conditioning_stream_stale" for event in timing_events)
+    assert second["pressure_monitor_nonblocking"] is True
+    assert second["conditioning_monitor_pressure_deferred"] is True
+    assert second["selected_pressure_sample_stale_deferred_for_vent_priority"] is True
+    assert second["selected_pressure_sample_stale_triggered_p3_fallback"] is False
+    assert context["fail_closed_before_vent_off"] is False
+    assert route_traces == []
+    assert not any(event["event_name"] == "co2_route_conditioning_stream_stale" for event in timing_events)
 
 
-def test_co2_conditioning_p3_interruption_without_restart_blocks_vent_off_and_seal(monkeypatch) -> None:
+def test_co2_conditioning_p3_interruption_without_restart_defers_pressure_monitor(monkeypatch) -> None:
     orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [
@@ -1941,16 +2085,18 @@ def test_co2_conditioning_p3_interruption_without_restart_blocks_vent_off_and_se
         ],
     )
 
-    with pytest.raises(WorkflowValidationError):
-        orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
     assert context["continuous_interrupted_by_command"] is True
     assert context["continuous_restart_result"] == ""
-    assert context["fail_closed_before_vent_off"] is True
+    assert tick["pressure_monitor_nonblocking"] is True
+    assert tick["conditioning_monitor_pressure_deferred"] is True
+    assert tick["continuous_latest_fresh_triggered_p3_fallback"] is False
+    assert context["fail_closed_before_vent_off"] is False
     assert context["vent_off_sent_at"] == ""
     assert context["seal_command_sent"] is False
-    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+    assert route_traces == []
 
 
 def test_co2_conditioning_p3_fast_poll_fresh_read_passes_freshness_gate(monkeypatch) -> None:
@@ -1962,17 +2108,19 @@ def test_co2_conditioning_p3_fast_poll_fresh_read_passes_freshness_gate(monkeypa
 
     tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
-    assert tick["pressure_source_selected"] == "digital_pressure_gauge_p3_fast_poll"
-    assert tick["pressure_source_selection_reason"] == "a2_conditioning_p3_fast_poll_config"
+    assert tick["pressure_source_selected"] == "digital_pressure_gauge_continuous"
+    assert tick["pressure_source_selection_reason"] == "digital_gauge_continuous_latest_fresh"
     assert tick["digital_gauge_stream_stale"] is False
     assert tick["selected_pressure_freshness_ok"] is True
     assert tick["selected_pressure_sample_is_stale"] is False
+    assert tick["pressure_monitor_nonblocking"] is True
+    assert tick["critical_window_uses_query"] is False
     assert tick["whether_safe_to_continue"] is True
     assert route_traces == []
     assert any(event["event_name"] == "co2_route_conditioning_pressure_sample" for event in timing_events)
 
 
-def test_co2_conditioning_p3_fast_poll_unfresh_read_fails_closed(monkeypatch) -> None:
+def test_co2_conditioning_p3_fast_poll_unfresh_read_defers_pressure_monitor(monkeypatch) -> None:
     orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [
@@ -1987,16 +2135,16 @@ def test_co2_conditioning_p3_fast_poll_unfresh_read_fails_closed(monkeypatch) ->
         cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "p3_fast_poll"},
     )
 
-    with pytest.raises(WorkflowValidationError):
-        orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
-    assert context["pressure_source_selected"] == "digital_pressure_gauge_p3_fast_poll"
+    assert tick["pressure_source_selected"] == "digital_pressure_gauge_continuous"
     assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_unavailable"
-    assert context["fail_closed_before_vent_off"] is True
+    assert context["conditioning_monitor_pressure_deferred"] is True
+    assert context["fail_closed_before_vent_off"] is False
     assert context["vent_off_sent_at"] == ""
     assert context["seal_command_sent"] is False
-    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+    assert route_traces == []
 
 
 def test_co2_conditioning_v1_aligned_continuous_fresh_does_not_trigger_p3(monkeypatch) -> None:
@@ -2025,7 +2173,7 @@ def test_co2_conditioning_v1_aligned_continuous_fresh_does_not_trigger_p3(monkey
     assert route_traces == []
 
 
-def test_co2_conditioning_v1_aligned_continuous_stale_uses_p3_fast(monkeypatch) -> None:
+def test_co2_conditioning_v1_aligned_continuous_stale_defers_without_p3(monkeypatch) -> None:
     orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [
@@ -2037,20 +2185,18 @@ def test_co2_conditioning_v1_aligned_continuous_stale_uses_p3_fast(monkeypatch) 
 
     tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
-    assert tick["pressure_source_selected"] == "digital_pressure_gauge_p3"
-    assert tick["pressure_source_selection_reason"] == "continuous_stale_fallback_to_p3_fast"
-    assert tick["critical_window_uses_latest_frame"] is False
-    assert tick["critical_window_uses_query"] is True
-    assert tick["p3_fast_fallback_attempted"] is True
-    assert tick["p3_fast_fallback_result"] == "success"
-    assert tick["selected_pressure_source"] == "digital_pressure_gauge_p3"
-    assert tick["selected_pressure_freshness_ok"] is True
-    assert tick["selected_pressure_sample_is_stale"] is False
-    assert tick["whether_safe_to_continue"] is True
+    assert tick["pressure_source_selected"] == "digital_pressure_gauge_continuous"
+    assert tick["pressure_source_selection_reason"] == "digital_gauge_continuous_latest_stale"
+    assert tick["critical_window_uses_latest_frame"] is True
+    assert tick["critical_window_uses_query"] is False
+    assert tick["p3_fast_fallback_attempted"] is False
+    assert tick["continuous_latest_fresh_triggered_p3_fallback"] is False
+    assert tick["conditioning_monitor_pressure_deferred"] is True
+    assert tick["selected_pressure_sample_stale_deferred_for_vent_priority"] is True
     assert route_traces == []
 
 
-def test_co2_conditioning_v1_aligned_continuous_stale_normal_p3_fresh_passes(monkeypatch) -> None:
+def test_co2_conditioning_v1_aligned_continuous_stale_skips_normal_p3_in_flush(monkeypatch) -> None:
     orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
@@ -2060,19 +2206,18 @@ def test_co2_conditioning_v1_aligned_continuous_stale_normal_p3_fresh_passes(mon
 
     tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
-    assert tick["pressure_source_selected"] == "digital_pressure_gauge_p3"
-    assert tick["pressure_source_selection_reason"] == "p3_fast_failed_fallback_normal_p3"
+    assert tick["pressure_source_selected"] == "digital_pressure_gauge_continuous"
+    assert tick["pressure_source_selection_reason"] == "digital_gauge_continuous_latest_stale"
     assert tick["continuous_stream_stale"] is True
     assert tick["digital_gauge_stream_stale"] is True
-    assert tick["selected_pressure_sample_age_s"] == 0.02
-    assert tick["selected_pressure_sample_is_stale"] is False
-    assert tick["selected_pressure_freshness_ok"] is True
-    assert tick["pressure_sample_stale"] is False
-    assert tick["whether_safe_to_continue"] is True
+    assert tick["selected_pressure_sample_is_stale"] is True
+    assert tick["selected_pressure_freshness_ok"] is False
+    assert tick["conditioning_monitor_pressure_deferred"] is True
+    assert tick["normal_p3_fallback_attempted"] is False
     assert route_traces == []
 
 
-def test_co2_conditioning_v1_aligned_continuous_stale_fast_p3_fresh_passes(monkeypatch) -> None:
+def test_co2_conditioning_v1_aligned_continuous_stale_skips_fast_p3_in_flush(monkeypatch) -> None:
     orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
@@ -2091,14 +2236,15 @@ def test_co2_conditioning_v1_aligned_continuous_stale_fast_p3_fresh_passes(monke
 
     tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
-    assert tick["pressure_source_selection_reason"] == "continuous_stale_fallback_to_p3_fast"
+    assert tick["pressure_source_selection_reason"] == "digital_gauge_continuous_latest_stale"
     assert tick["continuous_stream_stale"] is True
-    assert tick["selected_pressure_freshness_ok"] is True
-    assert tick["whether_safe_to_continue"] is True
+    assert tick["selected_pressure_freshness_ok"] is False
+    assert tick["conditioning_monitor_pressure_deferred"] is True
+    assert tick["p3_fast_fallback_attempted"] is False
     assert route_traces == []
 
 
-def test_co2_conditioning_v1_aligned_p3_sample_stale_fails_selected_pressure_stale(monkeypatch) -> None:
+def test_co2_conditioning_v1_aligned_stale_defers_before_p3_sample_stale(monkeypatch) -> None:
     orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
@@ -2112,17 +2258,18 @@ def test_co2_conditioning_v1_aligned_p3_sample_stale_fails_selected_pressure_sta
         is_stale=True,
     )
 
-    with pytest.raises(WorkflowValidationError):
-        orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
     assert context["selected_pressure_freshness_ok"] is False
     assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_sample_stale"
-    assert context["fail_closed_reason"] == "selected_pressure_sample_stale"
-    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+    assert tick["conditioning_monitor_pressure_deferred"] is True
+    assert tick["p3_fast_fallback_attempted"] is False
+    assert context["fail_closed_before_vent_off"] is False
+    assert route_traces == []
 
 
-def test_co2_conditioning_v1_aligned_p3_parse_failed_fails_selected_pressure_unavailable(monkeypatch) -> None:
+def test_co2_conditioning_v1_aligned_stale_defers_before_p3_parse(monkeypatch) -> None:
     orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
@@ -2137,17 +2284,18 @@ def test_co2_conditioning_v1_aligned_p3_parse_failed_fails_selected_pressure_una
         sample_age_s=0.02,
     )
 
-    with pytest.raises(WorkflowValidationError):
-        orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
     assert context["selected_pressure_freshness_ok"] is False
-    assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_unavailable"
-    assert context["fail_closed_reason"] == "selected_pressure_unavailable"
-    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+    assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_sample_stale"
+    assert tick["conditioning_monitor_pressure_deferred"] is True
+    assert tick["continuous_latest_fresh_triggered_p3_fallback"] is False
+    assert context["fail_closed_before_vent_off"] is False
+    assert route_traces == []
 
 
-def test_co2_conditioning_pressure_controller_cannot_be_selected_primary_reference(monkeypatch) -> None:
+def test_co2_conditioning_stale_defers_before_pressure_controller_substitution(monkeypatch) -> None:
     orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
@@ -2162,13 +2310,15 @@ def test_co2_conditioning_pressure_controller_cannot_be_selected_primary_referen
         source_selection_reason="controller_substitution_attempt",
     )
 
-    with pytest.raises(WorkflowValidationError):
-        orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+    tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
 
     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
-    assert context["selected_pressure_source"] == "pressure_controller"
-    assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_unavailable"
-    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+    assert context["selected_pressure_source"] == "digital_pressure_gauge_continuous"
+    assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_sample_stale"
+    assert tick["conditioning_monitor_pressure_deferred"] is True
+    assert tick["selected_pressure_sample_stale_triggered_source_selection"] is False
+    assert context["fail_closed_before_vent_off"] is False
+    assert route_traces == []
 
 
 def test_co2_conditioning_v1_aligned_blocks_fallback_after_seal(monkeypatch) -> None:
@@ -2216,13 +2366,23 @@ def test_co2_conditioning_v1_aligned_blocks_fallback_after_safe_window(monkeypat
 
     orchestrator.pressure_control_service._a2_v1_aligned_pressure_gauge_sample = fail_if_called
 
-    with pytest.raises(WorkflowValidationError):
-        orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
-
-    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
-    assert context["pressure_source_selection_reason"] == "v1_aligned_fallback_not_allowed_outside_atmosphere_conditioning"
-    assert context["fail_closed_before_vent_off"] is True
-    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+    if context_update.get("pressure_setpoint_command_sent"):
+        with pytest.raises(WorkflowValidationError):
+            orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+        context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+        assert context["pressure_source_selection_reason"] == (
+            "v1_aligned_fallback_not_allowed_outside_atmosphere_conditioning"
+        )
+        assert context["fail_closed_before_vent_off"] is True
+        assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+    else:
+        tick = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+        context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+        assert context["pressure_source_selection_reason"] == "digital_gauge_continuous_latest_stale"
+        assert tick["conditioning_monitor_pressure_deferred"] is True
+        assert tick["continuous_latest_fresh_triggered_p3_fallback"] is False
+        assert context["fail_closed_before_vent_off"] is False
+        assert route_traces == []
 
 
 def test_a2_v1_aligned_service_fast_p3_success_marks_continuous_interruption() -> None:

@@ -630,7 +630,7 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     )
 
     assert summary["a2_3_v1_pressure_gauge_read_policy_present"] is True
-    assert summary["evidence_source"] == "real_probe_a2_8_co2_7_pressure_no_write"
+    assert summary["evidence_source"] == "real_probe_a2_9_co2_7_pressure_no_write"
     assert summary["a2_3_pressure_source_strategy"] == "v1_aligned"
     assert summary["a2_4_v1_pressure_gauge_read_policy_present"] is True
     assert summary["a2_4_pressure_source_strategy"] == "v1_aligned"
