@@ -102,6 +102,22 @@ A2_SAFETY_ASSERTION_DEFAULTS = {
     "v1_fallback_required": True,
     "run_app_py_untouched": True,
 }
+A2_INTERRUPTED_FAIL_CLOSED_REASON = "probe_execution_interrupted_required_artifacts_incomplete"
+A2_REQUIRED_ARTIFACT_KEYS = (
+    "probe_admission_record",
+    "operator_confirmation_record",
+    "summary",
+    "safety_assertions",
+    "process_exit_record",
+    "a2_pressure_sweep_trace",
+    "route_trace",
+    "pressure_trace",
+    "pressure_ready_trace",
+    "heartbeat_trace",
+    "analyzer_sampling_rows",
+    "point_results",
+    "point_results_csv",
+)
 
 
 @dataclass(frozen=True)
@@ -120,6 +136,270 @@ class A2PointsConfigAlignmentError(RuntimeError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _artifact_completeness(
+    artifact_paths: Mapping[str, str],
+    *,
+    assume_present_keys: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    assumed = assume_present_keys or set()
+    expected: list[str] = []
+    present: list[str] = []
+    missing: list[str] = []
+    present_keys: list[str] = []
+    missing_keys: list[str] = []
+    for key in A2_REQUIRED_ARTIFACT_KEYS:
+        path_text = artifact_paths.get(key, "")
+        if not path_text:
+            continue
+        filename = Path(path_text).name
+        expected.append(filename)
+        if key in assumed or Path(path_text).exists():
+            present.append(filename)
+            present_keys.append(key)
+        else:
+            missing.append(filename)
+            missing_keys.append(key)
+    return {
+        "required_artifacts_expected": expected,
+        "required_artifacts_present": present,
+        "required_artifacts_missing": missing,
+        "required_artifact_keys_present": present_keys,
+        "required_artifact_keys_missing": missing_keys,
+        "artifact_completeness_pass": not missing,
+        "artifact_completeness_fail_reason": "" if not missing else "required_artifacts_missing",
+    }
+
+
+def _build_operator_record(
+    admission: A2Admission,
+    *,
+    operator_confirmation_path: Optional[str | Path],
+) -> dict[str, Any]:
+    return {
+        "schema_version": A2_SCHEMA_VERSION,
+        "record_type": "a2_operator_confirmation_record",
+        "operator_confirmation_path": (
+            str(Path(operator_confirmation_path).expanduser().resolve())
+            if operator_confirmation_path
+            else ""
+        ),
+        "validation": admission.operator_validation,
+        "payload": admission.operator_confirmation,
+        **A2_EVIDENCE_MARKERS,
+    }
+
+
+def _build_probe_admission_record(
+    admission: A2Admission,
+    *,
+    artifact_paths: Mapping[str, str],
+    config_path: str | Path,
+    branch: str,
+    head: str,
+    cli_allow: bool,
+    execute_probe: bool,
+    run_app_py_untouched: bool,
+) -> dict[str, Any]:
+    return {
+        "schema_version": A2_SCHEMA_VERSION,
+        "record_type": "a2_probe_admission_record",
+        "created_at": _now(),
+        "admission_approved": bool(admission.approved),
+        "admission_reasons": list(admission.reasons),
+        "operator_confirmation_valid": bool(admission.operator_validation.get("valid")),
+        "operator_validation": admission.operator_validation,
+        "operator_confirmation": admission.operator_confirmation,
+        "prereq_summaries": admission.prereq_summaries,
+        "evidence": admission.evidence,
+        "config_path": str(config_path or ""),
+        "current_branch": branch,
+        "current_head": head,
+        "cli_allow": bool(cli_allow),
+        "execute_probe_requested": bool(execute_probe),
+        "run_app_py_untouched": bool(run_app_py_untouched),
+        "artifact_paths": dict(artifact_paths),
+        **A2_EVIDENCE_MARKERS,
+    }
+
+
+def _partial_safety_assertions(
+    *,
+    real_probe_executed: bool,
+    real_com_opened: Any,
+    any_device_command_sent: Any,
+    any_write_command_sent: Any,
+    no_write_assertion_status: str,
+    device_command_audit_complete: bool,
+    must_not_claim_no_write_pass: bool,
+    safe_stop_triggered: Any,
+) -> dict[str, Any]:
+    no_write_pass_like = str(no_write_assertion_status).startswith("pass")
+    safety = {
+        **A2_EVIDENCE_MARKERS,
+        **A2_SAFETY_ASSERTION_DEFAULTS,
+        "record_type": "a2_safety_assertions_partial",
+        "safety_assertions_complete": False,
+        "real_probe_executed": bool(real_probe_executed),
+        "real_com_opened": real_com_opened,
+        "any_device_command_sent": any_device_command_sent,
+        "any_write_command_sent": any_write_command_sent,
+        "no_write": bool(no_write_pass_like and not must_not_claim_no_write_pass),
+        "no_write_assertion_status": no_write_assertion_status,
+        "device_command_audit_complete": bool(device_command_audit_complete),
+        "must_not_claim_no_write_pass": bool(must_not_claim_no_write_pass),
+        "safe_stop_triggered": safe_stop_triggered,
+    }
+    if any_write_command_sent == "unknown":
+        safety["attempted_write_count_status"] = "unknown"
+    return safety
+
+
+def _write_process_exit_record(
+    run_dir: Path,
+    *,
+    artifact_paths: Mapping[str, str],
+    process_state: str,
+    final_decision: str,
+    interrupted_execution: bool,
+    interruption_source: str,
+    interruption_stage: str,
+    fail_closed_reason: str,
+    execution_error: str,
+    real_probe_executed: bool,
+    real_com_opened: Any,
+    any_device_command_sent: Any,
+    any_write_command_sent: Any,
+    safe_stop_triggered: Any,
+    no_write_assertion_status: str,
+) -> None:
+    completeness = _artifact_completeness(
+        artifact_paths,
+        assume_present_keys={"process_exit_record", "summary"},
+    )
+    payload = {
+        "schema_version": A2_SCHEMA_VERSION,
+        "record_type": "a2_process_exit_record",
+        "updated_at": _now(),
+        "process_state": process_state,
+        "final_decision": final_decision,
+        "fail_closed_reason": fail_closed_reason,
+        "interrupted_execution": bool(interrupted_execution),
+        "interruption_source": interruption_source,
+        "interruption_stage": interruption_stage,
+        "execution_error": execution_error,
+        "real_probe_executed": bool(real_probe_executed),
+        "real_com_opened": real_com_opened,
+        "any_device_command_sent": any_device_command_sent,
+        "any_write_command_sent": any_write_command_sent,
+        "safe_stop_triggered": safe_stop_triggered,
+        "no_write_assertion_status": no_write_assertion_status,
+        "artifact_paths": dict(artifact_paths),
+        **completeness,
+        **A2_EVIDENCE_MARKERS,
+    }
+    _json_dump(run_dir / "process_exit_record.json", payload)
+
+
+def _write_interrupted_guard_artifacts(
+    run_dir: Path,
+    *,
+    admission: A2Admission,
+    artifact_paths: Mapping[str, str],
+    operator_confirmation_path: Optional[str | Path],
+    config_path: str | Path,
+    branch: str,
+    head: str,
+    cli_allow: bool,
+    execute_probe: bool,
+    run_app_py_untouched: bool,
+    interruption_source: str,
+    interruption_stage: str,
+    real_probe_executed: bool,
+    real_com_opened: Any,
+    any_device_command_sent: Any,
+    any_write_command_sent: Any,
+    no_write_assertion_status: str,
+    safe_stop_triggered: Any,
+    device_command_audit_complete: bool,
+    must_not_claim_no_write_pass: bool,
+    execution_error: str = "",
+) -> dict[str, Any]:
+    operator_record = _build_operator_record(
+        admission,
+        operator_confirmation_path=operator_confirmation_path,
+    )
+    admission_record = _build_probe_admission_record(
+        admission,
+        artifact_paths=artifact_paths,
+        config_path=config_path,
+        branch=branch,
+        head=head,
+        cli_allow=cli_allow,
+        execute_probe=execute_probe,
+        run_app_py_untouched=run_app_py_untouched,
+    )
+    partial_safety = _partial_safety_assertions(
+        real_probe_executed=real_probe_executed,
+        real_com_opened=real_com_opened,
+        any_device_command_sent=any_device_command_sent,
+        any_write_command_sent=any_write_command_sent,
+        no_write_assertion_status=no_write_assertion_status,
+        device_command_audit_complete=device_command_audit_complete,
+        must_not_claim_no_write_pass=must_not_claim_no_write_pass,
+        safe_stop_triggered=safe_stop_triggered,
+    )
+    _json_dump(run_dir / "probe_admission_record.json", admission_record)
+    _json_dump(run_dir / "operator_confirmation_record.json", operator_record)
+    _json_dump(run_dir / "safety_assertions.json", partial_safety)
+    _write_process_exit_record(
+        run_dir,
+        artifact_paths=artifact_paths,
+        process_state="interrupted_guard_active",
+        final_decision="FAIL_CLOSED",
+        interrupted_execution=True,
+        interruption_source=interruption_source,
+        interruption_stage=interruption_stage,
+        fail_closed_reason=A2_INTERRUPTED_FAIL_CLOSED_REASON,
+        execution_error=execution_error,
+        real_probe_executed=real_probe_executed,
+        real_com_opened=real_com_opened,
+        any_device_command_sent=any_device_command_sent,
+        any_write_command_sent=any_write_command_sent,
+        safe_stop_triggered=safe_stop_triggered,
+        no_write_assertion_status=no_write_assertion_status,
+    )
+    completeness = _artifact_completeness(artifact_paths, assume_present_keys={"summary"})
+    summary = {
+        "schema_version": A2_SCHEMA_VERSION,
+        **A2_EVIDENCE_MARKERS,
+        "final_decision": "FAIL_CLOSED",
+        "fail_closed_reason": A2_INTERRUPTED_FAIL_CLOSED_REASON,
+        "interrupted_execution": True,
+        "interrupted_at": _now(),
+        "interruption_source": interruption_source,
+        "interruption_stage": interruption_stage,
+        "rejection_reasons": [A2_INTERRUPTED_FAIL_CLOSED_REASON],
+        "admission_approved": bool(admission.approved),
+        "operator_confirmation_valid": bool(admission.operator_validation.get("valid")),
+        "real_probe_executed": bool(real_probe_executed),
+        "real_com_opened": real_com_opened,
+        "any_device_command_sent": any_device_command_sent,
+        "any_write_command_sent": any_write_command_sent,
+        "safe_stop_triggered": safe_stop_triggered,
+        "no_write_assertion_status": no_write_assertion_status,
+        "safety_assertions_complete": False,
+        "device_command_audit_complete": bool(device_command_audit_complete),
+        "must_not_claim_no_write_pass": bool(must_not_claim_no_write_pass),
+        "a3_allowed": False,
+        "real_primary_latest_refresh": False,
+        "execution_error": execution_error,
+        "artifact_paths": dict(artifact_paths),
+        **completeness,
+    }
+    _json_dump(run_dir / "summary.json", summary)
+    return summary
 
 
 def _path_value(raw_cfg: Mapping[str, Any], dotted_path: str) -> Any:
@@ -1278,6 +1558,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     run_dir = Path(output_dir).expanduser().resolve() if output_dir else _default_output_dir()
     run_dir.mkdir(parents=True, exist_ok=True)
     artifact_paths = {
+        "probe_admission_record": str(run_dir / "probe_admission_record.json"),
         "summary": str(run_dir / "summary.json"),
         "a2_pressure_sweep_trace": str(run_dir / "a2_pressure_sweep_trace.jsonl"),
         "route_trace": str(run_dir / "route_trace.jsonl"),
@@ -1289,10 +1570,16 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "point_results_csv": str(run_dir / "point_results.csv"),
         "safety_assertions": str(run_dir / "safety_assertions.json"),
         "operator_confirmation_record": str(run_dir / "operator_confirmation_record.json"),
+        "process_exit_record": str(run_dir / "process_exit_record.json"),
     }
 
     rejection_reasons = list(admission.reasons)
     executed = bool(admission.approved and execute_probe)
+    execution_started = False
+    execution_interrupted = False
+    interrupted_at = ""
+    interruption_source = ""
+    interruption_stage = ""
     execution_error = ""
     execution: Mapping[str, Any] = {}
     points_alignment: dict[str, Any] = {
@@ -1309,6 +1596,29 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "downstream_points_generated": False,
     }
     execution_config_path = str(config_path)
+    if admission.approved:
+        _write_interrupted_guard_artifacts(
+            run_dir,
+            admission=admission,
+            artifact_paths=artifact_paths,
+            operator_confirmation_path=operator_confirmation_path,
+            config_path=config_path,
+            branch=branch,
+            head=head,
+            cli_allow=cli_allow,
+            execute_probe=execute_probe,
+            run_app_py_untouched=run_app_py_untouched,
+            interruption_source="pre_com_guard",
+            interruption_stage="admission_output_dir_created",
+            real_probe_executed=False,
+            real_com_opened=False,
+            any_device_command_sent=False,
+            any_write_command_sent=False,
+            no_write_assertion_status="pass_pre_com",
+            safe_stop_triggered=False,
+            device_command_audit_complete=True,
+            must_not_claim_no_write_pass=False,
+        )
     if not execute_probe:
         rejection_reasons.append("execute_probe_not_requested")
     elif not admission.approved:
@@ -1321,15 +1631,69 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
                 output_dir=run_dir,
             )
             execution_config_path = str(aligned_config_path)
-            execution = (executor or execute_existing_v2_a2_pressure_sweep)(execution_config_path)
-            if isinstance(execution, Mapping) and isinstance(execution.get("points_alignment"), Mapping):
-                points_alignment.update(dict(execution.get("points_alignment") or {}))
-            else:
-                execution = {**dict(execution), "points_alignment": points_alignment}
         except Exception as exc:
             execution_error = str(exc)
-            prefix = "points_config_alignment_error" if isinstance(exc, A2PointsConfigAlignmentError) else "execution_error"
-            rejection_reasons.append(f"{prefix}:{exc}")
+            rejection_reasons.append(f"points_config_alignment_error:{exc}")
+        else:
+            _write_interrupted_guard_artifacts(
+                run_dir,
+                admission=admission,
+                artifact_paths=artifact_paths,
+                operator_confirmation_path=operator_confirmation_path,
+                config_path=config_path,
+                branch=branch,
+                head=head,
+                cli_allow=cli_allow,
+                execute_probe=execute_probe,
+                run_app_py_untouched=run_app_py_untouched,
+                interruption_source="downstream_executor_started",
+                interruption_stage="downstream_executor_started_real_com_status_unknown",
+                real_probe_executed=True,
+                real_com_opened="unknown",
+                any_device_command_sent="unknown",
+                any_write_command_sent="unknown",
+                no_write_assertion_status="unknown",
+                safe_stop_triggered="unknown",
+                device_command_audit_complete=False,
+                must_not_claim_no_write_pass=True,
+            )
+            execution_started = True
+            try:
+                execution = (executor or execute_existing_v2_a2_pressure_sweep)(execution_config_path)
+            except KeyboardInterrupt as exc:
+                interrupted_at = _now()
+                interruption_source = "KeyboardInterrupt"
+                interruption_stage = "downstream_executor_keyboard_interrupt"
+                execution_interrupted = True
+                execution_error = "KeyboardInterrupt"
+                partial = getattr(exc, "partial_execution", None)
+                execution = dict(partial) if isinstance(partial, Mapping) else {}
+                rejection_reasons.append(A2_INTERRUPTED_FAIL_CLOSED_REASON)
+            except TimeoutError as exc:
+                interrupted_at = _now()
+                interruption_source = "TimeoutError"
+                interruption_stage = "downstream_executor_timeout"
+                execution_interrupted = True
+                execution_error = str(exc)
+                partial = getattr(exc, "partial_execution", None)
+                execution = dict(partial) if isinstance(partial, Mapping) else {}
+                rejection_reasons.append(A2_INTERRUPTED_FAIL_CLOSED_REASON)
+            except Exception as exc:
+                interrupted_at = _now()
+                interruption_source = exc.__class__.__name__
+                interruption_stage = "downstream_executor_exception"
+                execution_interrupted = True
+                execution_error = str(exc)
+                partial = getattr(exc, "partial_execution", None)
+                execution = dict(partial) if isinstance(partial, Mapping) else {}
+                rejection_reasons.append(A2_INTERRUPTED_FAIL_CLOSED_REASON)
+                rejection_reasons.append(f"execution_error:{exc}")
+            if isinstance(execution, Mapping) and isinstance(execution.get("points_alignment"), Mapping):
+                points_alignment.update(dict(execution.get("points_alignment") or {}))
+            elif isinstance(execution, Mapping):
+                execution = {**dict(execution), "points_alignment": points_alignment}
+            else:
+                execution = {"points_alignment": points_alignment}
 
     point_results, route_rows, pressure_rows, sample_rows = _point_results_from_execution(execution, raw_cfg)
     if not point_results:
@@ -1383,6 +1747,74 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         rejection_reasons.append("downstream_point_executed_after_fail_closed_point")
 
     service_summary = dict(execution.get("service_summary") or {}) if isinstance(execution, Mapping) else {}
+    execution_audit: dict[str, Any] = {}
+    if isinstance(execution, Mapping):
+        for audit_key in ("interruption_audit", "command_audit", "safety_audit"):
+            audit_payload = execution.get(audit_key)
+            if isinstance(audit_payload, Mapping):
+                execution_audit.update(dict(audit_payload))
+        for audit_key in (
+            "real_com_opened",
+            "any_device_command_sent",
+            "any_write_command_sent",
+            "device_command_audit_complete",
+            "safe_stop_triggered",
+        ):
+            if audit_key in execution:
+                execution_audit[audit_key] = execution.get(audit_key)
+
+    def audit_value(*keys: str) -> Any:
+        for key in keys:
+            if key in execution_audit:
+                return execution_audit.get(key)
+            if key in service_summary:
+                return service_summary.get(key)
+        return None
+
+    real_com_opened_value: Any = audit_value("real_com_opened")
+    parsed_real_com_opened = _as_bool(real_com_opened_value)
+    if parsed_real_com_opened is not None:
+        real_com_opened_value = parsed_real_com_opened
+    elif not execution_started:
+        real_com_opened_value = False
+    elif execution_interrupted:
+        real_com_opened_value = "unknown"
+    else:
+        real_com_opened_value = bool(route_rows or pressure_rows or sample_rows)
+
+    any_device_command_sent_value: Any = audit_value("any_device_command_sent")
+    parsed_device_command_sent = _as_bool(any_device_command_sent_value)
+    if parsed_device_command_sent is not None:
+        any_device_command_sent_value = parsed_device_command_sent
+    elif not execution_started:
+        any_device_command_sent_value = False
+    elif execution_interrupted:
+        any_device_command_sent_value = "unknown"
+    else:
+        any_device_command_sent_value = bool(
+            route_rows
+            or any(_as_bool(point.get("pressure_setpoint_command_sent")) is True for point in point_results)
+        )
+
+    safe_stop_triggered_value: Any = audit_value(
+        "safe_stop_triggered",
+        "final_safe_stop_triggered",
+        "final_safe_stop_chamber_stop_attempted",
+    )
+    parsed_safe_stop_triggered = _as_bool(safe_stop_triggered_value)
+    if parsed_safe_stop_triggered is not None:
+        safe_stop_triggered_value = parsed_safe_stop_triggered
+    elif not execution_started:
+        safe_stop_triggered_value = False
+    elif execution_interrupted:
+        safe_stop_triggered_value = "unknown"
+    else:
+        safe_stop_triggered_value = False
+
+    device_command_audit_complete_value = _as_bool(audit_value("device_command_audit_complete"))
+    if device_command_audit_complete_value is None:
+        device_command_audit_complete_value = not execution_interrupted
+
     no_write_ok = True
     safety_assertions = {
         **A2_EVIDENCE_MARKERS,
@@ -1430,9 +1862,45 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "pressure_points_completed": int(pressure_points_completed),
         "no_write": no_write_ok,
     }
+    restricted_write_command_sent = bool(
+        _as_bool(safety_assertions.get("any_write_command_sent")) is True
+        or _as_bool(safety_assertions.get("identity_write_command_sent")) is True
+        or _as_bool(safety_assertions.get("mode_switch_command_sent")) is True
+        or _as_bool(safety_assertions.get("senco_write_command_sent")) is True
+        or _as_bool(safety_assertions.get("calibration_write_command_sent")) is True
+        or _as_bool(safety_assertions.get("chamber_write_register_command_sent")) is True
+        or _as_bool(safety_assertions.get("chamber_set_temperature_command_sent")) is True
+        or _as_bool(safety_assertions.get("chamber_start_command_sent")) is True
+        or _as_bool(safety_assertions.get("chamber_stop_command_sent")) is True
+    )
+    audited_any_write = audit_value("any_write_command_sent")
+    parsed_audited_any_write = _as_bool(audited_any_write)
+    if parsed_audited_any_write is not None:
+        any_write_command_sent_value: Any = parsed_audited_any_write
+        restricted_write_command_sent = bool(parsed_audited_any_write)
+    elif execution_interrupted and not device_command_audit_complete_value:
+        any_write_command_sent_value = "unknown"
+    else:
+        any_write_command_sent_value = restricted_write_command_sent
+
+    if restricted_write_command_sent:
+        no_write_assertion_status = "fail"
+        must_not_claim_no_write_pass = False
+    elif real_com_opened_value is False and any_device_command_sent_value is False:
+        no_write_assertion_status = "pass_pre_com"
+        must_not_claim_no_write_pass = False
+    elif execution_interrupted and not device_command_audit_complete_value:
+        no_write_assertion_status = "unknown"
+        must_not_claim_no_write_pass = True
+    elif execution_interrupted:
+        no_write_assertion_status = "pass_partial_audited"
+        must_not_claim_no_write_pass = False
+    else:
+        no_write_assertion_status = "pass"
+        must_not_claim_no_write_pass = False
     no_write_ok = bool(
         int(safety_assertions.get("attempted_write_count") or 0) == 0
-        and _as_bool(safety_assertions.get("any_write_command_sent")) is not True
+        and any_write_command_sent_value is not True
         and _as_bool(safety_assertions.get("identity_write_command_sent")) is not True
         and _as_bool(safety_assertions.get("mode_switch_command_sent")) is not True
         and _as_bool(safety_assertions.get("senco_write_command_sent")) is not True
@@ -1441,8 +1909,22 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         and _as_bool(safety_assertions.get("chamber_set_temperature_command_sent")) is not True
         and _as_bool(safety_assertions.get("chamber_start_command_sent")) is not True
         and _as_bool(safety_assertions.get("chamber_stop_command_sent")) is not True
+        and no_write_assertion_status != "unknown"
     )
-    safety_assertions["no_write"] = no_write_ok
+    safety_assertions.update(
+        {
+            "record_type": "a2_safety_assertions",
+            "safety_assertions_complete": bool(device_command_audit_complete_value and not execution_interrupted),
+            "real_com_opened": real_com_opened_value,
+            "any_device_command_sent": any_device_command_sent_value,
+            "any_write_command_sent": any_write_command_sent_value,
+            "no_write": no_write_ok,
+            "no_write_assertion_status": no_write_assertion_status,
+            "device_command_audit_complete": bool(device_command_audit_complete_value),
+            "must_not_claim_no_write_pass": bool(must_not_claim_no_write_pass),
+            "safe_stop_triggered": safe_stop_triggered_value,
+        }
+    )
 
     evidence_metric_rows = route_rows + pressure_rows + sample_rows
 
@@ -1956,6 +2438,13 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     if final_decision != "PASS" and not rejection_reasons:
         rejection_reasons.append("a2_pass_conditions_not_met")
     rejection_reasons = list(dict.fromkeys(rejection_reasons))
+    fail_closed_reason = ""
+    if final_decision != "PASS":
+        fail_closed_reason = (
+            A2_INTERRUPTED_FAIL_CLOSED_REASON
+            if execution_interrupted
+            else (rejection_reasons[0] if rejection_reasons else "a2_pass_conditions_not_met")
+        )
 
     pressure_ready_rows = [
         {
@@ -2012,7 +2501,12 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "schema_version": A2_SCHEMA_VERSION,
         **A2_EVIDENCE_MARKERS,
         "final_decision": final_decision,
+        "fail_closed_reason": fail_closed_reason,
         "rejection_reasons": rejection_reasons,
+        "interrupted_execution": bool(execution_interrupted),
+        "interrupted_at": interrupted_at,
+        "interruption_source": interruption_source,
+        "interruption_stage": interruption_stage,
         "admission_approved": admission.approved,
         "operator_confirmation_valid": bool(admission.operator_validation.get("valid")),
         "r0_1_reference_readonly_prereq_pass": bool(admission.evidence["r0_1_reference_readonly_prereq_pass"]),
@@ -2541,7 +3035,8 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             or _as_bool(metric_or_summary("sample_blocked_during_flush")) is True
         ),
         "a2_pressure_sweep_executed": bool(executed),
-        "real_probe_executed": bool(executed),
+        "a2_pressure_sweep_execution_started": bool(execution_started),
+        "real_probe_executed": bool(execution_started),
         "underlying_execution_dir": str(execution.get("execution_run_dir") or ""),
         "execution_error": execution_error,
         "execution_config_path": execution_config_path,
@@ -2572,16 +3067,22 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         **points_alignment,
         **safety_assertions,
     }
-    operator_record = {
-        "schema_version": A2_SCHEMA_VERSION,
-        "record_type": "a2_operator_confirmation_record",
-        "operator_confirmation_path": str(Path(operator_confirmation_path).expanduser().resolve()) if operator_confirmation_path else "",
-        "validation": admission.operator_validation,
-        "payload": admission.operator_confirmation,
-        **A2_EVIDENCE_MARKERS,
-    }
+    operator_record = _build_operator_record(
+        admission,
+        operator_confirmation_path=operator_confirmation_path,
+    )
+    admission_record = _build_probe_admission_record(
+        admission,
+        artifact_paths=artifact_paths,
+        config_path=config_path,
+        branch=branch,
+        head=head,
+        cli_allow=cli_allow,
+        execute_probe=execute_probe,
+        run_app_py_untouched=run_app_py_untouched,
+    )
 
-    _json_dump(run_dir / "summary.json", summary)
+    _json_dump(run_dir / "probe_admission_record.json", admission_record)
     _jsonl_dump(run_dir / "a2_pressure_sweep_trace.jsonl", sweep_rows)
     _jsonl_dump(run_dir / "route_trace.jsonl", route_rows)
     _jsonl_dump(run_dir / "pressure_trace.jsonl", pressure_rows)
@@ -2592,4 +3093,34 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     _write_point_results_csv(run_dir / "point_results.csv", point_results)
     _json_dump(run_dir / "safety_assertions.json", safety_assertions)
     _json_dump(run_dir / "operator_confirmation_record.json", operator_record)
+    completeness = _artifact_completeness(
+        artifact_paths,
+        assume_present_keys={"summary", "process_exit_record"},
+    )
+    summary.update(completeness)
+    if not completeness["artifact_completeness_pass"]:
+        summary["final_decision"] = "FAIL_CLOSED"
+        summary["a3_allowed"] = False
+        summary["fail_closed_reason"] = "required_artifacts_missing"
+        summary["rejection_reasons"] = list(
+            dict.fromkeys([*summary["rejection_reasons"], "required_artifacts_missing"])
+        )
+    _json_dump(run_dir / "summary.json", summary)
+    _write_process_exit_record(
+        run_dir,
+        artifact_paths=artifact_paths,
+        process_state="interrupted" if execution_interrupted else "completed",
+        final_decision=str(summary.get("final_decision") or final_decision),
+        interrupted_execution=execution_interrupted,
+        interruption_source=interruption_source,
+        interruption_stage=interruption_stage,
+        fail_closed_reason=str(summary.get("fail_closed_reason") or ""),
+        execution_error=execution_error,
+        real_probe_executed=bool(execution_started),
+        real_com_opened=real_com_opened_value,
+        any_device_command_sent=any_device_command_sent_value,
+        any_write_command_sent=any_write_command_sent_value,
+        safe_stop_triggered=safe_stop_triggered_value,
+        no_write_assertion_status=no_write_assertion_status,
+    )
     return summary

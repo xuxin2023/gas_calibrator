@@ -10,7 +10,9 @@ import pytest
 from gas_calibrator.v2.core.run001_a2_co2_only_7_pressure_no_write_probe import (
     A2_ALLOWED_PRESSURE_POINTS_HPA,
     A2_ENV_VAR,
+    A2_INTERRUPTED_FAIL_CLOSED_REASON,
     evaluate_a2_co2_7_pressure_no_write_gate,
+    _artifact_completeness,
     write_a2_co2_7_pressure_no_write_probe_artifacts,
 )
 from gas_calibrator.v2.core.run001_a1_dry_run import load_point_rows
@@ -199,6 +201,24 @@ def _config_and_operator(tmp_path: Path) -> tuple[dict[str, Any], Path, Path]:
     config_path.write_text(json.dumps(config), encoding="utf-8")
     op_path = _operator_confirmation(tmp_path, config_path, config)
     return config, config_path, op_path
+
+
+def _expected_a2_artifact_paths(run_dir: Path) -> dict[str, str]:
+    return {
+        "probe_admission_record": str(run_dir / "probe_admission_record.json"),
+        "summary": str(run_dir / "summary.json"),
+        "a2_pressure_sweep_trace": str(run_dir / "a2_pressure_sweep_trace.jsonl"),
+        "route_trace": str(run_dir / "route_trace.jsonl"),
+        "pressure_trace": str(run_dir / "pressure_trace.jsonl"),
+        "pressure_ready_trace": str(run_dir / "pressure_ready_trace.jsonl"),
+        "heartbeat_trace": str(run_dir / "heartbeat_trace.jsonl"),
+        "analyzer_sampling_rows": str(run_dir / "analyzer_sampling_rows.jsonl"),
+        "point_results": str(run_dir / "point_results.json"),
+        "point_results_csv": str(run_dir / "point_results.csv"),
+        "safety_assertions": str(run_dir / "safety_assertions.json"),
+        "operator_confirmation_record": str(run_dir / "operator_confirmation_record.json"),
+        "process_exit_record": str(run_dir / "process_exit_record.json"),
+    }
 
 
 def test_load_json_mapping_accepts_utf8_json_without_bom(tmp_path: Path) -> None:
@@ -564,6 +584,10 @@ def test_a2_probe_writes_required_artifacts_and_passes_with_complete_points(tmp_
     assert summary["chamber_start_command_sent"] is False
     assert summary["chamber_stop_command_sent"] is False
     assert summary["real_primary_latest_refresh"] is False
+    assert summary["artifact_completeness_pass"] is True
+    assert summary["required_artifacts_missing"] == []
+    assert summary["no_write_assertion_status"] == "pass"
+    assert summary["safety_assertions_complete"] is True
 
     for path in summary["artifact_paths"].values():
         assert Path(path).exists()
@@ -574,6 +598,152 @@ def test_a2_probe_writes_required_artifacts_and_passes_with_complete_points(tmp_
     assert all(point["heartbeat_gap_observed_ms"] == 1200.0 for point in points)
     assert all(point["heartbeat_emission_gap_ms"] == 20.0 for point in points)
     assert all(point["blocking_operation_duration_ms"] == 1180.0 for point in points)
+
+
+def test_a2_interrupted_before_real_com_writes_fail_closed_guard_artifacts(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(_aligned_config_path: str | Path) -> dict[str, Any]:
+        exc = KeyboardInterrupt()
+        exc.partial_execution = {
+            "interruption_audit": {
+                "real_com_opened": False,
+                "any_device_command_sent": False,
+                "any_write_command_sent": False,
+                "device_command_audit_complete": True,
+                "safe_stop_triggered": False,
+            }
+        }
+        raise exc
+
+    output_dir = tmp_path / "a2_interrupted_pre_com"
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=output_dir,
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert summary["fail_closed_reason"] == A2_INTERRUPTED_FAIL_CLOSED_REASON
+    assert summary["interrupted_execution"] is True
+    assert summary["interruption_source"] == "KeyboardInterrupt"
+    assert summary["real_com_opened"] is False
+    assert summary["any_device_command_sent"] is False
+    assert summary["any_write_command_sent"] is False
+    assert summary["safe_stop_triggered"] is False
+    assert summary["no_write_assertion_status"] == "pass_pre_com"
+    assert summary["safety_assertions_complete"] is False
+    assert summary["a3_allowed"] is False
+    assert summary["evidence_source"] == "real_probe_a2_12r_co2_7_pressure_no_write"
+    for name in (
+        "probe_admission_record.json",
+        "operator_confirmation_record.json",
+        "summary.json",
+        "safety_assertions.json",
+        "process_exit_record.json",
+    ):
+        assert (output_dir / name).exists()
+
+
+def test_a2_interrupted_after_real_com_keeps_no_write_unknown_without_audit(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(_aligned_config_path: str | Path) -> dict[str, Any]:
+        exc = RuntimeError("downstream executor interrupted")
+        exc.partial_execution = {
+            "interruption_audit": {
+                "real_com_opened": True,
+                "any_device_command_sent": True,
+                "device_command_audit_complete": False,
+                "safe_stop_triggered": "unknown",
+            }
+        }
+        raise exc
+
+    output_dir = tmp_path / "a2_interrupted_after_com"
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=output_dir,
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+    safety = json.loads((output_dir / "safety_assertions.json").read_text(encoding="utf-8"))
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert summary["fail_closed_reason"] == A2_INTERRUPTED_FAIL_CLOSED_REASON
+    assert summary["interrupted_execution"] is True
+    assert summary["interruption_source"] == "RuntimeError"
+    assert summary["real_com_opened"] is True
+    assert summary["any_device_command_sent"] is True
+    assert summary["any_write_command_sent"] == "unknown"
+    assert summary["no_write_assertion_status"] == "unknown"
+    assert summary["must_not_claim_no_write_pass"] is True
+    assert summary["device_command_audit_complete"] is False
+    assert summary["safety_assertions_complete"] is False
+    assert safety["no_write"] is False
+    assert safety["no_write_assertion_status"] == "unknown"
+    assert safety["must_not_claim_no_write_pass"] is True
+    assert summary["a3_allowed"] is False
+
+
+def test_a2_artifact_completeness_gate_fails_for_previous_interrupted_dir_shape(tmp_path: Path) -> None:
+    output_dir = tmp_path / "previous_interrupted"
+    output_dir.mkdir()
+    (output_dir / "operator_confirmation_input.json").write_text("{}", encoding="utf-8")
+    (output_dir / "a2_3_v1_aligned_downstream_config.json").write_text("{}", encoding="utf-8")
+
+    completeness = _artifact_completeness(_expected_a2_artifact_paths(output_dir))
+
+    assert completeness["artifact_completeness_pass"] is False
+    assert completeness["artifact_completeness_fail_reason"] == "required_artifacts_missing"
+    assert "summary.json" in completeness["required_artifacts_missing"]
+    assert "safety_assertions.json" in completeness["required_artifacts_missing"]
+    assert "operator_confirmation_record.json" in completeness["required_artifacts_missing"]
+    assert "route_trace.jsonl" in completeness["required_artifacts_missing"]
+    assert "point_results.json" in completeness["required_artifacts_missing"]
+
+
+def test_a2_wrapper_recovers_partial_output_dir_with_fail_closed_summary(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    output_dir = tmp_path / "previous_interrupted_recovery"
+    output_dir.mkdir()
+    (output_dir / "operator_confirmation_input.json").write_text("{}", encoding="utf-8")
+    (output_dir / "a2_3_v1_aligned_downstream_config.json").write_text("{}", encoding="utf-8")
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=output_dir,
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=False,
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert "execute_probe_not_requested" in summary["rejection_reasons"]
+    assert summary["a3_allowed"] is False
+    assert summary["evidence_source"] == "real_probe_a2_12r_co2_7_pressure_no_write"
+    assert (output_dir / "summary.json").exists()
+    assert (output_dir / "safety_assertions.json").exists()
+    assert (output_dir / "operator_confirmation_record.json").exists()
+    assert (output_dir / "probe_admission_record.json").exists()
+    assert (output_dir / "process_exit_record.json").exists()
 
 
 def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_path: Path) -> None:
