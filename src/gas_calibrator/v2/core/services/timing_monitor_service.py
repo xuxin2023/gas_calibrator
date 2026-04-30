@@ -10,6 +10,14 @@ from typing import Any, Mapping, Optional
 WORKFLOW_TIMING_TRACE_FILENAME = "workflow_timing_trace.jsonl"
 WORKFLOW_TIMING_SUMMARY_FILENAME = "workflow_timing_summary.json"
 WORKFLOW_TIMING_SCHEMA_VERSION = "v2.workflow_timing.1"
+MAX_TIMING_EVENT_JSON_BYTES = 64 * 1024
+MAX_TIMING_TRACE_LOAD_BYTES = 128 * 1024 * 1024
+MAX_TIMING_TRACE_LINE_BYTES = 2 * 1024 * 1024
+MAX_TIMING_TRACE_EVENTS_LOADED = 50_000
+MAX_TIMING_ROUTE_STATE_DEPTH = 4
+MAX_TIMING_MAPPING_ITEMS = 64
+MAX_TIMING_LIST_ITEMS = 24
+MAX_TIMING_TEXT_CHARS = 1024
 
 TIMING_EVENT_FIELDS = (
     "event_name",
@@ -67,16 +75,102 @@ def _round_s(value: Any) -> Optional[float]:
     return round(max(0.0, float(numeric)), 3)
 
 
-def _json_safe(value: Any) -> Any:
+def _json_safe(value: Any, *, depth: int = 0) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
+        if isinstance(value, str) and len(value) > MAX_TIMING_TEXT_CHARS:
+            return {
+                "_truncated": True,
+                "_type": "str",
+                "_length": len(value),
+                "preview": value[:MAX_TIMING_TEXT_CHARS],
+            }
         return value
     if isinstance(value, Mapping):
-        return {str(key): _json_safe(item) for key, item in value.items()}
+        if depth >= MAX_TIMING_ROUTE_STATE_DEPTH:
+            return {"_truncated": True, "_type": "mapping", "_length": len(value)}
+        out: dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= MAX_TIMING_MAPPING_ITEMS:
+                out["_truncated_items"] = max(0, len(value) - MAX_TIMING_MAPPING_ITEMS)
+                break
+            out[str(key)] = _json_safe(item, depth=depth + 1)
+        return out
     if isinstance(value, (list, tuple, set)):
-        return [_json_safe(item) for item in value]
+        raw = list(value)
+        if depth >= MAX_TIMING_ROUTE_STATE_DEPTH:
+            return {"_truncated": True, "_type": type(value).__name__, "_length": len(raw)}
+        out = [_json_safe(item, depth=depth + 1) for item in raw[:MAX_TIMING_LIST_ITEMS]]
+        if len(raw) > MAX_TIMING_LIST_ITEMS:
+            out.append({"_truncated_items": len(raw) - MAX_TIMING_LIST_ITEMS})
+        return out
     if isinstance(value, Path):
         return str(value)
     return str(value)
+
+
+def _event_json_bytes(record: Mapping[str, Any]) -> int:
+    return len(json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def _compact_route_state_summary(route_state: Any, *, source_bytes: int) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "_truncated": True,
+        "_reason": "workflow_timing_event_exceeded_json_byte_limit",
+        "_event_json_bytes_before_compaction": int(source_bytes),
+        "_event_json_byte_limit": MAX_TIMING_EVENT_JSON_BYTES,
+    }
+    if not isinstance(route_state, Mapping):
+        summary["_original_type"] = type(route_state).__name__
+        return summary
+
+    for key in ("current_route", "current_phase", "point_tag", "retry"):
+        if key in route_state:
+            summary[key] = _json_safe(route_state.get(key), depth=1)
+
+    nested = route_state.get("route_state")
+    if isinstance(nested, Mapping):
+        compact_nested: dict[str, Any] = {}
+        omitted = 0
+        for key, value in nested.items():
+            if len(compact_nested) >= MAX_TIMING_MAPPING_ITEMS:
+                omitted += 1
+                continue
+            if value is None or isinstance(value, (str, int, float, bool)):
+                compact_nested[str(key)] = _json_safe(value, depth=2)
+            elif isinstance(value, Mapping):
+                compact_nested[str(key)] = {"_type": "mapping", "_length": len(value)}
+            elif isinstance(value, (list, tuple, set)):
+                compact_nested[str(key)] = {"_type": type(value).__name__, "_length": len(value)}
+            else:
+                compact_nested[str(key)] = {"_type": type(value).__name__}
+        if omitted:
+            compact_nested["_omitted_items"] = omitted
+        summary["route_state"] = compact_nested
+    return summary
+
+
+def _fit_timing_record(record: dict[str, Any]) -> dict[str, Any]:
+    encoded_bytes = _event_json_bytes(record)
+    if encoded_bytes <= MAX_TIMING_EVENT_JSON_BYTES:
+        return record
+
+    compacted = dict(record)
+    compacted["route_state"] = _compact_route_state_summary(
+        compacted.get("route_state"),
+        source_bytes=encoded_bytes,
+    )
+    compacted_bytes = _event_json_bytes(compacted)
+    if compacted_bytes <= MAX_TIMING_EVENT_JSON_BYTES:
+        return compacted
+
+    minimal = dict(compacted)
+    minimal["route_state"] = {
+        "_truncated": True,
+        "_reason": "workflow_timing_event_still_exceeded_json_byte_limit_after_compaction",
+        "_event_json_bytes_before_compaction": int(encoded_bytes),
+        "_event_json_byte_limit": MAX_TIMING_EVENT_JSON_BYTES,
+    }
+    return minimal
 
 
 def _parse_ts(value: Any) -> Optional[datetime]:
@@ -172,7 +266,7 @@ def _event_record(
         "error_code": None if error_code in ("", None) else str(error_code),
         "no_write_guard_active": None if no_write_guard_active is None else bool(no_write_guard_active),
     }
-    return {field: record.get(field) for field in TIMING_EVENT_FIELDS}
+    return _fit_timing_record({field: record.get(field) for field in TIMING_EVENT_FIELDS})
 
 
 class TimingMonitorService:
@@ -296,16 +390,65 @@ def load_workflow_timing_events(trace_path: str | Path) -> list[dict[str, Any]]:
     path = Path(trace_path)
     if not path.exists():
         return []
+    try:
+        size_bytes = path.stat().st_size
+    except OSError:
+        size_bytes = 0
+    if size_bytes > MAX_TIMING_TRACE_LOAD_BYTES:
+        return [
+            _event_record(
+                event_name="workflow_timing_trace_load_skipped",
+                event_type="warning",
+                run_start_monotonic_s=None,
+                stage="artifact_finalize",
+                warning_code="workflow_timing_trace_file_too_large",
+                error_code="workflow_timing_trace_file_too_large",
+                route_state={
+                    "path": str(path),
+                    "file_size_bytes": size_bytes,
+                    "max_load_bytes": MAX_TIMING_TRACE_LOAD_BYTES,
+                },
+            )
+        ]
     events: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            item = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(item, Mapping):
-            events.append({field: item.get(field) for field in TIMING_EVENT_FIELDS})
+    with path.open("rb") as handle:
+        for raw_line in handle:
+            if len(events) >= MAX_TIMING_TRACE_EVENTS_LOADED:
+                events.append(
+                    _event_record(
+                        event_name="workflow_timing_trace_load_truncated",
+                        event_type="warning",
+                        run_start_monotonic_s=None,
+                        stage="artifact_finalize",
+                        warning_code="workflow_timing_trace_event_load_limit_reached",
+                        route_state={"max_events_loaded": MAX_TIMING_TRACE_EVENTS_LOADED},
+                    )
+                )
+                break
+            if not raw_line.strip():
+                continue
+            if len(raw_line) > MAX_TIMING_TRACE_LINE_BYTES:
+                events.append(
+                    _event_record(
+                        event_name="workflow_timing_trace_line_skipped",
+                        event_type="warning",
+                        run_start_monotonic_s=None,
+                        stage="artifact_finalize",
+                        warning_code="workflow_timing_trace_line_too_large",
+                        error_code="workflow_timing_trace_line_too_large",
+                        route_state={
+                            "line_bytes": len(raw_line),
+                            "max_line_bytes": MAX_TIMING_TRACE_LINE_BYTES,
+                        },
+                    )
+                )
+                continue
+            try:
+                item = json.loads(raw_line.decode("utf-8"))
+            except Exception:
+                continue
+            if isinstance(item, Mapping):
+                events.append({field: item.get(field) for field in TIMING_EVENT_FIELDS})
     return events
 
 
@@ -347,7 +490,7 @@ def ensure_workflow_timing_artifacts(
     directory = Path(run_dir)
     directory.mkdir(parents=True, exist_ok=True)
     trace_path = directory / WORKFLOW_TIMING_TRACE_FILENAME
-    if not trace_path.exists() or not trace_path.read_text(encoding="utf-8").strip():
+    if not trace_path.exists() or trace_path.stat().st_size == 0:
         events = synthesize_timing_events_from_route_trace(directory, payload, retrospective=retrospective)
         trace_path.write_text(
             "".join(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n" for event in events),

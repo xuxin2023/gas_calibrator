@@ -1276,14 +1276,44 @@ def _load_jsonl(path: str | Path | None) -> list[dict[str, Any]]:
     target = Path(path)
     if not target.exists():
         return []
+    try:
+        size_bytes = target.stat().st_size
+    except OSError:
+        size_bytes = 0
+    max_inline_bytes = 128 * 1024 * 1024
+    if size_bytes > max_inline_bytes:
+        return [
+            {
+                "event": "jsonl_inline_load_skipped",
+                "path": str(target),
+                "file_size_bytes": size_bytes,
+                "max_inline_bytes": max_inline_bytes,
+                "reason": "jsonl_file_too_large_for_inline_a2_wrapper_load",
+            }
+        ]
     rows: list[dict[str, Any]] = []
-    for line in target.read_text(encoding="utf-8").splitlines():
-        try:
-            payload = json.loads(line)
-        except Exception:
-            continue
-        if isinstance(payload, Mapping):
-            rows.append(dict(payload))
+    max_line_bytes = 2 * 1024 * 1024
+    with target.open("rb") as handle:
+        for raw_line in handle:
+            if not raw_line.strip():
+                continue
+            if len(raw_line) > max_line_bytes:
+                rows.append(
+                    {
+                        "event": "jsonl_line_skipped",
+                        "path": str(target),
+                        "line_bytes": len(raw_line),
+                        "max_line_bytes": max_line_bytes,
+                        "reason": "jsonl_line_too_large_for_inline_a2_wrapper_load",
+                    }
+                )
+                continue
+            try:
+                payload = json.loads(raw_line.decode("utf-8"))
+            except Exception:
+                continue
+            if isinstance(payload, Mapping):
+                rows.append(dict(payload))
     return rows
 
 

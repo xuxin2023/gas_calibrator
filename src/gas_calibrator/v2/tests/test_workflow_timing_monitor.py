@@ -4,9 +4,11 @@ import json
 
 from gas_calibrator.v2.core.services import timing_monitor_service as timing_module
 from gas_calibrator.v2.core.services.timing_monitor_service import (
+    MAX_TIMING_EVENT_JSON_BYTES,
     TIMING_EVENT_FIELDS,
     TimingMonitorService,
     ensure_workflow_timing_artifacts,
+    load_workflow_timing_events,
 )
 
 
@@ -40,6 +42,42 @@ def test_timing_trace_records_start_end_tick_fail_abort_and_no_write(monkeypatch
     assert set(TIMING_EVENT_FIELDS).issubset(events[0].keys())
     assert all(event["no_write_guard_active"] is True for event in events)
     assert summary["stage_durations"]["preflight"] == 2.0
+
+
+def test_timing_trace_compacts_large_route_state_before_writing(tmp_path) -> None:
+    monitor = TimingMonitorService(tmp_path, run_id="run-large-route-state", no_write_guard_active=True)
+    large_route_state = {
+        "current_route": "co2",
+        "current_phase": "co2_route",
+        "route_state": {f"large_key_{index}": "x" * 4096 for index in range(100)},
+    }
+
+    record = monitor.record_event(
+        "preseal_soak_tick",
+        "tick",
+        stage="preseal_soak",
+        point_index=1,
+        route_state=large_route_state,
+    )
+
+    trace_path = tmp_path / "workflow_timing_trace.jsonl"
+    raw_line = trace_path.read_bytes().strip()
+    event = json.loads(raw_line.decode("utf-8"))
+    assert len(raw_line) <= MAX_TIMING_EVENT_JSON_BYTES
+    assert record["route_state"]["_truncated"] is True
+    assert event["route_state"]["_truncated"] is True
+    assert event["route_state"]["current_route"] == "co2"
+
+
+def test_load_workflow_timing_events_skips_oversized_trace_file(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(timing_module, "MAX_TIMING_TRACE_LOAD_BYTES", 16)
+    trace_path = tmp_path / "workflow_timing_trace.jsonl"
+    trace_path.write_text(json.dumps({"event_name": "run_start", "event_type": "start"}) + "\n", encoding="utf-8")
+
+    events = load_workflow_timing_events(trace_path)
+
+    assert events[0]["event_name"] == "workflow_timing_trace_load_skipped"
+    assert events[0]["warning_code"] == "workflow_timing_trace_file_too_large"
 
 
 def test_timing_summary_warns_on_missing_end_and_long_wait(monkeypatch, tmp_path) -> None:
