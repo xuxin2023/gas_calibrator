@@ -410,6 +410,13 @@ def test_query_only_execute_fails_closed_on_unavailable_query(tmp_path: Path) ->
     assert summary["valve_command_sent"] is False
     assert summary["pressure_setpoint_command_sent"] is False
     assert summary["sample_count"] == 0
+    assert summary["command_profile_mismatch"] is True
+    assert summary["command_profile_mismatch_reason"] != "no_response"
+    assert "pressure_controller.identity_query.command=*IDN?" in summary["command_profile_mismatch_reason"]
+    assert "pressure_controller.v1_aligned_readonly_ping.command=:OUTP:STAT?" in summary["command_profile_mismatch_reason"]
+    assert "pressure_meter.p3.command=" in summary["command_profile_mismatch_reason"]
+    assert ".dest_id=01" in summary["command_profile_mismatch_reason"]
+    assert ".raw_response_empty" in summary["command_profile_mismatch_reason"]
 
 
 def test_full_r0_pressure_gauge_uses_paroscientific_p3_before_unavailable(tmp_path: Path) -> None:
@@ -455,6 +462,8 @@ def test_full_r0_pressure_controller_idn_no_response_uses_v1_aligned_ping(tmp_pa
             self._last_write = payload
             if b":OUTP:STAT?" in payload:
                 self._line_queue.append(b"0\n")
+            elif b":SENS:PRES?" in payload:
+                self._line_queue.append(b":SENS:PRES 1014.25\n")
             elif b":SOUR:PRES:LEV:IMM:AMPL:VENT?" in payload:
                 self._line_queue.append(b"0\n")
             elif b":SYST:ERR?" in payload:
@@ -486,10 +495,13 @@ def test_full_r0_pressure_controller_idn_no_response_uses_v1_aligned_ping(tmp_pa
     results = json.loads(Path(summary["artifact_paths"]["query_results"]).read_text(encoding="utf-8"))
     identity = next(item for item in results if item.get("command") == "*IDN?")
     status = next(item for item in results if item.get("command") == ":OUTP:STAT?")
+    pressure = next(item for item in results if item.get("command") == ":SENS:PRES?")
     assert identity["result"] == "unsupported_identity_query"
     assert identity["offline_decision_blocked_by_identity_query_only"] is True
     assert status["result"] == "available"
     assert status["pressure_controller_query_role"] == "v1_aligned_readonly_ping"
+    assert pressure["result"] == "available"
+    assert pressure["pressure_controller_query_role"] == "v1_aligned_readonly_ping"
     assert all(b"OUTP:STAT 0" not in payload for payload in handle.writes)
 
 

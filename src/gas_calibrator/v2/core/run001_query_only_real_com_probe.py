@@ -425,6 +425,7 @@ def _safe_read_commands(device: Mapping[str, Any], raw_cfg: Mapping[str, Any]) -
             [
                 "*IDN?",
                 ":OUTP:STAT?",
+                ":SENS:PRES?",
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT?",
                 ":SYST:ERR?",
             ]
@@ -466,6 +467,72 @@ def _trace_row(device: Mapping[str, Any], *, action: str, result: str, details: 
         "result": result,
         "details": dict(details or {}),
     }
+
+
+def _bytes_hex(raw: bytes) -> str:
+    return raw.hex().upper() if raw else ""
+
+
+def _pressure_gauge_command_preview(raw_cfg: Mapping[str, Any]) -> str:
+    device = next((row for row in _device_entries(raw_cfg) if row.get("device_name") == "pressure_gauge"), {})
+    dest_id = str(device.get("dest_id") or "01")
+    return f"*{dest_id}00P3\\r\\n"
+
+
+def _query_failure_field_reasons(
+    query_failures: list[dict[str, Any]],
+    raw_cfg: Mapping[str, Any],
+) -> list[str]:
+    reasons: list[str] = []
+    for row in query_failures:
+        device_type = str(row.get("device_type") or "")
+        device_name = str(row.get("device_name") or device_type or "unknown")
+        command = str(row.get("command") or "")
+        result = str(row.get("result") or "")
+        raw_response = str(row.get("raw_response") or "")
+        if device_type == "pressure_controller":
+            role = str(row.get("pressure_controller_query_role") or "readonly_query")
+            terminator = str(row.get("pressure_controller_command_terminator") or "LF")
+            reason = (
+                f"{device_name}.{role}.command={command or '<missing>'}"
+                f".terminator={terminator}.result={result or '<missing>'}"
+            )
+            if not raw_response:
+                reason += ".raw_response_empty"
+            if row.get("offline_decision_blocked_by_identity_query_only"):
+                reason += ".identity_query_not_offline_by_itself"
+            reasons.append(reason)
+            continue
+        if device_type == "pressure_gauge":
+            command_preview = str(row.get("p3_command_preview") or _pressure_gauge_command_preview(raw_cfg))
+            dest_id = str(row.get("dest_id") or "01")
+            timeout_s = row.get("response_timeout_s", row.get("timeout_s", row.get("timeout")))
+            parse_status = str(row.get("parse_status") or row.get("parser_status") or "")
+            error = str(row.get("paroscientific_p3_error") or row.get("error") or "")
+            reason = (
+                f"pressure_meter.p3.command={command_preview!r}"
+                f".dest_id={dest_id}.timeout_s={timeout_s}"
+                f".result={result or '<missing>'}"
+            )
+            if parse_status:
+                reason += f".parse_status={parse_status}"
+            if error:
+                reason += f".error={error}"
+            if not raw_response and not row.get("raw_ascii_preview"):
+                reason += ".raw_response_empty"
+            reasons.append(reason)
+            continue
+        if device_type == "actuator_only" or device_name in {"relay", "relay_8"}:
+            reasons.append(
+                f"{device_name}.relay_open_close_only.result={result or '<missing>'}"
+                ".relay_output_command_sent=false"
+            )
+            continue
+        reasons.append(
+            f"{device_name}.command={command or '<missing>'}.result={result or '<missing>'}"
+            + (".raw_response_empty" if not raw_response else "")
+        )
+    return reasons
 
 
 def _default_output_dir(config_path: str | Path) -> Path:
@@ -543,6 +610,7 @@ def _execute_device_query(
                 continue
             command_text = str(command.get("command") or "")
             raw_response = b""
+            raw_request = b""
             if command_text == "<read_frame>":
                 raw_response = handle.readline()
             elif command_text == "<open_close_only>":
@@ -557,7 +625,8 @@ def _execute_device_query(
                 )
                 continue
             else:
-                handle.write((command_text + "\n").encode("ascii"))
+                raw_request = (command_text + "\n").encode("ascii")
+                handle.write(raw_request)
                 raw_response = handle.readline()
             result_text = "available" if raw_response else "unavailable"
             extra: dict[str, Any] = {}
@@ -582,6 +651,8 @@ def _execute_device_query(
                     **extra,
                     "result": result_text,
                     "raw_response": raw_response.decode("utf-8", errors="replace") if raw_response else "",
+                    "raw_request_hex": _bytes_hex(raw_request),
+                    "raw_response_hex": _bytes_hex(raw_response),
                 }
             )
     except (PermissionError, OSError) as exc:
@@ -710,6 +781,17 @@ def write_query_only_real_com_probe_artifacts(
         ),
         {},
     )
+    if not pressure_controller_ping_result:
+        pressure_controller_ping_result = next(
+            (
+                row
+                for row in query_results
+                if row.get("device_type") == "pressure_controller"
+                and row.get("pressure_controller_query_role") == "v1_aligned_readonly_ping"
+            ),
+            {},
+        )
+    command_profile_mismatch_reasons = _query_failure_field_reasons(query_failures, raw_cfg)
     opened_ports = sorted(
         {
             str(row.get("port") or "")
@@ -749,9 +831,13 @@ def write_query_only_real_com_probe_artifacts(
         "occupied_ports": occupied_ports,
         "query_failure_seen": bool(query_failures),
         "query_failures": query_failures,
+        "command_profile_mismatch": bool(command_profile_mismatch_reasons),
+        "command_profile_mismatch_reason": ";".join(command_profile_mismatch_reasons),
+        "command_profile_mismatch_reasons": command_profile_mismatch_reasons,
         "pressure_controller_identity_query_command": pressure_controller_identity_result.get("command"),
         "pressure_controller_identity_query_result": pressure_controller_identity_result.get("result"),
         "pressure_controller_identity_query_raw_response": pressure_controller_identity_result.get("raw_response"),
+        "pressure_controller_identity_query_raw_response_hex": pressure_controller_identity_result.get("raw_response_hex", ""),
         "pressure_controller_identity_query_error": (
             "unsupported_identity_query"
             if pressure_controller_identity_result.get("result") == "unsupported_identity_query"
@@ -759,9 +845,11 @@ def write_query_only_real_com_probe_artifacts(
         ),
         "pressure_controller_v1_aligned_ping_command": pressure_controller_ping_result.get("command"),
         "pressure_controller_v1_aligned_ping_result": pressure_controller_ping_result.get("result"),
+        "pressure_controller_v1_aligned_ping_raw_response": pressure_controller_ping_result.get("raw_response", ""),
+        "pressure_controller_v1_aligned_ping_raw_response_hex": pressure_controller_ping_result.get("raw_response_hex", ""),
         "pressure_controller_offline_decision_source": (
             "v1_aligned_readonly_ping"
-            if pressure_controller_ping_result
+            if pressure_controller_ping_result.get("result") == "available"
             else "no_v1_aligned_readonly_ping_response"
         ),
         "pressure_gauge_protocol_profile": pressure_result.get("pressure_gauge_protocol_profile"),
@@ -769,6 +857,19 @@ def write_query_only_real_com_probe_artifacts(
         "pressure_gauge_unavailable": bool(pressure_result.get("pressure_gauge_unavailable")),
         "pressure_gauge_blocks_r1": bool(pressure_result.get("pressure_gauge_blocks_r1")),
         "parsed_pressure_hpa": pressure_result.get("parsed_pressure_hpa"),
+        "pressure_meter_dest_id": pressure_result.get("dest_id"),
+        "pressure_meter_first_read_attempted": pressure_result.get("paroscientific_p3_read_attempted"),
+        "pressure_meter_first_read_result": (
+            "PASS" if pressure_result.get("paroscientific_p3_read_succeeded") else (
+                str(pressure_result.get("paroscientific_p3_error") or "NO_RESPONSE")
+                if pressure_result
+                else None
+            )
+        ),
+        "pressure_meter_raw_response": pressure_result.get("raw_ascii_preview", ""),
+        "pressure_meter_raw_response_hex": pressure_result.get("raw_hex_preview", ""),
+        "pressure_meter_parse_ok": pressure_result.get("parse_status") == "parse_ok",
+        "pressure_meter_read_timeout_s": pressure_result.get("response_timeout_s"),
         "temperature_chamber_protocol_status": chamber_result.get("protocol_status"),
         "temperature_chamber_readonly_driver_probe_status": chamber_result.get("chamber_readonly_driver_probe_status"),
         "temperature_chamber_unavailable": bool(chamber_result.get("temperature_chamber_unavailable")),
