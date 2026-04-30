@@ -13,7 +13,7 @@ from ..config import AppConfig
 from ..export import export_ratio_poly_report
 from ..exceptions import StabilityTimeoutError, WorkflowInterruptedError, WorkflowValidationError
 from ..qc import QCPipeline
-from ..utils import as_float, safe_get
+from ..utils import as_bool, as_float, safe_get
 from ...validation.dewpoint_flush_gate import evaluate_dewpoint_flush_gate
 from .device_factory import DeviceType
 from .device_manager import DeviceManager, DeviceStatus
@@ -118,6 +118,11 @@ class WorkflowOrchestrator:
         )
         self._startup_pressure_precheck_result: Optional[StartupPressurePrecheckResult] = None
         self._last_co2_route_dewpoint_gate_summary: Dict[str, Any] = {}
+        self._device_init_policy_evidence: dict[str, Any] = self._classify_device_failures(
+            [],
+            all_devices=[],
+            stage="initialization",
+        )
 
     def set_log_callback(self, callback: Optional[Callable[[str], None]]) -> None:
         self._log_callback = callback
@@ -295,17 +300,18 @@ class WorkflowOrchestrator:
             self._log(info_message)
         failed = [name for name, ok in results.items() if not ok and name not in expected_disabled]
         if failed:
-            critical = [name for name in failed if self._is_critical_device(name)]
-            self.event_bus.publish(EventType.DEVICE_ERROR, {"failed_devices": failed})
-            if critical:
-                raise WorkflowValidationError(
-                    "Critical device initialization failed",
-                    details={"failed_devices": critical},
-                )
-            warning = f"Device open warnings: {', '.join(failed)}"
-            self.session.add_warning(warning)
-            self.event_bus.publish(EventType.WARNING_RAISED, {"message": warning, "devices": failed})
-            self._log(warning)
+            self._handle_device_failures(
+                failed,
+                all_devices=results.keys(),
+                error_message="Critical device initialization failed",
+                warning_prefix="Device open warnings",
+                stage="initialization",
+            )
+        else:
+            self._record_device_failure_policy(
+                self._classify_device_failures([], all_devices=results.keys(), stage="initialization"),
+                stage="initialization",
+            )
         self._update_status(
             phase=CalibrationPhase.INITIALIZING,
             message="Applying analyzer setup",
@@ -347,17 +353,13 @@ class WorkflowOrchestrator:
                 self._log(f"Devices skipped by profile: {', '.join(sorted(expected_disabled))}")
             failing = [name for name, ok in health.items() if not ok and name not in expected_disabled]
             if failing:
-                critical = [name for name in failing if self._is_critical_device(name)]
-                self.event_bus.publish(EventType.DEVICE_ERROR, {"failed_devices": failing})
-                if critical:
-                    raise WorkflowValidationError(
-                        "Device precheck failed",
-                        details={"failed_devices": critical},
-                    )
-                warning = f"Device precheck warnings: {', '.join(failing)}"
-                self.session.add_warning(warning)
-                self.event_bus.publish(EventType.WARNING_RAISED, {"message": warning, "devices": failing})
-                self._log(warning)
+                self._handle_device_failures(
+                    failing,
+                    all_devices=health.keys(),
+                    error_message="Device precheck failed",
+                    warning_prefix="Device precheck warnings",
+                    stage="precheck",
+                )
 
         if precheck.pressure_leak_test:
             self._run_pressure_leak_test()
@@ -434,8 +436,309 @@ class WorkflowOrchestrator:
             return
         self.device_manager.create_device(name, device_type, config)
 
+    def _handle_device_failures(
+        self,
+        failed_devices: Iterable[str],
+        *,
+        all_devices: Iterable[str],
+        error_message: str,
+        warning_prefix: str,
+        stage: str,
+    ) -> dict[str, Any]:
+        failed = sorted({str(name) for name in failed_devices if str(name or "").strip()})
+        policy = self._classify_device_failures(failed, all_devices=all_devices, stage=stage)
+        self._record_device_failure_policy(policy, stage=stage)
+        if not failed:
+            return policy
+
+        critical = list(policy.get("critical_devices_failed") or [])
+        optional_failed = list(policy.get("optional_context_devices_failed") or [])
+        self.event_bus.publish(
+            EventType.DEVICE_ERROR,
+            {
+                "failed_devices": failed,
+                "critical_devices_failed": critical,
+                "optional_context_devices_failed": optional_failed,
+                "device_policy_stage": stage,
+            },
+        )
+        if critical:
+            raise WorkflowValidationError(
+                error_message,
+                details={
+                    "failed_devices": critical,
+                    "critical_devices_failed": critical,
+                    "optional_context_devices_failed": optional_failed,
+                    "critical_device_init_failure_blocks_probe": True,
+                },
+            )
+
+        if optional_failed and set(optional_failed) == set(failed):
+            warning = f"Optional context devices unavailable during {stage}: {', '.join(optional_failed)}"
+        elif optional_failed:
+            warning = f"{warning_prefix}: {', '.join(failed)}; optional_context_devices_failed={optional_failed}"
+        else:
+            warning = f"{warning_prefix}: {', '.join(failed)}"
+        self.session.add_warning(warning)
+        self.event_bus.publish(
+            EventType.WARNING_RAISED,
+            {
+                "message": warning,
+                "devices": failed,
+                "optional_context_devices_failed": optional_failed,
+                "device_policy_stage": stage,
+            },
+        )
+        self._log(warning)
+        return policy
+
+    def _classify_device_failures(
+        self,
+        failed_devices: Iterable[str],
+        *,
+        all_devices: Iterable[str] | None = None,
+        stage: str = "initialization",
+    ) -> dict[str, Any]:
+        failed = sorted({str(name) for name in failed_devices if str(name or "").strip()})
+        known = sorted({str(name) for name in (all_devices or []) if str(name or "").strip()} | set(failed))
+        gas_devices = sorted({name for name in known if name.startswith("gas_analyzer_")})
+        a2_probe = self._a2_pressure_sweep_mode()
+        skip_temp_probe = self._a2_skip_temp_wait_engineering_probe_mode()
+
+        route_pressure_devices = ["pressure_controller", "pressure_meter", "relay_a", "relay_b"]
+        if a2_probe:
+            critical_required = list(route_pressure_devices)
+            critical_required.extend(gas_devices)
+            optional_context_devices = ["temperature_chamber"] if skip_temp_probe else []
+            if not skip_temp_probe:
+                critical_required.append("temperature_chamber")
+        else:
+            critical_required = ["temperature_chamber", *gas_devices]
+            optional_context_devices = []
+        critical_required = sorted(dict.fromkeys(critical_required))
+        optional_context_devices = sorted(dict.fromkeys(optional_context_devices))
+
+        critical_failed = [name for name in failed if name in critical_required or name.startswith("gas_analyzer_")]
+        optional_failed = [name for name in failed if name in optional_context_devices and name not in critical_failed]
+        temp_attempted = "temperature_chamber" in known or "temperature_chamber" in failed
+        temp_failed_at_stage = "temperature_chamber" in failed
+        temp_init_failed = bool(stage == "initialization" and temp_failed_at_stage)
+        temp_blocks_a2 = bool("temperature_chamber" in critical_failed and a2_probe)
+        temp_required_for_a2 = bool(a2_probe and "temperature_chamber" in critical_required)
+        temp_context_available: Optional[bool]
+        if temp_failed_at_stage and "temperature_chamber" in optional_context_devices:
+            temp_context_available = False
+        elif temp_attempted and "temperature_chamber" in optional_context_devices:
+            temp_context_available = True
+        elif temp_attempted and a2_probe and "temperature_chamber" in critical_required:
+            temp_context_available = not temp_failed_at_stage
+        else:
+            temp_context_available = None
+
+        unavailable_reason = ""
+        if temp_failed_at_stage and "temperature_chamber" in optional_context_devices:
+            unavailable_reason = (
+                "temperature_chamber_init_failed"
+                if stage == "initialization"
+                else "temperature_chamber_precheck_failed"
+            )
+        readonly_probe_result = "not_applicable"
+        if skip_temp_probe:
+            if temp_context_available is False:
+                readonly_probe_result = "unavailable"
+            elif temp_context_available is True:
+                readonly_probe_result = "available_pending_current_pv_read"
+
+        return {
+            "temperature_chamber_required_for_a2": temp_required_for_a2,
+            "temperature_chamber_init_attempted": bool(temp_attempted if stage == "initialization" else temp_attempted),
+            "temperature_chamber_init_ok": bool(temp_attempted and not temp_init_failed) if stage == "initialization" else None,
+            "temperature_chamber_init_failed": temp_init_failed,
+            "temperature_chamber_init_failure_blocks_a2": temp_blocks_a2,
+            "temperature_chamber_optional_in_skip_temp_wait": bool(skip_temp_probe),
+            "temperature_context_available": temp_context_available,
+            "temperature_context_source": (
+                "temperature_chamber_readonly_current_pv"
+                if temp_context_available is True and skip_temp_probe
+                else ("unavailable" if temp_context_available is False else "")
+            ),
+            "temperature_context_unavailable_reason": unavailable_reason,
+            "temperature_chamber_readonly_probe_attempted": bool(skip_temp_probe and temp_attempted),
+            "temperature_chamber_readonly_probe_result": readonly_probe_result,
+            "temperature_not_part_of_acceptance": self._cfg_bool_any(
+                (
+                    "a2_co2_7_pressure_no_write_probe.temperature_not_part_of_acceptance",
+                    "workflow.stability.temperature.temperature_not_part_of_acceptance",
+                ),
+                default=False,
+            ),
+            "temperature_stabilization_wait_skipped": self._a2_temperature_wait_skipped(),
+            "temperature_gate_mode": self._temperature_gate_mode(),
+            "critical_devices_required": critical_required,
+            "critical_devices_failed": critical_failed,
+            "optional_context_devices": optional_context_devices,
+            "optional_context_devices_failed": optional_failed,
+            "critical_device_init_failure_blocks_probe": bool(critical_failed),
+            "optional_context_failure_blocks_probe": False,
+        }
+
+    def _record_device_failure_policy(self, policy: Mapping[str, Any], *, stage: str) -> None:
+        current = dict(getattr(self, "_device_init_policy_evidence", {}) or {})
+        if stage != "initialization" and current:
+            preserved = {
+                key: current.get(key)
+                for key in (
+                    "temperature_chamber_init_attempted",
+                    "temperature_chamber_init_ok",
+                    "temperature_chamber_init_failed",
+                )
+                if key in current
+            }
+            current.update(dict(policy))
+            current.update({key: value for key, value in preserved.items() if value is not None})
+        else:
+            current.update(dict(policy))
+        self._device_init_policy_evidence = current
+        self._record_workflow_timing(
+            "device_init_policy",
+            "warning"
+            if current.get("critical_devices_failed") or current.get("optional_context_devices_failed")
+            else "info",
+            stage=f"device_{stage}",
+            decision="blocked"
+            if current.get("critical_devices_failed")
+            else (
+                "optional_context_unavailable"
+                if current.get("optional_context_devices_failed")
+                else "ok"
+            ),
+            route_state=current,
+        )
+
+    def _device_init_policy_summary(self) -> dict[str, Any]:
+        current = dict(getattr(self, "_device_init_policy_evidence", {}) or {})
+        if not current:
+            current = self._classify_device_failures(
+                [],
+                all_devices=self._known_device_names(),
+                stage="initialization",
+            )
+        return dict(current)
+
+    def _known_device_names(self) -> list[str]:
+        manager = getattr(self, "device_manager", None)
+        lister = getattr(manager, "list_device_info", None)
+        if callable(lister):
+            try:
+                return sorted(str(name) for name in dict(lister()).keys())
+            except Exception:
+                return []
+        return []
+
     def _is_critical_device(self, name: str) -> bool:
-        return name == "temperature_chamber" or name.startswith("gas_analyzer_")
+        policy = self._classify_device_failures([name], all_devices=[name], stage="classification")
+        return str(name or "") in set(policy.get("critical_devices_failed") or [])
+
+    def _a2_pressure_sweep_mode(self) -> bool:
+        run001_scope = str(self._cfg_get("run001_a2.scope", "") or "").strip()
+        probe_scope = str(self._cfg_get("a2_co2_7_pressure_no_write_probe.scope", "") or "").strip()
+        return bool(
+            run001_scope == "run001_a2_co2_no_write_pressure_sweep"
+            or probe_scope == "a2_co2_7_pressure_no_write"
+            or (
+                self._cfg_bool_any(("run001_a2.no_write",), default=False)
+                and self._cfg_bool_any(("run001_a2.co2_only",), default=False)
+            )
+        )
+
+    def _a2_skip_temp_wait_engineering_probe_mode(self) -> bool:
+        if not self._a2_pressure_sweep_mode():
+            return False
+        route_mode = str(self._cfg_get("workflow.route_mode", "") or "").strip().lower()
+        co2_only = bool(
+            route_mode == "co2_only"
+            or self._cfg_bool_any(
+                (
+                    "a2_co2_7_pressure_no_write_probe.co2_only",
+                    "run001_a2.co2_only",
+                ),
+                default=False,
+            )
+        )
+        selected_temps = self._cfg_get("workflow.selected_temps_c", [])
+        single_temp = self._cfg_bool_any(
+            (
+                "a2_co2_7_pressure_no_write_probe.single_temperature",
+                "run001_a2.single_temperature_group",
+            ),
+            default=False,
+        )
+        if isinstance(selected_temps, list) and len(selected_temps) <= 1:
+            single_temp = True
+        skip_wait = self._a2_temperature_wait_skipped()
+        current_pv_mode = self._temperature_gate_mode() == "current_pv_engineering_probe"
+        not_acceptance = self._cfg_bool_any(
+            (
+                "a2_co2_7_pressure_no_write_probe.temperature_not_part_of_acceptance",
+                "workflow.stability.temperature.temperature_not_part_of_acceptance",
+            ),
+            default=False,
+        )
+        no_chamber_writes = not any(
+            self._cfg_bool_any((path,), default=False)
+            for path in (
+                "a2_co2_7_pressure_no_write_probe.chamber_set_temperature_enabled",
+                "a2_co2_7_pressure_no_write_probe.chamber_start_enabled",
+                "a2_co2_7_pressure_no_write_probe.chamber_stop_enabled",
+                "run001_a2.chamber_set_temperature_enabled",
+                "run001_a2.chamber_start_enabled",
+                "run001_a2.chamber_stop_enabled",
+            )
+        )
+        multi_temperature = self._cfg_bool_any(
+            (
+                "a2_co2_7_pressure_no_write_probe.multi_temperature_enabled",
+                "run001_a2.multi_temperature_enabled",
+            ),
+            default=False,
+        )
+        return bool(
+            co2_only
+            and single_temp
+            and skip_wait
+            and current_pv_mode
+            and not_acceptance
+            and no_chamber_writes
+            and not multi_temperature
+        )
+
+    def _a2_temperature_wait_skipped(self) -> bool:
+        return bool(
+            self._cfg_bool_any(
+                (
+                    "a2_co2_7_pressure_no_write_probe.temperature_stabilization_wait_skipped",
+                    "workflow.stability.temperature.skip_temperature_stabilization_wait",
+                    "workflow.stability.temperature.temperature_stabilization_wait_skipped",
+                ),
+                default=False,
+            )
+            or self._temperature_gate_mode() == "current_pv_engineering_probe"
+        )
+
+    def _temperature_gate_mode(self) -> str:
+        return str(
+            self._cfg_get("a2_co2_7_pressure_no_write_probe.temperature_gate_mode", "")
+            or self._cfg_get("workflow.stability.temperature.temperature_gate_mode", "")
+            or self._cfg_get("workflow.stability.temperature.gate_mode", "")
+            or ""
+        ).strip()
+
+    def _cfg_bool_any(self, paths: Iterable[str], *, default: bool = False) -> bool:
+        for path in paths:
+            value = self._cfg_get(path, None)
+            if value is not None:
+                return as_bool(value, default=default)
+        return default
 
     def _set_pressure_target(self, pressure_hpa: Optional[float]) -> None:
         if pressure_hpa is None:

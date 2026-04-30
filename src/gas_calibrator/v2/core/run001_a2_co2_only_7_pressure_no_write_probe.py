@@ -1747,6 +1747,18 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         rejection_reasons.append("downstream_point_executed_after_fail_closed_point")
 
     service_summary = dict(execution.get("service_summary") or {}) if isinstance(execution, Mapping) else {}
+
+    def service_summary_value(*keys: str) -> Any:
+        stats = service_summary.get("stats")
+        for key in keys:
+            if key in service_summary:
+                return service_summary.get(key)
+        if isinstance(stats, Mapping):
+            for key in keys:
+                if key in stats:
+                    return stats.get(key)
+        return None
+
     execution_audit: dict[str, Any] = {}
     if isinstance(execution, Mapping):
         for audit_key in ("interruption_audit", "command_audit", "safety_audit"):
@@ -1767,9 +1779,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         for key in keys:
             if key in execution_audit:
                 return execution_audit.get(key)
-            if key in service_summary:
-                return service_summary.get(key)
-        return None
+        return service_summary_value(*keys)
 
     real_com_opened_value: Any = audit_value("real_com_opened")
     parsed_real_com_opened = _as_bool(real_com_opened_value)
@@ -1829,30 +1839,30 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "seal_command_sent": any(str(row.get("action") or "") in {"seal_route", "seal_transition"} for row in route_rows),
         "seal_command_scope": "authorized_a2_pressure_control_scope",
         "chamber_stop_command_sent": _as_bool(
-            service_summary.get("chamber_stop_command_sent")
-            or service_summary.get("final_safe_stop_chamber_stop_command_sent")
+            service_summary_value("chamber_stop_command_sent")
+            or service_summary_value("final_safe_stop_chamber_stop_command_sent")
         )
         is True,
-        "final_safe_stop_warning_count": int(service_summary.get("final_safe_stop_warning_count") or 0),
-        "final_safe_stop_warnings": list(service_summary.get("final_safe_stop_warnings") or []),
-        "final_safe_stop_chamber_stop_warning": service_summary.get(
+        "final_safe_stop_warning_count": int(service_summary_value("final_safe_stop_warning_count") or 0),
+        "final_safe_stop_warnings": list(service_summary_value("final_safe_stop_warnings") or []),
+        "final_safe_stop_chamber_stop_warning": service_summary_value(
             "final_safe_stop_chamber_stop_warning",
-            "",
-        ),
+        )
+        or "",
         "final_safe_stop_chamber_stop_attempted": _as_bool(
-            service_summary.get("final_safe_stop_chamber_stop_attempted")
+            service_summary_value("final_safe_stop_chamber_stop_attempted")
         )
         is True,
         "final_safe_stop_chamber_stop_command_sent": _as_bool(
-            service_summary.get("final_safe_stop_chamber_stop_command_sent")
+            service_summary_value("final_safe_stop_chamber_stop_command_sent")
         )
         is True,
-        "final_safe_stop_chamber_stop_result": service_summary.get(
+        "final_safe_stop_chamber_stop_result": service_summary_value(
             "final_safe_stop_chamber_stop_result",
-            "not_observed",
-        ),
+        )
+        or "not_observed",
         "final_safe_stop_chamber_stop_blocked_by_no_write": _as_bool(
-            service_summary.get("final_safe_stop_chamber_stop_blocked_by_no_write")
+            service_summary_value("final_safe_stop_chamber_stop_blocked_by_no_write")
         )
         is True,
         "high_pressure_1100_hpa_prearm_recorded": any(
@@ -1933,8 +1943,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         if value is not None:
             return value
         for key in keys:
-            if key in service_summary:
-                return service_summary.get(key)
+            value = service_summary_value(key)
+            if value is not None:
+                return value
         return None
 
     raw_config_pressure_source_strategy = _a2_3_pressure_source_strategy(raw_cfg)
@@ -1955,8 +1966,8 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         else ""
     )
     service_summary_pressure_source_strategy = str(
-        service_summary.get("a2_conditioning_pressure_source_strategy")
-        or service_summary.get("a2_conditioning_pressure_source")
+        service_summary_value("a2_conditioning_pressure_source_strategy")
+        or service_summary_value("a2_conditioning_pressure_source")
         or ""
     ).strip().lower()
     if runtime_pressure_source_strategy_observed:
@@ -2329,6 +2340,87 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         )
         is True
     )
+
+    def summary_bool(*keys: str, default: Optional[bool] = None) -> Optional[bool]:
+        parsed = _as_bool(metric_or_summary(*keys))
+        return default if parsed is None else parsed
+
+    def summary_list(key: str) -> list[Any]:
+        value = metric_or_summary(key)
+        if isinstance(value, list):
+            return list(value)
+        if value in (None, ""):
+            return []
+        return [value]
+
+    temperature_chamber_optional_in_skip_temp_wait = bool(
+        summary_bool(
+            "temperature_chamber_optional_in_skip_temp_wait",
+            default=bool(
+                a2_4_temperature_skip_requested
+                and temperature_stabilization_wait_skipped
+                and temperature_gate_mode == "current_pv_engineering_probe"
+                and temperature_not_part_of_acceptance
+            ),
+        )
+    )
+    temperature_chamber_required_for_a2 = bool(
+        summary_bool(
+            "temperature_chamber_required_for_a2",
+            default=not temperature_chamber_optional_in_skip_temp_wait,
+        )
+    )
+    temperature_chamber_init_attempted = summary_bool("temperature_chamber_init_attempted", default=None)
+    temperature_chamber_init_ok = summary_bool("temperature_chamber_init_ok", default=None)
+    temperature_chamber_init_failed = bool(summary_bool("temperature_chamber_init_failed", default=False))
+    temperature_chamber_init_failure_blocks_a2 = bool(
+        summary_bool(
+            "temperature_chamber_init_failure_blocks_a2",
+            default=bool(temperature_chamber_init_failed and temperature_chamber_required_for_a2),
+        )
+    )
+    temperature_context_available = summary_bool(
+        "temperature_context_available",
+        default=False if temperature_chamber_init_failed and temperature_chamber_optional_in_skip_temp_wait else None,
+    )
+    temperature_context_source = str(metric_or_summary("temperature_context_source") or "").strip()
+    temperature_context_unavailable_reason = str(
+        metric_or_summary("temperature_context_unavailable_reason") or ""
+    ).strip()
+    temperature_chamber_readonly_probe_attempted = summary_bool(
+        "temperature_chamber_readonly_probe_attempted",
+        default=temperature_chamber_optional_in_skip_temp_wait
+        and (temperature_chamber_init_attempted is not False),
+    )
+    temperature_chamber_readonly_probe_result = str(
+        metric_or_summary("temperature_chamber_readonly_probe_result")
+        or (
+            "unavailable"
+            if temperature_context_available is False and temperature_chamber_optional_in_skip_temp_wait
+            else (
+                "available_pending_current_pv_read"
+                if temperature_context_available is True and temperature_chamber_optional_in_skip_temp_wait
+                else "not_applicable"
+            )
+        )
+    ).strip()
+    critical_devices_required = summary_list("critical_devices_required")
+    if not critical_devices_required:
+        critical_devices_required = ["pressure_controller", "pressure_meter", "relay_a", "relay_b"]
+        if temperature_chamber_required_for_a2:
+            critical_devices_required.append("temperature_chamber")
+    critical_devices_failed = summary_list("critical_devices_failed")
+    optional_context_devices = summary_list("optional_context_devices")
+    if not optional_context_devices and temperature_chamber_optional_in_skip_temp_wait:
+        optional_context_devices = ["temperature_chamber"]
+    optional_context_devices_failed = summary_list("optional_context_devices_failed")
+    critical_device_init_failure_blocks_probe = bool(
+        summary_bool("critical_device_init_failure_blocks_probe", default=bool(critical_devices_failed))
+    )
+    optional_context_failure_blocks_probe = bool(
+        summary_bool("optional_context_failure_blocks_probe", default=False)
+    )
+
     a2_4_probe_required = bool(
         a2_4_temperature_skip_requested
         or str(admission.operator_confirmation.get("pressure_source") or "").strip().lower() == "v1_aligned"
@@ -2535,6 +2627,23 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "temperature_stabilization_wait_skipped": temperature_stabilization_wait_skipped,
         "temperature_gate_mode": temperature_gate_mode,
         "temperature_not_part_of_acceptance": temperature_not_part_of_acceptance,
+        "temperature_chamber_required_for_a2": temperature_chamber_required_for_a2,
+        "temperature_chamber_init_attempted": temperature_chamber_init_attempted,
+        "temperature_chamber_init_ok": temperature_chamber_init_ok,
+        "temperature_chamber_init_failed": temperature_chamber_init_failed,
+        "temperature_chamber_init_failure_blocks_a2": temperature_chamber_init_failure_blocks_a2,
+        "temperature_chamber_optional_in_skip_temp_wait": temperature_chamber_optional_in_skip_temp_wait,
+        "temperature_context_available": temperature_context_available,
+        "temperature_context_source": temperature_context_source,
+        "temperature_context_unavailable_reason": temperature_context_unavailable_reason,
+        "temperature_chamber_readonly_probe_attempted": temperature_chamber_readonly_probe_attempted,
+        "temperature_chamber_readonly_probe_result": temperature_chamber_readonly_probe_result,
+        "critical_devices_required": critical_devices_required,
+        "critical_devices_failed": critical_devices_failed,
+        "optional_context_devices": optional_context_devices,
+        "optional_context_devices_failed": optional_context_devices_failed,
+        "critical_device_init_failure_blocks_probe": critical_device_init_failure_blocks_probe,
+        "optional_context_failure_blocks_probe": optional_context_failure_blocks_probe,
         "pressure_source_selected": _first_metric_from_rows(evidence_metric_rows, "pressure_source_selected"),
         "pressure_source_selection_reason": _first_metric_from_rows(
             evidence_metric_rows,

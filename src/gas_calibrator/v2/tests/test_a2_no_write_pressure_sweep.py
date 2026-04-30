@@ -3407,6 +3407,173 @@ def test_a2_temperature_skip_probe_reads_current_pv_without_chamber_commands() -
     assert not any(event["event_name"] == "temperature_chamber_settle_timeout" for event in timing_events)
 
 
+def _a2_device_policy_raw_config(
+    *,
+    skip_temp_wait: bool = True,
+    explicit_temperature_control: bool = False,
+    multi_temperature: bool = False,
+) -> dict:
+    gate_mode = "current_pv_engineering_probe" if skip_temp_wait else "temperature_acceptance"
+    return {
+        "run001_a2": {
+            "scope": "run001_a2_co2_no_write_pressure_sweep",
+            "no_write": True,
+            "co2_only": True,
+            "single_temperature_group": not multi_temperature,
+            "multi_temperature_enabled": multi_temperature,
+            "chamber_set_temperature_enabled": explicit_temperature_control,
+            "chamber_start_enabled": explicit_temperature_control,
+            "chamber_stop_enabled": explicit_temperature_control,
+        },
+        "a2_co2_7_pressure_no_write_probe": {
+            "scope": "a2_co2_7_pressure_no_write",
+            "co2_only": True,
+            "single_temperature": not multi_temperature,
+            "temperature_stabilization_wait_skipped": skip_temp_wait,
+            "temperature_gate_mode": gate_mode,
+            "temperature_not_part_of_acceptance": skip_temp_wait,
+            "multi_temperature_enabled": multi_temperature,
+            "chamber_set_temperature_enabled": explicit_temperature_control,
+            "chamber_start_enabled": explicit_temperature_control,
+            "chamber_stop_enabled": explicit_temperature_control,
+        },
+        "workflow": {
+            "route_mode": "co2_only",
+            "selected_temps_c": [20.0] if not multi_temperature else [20.0, 25.0],
+            "stability": {
+                "temperature": {
+                    "skip_temperature_stabilization_wait": skip_temp_wait,
+                    "temperature_stabilization_wait_skipped": skip_temp_wait,
+                    "temperature_gate_mode": gate_mode,
+                    "temperature_not_part_of_acceptance": skip_temp_wait,
+                }
+            },
+        },
+    }
+
+
+def _device_policy_orchestrator(raw_cfg: dict) -> WorkflowOrchestrator:
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    orchestrator.service = SimpleNamespace(_raw_cfg=raw_cfg)
+    orchestrator.config = SimpleNamespace()
+    orchestrator._device_init_policy_evidence = {}
+    orchestrator._record_workflow_timing = lambda *_args, **_kwargs: {}
+    orchestrator._log_messages = []
+    orchestrator._log = orchestrator._log_messages.append
+    orchestrator._event_rows = []
+    orchestrator.event_bus = SimpleNamespace(
+        publish=lambda event_type, payload: orchestrator._event_rows.append((event_type, payload))
+    )
+    orchestrator._warnings = []
+    orchestrator.session = SimpleNamespace(add_warning=orchestrator._warnings.append)
+    return orchestrator
+
+
+def test_a2_skip_temp_chamber_init_failed_is_optional_context_device() -> None:
+    raw_cfg = _a2_device_policy_raw_config(skip_temp_wait=True)
+    orchestrator = _device_policy_orchestrator(raw_cfg)
+    all_devices = [
+        "pressure_controller",
+        "pressure_meter",
+        "relay_a",
+        "relay_b",
+        "temperature_chamber",
+        "gas_analyzer_0",
+    ]
+
+    policy = orchestrator._handle_device_failures(
+        ["temperature_chamber"],
+        all_devices=all_devices,
+        error_message="Critical device initialization failed",
+        warning_prefix="Device open warnings",
+        stage="initialization",
+    )
+
+    assert policy["critical_devices_failed"] == []
+    assert policy["optional_context_devices_failed"] == ["temperature_chamber"]
+    assert policy["temperature_chamber_required_for_a2"] is False
+    assert policy["temperature_chamber_init_attempted"] is True
+    assert policy["temperature_chamber_init_ok"] is False
+    assert policy["temperature_chamber_init_failed"] is True
+    assert policy["temperature_chamber_init_failure_blocks_a2"] is False
+    assert policy["temperature_chamber_optional_in_skip_temp_wait"] is True
+    assert policy["temperature_context_available"] is False
+    assert policy["temperature_context_unavailable_reason"] == "temperature_chamber_init_failed"
+    assert policy["temperature_chamber_readonly_probe_attempted"] is True
+    assert policy["temperature_chamber_readonly_probe_result"] == "unavailable"
+    assert policy["optional_context_failure_blocks_probe"] is False
+    assert orchestrator._warnings
+
+
+def test_a2_explicit_temperature_control_keeps_chamber_critical() -> None:
+    raw_cfg = _a2_device_policy_raw_config(
+        skip_temp_wait=False,
+        explicit_temperature_control=True,
+    )
+    orchestrator = _device_policy_orchestrator(raw_cfg)
+    all_devices = ["pressure_controller", "pressure_meter", "relay_a", "relay_b", "temperature_chamber"]
+
+    policy = orchestrator._classify_device_failures(
+        ["temperature_chamber"],
+        all_devices=all_devices,
+        stage="initialization",
+    )
+
+    assert policy["critical_devices_failed"] == ["temperature_chamber"]
+    assert policy["optional_context_devices_failed"] == []
+    assert policy["temperature_chamber_required_for_a2"] is True
+    assert policy["temperature_chamber_init_failure_blocks_a2"] is True
+    assert policy["temperature_chamber_optional_in_skip_temp_wait"] is False
+
+
+def test_a2_multi_temperature_keeps_chamber_critical() -> None:
+    raw_cfg = _a2_device_policy_raw_config(
+        skip_temp_wait=False,
+        explicit_temperature_control=True,
+        multi_temperature=True,
+    )
+    orchestrator = _device_policy_orchestrator(raw_cfg)
+
+    policy = orchestrator._classify_device_failures(
+        ["temperature_chamber"],
+        all_devices=["temperature_chamber", "gas_analyzer_0"],
+        stage="initialization",
+    )
+
+    assert policy["critical_devices_failed"] == ["temperature_chamber"]
+    assert policy["temperature_chamber_required_for_a2"] is True
+    assert policy["temperature_chamber_init_failure_blocks_a2"] is True
+
+
+def test_a2_route_pressure_device_failure_still_blocks_probe() -> None:
+    raw_cfg = _a2_device_policy_raw_config(skip_temp_wait=True)
+    orchestrator = _device_policy_orchestrator(raw_cfg)
+    all_devices = [
+        "pressure_controller",
+        "pressure_meter",
+        "relay_a",
+        "relay_b",
+        "temperature_chamber",
+        "gas_analyzer_0",
+    ]
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        orchestrator._handle_device_failures(
+            ["pressure_controller", "relay_a", "gas_analyzer_0"],
+            all_devices=all_devices,
+            error_message="Critical device initialization failed",
+            warning_prefix="Device open warnings",
+            stage="initialization",
+        )
+
+    assert excinfo.value.context["failed_devices"] == [
+        "gas_analyzer_0",
+        "pressure_controller",
+        "relay_a",
+    ]
+    assert excinfo.value.context["critical_device_init_failure_blocks_probe"] is True
+
+
 def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> None:
     truth = {
         "read_only": True,

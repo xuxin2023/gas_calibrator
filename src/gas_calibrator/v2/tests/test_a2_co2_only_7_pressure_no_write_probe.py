@@ -852,6 +852,75 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     assert summary["a3_allowed"] is False
 
 
+def test_a2_probe_summary_records_optional_temperature_context_policy(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["service_summary"] = {
+            "stats": {
+                "temperature_chamber_required_for_a2": False,
+                "temperature_chamber_init_attempted": True,
+                "temperature_chamber_init_ok": False,
+                "temperature_chamber_init_failed": True,
+                "temperature_chamber_init_failure_blocks_a2": False,
+                "temperature_chamber_optional_in_skip_temp_wait": True,
+                "temperature_context_available": False,
+                "temperature_context_source": "unavailable",
+                "temperature_context_unavailable_reason": "temperature_chamber_init_failed",
+                "temperature_chamber_readonly_probe_attempted": True,
+                "temperature_chamber_readonly_probe_result": "unavailable",
+                "temperature_not_part_of_acceptance": True,
+                "temperature_stabilization_wait_skipped": True,
+                "temperature_gate_mode": "current_pv_engineering_probe",
+                "critical_devices_required": [
+                    "gas_analyzer_0",
+                    "pressure_controller",
+                    "pressure_meter",
+                    "relay_a",
+                    "relay_b",
+                ],
+                "critical_devices_failed": [],
+                "optional_context_devices": ["temperature_chamber"],
+                "optional_context_devices_failed": ["temperature_chamber"],
+                "critical_device_init_failure_blocks_probe": False,
+                "optional_context_failure_blocks_probe": False,
+            }
+        }
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_optional_temperature_context",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["temperature_chamber_required_for_a2"] is False
+    assert summary["temperature_chamber_init_attempted"] is True
+    assert summary["temperature_chamber_init_ok"] is False
+    assert summary["temperature_chamber_init_failed"] is True
+    assert summary["temperature_chamber_init_failure_blocks_a2"] is False
+    assert summary["temperature_chamber_optional_in_skip_temp_wait"] is True
+    assert summary["temperature_context_available"] is False
+    assert summary["temperature_context_unavailable_reason"] == "temperature_chamber_init_failed"
+    assert summary["temperature_chamber_readonly_probe_attempted"] is True
+    assert summary["temperature_chamber_readonly_probe_result"] == "unavailable"
+    assert summary["optional_context_devices_failed"] == ["temperature_chamber"]
+    assert summary["critical_devices_failed"] == []
+    assert summary["critical_device_init_failure_blocks_probe"] is False
+    assert summary["optional_context_failure_blocks_probe"] is False
+    assert summary["chamber_set_temperature_command_sent"] is False
+    assert summary["chamber_start_command_sent"] is False
+    assert summary["chamber_stop_command_sent"] is False
+
+
 def test_a2_probe_pressure_source_strategy_uses_downstream_aligned_config_without_runtime_metric(
     tmp_path: Path,
 ) -> None:

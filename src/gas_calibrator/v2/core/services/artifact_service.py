@@ -32,6 +32,9 @@ class ArtifactService:
         extra_stats: Optional[dict[str, Any]] = None,
     ) -> Path:
         path = Path(self.context.result_store.data_writer.summary_path)
+        summary_extra_stats = self._host_summary_extra_stats()
+        if extra_stats:
+            summary_extra_stats.update(dict(extra_stats))
         self._set_export_status(
             "run_summary",
             role="execution_summary",
@@ -44,7 +47,7 @@ class ArtifactService:
             output_files=self.run_state.artifacts.output_files,
             startup_pressure_precheck=startup_pressure_precheck,
             export_statuses=self.run_state.artifacts.export_statuses,
-            extra_stats=extra_stats,
+            extra_stats=summary_extra_stats,
         )
         if remember:
             self.host._remember_output_file(str(path))
@@ -245,6 +248,18 @@ class ArtifactService:
             except Exception:
                 return None
         return None
+
+    def _host_summary_extra_stats(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        device_policy = getattr(self.host, "_device_init_policy_summary", None)
+        if callable(device_policy):
+            try:
+                policy_payload = device_policy()
+            except Exception:
+                policy_payload = {}
+            if isinstance(policy_payload, dict):
+                payload.update(policy_payload)
+        return payload
 
     def _run_mode(self) -> str:
         workflow = getattr(self.context.config, "workflow", None)
