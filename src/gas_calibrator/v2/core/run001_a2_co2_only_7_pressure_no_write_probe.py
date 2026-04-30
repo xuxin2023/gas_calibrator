@@ -1535,7 +1535,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     route_open_transient_rejection_reason = str(
         metric_or_summary("route_open_transient_rejection_reason") or ""
     ).strip()
-    route_conditioning_vent_gap_exceeded = _as_bool(
+    raw_route_conditioning_vent_gap_exceeded = _as_bool(
         metric_or_summary(
             "route_conditioning_vent_gap_exceeded",
             "vent_heartbeat_gap_exceeded",
@@ -1547,24 +1547,113 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         metric_or_summary("max_vent_pulse_write_gap_ms_including_terminal_gap")
     )
     max_vent_pulse_gap_limit_ms = _as_float(metric_or_summary("max_vent_pulse_gap_limit_ms"))
+    terminal_vent_write_age_ms_at_gap_gate = _as_float(
+        metric_or_summary("terminal_vent_write_age_ms_at_gap_gate")
+    )
+    defer_reschedule_latency_ms = _as_float(
+        metric_or_summary("defer_reschedule_latency_ms", "defer_to_next_vent_loop_ms")
+    )
+    defer_reschedule_latency_budget_ms = _as_float(
+        metric_or_summary("defer_reschedule_latency_budget_ms")
+    )
+    if defer_reschedule_latency_budget_ms is None:
+        defer_reschedule_latency_budget_ms = 200.0
+    defer_reschedule_latency_exceeded = bool(
+        _as_bool(metric_or_summary("defer_reschedule_latency_exceeded")) is True
+        or (
+            defer_reschedule_latency_ms is not None
+            and float(defer_reschedule_latency_ms) > float(defer_reschedule_latency_budget_ms)
+        )
+    )
+    defer_reschedule_latency_warning = bool(
+        _as_bool(metric_or_summary("defer_reschedule_latency_warning")) is True
+        or defer_reschedule_latency_exceeded
+    )
+    vent_gap_after_defer_ms = _as_float(metric_or_summary("vent_gap_after_defer_ms"))
+    vent_gap_after_defer_threshold_ms = _as_float(metric_or_summary("vent_gap_after_defer_threshold_ms"))
+    if vent_gap_after_defer_threshold_ms is None:
+        vent_gap_after_defer_threshold_ms = max_vent_pulse_gap_limit_ms
+    actual_vent_gap_candidates = [
+        item
+        for item in (
+            max_vent_pulse_gap_ms,
+            max_vent_pulse_write_gap_ms,
+            max_vent_pulse_write_gap_ms_including_terminal_gap,
+            terminal_vent_write_age_ms_at_gap_gate,
+            vent_gap_after_defer_ms,
+        )
+        if item is not None
+    ]
+    actual_vent_gap_exceeded = bool(
+        max_vent_pulse_gap_limit_ms is not None
+        and any(float(item) > float(max_vent_pulse_gap_limit_ms) for item in actual_vent_gap_candidates)
+    )
     if (
         max_vent_pulse_gap_ms is not None
         and max_vent_pulse_gap_limit_ms is not None
         and float(max_vent_pulse_gap_ms) > float(max_vent_pulse_gap_limit_ms)
     ):
-        route_conditioning_vent_gap_exceeded = True
+        actual_vent_gap_exceeded = True
     if (
         max_vent_pulse_write_gap_ms is not None
         and max_vent_pulse_gap_limit_ms is not None
         and float(max_vent_pulse_write_gap_ms) > float(max_vent_pulse_gap_limit_ms)
     ):
-        route_conditioning_vent_gap_exceeded = True
+        actual_vent_gap_exceeded = True
     if (
         max_vent_pulse_write_gap_ms_including_terminal_gap is not None
         and max_vent_pulse_gap_limit_ms is not None
         and float(max_vent_pulse_write_gap_ms_including_terminal_gap) > float(max_vent_pulse_gap_limit_ms)
     ):
-        route_conditioning_vent_gap_exceeded = True
+        actual_vent_gap_exceeded = True
+    raw_vent_gap_source = str(
+        metric_or_summary("route_conditioning_vent_gap_exceeded_source", "terminal_gap_source") or ""
+    ).strip()
+    fast_vent_after_defer_sent_value = _as_bool(metric_or_summary("fast_vent_after_defer_sent")) is True
+    false_defer_latency_gap = bool(
+        raw_route_conditioning_vent_gap_exceeded
+        and raw_vent_gap_source == "defer_path_no_reschedule"
+        and max_vent_pulse_gap_limit_ms is not None
+        and actual_vent_gap_candidates
+        and not actual_vent_gap_exceeded
+    )
+    route_conditioning_vent_gap_exceeded = bool(
+        actual_vent_gap_exceeded
+        or (raw_route_conditioning_vent_gap_exceeded and not false_defer_latency_gap)
+    )
+    defer_reschedule_caused_vent_gap_exceeded = bool(
+        _as_bool(metric_or_summary("defer_reschedule_caused_vent_gap_exceeded")) is True
+        or (raw_vent_gap_source == "defer_path_no_reschedule" and actual_vent_gap_exceeded)
+    )
+    vent_gap_exceeded_after_defer = bool(
+        _as_bool(metric_or_summary("vent_gap_exceeded_after_defer")) is True
+        or defer_reschedule_caused_vent_gap_exceeded
+    )
+    terminal_gap_after_defer_value = bool(
+        (_as_bool(metric_or_summary("terminal_gap_after_defer")) is True and actual_vent_gap_exceeded)
+        or vent_gap_exceeded_after_defer
+    )
+    terminal_gap_after_defer_ms_value = (
+        metric_or_summary("terminal_gap_after_defer_ms") if terminal_gap_after_defer_value else None
+    )
+    if terminal_gap_after_defer_ms_value is None and terminal_gap_after_defer_value:
+        terminal_gap_after_defer_ms_value = vent_gap_after_defer_ms
+    defer_returned_to_vent_loop_value = bool(
+        _as_bool(metric_or_summary("defer_returned_to_vent_loop")) is True
+        or (
+            false_defer_latency_gap
+            and defer_reschedule_latency_ms is not None
+            and fast_vent_after_defer_sent_value
+        )
+    )
+    defer_reschedule_completed_value = bool(
+        _as_bool(metric_or_summary("defer_reschedule_completed")) is True
+        or (
+            false_defer_latency_gap
+            and defer_reschedule_latency_ms is not None
+            and not defer_reschedule_caused_vent_gap_exceeded
+        )
+    )
     route_conditioning_fast_vent_timeout = _as_bool(
         metric_or_summary("route_conditioning_fast_vent_command_timeout", "pre_route_fast_vent_timeout")
     ) is True
@@ -1612,6 +1701,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     route_open_transient_interrupted_by_vent_gap = _as_bool(
         metric_or_summary("route_open_transient_interrupted_by_vent_gap")
     ) is True
+    if false_defer_latency_gap:
+        route_open_transient_interrupted_by_vent_gap = False
+        if route_open_transient_rejection_reason == "vent_gap_exceeded_before_recovery_evaluation":
+            route_open_transient_rejection_reason = ""
     if (
         route_conditioning_vent_gap_exceeded
         and not route_open_transient_accepted
@@ -1623,6 +1716,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     route_open_transient_interrupted_reason = str(
         metric_or_summary("route_open_transient_interrupted_reason") or ""
     ).strip()
+    if false_defer_latency_gap and route_open_transient_interrupted_reason == (
+        "vent_gap_exceeded_before_recovery_evaluation"
+    ):
+        route_open_transient_interrupted_reason = ""
     if route_open_transient_interrupted_by_vent_gap and not route_open_transient_interrupted_reason:
         route_open_transient_interrupted_reason = route_open_transient_rejection_reason
     route_open_transient_evaluation_state = str(
@@ -1634,6 +1731,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "accepted",
         "rejected",
         "interrupted_by_vent_gap",
+        "continuing_after_defer_warning",
         "hard_abort",
     }:
         if route_conditioning_hard_abort_exceeded:
@@ -1642,6 +1740,8 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             route_open_transient_evaluation_state = "accepted"
         elif route_open_transient_interrupted_by_vent_gap:
             route_open_transient_evaluation_state = "interrupted_by_vent_gap"
+        elif defer_reschedule_latency_warning and not route_conditioning_vent_gap_exceeded:
+            route_open_transient_evaluation_state = "continuing_after_defer_warning"
         elif route_open_transient_rejection_reason or (
             route_open_transient_recovery_required and not route_open_transient_accepted
         ):
@@ -1650,9 +1750,13 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             route_open_transient_evaluation_state = "evaluating"
         else:
             route_open_transient_evaluation_state = "not_started"
+    elif false_defer_latency_gap and route_open_transient_evaluation_state == "interrupted_by_vent_gap":
+        route_open_transient_evaluation_state = "continuing_after_defer_warning"
     route_open_transient_summary_source = str(
         metric_or_summary("route_open_transient_summary_source") or ""
     ).strip()
+    if false_defer_latency_gap and route_open_transient_summary_source == "route_conditioning_vent_gap":
+        route_open_transient_summary_source = "route_conditioning_defer_latency_warning"
     if not route_open_transient_summary_source:
         route_open_transient_summary_source = (
             "route_conditioning_vent_gap"
@@ -2195,24 +2299,36 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "defer_source": metric_or_summary("defer_source") or "",
         "defer_operation": metric_or_summary("defer_operation") or "",
         "defer_started_at": metric_or_summary("defer_started_at") or "",
-        "defer_returned_to_vent_loop": _as_bool(metric_or_summary("defer_returned_to_vent_loop")) is True,
+        "defer_returned_to_vent_loop": defer_returned_to_vent_loop_value,
         "defer_to_next_vent_loop_ms": metric_or_summary("defer_to_next_vent_loop_ms"),
+        "defer_reschedule_latency_ms": defer_reschedule_latency_ms,
+        "defer_reschedule_latency_budget_ms": defer_reschedule_latency_budget_ms,
+        "defer_reschedule_latency_exceeded": defer_reschedule_latency_exceeded,
+        "defer_reschedule_latency_warning": defer_reschedule_latency_warning,
+        "defer_reschedule_caused_vent_gap_exceeded": defer_reschedule_caused_vent_gap_exceeded,
         "defer_reschedule_requested": _as_bool(
             metric_or_summary("defer_reschedule_requested")
         )
         is True,
-        "defer_reschedule_completed": _as_bool(
-            metric_or_summary("defer_reschedule_completed")
-        )
-        is True,
+        "defer_reschedule_completed": defer_reschedule_completed_value,
         "defer_reschedule_reason": metric_or_summary("defer_reschedule_reason") or "",
         "vent_tick_after_defer_ms": metric_or_summary("vent_tick_after_defer_ms"),
-        "fast_vent_after_defer_sent": _as_bool(metric_or_summary("fast_vent_after_defer_sent")) is True,
+        "fast_vent_after_defer_sent": fast_vent_after_defer_sent_value,
         "fast_vent_after_defer_write_ms": metric_or_summary("fast_vent_after_defer_write_ms"),
-        "terminal_gap_after_defer": _as_bool(metric_or_summary("terminal_gap_after_defer")) is True,
-        "terminal_gap_after_defer_ms": metric_or_summary("terminal_gap_after_defer_ms"),
-        "defer_path_no_reschedule": _as_bool(metric_or_summary("defer_path_no_reschedule")) is True,
-        "defer_path_no_reschedule_reason": metric_or_summary("defer_path_no_reschedule_reason") or "",
+        "terminal_gap_after_defer": terminal_gap_after_defer_value,
+        "terminal_gap_after_defer_ms": terminal_gap_after_defer_ms_value,
+        "vent_gap_exceeded_after_defer": vent_gap_exceeded_after_defer,
+        "vent_gap_after_defer_ms": vent_gap_after_defer_ms,
+        "vent_gap_after_defer_threshold_ms": vent_gap_after_defer_threshold_ms,
+        "defer_path_no_reschedule": bool(
+            (_as_bool(metric_or_summary("defer_path_no_reschedule")) is True)
+            and defer_reschedule_caused_vent_gap_exceeded
+        ),
+        "defer_path_no_reschedule_reason": (
+            metric_or_summary("defer_path_no_reschedule_reason") or ""
+        )
+        if defer_reschedule_caused_vent_gap_exceeded
+        else "",
         "fail_closed_path_started": _as_bool(metric_or_summary("fail_closed_path_started")) is True,
         "fail_closed_path_started_while_route_open": _as_bool(
             metric_or_summary("fail_closed_path_started_while_route_open")

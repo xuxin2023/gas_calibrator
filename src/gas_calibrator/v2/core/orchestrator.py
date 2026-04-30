@@ -1774,6 +1774,11 @@ class WorkflowOrchestrator:
             "defer_started_at": "",
             "defer_returned_to_vent_loop": False,
             "defer_to_next_vent_loop_ms": None,
+            "defer_reschedule_latency_ms": None,
+            "defer_reschedule_latency_budget_ms": self._a2_conditioning_defer_reschedule_latency_budget_ms(),
+            "defer_reschedule_latency_exceeded": False,
+            "defer_reschedule_latency_warning": False,
+            "defer_reschedule_caused_vent_gap_exceeded": False,
             "defer_reschedule_requested": False,
             "defer_reschedule_completed": False,
             "defer_reschedule_reason": "",
@@ -1782,6 +1787,9 @@ class WorkflowOrchestrator:
             "fast_vent_after_defer_write_ms": None,
             "terminal_gap_after_defer": False,
             "terminal_gap_after_defer_ms": None,
+            "vent_gap_exceeded_after_defer": False,
+            "vent_gap_after_defer_ms": None,
+            "vent_gap_after_defer_threshold_ms": None,
             "defer_path_no_reschedule": False,
             "defer_path_no_reschedule_reason": "",
             "fail_closed_path_started": False,
@@ -1985,6 +1993,15 @@ class WorkflowOrchestrator:
             )
         )
         return min(0.2, max(0.01, float(0.1 if value is None else value)))
+
+    def _a2_conditioning_defer_reschedule_latency_budget_ms(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_conditioning_defer_reschedule_latency_budget_ms",
+                self._cfg_get("workflow.pressure.conditioning_defer_reschedule_latency_budget_ms", 200.0),
+            )
+        )
+        return min(1000.0, max(50.0, float(200.0 if value is None else value)))
 
     def _a2_conditioning_pressure_monitor_interval_s(self) -> float:
         value = self._as_float(
@@ -2267,33 +2284,38 @@ class WorkflowOrchestrator:
         defer_started = self._as_float(updated.get("last_diagnostic_defer_monotonic_s"))
         if defer_started is not None and not bool(updated.get("_last_diagnostic_defer_reschedule_recorded", False)):
             defer_loop_ms = round(max(0.0, float(now_mono) - float(defer_started)) * 1000.0, 3)
-            returned_to_loop = defer_loop_ms <= 200.0
+            schedule = self._a2_conditioning_vent_schedule(updated, now_mono=now_mono)
+            defer_state = self._a2_conditioning_defer_reschedule_state(
+                updated,
+                now_mono=now_mono,
+                max_gap_s=float(schedule["route_conditioning_effective_max_gap_s"]),
+                defer_loop_ms=defer_loop_ms,
+            )
             operation = str(
                 updated.get("last_diagnostic_defer_operation")
                 or updated.get("defer_operation")
                 or updated.get("diagnostic_blocking_operation")
                 or "deferred_diagnostic"
             )
-            updated["defer_to_next_vent_loop_ms"] = defer_loop_ms
-            updated["vent_tick_after_defer_ms"] = defer_loop_ms
-            updated["defer_returned_to_vent_loop"] = returned_to_loop
+            updated.update(schedule)
+            updated.update(defer_state)
+            vent_gap_exceeded = bool(defer_state.get("vent_gap_exceeded_after_defer"))
+            updated["defer_returned_to_vent_loop"] = True
             updated["defer_reschedule_requested"] = True
-            updated["defer_reschedule_completed"] = returned_to_loop
+            updated["defer_reschedule_completed"] = not vent_gap_exceeded
             updated["defer_reschedule_reason"] = str(
                 updated.get("defer_reschedule_reason") or f"return_to_vent_loop_after_{operation}"
             )
-            updated["terminal_gap_after_defer"] = not returned_to_loop
-            updated["terminal_gap_after_defer_ms"] = None if returned_to_loop else defer_loop_ms
-            if not returned_to_loop:
-                updated["defer_path_no_reschedule"] = True
-                updated["defer_path_no_reschedule_reason"] = "defer_to_next_vent_loop_exceeded_200ms"
+            if vent_gap_exceeded:
                 updated["terminal_gap_source"] = "defer_path_no_reschedule"
                 updated["terminal_gap_operation"] = operation
-                updated["terminal_gap_duration_ms"] = defer_loop_ms
+                updated["terminal_gap_duration_ms"] = defer_state.get("vent_gap_after_defer_ms")
                 updated["terminal_gap_detected_at"] = datetime.now(timezone.utc).isoformat()
                 updated["terminal_gap_stack_marker"] = str(
                     updated.get("terminal_gap_stack_marker") or "defer_path_no_reschedule"
                 )
+            elif bool(defer_state.get("defer_reschedule_latency_warning")):
+                updated = self._a2_route_open_transient_mark_continuing_after_defer_warning(updated)
             updated["_last_diagnostic_defer_reschedule_recorded"] = True
         updated["last_vent_scheduler_tick_monotonic_s"] = float(now_mono)
         updated["vent_scheduler_tick_count"] = int(updated.get("vent_scheduler_tick_count") or 0) + 1
@@ -2305,6 +2327,47 @@ class WorkflowOrchestrator:
             or context.get("last_vent_tick_monotonic_s")
             or context.get("last_vent_heartbeat_started_monotonic_s")
         )
+
+    def _a2_conditioning_defer_reschedule_state(
+        self,
+        context: Mapping[str, Any],
+        *,
+        now_mono: float,
+        max_gap_s: float,
+        defer_loop_ms: Optional[float] = None,
+    ) -> dict[str, Any]:
+        budget_ms = self._a2_conditioning_defer_reschedule_latency_budget_ms()
+        if defer_loop_ms is None:
+            defer_started = self._as_float(context.get("last_diagnostic_defer_monotonic_s"))
+            if defer_started is not None:
+                defer_loop_ms = round(max(0.0, float(now_mono) - float(defer_started)) * 1000.0, 3)
+        latency_exceeded = bool(defer_loop_ms is not None and float(defer_loop_ms) > float(budget_ms))
+        last_write = self._a2_conditioning_last_vent_write_monotonic_s(context)
+        vent_gap_ms = None
+        if last_write is not None:
+            vent_gap_ms = round(max(0.0, float(now_mono) - float(last_write)) * 1000.0, 3)
+        elif defer_loop_ms is not None:
+            vent_gap_ms = round(float(defer_loop_ms), 3)
+        threshold_ms = round(float(max_gap_s) * 1000.0, 3)
+        vent_gap_exceeded = bool(vent_gap_ms is not None and float(vent_gap_ms) > threshold_ms)
+        return {
+            "defer_to_next_vent_loop_ms": defer_loop_ms,
+            "vent_tick_after_defer_ms": defer_loop_ms,
+            "defer_reschedule_latency_ms": defer_loop_ms,
+            "defer_reschedule_latency_budget_ms": round(float(budget_ms), 3),
+            "defer_reschedule_latency_exceeded": latency_exceeded,
+            "defer_reschedule_latency_warning": latency_exceeded,
+            "defer_reschedule_caused_vent_gap_exceeded": vent_gap_exceeded,
+            "vent_gap_exceeded_after_defer": vent_gap_exceeded,
+            "vent_gap_after_defer_ms": vent_gap_ms,
+            "vent_gap_after_defer_threshold_ms": threshold_ms,
+            "terminal_gap_after_defer": vent_gap_exceeded,
+            "terminal_gap_after_defer_ms": vent_gap_ms if vent_gap_exceeded else None,
+            "defer_path_no_reschedule": vent_gap_exceeded,
+            "defer_path_no_reschedule_reason": (
+                "actual_vent_gap_exceeded_after_defer" if vent_gap_exceeded else ""
+            ),
+        }
 
     def _a2_conditioning_scheduler_evidence(self, context: Mapping[str, Any]) -> dict[str, Any]:
         keys = (
@@ -2347,6 +2410,11 @@ class WorkflowOrchestrator:
             "defer_started_at",
             "defer_returned_to_vent_loop",
             "defer_to_next_vent_loop_ms",
+            "defer_reschedule_latency_ms",
+            "defer_reschedule_latency_budget_ms",
+            "defer_reschedule_latency_exceeded",
+            "defer_reschedule_latency_warning",
+            "defer_reschedule_caused_vent_gap_exceeded",
             "defer_reschedule_requested",
             "defer_reschedule_completed",
             "defer_reschedule_reason",
@@ -2355,6 +2423,9 @@ class WorkflowOrchestrator:
             "fast_vent_after_defer_write_ms",
             "terminal_gap_after_defer",
             "terminal_gap_after_defer_ms",
+            "vent_gap_exceeded_after_defer",
+            "vent_gap_after_defer_ms",
+            "vent_gap_after_defer_threshold_ms",
             "defer_path_no_reschedule",
             "defer_path_no_reschedule_reason",
             "fail_closed_path_started",
@@ -2459,6 +2530,11 @@ class WorkflowOrchestrator:
                 "_last_diagnostic_defer_reschedule_recorded": False,
                 "defer_returned_to_vent_loop": False,
                 "defer_to_next_vent_loop_ms": None,
+                "defer_reschedule_latency_ms": None,
+                "defer_reschedule_latency_budget_ms": self._a2_conditioning_defer_reschedule_latency_budget_ms(),
+                "defer_reschedule_latency_exceeded": False,
+                "defer_reschedule_latency_warning": False,
+                "defer_reschedule_caused_vent_gap_exceeded": False,
                 "defer_reschedule_requested": True,
                 "defer_reschedule_completed": False,
                 "defer_reschedule_reason": f"return_to_vent_loop_after_{operation_text}",
@@ -2467,6 +2543,9 @@ class WorkflowOrchestrator:
                 "fast_vent_after_defer_write_ms": None,
                 "terminal_gap_after_defer": False,
                 "terminal_gap_after_defer_ms": None,
+                "vent_gap_exceeded_after_defer": False,
+                "vent_gap_after_defer_ms": None,
+                "vent_gap_after_defer_threshold_ms": None,
                 "defer_path_no_reschedule": False,
                 "defer_path_no_reschedule_reason": "",
                 "terminal_gap_stack_marker": f"defer:{component_text}:{operation_text}",
@@ -3079,6 +3158,36 @@ class WorkflowOrchestrator:
         updated["route_open_transient_summary_source"] = "route_conditioning_vent_gap"
         return updated
 
+    def _a2_route_open_transient_mark_continuing_after_defer_warning(
+        self,
+        context: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        updated = dict(context)
+        if not bool(updated.get("route_open_transient_window_enabled", True)):
+            updated["route_open_transient_evaluation_state"] = "not_started"
+            return updated
+        route_open_monotonic = self._as_float(
+            updated.get("route_open_completed_monotonic_s")
+            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+        )
+        if route_open_monotonic is None:
+            return updated
+        if bool(updated.get("route_open_transient_accepted", False)):
+            return updated
+        if bool(updated.get("route_conditioning_hard_abort_exceeded", False)):
+            updated["route_open_transient_evaluation_state"] = "hard_abort"
+            return updated
+        if bool(updated.get("vent_gap_exceeded_after_defer", False)):
+            return updated
+        updated["route_open_transient_evaluation_state"] = "continuing_after_defer_warning"
+        updated["route_open_transient_interrupted_by_vent_gap"] = False
+        updated["route_open_transient_interrupted_reason"] = ""
+        if updated.get("route_open_transient_rejection_reason") == "vent_gap_exceeded_before_recovery_evaluation":
+            updated["route_open_transient_rejection_reason"] = ""
+        updated.setdefault("route_open_transient_rejection_reason", "")
+        updated["route_open_transient_summary_source"] = "route_conditioning_defer_latency_warning"
+        return updated
+
     def _a2_route_open_transient_target_hpa(self, context: Mapping[str, Any]) -> Optional[float]:
         return self._a2_conditioning_first_float(
             context.get("measured_atmospheric_pressure_hpa"),
@@ -3517,7 +3626,9 @@ class WorkflowOrchestrator:
         existing = str(context.get("terminal_gap_source") or "").strip()
         if existing and existing != "terminal_gap":
             return existing
-        if bool(context.get("defer_path_no_reschedule")) or bool(context.get("terminal_gap_after_defer")):
+        if bool(context.get("defer_reschedule_caused_vent_gap_exceeded")) or bool(
+            context.get("vent_gap_exceeded_after_defer")
+        ):
             return "defer_path_no_reschedule"
         if bool(context.get("fail_closed_path_started")):
             if bool(context.get("fail_closed_path_vent_maintenance_required")):
@@ -3549,7 +3660,9 @@ class WorkflowOrchestrator:
         terminal_source = str(context.get("terminal_gap_source") or "").strip()
         if terminal_source and terminal_source != "terminal_gap":
             return terminal_source
-        if bool(context.get("defer_path_no_reschedule")) or bool(context.get("terminal_gap_after_defer")):
+        if bool(context.get("defer_reschedule_caused_vent_gap_exceeded")) or bool(
+            context.get("vent_gap_exceeded_after_defer")
+        ):
             return "defer_path_no_reschedule"
         if bool(context.get("route_conditioning_diagnostic_blocked_vent_scheduler")):
             return self._a2_conditioning_diagnostic_source(context, fallback="unknown")
@@ -3576,7 +3689,10 @@ class WorkflowOrchestrator:
         schedule: Mapping[str, Any],
         phase: str,
     ) -> None:
-        if not bool(context.get("defer_path_no_reschedule") or context.get("terminal_gap_after_defer")):
+        if not bool(
+            context.get("defer_reschedule_caused_vent_gap_exceeded")
+            or context.get("vent_gap_exceeded_after_defer")
+        ):
             return
         terminal = self._a2_conditioning_terminal_gap_details(
             context,
@@ -3627,33 +3743,34 @@ class WorkflowOrchestrator:
         max_gap_s = float(schedule["route_conditioning_effective_max_gap_s"])
         interval_s = float(schedule["route_conditioning_effective_vent_interval_s"])
         defer_loop_ms = round(max(0.0, float(now_mono) - float(defer_started)) * 1000.0, 3)
-        returned_to_loop = defer_loop_ms <= 200.0
+        defer_state = self._a2_conditioning_defer_reschedule_state(
+            context,
+            now_mono=now_mono,
+            max_gap_s=max_gap_s,
+            defer_loop_ms=defer_loop_ms,
+        )
+        vent_gap_exceeded = bool(defer_state.get("vent_gap_exceeded_after_defer"))
         context.update(schedule)
+        context.update(defer_state)
         context.update(
             {
-                "defer_returned_to_vent_loop": returned_to_loop,
-                "defer_to_next_vent_loop_ms": defer_loop_ms,
-                "vent_tick_after_defer_ms": defer_loop_ms,
+                "defer_returned_to_vent_loop": True,
                 "defer_reschedule_requested": True,
-                "defer_reschedule_completed": returned_to_loop,
+                "defer_reschedule_completed": not vent_gap_exceeded,
                 "defer_reschedule_reason": str(reason or "return_to_vent_loop_after_defer"),
                 "_last_diagnostic_defer_reschedule_recorded": True,
             }
         )
-        if not returned_to_loop:
+        if vent_gap_exceeded:
             context.update(
                 {
-                    "terminal_gap_after_defer": True,
-                    "terminal_gap_after_defer_ms": defer_loop_ms,
-                    "defer_path_no_reschedule": True,
-                    "defer_path_no_reschedule_reason": "defer_to_next_vent_loop_exceeded_200ms",
                     "terminal_gap_source": "defer_path_no_reschedule",
                     "terminal_gap_operation": str(
                         context.get("defer_operation")
                         or context.get("last_diagnostic_defer_operation")
                         or "deferred_diagnostic"
                     ),
-                    "terminal_gap_duration_ms": defer_loop_ms,
+                    "terminal_gap_duration_ms": defer_state.get("vent_gap_after_defer_ms"),
                     "terminal_gap_detected_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
@@ -3667,6 +3784,8 @@ class WorkflowOrchestrator:
                 schedule=schedule,
                 phase=phase,
             )
+        elif bool(defer_state.get("defer_reschedule_latency_warning")):
+            context = self._a2_route_open_transient_mark_continuing_after_defer_warning(context)
         last_write = self._a2_conditioning_last_vent_write_monotonic_s(context)
         age_s = None if last_write is None else max(0.0, float(now_mono) - float(last_write))
         should_vent = bool(last_write is None or (age_s is not None and age_s >= interval_s))
@@ -5316,30 +5435,34 @@ class WorkflowOrchestrator:
         defer_started = self._as_float(context.get("last_diagnostic_defer_monotonic_s"))
         if defer_started is not None and context.get("vent_tick_after_defer_ms") in (None, ""):
             vent_after_defer_ms = round(max(0.0, tick_started_monotonic_s - float(defer_started)) * 1000.0, 3)
-            returned_to_loop = bool(context.get("defer_returned_to_vent_loop")) or vent_after_defer_ms <= 200.0
+            defer_state = self._a2_conditioning_defer_reschedule_state(
+                context,
+                now_mono=tick_started_monotonic_s,
+                max_gap_s=max_gap_s,
+                defer_loop_ms=vent_after_defer_ms,
+            )
+            vent_gap_exceeded = bool(defer_state.get("vent_gap_exceeded_after_defer"))
             operation = str(
                 context.get("defer_operation")
                 or context.get("last_diagnostic_defer_operation")
                 or context.get("diagnostic_blocking_operation")
                 or "deferred_diagnostic"
             )
-            context["vent_tick_after_defer_ms"] = vent_after_defer_ms
+            context.update(defer_state)
             context["defer_to_next_vent_loop_ms"] = context.get("defer_to_next_vent_loop_ms", vent_after_defer_ms)
-            context["defer_returned_to_vent_loop"] = returned_to_loop
+            context["defer_returned_to_vent_loop"] = True
             context["defer_reschedule_requested"] = True
-            context["defer_reschedule_completed"] = returned_to_loop
+            context["defer_reschedule_completed"] = not vent_gap_exceeded
             context["defer_reschedule_reason"] = str(
                 context.get("defer_reschedule_reason") or f"fast_vent_tick_after_{operation}"
             )
-            if vent_after_defer_ms > 200.0:
-                context["terminal_gap_after_defer"] = True
-                context["terminal_gap_after_defer_ms"] = vent_after_defer_ms
-                context["defer_path_no_reschedule"] = True
-                context["defer_path_no_reschedule_reason"] = "defer_to_next_vent_loop_exceeded_200ms"
+            if vent_gap_exceeded:
                 context["terminal_gap_source"] = "defer_path_no_reschedule"
                 context["terminal_gap_operation"] = operation
-                context["terminal_gap_duration_ms"] = vent_after_defer_ms
+                context["terminal_gap_duration_ms"] = defer_state.get("vent_gap_after_defer_ms")
                 context["terminal_gap_detected_at"] = datetime.now(timezone.utc).isoformat()
+            elif bool(defer_state.get("defer_reschedule_latency_warning")):
+                context = self._a2_route_open_transient_mark_continuing_after_defer_warning(context)
         context.setdefault("vent_scheduler_priority_mode", True)
         context.setdefault("diagnostic_budget_ms", self._a2_conditioning_diagnostic_budget_ms())
         context.setdefault("pressure_monitor_budget_ms", self._a2_conditioning_pressure_monitor_budget_ms())

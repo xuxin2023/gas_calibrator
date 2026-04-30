@@ -1523,16 +1523,23 @@ def test_co2_conditioning_defer_without_reschedule_records_terminal_gap_source(m
     assert context["defer_path_no_reschedule"] is True
     assert context["defer_reschedule_requested"] is True
     assert context["defer_reschedule_completed"] is False
-    assert context["defer_path_no_reschedule_reason"] == "defer_to_next_vent_loop_exceeded_200ms"
+    assert context["defer_returned_to_vent_loop"] is True
+    assert context["defer_reschedule_latency_exceeded"] is True
+    assert context["defer_reschedule_latency_warning"] is True
+    assert context["defer_reschedule_caused_vent_gap_exceeded"] is True
+    assert context["defer_path_no_reschedule_reason"] == "actual_vent_gap_exceeded_after_defer"
     assert context["terminal_gap_source"] == "defer_path_no_reschedule"
     assert context["route_conditioning_vent_gap_exceeded_source"] == "defer_path_no_reschedule"
     assert context["terminal_gap_after_defer"] is True
     assert context["terminal_gap_after_defer_ms"] == 1250.0
+    assert context["vent_gap_after_defer_ms"] == 1250.0
+    assert context["vent_gap_after_defer_threshold_ms"] == 1000.0
+    assert context["vent_gap_exceeded_after_defer"] is True
     assert context["max_vent_pulse_write_gap_ms_including_terminal_gap"] == 1250.0
     assert route_traces[-1]["actual"]["terminal_gap_source"] == "defer_path_no_reschedule"
 
 
-def test_co2_conditioning_defer_over_200ms_fails_even_before_two_second_gap(monkeypatch) -> None:
+def test_co2_conditioning_defer_over_200ms_warns_when_actual_vent_gap_ok(monkeypatch) -> None:
     orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
@@ -1553,20 +1560,70 @@ def test_co2_conditioning_defer_over_200ms_fails_even_before_two_second_gap(monk
     )
     clock["now"] += 0.25
 
-    with pytest.raises(WorkflowValidationError):
-        orchestrator._maybe_reassert_a2_conditioning_vent(point)
+    orchestrator._maybe_reassert_a2_conditioning_vent(point)
 
     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
-    assert context["defer_path_no_reschedule"] is True
-    assert context["defer_path_no_reschedule_reason"] == "defer_to_next_vent_loop_exceeded_200ms"
-    assert context["terminal_gap_after_defer_ms"] == 250.0
-    assert context["terminal_gap_source"] == "defer_path_no_reschedule"
-    assert context["route_conditioning_vent_gap_exceeded"] is True
-    assert context["route_open_transient_evaluation_state"] == "interrupted_by_vent_gap"
-    assert context["route_open_transient_rejection_reason"] == (
-        "vent_gap_exceeded_before_recovery_evaluation"
+    assert context["defer_to_next_vent_loop_ms"] == 250.0
+    assert context["defer_reschedule_latency_ms"] == 250.0
+    assert context["defer_reschedule_latency_budget_ms"] == 200.0
+    assert context["defer_reschedule_latency_exceeded"] is True
+    assert context["defer_reschedule_latency_warning"] is True
+    assert context["defer_returned_to_vent_loop"] is True
+    assert context["defer_reschedule_completed"] is True
+    assert context["defer_path_no_reschedule"] is False
+    assert context["defer_path_no_reschedule_reason"] == ""
+    assert context["terminal_gap_after_defer"] is False
+    assert context["terminal_gap_after_defer_ms"] is None
+    assert context["vent_gap_after_defer_ms"] == 250.0
+    assert context["vent_gap_after_defer_threshold_ms"] == 2000.0
+    assert context["vent_gap_exceeded_after_defer"] is False
+    assert context["route_conditioning_vent_gap_exceeded"] is False
+    assert context["route_open_transient_evaluation_state"] == "continuing_after_defer_warning"
+    assert context["route_open_transient_rejection_reason"] == ""
+    assert route_traces == []
+
+
+def test_co2_conditioning_defer_505ms_fast_vent_keeps_actual_gap_ok(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+        cfg_overrides={
+            "workflow.pressure.route_conditioning_high_frequency_vent_interval_s": 0.5,
+            "workflow.pressure.route_conditioning_high_frequency_max_gap_s": 1.0,
+        },
     )
-    assert route_traces[-1]["action"] == "co2_route_conditioning_defer_no_reschedule"
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    context = orchestrator._a2_conditioning_defer_diagnostic_for_vent_priority(
+        context,
+        point=point,
+        component="pressure_monitor",
+        operation="selected_pressure_sample_stale",
+        now_mono=clock["now"],
+        pressure_monitor=True,
+    )
+    clock["now"] += 0.505
+
+    orchestrator._maybe_reassert_a2_conditioning_vent(point)
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["defer_to_next_vent_loop_ms"] == 505.0
+    assert context["defer_reschedule_latency_ms"] == 505.0
+    assert context["defer_reschedule_latency_warning"] is True
+    assert context["defer_returned_to_vent_loop"] is True
+    assert context["defer_reschedule_completed"] is True
+    assert context["fast_vent_after_defer_sent"] is True
+    assert context["terminal_gap_after_defer"] is False
+    assert context["defer_path_no_reschedule"] is False
+    assert context["vent_gap_after_defer_ms"] == 505.0
+    assert context["vent_gap_after_defer_threshold_ms"] == 1000.0
+    assert context["vent_gap_exceeded_after_defer"] is False
+    assert context["max_vent_pulse_write_gap_ms_including_terminal_gap"] <= 1000.0
+    assert context["route_conditioning_vent_gap_exceeded"] is False
+    assert context["route_open_transient_evaluation_state"] == "continuing_after_defer_warning"
+    assert len(vent_calls) >= 2
+    assert route_traces == []
 
 
 @pytest.mark.parametrize(

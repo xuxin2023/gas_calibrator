@@ -955,6 +955,97 @@ def test_a2_probe_propagates_route_trace_atmosphere_and_transient_interruption(t
     assert summary["route_open_transient_summary_source"] == "route_conditioning_vent_gap"
 
 
+def test_a2_probe_treats_defer_latency_warning_as_non_vent_gap_when_actual_gap_ok(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        legacy_false_gap = {
+            "route_conditioning_vent_gap_exceeded": True,
+            "route_conditioning_vent_gap_exceeded_source": "defer_path_no_reschedule",
+            "terminal_gap_source": "defer_path_no_reschedule",
+            "defer_source": "pressure_monitor",
+            "defer_operation": "selected_pressure_sample_stale",
+            "defer_returned_to_vent_loop": False,
+            "defer_to_next_vent_loop_ms": 505.139,
+            "defer_path_no_reschedule": True,
+            "defer_path_no_reschedule_reason": "defer_to_next_vent_loop_exceeded_200ms",
+            "terminal_gap_after_defer": True,
+            "terminal_gap_after_defer_ms": 505.139,
+            "fast_vent_after_defer_sent": True,
+            "fast_vent_after_defer_write_ms": 0.147,
+            "max_vent_pulse_write_gap_ms_including_terminal_gap": 556.693,
+            "max_vent_pulse_gap_limit_ms": 1000.0,
+            "measured_atmospheric_pressure_hpa": 1012.46,
+            "measured_atmospheric_pressure_source": "route_trace_pre_route_vent_pressure",
+            "route_conditioning_pressure_before_route_open_hpa": 1012.46,
+            "route_open_transient_recovery_target_hpa": 1012.46,
+            "route_open_transient_evaluation_state": "interrupted_by_vent_gap",
+            "route_open_transient_interrupted_by_vent_gap": True,
+            "route_open_transient_rejection_reason": "vent_gap_exceeded_before_recovery_evaluation",
+            "route_open_transient_interrupted_reason": "vent_gap_exceeded_before_recovery_evaluation",
+            "route_open_transient_summary_source": "route_conditioning_vent_gap",
+            "route_conditioning_hard_abort_pressure_hpa": 1250.0,
+            "route_conditioning_hard_abort_exceeded": False,
+            "route_conditioning_pressure_overlimit": False,
+            "route_conditioning_peak_pressure_hpa": 1160.66,
+            "pressure_rise_despite_valid_vent_scheduler": False,
+            "sustained_pressure_rise_after_route_open": False,
+        }
+        payload["route_trace_rows"].insert(
+            0,
+            {
+                "timestamp": "2026-04-30T00:17:43+00:00",
+                "action": "set_vent",
+                "actual": {"pressure_hpa": 1012.46, "atmosphere_ready": True},
+                "result": "ok",
+            },
+        )
+        payload["route_trace_rows"].append(
+            {
+                "timestamp": "2026-04-30T00:17:52+00:00",
+                "action": "co2_route_conditioning_defer_no_reschedule",
+                "actual": legacy_false_gap,
+                "result": "fail",
+            }
+        )
+        payload["service_summary"] = legacy_false_gap
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_defer_latency_warning",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert "a2_route_conditioning_vent_gap_exceeded" not in summary["rejection_reasons"]
+    assert summary["route_conditioning_vent_gap_exceeded"] is False
+    assert summary["defer_reschedule_latency_ms"] == 505.139
+    assert summary["defer_reschedule_latency_budget_ms"] == 200.0
+    assert summary["defer_reschedule_latency_exceeded"] is True
+    assert summary["defer_reschedule_latency_warning"] is True
+    assert summary["defer_reschedule_caused_vent_gap_exceeded"] is False
+    assert summary["defer_returned_to_vent_loop"] is True
+    assert summary["defer_reschedule_completed"] is True
+    assert summary["defer_path_no_reschedule"] is False
+    assert summary["terminal_gap_after_defer"] is False
+    assert summary["vent_gap_exceeded_after_defer"] is False
+    assert summary["vent_gap_after_defer_threshold_ms"] == 1000.0
+    assert summary["max_vent_pulse_write_gap_ms_including_terminal_gap"] == 556.693
+    assert summary["route_open_transient_evaluation_state"] == "continuing_after_defer_warning"
+    assert summary["route_open_transient_interrupted_by_vent_gap"] is False
+    assert summary["route_open_transient_rejection_reason"] == ""
+    assert summary["route_open_transient_interrupted_reason"] == ""
+    assert summary["route_open_transient_summary_source"] == "route_conditioning_defer_latency_warning"
+
+
 def test_a2_probe_rejects_non_v1_aligned_source_only_after_pressure_gate_reached(tmp_path: Path) -> None:
     config, config_path, op_path = _config_and_operator(tmp_path)
 
