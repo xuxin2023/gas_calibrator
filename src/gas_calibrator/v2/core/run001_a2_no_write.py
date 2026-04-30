@@ -1710,13 +1710,16 @@ def _build_high_pressure_first_point_evidence(
         return dict(nested if isinstance(nested, Mapping) else state)
 
     mode_event = _first_timing_event(events, "high_pressure_first_point_mode_enabled")
+    prearm_event = _first_timing_event(events, "pressure_polling_prearmed")
     mode_state = event_state(mode_event)
+    prearm_state = event_state(prearm_event)
+    prearm_or_mode_state = {**prearm_state, **mode_state}
     baseline_sample = next(
         (
             sample
             for sample in samples
             if str(sample.get("stage") or "") == "high_pressure_first_point_prearm"
-            and str(sample.get("source") or "") == "digital_pressure_gauge"
+            and _as_float(sample.get("pressure_hpa")) is not None
         ),
         None,
     )
@@ -1759,17 +1762,18 @@ def _build_high_pressure_first_point_evidence(
     enabled = bool(
         timing.get("high_pressure_first_point_enabled")
         or mode_state.get("enabled")
+        or prearm_state.get("enabled")
         or str((mode_event or {}).get("decision") or "").lower() == "enabled"
         or first_sample is not None
     )
     ambient_pressure = (
-        _as_float(mode_state.get("ambient_reference_pressure_hpa"))
-        or _as_float(mode_state.get("current_ambient_reference_pressure_hpa"))
-        or _as_float(mode_state.get("baseline_pressure_hpa"))
+        _as_float(prearm_or_mode_state.get("ambient_reference_pressure_hpa"))
+        or _as_float(prearm_or_mode_state.get("current_ambient_reference_pressure_hpa"))
+        or _as_float(prearm_or_mode_state.get("baseline_pressure_hpa"))
         or _as_float(positive.get("ambient_reference_pressure_hpa"))
     )
     baseline_pressure = _as_float((baseline_sample or {}).get("pressure_hpa")) or _as_float(
-        mode_state.get("baseline_pressure_hpa")
+        prearm_or_mode_state.get("baseline_pressure_hpa")
     )
     first_pressure = _as_float(latency.get("first_pressure_hpa")) or _as_float(
         (first_sample or {}).get("pressure_hpa")
@@ -1809,6 +1813,21 @@ def _build_high_pressure_first_point_evidence(
         and float(_as_float((seal_command_event or {}).get("timestamp_monotonic_s")) or 0.0)
         >= float(_as_float((conditioning_end or {}).get("timestamp_monotonic_s")) or 0.0)
     )
+    baseline_freshness_ok_value = prearm_or_mode_state.get("baseline_pressure_freshness_ok")
+    if baseline_freshness_ok_value in (None, ""):
+        baseline_freshness_ok = bool(
+            baseline_pressure is not None
+            and not bool(
+                (baseline_sample or {}).get(
+                    "is_stale",
+                    (baseline_sample or {}).get("pressure_sample_is_stale", False),
+                )
+            )
+        )
+    else:
+        baseline_freshness_ok = _as_bool(baseline_freshness_ok_value)
+    prearm_alignment_value = prearm_or_mode_state.get("prearm_pressure_source_alignment_ok")
+    prearm_alignment_ok = True if prearm_alignment_value in (None, "") else _as_bool(prearm_alignment_value)
     return {
         "schema_version": "run001_a2.high_pressure_first_point.1",
         "artifact_type": "run001_a2_high_pressure_first_point_evidence",
@@ -1816,18 +1835,80 @@ def _build_high_pressure_first_point_evidence(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "enabled": enabled,
         "first_target_pressure_hpa": _as_float(
-            mode_state.get("first_target_pressure_hpa")
+            prearm_or_mode_state.get("first_target_pressure_hpa")
             or payload.get("high_pressure_first_point_first_target_pressure_hpa")
             or payload.get("positive_preseal_target_pressure_hpa")
         ),
         "ambient_reference_pressure_hpa": ambient_pressure,
-        "trigger_reason": str(mode_state.get("trigger_reason") or ("enabled_from_runtime_trace" if enabled else "disabled")),
-        "baseline_pressure_sample": baseline_sample or mode_state.get("baseline_pressure_sample"),
-        "baseline_pressure_source": (baseline_sample or {}).get("source")
-        or mode_state.get("baseline_pressure_source"),
+        "trigger_reason": str(
+            prearm_or_mode_state.get("trigger_reason")
+            or ("enabled_from_runtime_trace" if enabled else "disabled")
+        ),
+        "high_pressure_first_point_prearm_started": bool(
+            prearm_or_mode_state.get("high_pressure_first_point_prearm_started")
+            or prearm_event is not None
+        ),
+        "high_pressure_first_point_prearm_blocked": bool(
+            prearm_or_mode_state.get("high_pressure_first_point_prearm_blocked")
+            or str((prearm_event or {}).get("event_type") or "").lower() == "fail"
+        ),
+        "high_pressure_first_point_prearm_block_reason": str(
+            prearm_or_mode_state.get("high_pressure_first_point_prearm_block_reason")
+            or (prearm_event or {}).get("error_code")
+            or ""
+        ),
+        "high_pressure_first_point_prearm_phase": str(
+            prearm_or_mode_state.get("high_pressure_first_point_prearm_phase")
+            or (prearm_event or {}).get("stage")
+            or ""
+        ),
+        "baseline_pressure_sample": baseline_sample or prearm_or_mode_state.get("baseline_pressure_sample"),
+        "baseline_pressure_source": (baseline_sample or {}).get("pressure_sample_source")
+        or (baseline_sample or {}).get("source")
+        or prearm_or_mode_state.get("baseline_pressure_source"),
         "baseline_pressure_age_s": _as_float((baseline_sample or {}).get("sample_age_s"))
-        or _as_float(mode_state.get("baseline_pressure_age_s")),
+        or _as_float(prearm_or_mode_state.get("baseline_pressure_age_s")),
+        "baseline_pressure_sample_age_s": _as_float((baseline_sample or {}).get("pressure_sample_age_s"))
+        or _as_float((baseline_sample or {}).get("sample_age_s"))
+        or _as_float(prearm_or_mode_state.get("baseline_pressure_sample_age_s"))
+        or _as_float(prearm_or_mode_state.get("baseline_pressure_age_s")),
         "baseline_pressure_hpa": baseline_pressure,
+        "baseline_pressure_freshness_ok": baseline_freshness_ok,
+        "baseline_pressure_stale_reason": str(
+            prearm_or_mode_state.get("baseline_pressure_stale_reason") or ""
+        ),
+        "prearm_pressure_source_expected": str(
+            prearm_or_mode_state.get("prearm_pressure_source_expected") or ""
+        ),
+        "prearm_pressure_source_observed": str(
+            prearm_or_mode_state.get("prearm_pressure_source_observed") or ""
+        ),
+        "prearm_pressure_source_alignment_ok": prearm_alignment_ok,
+        "prearm_pressure_source_disagreement": bool(
+            prearm_or_mode_state.get("prearm_pressure_source_disagreement")
+        ),
+        "prearm_pressure_source_disagreement_reason": str(
+            prearm_or_mode_state.get("prearm_pressure_source_disagreement_reason") or ""
+        ),
+        "conditioning_monitor_pressure_source": str(
+            prearm_or_mode_state.get("conditioning_monitor_pressure_source") or ""
+        ),
+        "pressure_gate_pressure_source": str(prearm_or_mode_state.get("pressure_gate_pressure_source") or ""),
+        "v1_aligned_pressure_source_decision": str(
+            prearm_or_mode_state.get("v1_aligned_pressure_source_decision") or ""
+        ),
+        "latest_route_conditioning_pressure_hpa": _as_float(
+            prearm_or_mode_state.get("latest_route_conditioning_pressure_hpa")
+        ),
+        "latest_route_conditioning_pressure_source": str(
+            prearm_or_mode_state.get("latest_route_conditioning_pressure_source") or ""
+        ),
+        "latest_route_conditioning_pressure_age_s": _as_float(
+            prearm_or_mode_state.get("latest_route_conditioning_pressure_age_s")
+        ),
+        "latest_route_conditioning_pressure_eligible_for_prearm_baseline": bool(
+            prearm_or_mode_state.get("latest_route_conditioning_pressure_eligible_for_prearm_baseline")
+        ),
         "conditioning_completed_before_high_pressure_mode": conditioning_completed_before_high_pressure_mode,
         "conditioning_completed_at": conditioning_completed_at,
         "preseal_analyzer_gate_passed": str((preseal_gate_end or {}).get("decision") or "").upper() in {"PASS", "OK"},
@@ -2431,6 +2512,21 @@ def _build_co2_route_conditioning_evidence(
         "max_vent_pulse_write_gap_ms": latest_state_value("max_vent_pulse_write_gap_ms"),
         "max_vent_command_total_duration_ms": latest_state_value("max_vent_command_total_duration_ms"),
         "max_vent_pulse_gap_limit_ms": latest_state_value("max_vent_pulse_gap_limit_ms"),
+        "max_vent_pulse_write_gap_phase": latest_state_value("max_vent_pulse_write_gap_phase", ""),
+        "max_vent_pulse_write_gap_threshold_ms": latest_state_value(
+            "max_vent_pulse_write_gap_threshold_ms",
+        ),
+        "max_vent_pulse_write_gap_threshold_source": latest_state_value(
+            "max_vent_pulse_write_gap_threshold_source",
+            "",
+        ),
+        "max_vent_pulse_write_gap_exceeded": bool(
+            latest_state_value("max_vent_pulse_write_gap_exceeded", False)
+        ),
+        "max_vent_pulse_write_gap_not_exceeded_reason": latest_state_value(
+            "max_vent_pulse_write_gap_not_exceeded_reason",
+            "",
+        ),
         "vent_scheduler_tick_count": int(latest_state_value("vent_scheduler_tick_count", 0) or 0),
         "vent_scheduler_loop_gap_ms": latest_state_value("vent_scheduler_loop_gap_ms", scheduler_loop_gaps_ms),
         "max_vent_scheduler_loop_gap_ms": latest_state_value(
@@ -2544,6 +2640,27 @@ def _build_co2_route_conditioning_evidence(
         "terminal_gap_started_at": latest_state_value("terminal_gap_started_at", ""),
         "terminal_gap_detected_at": latest_state_value("terminal_gap_detected_at", ""),
         "terminal_gap_stack_marker": latest_state_value("terminal_gap_stack_marker", ""),
+        "cleanup_vent_requested": bool(latest_state_value("cleanup_vent_requested", False)),
+        "cleanup_vent_classification": latest_state_value("cleanup_vent_classification", ""),
+        "cleanup_vent_phase": latest_state_value("cleanup_vent_phase", ""),
+        "cleanup_vent_reason": latest_state_value("cleanup_vent_reason", ""),
+        "cleanup_vent_allowed": bool(latest_state_value("cleanup_vent_allowed", False)),
+        "cleanup_vent_blocked_reason": latest_state_value("cleanup_vent_blocked_reason", ""),
+        "cleanup_vent_is_normal_maintenance": bool(
+            latest_state_value("cleanup_vent_is_normal_maintenance", False)
+        ),
+        "cleanup_vent_is_safe_stop_relief": bool(latest_state_value("cleanup_vent_is_safe_stop_relief", False)),
+        "safe_stop_relief_required": bool(latest_state_value("safe_stop_relief_required", False)),
+        "safe_stop_relief_allowed": bool(latest_state_value("safe_stop_relief_allowed", False)),
+        "safe_stop_relief_command_sent": bool(latest_state_value("safe_stop_relief_command_sent", False)),
+        "safe_stop_relief_blocked_reason": latest_state_value("safe_stop_relief_blocked_reason", ""),
+        "vent_blocked_after_flush_phase_is_failure": bool(
+            latest_state_value("vent_blocked_after_flush_phase_is_failure", False)
+        ),
+        "vent_blocked_after_flush_phase_context": latest_state_value(
+            "vent_blocked_after_flush_phase_context",
+            {},
+        ),
         "defer_source": latest_state_value("defer_source", ""),
         "defer_operation": latest_state_value("defer_operation", ""),
         "defer_started_at": latest_state_value("defer_started_at", ""),
@@ -2698,6 +2815,9 @@ def _build_co2_route_conditioning_evidence(
             latest_state_value("vent_pulse_blocked_after_flush_phase", False)
         ),
         "vent_pulse_blocked_reason": latest_state_value("vent_pulse_blocked_reason", ""),
+        "normal_maintenance_vent_blocked_after_flush_phase": bool(
+            latest_state_value("normal_maintenance_vent_blocked_after_flush_phase", False)
+        ),
         "attempted_unsafe_vent_after_seal_or_pressure_control": bool(
             latest_state_value("attempted_unsafe_vent_after_seal_or_pressure_control", bool(unsafe_vent_after_flush))
         ),
@@ -4321,7 +4441,15 @@ def _finalize_artifact_decision(payload: dict[str, Any], run_dir: str | Path) ->
             reasons.append("a2_co2_route_conditioning_sample_before_flush_completed")
         if conditioning and bool(conditioning.get("unsafe_vent_after_seal_or_pressure_control_command_sent")):
             reasons.append("a2_co2_route_conditioning_unsafe_vent_after_seal_or_pressure_control")
-        if conditioning and bool(conditioning.get("vent_pulse_blocked_after_flush_phase")):
+        vent_blocked_after_flush_failure = bool(
+            conditioning
+            and conditioning.get("vent_pulse_blocked_after_flush_phase")
+            and (
+                conditioning.get("vent_blocked_after_flush_phase_is_failure")
+                or conditioning.get("normal_maintenance_vent_blocked_after_flush_phase")
+            )
+        )
+        if vent_blocked_after_flush_failure:
             reasons.append("a2_co2_route_conditioning_vent_blocked_after_flush_phase")
         if conditioning and conditioning.get("selected_pressure_freshness_ok") is False:
             reason = str(conditioning.get("selected_pressure_fail_closed_reason") or "").strip()
@@ -4542,6 +4670,65 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "high_pressure_first_point_enabled": high_pressure_first_point_payload.get("enabled"),
             "high_pressure_first_point_decision": high_pressure_first_point_payload.get("decision"),
             "high_pressure_first_point_warning_count": high_pressure_first_point_payload.get("warning_count"),
+            "high_pressure_first_point_prearm_started": high_pressure_first_point_payload.get(
+                "high_pressure_first_point_prearm_started"
+            ),
+            "high_pressure_first_point_prearm_blocked": high_pressure_first_point_payload.get(
+                "high_pressure_first_point_prearm_blocked"
+            ),
+            "high_pressure_first_point_prearm_block_reason": high_pressure_first_point_payload.get(
+                "high_pressure_first_point_prearm_block_reason"
+            ),
+            "high_pressure_first_point_prearm_phase": high_pressure_first_point_payload.get(
+                "high_pressure_first_point_prearm_phase"
+            ),
+            "baseline_pressure_hpa": high_pressure_first_point_payload.get("baseline_pressure_hpa"),
+            "baseline_pressure_source": high_pressure_first_point_payload.get("baseline_pressure_source"),
+            "baseline_pressure_sample_age_s": high_pressure_first_point_payload.get(
+                "baseline_pressure_sample_age_s"
+            ),
+            "baseline_pressure_freshness_ok": high_pressure_first_point_payload.get(
+                "baseline_pressure_freshness_ok"
+            ),
+            "baseline_pressure_stale_reason": high_pressure_first_point_payload.get(
+                "baseline_pressure_stale_reason"
+            ),
+            "prearm_pressure_source_expected": high_pressure_first_point_payload.get(
+                "prearm_pressure_source_expected"
+            ),
+            "prearm_pressure_source_observed": high_pressure_first_point_payload.get(
+                "prearm_pressure_source_observed"
+            ),
+            "prearm_pressure_source_alignment_ok": high_pressure_first_point_payload.get(
+                "prearm_pressure_source_alignment_ok"
+            ),
+            "prearm_pressure_source_disagreement": high_pressure_first_point_payload.get(
+                "prearm_pressure_source_disagreement"
+            ),
+            "prearm_pressure_source_disagreement_reason": high_pressure_first_point_payload.get(
+                "prearm_pressure_source_disagreement_reason"
+            ),
+            "conditioning_monitor_pressure_source": high_pressure_first_point_payload.get(
+                "conditioning_monitor_pressure_source"
+            ),
+            "pressure_gate_pressure_source": high_pressure_first_point_payload.get(
+                "pressure_gate_pressure_source"
+            ),
+            "v1_aligned_pressure_source_decision": high_pressure_first_point_payload.get(
+                "v1_aligned_pressure_source_decision"
+            ),
+            "latest_route_conditioning_pressure_hpa": high_pressure_first_point_payload.get(
+                "latest_route_conditioning_pressure_hpa"
+            ),
+            "latest_route_conditioning_pressure_source": high_pressure_first_point_payload.get(
+                "latest_route_conditioning_pressure_source"
+            ),
+            "latest_route_conditioning_pressure_age_s": high_pressure_first_point_payload.get(
+                "latest_route_conditioning_pressure_age_s"
+            ),
+            "latest_route_conditioning_pressure_eligible_for_prearm_baseline": high_pressure_first_point_payload.get(
+                "latest_route_conditioning_pressure_eligible_for_prearm_baseline"
+            ),
             "primary_pressure_source": pressure_latency_payload.get("primary_pressure_source"),
             "abort_decision_pressure_source": pressure_latency_payload.get("pressure_source_used_for_abort"),
             "pressure_read_latency_warning_count": pressure_latency_payload.get("warning_count"),
@@ -4823,6 +5010,21 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "max_vent_pulse_write_gap_ms_including_terminal_gap": co2_route_conditioning_payload.get(
                 "max_vent_pulse_write_gap_ms_including_terminal_gap"
             ),
+            "max_vent_pulse_write_gap_phase": co2_route_conditioning_payload.get(
+                "max_vent_pulse_write_gap_phase"
+            ),
+            "max_vent_pulse_write_gap_threshold_ms": co2_route_conditioning_payload.get(
+                "max_vent_pulse_write_gap_threshold_ms"
+            ),
+            "max_vent_pulse_write_gap_threshold_source": co2_route_conditioning_payload.get(
+                "max_vent_pulse_write_gap_threshold_source"
+            ),
+            "max_vent_pulse_write_gap_exceeded": co2_route_conditioning_payload.get(
+                "max_vent_pulse_write_gap_exceeded"
+            ),
+            "max_vent_pulse_write_gap_not_exceeded_reason": co2_route_conditioning_payload.get(
+                "max_vent_pulse_write_gap_not_exceeded_reason"
+            ),
             "route_conditioning_vent_gap_exceeded_source": co2_route_conditioning_payload.get(
                 "route_conditioning_vent_gap_exceeded_source"
             ),
@@ -4898,6 +5100,32 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "max_vent_command_total_duration_ms"
             ),
             "max_vent_pulse_gap_limit_ms": co2_route_conditioning_payload.get("max_vent_pulse_gap_limit_ms"),
+            "cleanup_vent_requested": co2_route_conditioning_payload.get("cleanup_vent_requested"),
+            "cleanup_vent_classification": co2_route_conditioning_payload.get("cleanup_vent_classification"),
+            "cleanup_vent_phase": co2_route_conditioning_payload.get("cleanup_vent_phase"),
+            "cleanup_vent_reason": co2_route_conditioning_payload.get("cleanup_vent_reason"),
+            "cleanup_vent_allowed": co2_route_conditioning_payload.get("cleanup_vent_allowed"),
+            "cleanup_vent_blocked_reason": co2_route_conditioning_payload.get("cleanup_vent_blocked_reason"),
+            "cleanup_vent_is_normal_maintenance": co2_route_conditioning_payload.get(
+                "cleanup_vent_is_normal_maintenance"
+            ),
+            "cleanup_vent_is_safe_stop_relief": co2_route_conditioning_payload.get(
+                "cleanup_vent_is_safe_stop_relief"
+            ),
+            "safe_stop_relief_required": co2_route_conditioning_payload.get("safe_stop_relief_required"),
+            "safe_stop_relief_allowed": co2_route_conditioning_payload.get("safe_stop_relief_allowed"),
+            "safe_stop_relief_command_sent": co2_route_conditioning_payload.get(
+                "safe_stop_relief_command_sent"
+            ),
+            "safe_stop_relief_blocked_reason": co2_route_conditioning_payload.get(
+                "safe_stop_relief_blocked_reason"
+            ),
+            "vent_blocked_after_flush_phase_is_failure": co2_route_conditioning_payload.get(
+                "vent_blocked_after_flush_phase_is_failure"
+            ),
+            "vent_blocked_after_flush_phase_context": co2_route_conditioning_payload.get(
+                "vent_blocked_after_flush_phase_context"
+            ),
             "vent_scheduler_tick_count": co2_route_conditioning_payload.get("vent_scheduler_tick_count"),
             "vent_scheduler_loop_gap_ms": co2_route_conditioning_payload.get("vent_scheduler_loop_gap_ms"),
             "max_vent_scheduler_loop_gap_ms": co2_route_conditioning_payload.get(
@@ -5007,6 +5235,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "vent_pulse_blocked_after_flush_phase"
             ),
             "vent_pulse_blocked_reason": co2_route_conditioning_payload.get("vent_pulse_blocked_reason"),
+            "normal_maintenance_vent_blocked_after_flush_phase": co2_route_conditioning_payload.get(
+                "normal_maintenance_vent_blocked_after_flush_phase"
+            ),
             "attempted_unsafe_vent_after_seal_or_pressure_control": co2_route_conditioning_payload.get(
                 "attempted_unsafe_vent_after_seal_or_pressure_control"
             ),

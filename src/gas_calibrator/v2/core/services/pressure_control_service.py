@@ -4080,6 +4080,36 @@ class PressureControlService:
             return context
         return {}
 
+    def _a2_cleanup_relief_classification_for_reason(
+        self,
+        reason: str,
+        current: str,
+    ) -> str:
+        classification = str(current or "normal_maintenance_vent").strip() or "normal_maintenance_vent"
+        if classification != "normal_maintenance_vent":
+            return classification
+        context = dict(getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return classification
+        reason_text = str(reason or "").strip().lower()
+        if "safe stop" in reason_text or reason_text.startswith("final"):
+            return "safe_stop_relief"
+        if any(
+            token in reason_text
+            for token in (
+                "cleanup",
+                "clean up",
+                "fail-closed",
+                "fail closed",
+                "failure",
+                "after co2 route fail",
+                "after route fail",
+                "relief",
+            )
+        ):
+            return "cleanup_relief"
+        return classification
+
     def set_pressure_controller_vent(
         self,
         vent_on: bool,
@@ -4104,6 +4134,11 @@ class PressureControlService:
                 emergency_abort_relief = True
                 emergency_abort_relief_context = inferred_context
                 vent_classification = "emergency_abort_relief"
+        if vent_on and not emergency_abort_relief:
+            vent_classification = self._a2_cleanup_relief_classification_for_reason(
+                reason,
+                vent_classification,
+            )
         if vent_on and emergency_abort_relief:
             vent_classification = "emergency_abort_relief"
         if vent_on:
@@ -4219,6 +4254,19 @@ class PressureControlService:
                     {
                         "cleanup_vent_classification": "emergency_abort_relief",
                         "emergency_abort_relief_vent_command_sent": trace_result == "ok",
+                        "safe_stop_pressure_relief_result": (
+                            "command_sent" if trace_result == "ok" else "command_failed"
+                        ),
+                    }
+                )
+            elif vent_classification in {"cleanup_relief", "safe_stop_relief"}:
+                diagnostics.update(
+                    {
+                        "cleanup_vent_classification": vent_classification,
+                        "cleanup_vent_requested": True,
+                        "cleanup_vent_is_normal_maintenance": False,
+                        "cleanup_vent_is_safe_stop_relief": True,
+                        "safe_stop_relief_command_sent": trace_result == "ok",
                         "safe_stop_pressure_relief_result": (
                             "command_sent" if trace_result == "ok" else "command_failed"
                         ),
@@ -4357,14 +4405,17 @@ class PressureControlService:
         vent_diagnostics: dict[str, Any] = {}
         try:
             relief_context = self._a2_emergency_abort_relief_context_for_reason(message)
+            vent_classification = (
+                "emergency_abort_relief"
+                if relief_context
+                else self._a2_cleanup_relief_classification_for_reason(message, "normal_maintenance_vent")
+            )
             vent_diagnostics = self.set_pressure_controller_vent(
                 True,
                 reason=message,
                 emergency_abort_relief=bool(relief_context),
                 emergency_abort_relief_context=relief_context or None,
-                vent_classification=(
-                    "emergency_abort_relief" if relief_context else "normal_maintenance_vent"
-                ),
+                vent_classification=vent_classification,
             )
         except Exception as exc:
             self.host._log(f"Final pressure safe stop warning: vent command failed: {exc}")
@@ -4395,6 +4446,19 @@ class PressureControlService:
             "emergency_abort_relief_sample_started",
             "emergency_abort_relief_may_mix_air",
             "cleanup_vent_classification",
+            "cleanup_vent_requested",
+            "cleanup_vent_phase",
+            "cleanup_vent_reason",
+            "cleanup_vent_allowed",
+            "cleanup_vent_blocked_reason",
+            "cleanup_vent_is_normal_maintenance",
+            "cleanup_vent_is_safe_stop_relief",
+            "safe_stop_relief_required",
+            "safe_stop_relief_allowed",
+            "safe_stop_relief_command_sent",
+            "safe_stop_relief_blocked_reason",
+            "vent_blocked_after_flush_phase_is_failure",
+            "vent_blocked_after_flush_phase_context",
             "safe_stop_pressure_relief_result",
         ):
             if key in vent_diagnostics:

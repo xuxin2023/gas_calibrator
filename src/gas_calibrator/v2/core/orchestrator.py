@@ -2072,6 +2072,11 @@ class WorkflowOrchestrator:
             "terminal_gap_started_at": "",
             "terminal_gap_detected_at": "",
             "terminal_gap_stack_marker": "",
+            "max_vent_pulse_write_gap_phase": "",
+            "max_vent_pulse_write_gap_threshold_ms": self._a2_conditioning_vent_maintenance_max_gap_s() * 1000.0,
+            "max_vent_pulse_write_gap_threshold_source": "route_conditioning_vent_maintenance_max_gap_s",
+            "max_vent_pulse_write_gap_exceeded": False,
+            "max_vent_pulse_write_gap_not_exceeded_reason": "",
             "defer_source": "",
             "defer_operation": "",
             "defer_started_at": "",
@@ -2147,6 +2152,11 @@ class WorkflowOrchestrator:
             "route_conditioning_pressure_after_route_open_hpa": None,
             "route_conditioning_pressure_rise_rate_hpa_per_s": None,
             "route_conditioning_peak_pressure_hpa": None,
+            "latest_route_conditioning_pressure_hpa": None,
+            "latest_route_conditioning_pressure_source": "",
+            "latest_route_conditioning_pressure_age_s": None,
+            "latest_route_conditioning_pressure_recorded_monotonic_s": None,
+            "latest_route_conditioning_pressure_eligible_for_prearm_baseline": False,
             "route_conditioning_pressure_overlimit": False,
             "route_open_transient_window_enabled": self._a2_route_open_transient_window_enabled(),
             "route_open_transient_peak_pressure_hpa": None,
@@ -3140,6 +3150,32 @@ class WorkflowOrchestrator:
             return "sampling_or_points_completed"
         return ""
 
+    def _a2_conditioning_relief_mix_risk_reason(self, context: Mapping[str, Any]) -> str:
+        if bool(context.get("seal_command_sent", False)) or bool(
+            context.get("positive_preseal_seal_command_sent", False)
+        ) or bool(context.get("sealed", False)):
+            return "seal_command_sent"
+        if bool(context.get("pressure_setpoint_command_sent", False)) or bool(
+            context.get("positive_preseal_pressure_setpoint_command_sent", False)
+        ):
+            return "pressure_setpoint_command_sent"
+        if bool(context.get("pressure_ready_started", False)) or bool(context.get("pressure_gate_reached", False)):
+            return "pressure_ready_started"
+        if bool(context.get("sampling_started", False)) or bool(context.get("sample_started", False)) or bool(
+            context.get("positive_preseal_sample_started", False)
+        ):
+            return "sample_started"
+        if int(context.get("sample_count") or 0) > 0 or int(context.get("points_completed") or 0) > 0:
+            return "sampling_or_points_completed"
+        if bool(
+            context.get("any_write_command_sent")
+            or context.get("identity_write_command_sent")
+            or context.get("senco_write_command_sent")
+            or context.get("calibration_write_command_sent")
+        ):
+            return "write_state_not_clean"
+        return ""
+
     def _a2_conditioning_mark_vent_blocked(
         self,
         context: Mapping[str, Any],
@@ -3160,6 +3196,23 @@ class WorkflowOrchestrator:
                 "vent_pulse_blocked_reason": reason,
                 "normal_maintenance_vent_blocked_after_flush_phase": True,
                 "cleanup_vent_classification": "normal_maintenance_vent",
+                "cleanup_vent_requested": True,
+                "cleanup_vent_phase": str(context.get("route_conditioning_phase") or "unknown"),
+                "cleanup_vent_reason": reason,
+                "cleanup_vent_allowed": False,
+                "cleanup_vent_blocked_reason": reason,
+                "cleanup_vent_is_normal_maintenance": True,
+                "cleanup_vent_is_safe_stop_relief": False,
+                "safe_stop_relief_required": False,
+                "safe_stop_relief_allowed": False,
+                "safe_stop_relief_command_sent": False,
+                "safe_stop_relief_blocked_reason": reason,
+                "vent_blocked_after_flush_phase_is_failure": True,
+                "vent_blocked_after_flush_phase_context": {
+                    "phase": str(context.get("route_conditioning_phase") or "unknown"),
+                    "classification": "normal_maintenance_vent",
+                    "blocked_reason": reason,
+                },
                 "attempted_unsafe_vent_after_seal_or_pressure_control": bool(unsafe_after_control),
                 "unsafe_vent_after_seal_or_pressure_control_command_sent": False,
             }
@@ -3357,6 +3410,72 @@ class WorkflowOrchestrator:
             )
         return payload
 
+    def _a2_conditioning_cleanup_relief_decision(
+        self,
+        context: Mapping[str, Any],
+        *,
+        reason: str = "",
+        vent_classification: str = "safe_stop_relief",
+    ) -> dict[str, Any]:
+        classification = str(vent_classification or "safe_stop_relief").strip() or "safe_stop_relief"
+        phase = str(context.get("route_conditioning_phase") or "unknown")
+        blocked_reason = self._a2_conditioning_relief_mix_risk_reason(context)
+        allowed = not bool(blocked_reason)
+        updated = dict(context)
+        updated.update(
+            {
+                "cleanup_vent_requested": True,
+                "cleanup_vent_classification": classification,
+                "cleanup_vent_phase": phase,
+                "cleanup_vent_reason": reason,
+                "cleanup_vent_allowed": allowed,
+                "cleanup_vent_blocked_reason": blocked_reason,
+                "cleanup_vent_is_normal_maintenance": False,
+                "cleanup_vent_is_safe_stop_relief": True,
+                "safe_stop_relief_required": True,
+                "safe_stop_relief_allowed": allowed,
+                "safe_stop_relief_command_sent": allowed,
+                "safe_stop_relief_blocked_reason": blocked_reason,
+                "normal_maintenance_vent_blocked_after_flush_phase": False,
+                "vent_blocked_after_flush_phase_is_failure": False,
+                "vent_blocked_after_flush_phase_context": {
+                    "phase": phase,
+                    "classification": classification,
+                    "blocked_reason": blocked_reason,
+                },
+                "safe_stop_pressure_relief_result": "command_sent"
+                if allowed
+                else f"blocked:{blocked_reason}",
+            }
+        )
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        payload = {
+            "cleanup_vent_requested": True,
+            "cleanup_vent_classification": classification,
+            "cleanup_vent_phase": phase,
+            "cleanup_vent_reason": reason,
+            "cleanup_vent_allowed": allowed,
+            "cleanup_vent_blocked_reason": blocked_reason,
+            "cleanup_vent_is_normal_maintenance": False,
+            "cleanup_vent_is_safe_stop_relief": True,
+            "safe_stop_relief_required": True,
+            "safe_stop_relief_allowed": allowed,
+            "safe_stop_relief_command_sent": allowed,
+            "safe_stop_relief_blocked_reason": blocked_reason,
+            "normal_maintenance_vent_blocked_after_flush_phase": False,
+            "vent_blocked_after_flush_phase_is_failure": False,
+            "vent_blocked_after_flush_phase_context": updated["vent_blocked_after_flush_phase_context"],
+            "safe_stop_pressure_relief_result": updated["safe_stop_pressure_relief_result"],
+        }
+        if not allowed:
+            payload.update(
+                {
+                    "vent_command_blocked": True,
+                    "reason": reason,
+                }
+            )
+        return payload
+
     def _guard_a2_conditioning_vent_command(
         self,
         *,
@@ -3365,6 +3484,7 @@ class WorkflowOrchestrator:
         emergency_abort_relief: bool = False,
         relief_context: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
+        vent_classification = str(vent_classification or "normal_maintenance_vent").strip()
         context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
         if not context:
             return {}
@@ -3373,6 +3493,12 @@ class WorkflowOrchestrator:
                 context,
                 reason=reason,
                 relief_context=relief_context,
+            )
+        if vent_classification in {"cleanup_relief", "safe_stop_relief"}:
+            return self._a2_conditioning_cleanup_relief_decision(
+                context,
+                reason=reason,
+                vent_classification=vent_classification,
             )
         blocked_reason = self._a2_conditioning_unsafe_vent_reason(context)
         if not blocked_reason:
@@ -3389,6 +3515,19 @@ class WorkflowOrchestrator:
             "unsafe_vent_after_seal_or_pressure_control_command_sent": False,
             "normal_maintenance_vent_blocked_after_flush_phase": True,
             "cleanup_vent_classification": "normal_maintenance_vent",
+            "cleanup_vent_requested": True,
+            "cleanup_vent_phase": str(context.get("route_conditioning_phase") or "unknown"),
+            "cleanup_vent_reason": reason,
+            "cleanup_vent_allowed": False,
+            "cleanup_vent_blocked_reason": blocked_reason,
+            "cleanup_vent_is_normal_maintenance": True,
+            "cleanup_vent_is_safe_stop_relief": False,
+            "safe_stop_relief_required": False,
+            "safe_stop_relief_allowed": False,
+            "safe_stop_relief_command_sent": False,
+            "safe_stop_relief_blocked_reason": blocked_reason,
+            "vent_blocked_after_flush_phase_is_failure": True,
+            "vent_blocked_after_flush_phase_context": context.get("vent_blocked_after_flush_phase_context"),
             "reason": reason,
         }
 
@@ -3724,6 +3863,8 @@ class WorkflowOrchestrator:
                 )
             updated["last_conditioning_pressure_hpa"] = round(float(pressure_value), 3)
             updated["last_conditioning_pressure_monotonic_s"] = float(event_monotonic_s)
+            updated["latest_route_conditioning_pressure_hpa"] = round(float(pressure_value), 3)
+            updated["latest_route_conditioning_pressure_recorded_monotonic_s"] = float(event_monotonic_s)
         if vent_command_sent:
             vent_write_sent = self._as_float(vent_command_write_sent_monotonic_s)
             if vent_write_sent is None:
@@ -3811,6 +3952,28 @@ class WorkflowOrchestrator:
             None
             if not including_terminal_candidates
             else round(max(float(value) for value in including_terminal_candidates), 3)
+        )
+        threshold_ms = self._as_float(updated.get("max_vent_pulse_gap_limit_ms"))
+        if threshold_ms is None:
+            threshold_ms = self._as_float(updated.get("route_conditioning_effective_max_gap_s"))
+            threshold_ms = None if threshold_ms is None else round(float(threshold_ms) * 1000.0, 3)
+        if threshold_ms is None:
+            threshold_ms = round(self._a2_conditioning_vent_maintenance_max_gap_s() * 1000.0, 3)
+        max_write_gap_ms = self._as_float(updated.get("max_vent_pulse_write_gap_ms_including_terminal_gap"))
+        phase = str(updated.get("route_conditioning_phase") or updated.get("terminal_gap_source") or "unknown")
+        exceeded = bool(max_write_gap_ms is not None and float(max_write_gap_ms) > float(threshold_ms))
+        updated["max_vent_pulse_write_gap_phase"] = phase
+        updated["max_vent_pulse_write_gap_threshold_ms"] = round(float(threshold_ms), 3)
+        updated["max_vent_pulse_write_gap_threshold_source"] = (
+            "route_conditioning_effective_max_gap_s"
+            if updated.get("route_conditioning_effective_max_gap_s") not in (None, "")
+            else "route_conditioning_vent_maintenance_max_gap_s"
+        )
+        updated["max_vent_pulse_write_gap_exceeded"] = exceeded
+        updated["max_vent_pulse_write_gap_not_exceeded_reason"] = (
+            ""
+            if exceeded or max_write_gap_ms is None
+            else f"{round(float(max_write_gap_ms), 3)}ms <= {round(float(threshold_ms), 3)}ms in {phase}"
         )
         computed_scheduler_gap_ms = None if not scheduler_gaps_ms else round(max(float(item) for item in scheduler_gaps_ms), 3)
         existing_scheduler_gap_ms = self._as_float(updated.get("max_vent_scheduler_loop_gap_ms"))
@@ -3905,6 +4068,28 @@ class WorkflowOrchestrator:
         }
         terminal_exceeded = bool(
             terminal_gap_ms is not None and float(terminal_gap_ms) > float(max_gap_s) * 1000.0
+        )
+        write_gap_exceeded = bool(
+            including_gap_ms is not None and float(including_gap_ms) > float(max_gap_s) * 1000.0
+        )
+        details.update(
+            {
+                "max_vent_pulse_write_gap_phase": str(
+                    updated.get("route_conditioning_phase") or source_text or "unknown"
+                ),
+                "max_vent_pulse_write_gap_threshold_ms": round(float(max_gap_s) * 1000.0, 3),
+                "max_vent_pulse_write_gap_threshold_source": "route_conditioning_effective_max_gap_s",
+                "max_vent_pulse_write_gap_exceeded": write_gap_exceeded,
+                "max_vent_pulse_write_gap_not_exceeded_reason": (
+                    ""
+                    if write_gap_exceeded or including_gap_ms is None
+                    else (
+                        f"{round(float(including_gap_ms), 3)}ms <= "
+                        f"{round(float(max_gap_s) * 1000.0, 3)}ms in "
+                        f"{str(updated.get('route_conditioning_phase') or source_text or 'unknown')}"
+                    )
+                ),
+            }
         )
         if terminal_exceeded and source_text == "route_open_transition":
             details["route_open_transition_blocked_vent_scheduler"] = True
@@ -5078,6 +5263,15 @@ class WorkflowOrchestrator:
             or ""
         )
         context["a2_conditioning_pressure_source_strategy"] = self._a2_conditioning_pressure_source_mode()
+        context["latest_route_conditioning_pressure_source"] = context[
+            "selected_pressure_source_for_conditioning_monitor"
+        ]
+        context["latest_route_conditioning_pressure_age_s"] = details.get("selected_pressure_sample_age_s")
+        context["latest_route_conditioning_pressure_eligible_for_prearm_baseline"] = bool(
+            details.get("pressure_hpa") is not None
+            and details.get("selected_pressure_freshness_ok")
+            and not details.get("pressure_overlimit_seen")
+        )
         monitor_state = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "phase": phase,
@@ -5184,6 +5378,21 @@ class WorkflowOrchestrator:
             "max_vent_pulse_write_gap_ms_including_terminal_gap": context.get(
                 "max_vent_pulse_write_gap_ms_including_terminal_gap"
             ),
+            "max_vent_pulse_write_gap_phase": context.get("max_vent_pulse_write_gap_phase", ""),
+            "max_vent_pulse_write_gap_threshold_ms": context.get(
+                "max_vent_pulse_write_gap_threshold_ms"
+            ),
+            "max_vent_pulse_write_gap_threshold_source": context.get(
+                "max_vent_pulse_write_gap_threshold_source",
+                "",
+            ),
+            "max_vent_pulse_write_gap_exceeded": bool(
+                context.get("max_vent_pulse_write_gap_exceeded", False)
+            ),
+            "max_vent_pulse_write_gap_not_exceeded_reason": context.get(
+                "max_vent_pulse_write_gap_not_exceeded_reason",
+                "",
+            ),
             "route_conditioning_vent_gap_exceeded_source": context.get(
                 "route_conditioning_vent_gap_exceeded_source",
                 "",
@@ -5226,6 +5435,17 @@ class WorkflowOrchestrator:
                 "route_conditioning_pressure_rise_rate_hpa_per_s"
             ),
             "route_conditioning_peak_pressure_hpa": context.get("route_conditioning_peak_pressure_hpa"),
+            "latest_route_conditioning_pressure_hpa": context.get("latest_route_conditioning_pressure_hpa"),
+            "latest_route_conditioning_pressure_source": context.get(
+                "latest_route_conditioning_pressure_source",
+                "",
+            ),
+            "latest_route_conditioning_pressure_age_s": context.get(
+                "latest_route_conditioning_pressure_age_s"
+            ),
+            "latest_route_conditioning_pressure_eligible_for_prearm_baseline": bool(
+                context.get("latest_route_conditioning_pressure_eligible_for_prearm_baseline", False)
+            ),
             "route_conditioning_pressure_overlimit": bool(context.get("route_conditioning_pressure_overlimit", False)),
             **self._a2_route_open_transient_evidence(context),
             "pressure_rise_since_last_vent_hpa": context.get("pressure_rise_since_last_vent_hpa"),
@@ -6259,6 +6479,19 @@ class WorkflowOrchestrator:
                 "max_vent_pulse_write_gap_ms_including_terminal_gap": context.get(
                     "max_vent_pulse_write_gap_ms_including_terminal_gap"
                 ),
+                "max_vent_pulse_write_gap_phase": context.get("max_vent_pulse_write_gap_phase"),
+                "max_vent_pulse_write_gap_threshold_ms": context.get(
+                    "max_vent_pulse_write_gap_threshold_ms"
+                ),
+                "max_vent_pulse_write_gap_threshold_source": context.get(
+                    "max_vent_pulse_write_gap_threshold_source"
+                ),
+                "max_vent_pulse_write_gap_exceeded": context.get(
+                    "max_vent_pulse_write_gap_exceeded"
+                ),
+                "max_vent_pulse_write_gap_not_exceeded_reason": context.get(
+                    "max_vent_pulse_write_gap_not_exceeded_reason"
+                ),
                 "max_vent_scheduler_loop_gap_ms": context.get("max_vent_scheduler_loop_gap_ms"),
                 "max_vent_command_total_duration_ms": context.get("max_vent_command_total_duration_ms"),
                 "route_open_transition_max_vent_write_gap_ms": context.get(
@@ -6598,6 +6831,15 @@ class WorkflowOrchestrator:
                         "terminal_vent_write_age_ms_at_gap_gate",
                         "max_vent_pulse_write_gap_ms_including_terminal_gap",
                         "max_vent_scheduler_loop_gap_ms",
+                        "max_vent_pulse_gap_limit_ms",
+                        "max_vent_pulse_write_gap_phase",
+                        "max_vent_pulse_write_gap_threshold_ms",
+                        "max_vent_pulse_write_gap_threshold_source",
+                        "max_vent_pulse_write_gap_exceeded",
+                        "max_vent_pulse_write_gap_not_exceeded_reason",
+                        "route_conditioning_vent_gap_exceeded_source",
+                        "terminal_gap_source",
+                        "terminal_gap_operation",
                     }
                 }
             )
@@ -6778,6 +7020,159 @@ class WorkflowOrchestrator:
         self._request_a2_high_pressure_route_open_pressure_sample(point)
         return dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or context)
 
+    def _a2_prearm_route_conditioning_baseline_max_age_s(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.a2_prearm_route_conditioning_baseline_max_age_s",
+                self._cfg_get("workflow.pressure.prearm_route_conditioning_baseline_max_age_s", 2.0),
+            )
+        )
+        return min(10.0, max(0.1, float(2.0 if value is None else value)))
+
+    def _a2_prearm_baseline_atmosphere_band_hpa(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.a2_prearm_baseline_atmosphere_band_hpa",
+                self._cfg_get("workflow.pressure.prearm_baseline_atmosphere_band_hpa", 2.0),
+            )
+        )
+        return min(25.0, max(0.01, float(2.0 if value is None else value)))
+
+    def _a2_prearm_baseline_sources(self, sample: Mapping[str, Any]) -> dict[str, Any]:
+        pace_sample = sample.get("pace_pressure_sample")
+        pace_sample = dict(pace_sample) if isinstance(pace_sample, Mapping) else {}
+        sample_source = str(sample.get("pressure_sample_source") or sample.get("source") or "")
+        selected_source = str(
+            sample.get("pressure_source_selected")
+            or sample.get("pressure_source_used_for_decision")
+            or sample.get("pressure_source_used_for_abort")
+            or ""
+        )
+        observed = selected_source or sample_source
+        selection_reason = str(
+            sample.get("pressure_source_selection_reason")
+            or sample.get("source_selection_reason")
+            or ""
+        )
+        disagreement = bool(
+            sample.get("prearm_pressure_source_disagreement")
+            or sample.get("pressure_source_disagreement")
+            or "disagreement" in selection_reason.lower()
+        )
+        if disagreement and pace_sample.get("pressure_hpa") is not None:
+            pace_source = str(pace_sample.get("pressure_sample_source") or pace_sample.get("source") or "pace_controller")
+            observed = f"{sample_source or 'unknown'} vs {pace_source}"
+        return {
+            "observed": observed,
+            "selected_source": selected_source,
+            "sample_source": sample_source,
+            "selection_reason": selection_reason,
+            "disagreement": disagreement,
+            "disagreement_reason": selection_reason if disagreement else "",
+        }
+
+    def _a2_latest_route_conditioning_prearm_baseline(self) -> dict[str, Any]:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {
+                "pressure_hpa": None,
+                "source": "",
+                "age_s": None,
+                "eligible": False,
+                "ineligible_reason": "route_conditioning_context_unavailable",
+            }
+        pressure = self._a2_conditioning_first_float(
+            context.get("latest_route_conditioning_pressure_hpa"),
+            context.get("last_conditioning_pressure_hpa"),
+            context.get("route_conditioning_pressure_after_route_open_hpa"),
+            context.get("route_conditioning_pressure_before_route_open_hpa"),
+            context.get("measured_atmospheric_pressure_hpa"),
+        )
+        source = str(
+            context.get("latest_route_conditioning_pressure_source")
+            or context.get("last_conditioning_pressure_source")
+            or context.get("selected_pressure_source_for_conditioning_monitor")
+            or context.get("measured_atmospheric_pressure_source")
+            or "route_conditioning_pressure"
+        )
+        recorded_mono = self._as_float(
+            context.get("latest_route_conditioning_pressure_recorded_monotonic_s")
+            or context.get("last_conditioning_pressure_monotonic_s")
+        )
+        if recorded_mono is not None:
+            age_s = round(max(0.0, time.monotonic() - float(recorded_mono)), 3)
+        else:
+            age_s = self._a2_conditioning_first_float(
+                context.get("latest_route_conditioning_pressure_age_s"),
+                context.get("last_conditioning_pressure_sample_age_s"),
+                context.get("measured_atmospheric_pressure_sample_age_s"),
+            )
+        atmosphere = self._a2_conditioning_first_float(
+            context.get("measured_atmospheric_pressure_hpa"),
+            context.get("route_conditioning_pressure_before_route_open_hpa"),
+        )
+        delta = None if pressure is None or atmosphere is None else round(abs(float(pressure) - float(atmosphere)), 3)
+        max_age_s = self._a2_prearm_route_conditioning_baseline_max_age_s()
+        band_hpa = self._a2_prearm_baseline_atmosphere_band_hpa()
+        mix_risk_reason = self._a2_conditioning_relief_mix_risk_reason(context)
+        reason = ""
+        if pressure is None:
+            reason = "latest_route_conditioning_pressure_unavailable"
+        elif age_s is None:
+            reason = "latest_route_conditioning_pressure_age_unavailable"
+        elif float(age_s) > max_age_s:
+            reason = "latest_route_conditioning_pressure_stale"
+        elif delta is not None and float(delta) > band_hpa:
+            reason = "latest_route_conditioning_pressure_not_atmospheric"
+        elif bool(context.get("route_conditioning_pressure_overlimit")) or bool(
+            context.get("route_conditioning_hard_abort_exceeded")
+        ):
+            reason = "route_conditioning_pressure_overlimit"
+        elif mix_risk_reason:
+            reason = mix_risk_reason
+        eligible = not bool(reason)
+        sample = {
+            "stage": "high_pressure_first_point_prearm",
+            "pressure_hpa": pressure,
+            "pressure_sample_source": source,
+            "source": source,
+            "sample_age_s": age_s,
+            "pressure_sample_age_s": age_s,
+            "is_stale": not eligible,
+            "pressure_sample_is_stale": not eligible,
+            "parse_ok": pressure is not None,
+            "pressure_source_selected": source if eligible else "",
+            "pressure_source_selection_reason": (
+                "latest_route_conditioning_pressure_selected_for_prearm_baseline"
+                if eligible
+                else reason
+            ),
+            "source_selection_reason": (
+                "latest_route_conditioning_pressure_selected_for_prearm_baseline"
+                if eligible
+                else reason
+            ),
+            "a2_3_pressure_source_strategy": context.get(
+                "a2_conditioning_pressure_source_strategy",
+                self._a2_conditioning_pressure_source_mode(),
+            ),
+            "critical_window_uses_latest_frame": False,
+            "critical_window_uses_query": False,
+        }
+        return {
+            "pressure_hpa": pressure,
+            "source": source,
+            "age_s": age_s,
+            "eligible": eligible,
+            "ineligible_reason": reason,
+            "max_age_s": max_age_s,
+            "atmosphere_hpa": atmosphere,
+            "atmosphere_delta_hpa": delta,
+            "atmosphere_band_hpa": band_hpa,
+            "sample": sample,
+            "context": context,
+        }
+
     def _prearm_a2_high_pressure_first_point_mode(
         self,
         point: CalibrationPoint,
@@ -6823,23 +7218,136 @@ class WorkflowOrchestrator:
         sample_reader = getattr(self.pressure_control_service, "_current_high_pressure_first_point_sample", None)
         sample = sample_reader(stage="high_pressure_first_point_prearm", point_index=point.index) if callable(sample_reader) else {}
         sample = dict(sample) if isinstance(sample, Mapping) else {}
+        raw_sample = dict(sample)
         baseline_pressure = self._as_float(sample.get("pressure_hpa"))
         baseline_stale = bool(sample.get("is_stale", sample.get("pressure_sample_is_stale")))
         baseline_age = self._as_float(sample.get("sample_age_s", sample.get("pressure_sample_age_s")))
+        conditioning_completed = bool(getattr(self, "_a2_co2_route_conditioning_completed", False))
+        route_context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        pressure_source_mode = str(
+            route_context.get("a2_conditioning_pressure_source_strategy")
+            or self._a2_conditioning_pressure_source_mode()
+        )
+        source_evidence = self._a2_prearm_baseline_sources(sample)
+        prearm_expected_source = pressure_source_mode
+        raw_observed_source = str(source_evidence.get("observed") or "")
+        route_baseline = self._a2_latest_route_conditioning_prearm_baseline()
+        latest_route_eligible = bool(route_baseline.get("eligible"))
+        raw_alignment_ok = bool(
+            raw_observed_source
+            and not bool(source_evidence.get("disagreement"))
+            and (
+                prearm_expected_source != "v1_aligned"
+                or "p3" in raw_observed_source.lower()
+                or "route_conditioning" in raw_observed_source.lower()
+                or "digital_pressure_gauge" == raw_observed_source
+            )
+        )
+        use_route_conditioning_baseline = bool(
+            pressure_source_mode == "v1_aligned"
+            and conditioning_completed
+            and latest_route_eligible
+            and (
+                baseline_pressure is None
+                or baseline_stale
+                or bool(source_evidence.get("disagreement"))
+                or not raw_alignment_ok
+            )
+        )
+        baseline_sample_for_context = sample
+        v1_aligned_decision = str(source_evidence.get("selection_reason") or "")
+        if use_route_conditioning_baseline:
+            sample = dict(route_baseline.get("sample") or {})
+            baseline_sample_for_context = sample
+            baseline_pressure = self._as_float(sample.get("pressure_hpa"))
+            baseline_stale = False
+            baseline_age = self._as_float(sample.get("sample_age_s", sample.get("pressure_sample_age_s")))
+            v1_aligned_decision = "latest_route_conditioning_pressure_selected_for_prearm_baseline"
+        selected_source_text = str(
+            sample.get("pressure_source_selected")
+            or sample.get("pressure_source_used_for_decision")
+            or sample.get("pressure_sample_source")
+            or sample.get("source")
+            or ""
+        )
+        prearm_alignment_ok = bool(
+            selected_source_text
+            and (
+                pressure_source_mode != "v1_aligned"
+                or use_route_conditioning_baseline
+                or "p3" in selected_source_text.lower()
+                or "route_conditioning" in selected_source_text.lower()
+                or selected_source_text == "digital_pressure_gauge"
+            )
+            and (use_route_conditioning_baseline or not bool(source_evidence.get("disagreement")))
+        )
+        baseline_stale_reason = ""
+        if baseline_pressure is None:
+            baseline_stale_reason = "baseline_pressure_sample_unavailable"
+        elif baseline_stale:
+            baseline_stale_reason = (
+                str(sample.get("fail_closed_reason") or "")
+                or str(sample.get("pressure_source_selection_reason") or sample.get("source_selection_reason") or "")
+                or "baseline_pressure_sample_stale"
+            )
+        elif not prearm_alignment_ok:
+            baseline_stale_reason = "prearm_pressure_source_disagreement"
         context.update(
             {
-                "baseline_pressure_sample": sample,
+                "high_pressure_first_point_prearm_started": True,
+                "high_pressure_first_point_prearm_blocked": False,
+                "high_pressure_first_point_prearm_block_reason": "",
+                "high_pressure_first_point_prearm_phase": "high_pressure_first_point_prearm",
+                "baseline_pressure_sample": baseline_sample_for_context,
+                "prearm_raw_pressure_sample": raw_sample,
                 "baseline_pressure_hpa": baseline_pressure,
                 "baseline_pressure_source": sample.get("pressure_sample_source") or sample.get("source"),
                 "baseline_pressure_age_s": baseline_age,
+                "baseline_pressure_sample_age_s": baseline_age,
                 "baseline_pressure_stale": baseline_stale,
+                "baseline_pressure_freshness_ok": bool(
+                    baseline_pressure is not None and not baseline_stale and prearm_alignment_ok
+                ),
+                "baseline_pressure_stale_reason": baseline_stale_reason,
+                "prearm_pressure_source_expected": prearm_expected_source,
+                "prearm_pressure_source_observed": raw_observed_source,
+                "prearm_pressure_source_alignment_ok": prearm_alignment_ok,
+                "prearm_pressure_source_disagreement": bool(source_evidence.get("disagreement")),
+                "prearm_pressure_source_disagreement_reason": str(
+                    source_evidence.get("disagreement_reason") or ""
+                ),
+                "conditioning_monitor_pressure_source": route_context.get(
+                    "selected_pressure_source_for_conditioning_monitor",
+                    "",
+                ),
+                "pressure_gate_pressure_source": route_context.get("selected_pressure_source_for_pressure_gate", ""),
+                "v1_aligned_pressure_source_decision": v1_aligned_decision,
+                "latest_route_conditioning_pressure_hpa": route_baseline.get("pressure_hpa"),
+                "latest_route_conditioning_pressure_source": route_baseline.get("source"),
+                "latest_route_conditioning_pressure_age_s": route_baseline.get("age_s"),
+                "latest_route_conditioning_pressure_eligible_for_prearm_baseline": latest_route_eligible,
+                "latest_route_conditioning_pressure_ineligible_reason": route_baseline.get("ineligible_reason", ""),
+                "latest_route_conditioning_pressure_atmosphere_delta_hpa": route_baseline.get(
+                    "atmosphere_delta_hpa"
+                ),
+                "latest_route_conditioning_pressure_atmosphere_band_hpa": route_baseline.get(
+                    "atmosphere_band_hpa"
+                ),
             }
         )
-        self._record_pressure_source_latency_events(sample, point=point, stage="high_pressure_first_point_prearm")
-        if baseline_pressure is None or baseline_stale:
-            context["trigger_reason"] = (
-                "baseline_pressure_sample_stale" if baseline_stale else "baseline_pressure_sample_unavailable"
-            )
+        self._record_pressure_source_latency_events(raw_sample, point=point, stage="high_pressure_first_point_prearm")
+        if baseline_pressure is None or baseline_stale or not prearm_alignment_ok:
+            if baseline_stale:
+                block_reason = "baseline_pressure_sample_stale"
+            elif baseline_pressure is None:
+                block_reason = "baseline_pressure_sample_unavailable"
+            else:
+                block_reason = "prearm_pressure_source_disagreement"
+            context["trigger_reason"] = block_reason
+            context["high_pressure_first_point_prearm_blocked"] = True
+            context["high_pressure_first_point_prearm_block_reason"] = block_reason
+            context["baseline_pressure_freshness_ok"] = False
+            context["baseline_pressure_stale_reason"] = context.get("baseline_pressure_stale_reason") or block_reason
             self._record_workflow_timing(
                 "pressure_polling_prearmed",
                 "fail",
@@ -6847,8 +7355,8 @@ class WorkflowOrchestrator:
                 point=point,
                 target_pressure_hpa=first_target,
                 pressure_hpa=baseline_pressure,
-                decision=context["trigger_reason"],
-                error_code=context["trigger_reason"],
+                decision=block_reason,
+                error_code=block_reason,
                 route_state=context,
             )
             raise WorkflowValidationError(
@@ -6857,7 +7365,6 @@ class WorkflowOrchestrator:
             )
         margin = self._as_float(self._cfg_get("workflow.pressure.high_pressure_first_point_margin_hpa", 0.0))
         margin = 0.0 if margin is None else float(margin)
-        conditioning_completed = bool(getattr(self, "_a2_co2_route_conditioning_completed", False))
         if conditioning_completed and first_target is not None and contains_1100:
             context["enabled"] = True
             context["ambient_reference_pressure_hpa"] = baseline_pressure

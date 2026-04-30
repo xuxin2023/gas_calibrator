@@ -838,12 +838,125 @@ def test_a2_high_pressure_first_point_rejects_stale_baseline_sample() -> None:
         for index, pressure in enumerate(A2_AUTHORIZED_PRESSURE_POINTS_HPA)
     ]
 
-    with pytest.raises(WorkflowValidationError):
+    with pytest.raises(WorkflowValidationError) as exc_info:
         orchestrator._prearm_a2_high_pressure_first_point_mode(point, pressure_points)
 
+    details = exc_info.value.context
+    assert details["high_pressure_first_point_prearm_started"] is True
+    assert details["high_pressure_first_point_prearm_blocked"] is True
+    assert details["high_pressure_first_point_prearm_block_reason"] == "baseline_pressure_sample_stale"
+    assert details["baseline_pressure_sample_age_s"] == 3.0
+    assert details["baseline_pressure_freshness_ok"] is False
+    assert details["baseline_pressure_stale_reason"]
     assert any(
         event["event_name"] == "pressure_polling_prearmed" and event["event_type"] == "fail"
         for event in timing_events
+    )
+
+
+def test_a2_high_pressure_first_point_uses_latest_route_conditioning_baseline_when_close_to_atmosphere() -> None:
+    stale = _high_pressure_sample(1014.508, stale=True)
+    stale.update(
+        {
+            "pressure_source_selected": "",
+            "pressure_source_selection_reason": "digital_latest_stale_pace_aux_disagreement",
+            "source_selection_reason": "digital_latest_stale_pace_aux_disagreement",
+            "pace_pressure_sample": {
+                "pressure_hpa": 3.336,
+                "pressure_sample_source": "pace_controller",
+                "source": "pace_controller",
+                "parse_ok": True,
+            },
+        }
+    )
+    orchestrator, _timing_events, _route_traces, remembered = _high_pressure_orchestrator(
+        stale,
+        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
+    )
+    now = time.monotonic()
+    orchestrator._a2_co2_route_conditioning_completed = True
+    orchestrator._a2_co2_route_conditioning_completed_at = "2026-04-30T14:00:00+00:00"
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context = {
+        "route_conditioning_phase": "ready_to_seal_phase",
+        "a2_conditioning_pressure_source_strategy": "v1_aligned",
+        "selected_pressure_source_for_conditioning_monitor": "digital_pressure_gauge_p3",
+        "latest_route_conditioning_pressure_hpa": 1007.819,
+        "latest_route_conditioning_pressure_source": "digital_pressure_gauge_p3",
+        "latest_route_conditioning_pressure_recorded_monotonic_s": now - 0.2,
+        "measured_atmospheric_pressure_hpa": 1007.817,
+        "route_conditioning_pressure_before_route_open_hpa": 1007.817,
+        "route_conditioning_pressure_overlimit": False,
+        "route_conditioning_hard_abort_exceeded": False,
+        "seal_command_sent": False,
+        "pressure_setpoint_command_sent": False,
+        "sampling_started": False,
+        "sample_count": 0,
+        "points_completed": 0,
+    }
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+    pressure_points = [
+        CalibrationPoint(index=index + 1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=pressure, route="co2")
+        for index, pressure in enumerate(A2_AUTHORIZED_PRESSURE_POINTS_HPA)
+    ]
+
+    context = orchestrator._prearm_a2_high_pressure_first_point_mode(point, pressure_points)
+
+    assert context["enabled"] is True
+    assert context["baseline_pressure_hpa"] == 1007.819
+    assert context["baseline_pressure_source"] == "digital_pressure_gauge_p3"
+    assert context["baseline_pressure_freshness_ok"] is True
+    assert context["baseline_pressure_stale_reason"] == ""
+    assert context["prearm_pressure_source_expected"] == "v1_aligned"
+    assert context["prearm_pressure_source_disagreement"] is True
+    assert context["prearm_pressure_source_alignment_ok"] is True
+    assert context["v1_aligned_pressure_source_decision"] == (
+        "latest_route_conditioning_pressure_selected_for_prearm_baseline"
+    )
+    assert context["latest_route_conditioning_pressure_eligible_for_prearm_baseline"] is True
+    assert context["latest_route_conditioning_pressure_atmosphere_delta_hpa"] == 0.002
+    assert remembered[0]["args"][0] == 1007.819
+
+
+def test_a2_high_pressure_first_point_records_source_disagreement_without_route_baseline() -> None:
+    stale = _high_pressure_sample(1014.508, stale=True)
+    stale.update(
+        {
+            "pressure_source_selected": "",
+            "pressure_source_selection_reason": "digital_latest_stale_pace_aux_disagreement",
+            "source_selection_reason": "digital_latest_stale_pace_aux_disagreement",
+            "pace_pressure_sample": {
+                "pressure_hpa": 3.336,
+                "pressure_sample_source": "pace_controller",
+                "source": "pace_controller",
+                "parse_ok": True,
+            },
+        }
+    )
+    orchestrator, _timing_events, _route_traces, _remembered = _high_pressure_orchestrator(
+        stale,
+        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
+    )
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+    pressure_points = [
+        CalibrationPoint(index=index + 1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=pressure, route="co2")
+        for index, pressure in enumerate(A2_AUTHORIZED_PRESSURE_POINTS_HPA)
+    ]
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        orchestrator._prearm_a2_high_pressure_first_point_mode(point, pressure_points)
+
+    details = exc_info.value.context
+    assert details["prearm_pressure_source_expected"] == "v1_aligned"
+    assert details["prearm_pressure_source_observed"] == (
+        "digital_pressure_gauge_continuous vs pace_controller"
+    )
+    assert details["prearm_pressure_source_disagreement"] is True
+    assert details["prearm_pressure_source_disagreement_reason"] == (
+        "digital_latest_stale_pace_aux_disagreement"
+    )
+    assert details["latest_route_conditioning_pressure_eligible_for_prearm_baseline"] is False
+    assert details["latest_route_conditioning_pressure_ineligible_reason"] == (
+        "route_conditioning_context_unavailable"
     )
 
 
@@ -2406,6 +2519,130 @@ def test_positive_preseal_abort_emergency_relief_blocks_mix_risk(
     assert blocked_reason in decision["emergency_abort_relief_vent_blocked_reason"]
     assert decision["cleanup_vent_classification"] == "emergency_abort_relief"
     assert decision["normal_maintenance_vent_blocked_after_flush_phase"] is False
+
+
+def test_cleanup_safe_stop_relief_allowed_after_flush_when_unsealed() -> None:
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context = {
+        "route_conditioning_phase": "ready_to_seal_phase",
+        "seal_command_sent": False,
+        "pressure_setpoint_command_sent": False,
+        "pressure_ready_started": False,
+        "sampling_started": False,
+        "sample_count": 0,
+        "points_completed": 0,
+        "any_write_command_sent": False,
+    }
+
+    decision = orchestrator._guard_a2_conditioning_vent_command(
+        reason="after CO2 route fail-closed",
+        vent_classification="cleanup_relief",
+    )
+
+    assert decision.get("vent_command_blocked") is not True
+    assert decision["cleanup_vent_requested"] is True
+    assert decision["cleanup_vent_classification"] == "cleanup_relief"
+    assert decision["cleanup_vent_allowed"] is True
+    assert decision["cleanup_vent_is_normal_maintenance"] is False
+    assert decision["cleanup_vent_is_safe_stop_relief"] is True
+    assert decision["safe_stop_relief_required"] is True
+    assert decision["safe_stop_relief_allowed"] is True
+    assert decision["safe_stop_relief_command_sent"] is True
+    assert decision["normal_maintenance_vent_blocked_after_flush_phase"] is False
+    assert decision["vent_blocked_after_flush_phase_is_failure"] is False
+
+
+def test_normal_maintenance_vent_after_flush_remains_blocked() -> None:
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    orchestrator._cfg_get = lambda _path, default=None: default
+    orchestrator._as_float = lambda value: None if value in (None, "") else float(value)
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context = {
+        "route_conditioning_phase": "ready_to_seal_phase",
+        "seal_command_sent": False,
+        "pressure_setpoint_command_sent": False,
+        "sampling_started": False,
+        "sample_count": 0,
+        "points_completed": 0,
+    }
+
+    decision = orchestrator._guard_a2_conditioning_vent_command(
+        reason="periodic maintenance",
+        vent_classification="normal_maintenance_vent",
+    )
+
+    assert decision["vent_command_blocked"] is True
+    assert decision["vent_pulse_blocked_reason"] == "route_conditioning_phase_not_flush"
+    assert decision["normal_maintenance_vent_blocked_after_flush_phase"] is True
+    assert decision["cleanup_vent_is_normal_maintenance"] is True
+    assert decision["cleanup_vent_is_safe_stop_relief"] is False
+    assert decision["vent_blocked_after_flush_phase_is_failure"] is True
+
+
+@pytest.mark.parametrize(
+    ("context_update", "blocked_reason"),
+    [
+        ({"seal_command_sent": True}, "seal_command_sent"),
+        ({"sampling_started": True}, "sample_started"),
+        ({"pressure_setpoint_command_sent": True}, "pressure_setpoint_command_sent"),
+    ],
+)
+def test_cleanup_safe_stop_relief_blocks_mix_risk(
+    context_update: dict,
+    blocked_reason: str,
+) -> None:
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    context = {
+        "route_conditioning_phase": "ready_to_seal_phase",
+        "seal_command_sent": False,
+        "pressure_setpoint_command_sent": False,
+        "sampling_started": False,
+        "sample_count": 0,
+        "points_completed": 0,
+        "any_write_command_sent": False,
+    }
+    context.update(context_update)
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context = context
+
+    decision = orchestrator._guard_a2_conditioning_vent_command(
+        reason="final safe stop",
+        vent_classification="safe_stop_relief",
+    )
+
+    assert decision["vent_command_blocked"] is True
+    assert decision["cleanup_vent_allowed"] is False
+    assert decision["cleanup_vent_is_normal_maintenance"] is False
+    assert decision["cleanup_vent_is_safe_stop_relief"] is True
+    assert decision["safe_stop_relief_allowed"] is False
+    assert decision["safe_stop_relief_command_sent"] is False
+    assert blocked_reason in decision["safe_stop_relief_blocked_reason"]
+    assert decision["normal_maintenance_vent_blocked_after_flush_phase"] is False
+    assert decision["vent_blocked_after_flush_phase_is_failure"] is False
+
+
+def test_max_vent_gap_phase_and_threshold_explain_non_exceeded(monkeypatch) -> None:
+    orchestrator, _point, _clock, _timing_events, _route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+    )
+    context = {
+        "route_conditioning_phase": "ready_to_seal_phase",
+        "max_vent_pulse_write_gap_ms_including_terminal_gap": 1107.851,
+        "max_vent_pulse_gap_limit_ms": 2000.0,
+        "vent_ticks": [],
+        "vent_pulse_interval_ms": [],
+    }
+
+    updated = orchestrator._a2_conditioning_context_with_counts(context)
+
+    assert updated["max_vent_pulse_write_gap_phase"] == "ready_to_seal_phase"
+    assert updated["max_vent_pulse_write_gap_threshold_ms"] == 2000.0
+    assert updated["max_vent_pulse_write_gap_threshold_source"] == (
+        "route_conditioning_vent_maintenance_max_gap_s"
+    )
+    assert updated["max_vent_pulse_write_gap_exceeded"] is False
+    assert updated["max_vent_pulse_write_gap_not_exceeded_reason"] == (
+        "1107.851ms <= 2000.0ms in ready_to_seal_phase"
+    )
 
 
 def test_co2_conditioning_gauge_sequence_stop_defers_pressure_monitor(monkeypatch) -> None:

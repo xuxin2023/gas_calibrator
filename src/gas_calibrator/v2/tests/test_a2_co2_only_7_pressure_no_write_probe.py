@@ -1336,6 +1336,118 @@ def test_a2_probe_summary_records_positive_preseal_abort_and_emergency_relief(
     assert summary["any_write_command_sent"] is False
 
 
+def test_a2_probe_does_not_reject_cleanup_safe_stop_relief_as_after_flush_maintenance(
+    tmp_path: Path,
+) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["point_results"] = []
+        payload["pressure_trace_rows"] = []
+        payload["sample_rows"] = []
+        payload["route_trace_rows"] = [
+            {
+                "timestamp": "2026-04-30T15:00:00+00:00",
+                "action": "set_vent",
+                "target": {"vent_on": True},
+                "result": "blocked",
+                "actual": {
+                    "vent_command_blocked": True,
+                    "vent_pulse_blocked_after_flush_phase": True,
+                    "vent_pulse_blocked_reason": "seal_command_sent",
+                    "normal_maintenance_vent_blocked_after_flush_phase": False,
+                    "cleanup_vent_requested": True,
+                    "cleanup_vent_classification": "safe_stop_relief",
+                    "cleanup_vent_phase": "ready_to_seal_phase",
+                    "cleanup_vent_allowed": False,
+                    "cleanup_vent_blocked_reason": "seal_command_sent",
+                    "cleanup_vent_is_normal_maintenance": False,
+                    "cleanup_vent_is_safe_stop_relief": True,
+                    "safe_stop_relief_required": True,
+                    "safe_stop_relief_allowed": False,
+                    "safe_stop_relief_command_sent": False,
+                    "safe_stop_relief_blocked_reason": "seal_command_sent",
+                    "vent_blocked_after_flush_phase_is_failure": False,
+                    "safe_stop_pressure_relief_result": "blocked:seal_command_sent",
+                },
+            }
+        ]
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_cleanup_safe_stop_relief",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert "a2_route_conditioning_vent_blocked_after_flush_phase" not in summary["rejection_reasons"]
+    assert summary["vent_pulse_blocked_after_flush_phase"] is True
+    assert summary["normal_maintenance_vent_blocked_after_flush_phase"] is False
+    assert summary["vent_blocked_after_flush_phase_is_failure"] is False
+    assert summary["cleanup_vent_classification"] == "safe_stop_relief"
+    assert summary["cleanup_vent_is_safe_stop_relief"] is True
+    assert summary["safe_stop_relief_allowed"] is False
+    assert summary["safe_stop_relief_blocked_reason"] == "seal_command_sent"
+
+
+def test_a2_probe_rejects_normal_maintenance_vent_blocked_after_flush(
+    tmp_path: Path,
+) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["point_results"] = []
+        payload["pressure_trace_rows"] = []
+        payload["sample_rows"] = []
+        payload["route_trace_rows"] = [
+            {
+                "timestamp": "2026-04-30T15:05:00+00:00",
+                "action": "set_vent",
+                "target": {"vent_on": True},
+                "result": "blocked",
+                "actual": {
+                    "vent_command_blocked": True,
+                    "vent_pulse_blocked_after_flush_phase": True,
+                    "vent_pulse_blocked_reason": "route_conditioning_phase_not_flush",
+                    "normal_maintenance_vent_blocked_after_flush_phase": True,
+                    "cleanup_vent_requested": True,
+                    "cleanup_vent_classification": "normal_maintenance_vent",
+                    "cleanup_vent_is_normal_maintenance": True,
+                    "cleanup_vent_is_safe_stop_relief": False,
+                    "vent_blocked_after_flush_phase_is_failure": True,
+                },
+            }
+        ]
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_normal_maintenance_after_flush",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert "a2_route_conditioning_vent_blocked_after_flush_phase" in summary["rejection_reasons"]
+    assert summary["normal_maintenance_vent_blocked_after_flush_phase"] is True
+    assert summary["cleanup_vent_classification"] == "normal_maintenance_vent"
+    assert summary["vent_blocked_after_flush_phase_is_failure"] is True
+
+
 def test_a2_probe_does_not_reject_pressure_gate_source_before_gate_reached(tmp_path: Path) -> None:
     config, config_path, op_path = _config_and_operator(tmp_path)
 
@@ -1513,6 +1625,13 @@ def test_a2_probe_treats_defer_latency_warning_as_non_vent_gap_when_actual_gap_o
             "fast_vent_after_defer_write_ms": 0.147,
             "max_vent_pulse_write_gap_ms_including_terminal_gap": 556.693,
             "max_vent_pulse_gap_limit_ms": 1000.0,
+            "max_vent_pulse_write_gap_phase": "route_conditioning_flush_phase",
+            "max_vent_pulse_write_gap_threshold_ms": 1000.0,
+            "max_vent_pulse_write_gap_threshold_source": "route_conditioning_effective_max_gap_s",
+            "max_vent_pulse_write_gap_exceeded": False,
+            "max_vent_pulse_write_gap_not_exceeded_reason": (
+                "556.693ms <= 1000.0ms in route_conditioning_flush_phase"
+            ),
             "measured_atmospheric_pressure_hpa": 1012.46,
             "measured_atmospheric_pressure_source": "route_trace_pre_route_vent_pressure",
             "route_conditioning_pressure_before_route_open_hpa": 1012.46,
@@ -1576,6 +1695,13 @@ def test_a2_probe_treats_defer_latency_warning_as_non_vent_gap_when_actual_gap_o
     assert summary["vent_gap_exceeded_after_defer"] is False
     assert summary["vent_gap_after_defer_threshold_ms"] == 1000.0
     assert summary["max_vent_pulse_write_gap_ms_including_terminal_gap"] == 556.693
+    assert summary["max_vent_pulse_write_gap_phase"] == "route_conditioning_flush_phase"
+    assert summary["max_vent_pulse_write_gap_threshold_ms"] == 1000.0
+    assert summary["max_vent_pulse_write_gap_threshold_source"] == "route_conditioning_effective_max_gap_s"
+    assert summary["max_vent_pulse_write_gap_exceeded"] is False
+    assert summary["max_vent_pulse_write_gap_not_exceeded_reason"] == (
+        "556.693ms <= 1000.0ms in route_conditioning_flush_phase"
+    )
     assert summary["route_open_transient_evaluation_state"] == "continuing_after_defer_warning"
     assert summary["route_open_transient_interrupted_by_vent_gap"] is False
     assert summary["route_open_transient_rejection_reason"] == ""

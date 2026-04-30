@@ -2416,7 +2416,19 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     unsafe_vent_command_sent = _as_bool(
         metric_or_summary("unsafe_vent_after_seal_or_pressure_control_command_sent")
     ) is True
-    vent_blocked_after_flush = _as_bool(metric_or_summary("vent_pulse_blocked_after_flush_phase")) is True
+    raw_vent_blocked_after_flush = _as_bool(metric_or_summary("vent_pulse_blocked_after_flush_phase")) is True
+    raw_vent_blocked_after_flush_is_failure = metric_or_summary("vent_blocked_after_flush_phase_is_failure")
+    normal_maintenance_blocked_after_flush = _as_bool(
+        metric_or_summary("normal_maintenance_vent_blocked_after_flush_phase")
+    ) is True
+    vent_blocked_after_flush = bool(
+        raw_vent_blocked_after_flush
+        and (
+            (_as_bool(raw_vent_blocked_after_flush_is_failure) is True)
+            if raw_vent_blocked_after_flush_is_failure is not None
+            else normal_maintenance_blocked_after_flush
+        )
+    )
     positive_preseal_abort_reason = str(
         metric_or_summary("positive_preseal_abort_reason", "abort_reason") or ""
     ).strip()
@@ -3205,6 +3217,22 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "max_vent_pulse_write_gap_ms": max_vent_pulse_write_gap_ms,
         "max_vent_command_total_duration_ms": metric_or_summary("max_vent_command_total_duration_ms"),
         "max_vent_pulse_gap_limit_ms": max_vent_pulse_gap_limit_ms,
+        "max_vent_pulse_write_gap_phase": metric_or_summary("max_vent_pulse_write_gap_phase") or "",
+        "max_vent_pulse_write_gap_threshold_ms": metric_or_summary(
+            "max_vent_pulse_write_gap_threshold_ms"
+        ),
+        "max_vent_pulse_write_gap_threshold_source": metric_or_summary(
+            "max_vent_pulse_write_gap_threshold_source"
+        )
+        or "",
+        "max_vent_pulse_write_gap_exceeded": _as_bool(
+            metric_or_summary("max_vent_pulse_write_gap_exceeded")
+        )
+        is True,
+        "max_vent_pulse_write_gap_not_exceeded_reason": metric_or_summary(
+            "max_vent_pulse_write_gap_not_exceeded_reason"
+        )
+        or "",
         "vent_scheduler_tick_count": int(metric_or_summary("vent_scheduler_tick_count") or 0),
         "vent_scheduler_loop_gap_ms": metric_or_summary("vent_scheduler_loop_gap_ms") or [],
         "max_vent_scheduler_loop_gap_ms": metric_or_summary("max_vent_scheduler_loop_gap_ms"),
@@ -3353,8 +3381,36 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         )
         is True,
         "cleanup_vent_classification": metric_or_summary("cleanup_vent_classification") or "",
+        "cleanup_vent_requested": _as_bool(metric_or_summary("cleanup_vent_requested")) is True,
+        "cleanup_vent_phase": metric_or_summary("cleanup_vent_phase") or "",
+        "cleanup_vent_reason": metric_or_summary("cleanup_vent_reason") or "",
+        "cleanup_vent_allowed": _as_bool(metric_or_summary("cleanup_vent_allowed")) is True,
+        "cleanup_vent_blocked_reason": metric_or_summary("cleanup_vent_blocked_reason") or "",
+        "cleanup_vent_is_normal_maintenance": _as_bool(
+            metric_or_summary("cleanup_vent_is_normal_maintenance")
+        )
+        is True,
+        "cleanup_vent_is_safe_stop_relief": _as_bool(
+            metric_or_summary("cleanup_vent_is_safe_stop_relief")
+        )
+        is True,
+        "safe_stop_relief_required": _as_bool(metric_or_summary("safe_stop_relief_required")) is True,
+        "safe_stop_relief_allowed": _as_bool(metric_or_summary("safe_stop_relief_allowed")) is True,
+        "safe_stop_relief_command_sent": _as_bool(
+            metric_or_summary("safe_stop_relief_command_sent")
+        )
+        is True,
+        "safe_stop_relief_blocked_reason": metric_or_summary("safe_stop_relief_blocked_reason") or "",
+        "vent_blocked_after_flush_phase_is_failure": _as_bool(
+            metric_or_summary("vent_blocked_after_flush_phase_is_failure")
+        )
+        is True,
+        "vent_blocked_after_flush_phase_context": metric_or_summary(
+            "vent_blocked_after_flush_phase_context"
+        )
+        or {},
         "safe_stop_pressure_relief_result": metric_or_summary("safe_stop_pressure_relief_result") or "",
-        "vent_pulse_blocked_after_flush_phase": vent_blocked_after_flush,
+        "vent_pulse_blocked_after_flush_phase": raw_vent_blocked_after_flush,
         "vent_pulse_blocked_reason": metric_or_summary("vent_pulse_blocked_reason") or "",
         "attempted_unsafe_vent_after_seal_or_pressure_control": _as_bool(
             metric_or_summary("attempted_unsafe_vent_after_seal_or_pressure_control")
