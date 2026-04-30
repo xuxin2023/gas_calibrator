@@ -444,6 +444,55 @@ def test_full_r0_pressure_gauge_uses_paroscientific_p3_before_unavailable(tmp_pa
     assert pressure["pressure_gauge_unavailable"] is False
 
 
+def test_full_r0_pressure_controller_idn_no_response_uses_v1_aligned_ping(tmp_path: Path) -> None:
+    class PressureControllerStatusSerial(FakePressureSerial):
+        def __init__(self) -> None:
+            super().__init__()
+            self._last_write = b""
+
+        def write(self, payload: bytes) -> int:
+            self.writes.append(payload)
+            self._last_write = payload
+            if b":OUTP:STAT?" in payload:
+                self._line_queue.append(b"0\n")
+            elif b":SOUR:PRES:LEV:IMM:AMPL:VENT?" in payload:
+                self._line_queue.append(b"0\n")
+            elif b":SYST:ERR?" in payload:
+                self._line_queue.append(b'0,"No error"\n')
+            return len(payload)
+
+    handle = PressureControllerStatusSerial()
+    summary = write_query_only_real_com_probe_artifacts(
+        _config_only("pressure_controller"),
+        output_dir=tmp_path / "r0",
+        config_path=tmp_path / "r0_config.json",
+        cli_allow=True,
+        env={QUERY_ONLY_REAL_COM_ENV_VAR: "1"},
+        operator_confirmation_path=_operator_confirmation(tmp_path),
+        execute_query_only=True,
+        serial_factory=lambda _device: handle,
+        chamber_client_factory=lambda _device: ReadOnlyChamberClient(),
+    )
+
+    assert summary["final_decision"] == "PASS"
+    assert summary["query_failure_seen"] is False
+    assert summary["pressure_controller_identity_query_command"] == "*IDN?"
+    assert summary["pressure_controller_identity_query_result"] == "unsupported_identity_query"
+    assert summary["pressure_controller_identity_query_error"] == "unsupported_identity_query"
+    assert summary["pressure_controller_v1_aligned_ping_command"] == ":OUTP:STAT?"
+    assert summary["pressure_controller_v1_aligned_ping_result"] == "available"
+    assert summary["pressure_controller_offline_decision_source"] == "v1_aligned_readonly_ping"
+
+    results = json.loads(Path(summary["artifact_paths"]["query_results"]).read_text(encoding="utf-8"))
+    identity = next(item for item in results if item.get("command") == "*IDN?")
+    status = next(item for item in results if item.get("command") == ":OUTP:STAT?")
+    assert identity["result"] == "unsupported_identity_query"
+    assert identity["offline_decision_blocked_by_identity_query_only"] is True
+    assert status["result"] == "available"
+    assert status["pressure_controller_query_role"] == "v1_aligned_readonly_ping"
+    assert all(b"OUTP:STAT 0" not in payload for payload in handle.writes)
+
+
 def test_full_r0_temperature_chamber_uses_modbus_readonly_driver(tmp_path: Path) -> None:
     chamber_client = ReadOnlyChamberClient()
     summary = write_query_only_real_com_probe_artifacts(

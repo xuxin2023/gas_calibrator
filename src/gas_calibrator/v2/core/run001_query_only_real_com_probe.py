@@ -421,7 +421,14 @@ def _safe_read_commands(device: Mapping[str, Any], raw_cfg: Mapping[str, Any]) -
     device_name = str(device.get("device_name") or "")
     commands: list[str] = []
     if device_type == "pressure_controller":
-        commands.append("*IDN?")
+        commands.extend(
+            [
+                "*IDN?",
+                ":OUTP:STAT?",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?",
+                ":SYST:ERR?",
+            ]
+        )
     elif device_type == "pressure_gauge":
         commands.append("<paroscientific_p3_readonly>")
     elif device_type in {"gas_analyzer", "thermometer"}:
@@ -435,10 +442,8 @@ def _safe_read_commands(device: Mapping[str, Any], raw_cfg: Mapping[str, Any]) -
     out: list[dict[str, Any]] = []
     for command in commands:
         command_text = str(command)
-        safe = (
-            command_text.startswith("<")
-            or command_text.endswith("?")
-        ) and not any(token in command_text.upper() for token in BLOCKED_COMMAND_TOKENS)
+        is_read_query = command_text.endswith("?")
+        safe = command_text.startswith("<") or is_read_query
         out.append(
             {
                 "command": command_text,
@@ -554,11 +559,28 @@ def _execute_device_query(
             else:
                 handle.write((command_text + "\n").encode("ascii"))
                 raw_response = handle.readline()
+            result_text = "available" if raw_response else "unavailable"
+            extra: dict[str, Any] = {}
+            if device_type == "pressure_controller":
+                role = "identity_query" if command_text == "*IDN?" else "v1_aligned_readonly_ping"
+                extra.update(
+                    {
+                        "pressure_controller_driver_profile": "gas_calibrator.devices.pace5000.Pace5000",
+                        "pressure_controller_protocol_profile": "pace5000_scpi_v1_aligned",
+                        "pressure_controller_command_terminator": "LF",
+                        "pressure_controller_query_role": role,
+                        "offline_decision_source": "v1_aligned_readonly_ping",
+                    }
+                )
+                if command_text == "*IDN?" and not raw_response:
+                    result_text = "unsupported_identity_query"
+                    extra["offline_decision_blocked_by_identity_query_only"] = True
             results.append(
                 {
                     **dict(device),
                     **command,
-                    "result": "available" if raw_response else "unavailable",
+                    **extra,
+                    "result": result_text,
                     "raw_response": raw_response.decode("utf-8", errors="replace") if raw_response else "",
                 }
             )
@@ -634,13 +656,24 @@ def write_query_only_real_com_probe_artifacts(
                 query_results.append({**dict(device), **command, "result": "admission_only_not_queried", "raw_response": ""})
 
     occupied_ports = [row for row in query_results if row.get("result") == "occupied_port"]
+    pressure_controller_status_available = any(
+        row.get("device_type") == "pressure_controller"
+        and row.get("pressure_controller_query_role") == "v1_aligned_readonly_ping"
+        and row.get("result") == "available"
+        for row in query_results
+    )
     query_failures = [
         row
         for row in query_results
         if execute_query_only
         and (
-            row.get("result") in {"unsupported", "unavailable"}
+            row.get("result") in {"unsupported", "unavailable", "unsupported_identity_query"}
             and row.get("command") != "<open_close_only>"
+        )
+        and not (
+            row.get("device_type") == "pressure_controller"
+            and row.get("result") == "unsupported_identity_query"
+            and pressure_controller_status_available
         )
     ]
     final_decision = (
@@ -658,6 +691,25 @@ def write_query_only_real_com_probe_artifacts(
     }
     pressure_result = next((row for row in query_results if row.get("device_type") == "pressure_gauge"), {})
     chamber_result = next((row for row in query_results if row.get("device_type") == "temperature_chamber"), {})
+    pressure_controller_identity_result = next(
+        (
+            row
+            for row in query_results
+            if row.get("device_type") == "pressure_controller"
+            and row.get("pressure_controller_query_role") == "identity_query"
+        ),
+        {},
+    )
+    pressure_controller_ping_result = next(
+        (
+            row
+            for row in query_results
+            if row.get("device_type") == "pressure_controller"
+            and row.get("pressure_controller_query_role") == "v1_aligned_readonly_ping"
+            and row.get("result") == "available"
+        ),
+        {},
+    )
     opened_ports = sorted(
         {
             str(row.get("port") or "")
@@ -697,6 +749,21 @@ def write_query_only_real_com_probe_artifacts(
         "occupied_ports": occupied_ports,
         "query_failure_seen": bool(query_failures),
         "query_failures": query_failures,
+        "pressure_controller_identity_query_command": pressure_controller_identity_result.get("command"),
+        "pressure_controller_identity_query_result": pressure_controller_identity_result.get("result"),
+        "pressure_controller_identity_query_raw_response": pressure_controller_identity_result.get("raw_response"),
+        "pressure_controller_identity_query_error": (
+            "unsupported_identity_query"
+            if pressure_controller_identity_result.get("result") == "unsupported_identity_query"
+            else ""
+        ),
+        "pressure_controller_v1_aligned_ping_command": pressure_controller_ping_result.get("command"),
+        "pressure_controller_v1_aligned_ping_result": pressure_controller_ping_result.get("result"),
+        "pressure_controller_offline_decision_source": (
+            "v1_aligned_readonly_ping"
+            if pressure_controller_ping_result
+            else "no_v1_aligned_readonly_ping_response"
+        ),
         "pressure_gauge_protocol_profile": pressure_result.get("pressure_gauge_protocol_profile"),
         "pressure_gauge_probe_status": pressure_result.get("pressure_gauge_probe_status"),
         "pressure_gauge_unavailable": bool(pressure_result.get("pressure_gauge_unavailable")),

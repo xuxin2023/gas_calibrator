@@ -483,6 +483,195 @@ def _same_pressure_points(value: Any) -> bool:
     return all(abs(float(a) - float(b)) <= 1e-6 for a, b in zip(points, A2_ALLOWED_PRESSURE_POINTS_HPA))
 
 
+def _mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _device_cfg(raw_cfg: Mapping[str, Any], *names: str) -> dict[str, Any]:
+    devices = _mapping(raw_cfg.get("devices"))
+    for name in names:
+        value = devices.get(name)
+        if isinstance(value, Mapping):
+            return dict(value)
+    return {}
+
+
+def _serial_settings(device: Mapping[str, Any], *, default_baud: int = 9600) -> dict[str, Any]:
+    return {
+        "baud": int(device.get("baud") or device.get("baudrate") or default_baud),
+        "parity": str(device.get("parity") or "N"),
+        "stopbits": device.get("stopbits", 1),
+        "bytesize": device.get("bytesize", 8),
+        "timeout_s": float(device.get("timeout") or device.get("timeout_s") or 1.0),
+    }
+
+
+def _line_ending_label(value: Any) -> str:
+    text = str(value or "").strip()
+    if text in {"\n", "LF", "lf"}:
+        return "LF"
+    if text in {"\r\n", "CRLF", "crlf"}:
+        return "CRLF"
+    if text in {"\r", "CR", "cr"}:
+        return "CR"
+    return text or "LF"
+
+
+def _route_action_row(route_rows: list[dict[str, Any]], action: str) -> dict[str, Any]:
+    for row in reversed(route_rows):
+        if str(row.get("action") or "") == action:
+            return dict(row)
+    return {}
+
+
+def _route_action_result(route_rows: list[dict[str, Any]], action: str) -> tuple[str, str]:
+    row = _route_action_row(route_rows, action)
+    if not row:
+        return "not_attempted", ""
+    return str(row.get("result") or ""), str(row.get("message") or "")
+
+
+def _extract_pace_command_error(text: Any) -> str:
+    message = str(text or "").strip()
+    return message if "PACE_COMMAND_ERROR" in message else ""
+
+
+def _pressure_controller_command_diagnostics(
+    raw_cfg: Mapping[str, Any],
+    route_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    cfg = _device_cfg(raw_cfg, "pressure_controller")
+    output_result, output_error = _route_action_result(route_rows, "set_output")
+    vent_result, vent_error = _route_action_result(route_rows, "set_vent")
+    pace_error = _extract_pace_command_error(output_error) or _extract_pace_command_error(vent_error)
+    identity_command = str(cfg.get("identity_query_command") or "*IDN?").strip() or "*IDN?"
+    identity_result = str(cfg.get("identity_query_result") or "").strip()
+    if not identity_result:
+        identity_result = "unsupported_identity_query_not_offline_decision"
+    protocol_profile = str(cfg.get("protocol_profile") or "pace5000_scpi_v1_aligned").strip()
+    profile_aligned = protocol_profile in {"pace5000_scpi_v1_aligned", "pace5000_scpi", "k0472_pace_v1"}
+    return {
+        "pressure_controller_driver_profile": str(
+            cfg.get("driver_profile") or "gas_calibrator.devices.pace5000.Pace5000"
+        ),
+        "pressure_controller_configured_port": str(cfg.get("port") or ""),
+        "pressure_controller_serial_settings": _serial_settings(cfg, default_baud=9600),
+        "pressure_controller_protocol_profile": protocol_profile,
+        "pressure_controller_command_terminator": _line_ending_label(cfg.get("line_ending")),
+        "pressure_controller_identity_query_command": identity_command,
+        "pressure_controller_identity_query_result": identity_result,
+        "pressure_controller_identity_query_raw_response": str(cfg.get("identity_query_raw_response") or ""),
+        "pressure_controller_identity_query_error": str(
+            cfg.get("identity_query_error")
+            or ("unsupported_identity_query" if identity_command.upper() == "*IDN?" else "")
+        ),
+        "pressure_controller_output_command": ":OUTP:STAT 0",
+        "pressure_controller_output_command_result": output_result,
+        "pressure_controller_output_command_error": output_error,
+        "pressure_controller_vent_command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
+        "pressure_controller_vent_command_result": vent_result,
+        "pressure_controller_vent_command_error": vent_error,
+        "pressure_controller_pace_command_error_raw": pace_error,
+        "pressure_controller_v1_protocol_profile": (
+            "Pace5000 LF terminator; read-only profile/status queries; "
+            "output=:OUTP:STAT; vent=:SOUR:PRES:LEV:IMM:AMPL:VENT"
+        ),
+        "v1_v2_pressure_controller_command_alignment": (
+            "control_commands_aligned_identity_query_not_online_gate"
+            if profile_aligned
+            else f"profile_mismatch:{protocol_profile}"
+        ),
+    }
+
+
+def _pressure_meter_diagnostics(
+    raw_cfg: Mapping[str, Any],
+    point_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    devices = _mapping(raw_cfg.get("devices"))
+    candidates = ["pressure_meter", "pressure_gauge", "digital_pressure_gauge_p3"]
+    selected = next((name for name in candidates if isinstance(devices.get(name), Mapping)), "")
+    cfg = _device_cfg(raw_cfg, selected) if selected else {}
+    first_point = dict(point_results[0]) if point_results else {}
+    selected_source = str(
+        first_point.get("selected_pressure_source")
+        or first_point.get("pressure_source_selected")
+        or ""
+    )
+    read_result = str(first_point.get("pressure_ready_gate_result") or "not_attempted")
+    raw_response = str(first_point.get("pressure_meter_raw_response") or first_point.get("raw_response") or "")
+    timeout_value = cfg.get("response_timeout_s") or cfg.get("timeout") or cfg.get("timeout_s") or 1.0
+    mode = str(
+        _first_value(
+            raw_cfg,
+            (
+                "workflow.pressure.digital_gauge_continuous_mode",
+                "workflow.pressure.pressure_gauge_continuous_mode",
+                "workflow.sampling.pressure_gauge_continuous_mode",
+            ),
+        )
+        or "P4"
+    )
+    drain_value = _first_value(
+        raw_cfg,
+        (
+            "workflow.pressure.digital_gauge_continuous_drain_s",
+            "workflow.pressure.pressure_gauge_continuous_drain_s",
+            "workflow.sampling.pressure_gauge_continuous_drain_s",
+        ),
+    )
+    return {
+        "pressure_meter_name_mapping": "pressure_meter<-pressure_gauge|digital_pressure_gauge_p3",
+        "pressure_meter_alias_resolved": bool(selected),
+        "pressure_meter_alias_candidates": candidates,
+        "pressure_meter_selected_device_key": selected,
+        "pressure_meter_port": str(cfg.get("port") or ""),
+        "pressure_meter_dest_id": str(cfg.get("dest_id") or "01"),
+        "pressure_meter_protocol_profile": "paroscientific_p3_readonly",
+        "pressure_meter_mode": mode,
+        "digital_pressure_gauge_p3_available": selected_source in {
+            "digital_pressure_gauge_p3",
+            "pressure_gauge",
+            "pressure_meter",
+        }
+        and _as_bool(first_point.get("selected_pressure_parse_ok")) is True,
+        "pressure_meter_first_read_attempted": bool(point_results),
+        "pressure_meter_first_read_result": read_result,
+        "pressure_meter_raw_response": raw_response,
+        "pressure_meter_parse_ok": _as_bool(first_point.get("selected_pressure_parse_ok")) is True,
+        "pressure_meter_continuous_mode_detected": bool(str(mode or "").strip()),
+        "pressure_meter_drain_attempted": drain_value is not None,
+        "pressure_meter_read_timeout_s": float(timeout_value),
+        "v1_v2_pressure_meter_read_alignment": (
+            "aligned_paroscientific_p3_with_pressure_gauge_alias"
+            if selected in {"pressure_meter", "pressure_gauge", "digital_pressure_gauge_p3"}
+            else "missing_pressure_meter_alias"
+        ),
+    }
+
+
+def _relay_diagnostics(raw_cfg: Mapping[str, Any], route_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    relay_a = _device_cfg(raw_cfg, "relay_a", "relay")
+    relay_b = _device_cfg(raw_cfg, "relay_b", "relay_8")
+    valves = _mapping(raw_cfg.get("valves"))
+    relay_map = _mapping(valves.get("relay_map"))
+    relay_output_sent = any(
+        str(row.get("action") or "") in {"set_valve", "set_valves_bulk", "open_route", "route_open"}
+        for row in route_rows
+    )
+    return {
+        "relay_a_configured_port": str(relay_a.get("port") or ""),
+        "relay_b_configured_port": str(relay_b.get("port") or ""),
+        "relay_driver_profile": "gas_calibrator.devices.relay.RelayController",
+        "relay_channel_mapping": relay_map,
+        "relay_init_open_result": "not_observed_by_a2_wrapper",
+        "relay_readonly_identity_supported": False,
+        "relay_control_available": bool(relay_a or relay_b),
+        "relay_output_command_allowed_in_probe": False,
+        "relay_output_command_sent": bool(relay_output_sent),
+    }
+
+
 def _pressure_points(raw_cfg: Mapping[str, Any]) -> list[float]:
     value = _first_value(
         raw_cfg,
@@ -2310,6 +2499,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
                 "workflow.stability.temperature.skip_temperature_stabilization_wait",
             ),
         )
+    ) is True or _as_bool(
+        _mapping(admission.operator_confirmation.get("explicit_acknowledgement")).get(
+            "skip_temperature_stabilization_wait"
+        )
     ) is True
     temperature_stabilization_wait_skipped = (
         _as_bool(metric_or_summary("temperature_stabilization_wait_skipped", "wait_skipped")) is True
@@ -2339,6 +2532,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             )
         )
         is True
+        or a2_4_temperature_skip_requested
     )
 
     def summary_bool(*keys: str, default: Optional[bool] = None) -> Optional[bool]:
@@ -2354,21 +2548,18 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         return [value]
 
     temperature_chamber_optional_in_skip_temp_wait = bool(
-        summary_bool(
-            "temperature_chamber_optional_in_skip_temp_wait",
-            default=bool(
-                a2_4_temperature_skip_requested
-                and temperature_stabilization_wait_skipped
-                and temperature_gate_mode == "current_pv_engineering_probe"
-                and temperature_not_part_of_acceptance
-            ),
+        bool(
+            a2_4_temperature_skip_requested
+            and temperature_stabilization_wait_skipped
+            and temperature_gate_mode == "current_pv_engineering_probe"
+            and temperature_not_part_of_acceptance
         )
+        or summary_bool("temperature_chamber_optional_in_skip_temp_wait", default=False) is True
     )
     temperature_chamber_required_for_a2 = bool(
-        summary_bool(
-            "temperature_chamber_required_for_a2",
-            default=not temperature_chamber_optional_in_skip_temp_wait,
-        )
+        False
+        if temperature_chamber_optional_in_skip_temp_wait
+        else summary_bool("temperature_chamber_required_for_a2", default=True)
     )
     temperature_chamber_init_attempted = summary_bool("temperature_chamber_init_attempted", default=None)
     temperature_chamber_init_ok = summary_bool("temperature_chamber_init_ok", default=None)
@@ -2588,6 +2779,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         }
         for point in point_results
     ]
+    pressure_controller_diagnostics = _pressure_controller_command_diagnostics(raw_cfg, route_rows)
+    pressure_meter_diagnostic_fields = _pressure_meter_diagnostics(raw_cfg, point_results)
+    relay_diagnostic_fields = _relay_diagnostics(raw_cfg, route_rows)
 
     summary = {
         "schema_version": A2_SCHEMA_VERSION,
@@ -2644,6 +2838,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "optional_context_devices_failed": optional_context_devices_failed,
         "critical_device_init_failure_blocks_probe": critical_device_init_failure_blocks_probe,
         "optional_context_failure_blocks_probe": optional_context_failure_blocks_probe,
+        **pressure_controller_diagnostics,
+        **pressure_meter_diagnostic_fields,
+        **relay_diagnostic_fields,
         "pressure_source_selected": _first_metric_from_rows(evidence_metric_rows, "pressure_source_selected"),
         "pressure_source_selection_reason": _first_metric_from_rows(
             evidence_metric_rows,

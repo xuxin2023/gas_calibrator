@@ -921,6 +921,135 @@ def test_a2_probe_summary_records_optional_temperature_context_policy(tmp_path: 
     assert summary["chamber_stop_command_sent"] is False
 
 
+def test_a2_probe_summary_records_a2_14_command_diagnostics(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    config["devices"].update(
+        {
+            "pressure_controller": {
+                "enabled": True,
+                "port": "COM31",
+                "baud": 9600,
+                "timeout": 1.0,
+                "line_ending": "LF",
+                "protocol_profile": "vendor_unknown_ascii",
+            },
+            "pressure_gauge": {
+                "enabled": True,
+                "port": "COM30",
+                "baud": 9600,
+                "timeout": 1.0,
+                "response_timeout_s": 2.2,
+                "dest_id": "01",
+            },
+            "relay": {"enabled": True, "port": "COM28", "baud": 38400, "addr": 1},
+            "relay_8": {"enabled": True, "port": "COM29", "baud": 38400, "addr": 1},
+        }
+    )
+    config["valves"] = {
+        "relay_map": {
+            "7": {"device": "relay", "channel": 15},
+            "8": {"device": "relay_8", "channel": 8},
+        }
+    }
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        payload = _passing_executor(config_path)
+        payload["route_trace_rows"] = [
+            {
+                "action": "set_output",
+                "target": {"enabled": False},
+                "result": "fail",
+                "message": "PACE_COMMAND_ERROR(command=:OUTP:STAT 0, error=)",
+            },
+            {
+                "action": "set_vent",
+                "target": {"vent_on": True},
+                "result": "fail",
+                "message": "PACE_COMMAND_ERROR(command=:OUTP:STAT 0, error=)",
+            },
+        ]
+        return payload
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_14_command_diagnostics",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["pressure_controller_driver_profile"] == "gas_calibrator.devices.pace5000.Pace5000"
+    assert summary["pressure_controller_configured_port"] == "COM31"
+    assert summary["pressure_controller_serial_settings"]["baud"] == 9600
+    assert summary["pressure_controller_protocol_profile"] == "vendor_unknown_ascii"
+    assert summary["pressure_controller_command_terminator"] == "LF"
+    assert summary["pressure_controller_identity_query_command"] == "*IDN?"
+    assert summary["pressure_controller_identity_query_result"] == "unsupported_identity_query_not_offline_decision"
+    assert summary["pressure_controller_identity_query_error"] == "unsupported_identity_query"
+    assert summary["pressure_controller_output_command"] == ":OUTP:STAT 0"
+    assert summary["pressure_controller_output_command_result"] == "fail"
+    assert "PACE_COMMAND_ERROR" in summary["pressure_controller_output_command_error"]
+    assert summary["pressure_controller_vent_command"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert summary["pressure_controller_vent_command_result"] == "fail"
+    assert "PACE_COMMAND_ERROR" in summary["pressure_controller_vent_command_error"]
+    assert summary["pressure_controller_pace_command_error_raw"].startswith("PACE_COMMAND_ERROR")
+    assert summary["v1_v2_pressure_controller_command_alignment"].startswith("profile_mismatch")
+
+    assert summary["pressure_meter_alias_resolved"] is True
+    assert summary["pressure_meter_selected_device_key"] == "pressure_gauge"
+    assert summary["pressure_meter_port"] == "COM30"
+    assert summary["pressure_meter_dest_id"] == "01"
+    assert summary["pressure_meter_protocol_profile"] == "paroscientific_p3_readonly"
+    assert summary["pressure_meter_first_read_attempted"] is True
+    assert summary["pressure_meter_first_read_result"] == "PASS"
+    assert summary["pressure_meter_parse_ok"] is True
+    assert summary["v1_v2_pressure_meter_read_alignment"] == "aligned_paroscientific_p3_with_pressure_gauge_alias"
+
+    assert summary["relay_a_configured_port"] == "COM28"
+    assert summary["relay_b_configured_port"] == "COM29"
+    assert summary["relay_driver_profile"] == "gas_calibrator.devices.relay.RelayController"
+    assert summary["relay_channel_mapping"]["7"]["channel"] == 15
+    assert summary["relay_output_command_allowed_in_probe"] is False
+    assert summary["relay_output_command_sent"] is False
+
+
+def test_a2_probe_skip_temp_policy_from_operator_ack_when_raw_config_unaligned(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    config.pop("temperature_stabilization_wait_skipped", None)
+    config.pop("temperature_gate_mode", None)
+    config.pop("temperature_not_part_of_acceptance", None)
+    config["a2_co2_7_pressure_no_write_probe"].pop("temperature_stabilization_wait_skipped", None)
+    config["a2_co2_7_pressure_no_write_probe"].pop("temperature_gate_mode", None)
+    config["a2_co2_7_pressure_no_write_probe"].pop("temperature_not_part_of_acceptance", None)
+    config["workflow"]["stability"]["temperature"] = {}
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_skip_temp_operator_ack",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=_passing_executor,
+    )
+
+    assert summary["temperature_stabilization_wait_skipped"] is True
+    assert summary["temperature_gate_mode"] == "current_pv_engineering_probe"
+    assert summary["temperature_not_part_of_acceptance"] is True
+    assert summary["temperature_chamber_required_for_a2"] is False
+    assert summary["temperature_chamber_optional_in_skip_temp_wait"] is True
+
+
 def test_a2_probe_pressure_source_strategy_uses_downstream_aligned_config_without_runtime_metric(
     tmp_path: Path,
 ) -> None:
