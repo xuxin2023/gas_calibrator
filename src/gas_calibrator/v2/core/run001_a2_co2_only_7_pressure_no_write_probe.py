@@ -15,8 +15,12 @@ from gas_calibrator.v2.core.run001_r1_conditioning_only_probe import (
     _as_bool,
     _as_float,
     _json_dump,
-    _jsonl_dump,
     load_json_mapping,
+)
+from gas_calibrator.v2.core.services.trace_size_guard import (
+    load_guarded_jsonl,
+    summarize_trace_guard_rows,
+    write_guarded_jsonl,
 )
 
 
@@ -1270,51 +1274,54 @@ def _load_json_dict(path: str | Path | None) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, Mapping) else {}
 
 
-def _load_jsonl(path: str | Path | None) -> list[dict[str, Any]]:
+def _trace_name_for_jsonl(path: str | Path | None) -> str:
+    if path is None:
+        return ""
+    filename = Path(path).name
+    if filename.endswith(".jsonl"):
+        return filename[:-6]
+    return Path(path).stem
+
+
+def _jsonl_dump(path: Path, rows: list[Mapping[str, Any]], *, trace_name: str | None = None) -> dict[str, Any]:
+    return write_guarded_jsonl(path, rows, trace_name=trace_name or _trace_name_for_jsonl(path))
+
+
+def _load_jsonl(path: str | Path | None, *, trace_name: str | None = None) -> list[dict[str, Any]]:
     if path is None:
         return []
     target = Path(path)
     if not target.exists():
         return []
-    try:
-        size_bytes = target.stat().st_size
-    except OSError:
-        size_bytes = 0
-    max_inline_bytes = 128 * 1024 * 1024
-    if size_bytes > max_inline_bytes:
-        return [
-            {
-                "event": "jsonl_inline_load_skipped",
-                "path": str(target),
-                "file_size_bytes": size_bytes,
-                "max_inline_bytes": max_inline_bytes,
-                "reason": "jsonl_file_too_large_for_inline_a2_wrapper_load",
-            }
-        ]
-    rows: list[dict[str, Any]] = []
-    max_line_bytes = 2 * 1024 * 1024
-    with target.open("rb") as handle:
-        for raw_line in handle:
-            if not raw_line.strip():
-                continue
-            if len(raw_line) > max_line_bytes:
-                rows.append(
-                    {
-                        "event": "jsonl_line_skipped",
-                        "path": str(target),
-                        "line_bytes": len(raw_line),
-                        "max_line_bytes": max_line_bytes,
-                        "reason": "jsonl_line_too_large_for_inline_a2_wrapper_load",
-                    }
-                )
-                continue
-            try:
-                payload = json.loads(raw_line.decode("utf-8"))
-            except Exception:
-                continue
-            if isinstance(payload, Mapping):
-                rows.append(dict(payload))
-    return rows
+    return load_guarded_jsonl(target, trace_name=trace_name or _trace_name_for_jsonl(target))
+
+
+def _merge_trace_guard_stats(
+    write_stats: Mapping[str, Mapping[str, Any]],
+    loaded_rows: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    row_stats = summarize_trace_guard_rows(loaded_rows)
+    return {
+        "trace_guard_applied_to_route_trace": True,
+        "trace_guard_applied_to_pressure_trace": True,
+        "trace_event_truncated_count": int(row_stats["trace_event_truncated_count"])
+        + sum(int(stats.get("trace_event_truncated_count") or 0) for stats in write_stats.values()),
+        "trace_event_max_original_size_bytes": max(
+            [int(row_stats["trace_event_max_original_size_bytes"] or 0)]
+            + [int(stats.get("trace_event_max_original_size_bytes") or 0) for stats in write_stats.values()]
+        ),
+        "trace_event_max_truncated_size_bytes": max(
+            [int(row_stats["trace_event_max_truncated_size_bytes"] or 0)]
+            + [int(stats.get("trace_event_max_truncated_size_bytes") or 0) for stats in write_stats.values()]
+        ),
+        "trace_large_line_warning_count": int(row_stats["trace_large_line_warning_count"])
+        + sum(int(stats.get("trace_large_line_warning_count") or 0) for stats in write_stats.values()),
+        "trace_file_size_guard_triggered": bool(row_stats["trace_file_size_guard_triggered"])
+        or any(stats.get("trace_file_size_guard_triggered") is True for stats in write_stats.values()),
+        "trace_streaming_read_used": bool(row_stats["trace_streaming_read_used"]),
+        "trace_inline_load_blocked": bool(row_stats["trace_inline_load_blocked"])
+        or any(stats.get("trace_inline_load_blocked") is True for stats in write_stats.values()),
+    }
 
 
 def _load_csv_dicts(path: str | Path | None) -> list[dict[str, Any]]:
@@ -3419,12 +3426,34 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     )
 
     _json_dump(run_dir / "probe_admission_record.json", admission_record)
-    _jsonl_dump(run_dir / "a2_pressure_sweep_trace.jsonl", sweep_rows)
-    _jsonl_dump(run_dir / "route_trace.jsonl", route_rows)
-    _jsonl_dump(run_dir / "pressure_trace.jsonl", pressure_rows)
-    _jsonl_dump(run_dir / "pressure_ready_trace.jsonl", pressure_ready_rows)
-    _jsonl_dump(run_dir / "heartbeat_trace.jsonl", heartbeat_rows)
-    _jsonl_dump(run_dir / "analyzer_sampling_rows.jsonl", sample_rows)
+    trace_guard_write_stats = {
+        "a2_pressure_sweep_trace": _jsonl_dump(
+            run_dir / "a2_pressure_sweep_trace.jsonl",
+            sweep_rows,
+            trace_name="a2_pressure_sweep_trace",
+        ),
+        "route_trace": _jsonl_dump(run_dir / "route_trace.jsonl", route_rows, trace_name="route_trace"),
+        "pressure_trace": _jsonl_dump(run_dir / "pressure_trace.jsonl", pressure_rows, trace_name="pressure_trace"),
+        "pressure_ready_trace": _jsonl_dump(
+            run_dir / "pressure_ready_trace.jsonl",
+            pressure_ready_rows,
+            trace_name="pressure_ready_trace",
+        ),
+        "heartbeat_trace": _jsonl_dump(run_dir / "heartbeat_trace.jsonl", heartbeat_rows, trace_name="heartbeat_trace"),
+        "analyzer_sampling_rows": _jsonl_dump(
+            run_dir / "analyzer_sampling_rows.jsonl",
+            sample_rows,
+            trace_name="analyzer_sampling_rows",
+        ),
+    }
+    loaded_trace_rows_for_guard = [
+        row
+        for rows in (route_rows, pressure_rows, pressure_ready_rows, heartbeat_rows, sample_rows, sweep_rows)
+        for row in rows
+        if isinstance(row, Mapping)
+    ]
+    summary["trace_guard_summary"] = trace_guard_write_stats
+    summary.update(_merge_trace_guard_stats(trace_guard_write_stats, loaded_trace_rows_for_guard))
     _json_dump(run_dir / "point_results.json", {"points": point_results})
     _write_point_results_csv(run_dir / "point_results.csv", point_results)
     _json_dump(run_dir / "safety_assertions.json", safety_assertions)

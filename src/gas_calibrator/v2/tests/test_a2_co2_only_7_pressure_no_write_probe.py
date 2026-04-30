@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 from typing import Any, Callable, Mapping
 
 import pytest
@@ -13,8 +14,13 @@ from gas_calibrator.v2.core.run001_a2_co2_only_7_pressure_no_write_probe import 
     A2_INTERRUPTED_FAIL_CLOSED_REASON,
     evaluate_a2_co2_7_pressure_no_write_gate,
     _artifact_completeness,
+    _jsonl_dump,
+    _load_jsonl,
     write_a2_co2_7_pressure_no_write_probe_artifacts,
 )
+from gas_calibrator.v2.core.services import trace_size_guard as trace_guard_module
+from gas_calibrator.v2.core.services.status_service import StatusService
+from gas_calibrator.v2.core.services.trace_size_guard import MAX_TRACE_EVENT_JSON_BYTES
 from gas_calibrator.v2.core.run001_a1_dry_run import load_point_rows
 from gas_calibrator.v2.core.run001_a2_no_write import evaluate_run001_a2_readiness
 from gas_calibrator.v2.core.run001_r1_conditioning_only_probe import load_json_mapping
@@ -219,6 +225,155 @@ def _expected_a2_artifact_paths(run_dir: Path) -> dict[str, str]:
         "operator_confirmation_record": str(run_dir / "operator_confirmation_record.json"),
         "process_exit_record": str(run_dir / "process_exit_record.json"),
     }
+
+
+def _large_route_state() -> dict[str, Any]:
+    return {
+        "current_route": "co2",
+        "route_state": {f"large_key_{index}": "x" * 4096 for index in range(100)},
+        "pressure_samples": [
+            {"pressure_hpa": 1000.0 + index * 0.01, "raw_response": "p" * 2048}
+            for index in range(600)
+        ],
+        "vent_ticks": [
+            {"phase": "conditioning_hold", "tick": index, "raw": "v" * 1024}
+            for index in range(600)
+        ],
+        "diagnostic_deferred_events": [
+            {"source": "diagnostic_blocked_vent_scheduler", "payload": "d" * 1024}
+            for _index in range(200)
+        ],
+    }
+
+
+def test_status_service_route_trace_compacts_large_route_state_before_write(tmp_path: Path) -> None:
+    context = SimpleNamespace(
+        result_store=SimpleNamespace(run_dir=str(tmp_path)),
+        session=SimpleNamespace(run_id="run-route-trace-guard"),
+        data_writer=SimpleNamespace(write_log=lambda *_args, **_kwargs: None),
+    )
+    run_state = SimpleNamespace(artifacts=SimpleNamespace(output_files=[]))
+    service = StatusService(context, run_state, host=SimpleNamespace(route_context=None))
+
+    service.record_route_trace(
+        action="pressure_control_ready_gate",
+        route="co2",
+        point_index=1,
+        actual=_large_route_state(),
+    )
+
+    raw_line = (tmp_path / "route_trace.jsonl").read_bytes().strip()
+    record = json.loads(raw_line.decode("utf-8"))
+    assert len(raw_line) <= MAX_TRACE_EVENT_JSON_BYTES
+    assert record["trace_guard_applied_to_route_trace"] is True
+    assert record["trace_event_truncated"] is True
+    assert record["trace_event_original_size_bytes"] > record["trace_event_truncated_size_bytes"]
+
+
+def test_a2_route_trace_dump_compacts_large_route_state(tmp_path: Path) -> None:
+    path = tmp_path / "route_trace.jsonl"
+    stats = _jsonl_dump(
+        path,
+        [
+            {
+                "action": "pressure_control_ready_gate",
+                "point_index": 1,
+                "actual": _large_route_state(),
+            }
+        ],
+        trace_name="route_trace",
+    )
+
+    raw_line = path.read_bytes().strip()
+    record = json.loads(raw_line.decode("utf-8"))
+    assert len(raw_line) <= MAX_TRACE_EVENT_JSON_BYTES
+    assert stats["trace_event_truncated_count"] == 1
+    assert record["trace_guard_applied_to_route_trace"] is True
+    assert record["trace_event_truncated"] is True
+
+
+def test_a2_pressure_trace_dump_summarizes_large_pressure_samples(tmp_path: Path) -> None:
+    path = tmp_path / "pressure_trace.jsonl"
+    pressure_samples = [
+        {"pressure_hpa": 900.0 + index * 0.1, "raw_response": "sample" * 256}
+        for index in range(800)
+    ]
+
+    _jsonl_dump(
+        path,
+        [
+            {
+                "target_pressure_hpa": 900.0,
+                "actual": {
+                    "pressure_samples": pressure_samples,
+                    "selected_pressure_source": "digital_pressure_gauge",
+                },
+            }
+        ],
+        trace_name="pressure_trace",
+    )
+
+    raw_line = path.read_bytes().strip()
+    record = json.loads(raw_line.decode("utf-8"))
+    assert len(raw_line) <= MAX_TRACE_EVENT_JSON_BYTES
+    assert record["trace_guard_applied_to_pressure_trace"] is True
+    assert record["trace_event_truncated"] is True
+    assert record["actual"]["pressure_samples"]["_truncated"] is True
+    assert record["actual"]["pressure_samples"]["_length"] == len(pressure_samples)
+
+
+def test_a2_wrapper_load_jsonl_skips_large_line_with_warning(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(trace_guard_module, "MAX_TRACE_LINE_INLINE_LOAD_BYTES", 32)
+    path = tmp_path / "route_trace.jsonl"
+    path.write_text(json.dumps({"action": "tick", "payload": "x" * 128}) + "\n", encoding="utf-8")
+
+    rows = _load_jsonl(path, trace_name="route_trace")
+
+    assert rows == [
+        {
+            "event": "trace_large_line_skipped",
+            "path": str(path),
+            "line_bytes": len(path.read_bytes()),
+            "max_line_bytes": 32,
+            "reason": "trace_line_too_large_for_inline_load",
+            "trace_large_line_skipped": True,
+            "trace_large_line_warning_count": 1,
+            "trace_streaming_read_used": True,
+            "trace_inline_load_blocked": False,
+            "trace_file_size_guard_triggered": False,
+            "trace_guard_schema_version": "v2.trace_size_guard.1",
+            "trace_guard_applied_to_route_trace": True,
+        }
+    ]
+
+
+def test_a2_wrapper_load_jsonl_blocks_inline_load_for_large_trace(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(trace_guard_module, "MAX_TRACE_FILE_INLINE_LOAD_BYTES", 8)
+    path = tmp_path / "route_trace.jsonl"
+    path.write_text(json.dumps({"action": "tick"}) + "\n", encoding="utf-8")
+
+    rows = _load_jsonl(path, trace_name="route_trace")
+
+    assert rows[0]["event"] == "trace_inline_load_blocked"
+    assert rows[0]["trace_file_size_guard_triggered"] is True
+    assert rows[0]["trace_inline_load_blocked"] is True
+    assert rows[0]["trace_streaming_read_used"] is True
+    assert rows[0]["trace_guard_applied_to_route_trace"] is True
+
+
+def test_a2_wrapper_load_jsonl_uses_streaming_read(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "route_trace.jsonl"
+    path.write_text(json.dumps({"action": "tick"}) + "\n", encoding="utf-8")
+
+    def fail_read_text(*_args, **_kwargs):
+        raise AssertionError("read_text must not be used for JSONL traces")
+
+    monkeypatch.setattr(Path, "read_text", fail_read_text)
+
+    rows = _load_jsonl(path, trace_name="route_trace")
+
+    assert rows[0]["action"] == "tick"
+    assert rows[0]["trace_streaming_read_used"] is True
 
 
 def test_load_json_mapping_accepts_utf8_json_without_bom(tmp_path: Path) -> None:
