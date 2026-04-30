@@ -630,8 +630,22 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     )
 
     assert summary["a2_3_v1_pressure_gauge_read_policy_present"] is True
-    assert summary["evidence_source"] == "real_probe_a2_12_co2_7_pressure_no_write"
-    assert summary["legacy_evidence_source"] == "real_probe_a2_10_co2_7_pressure_no_write"
+    assert summary["probe_identity"] == "A2.12R CO2-only seven-pressure no-write engineering probe"
+    assert summary["probe_version"] == "A2.12R"
+    assert summary["evidence_source"] == "real_probe_a2_12r_co2_7_pressure_no_write"
+    assert summary["legacy_evidence_source"] == "real_probe_a2_12_co2_7_pressure_no_write"
+    assert summary["legacy_evidence_sources"] == [
+        "real_probe_a2_12_co2_7_pressure_no_write",
+        "real_probe_a2_10_co2_7_pressure_no_write",
+    ]
+    safety_assertions = json.loads((tmp_path / "a2_v1_aligned" / "safety_assertions.json").read_text(encoding="utf-8"))
+    operator_record = json.loads(
+        (tmp_path / "a2_v1_aligned" / "operator_confirmation_record.json").read_text(encoding="utf-8")
+    )
+    assert safety_assertions["evidence_source"] == "real_probe_a2_12r_co2_7_pressure_no_write"
+    assert safety_assertions["probe_version"] == "A2.12R"
+    assert operator_record["evidence_source"] == "real_probe_a2_12r_co2_7_pressure_no_write"
+    assert operator_record["probe_identity"] == "A2.12R CO2-only seven-pressure no-write engineering probe"
     assert summary["a2_3_pressure_source_strategy"] == "v1_aligned"
     assert summary["a2_4_v1_pressure_gauge_read_policy_present"] is True
     assert summary["a2_4_pressure_source_strategy"] == "v1_aligned"
@@ -939,7 +953,7 @@ def test_a2_probe_propagates_route_trace_atmosphere_and_transient_interruption(t
     )
 
     assert summary["final_decision"] == "FAIL_CLOSED"
-    assert summary["evidence_source"] == "real_probe_a2_12_co2_7_pressure_no_write"
+    assert summary["evidence_source"] == "real_probe_a2_12r_co2_7_pressure_no_write"
     assert summary["measured_atmospheric_pressure_hpa"] == 1014.361
     assert summary["measured_atmospheric_pressure_source"] == "route_trace_pre_route_vent_pressure"
     assert summary["route_conditioning_pressure_before_route_open_hpa"] == 1014.361

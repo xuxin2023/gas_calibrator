@@ -28,9 +28,17 @@ A2_ENV_VAR = "GAS_CAL_V2_A2_CO2_7_PRESSURE_NO_WRITE_REAL_COM"
 A2_ENV_VALUE = "1"
 A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
 A2_ALLOWED_PRESSURE_POINTS_HPA = (1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
+A2_CURRENT_EVIDENCE_SOURCE = "real_probe_a2_12r_co2_7_pressure_no_write"
+A2_LEGACY_EVIDENCE_SOURCES = [
+    "real_probe_a2_12_co2_7_pressure_no_write",
+    "real_probe_a2_10_co2_7_pressure_no_write",
+]
 A2_EVIDENCE_MARKERS = {
-    "evidence_source": "real_probe_a2_12_co2_7_pressure_no_write",
-    "legacy_evidence_source": "real_probe_a2_10_co2_7_pressure_no_write",
+    "probe_identity": "A2.12R CO2-only seven-pressure no-write engineering probe",
+    "probe_version": "A2.12R",
+    "evidence_source": A2_CURRENT_EVIDENCE_SOURCE,
+    "legacy_evidence_source": A2_LEGACY_EVIDENCE_SOURCES[0],
+    "legacy_evidence_sources": A2_LEGACY_EVIDENCE_SOURCES,
     "acceptance_level": "engineering_probe_only",
     "not_real_acceptance_evidence": True,
     "promotion_state": "blocked",
