@@ -397,50 +397,35 @@ def _attempt_paroscientific_read(
     serial_factory: Callable[[Mapping[str, Any]], Any],
     method: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Attempt a Paroscientific P3 pressure read using the hardened retry helper."""
     trace: list[dict[str, Any]] = []
     gauge = _new_pressure_gauge(device, serial_factory)
     opened = False
     closed = False
     value: Optional[float] = None
     error = ""
+    continuous_cancel_sent = False
     try:
         gauge.open()
         opened = True
         trace.append(_trace_row(device_name="pressure_gauge", device_type="pressure_gauge", port=str(device.get("port") or ""), action=f"{method}_open", result="ok"))
-        # Pre-cancel any lingering continuous mode (P4/P7) from a prior session.
-        # Per the Paroscientific manual, any valid command cancels continuous
-        # output.  We send P3 first to exit continuous mode, then drain stale
-        # frames so the next P3 gets a clean query-response window.
-        cmd_cancel = gauge._cmd("P3")
-        try:
-            gauge.ser.write(cmd_cancel)
-            time.sleep(0.12)
-            drain_input = getattr(gauge.ser, "drain_input_nonblock", None)
-            if callable(drain_input):
-                drain_input(drain_s=0.15, read_timeout_s=0.02)
-            continuous_cancel_sent = True
-            trace.append(_trace_row(device_name="pressure_gauge", device_type="pressure_gauge", port=str(device.get("port") or ""), action=f"{method}_pre_cancel_continuous", result="ok"))
-        except Exception:
-            pass
-        if method == "read_pressure_fast":
-            value = float(
-                gauge.read_pressure_fast(
-                    response_timeout_s=float(device.get("response_timeout_s") or 2.2),
-                    retries=2,
-                    retry_sleep_s=0.12,
-                    clear_buffer=True,
-                    buffered_drain_s=0.12,
-                )
+
+        # Use the hardened p3_read_with_retry which:
+        #  1) sends P3 to cancel continuous mode (P4/P7)
+        #  2) waits 300 ms for gauge to exit continuous mode
+        #  3) drains buffer
+        #  4) queries P3 with progressive retry (up to 3, +100 ms each)
+        #  5) if all retries fail, performs full restart: cancel → wait → query
+        value = float(
+            gauge._p3_read_with_retry(
+                cancel_wait_s=0.30,
+                query_timeout_s=0.20,
+                max_retries=3,
+                retry_increment_s=0.10,
             )
-        else:
-            value = float(
-                gauge.read_pressure(
-                    response_timeout_s=float(device.get("response_timeout_s") or 2.2),
-                    retries=2,
-                    retry_sleep_s=0.15,
-                    clear_buffer=True,
-                )
             )
+        continuous_cancel_sent = True
+        trace.append(_trace_row(device_name="pressure_gauge", device_type="pressure_gauge", port=str(device.get("port") or ""), action=f"{method}_p3_read_with_retry", result="ok", details={"pressure_hpa": value}))
     except Exception as exc:
         error = str(exc)
         trace.append(
@@ -477,6 +462,7 @@ def _attempt_paroscientific_read(
         "port_open_close_ok": bool(opened and closed),
         "continuous_cancel_sent": bool(continuous_cancel_sent),
         "pre_cancel_continuous_attempted": bool(continuous_cancel_sent),
+        "p3_read_with_retry_used": True,
     }, trace
 
 
