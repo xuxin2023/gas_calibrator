@@ -2501,6 +2501,25 @@ class PressureControlService:
             "preseal_guard_armed_from_vent_close_command": bool(
                 extra_data.get("preseal_guard_armed_from_vent_close_command", False)
             ),
+            "preseal_guard_armed_from_vent_close_command_false_reason": str(
+                extra_data.get("preseal_guard_armed_from_vent_close_command_false_reason") or ""
+            ),
+            "preseal_guard_expected_arm_source": str(
+                extra_data.get("preseal_guard_expected_arm_source") or "atmosphere_vent_close_command"
+            ),
+            "preseal_guard_actual_arm_source": str(
+                extra_data.get(
+                    "preseal_guard_actual_arm_source",
+                    extra_data.get("preseal_guard_arm_source", ""),
+                )
+                or ""
+            ),
+            "preseal_guard_arm_source_alignment_ok": bool(
+                extra_data.get("preseal_guard_arm_source_alignment_ok", False)
+            ),
+            "vent_close_command_sent_at": str(extra_data.get("vent_close_command_sent_at") or ""),
+            "vent_close_command_completed_at": str(extra_data.get("vent_close_command_completed_at") or ""),
+            "vent_close_to_monitor_start_latency_s": extra_data.get("vent_close_to_monitor_start_latency_s"),
             "vent_close_to_preseal_guard_arm_latency_s": extra_data.get(
                 "vent_close_to_preseal_guard_arm_latency_s"
             ),
@@ -2516,6 +2535,35 @@ class PressureControlService:
             "vent_off_settle_wait_ready_to_seal_seen": bool(
                 extra_data.get("vent_off_settle_wait_ready_to_seal_seen", False)
             ),
+            "vent_off_settle_monitor_started": bool(
+                extra_data.get("vent_off_settle_monitor_started", False)
+            ),
+            "vent_off_settle_monitor_started_at": str(
+                extra_data.get("vent_off_settle_monitor_started_at") or ""
+            ),
+            "vent_off_settle_monitor_sample_count": int(
+                extra_data.get("vent_off_settle_monitor_sample_count", 0) or 0
+            ),
+            "vent_off_settle_first_ready_to_seal_sample_hpa": extra_data.get(
+                "vent_off_settle_first_ready_to_seal_sample_hpa"
+            ),
+            "vent_off_settle_first_ready_to_seal_sample_at": str(
+                extra_data.get("vent_off_settle_first_ready_to_seal_sample_at") or ""
+            ),
+            "vent_off_settle_first_over_abort_sample_hpa": extra_data.get(
+                "vent_off_settle_first_over_abort_sample_hpa"
+            ),
+            "vent_off_settle_first_over_abort_sample_at": str(
+                extra_data.get("vent_off_settle_first_over_abort_sample_at") or ""
+            ),
+            "ready_to_seal_window_entered": bool(extra_data.get("ready_to_seal_window_entered", False)),
+            "ready_to_seal_window_missed_reason": str(
+                extra_data.get("ready_to_seal_window_missed_reason") or ""
+            ),
+            "overlimit_elapsed_s_nonnegative": bool(
+                extra_data.get("overlimit_elapsed_s_nonnegative", True)
+            ),
+            "overlimit_elapsed_source": str(extra_data.get("overlimit_elapsed_source") or ""),
             "first_target_ready_to_seal_min_hpa": extra_data.get(
                 "first_target_ready_to_seal_min_hpa"
             ),
@@ -2960,12 +3008,30 @@ class PressureControlService:
             "preseal_guard_armed_at": "",
             "preseal_guard_arm_source": "",
             "preseal_guard_armed_from_vent_close_command": False,
+            "preseal_guard_armed_from_vent_close_command_false_reason": "",
+            "preseal_guard_expected_arm_source": "atmosphere_vent_close_command",
+            "preseal_guard_actual_arm_source": "",
+            "preseal_guard_arm_source_alignment_ok": False,
             "positive_preseal_vent_close_command_sent": False,
+            "vent_close_command_sent_at": "",
+            "vent_close_command_completed_at": "",
+            "vent_close_to_monitor_start_latency_s": None,
             "vent_close_to_preseal_guard_arm_latency_s": None,
             "vent_close_to_positive_preseal_start_latency_s": None,
             "vent_off_settle_wait_pressure_monitored": False,
             "vent_off_settle_wait_overlimit_seen": False,
             "vent_off_settle_wait_ready_to_seal_seen": False,
+            "vent_off_settle_monitor_started": False,
+            "vent_off_settle_monitor_started_at": "",
+            "vent_off_settle_monitor_sample_count": 0,
+            "vent_off_settle_first_ready_to_seal_sample_hpa": None,
+            "vent_off_settle_first_ready_to_seal_sample_at": "",
+            "vent_off_settle_first_over_abort_sample_hpa": None,
+            "vent_off_settle_first_over_abort_sample_at": "",
+            "ready_to_seal_window_entered": False,
+            "ready_to_seal_window_missed_reason": "",
+            "overlimit_elapsed_s_nonnegative": True,
+            "overlimit_elapsed_source": "positive_preseal_monotonic_elapsed",
             "first_target_ready_to_seal_min_hpa": ready_to_seal_min_hpa,
             "first_target_ready_to_seal_max_hpa": ready_to_seal_max_hpa,
             "first_target_ready_to_seal_pressure_hpa": None,
@@ -3098,10 +3164,22 @@ class PressureControlService:
             "positive_preseal_pressure_guard_duration_ms": guard_duration_ms,
             "positive_preseal_pressure_guard_stale": guard_stale,
             **preseal_guard_state,
-            "preseal_guard_armed": True,
-            "preseal_guard_armed_at": phase_started_at,
-            "preseal_guard_arm_source": "pre_vent_close_pressure_guard",
-            "positive_preseal_guard_started_before_first_over_abort": bool(guard_overlimit),
+            "preseal_guard_armed": False,
+            "preseal_guard_armed_at": "",
+            "preseal_guard_arm_source": "",
+            "preseal_guard_actual_arm_source": "",
+            "preseal_guard_arm_source_alignment_ok": False,
+            "preseal_guard_armed_from_vent_close_command": False,
+            "preseal_guard_armed_from_vent_close_command_false_reason": (
+                "preseal_abort_before_vent_close_guard_arm" if guard_overlimit else ""
+            ),
+            "positive_preseal_guard_started_before_first_over_abort": False,
+            "positive_preseal_guard_started_after_first_over_abort": bool(guard_overlimit),
+            "positive_preseal_guard_late_reason": (
+                "preseal_abort_before_vent_close_guard_arm" if guard_overlimit else ""
+            ),
+            "overlimit_elapsed_s_nonnegative": True,
+            "overlimit_elapsed_source": "pre_vent_close_pressure_check",
             "first_over_abort_pressure_hpa": float(guard_pressure) if guard_overlimit else None,
             "first_over_abort_elapsed_s": max(0.0, time.time() - started_at) if guard_overlimit else None,
             "first_over_abort_source": guard_source,
@@ -3170,15 +3248,43 @@ class PressureControlService:
         vent_close_command_monotonic_s = time.monotonic()
         vent_close_command_at = datetime.now(timezone.utc).isoformat()
         if high_pressure_vent_preclosed:
+            preclosed_from_command = bool(
+                preseal_arm_context.get("preseal_guard_armed_from_vent_close_command")
+                or preseal_arm_context.get("vent_close_command_sent_at")
+                or preseal_arm_context.get("positive_preseal_vent_close_command_sent")
+            )
+            preclosed_source = (
+                "atmosphere_vent_close_command"
+                if preclosed_from_command
+                else "atmosphere_vent_already_closed"
+            )
             preseal_guard_state.update(
                 {
                     "preseal_guard_armed": True,
-                    "preseal_guard_armed_at": vent_close_command_at,
-                    "preseal_guard_arm_source": "atmosphere_vent_already_closed",
-                    "preseal_guard_armed_from_vent_close_command": False,
-                    "vent_close_to_preseal_guard_arm_latency_s": None,
+                    "preseal_guard_armed_at": str(
+                        preseal_arm_context.get("preseal_guard_armed_at")
+                        or preseal_arm_context.get("vent_close_command_sent_at")
+                        or vent_close_command_at
+                    ),
+                    "preseal_guard_arm_source": preclosed_source,
+                    "preseal_guard_actual_arm_source": preclosed_source,
+                    "preseal_guard_armed_from_vent_close_command": preclosed_from_command,
+                    "preseal_guard_armed_from_vent_close_command_false_reason": (
+                        "" if preclosed_from_command else "atmosphere_vent_already_closed"
+                    ),
+                    "preseal_guard_expected_arm_source": preclosed_source,
+                    "preseal_guard_arm_source_alignment_ok": True,
+                    "vent_close_command_sent_at": str(
+                        preseal_arm_context.get("vent_close_command_sent_at") or ""
+                    ),
+                    "vent_close_command_completed_at": str(
+                        preseal_arm_context.get("vent_close_command_completed_at") or ""
+                    ),
+                    "vent_close_to_preseal_guard_arm_latency_s": (
+                        0.0 if preclosed_from_command else None
+                    ),
                     "vent_close_to_positive_preseal_start_latency_s": 0.0,
-                    "positive_preseal_vent_close_command_sent": False,
+                    "positive_preseal_vent_close_command_sent": preclosed_from_command,
                 }
             )
         else:
@@ -3187,7 +3293,12 @@ class PressureControlService:
                     "preseal_guard_armed": True,
                     "preseal_guard_armed_at": vent_close_command_at,
                     "preseal_guard_arm_source": "atmosphere_vent_close_command",
+                    "preseal_guard_actual_arm_source": "atmosphere_vent_close_command",
                     "preseal_guard_armed_from_vent_close_command": True,
+                    "preseal_guard_armed_from_vent_close_command_false_reason": "",
+                    "preseal_guard_expected_arm_source": "atmosphere_vent_close_command",
+                    "preseal_guard_arm_source_alignment_ok": True,
+                    "vent_close_command_sent_at": vent_close_command_at,
                     "vent_close_to_preseal_guard_arm_latency_s": 0.0,
                     "vent_close_to_positive_preseal_start_latency_s": 0.0,
                     "positive_preseal_vent_close_command_sent": True,
@@ -3361,6 +3472,12 @@ class PressureControlService:
                 },
             )
         vent_closed_at = datetime.now(timezone.utc).isoformat()
+        preseal_guard_state["vent_close_command_completed_at"] = str(
+            vent_close.get("vent_command_write_completed_at")
+            or vent_close.get("command_completed_at")
+            or vent_close.get("vent_close_command_completed_at")
+            or vent_closed_at
+        )
         if callable(timing_recorder):
             timing_recorder(
                 "positive_preseal_vent_close_end",
@@ -3476,6 +3593,72 @@ class PressureControlService:
         pressure_last_hpa: Optional[float] = pressure_at_arm
         pressure_min_hpa: Optional[float] = pressure_at_arm
         pressure_samples_count = 0
+        def mark_vent_off_settle_sample(
+            *,
+            pressure_hpa: Optional[float],
+            sample_meta: Mapping[str, Any],
+            elapsed_s: float,
+            over_abort_seen: bool,
+            ready_to_seal_seen: bool,
+            ready_window_missed_reason: str = "",
+        ) -> None:
+            sample_at = str(
+                sample_meta.get("sample_recorded_at")
+                or sample_meta.get("pressure_sample_timestamp")
+                or sample_meta.get("response_received_at")
+                or datetime.now(timezone.utc).isoformat()
+            )
+            if not bool(preseal_guard_state.get("vent_off_settle_monitor_started")):
+                preseal_guard_state["vent_off_settle_monitor_started"] = True
+                preseal_guard_state["vent_off_settle_monitor_started_at"] = sample_at
+                command_mono = self._coerce_float(
+                    preseal_arm_context.get("vent_close_command_monotonic_s")
+                    or preseal_arm_context.get("vent_off_sent_monotonic_s")
+                )
+                if command_mono is None:
+                    command_mono = vent_close_command_monotonic_s
+                preseal_guard_state["vent_close_to_monitor_start_latency_s"] = round(
+                    max(0.0, time.monotonic() - float(command_mono)),
+                    3,
+                )
+            preseal_guard_state["vent_off_settle_wait_pressure_monitored"] = True
+            preseal_guard_state["vent_off_settle_monitor_sample_count"] = max(
+                int(preseal_guard_state.get("vent_off_settle_monitor_sample_count") or 0),
+                int(pressure_samples_count or 1),
+            )
+            if ready_to_seal_seen and pressure_hpa is not None:
+                if preseal_guard_state.get("vent_off_settle_first_ready_to_seal_sample_hpa") is None:
+                    preseal_guard_state["vent_off_settle_first_ready_to_seal_sample_hpa"] = float(pressure_hpa)
+                    preseal_guard_state["vent_off_settle_first_ready_to_seal_sample_at"] = sample_at
+                preseal_guard_state["vent_off_settle_wait_ready_to_seal_seen"] = True
+                preseal_guard_state["ready_to_seal_window_entered"] = True
+                preseal_guard_state["first_target_ready_to_seal_pressure_hpa"] = float(pressure_hpa)
+                preseal_guard_state["first_target_ready_to_seal_elapsed_s"] = elapsed_s
+                preseal_guard_state["first_target_ready_to_seal_before_abort"] = not over_abort_seen
+                preseal_guard_state["first_target_ready_to_seal_missed"] = False
+                preseal_guard_state["first_target_ready_to_seal_missed_reason"] = ""
+            if over_abort_seen and pressure_hpa is not None:
+                if preseal_guard_state.get("vent_off_settle_first_over_abort_sample_hpa") is None:
+                    preseal_guard_state["vent_off_settle_first_over_abort_sample_hpa"] = float(pressure_hpa)
+                    preseal_guard_state["vent_off_settle_first_over_abort_sample_at"] = sample_at
+                preseal_guard_state["vent_off_settle_wait_overlimit_seen"] = True
+                preseal_guard_state["first_over_abort_pressure_hpa"] = float(pressure_hpa)
+                preseal_guard_state["first_over_abort_elapsed_s"] = max(0.0, elapsed_s)
+                preseal_guard_state["first_over_abort_source"] = str(
+                    sample_meta.get("pressure_sample_source") or sample_meta.get("source") or ""
+                )
+                preseal_guard_state["first_over_abort_sample_age_s"] = self._coerce_float(
+                    sample_meta.get("pressure_sample_age_s", sample_meta.get("sample_age_s"))
+                )
+                preseal_guard_state["first_over_abort_to_abort_latency_s"] = 0.0
+                preseal_guard_state["first_target_ready_to_seal_missed"] = True
+                preseal_guard_state["first_target_ready_to_seal_missed_reason"] = "abort_before_ready_to_seal"
+                preseal_guard_state["ready_to_seal_window_missed_reason"] = "abort_before_ready_to_seal"
+                preseal_guard_state["overlimit_elapsed_s_nonnegative"] = True
+                preseal_guard_state["overlimit_elapsed_source"] = "vent_off_settle_monitor"
+            elif ready_window_missed_reason:
+                preseal_guard_state["ready_to_seal_window_missed_reason"] = ready_window_missed_reason
+
         if (
             pressure_at_arm is not None
             and abort_pressure_hpa is not None
@@ -3483,6 +3666,13 @@ class PressureControlService:
             and not bool(arm_sample_meta.get("pressure_sample_is_stale", False))
         ):
             first_over_elapsed_s = max(0.0, time.time() - started_at)
+            mark_vent_off_settle_sample(
+                pressure_hpa=float(pressure_at_arm),
+                sample_meta=arm_sample_meta,
+                elapsed_s=first_over_elapsed_s,
+                over_abort_seen=True,
+                ready_to_seal_seen=False,
+            )
             return self._fail_positive_preseal(
                 point,
                 route=route,
@@ -3539,6 +3729,14 @@ class PressureControlService:
             and not bool(arm_sample_meta.get("pressure_sample_is_stale", False))
         ):
             if abort_pressure_hpa is not None and float(pressure_at_arm) >= float(abort_pressure_hpa):
+                abort_elapsed_s = max(0.0, time.time() - started_at)
+                mark_vent_off_settle_sample(
+                    pressure_hpa=float(pressure_at_arm),
+                    sample_meta=arm_sample_meta,
+                    elapsed_s=abort_elapsed_s,
+                    over_abort_seen=True,
+                    ready_to_seal_seen=False,
+                )
                 return self._fail_positive_preseal(
                     point,
                     route=route,
@@ -3573,6 +3771,13 @@ class PressureControlService:
             if ready_monotonic_s is None:
                 ready_monotonic_s = time.monotonic()
             ready_elapsed_s = max(0.0, time.time() - started_at)
+            mark_vent_off_settle_sample(
+                pressure_hpa=float(pressure_at_arm),
+                sample_meta=arm_sample_meta,
+                elapsed_s=ready_elapsed_s,
+                over_abort_seen=False,
+                ready_to_seal_seen=True,
+            )
             ready_payload = {
                 "stage": "positive_preseal_pressurization",
                 "positive_preseal_phase_started": True,
@@ -3630,8 +3835,12 @@ class PressureControlService:
                 "first_target_ready_to_seal_before_abort": True,
                 "first_target_ready_to_seal_missed": False,
                 "first_target_ready_to_seal_missed_reason": "",
+                "vent_off_settle_wait_pressure_monitored": bool(
+                    preseal_guard_state.get("vent_off_settle_wait_pressure_monitored", False)
+                ),
                 "vent_off_settle_wait_ready_to_seal_seen": bool(
-                    not ready_before_vent_close_completed
+                    preseal_guard_state.get("vent_off_settle_wait_ready_to_seal_seen")
+                    or not ready_before_vent_close_completed
                 ),
                 "seal_command_sent": False,
                 "sealed": False,
@@ -3891,6 +4100,14 @@ class PressureControlService:
                 "pressure_above_ready_to_seal_window_before_abort"
                 if ready_window_missed
                 else ("abort_before_ready_to_seal" if over_abort_seen else "")
+            )
+            mark_vent_off_settle_sample(
+                pressure_hpa=None if pressure_hpa is None else float(pressure_hpa),
+                sample_meta=sample_meta,
+                elapsed_s=elapsed_s,
+                over_abort_seen=over_abort_seen,
+                ready_to_seal_seen=ready_to_seal_seen,
+                ready_window_missed_reason=ready_window_missed_reason,
             )
             check_payload = {
                 "stage": "positive_preseal_pressurization",

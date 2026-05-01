@@ -258,11 +258,29 @@ POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
     "preseal_guard_armed_at",
     "preseal_guard_arm_source",
     "preseal_guard_armed_from_vent_close_command",
+    "preseal_guard_armed_from_vent_close_command_false_reason",
+    "preseal_guard_expected_arm_source",
+    "preseal_guard_actual_arm_source",
+    "preseal_guard_arm_source_alignment_ok",
+    "vent_close_command_sent_at",
+    "vent_close_command_completed_at",
+    "vent_close_to_monitor_start_latency_s",
     "vent_close_to_preseal_guard_arm_latency_s",
     "vent_close_to_positive_preseal_start_latency_s",
     "vent_off_settle_wait_pressure_monitored",
     "vent_off_settle_wait_overlimit_seen",
     "vent_off_settle_wait_ready_to_seal_seen",
+    "vent_off_settle_monitor_started",
+    "vent_off_settle_monitor_started_at",
+    "vent_off_settle_monitor_sample_count",
+    "vent_off_settle_first_ready_to_seal_sample_hpa",
+    "vent_off_settle_first_ready_to_seal_sample_at",
+    "vent_off_settle_first_over_abort_sample_hpa",
+    "vent_off_settle_first_over_abort_sample_at",
+    "ready_to_seal_window_entered",
+    "ready_to_seal_window_missed_reason",
+    "overlimit_elapsed_s_nonnegative",
+    "overlimit_elapsed_source",
     "first_target_ready_to_seal_min_hpa",
     "first_target_ready_to_seal_max_hpa",
     "first_target_ready_to_seal_pressure_hpa",
@@ -295,11 +313,29 @@ POSITIVE_PRESEAL_STATE_MACHINE_FIELDS = [
     "preseal_guard_armed_at",
     "preseal_guard_arm_source",
     "preseal_guard_armed_from_vent_close_command",
+    "preseal_guard_armed_from_vent_close_command_false_reason",
+    "preseal_guard_expected_arm_source",
+    "preseal_guard_actual_arm_source",
+    "preseal_guard_arm_source_alignment_ok",
+    "vent_close_command_sent_at",
+    "vent_close_command_completed_at",
+    "vent_close_to_monitor_start_latency_s",
     "vent_close_to_preseal_guard_arm_latency_s",
     "vent_close_to_positive_preseal_start_latency_s",
     "vent_off_settle_wait_pressure_monitored",
     "vent_off_settle_wait_overlimit_seen",
     "vent_off_settle_wait_ready_to_seal_seen",
+    "vent_off_settle_monitor_started",
+    "vent_off_settle_monitor_started_at",
+    "vent_off_settle_monitor_sample_count",
+    "vent_off_settle_first_ready_to_seal_sample_hpa",
+    "vent_off_settle_first_ready_to_seal_sample_at",
+    "vent_off_settle_first_over_abort_sample_hpa",
+    "vent_off_settle_first_over_abort_sample_at",
+    "ready_to_seal_window_entered",
+    "ready_to_seal_window_missed_reason",
+    "overlimit_elapsed_s_nonnegative",
+    "overlimit_elapsed_source",
     "first_target_ready_to_seal_min_hpa",
     "first_target_ready_to_seal_max_hpa",
     "first_target_ready_to_seal_pressure_hpa",
@@ -329,6 +365,10 @@ POSITIVE_PRESEAL_STATE_MACHINE_FIELDS = [
 POSITIVE_PRESEAL_OVERLIMIT_AUDIT_FIELDS = [
     "positive_preseal_overlimit_root_cause_candidate",
     "positive_preseal_overlimit_first_seen_elapsed_s",
+    "positive_preseal_overlimit_elapsed_s_nonnegative",
+    "positive_preseal_overlimit_elapsed_source",
+    "overlimit_elapsed_s_nonnegative",
+    "overlimit_elapsed_source",
     "positive_preseal_overlimit_first_seen_pressure_hpa",
     "positive_preseal_overlimit_first_seen_source",
     "positive_preseal_overlimit_first_seen_sample_age_s",
@@ -2004,6 +2044,18 @@ def _build_high_pressure_first_point_evidence(
         "prearm_pressure_source_disagreement_reason": str(
             prearm_or_mode_state.get("prearm_pressure_source_disagreement_reason") or ""
         ),
+        "prearm_primary_source_disagreement": bool(
+            prearm_or_mode_state.get("prearm_primary_source_disagreement")
+        ),
+        "prearm_aux_source_disagreement": bool(
+            prearm_or_mode_state.get("prearm_aux_source_disagreement")
+        ),
+        "prearm_aux_source_disagreement_nonblocking": bool(
+            prearm_or_mode_state.get("prearm_aux_source_disagreement_nonblocking")
+        ),
+        "prearm_aux_source_disagreement_reason": str(
+            prearm_or_mode_state.get("prearm_aux_source_disagreement_reason") or ""
+        ),
         "conditioning_monitor_pressure_source": str(
             prearm_or_mode_state.get("conditioning_monitor_pressure_source") or ""
         ),
@@ -2851,6 +2903,36 @@ def _build_co2_route_conditioning_evidence(
             "route_conditioning_pressure_rise_rate_hpa_per_s"
         ),
         "route_conditioning_peak_pressure_hpa": latest_state_value("route_conditioning_peak_pressure_hpa"),
+        "route_conditioning_pressure_returned_to_atmosphere": latest_state_value(
+            "route_conditioning_pressure_returned_to_atmosphere"
+        ),
+        "route_conditioning_atmosphere_stable_before_flush": latest_state_value(
+            "route_conditioning_atmosphere_stable_before_flush"
+        ),
+        "route_conditioning_atmosphere_stable_hold_s": latest_state_value(
+            "route_conditioning_atmosphere_stable_hold_s"
+        ),
+        "route_conditioning_high_pressure_seen_before_preseal": bool(
+            latest_state_value("route_conditioning_high_pressure_seen_before_preseal", False)
+        ),
+        "route_conditioning_high_pressure_seen_before_preseal_hpa": latest_state_value(
+            "route_conditioning_high_pressure_seen_before_preseal_hpa"
+        ),
+        "route_conditioning_high_pressure_seen_phase": latest_state_value(
+            "route_conditioning_high_pressure_seen_phase",
+            "",
+        ),
+        "route_conditioning_high_pressure_seen_source": latest_state_value(
+            "route_conditioning_high_pressure_seen_source",
+            "",
+        ),
+        "route_conditioning_high_pressure_seen_sample_age_s": latest_state_value(
+            "route_conditioning_high_pressure_seen_sample_age_s"
+        ),
+        "route_conditioning_high_pressure_seen_decision": latest_state_value(
+            "route_conditioning_high_pressure_seen_decision",
+            "",
+        ),
         "route_conditioning_pressure_overlimit": bool(
             latest_state_value("route_conditioning_pressure_overlimit", bool(pressure_overlimit_states))
         ),
@@ -3207,11 +3289,29 @@ def _build_positive_preseal_pressurization_evidence(
         "preseal_guard_armed_at": "",
         "preseal_guard_arm_source": "",
         "preseal_guard_armed_from_vent_close_command": False,
+        "preseal_guard_armed_from_vent_close_command_false_reason": "",
+        "preseal_guard_expected_arm_source": "atmosphere_vent_close_command",
+        "preseal_guard_actual_arm_source": "",
+        "preseal_guard_arm_source_alignment_ok": False,
+        "vent_close_command_sent_at": "",
+        "vent_close_command_completed_at": "",
+        "vent_close_to_monitor_start_latency_s": None,
         "vent_close_to_preseal_guard_arm_latency_s": None,
         "vent_close_to_positive_preseal_start_latency_s": None,
         "vent_off_settle_wait_pressure_monitored": False,
         "vent_off_settle_wait_overlimit_seen": False,
         "vent_off_settle_wait_ready_to_seal_seen": False,
+        "vent_off_settle_monitor_started": False,
+        "vent_off_settle_monitor_started_at": "",
+        "vent_off_settle_monitor_sample_count": 0,
+        "vent_off_settle_first_ready_to_seal_sample_hpa": None,
+        "vent_off_settle_first_ready_to_seal_sample_at": "",
+        "vent_off_settle_first_over_abort_sample_hpa": None,
+        "vent_off_settle_first_over_abort_sample_at": "",
+        "ready_to_seal_window_entered": False,
+        "ready_to_seal_window_missed_reason": "",
+        "overlimit_elapsed_s_nonnegative": True,
+        "overlimit_elapsed_source": "",
         "first_target_ready_to_seal_min_hpa": None,
         "first_target_ready_to_seal_max_hpa": None,
         "first_target_ready_to_seal_pressure_hpa": None,
@@ -3738,8 +3838,25 @@ def _build_positive_preseal_overlimit_audit(
         explicit = _as_float(sample.get("elapsed_s"))
         stage = str(sample.get("stage") or "").lower()
         if explicit is not None and stage.startswith("positive_preseal"):
-            return round(float(explicit), 3)
-        return _trace_delta_s(sample.get("parsed_ts"), positive_start_ts)
+            return round(max(0.0, float(explicit)), 3)
+        elapsed = _trace_delta_s(sample.get("parsed_ts"), positive_start_ts)
+        return None if elapsed is None else round(max(0.0, float(elapsed)), 3)
+
+    def sample_elapsed_source(sample: Optional[Mapping[str, Any]]) -> str:
+        if not sample:
+            return ""
+        explicit = _as_float(sample.get("elapsed_s"))
+        stage = str(sample.get("stage") or "").lower()
+        if explicit is not None and stage.startswith("positive_preseal"):
+            return "positive_preseal_explicit_elapsed"
+        parsed_ts = sample.get("parsed_ts")
+        if parsed_ts is not None and positive_start_ts is not None and ts_key(parsed_ts) < ts_key(positive_start_ts):
+            return "pre_positive_preseal_start_clamped_to_zero"
+        if parsed_ts is not None and positive_start_ts is not None:
+            return "positive_preseal_start_delta"
+        if parsed_ts is not None and vent_close_command_ts is not None:
+            return "vent_close_command_delta"
+        return ""
 
     first_overlimit = None
     if abort_threshold_hpa is not None:
@@ -3856,11 +3973,18 @@ def _build_positive_preseal_overlimit_audit(
         or (peak_sample or {}).get("source")
         or ""
     )
+    first_overlimit_elapsed = sample_elapsed(first_overlimit) if first_overlimit else None
+    first_overlimit_elapsed_source = sample_elapsed_source(first_overlimit)
+    first_overlimit_elapsed_nonnegative = bool(
+        first_overlimit_elapsed is None or float(first_overlimit_elapsed) >= 0.0
+    )
     return {
         "positive_preseal_overlimit_root_cause_candidate": root_cause,
-        "positive_preseal_overlimit_first_seen_elapsed_s": sample_elapsed(first_overlimit)
-        if first_overlimit
-        else None,
+        "positive_preseal_overlimit_first_seen_elapsed_s": first_overlimit_elapsed,
+        "positive_preseal_overlimit_elapsed_s_nonnegative": first_overlimit_elapsed_nonnegative,
+        "positive_preseal_overlimit_elapsed_source": first_overlimit_elapsed_source,
+        "overlimit_elapsed_s_nonnegative": first_overlimit_elapsed_nonnegative,
+        "overlimit_elapsed_source": first_overlimit_elapsed_source,
         "positive_preseal_overlimit_first_seen_pressure_hpa": _as_float((first_overlimit or {}).get("pressure_hpa")),
         "positive_preseal_overlimit_first_seen_source": str((first_overlimit or {}).get("source") or ""),
         "positive_preseal_overlimit_first_seen_sample_age_s": _as_float((first_overlimit or {}).get("sample_age_s")),
@@ -4965,6 +5089,12 @@ def _finalize_artifact_decision(payload: dict[str, Any], run_dir: str | Path) ->
             reasons.append("a2_co2_route_conditioning_hard_abort_pressure_exceeded")
         if conditioning and bool(conditioning.get("pressure_overlimit_seen")):
             reasons.append("a2_co2_route_conditioning_pressure_overlimit")
+        if conditioning and bool(conditioning.get("route_conditioning_high_pressure_seen_before_preseal")):
+            reasons.append("a2_co2_route_conditioning_high_pressure_seen_before_preseal")
+        if conditioning and conditioning.get("route_conditioning_pressure_returned_to_atmosphere") is False:
+            reasons.append("a2_co2_route_conditioning_pressure_not_returned_to_atmosphere")
+        if conditioning and conditioning.get("route_conditioning_atmosphere_stable_before_flush") is False:
+            reasons.append("a2_co2_route_conditioning_atmosphere_not_stable_before_flush")
         if conditioning and bool(conditioning.get("route_open_transient_recovery_required")) and not bool(
             conditioning.get("route_open_transient_accepted")
         ):
@@ -5267,6 +5397,18 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             ),
             "prearm_pressure_source_disagreement_reason": high_pressure_first_point_payload.get(
                 "prearm_pressure_source_disagreement_reason"
+            ),
+            "prearm_primary_source_disagreement": high_pressure_first_point_payload.get(
+                "prearm_primary_source_disagreement"
+            ),
+            "prearm_aux_source_disagreement": high_pressure_first_point_payload.get(
+                "prearm_aux_source_disagreement"
+            ),
+            "prearm_aux_source_disagreement_nonblocking": high_pressure_first_point_payload.get(
+                "prearm_aux_source_disagreement_nonblocking"
+            ),
+            "prearm_aux_source_disagreement_reason": high_pressure_first_point_payload.get(
+                "prearm_aux_source_disagreement_reason"
             ),
             "conditioning_monitor_pressure_source": high_pressure_first_point_payload.get(
                 "conditioning_monitor_pressure_source"
@@ -5787,6 +5929,33 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             ),
             "route_conditioning_pressure_overlimit": co2_route_conditioning_payload.get(
                 "route_conditioning_pressure_overlimit"
+            ),
+            "route_conditioning_pressure_returned_to_atmosphere": co2_route_conditioning_payload.get(
+                "route_conditioning_pressure_returned_to_atmosphere"
+            ),
+            "route_conditioning_atmosphere_stable_before_flush": co2_route_conditioning_payload.get(
+                "route_conditioning_atmosphere_stable_before_flush"
+            ),
+            "route_conditioning_atmosphere_stable_hold_s": co2_route_conditioning_payload.get(
+                "route_conditioning_atmosphere_stable_hold_s"
+            ),
+            "route_conditioning_high_pressure_seen_before_preseal": co2_route_conditioning_payload.get(
+                "route_conditioning_high_pressure_seen_before_preseal"
+            ),
+            "route_conditioning_high_pressure_seen_before_preseal_hpa": co2_route_conditioning_payload.get(
+                "route_conditioning_high_pressure_seen_before_preseal_hpa"
+            ),
+            "route_conditioning_high_pressure_seen_phase": co2_route_conditioning_payload.get(
+                "route_conditioning_high_pressure_seen_phase"
+            ),
+            "route_conditioning_high_pressure_seen_source": co2_route_conditioning_payload.get(
+                "route_conditioning_high_pressure_seen_source"
+            ),
+            "route_conditioning_high_pressure_seen_sample_age_s": co2_route_conditioning_payload.get(
+                "route_conditioning_high_pressure_seen_sample_age_s"
+            ),
+            "route_conditioning_high_pressure_seen_decision": co2_route_conditioning_payload.get(
+                "route_conditioning_high_pressure_seen_decision"
             ),
             "route_conditioning_vent_gap_exceeded": co2_route_conditioning_payload.get(
                 "route_conditioning_vent_gap_exceeded"
