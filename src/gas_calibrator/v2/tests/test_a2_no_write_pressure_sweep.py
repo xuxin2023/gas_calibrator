@@ -4537,6 +4537,250 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
     assert "正压封路升压时序诊断" in report
     assert "preseal_timing_warning_count_total: 0" in report
 
+def test_a2_artifacts_audit_positive_preseal_overlimit_timing_without_threshold_raise(tmp_path) -> None:
+    truth = {
+        "read_only": True,
+        "passive_listen_only": True,
+        "commands_sent": [],
+        "analyzers": [
+            _truth_row("COM35", "001"),
+            _truth_row("COM37", "029"),
+            _truth_row("COM41", "003"),
+            _truth_row("COM42", "004"),
+        ],
+    }
+    (tmp_path / "truth.json").write_text(json.dumps(truth), encoding="utf-8")
+    raw_cfg = _a2_raw_config("truth.json")
+    raw_cfg["workflow"]["pressure"] = {
+        "positive_preseal_pressurization_enabled": True,
+        "preseal_ready_pressure_hpa": 1110.0,
+        "preseal_abort_pressure_hpa": 1150.0,
+        "preseal_ready_timeout_s": 30.0,
+        "preseal_pressure_poll_interval_s": 0.2,
+        "pressure_rise_detection_threshold_hpa": 2.0,
+        "expected_route_open_to_first_pressure_rise_max_s": 10.0,
+        "expected_route_open_to_ready_max_s": 40.0,
+        "expected_positive_preseal_to_ready_max_s": 30.0,
+        "expected_ready_to_seal_command_max_s": 0.5,
+        "expected_ready_to_seal_confirm_max_s": 2.0,
+        "expected_max_pressure_increase_after_ready_hpa": 10.0,
+        "expected_vent_hold_tick_interval_s": 4.0,
+        "expected_vent_hold_pressure_rise_rate_max_hpa_per_s": 100.0,
+        "timing_warning_only": True,
+    }
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    for filename, content in {
+        "summary.json": "{}",
+        "run_manifest.json": "{}",
+        "points.csv": "timestamp,point_index,status\n",
+        "run.log": "ok\n",
+        "samples.csv": "timestamp,point_index\n",
+    }.items():
+        (artifact_dir / filename).write_text(content, encoding="utf-8")
+    (artifact_dir / "io_log.csv").write_text(
+        "\n".join(
+            [
+                "timestamp,device,direction,data",
+                "2026-04-26T12:10:58.700,pressure_controller,TX,vent(False)",
+                "2026-04-26T12:11:02.730,pressure_controller,TX,set_output(False)",
+                "2026-04-26T12:11:04.860,pressure_controller,TX,vent(True)",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    trace_rows = [
+        {
+            "ts": "2026-04-26T04:10:50+00:00",
+            "action": "set_co2_valves",
+            "route": "co2",
+            "point_index": 1,
+            "target": {"pressure_hpa": 1100.0},
+            "actual": {"pressure_hpa": 1014.967},
+            "result": "ok",
+        },
+        {
+            "ts": "2026-04-26T04:10:58.700000+00:00",
+            "action": "set_vent",
+            "route": "co2",
+            "point_index": 1,
+            "target": {"vent_on": False},
+            "actual": {"pressure_hpa": 1105.0, "output_state": 0, "isolation_state": 1},
+            "result": "ok",
+            "message": "positive CO2 preseal pressurization before route seal",
+        },
+        {
+            "ts": "2026-04-26T04:11:00+00:00",
+            "action": "positive_preseal_pressurization_start",
+            "route": "co2",
+            "point_index": 1,
+            "actual": {
+                "target_pressure_hpa": 1100.0,
+                "current_line_pressure_hpa": 1105.0,
+                "preseal_ready_pressure_hpa": 1110.0,
+                "preseal_abort_pressure_hpa": 1150.0,
+                "preseal_ready_timeout_s": 30.0,
+                "preseal_pressure_poll_interval_s": 0.2,
+            },
+            "result": "ok",
+        },
+        {
+            "ts": "2026-04-26T04:11:02.200000+00:00",
+            "action": "positive_preseal_abort",
+            "route": "co2",
+            "point_index": 1,
+            "actual": {
+                "target_pressure_hpa": 1100.0,
+                "pressure_hpa": 1305.784,
+                "elapsed_s": 2.2,
+                "preseal_ready_pressure_hpa": 1110.0,
+                "preseal_abort_pressure_hpa": 1150.0,
+                "abort_reason": "preseal_abort_pressure_exceeded",
+                "pressure_sample_source": "digital_pressure_gauge",
+                "pressure_sample_age_s": 0.0,
+                "pressure_sample_sequence_id": 230,
+                "decision": "FAIL",
+            },
+            "result": "fail",
+        },
+    ]
+    (artifact_dir / "route_trace.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in trace_rows) + "\n",
+        encoding="utf-8",
+    )
+    timing_events = [
+        {
+            "timestamp": "2026-04-26T04:10:58.700000+00:00",
+            "timestamp_local": "2026-04-26T04:10:58.700000+00:00",
+            "event_name": "seal_preparation_vent_off_settle_start",
+            "stage": "high_pressure_first_point",
+        },
+        {
+            "timestamp": "2026-04-26T04:10:59.200000+00:00",
+            "timestamp_local": "2026-04-26T04:10:59.200000+00:00",
+            "event_name": "seal_preparation_vent_off_settle_end",
+            "stage": "high_pressure_first_point",
+        },
+        {
+            "timestamp": "2026-04-26T04:10:59.900000+00:00",
+            "timestamp_local": "2026-04-26T04:10:59.900000+00:00",
+            "event_name": "gauge_pressure_read_end",
+            "stage": "high_pressure_first_point",
+            "route_state": {
+                "source": "digital_pressure_gauge_continuous",
+                "pressure_hpa": 1153.465,
+                "sample_recorded_at": "2026-04-26T04:10:59.900000+00:00",
+                "sample_age_s": 0.0,
+                "sequence_id": 226,
+                "parse_ok": True,
+                "usable_for_abort": True,
+                "usable_for_ready": True,
+            },
+        },
+        {
+            "timestamp": "2026-04-26T04:11:00+00:00",
+            "timestamp_local": "2026-04-26T04:11:00+00:00",
+            "event_name": "positive_preseal_pressurization_start",
+            "stage": "positive_preseal_pressurization",
+        },
+        {
+            "timestamp": "2026-04-26T04:11:01.400000+00:00",
+            "timestamp_local": "2026-04-26T04:11:01.400000+00:00",
+            "event_name": "pace_pressure_read_end",
+            "stage": "positive_preseal_pressurization",
+            "route_state": {
+                "source": "pace_controller",
+                "pressure_hpa": 171.897,
+                "sample_recorded_at": "2026-04-26T04:11:01.400000+00:00",
+                "sample_age_s": 0.0,
+                "parse_ok": True,
+            },
+        },
+        {
+            "timestamp": "2026-04-26T04:11:02.200000+00:00",
+            "timestamp_local": "2026-04-26T04:11:02.200000+00:00",
+            "event_name": "gauge_pressure_read_end",
+            "stage": "positive_preseal_pressurization",
+            "route_state": {
+                "source": "digital_pressure_gauge",
+                "pressure_hpa": 1305.784,
+                "sample_recorded_at": "2026-04-26T04:11:02.200000+00:00",
+                "sample_age_s": 0.0,
+                "sequence_id": 230,
+                "parse_ok": True,
+                "usable_for_abort": True,
+            },
+        },
+        {
+            "timestamp": "2026-04-26T04:11:02.200000+00:00",
+            "timestamp_local": "2026-04-26T04:11:02.200000+00:00",
+            "event_name": "positive_preseal_abort",
+            "stage": "positive_preseal_pressurization",
+            "pressure_hpa": 1305.784,
+        },
+    ]
+    (artifact_dir / "workflow_timing_trace.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in timing_events) + "\n",
+        encoding="utf-8",
+    )
+    payload = build_run001_a2_evidence_payload(
+        raw_cfg,
+        config_path=tmp_path / "config.json",
+        run_dir=artifact_dir,
+        point_rows=_a2_points(),
+        guard=build_no_write_guard_from_raw_config(raw_cfg),
+        artifact_paths={
+            "summary": str(artifact_dir / "summary.json"),
+            "manifest": str(artifact_dir / "run_manifest.json"),
+            "trace": str(artifact_dir / "route_trace.jsonl"),
+        },
+        require_runtime_artifacts=True,
+        service_status={"phase": "failed", "completed_points": 0},
+    )
+
+    write_run001_a2_artifacts(artifact_dir, payload)
+    summary = json.loads((artifact_dir / "summary.json").read_text(encoding="utf-8"))
+    evidence = json.loads(
+        (artifact_dir / "positive_preseal_pressurization_evidence.json").read_text(encoding="utf-8")
+    )
+    timing_diagnostics = json.loads(
+        (artifact_dir / "positive_preseal_timing_diagnostics.json").read_text(encoding="utf-8")
+    )
+    timing_summary = json.loads((artifact_dir / "workflow_timing_summary.json").read_text(encoding="utf-8"))
+    manifest = json.loads((artifact_dir / "run_manifest.json").read_text(encoding="utf-8"))
+
+    for artifact in (summary, evidence, timing_diagnostics, timing_summary, manifest):
+        assert artifact["positive_preseal_overlimit_root_cause_candidate"] == (
+            "vent_close_timing_positive_preseal_ramp_exceeded_abort_cutoff_before_setpoint_or_output_enable"
+        )
+        assert artifact["positive_preseal_overlimit_first_seen_pressure_hpa"] == 1153.465
+        assert artifact["positive_preseal_pressure_peak_hpa"] == 1305.784
+        assert artifact["positive_preseal_setpoint_command_sent"] is False
+        assert artifact["positive_preseal_output_enable_sent"] is False
+        assert artifact["positive_preseal_vent_close_command_sent"] is True
+        assert artifact["positive_preseal_pressure_source_used_for_abort"] == "digital_pressure_gauge_continuous"
+
+    assert evidence["preseal_abort_pressure_hpa"] == 1150.0
+    assert evidence["positive_preseal_overlimit_first_seen_elapsed_s"] == -0.1
+    assert evidence["positive_preseal_overlimit_first_seen_source"] == "digital_pressure_gauge_continuous"
+    assert evidence["positive_preseal_overlimit_first_seen_sample_age_s"] == 0.0
+    assert evidence["positive_preseal_overlimit_first_seen_sequence_id"] == 226
+    assert evidence["positive_preseal_pressure_peak_elapsed_s"] == 2.2
+    assert evidence["positive_preseal_pressure_peak_source"] == "digital_pressure_gauge"
+    assert evidence["positive_preseal_pressure_rise_rate_peak_hpa_per_s"] == 66.226
+    assert evidence["positive_preseal_output_disable_sent"] is True
+    assert evidence["positive_preseal_output_disable_latency_s"] == 0.53
+    assert evidence["positive_preseal_ready_reached_before_vent_close_completed"] is False
+    assert evidence["positive_preseal_ready_reached_during_vent_close"] is False
+    assert evidence["positive_preseal_ready_to_abort_latency_s"] == 2.3
+    assert evidence["positive_preseal_abort_to_relief_latency_s"] == 2.66
+    assert evidence["positive_preseal_digital_gauge_pressure_hpa"] == 1305.784
+    assert evidence["positive_preseal_pace_pressure_hpa"] == 171.897
+    assert evidence["positive_preseal_source_disagreement_hpa"] == 1133.887
+    assert summary["positive_preseal_abort_reason"] == "preseal_abort_pressure_exceeded"
+    assert summary["positive_preseal_pressure_max_hpa"] == 1305.784
+
 
 def test_a2_high_pressure_first_point_artifact_uses_first_pressure_after_route_not_baseline(tmp_path) -> None:
     truth = {

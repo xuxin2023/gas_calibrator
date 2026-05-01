@@ -1274,6 +1274,33 @@ def test_a2_probe_summary_records_positive_preseal_abort_and_emergency_relief(
                     "positive_preseal_pressure_setpoint_command_sent": False,
                     "positive_preseal_sample_started": False,
                     "positive_preseal_overlimit_fail_closed": True,
+                    "positive_preseal_overlimit_root_cause_candidate": (
+                        "vent_close_timing_positive_preseal_ramp_exceeded_abort_cutoff_before_setpoint_or_output_enable"
+                    ),
+                    "positive_preseal_overlimit_first_seen_elapsed_s": -0.809,
+                    "positive_preseal_overlimit_first_seen_pressure_hpa": 1153.465,
+                    "positive_preseal_overlimit_first_seen_source": "digital_pressure_gauge_continuous",
+                    "positive_preseal_overlimit_first_seen_sample_age_s": 0.0,
+                    "positive_preseal_overlimit_first_seen_sequence_id": 226,
+                    "positive_preseal_pressure_peak_hpa": 1280.989,
+                    "positive_preseal_pressure_peak_elapsed_s": 2.209,
+                    "positive_preseal_pressure_peak_source": "digital_pressure_gauge_p3",
+                    "positive_preseal_pressure_rise_rate_peak_hpa_per_s": 42.0,
+                    "positive_preseal_setpoint_command_sent": False,
+                    "positive_preseal_setpoint_pressure_hpa": None,
+                    "positive_preseal_output_enable_sent": False,
+                    "positive_preseal_output_disable_sent": True,
+                    "positive_preseal_output_disable_latency_s": 0.53,
+                    "positive_preseal_vent_close_arm_trigger": "",
+                    "positive_preseal_vent_close_command_sent": True,
+                    "positive_preseal_ready_reached_before_vent_close_completed": False,
+                    "positive_preseal_ready_reached_during_vent_close": False,
+                    "positive_preseal_ready_to_abort_latency_s": 3.017,
+                    "positive_preseal_abort_to_relief_latency_s": 2.66,
+                    "positive_preseal_pressure_source_used_for_abort": "digital_pressure_gauge_continuous",
+                    "positive_preseal_digital_gauge_pressure_hpa": 1280.989,
+                    "positive_preseal_pace_pressure_hpa": 171.897,
+                    "positive_preseal_source_disagreement_hpa": 1109.092,
                     "pressure_hpa": 1280.989,
                     "abort_reason": "preseal_abort_pressure_exceeded",
                 },
@@ -1325,6 +1352,17 @@ def test_a2_probe_summary_records_positive_preseal_abort_and_emergency_relief(
     assert summary["positive_preseal_abort_pressure_hpa"] == 1150.0
     assert summary["positive_preseal_pressure_overlimit"] is True
     assert summary["positive_preseal_setpoint_sent"] is False
+    assert summary["positive_preseal_setpoint_command_sent"] is False
+    assert summary["positive_preseal_output_enable_sent"] is False
+    assert summary["positive_preseal_output_disable_sent"] is True
+    assert summary["positive_preseal_vent_close_command_sent"] is True
+    assert summary["positive_preseal_overlimit_root_cause_candidate"].startswith("vent_close_timing")
+    assert summary["positive_preseal_overlimit_first_seen_pressure_hpa"] == 1153.465
+    assert summary["positive_preseal_overlimit_first_seen_source"] == "digital_pressure_gauge_continuous"
+    assert summary["positive_preseal_pressure_peak_hpa"] == 1280.989
+    assert summary["positive_preseal_abort_to_relief_latency_s"] == 2.66
+    assert summary["positive_preseal_pressure_source_used_for_abort"] == "digital_pressure_gauge_continuous"
+    assert summary["positive_preseal_source_disagreement_hpa"] == 1109.092
     assert summary["positive_preseal_seal_command_sent"] is False
     assert summary["positive_preseal_sample_started"] is False
     assert summary["emergency_abort_relief_vent_allowed"] is True

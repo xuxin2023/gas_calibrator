@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import csv
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import re
@@ -256,6 +256,34 @@ POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
     "pressure_control_started",
     "abort_reason",
     "decision",
+]
+
+POSITIVE_PRESEAL_OVERLIMIT_AUDIT_FIELDS = [
+    "positive_preseal_overlimit_root_cause_candidate",
+    "positive_preseal_overlimit_first_seen_elapsed_s",
+    "positive_preseal_overlimit_first_seen_pressure_hpa",
+    "positive_preseal_overlimit_first_seen_source",
+    "positive_preseal_overlimit_first_seen_sample_age_s",
+    "positive_preseal_overlimit_first_seen_sequence_id",
+    "positive_preseal_pressure_peak_hpa",
+    "positive_preseal_pressure_peak_elapsed_s",
+    "positive_preseal_pressure_peak_source",
+    "positive_preseal_pressure_rise_rate_peak_hpa_per_s",
+    "positive_preseal_setpoint_command_sent",
+    "positive_preseal_setpoint_pressure_hpa",
+    "positive_preseal_output_enable_sent",
+    "positive_preseal_output_disable_sent",
+    "positive_preseal_output_disable_latency_s",
+    "positive_preseal_vent_close_arm_trigger",
+    "positive_preseal_vent_close_command_sent",
+    "positive_preseal_ready_reached_before_vent_close_completed",
+    "positive_preseal_ready_reached_during_vent_close",
+    "positive_preseal_ready_to_abort_latency_s",
+    "positive_preseal_abort_to_relief_latency_s",
+    "positive_preseal_pressure_source_used_for_abort",
+    "positive_preseal_digital_gauge_pressure_hpa",
+    "positive_preseal_pace_pressure_hpa",
+    "positive_preseal_source_disagreement_hpa",
 ]
 
 
@@ -761,6 +789,24 @@ def _trace_elapsed_s(ts: Optional[datetime], start_ts: Optional[datetime]) -> Op
         return round(max(0.0, (ts - start_ts).total_seconds()), 3)
     except Exception:
         return None
+
+
+def _trace_delta_s(ts: Optional[datetime], start_ts: Optional[datetime]) -> Optional[float]:
+    if ts is None or start_ts is None:
+        return None
+    try:
+        return round((ts - start_ts).total_seconds(), 3)
+    except Exception:
+        return None
+
+
+def _parse_local_io_ts(value: Any) -> Optional[datetime]:
+    ts = _parse_trace_ts(value)
+    if ts is None:
+        return None
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone(timedelta(hours=8)))
+    return ts
 
 
 def _trace_pressure_hpa(actual: Mapping[str, Any]) -> Optional[float]:
@@ -3350,6 +3396,399 @@ def _event_pressure(event: Optional[Mapping[str, Any]]) -> Optional[float]:
     return _as_float(event.get("pressure_hpa"))
 
 
+def _build_positive_preseal_overlimit_audit(
+    run_dir: str | Path,
+    payload: Mapping[str, Any],
+    *,
+    positive_preseal_payload: Mapping[str, Any],
+    timing_payload: Mapping[str, Any],
+    pressure_latency_payload: Mapping[str, Any],
+    pressure_latency_samples: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    trace_rows = _load_route_trace_rows(run_dir)
+    timing_events = load_workflow_timing_events(Path(run_dir) / WORKFLOW_TIMING_TRACE_FILENAME)
+
+    def row_ts(row: Mapping[str, Any]) -> Optional[datetime]:
+        return _parse_trace_ts(row.get("ts") or row.get("timestamp"))
+
+    def event_ts(*names: str) -> Optional[datetime]:
+        for name in names:
+            event = _first_timing_event(timing_events, name)
+            if not event:
+                continue
+            ts = _parse_trace_ts(event.get("timestamp_local")) or _parse_trace_ts(event.get("timestamp"))
+            if ts is not None:
+                return ts
+        return None
+
+    def first_route_ts(action_name: str) -> Optional[datetime]:
+        action_name = action_name.lower()
+        for row in trace_rows:
+            if str(row.get("action") or "").lower() == action_name:
+                return row_ts(row)
+        return None
+
+    def ts_key(ts: Optional[datetime]) -> datetime:
+        if ts is None:
+            return datetime.max.replace(tzinfo=timezone.utc)
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)
+
+    positive_start_ts = (
+        _parse_trace_ts(timing_payload.get("positive_preseal_started_at"))
+        or event_ts("positive_preseal_pressurization_start", "positive_preseal_arming_start")
+        or first_route_ts("positive_preseal_pressurization_start")
+    )
+    positive_abort_ts = (
+        event_ts("positive_preseal_abort", "high_pressure_abort")
+        or first_route_ts("positive_preseal_abort")
+    )
+    vent_close_command_ts = (
+        _parse_trace_ts(timing_payload.get("vent_close_command_at"))
+        or event_ts("positive_preseal_vent_close_start", "seal_preparation_vent_off_settle_start")
+    )
+    vent_close_confirmed_ts = (
+        _parse_trace_ts(timing_payload.get("vent_close_confirmed_at"))
+        or event_ts("positive_preseal_vent_close_end", "seal_preparation_vent_off_settle_end")
+    )
+    explicit_ready_ts = (
+        _parse_trace_ts(timing_payload.get("ready_reached_at"))
+        or event_ts("positive_preseal_ready", "preseal_atmosphere_flush_ready_handoff")
+        or first_route_ts("positive_preseal_ready")
+    )
+
+    setpoint_command_sent = _as_bool(
+        payload.get(
+            "positive_preseal_setpoint_command_sent",
+            payload.get("positive_preseal_pressure_setpoint_command_sent", False),
+        )
+    )
+    setpoint_pressure_hpa = _as_float(
+        payload.get("positive_preseal_setpoint_pressure_hpa", payload.get("positive_preseal_setpoint_hpa"))
+    )
+    output_enable_sent = _as_bool(
+        payload.get("positive_preseal_output_enable_sent", payload.get("positive_preseal_output_enabled", False))
+    )
+    output_disable_sent = _as_bool(payload.get("positive_preseal_output_disable_sent", False))
+    output_disable_ts: Optional[datetime] = None
+    vent_close_ts_from_io: Optional[datetime] = None
+    relief_ts: Optional[datetime] = None
+
+    for row in trace_rows:
+        action = str(row.get("action") or "").lower()
+        actual = row.get("actual")
+        actual = actual if isinstance(actual, Mapping) else {}
+        target = row.get("target")
+        target = target if isinstance(target, Mapping) else {}
+        ts = row_ts(row)
+        if action == "set_pressure":
+            if positive_start_ts is None or ts is None or ts >= positive_start_ts:
+                if positive_abort_ts is None or ts is None or ts <= positive_abort_ts:
+                    setpoint_command_sent = True
+                    setpoint_pressure_hpa = _as_float(target.get("pressure_hpa", actual.get("pressure_hpa")))
+        elif action == "set_output":
+            target_on = target.get("output_on", target.get("enabled", target.get("output_enabled")))
+            if target_on is True:
+                output_enable_sent = True
+            elif target_on is False:
+                if positive_abort_ts is not None and ts is not None and ts >= positive_abort_ts:
+                    output_disable_sent = True
+                    output_disable_ts = output_disable_ts or ts
+        elif action == "set_vent":
+            target_vent_on = target.get("vent_on")
+            if target_vent_on is False:
+                if positive_start_ts is None or ts is None or ts <= positive_start_ts:
+                    vent_close_ts_from_io = vent_close_ts_from_io or ts
+            elif target_vent_on is True:
+                if positive_abort_ts is not None and ts is not None and ts >= positive_abort_ts:
+                    relief_ts = relief_ts or ts
+
+    io_path = Path(run_dir) / "io_log.csv"
+    if io_path.exists():
+        try:
+            with io_path.open("r", encoding="utf-8", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    ts = _parse_local_io_ts(row.get("timestamp") or row.get("ts") or row.get("time"))
+                    data = str(row.get("data") or row.get("command") or row.get("message") or "").lower()
+                    direction = str(row.get("direction") or "").lower()
+                    if direction and direction not in {"tx", "write", "out", "command"}:
+                        continue
+                    if "set_pressure" in data:
+                        if positive_start_ts is None or ts is None or ts >= positive_start_ts:
+                            if positive_abort_ts is None or ts is None or ts <= positive_abort_ts:
+                                setpoint_command_sent = True
+                    if ("set_output(false" in data or "output(false" in data or "output=0" in data) and (
+                        positive_abort_ts is None or ts is None or ts >= positive_abort_ts
+                    ):
+                        output_disable_sent = True
+                        output_disable_ts = output_disable_ts or ts
+                    if "set_output(true" in data or "output(true" in data or "output=1" in data:
+                        if positive_start_ts is None or ts is None or ts >= positive_start_ts:
+                            if positive_abort_ts is None or ts is None or ts <= positive_abort_ts:
+                                output_enable_sent = True
+                    if "vent(false" in data or "vent_off" in data or "vent=0" in data:
+                        if positive_start_ts is None or ts is None or ts <= positive_start_ts:
+                            vent_close_ts_from_io = vent_close_ts_from_io or ts
+                    if ("vent(true" in data or "vent_on" in data or "vent=1" in data) and (
+                        positive_abort_ts is None or ts is None or ts >= positive_abort_ts
+                    ):
+                        relief_ts = relief_ts or ts
+        except Exception:
+            pass
+
+    vent_close_command_ts = vent_close_command_ts or vent_close_ts_from_io
+    vent_close_confirmed_ts = vent_close_confirmed_ts or vent_close_command_ts
+    vent_close_command_sent = vent_close_command_ts is not None
+
+    def sample_ts(sample: Mapping[str, Any]) -> Optional[datetime]:
+        return (
+            _parse_trace_ts(sample.get("sample_recorded_at"))
+            or _parse_trace_ts(sample.get("response_received_at"))
+            or _parse_trace_ts(sample.get("timestamp"))
+        )
+
+    def sample_source(sample: Mapping[str, Any]) -> str:
+        return _pressure_sample_source(
+            {
+                "pressure_sample_source": sample.get("source") or sample.get("pressure_sample_source"),
+                "pressure_source_used_for_decision": sample.get("pressure_source_used_for_decision"),
+            },
+            fallback="unknown",
+        )
+
+    samples: list[dict[str, Any]] = []
+    for sample in pressure_latency_samples:
+        if not isinstance(sample, Mapping):
+            continue
+        pressure = _as_float(sample.get("pressure_hpa"))
+        if pressure is None:
+            continue
+        parsed_ts = sample_ts(sample)
+        samples.append(
+            {
+                "timestamp": sample.get("sample_recorded_at")
+                or sample.get("response_received_at")
+                or sample.get("timestamp")
+                or "",
+                "parsed_ts": parsed_ts,
+                "pressure_hpa": pressure,
+                "source": sample_source(sample),
+                "sample_age_s": _as_float(sample.get("sample_age_s")),
+                "sequence_id": sample.get("sequence_id"),
+                "stage": sample.get("stage"),
+                "elapsed_s": _as_float(sample.get("elapsed_s")),
+                "is_stale": _as_bool(sample.get("is_stale")),
+            }
+        )
+    for row in trace_rows:
+        actual = row.get("actual")
+        actual = actual if isinstance(actual, Mapping) else {}
+        pressure = _trace_pressure_hpa(actual)
+        if pressure is None:
+            continue
+        ts = row_ts(row)
+        samples.append(
+            {
+                "timestamp": row.get("ts") or row.get("timestamp") or "",
+                "parsed_ts": ts,
+                "pressure_hpa": pressure,
+                "source": _pressure_sample_source(actual, fallback=str(row.get("action") or "route_trace")),
+                "sample_age_s": _as_float(actual.get("pressure_sample_age_s", actual.get("sample_age_s"))),
+                "sequence_id": actual.get("pressure_sample_sequence_id", actual.get("sequence_id")),
+                "stage": row.get("action") or "",
+                "elapsed_s": _as_float(actual.get("elapsed_s")),
+                "is_stale": _as_bool(actual.get("pressure_sample_is_stale", actual.get("is_stale", False))),
+            }
+        )
+
+    start_candidates = [ts for ts in (vent_close_command_ts, positive_start_ts) if ts is not None]
+    window_start_ts = min(start_candidates, key=ts_key) if start_candidates else positive_start_ts
+    window_end_ts = positive_abort_ts
+
+    relevant: list[dict[str, Any]] = []
+    for sample in samples:
+        ts = sample.get("parsed_ts")
+        if window_start_ts is not None and ts is not None and ts_key(ts) < ts_key(window_start_ts):
+            continue
+        if window_end_ts is not None and ts is not None and ts_key(ts) > ts_key(window_end_ts + timedelta(seconds=0.5)):
+            continue
+        source = str(sample.get("source") or "")
+        if source == "unknown" and not str(sample.get("stage") or "").startswith("positive_preseal"):
+            continue
+        relevant.append(sample)
+    relevant.sort(key=lambda sample: ts_key(sample.get("parsed_ts")))
+
+    abort_threshold_hpa = (
+        _as_float(payload.get("positive_preseal_abort_pressure_hpa"))
+        or _as_float(positive_preseal_payload.get("preseal_abort_pressure_hpa"))
+        or _as_float(positive_preseal_payload.get("abort_pressure_hpa"))
+    )
+    ready_threshold_hpa = (
+        _as_float(payload.get("positive_preseal_ready_pressure_hpa"))
+        or _as_float(positive_preseal_payload.get("preseal_ready_pressure_hpa"))
+        or _as_float(positive_preseal_payload.get("ready_pressure_hpa"))
+    )
+
+    def sample_elapsed(sample: Mapping[str, Any]) -> Optional[float]:
+        explicit = _as_float(sample.get("elapsed_s"))
+        stage = str(sample.get("stage") or "").lower()
+        if explicit is not None and stage.startswith("positive_preseal"):
+            return round(float(explicit), 3)
+        return _trace_delta_s(sample.get("parsed_ts"), positive_start_ts)
+
+    first_overlimit = None
+    if abort_threshold_hpa is not None:
+        for sample in relevant:
+            pressure = _as_float(sample.get("pressure_hpa"))
+            if pressure is not None and pressure >= float(abort_threshold_hpa):
+                first_overlimit = sample
+                break
+
+    ready_seen = None
+    if ready_threshold_hpa is not None:
+        for sample in relevant:
+            pressure = _as_float(sample.get("pressure_hpa"))
+            if pressure is not None and pressure >= float(ready_threshold_hpa):
+                ready_seen = sample
+                break
+
+    peak_sample = max(relevant, key=lambda sample: float(sample.get("pressure_hpa") or -1.0), default=None)
+    peak_ts = peak_sample.get("parsed_ts") if peak_sample else None
+    peak_pressure_hpa = _as_float((peak_sample or {}).get("pressure_hpa"))
+    peak_elapsed_s = sample_elapsed(peak_sample) if peak_sample else None
+
+    def source_family(source: Any) -> str:
+        text = str(source or "").lower()
+        if "pace" in text:
+            return "pace"
+        if "digital" in text or "gauge" in text or "pressure_gauge" in text:
+            return "digital"
+        return ""
+
+    rise_rate_peak_hpa_per_s: Optional[float] = None
+    previous_sample: Optional[Mapping[str, Any]] = None
+    for sample in relevant:
+        if source_family(sample.get("source")) != "digital":
+            continue
+        if previous_sample is None:
+            previous_sample = sample
+            continue
+        previous_ts = previous_sample.get("parsed_ts")
+        current_ts = sample.get("parsed_ts")
+        previous_pressure = _as_float(previous_sample.get("pressure_hpa"))
+        current_pressure = _as_float(sample.get("pressure_hpa"))
+        delta_s = _trace_delta_s(current_ts, previous_ts)
+        if (
+            previous_pressure is not None
+            and current_pressure is not None
+            and delta_s is not None
+            and delta_s > 0
+        ):
+            slope = (float(current_pressure) - float(previous_pressure)) / float(delta_s)
+            if slope > 0:
+                rise_rate_peak_hpa_per_s = (
+                    round(slope, 3)
+                    if rise_rate_peak_hpa_per_s is None
+                    else round(max(float(rise_rate_peak_hpa_per_s), slope), 3)
+                )
+        previous_sample = sample
+
+    compare_limit_ts = positive_abort_ts or peak_ts
+    digital_samples = [
+        sample
+        for sample in relevant
+        if source_family(sample.get("source")) == "digital"
+        and (compare_limit_ts is None or sample.get("parsed_ts") is None or ts_key(sample.get("parsed_ts")) <= ts_key(compare_limit_ts + timedelta(seconds=0.5)))
+    ]
+    pace_samples = [
+        sample
+        for sample in relevant
+        if source_family(sample.get("source")) == "pace"
+        and (compare_limit_ts is None or sample.get("parsed_ts") is None or ts_key(sample.get("parsed_ts")) <= ts_key(compare_limit_ts + timedelta(seconds=0.5)))
+    ]
+    digital_sample = max(digital_samples, key=lambda sample: ts_key(sample.get("parsed_ts")), default=None)
+    pace_sample = max(pace_samples, key=lambda sample: ts_key(sample.get("parsed_ts")), default=None)
+    digital_pressure_hpa = _as_float((digital_sample or {}).get("pressure_hpa"))
+    pace_pressure_hpa = _as_float((pace_sample or {}).get("pressure_hpa"))
+    if digital_pressure_hpa is None and source_family((peak_sample or {}).get("source")) == "digital":
+        digital_pressure_hpa = peak_pressure_hpa
+    if pace_pressure_hpa is None:
+        pace_pressure_hpa = _as_float(pressure_latency_payload.get("pace_pressure_hpa"))
+    source_disagreement_hpa = (
+        round(abs(float(digital_pressure_hpa) - float(pace_pressure_hpa)), 3)
+        if digital_pressure_hpa is not None and pace_pressure_hpa is not None
+        else _as_float(pressure_latency_payload.get("source_disagreement_hpa"))
+    )
+
+    ready_ts = explicit_ready_ts or (ready_seen or {}).get("parsed_ts")
+    ready_before_vent_close_completed = _as_bool(timing_payload.get("ready_reached_before_vent_close_completed"))
+    ready_during_vent_close = _as_bool(timing_payload.get("ready_reached_during_vent_close"))
+    if ready_ts is not None and vent_close_confirmed_ts is not None and ts_key(ready_ts) <= ts_key(vent_close_confirmed_ts):
+        ready_before_vent_close_completed = True
+    if (
+        ready_ts is not None
+        and vent_close_command_ts is not None
+        and vent_close_confirmed_ts is not None
+        and ts_key(vent_close_command_ts) <= ts_key(ready_ts) <= ts_key(vent_close_confirmed_ts)
+    ):
+        ready_during_vent_close = True
+
+    overlimit_seen = first_overlimit is not None or str(positive_preseal_payload.get("abort_reason") or "") == (
+        "preseal_abort_pressure_exceeded"
+    )
+    root_cause = ""
+    if overlimit_seen and vent_close_command_sent and not setpoint_command_sent and not output_enable_sent:
+        root_cause = "vent_close_timing_positive_preseal_ramp_exceeded_abort_cutoff_before_setpoint_or_output_enable"
+    elif overlimit_seen and (setpoint_command_sent or output_enable_sent):
+        root_cause = "positive_preseal_ramp_exceeded_abort_cutoff_after_pressure_command"
+    elif overlimit_seen:
+        root_cause = "positive_preseal_ramp_exceeded_abort_cutoff"
+
+    pressure_source_used_for_abort = (
+        pressure_latency_payload.get("pressure_source_used_for_abort")
+        or payload.get("abort_decision_pressure_source")
+        or (first_overlimit or {}).get("source")
+        or (peak_sample or {}).get("source")
+        or ""
+    )
+    return {
+        "positive_preseal_overlimit_root_cause_candidate": root_cause,
+        "positive_preseal_overlimit_first_seen_elapsed_s": sample_elapsed(first_overlimit)
+        if first_overlimit
+        else None,
+        "positive_preseal_overlimit_first_seen_pressure_hpa": _as_float((first_overlimit or {}).get("pressure_hpa")),
+        "positive_preseal_overlimit_first_seen_source": str((first_overlimit or {}).get("source") or ""),
+        "positive_preseal_overlimit_first_seen_sample_age_s": _as_float((first_overlimit or {}).get("sample_age_s")),
+        "positive_preseal_overlimit_first_seen_sequence_id": (first_overlimit or {}).get("sequence_id"),
+        "positive_preseal_pressure_peak_hpa": peak_pressure_hpa,
+        "positive_preseal_pressure_peak_elapsed_s": peak_elapsed_s,
+        "positive_preseal_pressure_peak_source": str((peak_sample or {}).get("source") or ""),
+        "positive_preseal_pressure_rise_rate_peak_hpa_per_s": rise_rate_peak_hpa_per_s,
+        "positive_preseal_setpoint_command_sent": bool(setpoint_command_sent),
+        "positive_preseal_setpoint_pressure_hpa": setpoint_pressure_hpa,
+        "positive_preseal_output_enable_sent": bool(output_enable_sent),
+        "positive_preseal_output_disable_sent": bool(output_disable_sent),
+        "positive_preseal_output_disable_latency_s": _trace_delta_s(output_disable_ts, positive_abort_ts),
+        "positive_preseal_vent_close_arm_trigger": str(
+            positive_preseal_payload.get("vent_close_arm_trigger")
+            or timing_payload.get("vent_close_arm_trigger")
+            or ""
+        ),
+        "positive_preseal_vent_close_command_sent": bool(vent_close_command_sent),
+        "positive_preseal_ready_reached_before_vent_close_completed": bool(
+            ready_before_vent_close_completed
+        ),
+        "positive_preseal_ready_reached_during_vent_close": bool(ready_during_vent_close),
+        "positive_preseal_ready_to_abort_latency_s": _trace_delta_s(positive_abort_ts, ready_ts),
+        "positive_preseal_abort_to_relief_latency_s": _trace_delta_s(relief_ts, positive_abort_ts),
+        "positive_preseal_pressure_source_used_for_abort": str(pressure_source_used_for_abort or ""),
+        "positive_preseal_digital_gauge_pressure_hpa": digital_pressure_hpa,
+        "positive_preseal_pace_pressure_hpa": pace_pressure_hpa,
+        "positive_preseal_source_disagreement_hpa": source_disagreement_hpa,
+    }
+
+
 def _timing_duration(events: list[Mapping[str, Any]], start_name: str, end_name: str) -> Optional[float]:
     start = _first_timing_event(events, start_name)
     end = _first_timing_event(events, end_name)
@@ -4598,6 +5037,21 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         enriched,
         timing_summary=timing_summary,
     )
+    positive_preseal_overlimit_audit = _build_positive_preseal_overlimit_audit(
+        directory,
+        enriched,
+        positive_preseal_payload=positive_preseal_payload,
+        timing_payload=positive_preseal_timing_payload,
+        pressure_latency_payload=pressure_latency_payload,
+        pressure_latency_samples=pressure_latency_samples,
+    )
+    positive_preseal_payload.update(positive_preseal_overlimit_audit)
+    positive_preseal_timing_payload.update(positive_preseal_overlimit_audit)
+    timing_summary.update(positive_preseal_overlimit_audit)
+    positive_preseal_evidence_path.write_text(
+        json.dumps(positive_preseal_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     timing_summary = _merge_preseal_diagnostic_warnings(timing_summary, positive_preseal_timing_payload)
     timing_summary = _merge_pressure_latency_and_route_surge_summary(
         timing_summary,
@@ -4651,6 +5105,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "workflow_timing_artifacts_retrospective": bool(timing_summary.get("retrospective", False)),
             "positive_preseal_timing_diagnostics_artifact": str(positive_preseal_timing_path),
             "positive_preseal_timing_diagnostics": positive_preseal_timing_payload,
+            **positive_preseal_overlimit_audit,
             "co2_route_conditioning_evidence_artifact": str(co2_route_conditioning_path),
             "co2_route_conditioning_evidence": co2_route_conditioning_payload,
             **final_safe_stop_payload,
@@ -5496,6 +5951,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "positive_preseal_timing_warning_count_severe": enriched.get(
                 "positive_preseal_timing_warning_count_severe"
             ),
+            **{field: enriched.get(field) for field in POSITIVE_PRESEAL_OVERLIMIT_AUDIT_FIELDS},
             "co2_route_conditioning_decision": enriched.get("co2_route_conditioning_decision"),
             "co2_route_conditioning_vent_tick_count": enriched.get("co2_route_conditioning_vent_tick_count"),
             "sealed_during_conditioning": enriched.get("sealed_during_conditioning"),

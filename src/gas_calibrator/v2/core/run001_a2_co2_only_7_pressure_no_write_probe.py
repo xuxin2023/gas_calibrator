@@ -3337,6 +3337,93 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             metric_or_summary("positive_preseal_overlimit_fail_closed")
         )
         is True,
+        "positive_preseal_overlimit_root_cause_candidate": metric_or_summary(
+            "positive_preseal_overlimit_root_cause_candidate"
+        )
+        or "",
+        "positive_preseal_overlimit_first_seen_elapsed_s": metric_or_summary(
+            "positive_preseal_overlimit_first_seen_elapsed_s"
+        ),
+        "positive_preseal_overlimit_first_seen_pressure_hpa": metric_or_summary(
+            "positive_preseal_overlimit_first_seen_pressure_hpa"
+        ),
+        "positive_preseal_overlimit_first_seen_source": metric_or_summary(
+            "positive_preseal_overlimit_first_seen_source"
+        )
+        or "",
+        "positive_preseal_overlimit_first_seen_sample_age_s": metric_or_summary(
+            "positive_preseal_overlimit_first_seen_sample_age_s"
+        ),
+        "positive_preseal_overlimit_first_seen_sequence_id": metric_or_summary(
+            "positive_preseal_overlimit_first_seen_sequence_id"
+        ),
+        "positive_preseal_pressure_peak_hpa": metric_or_summary("positive_preseal_pressure_peak_hpa"),
+        "positive_preseal_pressure_peak_elapsed_s": metric_or_summary("positive_preseal_pressure_peak_elapsed_s"),
+        "positive_preseal_pressure_peak_source": metric_or_summary("positive_preseal_pressure_peak_source") or "",
+        "positive_preseal_pressure_rise_rate_peak_hpa_per_s": metric_or_summary(
+            "positive_preseal_pressure_rise_rate_peak_hpa_per_s"
+        ),
+        "positive_preseal_setpoint_command_sent": _as_bool(
+            metric_or_summary(
+                "positive_preseal_setpoint_command_sent",
+                "positive_preseal_pressure_setpoint_command_sent",
+                "positive_preseal_setpoint_sent",
+            )
+        )
+        is True,
+        "positive_preseal_setpoint_pressure_hpa": metric_or_summary(
+            "positive_preseal_setpoint_pressure_hpa",
+            "positive_preseal_setpoint_hpa",
+        ),
+        "positive_preseal_output_enable_sent": _as_bool(
+            metric_or_summary(
+                "positive_preseal_output_enable_sent",
+                "positive_preseal_output_enabled",
+            )
+        )
+        is True,
+        "positive_preseal_output_disable_sent": _as_bool(
+            metric_or_summary("positive_preseal_output_disable_sent")
+        )
+        is True,
+        "positive_preseal_output_disable_latency_s": metric_or_summary(
+            "positive_preseal_output_disable_latency_s"
+        ),
+        "positive_preseal_vent_close_arm_trigger": metric_or_summary(
+            "positive_preseal_vent_close_arm_trigger",
+            "vent_close_arm_trigger",
+        )
+        or "",
+        "positive_preseal_vent_close_command_sent": _as_bool(
+            metric_or_summary("positive_preseal_vent_close_command_sent")
+        )
+        is True,
+        "positive_preseal_ready_reached_before_vent_close_completed": _as_bool(
+            metric_or_summary("positive_preseal_ready_reached_before_vent_close_completed")
+        )
+        is True,
+        "positive_preseal_ready_reached_during_vent_close": _as_bool(
+            metric_or_summary("positive_preseal_ready_reached_during_vent_close")
+        )
+        is True,
+        "positive_preseal_ready_to_abort_latency_s": metric_or_summary(
+            "positive_preseal_ready_to_abort_latency_s"
+        ),
+        "positive_preseal_abort_to_relief_latency_s": metric_or_summary(
+            "positive_preseal_abort_to_relief_latency_s"
+        ),
+        "positive_preseal_pressure_source_used_for_abort": metric_or_summary(
+            "positive_preseal_pressure_source_used_for_abort",
+            "abort_decision_pressure_source",
+        )
+        or "",
+        "positive_preseal_digital_gauge_pressure_hpa": metric_or_summary(
+            "positive_preseal_digital_gauge_pressure_hpa"
+        ),
+        "positive_preseal_pace_pressure_hpa": metric_or_summary("positive_preseal_pace_pressure_hpa"),
+        "positive_preseal_source_disagreement_hpa": metric_or_summary(
+            "positive_preseal_source_disagreement_hpa"
+        ),
         "emergency_abort_relief_vent_required": _as_bool(
             metric_or_summary("emergency_abort_relief_vent_required")
         )
