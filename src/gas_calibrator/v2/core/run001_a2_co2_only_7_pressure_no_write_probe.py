@@ -3424,6 +3424,96 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "positive_preseal_source_disagreement_hpa": metric_or_summary(
             "positive_preseal_source_disagreement_hpa"
         ),
+        "preseal_guard_armed": _as_bool(metric_or_summary("preseal_guard_armed")) is True,
+        "preseal_guard_armed_at": metric_or_summary("preseal_guard_armed_at") or "",
+        "preseal_guard_arm_source": metric_or_summary("preseal_guard_arm_source") or "",
+        "preseal_guard_armed_from_vent_close_command": _as_bool(
+            metric_or_summary("preseal_guard_armed_from_vent_close_command")
+        )
+        is True,
+        "vent_close_to_preseal_guard_arm_latency_s": metric_or_summary(
+            "vent_close_to_preseal_guard_arm_latency_s"
+        ),
+        "vent_close_to_positive_preseal_start_latency_s": metric_or_summary(
+            "vent_close_to_positive_preseal_start_latency_s"
+        ),
+        "vent_off_settle_wait_pressure_monitored": _as_bool(
+            metric_or_summary("vent_off_settle_wait_pressure_monitored")
+        )
+        is True,
+        "vent_off_settle_wait_overlimit_seen": _as_bool(
+            metric_or_summary("vent_off_settle_wait_overlimit_seen")
+        )
+        is True,
+        "vent_off_settle_wait_ready_to_seal_seen": _as_bool(
+            metric_or_summary("vent_off_settle_wait_ready_to_seal_seen")
+        )
+        is True,
+        "first_target_ready_to_seal_min_hpa": metric_or_summary("first_target_ready_to_seal_min_hpa"),
+        "first_target_ready_to_seal_max_hpa": metric_or_summary("first_target_ready_to_seal_max_hpa"),
+        "first_target_ready_to_seal_pressure_hpa": metric_or_summary(
+            "first_target_ready_to_seal_pressure_hpa"
+        ),
+        "first_target_ready_to_seal_elapsed_s": metric_or_summary("first_target_ready_to_seal_elapsed_s"),
+        "first_target_ready_to_seal_before_abort": _as_bool(
+            metric_or_summary("first_target_ready_to_seal_before_abort")
+        )
+        is True,
+        "first_target_ready_to_seal_missed": _as_bool(
+            metric_or_summary("first_target_ready_to_seal_missed")
+        )
+        is True,
+        "first_target_ready_to_seal_missed_reason": metric_or_summary(
+            "first_target_ready_to_seal_missed_reason"
+        )
+        or "",
+        "first_over_abort_pressure_hpa": metric_or_summary("first_over_abort_pressure_hpa"),
+        "first_over_abort_elapsed_s": metric_or_summary("first_over_abort_elapsed_s"),
+        "first_over_abort_source": metric_or_summary("first_over_abort_source") or "",
+        "first_over_abort_sample_age_s": metric_or_summary("first_over_abort_sample_age_s"),
+        "first_over_abort_to_abort_latency_s": metric_or_summary("first_over_abort_to_abort_latency_s"),
+        "positive_preseal_guard_started_before_first_over_abort": _as_bool(
+            metric_or_summary("positive_preseal_guard_started_before_first_over_abort")
+        )
+        is True,
+        "positive_preseal_guard_started_after_first_over_abort": _as_bool(
+            metric_or_summary("positive_preseal_guard_started_after_first_over_abort")
+        )
+        is True,
+        "positive_preseal_guard_late_reason": metric_or_summary("positive_preseal_guard_late_reason") or "",
+        "seal_command_allowed_after_atmosphere_vent_closed": _as_bool(
+            metric_or_summary("seal_command_allowed_after_atmosphere_vent_closed")
+        )
+        is True,
+        "seal_command_blocked_reason": metric_or_summary("seal_command_blocked_reason") or "",
+        "pressure_control_started_after_seal_confirmed": _as_bool(
+            metric_or_summary("pressure_control_started_after_seal_confirmed")
+        )
+        is True,
+        "setpoint_command_blocked_before_seal": _as_bool(
+            metric_or_summary("setpoint_command_blocked_before_seal")
+        )
+        is True,
+        "output_enable_blocked_before_seal": _as_bool(
+            metric_or_summary("output_enable_blocked_before_seal")
+        )
+        is True,
+        "normal_atmosphere_vent_attempted_after_pressure_points_started": _as_bool(
+            metric_or_summary("normal_atmosphere_vent_attempted_after_pressure_points_started")
+        )
+        is True,
+        "normal_atmosphere_vent_blocked_after_pressure_points_started": _as_bool(
+            metric_or_summary("normal_atmosphere_vent_blocked_after_pressure_points_started")
+        )
+        is True,
+        "emergency_relief_after_pressure_control_is_abort_only": _as_bool(
+            metric_or_summary("emergency_relief_after_pressure_control_is_abort_only")
+        )
+        is True,
+        "resume_after_emergency_relief_allowed": _as_bool(
+            metric_or_summary("resume_after_emergency_relief_allowed")
+        )
+        is True,
         "emergency_abort_relief_vent_required": _as_bool(
             metric_or_summary("emergency_abort_relief_vent_required")
         )

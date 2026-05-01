@@ -5503,6 +5503,71 @@ def test_positive_preseal_ready_closes_vent_and_seals_before_pressure_control() 
     assert seal_start_event["duration_s"] <= 0.5
 
 
+def test_positive_preseal_vent_close_command_arms_guard_immediately() -> None:
+    service, _host, _controller, status = _positive_preseal_service([1009.0, 1105.0, 1105.0])
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is True
+    guard = next(row for row in status.rows if row["action"] == "positive_preseal_guard_armed")
+    assert guard["actual"]["preseal_guard_armed"] is True
+    assert guard["actual"]["preseal_guard_arm_source"] == "atmosphere_vent_close_command"
+    assert guard["actual"]["preseal_guard_armed_from_vent_close_command"] is True
+    assert guard["actual"]["vent_close_to_preseal_guard_arm_latency_s"] == 0.0
+    assert guard["actual"]["vent_close_to_positive_preseal_start_latency_s"] == 0.0
+
+
+def test_positive_preseal_vent_off_settle_overlimit_fails_closed_immediately() -> None:
+    service, _host, _controller, status = _positive_preseal_service([1009.0, 1155.0])
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is False
+    assert result.error == "Positive preseal pressurization exceeded abort pressure"
+    assert result.diagnostics["vent_off_settle_wait_pressure_monitored"] is True
+    assert result.diagnostics["vent_off_settle_wait_overlimit_seen"] is True
+    assert result.diagnostics["first_over_abort_pressure_hpa"] == 1155.0
+    assert result.diagnostics["first_over_abort_to_abort_latency_s"] <= 0.05
+    assert result.diagnostics["positive_preseal_guard_started_before_first_over_abort"] is True
+    assert result.diagnostics["positive_preseal_guard_started_after_first_over_abort"] is False
+    assert result.diagnostics["positive_preseal_guard_late_reason"] == ""
+    assert not any(row["action"] == "seal_route" for row in status.rows)
+    assert not any(row["action"] == "set_pressure" for row in status.rows)
+
+
+def test_positive_preseal_vent_off_settle_ready_to_seal_near_first_target() -> None:
+    service, _host, _controller, status = _positive_preseal_service([1009.0, 1105.0, 1105.0])
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is True
+    ready = next(row for row in status.rows if row["action"] == "positive_preseal_ready")
+    assert ready["actual"]["vent_off_settle_wait_pressure_monitored"] is True
+    assert ready["actual"]["vent_off_settle_wait_ready_to_seal_seen"] is True
+    assert ready["actual"]["first_target_ready_to_seal_min_hpa"] == 1100.0
+    assert ready["actual"]["first_target_ready_to_seal_max_hpa"] < 1150.0
+    assert ready["actual"]["first_target_ready_to_seal_pressure_hpa"] == 1105.0
+    assert ready["actual"]["first_target_ready_to_seal_before_abort"] is True
+    assert ready["actual"]["first_target_ready_to_seal_missed"] is False
+
+
+def test_positive_preseal_target_1100_over_abort_fails_closed() -> None:
+    service, _host, _controller, _status = _positive_preseal_service([1009.0, 1150.0])
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is False
+    assert result.diagnostics["first_target_ready_to_seal_min_hpa"] == 1100.0
+    assert result.diagnostics["first_target_ready_to_seal_max_hpa"] < 1150.0
+    assert result.diagnostics["first_target_ready_to_seal_missed"] is True
+    assert result.diagnostics["first_target_ready_to_seal_missed_reason"] == "abort_before_ready_to_seal"
+    assert result.diagnostics["positive_preseal_abort_pressure_hpa"] == 1150.0
+
+
 def test_preseal_gate_refreshes_controller_after_verified_vent_off() -> None:
     class LaggingVentStatusController(_FakePressureController):
         simulated_device = True
@@ -5891,3 +5956,65 @@ def test_sealed_route_pressure_control_refuses_repressurize_from_below() -> None
     assert status.rows[-1]["action"] == "set_pressure"
     assert status.rows[-1]["result"] == "fail"
     assert controller.setpoints == []
+
+
+def test_setpoint_command_before_seal_is_blocked() -> None:
+    service, _host, controller, status = _positive_preseal_service([1100.0])
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.set_pressure_to_target(point)
+
+    assert result.ok is False
+    assert result.diagnostics["setpoint_command_blocked_before_seal"] is True
+    assert result.diagnostics["output_enable_blocked_before_seal"] is True
+    assert result.diagnostics["pressure_control_started_after_seal_confirmed"] is False
+    assert controller.setpoints == []
+    assert status.rows[-1]["action"] == "set_pressure"
+    assert status.rows[-1]["result"] == "blocked"
+
+
+def test_output_enable_before_seal_is_blocked() -> None:
+    service, _host, controller, status = _positive_preseal_service([1100.0])
+
+    service.enable_pressure_controller_output(reason="before seal")
+
+    assert controller.output_state == 0
+    blocked = status.rows[-1]
+    assert blocked["action"] == "set_output"
+    assert blocked["result"] == "blocked"
+    assert blocked["actual"]["output_enable_blocked_before_seal"] is True
+
+
+def test_normal_atmosphere_vent_after_pressure_points_started_is_blocked() -> None:
+    service, host, controller, status = _positive_preseal_service([1100.0])
+    host._a2_pressure_points_started = True
+    controller.vent_on = False
+    controller.vent_status = 0
+
+    payload = service.set_pressure_controller_vent(True, reason="between pressure points")
+
+    assert payload["normal_atmosphere_vent_attempted_after_pressure_points_started"] is True
+    assert payload["normal_atmosphere_vent_blocked_after_pressure_points_started"] is True
+    assert controller.vent_on is False
+    assert status.rows[-1]["action"] == "set_vent"
+    assert status.rows[-1]["result"] == "blocked"
+
+
+def test_emergency_relief_after_pressure_control_is_abort_only_and_no_resume() -> None:
+    service, host, controller, status = _positive_preseal_service([1100.0])
+    host._a2_pressure_points_started = True
+    controller.vent_on = False
+    controller.vent_status = 0
+
+    payload = service.set_pressure_controller_vent(
+        True,
+        reason="emergency abort relief",
+        emergency_abort_relief=True,
+        emergency_abort_relief_context={"emergency_abort_relief_vent_required": True},
+    )
+
+    assert payload["emergency_relief_after_pressure_control_is_abort_only"] is True
+    assert payload["resume_after_emergency_relief_allowed"] is False
+    assert controller.vent_on is True
+    assert status.rows[-1]["action"] == "set_vent"
+    assert status.rows[-1]["result"] == "ok"
