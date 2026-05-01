@@ -254,6 +254,33 @@ POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
     "seal_command_blocked_reason",
     "sealed",
     "pressure_control_started",
+    "preseal_capture_started",
+    "preseal_capture_not_pressure_control",
+    "preseal_capture_pressure_rise_expected_after_vent_close",
+    "preseal_capture_monitor_armed_before_vent_close_command",
+    "preseal_capture_monitor_covers_abort_path",
+    "preseal_capture_abort_reason",
+    "preseal_capture_abort_pressure_hpa",
+    "preseal_capture_abort_source",
+    "preseal_capture_abort_sample_age_s",
+    "preseal_capture_ready_window_min_hpa",
+    "preseal_capture_ready_window_max_hpa",
+    "preseal_capture_ready_window_action",
+    "preseal_capture_over_abort_action",
+    "preseal_capture_predictive_ready_to_seal",
+    "preseal_capture_pressure_rise_rate_hpa_per_s",
+    "preseal_capture_estimated_time_to_target_s",
+    "preseal_capture_seal_completion_latency_s",
+    "preseal_capture_predicted_seal_completion_pressure_hpa",
+    "preseal_capture_predictive_trigger_reason",
+    "preseal_abort_source_path",
+    "positive_preseal_pressure_source_path",
+    "positive_preseal_pressure_missing_reason",
+    "first_over_1100_before_vent_close",
+    "first_over_1100_not_actionable_reason",
+    "high_pressure_first_point_abort_pressure_hpa",
+    "high_pressure_first_point_abort_reason",
+    "monitor_context_propagated_to_wrapper_summary",
     "preseal_guard_armed",
     "preseal_guard_armed_at",
     "preseal_guard_arm_source",
@@ -309,6 +336,33 @@ POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
 ]
 
 POSITIVE_PRESEAL_STATE_MACHINE_FIELDS = [
+    "preseal_capture_started",
+    "preseal_capture_not_pressure_control",
+    "preseal_capture_pressure_rise_expected_after_vent_close",
+    "preseal_capture_monitor_armed_before_vent_close_command",
+    "preseal_capture_monitor_covers_abort_path",
+    "preseal_capture_abort_reason",
+    "preseal_capture_abort_pressure_hpa",
+    "preseal_capture_abort_source",
+    "preseal_capture_abort_sample_age_s",
+    "preseal_capture_ready_window_min_hpa",
+    "preseal_capture_ready_window_max_hpa",
+    "preseal_capture_ready_window_action",
+    "preseal_capture_over_abort_action",
+    "preseal_capture_predictive_ready_to_seal",
+    "preseal_capture_pressure_rise_rate_hpa_per_s",
+    "preseal_capture_estimated_time_to_target_s",
+    "preseal_capture_seal_completion_latency_s",
+    "preseal_capture_predicted_seal_completion_pressure_hpa",
+    "preseal_capture_predictive_trigger_reason",
+    "preseal_abort_source_path",
+    "positive_preseal_pressure_source_path",
+    "positive_preseal_pressure_missing_reason",
+    "first_over_1100_before_vent_close",
+    "first_over_1100_not_actionable_reason",
+    "high_pressure_first_point_abort_pressure_hpa",
+    "high_pressure_first_point_abort_reason",
+    "monitor_context_propagated_to_wrapper_summary",
     "preseal_guard_armed",
     "preseal_guard_armed_at",
     "preseal_guard_arm_source",
@@ -1943,6 +1997,24 @@ def _build_high_pressure_first_point_evidence(
         or event_state(abort_event).get("reason")
         or ""
     )
+    capture_state = {
+        **positive,
+        **event_state(vent_off_settle_end),
+        **event_state(ready_event),
+        **event_state(abort_event),
+    }
+    capture_abort_pressure = _as_float(
+        capture_state.get("preseal_capture_abort_pressure_hpa")
+        or capture_state.get("high_pressure_first_point_abort_pressure_hpa")
+        or capture_state.get("first_over_abort_pressure_hpa")
+        or (abort_event or {}).get("pressure_hpa")
+    )
+    capture_abort_reason = str(
+        capture_state.get("preseal_capture_abort_reason")
+        or capture_state.get("high_pressure_first_point_abort_reason")
+        or abort_reason
+        or ""
+    )
     decision = "abort" if abort_triggered else ("sealed" if seal_confirm_event else str(payload.get("a2_final_decision") or ""))
     conditioning_completed_at = (conditioning_end or {}).get("timestamp_local") or event_state(conditioning_end).get(
         "conditioning_completed_at"
@@ -2120,6 +2192,72 @@ def _build_high_pressure_first_point_evidence(
         "abort_pressure_hpa": abort_pressure,
         "abort_triggered": abort_triggered,
         "abort_reason": abort_reason,
+        "preseal_capture_started": bool(capture_state.get("preseal_capture_started")),
+        "preseal_capture_not_pressure_control": bool(
+            capture_state.get("preseal_capture_not_pressure_control")
+        ),
+        "preseal_capture_pressure_rise_expected_after_vent_close": bool(
+            capture_state.get("preseal_capture_pressure_rise_expected_after_vent_close")
+        ),
+        "preseal_capture_monitor_armed_before_vent_close_command": bool(
+            capture_state.get("preseal_capture_monitor_armed_before_vent_close_command")
+        ),
+        "preseal_capture_monitor_covers_abort_path": bool(
+            capture_state.get("preseal_capture_monitor_covers_abort_path")
+        ),
+        "preseal_capture_abort_reason": capture_abort_reason,
+        "preseal_capture_abort_pressure_hpa": capture_abort_pressure,
+        "preseal_capture_abort_source": str(capture_state.get("preseal_capture_abort_source") or ""),
+        "preseal_capture_abort_sample_age_s": _as_float(
+            capture_state.get("preseal_capture_abort_sample_age_s")
+        ),
+        "preseal_capture_ready_window_min_hpa": _as_float(
+            capture_state.get("preseal_capture_ready_window_min_hpa")
+            or capture_state.get("first_target_ready_to_seal_min_hpa")
+        ),
+        "preseal_capture_ready_window_max_hpa": _as_float(
+            capture_state.get("preseal_capture_ready_window_max_hpa")
+            or capture_state.get("first_target_ready_to_seal_max_hpa")
+        ),
+        "preseal_capture_ready_window_action": str(
+            capture_state.get("preseal_capture_ready_window_action") or ""
+        ),
+        "preseal_capture_over_abort_action": str(capture_state.get("preseal_capture_over_abort_action") or ""),
+        "preseal_capture_predictive_ready_to_seal": bool(
+            capture_state.get("preseal_capture_predictive_ready_to_seal")
+        ),
+        "preseal_capture_pressure_rise_rate_hpa_per_s": _as_float(
+            capture_state.get("preseal_capture_pressure_rise_rate_hpa_per_s")
+        ),
+        "preseal_capture_estimated_time_to_target_s": _as_float(
+            capture_state.get("preseal_capture_estimated_time_to_target_s")
+        ),
+        "preseal_capture_seal_completion_latency_s": _as_float(
+            capture_state.get("preseal_capture_seal_completion_latency_s")
+        ),
+        "preseal_capture_predicted_seal_completion_pressure_hpa": _as_float(
+            capture_state.get("preseal_capture_predicted_seal_completion_pressure_hpa")
+        ),
+        "preseal_capture_predictive_trigger_reason": str(
+            capture_state.get("preseal_capture_predictive_trigger_reason") or ""
+        ),
+        "preseal_abort_source_path": str(capture_state.get("preseal_abort_source_path") or ""),
+        "positive_preseal_pressure_source_path": str(
+            capture_state.get("positive_preseal_pressure_source_path") or ""
+        ),
+        "positive_preseal_pressure_missing_reason": str(
+            capture_state.get("positive_preseal_pressure_missing_reason") or ""
+        ),
+        "first_over_1100_before_vent_close": bool(capture_state.get("first_over_1100_before_vent_close")),
+        "first_over_1100_not_actionable_reason": str(
+            capture_state.get("first_over_1100_not_actionable_reason") or ""
+        ),
+        "high_pressure_first_point_abort_pressure_hpa": capture_abort_pressure,
+        "high_pressure_first_point_abort_reason": capture_abort_reason,
+        "monitor_context_propagated_to_wrapper_summary": bool(
+            capture_state.get("monitor_context_propagated_to_wrapper_summary")
+            or capture_state.get("preseal_capture_monitor_covers_abort_path")
+        ),
         "decision": decision,
         "warnings": list(timing.get("high_pressure_first_point_warnings") or []),
         "warning_count": timing.get("high_pressure_first_point_warning_count", 0),
@@ -3285,6 +3423,33 @@ def _build_positive_preseal_pressurization_evidence(
         "seal_trigger_pressure_hpa": None,
         "seal_trigger_elapsed_s": None,
         "seal_command_blocked_reason": "",
+        "preseal_capture_started": False,
+        "preseal_capture_not_pressure_control": False,
+        "preseal_capture_pressure_rise_expected_after_vent_close": False,
+        "preseal_capture_monitor_armed_before_vent_close_command": False,
+        "preseal_capture_monitor_covers_abort_path": False,
+        "preseal_capture_abort_reason": "",
+        "preseal_capture_abort_pressure_hpa": None,
+        "preseal_capture_abort_source": "",
+        "preseal_capture_abort_sample_age_s": None,
+        "preseal_capture_ready_window_min_hpa": None,
+        "preseal_capture_ready_window_max_hpa": None,
+        "preseal_capture_ready_window_action": "",
+        "preseal_capture_over_abort_action": "",
+        "preseal_capture_predictive_ready_to_seal": False,
+        "preseal_capture_pressure_rise_rate_hpa_per_s": None,
+        "preseal_capture_estimated_time_to_target_s": None,
+        "preseal_capture_seal_completion_latency_s": None,
+        "preseal_capture_predicted_seal_completion_pressure_hpa": None,
+        "preseal_capture_predictive_trigger_reason": "",
+        "preseal_abort_source_path": "",
+        "positive_preseal_pressure_source_path": "",
+        "positive_preseal_pressure_missing_reason": "",
+        "first_over_1100_before_vent_close": False,
+        "first_over_1100_not_actionable_reason": "",
+        "high_pressure_first_point_abort_pressure_hpa": None,
+        "high_pressure_first_point_abort_reason": "",
+        "monitor_context_propagated_to_wrapper_summary": False,
         "preseal_guard_armed": False,
         "preseal_guard_armed_at": "",
         "preseal_guard_arm_source": "",
@@ -3357,6 +3522,27 @@ def _build_positive_preseal_pressurization_evidence(
             latest["current_line_pressure_hpa"] = actual.get("current_line_pressure_hpa", pressure)
             latest["positive_preseal_pressure_hpa"] = actual.get("positive_preseal_pressure_hpa", pressure)
 
+    capture_pressure_actions = {
+        "seal_preparation_vent_off_settle_pressure_check",
+        "seal_preparation_vent_off_settle_overlimit",
+        "preseal_capture_pressure_check",
+        "preseal_atmosphere_flush_ready_handoff",
+        "co2_preseal_atmosphere_hold_pressure_guard",
+        "route_open_pressure_abort",
+        "high_pressure_abort",
+        "high_pressure_ready_detected",
+    }
+    capture_abort_actions = {
+        "seal_preparation_vent_off_settle_overlimit",
+        "co2_preseal_atmosphere_hold_pressure_guard",
+        "route_open_pressure_abort",
+        "high_pressure_abort",
+    }
+    capture_ready_actions = {
+        "preseal_atmosphere_flush_ready_handoff",
+        "high_pressure_ready_detected",
+    }
+
     if trace_rows:
         previous_pressure: Optional[float] = None
         previous_elapsed: Optional[float] = None
@@ -3370,6 +3556,13 @@ def _build_positive_preseal_pressurization_evidence(
             target = item.get("target")
             target = dict(target) if isinstance(target, Mapping) else {}
             result = str(item.get("result") or "").lower()
+            capture_path_active = bool(
+                actual.get("preseal_capture_started")
+                or actual.get("vent_close_command_sent_at")
+                or actual.get("preseal_guard_armed_from_vent_close_command")
+                or action.startswith("seal_preparation_vent_off")
+                or action == "preseal_capture_pressure_check"
+            )
 
             if action == "positive_preseal_pressurization_start":
                 started = True
@@ -3394,6 +3587,62 @@ def _build_positive_preseal_pressurization_evidence(
                 "positive_preseal_abort",
             }:
                 update_latest(item, actual)
+            elif action in capture_pressure_actions and capture_path_active:
+                started = True
+                update_latest(item, actual)
+                if actual.get("preseal_capture_started") is not None:
+                    latest["preseal_capture_started"] = bool(actual.get("preseal_capture_started"))
+                elif action.startswith("seal_preparation_vent_off") or actual.get("vent_close_command_sent_at"):
+                    latest["preseal_capture_started"] = True
+                if action in capture_abort_actions or result == "fail":
+                    pressure = _trace_pressure_hpa(actual)
+                    abort_reason = str(
+                        actual.get("preseal_capture_abort_reason")
+                        or actual.get("positive_preseal_abort_reason")
+                        or actual.get("abort_reason")
+                        or actual.get("reason")
+                        or "preseal_capture_abort_pressure_exceeded"
+                    )
+                    latest["positive_preseal_pressure_overlimit"] = True
+                    latest["positive_preseal_overlimit_fail_closed"] = True
+                    latest["preseal_capture_abort_reason"] = (
+                        actual.get("preseal_capture_abort_reason")
+                        or "preseal_capture_abort_pressure_exceeded"
+                    )
+                    if pressure is not None:
+                        latest["positive_preseal_pressure_hpa"] = actual.get(
+                            "positive_preseal_pressure_hpa",
+                            pressure,
+                        )
+                        latest["preseal_capture_abort_pressure_hpa"] = actual.get(
+                            "preseal_capture_abort_pressure_hpa",
+                            pressure,
+                        )
+                        latest["high_pressure_first_point_abort_pressure_hpa"] = actual.get(
+                            "high_pressure_first_point_abort_pressure_hpa",
+                            pressure,
+                        )
+                    latest["positive_preseal_pressure_source_path"] = actual.get(
+                        "positive_preseal_pressure_source_path",
+                        actual.get("preseal_abort_source_path", action),
+                    )
+                    latest["positive_preseal_pressure_missing_reason"] = ""
+                    latest["high_pressure_first_point_abort_reason"] = actual.get(
+                        "high_pressure_first_point_abort_reason",
+                        latest["preseal_capture_abort_reason"],
+                    )
+                    latest["monitor_context_propagated_to_wrapper_summary"] = True
+                    decision = RUN001_FAIL
+                elif action in capture_ready_actions:
+                    if not bool(actual.get("first_over_1100_before_vent_close", False)):
+                        ready_reached = True
+                        ready_reached_at_pressure_hpa = _as_float(
+                            actual.get("first_target_ready_to_seal_pressure_hpa")
+                            or actual.get("positive_preseal_pressure_hpa")
+                            or actual.get("pressure_hpa")
+                        )
+                        seal_trigger_pressure_hpa = ready_reached_at_pressure_hpa
+                        decision = "READY"
             elif action in {
                 "seal_transition",
                 "seal_route",
@@ -3414,7 +3663,7 @@ def _build_positive_preseal_pressurization_evidence(
                 "positive_preseal_pressure_check",
                 "positive_preseal_ready",
                 "positive_preseal_abort",
-            }
+            } or (action in capture_pressure_actions and capture_path_active)
             if pressure is not None and pressure_belongs_to_positive_preseal:
                 max_pressure = pressure if max_pressure is None else max(max_pressure, pressure)
                 min_pressure = pressure if min_pressure is None else min(min_pressure, pressure)
@@ -3432,7 +3681,10 @@ def _build_positive_preseal_pressurization_evidence(
                 seal_trigger_pressure_hpa = _as_float(actual.get("seal_trigger_pressure_hpa", pressure))
                 seal_trigger_elapsed_s = _as_float(actual.get("seal_trigger_elapsed_s", elapsed))
                 decision = "READY"
-            if action in {"positive_preseal_abort", "sealed_pressure_control_start"} and result == "fail":
+            if (
+                action in {"positive_preseal_abort", "sealed_pressure_control_start"}
+                or (action in capture_abort_actions and capture_path_active)
+            ) and result == "fail":
                 abort_reason = str(actual.get("abort_reason") or actual.get("reason") or item.get("message") or "")
                 decision = RUN001_FAIL
             if action == "seal_route":
@@ -3444,7 +3696,9 @@ def _build_positive_preseal_pressurization_evidence(
                 pressure_control_started = bool(actual.get("sealed_route_pressure_control_started", False))
             if action == "set_pressure" and result == "ok":
                 pressure_control_started = True
-            if action in {"positive_preseal_pressure_check", "positive_preseal_ready", "positive_preseal_abort"}:
+            if action in {"positive_preseal_pressure_check", "positive_preseal_ready", "positive_preseal_abort"} or (
+                action in capture_pressure_actions and capture_path_active
+            ):
                 pressure_sample_count = sum(
                     1 for sample in samples if sample.get("pressure_hpa") not in (None, "")
                 ) + (1 if pressure is not None else 0)
@@ -3471,6 +3725,23 @@ def _build_positive_preseal_pressurization_evidence(
                     "decision": decision,
                 }
                 samples.append({field: row.get(field) for field in POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS})
+
+    if latest.get("preseal_capture_abort_reason") and not abort_reason:
+        abort_reason = str(latest.get("preseal_capture_abort_reason") or "")
+    if latest.get("positive_preseal_pressure_hpa") is None:
+        fallback_pressure = _as_float(
+            latest.get("preseal_capture_abort_pressure_hpa")
+            or latest.get("high_pressure_first_point_abort_pressure_hpa")
+            or latest.get("first_over_abort_pressure_hpa")
+        )
+        if fallback_pressure is not None:
+            latest["positive_preseal_pressure_hpa"] = fallback_pressure
+            latest["positive_preseal_pressure_source_path"] = latest.get(
+                "positive_preseal_pressure_source_path"
+            ) or "preseal_capture_abort_evidence"
+            latest["positive_preseal_pressure_missing_reason"] = ""
+        elif started:
+            latest["positive_preseal_pressure_missing_reason"] = "no_preseal_capture_pressure_evidence"
 
     if not started:
         decision = RUN001_NOT_EXECUTED
@@ -5360,6 +5631,11 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "high_pressure_first_point_enabled": high_pressure_first_point_payload.get("enabled"),
             "high_pressure_first_point_decision": high_pressure_first_point_payload.get("decision"),
             "high_pressure_first_point_warning_count": high_pressure_first_point_payload.get("warning_count"),
+            **{
+                field: high_pressure_first_point_payload.get(field)
+                for field in POSITIVE_PRESEAL_STATE_MACHINE_FIELDS
+                if high_pressure_first_point_payload.get(field) not in (None, "")
+            },
             "high_pressure_first_point_prearm_started": high_pressure_first_point_payload.get(
                 "high_pressure_first_point_prearm_started"
             ),

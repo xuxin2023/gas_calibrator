@@ -3273,6 +3273,33 @@ class WorkflowOrchestrator:
             "positive_preseal_pressure_setpoint_command_sent",
             "positive_preseal_sample_started",
             "positive_preseal_overlimit_fail_closed",
+            "preseal_capture_started",
+            "preseal_capture_not_pressure_control",
+            "preseal_capture_pressure_rise_expected_after_vent_close",
+            "preseal_capture_monitor_armed_before_vent_close_command",
+            "preseal_capture_monitor_covers_abort_path",
+            "preseal_capture_abort_reason",
+            "preseal_capture_abort_pressure_hpa",
+            "preseal_capture_abort_source",
+            "preseal_capture_abort_sample_age_s",
+            "preseal_capture_ready_window_min_hpa",
+            "preseal_capture_ready_window_max_hpa",
+            "preseal_capture_ready_window_action",
+            "preseal_capture_over_abort_action",
+            "preseal_capture_predictive_ready_to_seal",
+            "preseal_capture_pressure_rise_rate_hpa_per_s",
+            "preseal_capture_estimated_time_to_target_s",
+            "preseal_capture_seal_completion_latency_s",
+            "preseal_capture_predicted_seal_completion_pressure_hpa",
+            "preseal_capture_predictive_trigger_reason",
+            "preseal_abort_source_path",
+            "positive_preseal_pressure_source_path",
+            "positive_preseal_pressure_missing_reason",
+            "first_over_1100_before_vent_close",
+            "first_over_1100_not_actionable_reason",
+            "high_pressure_first_point_abort_pressure_hpa",
+            "high_pressure_first_point_abort_reason",
+            "monitor_context_propagated_to_wrapper_summary",
             "preseal_guard_armed",
             "preseal_guard_armed_at",
             "preseal_guard_arm_source",
@@ -7650,6 +7677,308 @@ class WorkflowOrchestrator:
             )
         return context
 
+    def _a2_preseal_capture_ready_window(
+        self,
+        point: CalibrationPoint,
+        context: Mapping[str, Any],
+    ) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
+        first_target = self._as_float(context.get("first_target_pressure_hpa") or point.target_pressure_hpa)
+        ready_pressure = self._as_float(
+            self._cfg_get("workflow.pressure.preseal_ready_pressure_hpa", first_target)
+        )
+        abort_pressure = self._as_float(self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", 1150.0))
+        ready_window = getattr(self.pressure_control_service, "_first_target_ready_to_seal_window", None)
+        if callable(ready_window):
+            ready_min, ready_max = ready_window(
+                target_pressure_hpa=first_target,
+                ready_pressure_hpa=ready_pressure,
+                abort_pressure_hpa=abort_pressure,
+            )
+        else:
+            ready_min = first_target if first_target is not None else ready_pressure
+            ready_max = None if ready_min is None else float(ready_min) + 12.0
+            if abort_pressure is not None and ready_max is not None:
+                ready_max = min(float(ready_max), float(abort_pressure) - 0.001)
+        return first_target, ready_pressure, abort_pressure, ready_min, ready_max
+
+    def _a2_preseal_capture_seal_latency_s(self) -> float:
+        explicit_latency = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.preseal_capture_predictive_seal_latency_s",
+                self._cfg_get("workflow.pressure.preseal_predictive_seal_latency_s"),
+            )
+        )
+        if explicit_latency is not None:
+            return max(0.0, float(explicit_latency))
+        command_latency = self._as_float(
+            self._cfg_get("workflow.pressure.expected_ready_to_seal_command_max_s")
+        )
+        confirm_latency = self._as_float(
+            self._cfg_get("workflow.pressure.expected_ready_to_seal_confirm_max_s")
+        )
+        if command_latency is None and confirm_latency is None:
+            return 0.0
+        return max(0.0, float(command_latency or 0.0) + float(confirm_latency or 0.0))
+
+    def _a2_preseal_capture_arm_context(
+        self,
+        point: CalibrationPoint,
+        context: Mapping[str, Any],
+        *,
+        command_sent_at: str,
+        command_sent_monotonic_s: float,
+        command_completed_at: str = "",
+        settle_s: float = 0.0,
+    ) -> dict[str, Any]:
+        first_target, ready_pressure, abort_pressure, ready_min, ready_max = (
+            self._a2_preseal_capture_ready_window(point, context)
+        )
+        monitor_context = {
+            **dict(context),
+            "preseal_capture_started": True,
+            "preseal_capture_not_pressure_control": True,
+            "preseal_capture_pressure_rise_expected_after_vent_close": True,
+            "preseal_capture_monitor_armed_before_vent_close_command": True,
+            "preseal_capture_monitor_covers_abort_path": True,
+            "preseal_capture_ready_window_min_hpa": ready_min,
+            "preseal_capture_ready_window_max_hpa": ready_max,
+            "preseal_capture_ready_window_action": "ready_to_seal",
+            "preseal_capture_over_abort_action": "fail_closed",
+            "preseal_capture_predictive_ready_to_seal": False,
+            "preseal_capture_pressure_rise_rate_hpa_per_s": None,
+            "preseal_capture_estimated_time_to_target_s": None,
+            "preseal_capture_seal_completion_latency_s": self._a2_preseal_capture_seal_latency_s(),
+            "preseal_capture_predicted_seal_completion_pressure_hpa": None,
+            "preseal_capture_predictive_trigger_reason": "",
+            "preseal_guard_armed": True,
+            "preseal_guard_armed_at": command_sent_at,
+            "preseal_guard_arm_source": "atmosphere_vent_close_command",
+            "preseal_guard_expected_arm_source": "atmosphere_vent_close_command",
+            "preseal_guard_actual_arm_source": "atmosphere_vent_close_command",
+            "preseal_guard_arm_source_alignment_ok": True,
+            "preseal_guard_armed_from_vent_close_command": True,
+            "preseal_guard_armed_from_vent_close_command_false_reason": "",
+            "positive_preseal_vent_close_command_sent": True,
+            "vent_close_command_sent_at": command_sent_at,
+            "vent_close_command_completed_at": command_completed_at,
+            "vent_close_command_monotonic_s": command_sent_monotonic_s,
+            "vent_off_sent_at": command_sent_at,
+            "vent_off_sent_monotonic_s": command_sent_monotonic_s,
+            "vent_off_completed_at": command_completed_at,
+            "vent_off_settle_s": settle_s,
+            "vent_off_settle_monitor_started": True,
+            "vent_off_settle_monitor_started_at": command_sent_at,
+            "vent_off_settle_monitor_sample_count": 0,
+            "vent_off_settle_wait_pressure_monitored": True,
+            "vent_off_settle_wait_ready_to_seal_seen": False,
+            "vent_off_settle_wait_overlimit_seen": False,
+            "vent_off_settle_first_ready_to_seal_sample_hpa": None,
+            "vent_off_settle_first_ready_to_seal_sample_at": "",
+            "vent_off_settle_first_over_abort_sample_hpa": None,
+            "vent_off_settle_first_over_abort_sample_at": "",
+            "vent_close_to_monitor_start_latency_s": 0.0,
+            "first_target_ready_to_seal_min_hpa": ready_min,
+            "first_target_ready_to_seal_max_hpa": ready_max,
+            "ready_to_seal_window_entered": False,
+            "ready_to_seal_window_missed_reason": "",
+            "first_target_ready_to_seal_pressure_hpa": None,
+            "first_target_ready_to_seal_before_abort": False,
+            "first_target_ready_to_seal_missed": False,
+            "first_target_ready_to_seal_missed_reason": "",
+            "first_over_abort_pressure_hpa": None,
+            "first_over_abort_elapsed_s": None,
+            "first_over_abort_source": "",
+            "first_over_abort_sample_age_s": None,
+            "first_over_abort_to_abort_latency_s": None,
+            "positive_preseal_pressure_hpa": None,
+            "positive_preseal_pressure_source_path": "",
+            "positive_preseal_pressure_missing_reason": "",
+            "preseal_abort_source_path": "",
+            "preseal_capture_abort_reason": "",
+            "preseal_capture_abort_pressure_hpa": None,
+            "preseal_capture_abort_source": "",
+            "preseal_capture_abort_sample_age_s": None,
+            "monitor_context_propagated_to_wrapper_summary": True,
+            "seal_command_allowed_after_atmosphere_vent_closed": False,
+            "setpoint_command_blocked_before_seal": True,
+            "output_enable_blocked_before_seal": True,
+            "pressure_control_started_after_seal_confirmed": False,
+            "target_pressure_hpa": first_target,
+            "ready_pressure_hpa": ready_pressure,
+            "abort_pressure_hpa": abort_pressure,
+        }
+        return monitor_context
+
+    def _a2_mark_preseal_capture_pressure(
+        self,
+        point: CalibrationPoint,
+        context: Mapping[str, Any],
+        *,
+        pressure_hpa: float,
+        sample_meta: Mapping[str, Any],
+        sample_at: str,
+        elapsed_s: float,
+        source_path: str,
+    ) -> tuple[dict[str, Any], bool, bool]:
+        updated = dict(context)
+        first_target, _ready_pressure, abort_pressure, ready_min, ready_max = (
+            self._a2_preseal_capture_ready_window(point, updated)
+        )
+        sample_stale = bool(sample_meta.get("pressure_sample_is_stale", sample_meta.get("is_stale", False)))
+        now_mono = time.monotonic()
+        previous_pressure = self._as_float(updated.get("preseal_capture_last_pressure_hpa"))
+        previous_mono = self._as_float(updated.get("preseal_capture_last_monotonic_s"))
+        sample_mono = self._as_float(
+            sample_meta.get("sample_recorded_monotonic_s")
+            or sample_meta.get("monotonic_timestamp")
+            or sample_meta.get("response_received_monotonic_s")
+        )
+        current_mono = sample_mono if sample_mono is not None else now_mono
+        rise_rate_hpa_per_s = None
+        if previous_pressure is not None and previous_mono is not None and float(current_mono) > float(previous_mono):
+            rise_rate_hpa_per_s = (float(pressure_hpa) - float(previous_pressure)) / (
+                float(current_mono) - float(previous_mono)
+            )
+        seal_latency_s = self._a2_preseal_capture_seal_latency_s()
+        predicted_completion_pressure = None
+        estimated_time_to_target_s = None
+        predictive_ready = False
+        if (
+            rise_rate_hpa_per_s is not None
+            and rise_rate_hpa_per_s > 0.0
+            and ready_min is not None
+            and ready_max is not None
+            and not sample_stale
+            and float(pressure_hpa) < float(ready_min)
+        ):
+            estimated_time_to_target_s = max(
+                0.0,
+                (float(ready_min) - float(pressure_hpa)) / float(rise_rate_hpa_per_s),
+            )
+            predicted_completion_pressure = float(pressure_hpa) + (
+                float(rise_rate_hpa_per_s) * float(seal_latency_s)
+            )
+            predictive_ready = bool(
+                float(predicted_completion_pressure) >= float(ready_min)
+                and float(predicted_completion_pressure) <= float(ready_max)
+            )
+        over_abort = bool(
+            abort_pressure is not None
+            and not sample_stale
+            and float(pressure_hpa) >= float(abort_pressure)
+        )
+        ready_seen = bool(
+            ready_min is not None
+            and ready_max is not None
+            and not sample_stale
+            and float(pressure_hpa) >= float(ready_min)
+            and float(pressure_hpa) <= float(ready_max)
+        )
+        sample_count = int(updated.get("vent_off_settle_monitor_sample_count") or 0) + 1
+        source = str(
+            sample_meta.get("pressure_sample_source")
+            or sample_meta.get("source")
+            or sample_meta.get("pressure_source_used_for_decision")
+            or ""
+        )
+        updated.update(
+            {
+                "preseal_capture_started": True,
+                "preseal_capture_not_pressure_control": True,
+                "preseal_capture_pressure_rise_expected_after_vent_close": True,
+                "preseal_capture_monitor_covers_abort_path": True,
+                "vent_off_settle_monitor_started": True,
+                "vent_off_settle_monitor_started_at": updated.get("vent_off_settle_monitor_started_at")
+                or sample_at,
+                "vent_off_settle_wait_pressure_monitored": True,
+                "vent_off_settle_monitor_sample_count": sample_count,
+                "vent_close_arm_pressure_hpa": float(pressure_hpa),
+                "vent_close_arm_elapsed_s": round(max(0.0, elapsed_s), 3),
+                "current_line_pressure_hpa": float(pressure_hpa),
+                "positive_preseal_pressure_hpa": float(pressure_hpa),
+                "positive_preseal_pressure_source_path": source_path,
+                "positive_preseal_pressure_missing_reason": "",
+                "first_target_ready_to_seal_min_hpa": ready_min,
+                "first_target_ready_to_seal_max_hpa": ready_max,
+                "preseal_capture_ready_window_min_hpa": ready_min,
+                "preseal_capture_ready_window_max_hpa": ready_max,
+                "preseal_capture_pressure_rise_rate_hpa_per_s": rise_rate_hpa_per_s,
+                "preseal_capture_estimated_time_to_target_s": estimated_time_to_target_s,
+                "preseal_capture_seal_completion_latency_s": seal_latency_s,
+                "preseal_capture_predicted_seal_completion_pressure_hpa": predicted_completion_pressure,
+                "preseal_capture_predictive_ready_to_seal": predictive_ready,
+                "preseal_capture_predictive_trigger_reason": (
+                    "predicted_seal_completion_in_target_window" if predictive_ready else ""
+                ),
+                "preseal_capture_last_pressure_hpa": float(pressure_hpa),
+                "preseal_capture_last_monotonic_s": float(current_mono),
+                "target_pressure_hpa": first_target,
+                **{key: value for key, value in sample_meta.items() if value not in (None, "")},
+            }
+        )
+        if ready_seen or predictive_ready:
+            updated.update(
+                {
+                    "vent_close_arm_trigger": "ready_pressure" if ready_seen else "predictive_ready_to_seal",
+                    "ready_reached_monotonic_s": now_mono,
+                    "vent_off_settle_wait_ready_to_seal_seen": True,
+                    "ready_to_seal_window_entered": bool(ready_seen),
+                    "ready_to_seal_window_missed_reason": "",
+                    "vent_off_settle_first_ready_to_seal_sample_hpa": float(pressure_hpa),
+                    "vent_off_settle_first_ready_to_seal_sample_at": sample_at,
+                    "first_target_ready_to_seal_pressure_hpa": float(pressure_hpa),
+                    "first_target_ready_to_seal_elapsed_s": round(max(0.0, elapsed_s), 3),
+                    "first_target_ready_to_seal_before_abort": True,
+                    "first_target_ready_to_seal_missed": False,
+                    "first_target_ready_to_seal_missed_reason": "",
+                    "seal_command_allowed_after_atmosphere_vent_closed": True,
+                    "preseal_capture_ready_window_action": (
+                        "ready_to_seal"
+                        if ready_seen
+                        else "predictive_ready_to_seal_before_target_window"
+                    ),
+                }
+            )
+        if over_abort:
+            updated.update(
+                {
+                    "vent_close_arm_trigger": "abort_pressure",
+                    "vent_off_settle_wait_overlimit_seen": True,
+                    "vent_off_settle_first_over_abort_sample_hpa": float(pressure_hpa),
+                    "vent_off_settle_first_over_abort_sample_at": sample_at,
+                    "first_over_abort_pressure_hpa": float(pressure_hpa),
+                    "first_over_abort_elapsed_s": round(max(0.0, elapsed_s), 3),
+                    "first_over_abort_source": source,
+                    "first_over_abort_sample_age_s": self._as_float(
+                        sample_meta.get("pressure_sample_age_s", sample_meta.get("sample_age_s"))
+                    ),
+                    "first_over_abort_to_abort_latency_s": 0.0,
+                    "first_target_ready_to_seal_missed": True,
+                    "first_target_ready_to_seal_missed_reason": "abort_before_ready_to_seal",
+                    "ready_to_seal_window_missed_reason": "abort_before_ready_to_seal",
+                    "seal_command_blocked_reason": "preseal_capture_abort_pressure_exceeded",
+                    "fail_closed_reason": "a2_positive_preseal_pressure_overlimit",
+                    "preseal_capture_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "preseal_capture_abort_pressure_hpa": float(pressure_hpa),
+                    "preseal_capture_abort_source": source,
+                    "preseal_capture_abort_sample_age_s": self._as_float(
+                        sample_meta.get("pressure_sample_age_s", sample_meta.get("sample_age_s"))
+                    ),
+                    "preseal_capture_abort_source_path": source_path,
+                    "preseal_abort_source_path": source_path,
+                    "high_pressure_first_point_abort_pressure_hpa": float(pressure_hpa),
+                    "high_pressure_first_point_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "positive_preseal_pressure_overlimit": True,
+                    "positive_preseal_overlimit_fail_closed": True,
+                    "positive_preseal_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "overlimit_elapsed_s_nonnegative": True,
+                    "overlimit_elapsed_source": source_path,
+                    "preseal_capture_over_abort_action": "fail_closed",
+                    "seal_command_allowed_after_atmosphere_vent_closed": False,
+                }
+            )
+        return updated, bool(ready_seen or predictive_ready), over_abort
+
     def _preclose_a2_high_pressure_first_point_vent(self, point: CalibrationPoint) -> dict[str, Any]:
         if not bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False)):
             return {}
@@ -7677,6 +8006,33 @@ class WorkflowOrchestrator:
         )
         vent_off_command_sent_at = datetime.now(timezone.utc).isoformat()
         vent_off_command_sent_monotonic_s = time.monotonic()
+        vent_off_sent_at = vent_off_command_sent_at
+        settle_s = max(0.0, float(self._cfg_get("workflow.pressure.seal_preparation_vent_off_settle_s", 0.0)))
+        monitor_interval_s = max(
+            0.01,
+            float(
+                self._cfg_get(
+                    "workflow.pressure.seal_preparation_vent_off_monitor_interval_s",
+                    self._cfg_get("workflow.pressure.preseal_pressure_poll_interval_s", 0.05),
+                )
+            ),
+        )
+        first_target, _ready_pressure, abort_pressure, ready_min, ready_max = (
+            self._a2_preseal_capture_ready_window(point, context)
+        )
+        monitor_context = self._a2_preseal_capture_arm_context(
+            point,
+            context,
+            command_sent_at=vent_off_sent_at,
+            command_sent_monotonic_s=vent_off_command_sent_monotonic_s,
+            settle_s=settle_s,
+        )
+        setattr(self, "_a2_preseal_vent_close_arm_context", monitor_context)
+        setattr(
+            self,
+            "_a2_high_pressure_first_point_context",
+            {**dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {}), **monitor_context},
+        )
         diagnostics = self.pressure_control_service.set_pressure_controller_vent(
             False,
             reason="A2 high-pressure first-point positive pressure build-up after CO2 conditioning",
@@ -7688,68 +8044,13 @@ class WorkflowOrchestrator:
                 self._cfg_get("workflow.pressure.preseal_vent_close_prefer_direct_command", True)
             ),
         )
-        vent_off_sent_at = vent_off_command_sent_at
         vent_off_completed_at = datetime.now(timezone.utc).isoformat()
-        settle_s = max(0.0, float(self._cfg_get("workflow.pressure.seal_preparation_vent_off_settle_s", 0.0)))
-        monitor_interval_s = max(
-            0.01,
-            float(
-                self._cfg_get(
-                    "workflow.pressure.seal_preparation_vent_off_monitor_interval_s",
-                    self._cfg_get("workflow.pressure.preseal_pressure_poll_interval_s", 0.05),
-                )
-            ),
+        monitor_context.update(
+            {
+                "vent_close_command_completed_at": vent_off_completed_at,
+                "vent_off_completed_at": vent_off_completed_at,
+            }
         )
-        first_target = self._as_float(context.get("first_target_pressure_hpa") or point.target_pressure_hpa)
-        ready_pressure = self._as_float(
-            self._cfg_get("workflow.pressure.preseal_ready_pressure_hpa", first_target)
-        )
-        abort_pressure = self._as_float(self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", 1150.0))
-        ready_window = getattr(self.pressure_control_service, "_first_target_ready_to_seal_window", None)
-        if callable(ready_window):
-            ready_min, ready_max = ready_window(
-                target_pressure_hpa=first_target,
-                ready_pressure_hpa=ready_pressure,
-                abort_pressure_hpa=abort_pressure,
-            )
-        else:
-            ready_min = first_target if first_target is not None else ready_pressure
-            ready_max = None if ready_min is None else float(ready_min) + 12.0
-            if abort_pressure is not None and ready_max is not None:
-                ready_max = min(float(ready_max), float(abort_pressure) - 0.001)
-        monitor_context = {
-            **context,
-            "preseal_guard_armed": True,
-            "preseal_guard_armed_at": vent_off_sent_at,
-            "preseal_guard_arm_source": "atmosphere_vent_close_command",
-            "preseal_guard_expected_arm_source": "atmosphere_vent_close_command",
-            "preseal_guard_actual_arm_source": "atmosphere_vent_close_command",
-            "preseal_guard_arm_source_alignment_ok": True,
-            "preseal_guard_armed_from_vent_close_command": True,
-            "preseal_guard_armed_from_vent_close_command_false_reason": "",
-            "positive_preseal_vent_close_command_sent": True,
-            "vent_close_command_sent_at": vent_off_sent_at,
-            "vent_close_command_completed_at": vent_off_completed_at,
-            "vent_close_command_monotonic_s": vent_off_command_sent_monotonic_s,
-            "vent_off_sent_at": vent_off_sent_at,
-            "vent_off_sent_monotonic_s": vent_off_command_sent_monotonic_s,
-            "vent_off_completed_at": vent_off_completed_at,
-            "vent_off_settle_s": settle_s,
-            "vent_off_settle_monitor_started": False,
-            "vent_off_settle_monitor_started_at": "",
-            "vent_off_settle_monitor_sample_count": 0,
-            "vent_off_settle_wait_pressure_monitored": False,
-            "vent_off_settle_wait_ready_to_seal_seen": False,
-            "vent_off_settle_wait_overlimit_seen": False,
-            "vent_off_settle_first_ready_to_seal_sample_hpa": None,
-            "vent_off_settle_first_ready_to_seal_sample_at": "",
-            "vent_off_settle_first_over_abort_sample_hpa": None,
-            "vent_off_settle_first_over_abort_sample_at": "",
-            "first_target_ready_to_seal_min_hpa": ready_min,
-            "first_target_ready_to_seal_max_hpa": ready_max,
-            "ready_to_seal_window_entered": False,
-            "ready_to_seal_window_missed_reason": "",
-        }
         setattr(self, "_a2_preseal_vent_close_arm_context", monitor_context)
         self._record_workflow_timing(
             "seal_preparation_vent_off_settle_start",
@@ -7802,6 +8103,13 @@ class WorkflowOrchestrator:
                         max(0.0, time.monotonic() - vent_off_command_sent_monotonic_s),
                         3,
                     ),
+                    "preseal_capture_started": True,
+                    "preseal_capture_not_pressure_control": True,
+                    "preseal_capture_pressure_rise_expected_after_vent_close": True,
+                    "preseal_capture_monitor_covers_abort_path": True,
+                    "positive_preseal_pressure_hpa": pressure,
+                    "positive_preseal_pressure_source_path": "preseal_capture_monitor",
+                    "positive_preseal_pressure_missing_reason": "",
                     **{
                         key: value
                         for key, value in sample.items()
@@ -7832,7 +8140,7 @@ class WorkflowOrchestrator:
                 and not sample_stale
                 and float(pressure) >= float(abort_pressure)
             )
-            ready_seen = bool(
+            ready_in_target_window = bool(
                 pressure is not None
                 and ready_min is not None
                 and ready_max is not None
@@ -7840,6 +8148,59 @@ class WorkflowOrchestrator:
                 and float(pressure) >= float(ready_min)
                 and float(pressure) <= float(ready_max)
             )
+            previous_pressure = self._as_float(monitor_context.get("preseal_capture_last_pressure_hpa"))
+            previous_mono = self._as_float(monitor_context.get("preseal_capture_last_monotonic_s"))
+            sample_mono = self._as_float(
+                sample.get("sample_recorded_monotonic_s")
+                or sample.get("monotonic_timestamp")
+                or sample.get("response_received_monotonic_s")
+            )
+            current_mono = sample_mono if sample_mono is not None else time.monotonic()
+            rise_rate = None
+            if (
+                pressure is not None
+                and previous_pressure is not None
+                and previous_mono is not None
+                and float(current_mono) > float(previous_mono)
+            ):
+                rise_rate = (float(pressure) - float(previous_pressure)) / (
+                    float(current_mono) - float(previous_mono)
+                )
+            seal_latency_s = self._a2_preseal_capture_seal_latency_s()
+            estimated_time_to_target_s = None
+            predicted_completion_pressure = None
+            predictive_ready = False
+            if (
+                pressure is not None
+                and rise_rate is not None
+                and rise_rate > 0.0
+                and ready_min is not None
+                and ready_max is not None
+                and not sample_stale
+                and float(pressure) < float(ready_min)
+            ):
+                estimated_time_to_target_s = max(0.0, (float(ready_min) - float(pressure)) / float(rise_rate))
+                predicted_completion_pressure = float(pressure) + (float(rise_rate) * float(seal_latency_s))
+                predictive_ready = bool(
+                    float(predicted_completion_pressure) >= float(ready_min)
+                    and float(predicted_completion_pressure) <= float(ready_max)
+                )
+            ready_seen = bool(ready_in_target_window or predictive_ready)
+            if pressure is not None:
+                monitor_context.update(
+                    {
+                        "preseal_capture_last_pressure_hpa": float(pressure),
+                        "preseal_capture_last_monotonic_s": float(current_mono),
+                        "preseal_capture_pressure_rise_rate_hpa_per_s": rise_rate,
+                        "preseal_capture_estimated_time_to_target_s": estimated_time_to_target_s,
+                        "preseal_capture_seal_completion_latency_s": seal_latency_s,
+                        "preseal_capture_predicted_seal_completion_pressure_hpa": predicted_completion_pressure,
+                        "preseal_capture_predictive_ready_to_seal": predictive_ready,
+                        "preseal_capture_predictive_trigger_reason": (
+                            "predicted_seal_completion_in_target_window" if predictive_ready else ""
+                        ),
+                    }
+                )
             if pressure is not None:
                 self._record_workflow_timing(
                     "seal_preparation_vent_off_settle_pressure_check",
@@ -7858,16 +8219,27 @@ class WorkflowOrchestrator:
             if ready_seen and pressure is not None:
                 monitor_context.update(
                     {
-                        "vent_close_arm_trigger": "ready_pressure",
+                        "vent_close_arm_trigger": (
+                            "ready_pressure" if ready_in_target_window else "predictive_ready_to_seal"
+                        ),
                         "ready_reached_monotonic_s": time.monotonic(),
                         "vent_off_settle_wait_ready_to_seal_seen": True,
-                        "ready_to_seal_window_entered": True,
+                        "ready_to_seal_window_entered": ready_in_target_window,
                         "vent_off_settle_first_ready_to_seal_sample_hpa": float(pressure),
                         "vent_off_settle_first_ready_to_seal_sample_at": sample_at,
                         "first_target_ready_to_seal_pressure_hpa": float(pressure),
                         "first_target_ready_to_seal_before_abort": True,
                         "first_target_ready_to_seal_missed": False,
                         "first_target_ready_to_seal_missed_reason": "",
+                        "preseal_capture_ready_window_action": (
+                            "ready_to_seal"
+                            if ready_in_target_window
+                            else "predictive_ready_to_seal_before_target_window"
+                        ),
+                        "seal_command_allowed_after_atmosphere_vent_closed": True,
+                        "positive_preseal_pressure_hpa": float(pressure),
+                        "positive_preseal_pressure_source_path": "preseal_capture_monitor",
+                        "positive_preseal_pressure_missing_reason": "",
                     }
                 )
                 break
@@ -7893,10 +8265,30 @@ class WorkflowOrchestrator:
                         "first_target_ready_to_seal_missed": True,
                         "first_target_ready_to_seal_missed_reason": "abort_before_ready_to_seal",
                         "ready_to_seal_window_missed_reason": "abort_before_ready_to_seal",
-                        "seal_command_blocked_reason": "preseal_abort_pressure_exceeded",
+                        "seal_command_blocked_reason": "preseal_capture_abort_pressure_exceeded",
                         "fail_closed_reason": "a2_positive_preseal_pressure_overlimit",
+                        "preseal_capture_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                        "preseal_capture_abort_pressure_hpa": float(pressure),
+                        "preseal_capture_abort_source": str(
+                            sample.get("pressure_sample_source") or sample.get("source") or ""
+                        ),
+                        "preseal_capture_abort_sample_age_s": self._as_float(
+                            sample.get("pressure_sample_age_s", sample.get("sample_age_s"))
+                        ),
+                        "preseal_capture_abort_source_path": "preseal_capture_monitor",
+                        "preseal_abort_source_path": "preseal_capture_monitor",
+                        "positive_preseal_pressure_hpa": float(pressure),
+                        "positive_preseal_pressure_source_path": "preseal_capture_monitor",
+                        "positive_preseal_pressure_missing_reason": "",
+                        "positive_preseal_pressure_overlimit": True,
+                        "positive_preseal_overlimit_fail_closed": True,
+                        "positive_preseal_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                        "high_pressure_first_point_abort_pressure_hpa": float(pressure),
+                        "high_pressure_first_point_abort_reason": "preseal_capture_abort_pressure_exceeded",
                         "overlimit_elapsed_s_nonnegative": True,
                         "overlimit_elapsed_source": "seal_preparation_vent_off_settle",
+                        "preseal_capture_over_abort_action": "fail_closed",
+                        "seal_command_allowed_after_atmosphere_vent_closed": False,
                     }
                 )
                 setattr(self, "_a2_preseal_vent_close_arm_context", monitor_context)
@@ -8350,6 +8742,233 @@ class WorkflowOrchestrator:
                 route_trace_action="co2_preseal_atmosphere_hold_pressure_guard",
                 pressure_hpa=pressure_hpa,
             )
+        capture_context = {}
+        capture_active = False
+        if high_pressure_first_point_mode:
+            capture_context = {
+                **dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {}),
+                **dict(getattr(self, "_a2_preseal_vent_close_arm_context", {}) or {}),
+            }
+            capture_active = bool(
+                capture_context.get("preseal_capture_started")
+                or capture_context.get("vent_close_command_sent_at")
+                or capture_context.get("preseal_guard_armed_from_vent_close_command")
+            )
+        if (
+            high_pressure_first_point_mode
+            and positive_preseal_enabled
+            and ready_hpa is not None
+            and not capture_active
+            and pressure_hpa >= float(ready_hpa)
+            and pressure_hpa < effective_limit_hpa
+        ):
+            not_actionable_context = {
+                **capture_context,
+                "pressure_hpa": pressure_hpa,
+                "ready_pressure_hpa": ready_hpa,
+                "abort_pressure_hpa": effective_limit_hpa,
+                "first_over_1100_before_vent_close": True,
+                "first_over_1100_not_actionable_reason": "before_vent_close_or_wrong_phase",
+                "ready_to_seal_window_entered": False,
+                "ready_to_seal_window_missed_reason": "before_vent_close_or_wrong_phase",
+                "positive_preseal_pressure_hpa": pressure_hpa,
+                "positive_preseal_pressure_source_path": "before_vent_close_or_wrong_phase",
+                **sample_meta,
+            }
+            setattr(self, "_a2_high_pressure_first_point_context", not_actionable_context)
+            self._record_workflow_timing(
+                "high_pressure_ready_before_vent_close_not_actionable",
+                "info",
+                stage=stage_name,
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="before_vent_close_or_wrong_phase",
+                route_state=not_actionable_context,
+            )
+            self._record_workflow_timing(
+                "preseal_atmosphere_flush_pressure_check",
+                "tick",
+                stage=stage_name,
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="before_vent_close_or_wrong_phase",
+                route_state=not_actionable_context,
+            )
+            return "within_limit"
+        if capture_active:
+            command_mono = self._as_float(
+                capture_context.get("vent_close_command_monotonic_s")
+                or capture_context.get("vent_off_sent_monotonic_s")
+            )
+            elapsed_s = max(0.0, time.monotonic() - float(command_mono)) if command_mono is not None else 0.0
+            sample_at = str(
+                sample_meta.get("sample_recorded_at")
+                or sample_meta.get("pressure_sample_timestamp")
+                or sample_meta.get("response_received_at")
+                or datetime.now(timezone.utc).isoformat()
+            )
+            source_path = "preseal_capture_monitor"
+            updated_capture, ready_seen, over_abort = self._a2_mark_preseal_capture_pressure(
+                point,
+                capture_context,
+                pressure_hpa=float(pressure_hpa),
+                sample_meta=sample_meta,
+                sample_at=sample_at,
+                elapsed_s=elapsed_s,
+                source_path=source_path,
+            )
+            setattr(self, "_a2_preseal_vent_close_arm_context", updated_capture)
+            setattr(
+                self,
+                "_a2_high_pressure_first_point_context",
+                {**dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {}), **updated_capture},
+            )
+            self._record_workflow_timing(
+                "preseal_capture_pressure_check",
+                "fail" if over_abort else "tick",
+                stage=stage_name,
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="fail_closed" if over_abort else ("ready_to_seal" if ready_seen else "monitoring"),
+                error_code="preseal_capture_abort_pressure_exceeded" if over_abort else None,
+                route_state=updated_capture,
+            )
+            if over_abort:
+                reason = "co2_preseal_atmosphere_flush_abort_pressure_exceeded"
+                details = {
+                    **updated_capture,
+                    "pressure_hpa": pressure_hpa,
+                    "limit_hpa": float(effective_limit_hpa),
+                    "ready_pressure_hpa": ready_hpa,
+                    "point_index": point.index,
+                    "reason": reason,
+                    "preseal_capture_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "preseal_capture_abort_source_path": reason,
+                    "preseal_abort_source_path": reason,
+                    "positive_preseal_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                }
+                setattr(self, "_a2_preseal_vent_close_arm_context", details)
+                recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)
+                if callable(recorder):
+                    recorder(
+                        action="co2_preseal_atmosphere_hold_pressure_guard",
+                        route="co2",
+                        point=point,
+                        actual=details,
+                        result="fail",
+                        message="CO2 pre-seal capture pressure exceeded abort limit",
+                    )
+                self._record_workflow_timing(
+                    "preseal_atmosphere_flush_pressure_check",
+                    "fail",
+                    stage=stage_name,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision="limit_exceeded",
+                    error_code=reason,
+                    route_state=details,
+                )
+                self._record_workflow_timing(
+                    "route_open_pressure_abort",
+                    "fail",
+                    stage=stage_name,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision="limit_exceeded",
+                    error_code=reason,
+                    route_state=details,
+                )
+                self._record_workflow_timing(
+                    "high_pressure_abort",
+                    "fail",
+                    stage=stage_name,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision="abort",
+                    error_code=reason,
+                    route_state=details,
+                )
+                raise WorkflowValidationError(
+                    "CO2 pre-seal atmosphere hold pressure exceeded limit",
+                    details=details,
+                )
+            if ready_seen:
+                tagger = getattr(getattr(self, "route_planner", None), "co2_point_tag", None)
+                point_tag = tagger(point) if callable(tagger) else ""
+                details = {
+                    **updated_capture,
+                    "pressure_hpa": pressure_hpa,
+                    "ready_pressure_hpa": float(ready_hpa),
+                    "abort_pressure_hpa": effective_limit_hpa,
+                    "point_index": point.index,
+                    "point_tag": point_tag,
+                    "reason": "positive_preseal_ready_handoff",
+                }
+                recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)
+                if callable(recorder):
+                    recorder(
+                        action="preseal_atmosphere_flush_ready_handoff",
+                        route="co2",
+                        point=point,
+                        actual=details,
+                        result="ok",
+                        message="CO2 preseal capture reached ready-to-seal pressure",
+                    )
+                self._record_workflow_timing(
+                    "high_pressure_ready_detected",
+                    "info",
+                    stage=stage_name,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision="ready",
+                    route_state=details,
+                )
+                if bool(getattr(self, "_a2_co2_route_conditioning_completed", False)):
+                    self._record_workflow_timing(
+                        "high_pressure_ready_detected_after_conditioning",
+                        "info",
+                        stage=stage_name,
+                        point=point,
+                        pressure_hpa=pressure_hpa,
+                        target_pressure_hpa=target_hpa,
+                        decision="ready_after_conditioning",
+                        route_state={
+                            **details,
+                            "conditioning_completed_before_high_pressure_mode": True,
+                            "conditioning_completed_at": str(
+                                getattr(self, "_a2_co2_route_conditioning_completed_at", "") or ""
+                            ),
+                        },
+                    )
+                self._record_workflow_timing(
+                    "preseal_atmosphere_flush_ready_handoff",
+                    "info",
+                    stage=stage_name,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision="positive_preseal_ready_handoff",
+                    route_state=details,
+                )
+                return "positive_preseal_ready_handoff"
+            self._record_workflow_timing(
+                "preseal_atmosphere_flush_pressure_check",
+                "tick",
+                stage=stage_name,
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="within_preseal_capture",
+                route_state=updated_capture,
+            )
+            return "within_limit"
         if positive_preseal_enabled and ready_hpa is not None:
             now_monotonic = time.monotonic()
             arm_margin_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_vent_close_arm_margin_hpa", 30.0))

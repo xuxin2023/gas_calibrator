@@ -3010,10 +3010,26 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     positive_preseal_abort_reason = str(
         metric_or_summary("positive_preseal_abort_reason", "abort_reason") or ""
     ).strip()
+    preseal_capture_abort_reason = str(
+        metric_or_summary(
+            "preseal_capture_abort_reason",
+            "high_pressure_first_point_abort_reason",
+        )
+        or ""
+    ).strip()
+    if not positive_preseal_abort_reason and preseal_capture_abort_reason:
+        positive_preseal_abort_reason = preseal_capture_abort_reason
     positive_preseal_pressure_overlimit = bool(
         _as_bool(metric_or_summary("positive_preseal_pressure_overlimit")) is True
         or _as_bool(metric_or_summary("positive_preseal_overlimit_fail_closed")) is True
-        or positive_preseal_abort_reason == "preseal_abort_pressure_exceeded"
+        or _as_bool(metric_or_summary("vent_off_settle_wait_overlimit_seen")) is True
+        or metric_or_summary("preseal_capture_abort_pressure_hpa") is not None
+        or positive_preseal_abort_reason
+        in {
+            "preseal_abort_pressure_exceeded",
+            "preseal_capture_abort_pressure_exceeded",
+            "co2_preseal_atmosphere_flush_abort_pressure_exceeded",
+        }
     )
     route_open_transient_interrupted_by_vent_gap = _as_bool(
         metric_or_summary("route_open_transient_interrupted_by_vent_gap")
@@ -3419,6 +3435,18 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         route_rows,
         point_results,
     )
+    positive_preseal_pressure_hpa = metric_or_summary("positive_preseal_pressure_hpa")
+    if positive_preseal_pressure_hpa is None:
+        positive_preseal_pressure_hpa = metric_or_summary(
+            "preseal_capture_abort_pressure_hpa",
+            "high_pressure_first_point_abort_pressure_hpa",
+            "first_over_abort_pressure_hpa",
+        )
+    positive_preseal_pressure_missing_reason = str(
+        metric_or_summary("positive_preseal_pressure_missing_reason") or ""
+    )
+    if positive_preseal_pressure_hpa is not None and positive_preseal_pressure_missing_reason:
+        positive_preseal_pressure_missing_reason = ""
 
     summary = {
         "schema_version": A2_SCHEMA_VERSION,
@@ -3897,8 +3925,14 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             metric_or_summary("positive_preseal_pressure_guard_checked")
         )
         is True,
-        "positive_preseal_pressure_hpa": metric_or_summary("positive_preseal_pressure_hpa"),
+        "positive_preseal_pressure_hpa": positive_preseal_pressure_hpa,
         "positive_preseal_pressure_source": metric_or_summary("positive_preseal_pressure_source") or "",
+        "positive_preseal_pressure_source_path": metric_or_summary(
+            "positive_preseal_pressure_source_path",
+            "preseal_abort_source_path",
+        )
+        or "",
+        "positive_preseal_pressure_missing_reason": positive_preseal_pressure_missing_reason,
         "positive_preseal_pressure_sample_age_s": metric_or_summary(
             "positive_preseal_pressure_sample_age_s"
         ),
@@ -4013,6 +4047,85 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "positive_preseal_source_disagreement_hpa": metric_or_summary(
             "positive_preseal_source_disagreement_hpa"
         ),
+        "preseal_capture_started": _as_bool(metric_or_summary("preseal_capture_started")) is True,
+        "preseal_capture_not_pressure_control": _as_bool(
+            metric_or_summary("preseal_capture_not_pressure_control")
+        )
+        is True,
+        "preseal_capture_pressure_rise_expected_after_vent_close": _as_bool(
+            metric_or_summary("preseal_capture_pressure_rise_expected_after_vent_close")
+        )
+        is True,
+        "preseal_capture_monitor_armed_before_vent_close_command": _as_bool(
+            metric_or_summary("preseal_capture_monitor_armed_before_vent_close_command")
+        )
+        is True,
+        "preseal_capture_monitor_covers_abort_path": _as_bool(
+            metric_or_summary("preseal_capture_monitor_covers_abort_path")
+        )
+        is True,
+        "preseal_capture_abort_reason": preseal_capture_abort_reason,
+        "preseal_capture_abort_pressure_hpa": metric_or_summary(
+            "preseal_capture_abort_pressure_hpa",
+            "high_pressure_first_point_abort_pressure_hpa",
+        ),
+        "preseal_capture_abort_source": metric_or_summary("preseal_capture_abort_source") or "",
+        "preseal_capture_abort_sample_age_s": metric_or_summary("preseal_capture_abort_sample_age_s"),
+        "preseal_capture_ready_window_min_hpa": metric_or_summary(
+            "preseal_capture_ready_window_min_hpa",
+            "first_target_ready_to_seal_min_hpa",
+        ),
+        "preseal_capture_ready_window_max_hpa": metric_or_summary(
+            "preseal_capture_ready_window_max_hpa",
+            "first_target_ready_to_seal_max_hpa",
+        ),
+        "preseal_capture_ready_window_action": metric_or_summary(
+            "preseal_capture_ready_window_action"
+        )
+        or "",
+        "preseal_capture_over_abort_action": metric_or_summary("preseal_capture_over_abort_action") or "",
+        "preseal_capture_predictive_ready_to_seal": _as_bool(
+            metric_or_summary("preseal_capture_predictive_ready_to_seal")
+        )
+        is True,
+        "preseal_capture_pressure_rise_rate_hpa_per_s": metric_or_summary(
+            "preseal_capture_pressure_rise_rate_hpa_per_s"
+        ),
+        "preseal_capture_estimated_time_to_target_s": metric_or_summary(
+            "preseal_capture_estimated_time_to_target_s"
+        ),
+        "preseal_capture_seal_completion_latency_s": metric_or_summary(
+            "preseal_capture_seal_completion_latency_s"
+        ),
+        "preseal_capture_predicted_seal_completion_pressure_hpa": metric_or_summary(
+            "preseal_capture_predicted_seal_completion_pressure_hpa"
+        ),
+        "preseal_capture_predictive_trigger_reason": metric_or_summary(
+            "preseal_capture_predictive_trigger_reason"
+        )
+        or "",
+        "preseal_abort_source_path": metric_or_summary("preseal_abort_source_path") or "",
+        "first_over_1100_before_vent_close": _as_bool(
+            metric_or_summary("first_over_1100_before_vent_close")
+        )
+        is True,
+        "first_over_1100_not_actionable_reason": metric_or_summary(
+            "first_over_1100_not_actionable_reason"
+        )
+        or "",
+        "high_pressure_first_point_abort_pressure_hpa": metric_or_summary(
+            "high_pressure_first_point_abort_pressure_hpa",
+            "preseal_capture_abort_pressure_hpa",
+        ),
+        "high_pressure_first_point_abort_reason": metric_or_summary(
+            "high_pressure_first_point_abort_reason",
+            "preseal_capture_abort_reason",
+        )
+        or "",
+        "monitor_context_propagated_to_wrapper_summary": _as_bool(
+            metric_or_summary("monitor_context_propagated_to_wrapper_summary")
+        )
+        is True,
         "preseal_guard_armed": _as_bool(metric_or_summary("preseal_guard_armed")) is True,
         "preseal_guard_armed_at": metric_or_summary("preseal_guard_armed_at") or "",
         "preseal_guard_arm_source": metric_or_summary("preseal_guard_arm_source") or "",
@@ -4038,6 +4151,31 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             metric_or_summary("vent_off_settle_wait_ready_to_seal_seen")
         )
         is True,
+        "vent_off_settle_monitor_started": _as_bool(
+            metric_or_summary("vent_off_settle_monitor_started")
+        )
+        is True,
+        "vent_off_settle_monitor_started_at": metric_or_summary(
+            "vent_off_settle_monitor_started_at"
+        )
+        or "",
+        "vent_off_settle_monitor_sample_count": metric_or_summary(
+            "vent_off_settle_monitor_sample_count"
+        ),
+        "vent_off_settle_first_ready_to_seal_sample_hpa": metric_or_summary(
+            "vent_off_settle_first_ready_to_seal_sample_hpa"
+        ),
+        "vent_off_settle_first_ready_to_seal_sample_at": metric_or_summary(
+            "vent_off_settle_first_ready_to_seal_sample_at"
+        )
+        or "",
+        "vent_off_settle_first_over_abort_sample_hpa": metric_or_summary(
+            "vent_off_settle_first_over_abort_sample_hpa"
+        ),
+        "vent_off_settle_first_over_abort_sample_at": metric_or_summary(
+            "vent_off_settle_first_over_abort_sample_at"
+        )
+        or "",
         "first_target_ready_to_seal_min_hpa": metric_or_summary("first_target_ready_to_seal_min_hpa"),
         "first_target_ready_to_seal_max_hpa": metric_or_summary("first_target_ready_to_seal_max_hpa"),
         "first_target_ready_to_seal_pressure_hpa": metric_or_summary(

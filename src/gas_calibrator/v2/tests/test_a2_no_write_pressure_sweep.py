@@ -5672,6 +5672,157 @@ def test_seal_preparation_vent_off_settle_ready_to_seal_arms_context(monkeypatch
     )
 
 
+def test_preseal_capture_monitor_arms_before_vent_close_command(monkeypatch) -> None:
+    orchestrator, point, _clock, _timing_events, _route_traces, vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1104.5, "age_s": 0.0, "sequence_id": 11}],
+        cfg_overrides={"workflow.pressure.seal_preparation_vent_off_settle_s": 0.1},
+    )
+    orchestrator._a2_high_pressure_first_point_mode_enabled = True
+    orchestrator._a2_co2_route_conditioning_completed = True
+    orchestrator._a2_high_pressure_first_point_context = {
+        "enabled": True,
+        "first_target_pressure_hpa": 1100.0,
+        "baseline_pressure_hpa": 1009.0,
+    }
+
+    def vent_close(vent_on: bool, **kwargs):
+        armed = dict(orchestrator._a2_preseal_vent_close_arm_context)
+        vent_calls.append({"vent_on": vent_on, "armed": armed, **kwargs})
+        return {"output_state": 0, "isolation_state": 1, "vent_status_raw": 1}
+
+    orchestrator.pressure_control_service.set_pressure_controller_vent = vent_close
+
+    orchestrator._preclose_a2_high_pressure_first_point_vent(point)
+
+    armed = vent_calls[-1]["armed"]
+    assert vent_calls[-1]["vent_on"] is False
+    assert armed["preseal_capture_started"] is True
+    assert armed["preseal_capture_not_pressure_control"] is True
+    assert armed["preseal_capture_monitor_armed_before_vent_close_command"] is True
+    assert armed["preseal_guard_armed"] is True
+    assert armed["preseal_guard_arm_source"] == "atmosphere_vent_close_command"
+    assert armed["preseal_guard_armed_from_vent_close_command"] is True
+    assert armed["vent_close_command_sent_at"]
+    assert armed["vent_off_settle_monitor_started"] is True
+    assert armed["vent_off_settle_wait_pressure_monitored"] is True
+
+
+def test_preseal_capture_ready_window_after_vent_close_enters_ready_to_seal(monkeypatch) -> None:
+    orchestrator, point, _clock, timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1104.5, "age_s": 0.0, "sequence_id": 12}],
+        cfg_overrides={
+            "workflow.pressure.preseal_ready_pressure_hpa": 1100.0,
+            "workflow.pressure.preseal_abort_pressure_hpa": 1150.0,
+            "workflow.pressure.preseal_atmosphere_flush_abort_pressure_hpa": 1150.0,
+        },
+    )
+    orchestrator._a2_high_pressure_first_point_mode_enabled = True
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_active = False
+    orchestrator._a2_high_pressure_first_point_context = {
+        "enabled": True,
+        "first_target_pressure_hpa": 1100.0,
+    }
+    orchestrator._a2_preseal_vent_close_arm_context = {
+        "preseal_capture_started": True,
+        "preseal_guard_armed": True,
+        "preseal_guard_arm_source": "atmosphere_vent_close_command",
+        "preseal_guard_armed_from_vent_close_command": True,
+        "vent_close_command_sent_at": "2026-05-01T00:00:00+00:00",
+        "vent_close_command_monotonic_s": 99.0,
+        "first_target_ready_to_seal_min_hpa": 1100.0,
+        "first_target_ready_to_seal_max_hpa": 1112.0,
+    }
+
+    decision = orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point)
+
+    context = orchestrator._a2_preseal_vent_close_arm_context
+    assert decision == "positive_preseal_ready_handoff"
+    assert context["ready_to_seal_window_entered"] is True
+    assert context["first_target_ready_to_seal_pressure_hpa"] == 1104.5
+    assert context["seal_command_allowed_after_atmosphere_vent_closed"] is True
+    assert route_traces[-1]["action"] == "preseal_atmosphere_flush_ready_handoff"
+    assert any(event["event_name"] == "high_pressure_ready_detected" for event in timing_events)
+
+
+def test_preseal_capture_predictive_ready_triggers_below_target_when_rise_is_fast(monkeypatch) -> None:
+    orchestrator, point, clock, timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {"pressure_hpa": 1088.0, "age_s": 0.0, "sequence_id": 15},
+            {"pressure_hpa": 1094.0, "age_s": 0.0, "sequence_id": 16},
+        ],
+        cfg_overrides={
+            "workflow.pressure.preseal_ready_pressure_hpa": 1100.0,
+            "workflow.pressure.preseal_abort_pressure_hpa": 1150.0,
+            "workflow.pressure.preseal_atmosphere_flush_abort_pressure_hpa": 1150.0,
+            "workflow.pressure.preseal_capture_predictive_seal_latency_s": 0.1,
+        },
+    )
+    orchestrator._a2_high_pressure_first_point_mode_enabled = True
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_active = False
+    orchestrator._a2_high_pressure_first_point_context = {
+        "enabled": True,
+        "first_target_pressure_hpa": 1100.0,
+    }
+    orchestrator._a2_preseal_vent_close_arm_context = {
+        "preseal_capture_started": True,
+        "preseal_capture_not_pressure_control": True,
+        "preseal_guard_armed": True,
+        "preseal_guard_arm_source": "atmosphere_vent_close_command",
+        "preseal_guard_armed_from_vent_close_command": True,
+        "vent_close_command_sent_at": "2026-05-01T00:00:00+00:00",
+        "vent_close_command_monotonic_s": 99.0,
+    }
+
+    assert orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point) == "within_limit"
+    clock["now"] += 0.1
+    decision = orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point)
+
+    context = orchestrator._a2_preseal_vent_close_arm_context
+    assert decision == "positive_preseal_ready_handoff"
+    assert context["preseal_capture_predictive_ready_to_seal"] is True
+    assert context["vent_close_arm_trigger"] == "predictive_ready_to_seal"
+    assert context["first_target_ready_to_seal_pressure_hpa"] == 1094.0
+    assert context["preseal_capture_predicted_seal_completion_pressure_hpa"] == pytest.approx(1100.0)
+    assert context["ready_to_seal_window_entered"] is False
+    assert context["seal_command_allowed_after_atmosphere_vent_closed"] is True
+    assert route_traces[-1]["action"] == "preseal_atmosphere_flush_ready_handoff"
+    assert any(event["event_name"] == "high_pressure_ready_detected" for event in timing_events)
+
+
+def test_preseal_capture_before_vent_close_over_1100_is_not_actionable(monkeypatch) -> None:
+    orchestrator, point, _clock, timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1104.5, "age_s": 0.0, "sequence_id": 13}],
+        cfg_overrides={
+            "workflow.pressure.preseal_ready_pressure_hpa": 1100.0,
+            "workflow.pressure.preseal_abort_pressure_hpa": 1150.0,
+            "workflow.pressure.preseal_atmosphere_flush_abort_pressure_hpa": 1150.0,
+        },
+    )
+    orchestrator._a2_high_pressure_first_point_mode_enabled = True
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_active = False
+    orchestrator._a2_high_pressure_first_point_context = {
+        "enabled": True,
+        "first_target_pressure_hpa": 1100.0,
+    }
+
+    decision = orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point)
+
+    context = orchestrator._a2_high_pressure_first_point_context
+    assert decision == "within_limit"
+    assert context["first_over_1100_before_vent_close"] is True
+    assert context["first_over_1100_not_actionable_reason"] == "before_vent_close_or_wrong_phase"
+    assert context["ready_to_seal_window_entered"] is False
+    assert route_traces == []
+    assert any(
+        event["event_name"] == "high_pressure_ready_before_vent_close_not_actionable"
+        for event in timing_events
+    )
+
+
 def test_seal_preparation_vent_off_settle_over_abort_fails_closed(monkeypatch) -> None:
     orchestrator, point, _clock, timing_events, _route_traces, vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
@@ -5699,8 +5850,55 @@ def test_seal_preparation_vent_off_settle_over_abort_fails_closed(monkeypatch) -
     assert context["first_over_abort_to_abort_latency_s"] == 0.0
     assert context["overlimit_elapsed_s_nonnegative"] is True
     assert context["overlimit_elapsed_source"] == "seal_preparation_vent_off_settle"
-    assert context["seal_command_blocked_reason"] == "preseal_abort_pressure_exceeded"
+    assert context["seal_command_blocked_reason"] == "preseal_capture_abort_pressure_exceeded"
     assert not any(event["event_name"] == "high_pressure_seal_command_sent" for event in timing_events)
+
+
+def test_preseal_capture_over_abort_path_propagates_monitor_context(monkeypatch) -> None:
+    orchestrator, point, _clock, timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1153.674, "age_s": 0.0, "sequence_id": 14}],
+        cfg_overrides={
+            "workflow.pressure.preseal_ready_pressure_hpa": 1100.0,
+            "workflow.pressure.preseal_abort_pressure_hpa": 1150.0,
+            "workflow.pressure.preseal_atmosphere_flush_abort_pressure_hpa": 1150.0,
+        },
+    )
+    orchestrator._a2_high_pressure_first_point_mode_enabled = True
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_active = False
+    orchestrator._a2_high_pressure_first_point_context = {
+        "enabled": True,
+        "first_target_pressure_hpa": 1100.0,
+    }
+    orchestrator._a2_preseal_vent_close_arm_context = {
+        "preseal_capture_started": True,
+        "preseal_capture_not_pressure_control": True,
+        "preseal_capture_monitor_armed_before_vent_close_command": True,
+        "preseal_guard_armed": True,
+        "preseal_guard_arm_source": "atmosphere_vent_close_command",
+        "preseal_guard_armed_from_vent_close_command": True,
+        "vent_close_command_sent_at": "2026-05-01T00:00:00+00:00",
+        "vent_close_command_monotonic_s": 99.0,
+    }
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point)
+
+    context = exc_info.value.context
+    assert context["reason"] == "co2_preseal_atmosphere_flush_abort_pressure_exceeded"
+    assert context["preseal_capture_started"] is True
+    assert context["preseal_capture_not_pressure_control"] is True
+    assert context["preseal_capture_monitor_covers_abort_path"] is True
+    assert context["vent_off_settle_monitor_started"] is True
+    assert context["vent_off_settle_wait_pressure_monitored"] is True
+    assert context["vent_off_settle_wait_overlimit_seen"] is True
+    assert context["vent_off_settle_first_over_abort_sample_hpa"] == 1153.674
+    assert context["preseal_capture_abort_pressure_hpa"] == 1153.674
+    assert context["positive_preseal_pressure_hpa"] == 1153.674
+    assert context["first_over_abort_to_abort_latency_s"] == 0.0
+    assert context["high_pressure_first_point_abort_pressure_hpa"] == 1153.674
+    assert route_traces[-1]["action"] == "co2_preseal_atmosphere_hold_pressure_guard"
+    assert any(event["event_name"] == "high_pressure_abort" for event in timing_events)
 
 
 def test_positive_preseal_target_1100_over_abort_fails_closed() -> None:
@@ -5715,6 +5913,34 @@ def test_positive_preseal_target_1100_over_abort_fails_closed() -> None:
     assert result.diagnostics["first_target_ready_to_seal_missed"] is True
     assert result.diagnostics["first_target_ready_to_seal_missed_reason"] == "abort_before_ready_to_seal"
     assert result.diagnostics["positive_preseal_abort_pressure_hpa"] == 1150.0
+
+
+def test_positive_preseal_predictive_ready_triggers_below_target_without_pressure_control() -> None:
+    service, _host, _controller, status = _positive_preseal_service(
+        [1009.0, 1088.0, 1094.0, 1099.0],
+        cfg_overrides={
+            "workflow.pressure.preseal_ready_pressure_hpa": 1100.0,
+            "workflow.pressure.preseal_capture_predictive_seal_latency_s": 0.05,
+            "workflow.pressure.fail_if_sealed_pressure_below_target": False,
+        },
+    )
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is True
+    ready = next(row for row in status.rows if row["action"] == "positive_preseal_ready")
+    assert ready["actual"]["preseal_capture_predictive_ready_to_seal"] is True
+    assert ready["actual"]["seal_trigger_pressure_hpa"] == 1099.0
+    assert ready["actual"]["preseal_capture_predicted_seal_completion_pressure_hpa"] == pytest.approx(1104.0, abs=0.2)
+    assert ready["actual"]["ready_to_seal_window_entered"] is False
+    assert ready["actual"]["seal_command_allowed_after_atmosphere_vent_closed"] is True
+    actions = [row["action"] for row in status.rows]
+    assert "seal_route" in actions
+    if "set_pressure" in actions:
+        assert actions.index("seal_route") < actions.index("set_pressure")
+    if "set_output" in actions:
+        assert actions.index("seal_route") < actions.index("set_output")
 
 
 def test_preseal_gate_refreshes_controller_after_verified_vent_off() -> None:
