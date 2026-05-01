@@ -1239,6 +1239,7 @@ def test_a2_probe_summary_records_a2_14_command_diagnostics(tmp_path: Path) -> N
     def executor(config_path: str | Path) -> dict[str, Any]:
         payload = _passing_executor(config_path)
         payload["route_trace_rows"] = [
+            *payload["route_trace_rows"],
             {
                 "action": "set_output",
                 "target": {"enabled": False},
@@ -1610,8 +1611,16 @@ def test_a2_probe_summary_records_positive_preseal_abort_and_emergency_relief(
                     "positive_preseal_pressure_source": "digital_pressure_gauge_p3",
                     "positive_preseal_pressure_sample_age_s": 0.05,
                     "positive_preseal_abort_pressure_hpa": 1150.0,
+                    "preseal_capture_urgent_seal_threshold_hpa": 1150.0,
+                    "preseal_capture_hard_abort_pressure_hpa": 1250.0,
+                    "preseal_capture_over_urgent_threshold_action": "fail_closed",
+                    "preseal_capture_urgent_seal_triggered": True,
+                    "preseal_capture_urgent_seal_pressure_hpa": 1153.465,
+                    "preseal_capture_urgent_seal_reason": "urgent_seal_threshold_reached",
+                    "preseal_capture_hard_abort_triggered": True,
+                    "preseal_capture_hard_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "positive_preseal_pressure_overlimit": True,
-                    "positive_preseal_abort_reason": "preseal_abort_pressure_exceeded",
+                    "positive_preseal_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "positive_preseal_setpoint_sent": False,
                     "positive_preseal_setpoint_hpa": None,
                     "positive_preseal_output_enabled": False,
@@ -1648,7 +1657,7 @@ def test_a2_probe_summary_records_positive_preseal_abort_and_emergency_relief(
                     "positive_preseal_pace_pressure_hpa": 171.897,
                     "positive_preseal_source_disagreement_hpa": 1109.092,
                     "pressure_hpa": 1280.989,
-                    "abort_reason": "preseal_abort_pressure_exceeded",
+                    "abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                 },
             },
             {
@@ -1696,6 +1705,10 @@ def test_a2_probe_summary_records_positive_preseal_abort_and_emergency_relief(
     assert summary["positive_preseal_pressure_guard_checked"] is True
     assert summary["positive_preseal_pressure_hpa"] == 1280.989
     assert summary["positive_preseal_abort_pressure_hpa"] == 1150.0
+    assert summary["preseal_capture_urgent_seal_threshold_hpa"] == 1150.0
+    assert summary["preseal_capture_hard_abort_pressure_hpa"] == 1250.0
+    assert summary["preseal_capture_over_urgent_threshold_action"] == "fail_closed"
+    assert summary["preseal_capture_hard_abort_triggered"] is True
     assert summary["positive_preseal_pressure_overlimit"] is True
     assert summary["positive_preseal_setpoint_sent"] is False
     assert summary["positive_preseal_setpoint_command_sent"] is False
@@ -1720,37 +1733,42 @@ def test_a2_probe_summary_records_positive_preseal_abort_and_emergency_relief(
     assert summary["any_write_command_sent"] is False
 
 
-def test_a2_probe_summary_propagates_high_pressure_preseal_capture_abort(
+def test_a2_probe_summary_propagates_high_pressure_preseal_urgent_seal_capture(
     tmp_path: Path,
 ) -> None:
     config, config_path, op_path = _config_and_operator(tmp_path)
 
     def executor(config_path: str | Path) -> dict[str, Any]:
         payload = _passing_executor(config_path)
-        payload["point_results"] = []
-        payload["pressure_trace_rows"] = []
-        payload["sample_rows"] = []
         payload["route_trace_rows"] = [
+            *payload["route_trace_rows"],
             {
                 "timestamp": "2026-05-01T04:48:57.044399+00:00",
-                "action": "high_pressure_abort",
+                "action": "preseal_atmosphere_flush_ready_handoff",
                 "route": "co2",
                 "point_index": 1,
-                "result": "fail",
+                "result": "ok",
                 "actual": {
                     "pressure_hpa": 1153.674,
+                    "positive_preseal_pressure_hpa": 1153.674,
                     "preseal_capture_started": True,
                     "preseal_capture_not_pressure_control": True,
                     "preseal_capture_pressure_rise_expected_after_vent_close": True,
                     "preseal_capture_monitor_armed_before_vent_close_command": True,
                     "preseal_capture_monitor_covers_abort_path": True,
-                    "preseal_capture_abort_reason": "preseal_capture_abort_pressure_exceeded",
-                    "preseal_capture_abort_pressure_hpa": 1153.674,
-                    "preseal_capture_abort_source": "digital_pressure_gauge_continuous",
-                    "preseal_capture_abort_sample_age_s": 0.0,
-                    "preseal_abort_source_path": "co2_preseal_atmosphere_flush_abort_pressure_exceeded",
+                    "preseal_capture_abort_reason": "",
+                    "preseal_capture_abort_pressure_hpa": None,
+                    "preseal_capture_urgent_seal_threshold_hpa": 1150.0,
+                    "preseal_capture_hard_abort_pressure_hpa": 1250.0,
+                    "preseal_capture_over_urgent_threshold_action": "urgent_seal",
+                    "preseal_capture_urgent_seal_triggered": True,
+                    "preseal_capture_urgent_seal_pressure_hpa": 1153.674,
+                    "preseal_capture_urgent_seal_reason": "urgent_seal_threshold_reached",
+                    "preseal_capture_hard_abort_triggered": False,
+                    "preseal_capture_hard_abort_reason": "",
+                    "preseal_abort_source_path": "",
                     "positive_preseal_pressure_source_path": (
-                        "co2_preseal_atmosphere_flush_abort_pressure_exceeded"
+                        "preseal_capture_monitor"
                     ),
                     "positive_preseal_pressure_missing_reason": "",
                     "preseal_guard_armed": True,
@@ -1760,13 +1778,14 @@ def test_a2_probe_summary_propagates_high_pressure_preseal_capture_abort(
                     "vent_close_command_sent_at": "2026-05-01T04:48:54.535000+00:00",
                     "vent_off_settle_monitor_started": True,
                     "vent_off_settle_wait_pressure_monitored": True,
-                    "vent_off_settle_wait_overlimit_seen": True,
+                    "vent_off_settle_wait_overlimit_seen": False,
+                    "vent_off_settle_wait_ready_to_seal_seen": True,
                     "vent_off_settle_monitor_sample_count": 1,
-                    "vent_off_settle_first_over_abort_sample_hpa": 1153.674,
-                    "first_over_abort_pressure_hpa": 1153.674,
-                    "first_over_abort_to_abort_latency_s": 0.0,
-                    "high_pressure_first_point_abort_pressure_hpa": 1153.674,
-                    "high_pressure_first_point_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "vent_off_settle_first_ready_to_seal_sample_hpa": 1153.674,
+                    "first_target_ready_to_seal_pressure_hpa": 1153.674,
+                    "seal_command_allowed_after_atmosphere_vent_closed": True,
+                    "high_pressure_first_point_abort_pressure_hpa": None,
+                    "high_pressure_first_point_abort_reason": "",
                     "monitor_context_propagated_to_wrapper_summary": True,
                 },
             },
@@ -1775,7 +1794,7 @@ def test_a2_probe_summary_propagates_high_pressure_preseal_capture_abort(
 
     summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
         config,
-        output_dir=tmp_path / "a2_high_pressure_preseal_capture_abort",
+        output_dir=tmp_path / "a2_high_pressure_preseal_urgent_capture",
         config_path=config_path,
         operator_confirmation_path=op_path,
         branch=BRANCH,
@@ -1786,20 +1805,25 @@ def test_a2_probe_summary_propagates_high_pressure_preseal_capture_abort(
         executor=executor,
     )
 
-    assert summary["final_decision"] == "FAIL_CLOSED"
-    assert "a2_positive_preseal_pressure_overlimit" in summary["rejection_reasons"]
+    assert summary["final_decision"] == "PASS"
+    assert "a2_positive_preseal_pressure_overlimit" not in summary["rejection_reasons"]
     assert summary["positive_preseal_pressure_hpa"] == 1153.674
     assert summary["positive_preseal_pressure_missing_reason"] == ""
     assert summary["preseal_capture_started"] is True
     assert summary["preseal_capture_not_pressure_control"] is True
     assert summary["preseal_capture_monitor_covers_abort_path"] is True
-    assert summary["preseal_capture_abort_pressure_hpa"] == 1153.674
+    assert summary["preseal_capture_abort_pressure_hpa"] is None
+    assert summary["preseal_capture_urgent_seal_threshold_hpa"] == 1150.0
+    assert summary["preseal_capture_hard_abort_pressure_hpa"] == 1250.0
+    assert summary["preseal_capture_urgent_seal_triggered"] is True
+    assert summary["preseal_capture_urgent_seal_pressure_hpa"] == 1153.674
+    assert summary["preseal_capture_hard_abort_triggered"] is False
     assert summary["preseal_guard_armed"] is True
     assert summary["preseal_guard_arm_source"] == "atmosphere_vent_close_command"
     assert summary["vent_off_settle_monitor_started"] is True
     assert summary["vent_off_settle_wait_pressure_monitored"] is True
-    assert summary["vent_off_settle_first_over_abort_sample_hpa"] == 1153.674
-    assert summary["high_pressure_first_point_abort_pressure_hpa"] == 1153.674
+    assert summary["vent_off_settle_first_ready_to_seal_sample_hpa"] == 1153.674
+    assert summary["high_pressure_first_point_abort_pressure_hpa"] is None
     assert summary["monitor_context_propagated_to_wrapper_summary"] is True
 
 

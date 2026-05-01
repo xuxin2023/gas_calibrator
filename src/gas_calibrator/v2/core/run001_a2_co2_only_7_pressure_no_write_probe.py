@@ -1725,6 +1725,12 @@ def prepare_a2_downstream_points_config(
     pressure_cfg.setdefault("route_conditioning_pressure_monitor_budget_ms", 100.0)
     pressure_cfg.setdefault("route_conditioning_trace_write_budget_ms", 50.0)
     pressure_cfg.setdefault("route_conditioning_hard_abort_pressure_hpa", 1250.0)
+    pressure_cfg.setdefault("a2_prearm_baseline_freshness_max_s", 2.0)
+    pressure_cfg.setdefault(
+        "preseal_capture_urgent_seal_threshold_hpa",
+        pressure_cfg.get("preseal_abort_pressure_hpa", 1150.0),
+    )
+    pressure_cfg.setdefault("preseal_capture_hard_abort_pressure_hpa", 1250.0)
     pressure_cfg.setdefault("route_open_transient_window_enabled", True)
     pressure_cfg.setdefault("route_open_transient_recovery_timeout_s", 10.0)
     pressure_cfg.setdefault("route_open_transient_recovery_band_hpa", 10.0)
@@ -4084,6 +4090,46 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         )
         or "",
         "preseal_capture_over_abort_action": metric_or_summary("preseal_capture_over_abort_action") or "",
+        "preseal_capture_urgent_seal_threshold_hpa": metric_or_summary(
+            "preseal_capture_urgent_seal_threshold_hpa"
+        ),
+        "preseal_capture_hard_abort_pressure_hpa": metric_or_summary(
+            "preseal_capture_hard_abort_pressure_hpa"
+        ),
+        "preseal_capture_over_urgent_threshold_action": metric_or_summary(
+            "preseal_capture_over_urgent_threshold_action"
+        )
+        or "",
+        "preseal_capture_urgent_seal_triggered": _as_bool(
+            metric_or_summary("preseal_capture_urgent_seal_triggered")
+        )
+        is True,
+        "preseal_capture_urgent_seal_pressure_hpa": metric_or_summary(
+            "preseal_capture_urgent_seal_pressure_hpa"
+        ),
+        "preseal_capture_urgent_seal_reason": metric_or_summary(
+            "preseal_capture_urgent_seal_reason"
+        )
+        or "",
+        "preseal_capture_hard_abort_triggered": _as_bool(
+            metric_or_summary("preseal_capture_hard_abort_triggered")
+        )
+        is True,
+        "preseal_capture_hard_abort_reason": metric_or_summary(
+            "preseal_capture_hard_abort_reason"
+        )
+        or "",
+        "preseal_capture_continue_to_control_after_seal": _as_bool(
+            metric_or_summary("preseal_capture_continue_to_control_after_seal")
+        )
+        is True,
+        "pressure_control_allowed_after_seal_confirmed": _as_bool(
+            metric_or_summary("pressure_control_allowed_after_seal_confirmed")
+        )
+        is True,
+        "pressure_control_target_after_preseal_hpa": metric_or_summary(
+            "pressure_control_target_after_preseal_hpa"
+        ),
         "preseal_capture_predictive_ready_to_seal": _as_bool(
             metric_or_summary("preseal_capture_predictive_ready_to_seal")
         )

@@ -7258,6 +7258,18 @@ class WorkflowOrchestrator:
         )
         return min(10.0, max(0.1, float(2.0 if value is None else value)))
 
+    def _a2_prearm_baseline_freshness_max_s(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.a2_prearm_baseline_freshness_max_s",
+                self._cfg_get(
+                    "workflow.pressure.prearm_baseline_freshness_max_s",
+                    self._cfg_get("workflow.pressure.pressure_sample_stale_threshold_s", 2.0),
+                ),
+            )
+        )
+        return min(10.0, max(0.1, float(2.0 if value is None else value)))
+
     def _a2_prearm_baseline_atmosphere_band_hpa(self) -> float:
         value = self._as_float(
             self._cfg_get(
@@ -7460,16 +7472,49 @@ class WorkflowOrchestrator:
         source_evidence = self._a2_prearm_baseline_sources(sample)
         prearm_expected_source = pressure_source_mode
         raw_observed_source = str(source_evidence.get("observed") or "")
+        prearm_baseline_freshness_max_s = self._a2_prearm_baseline_freshness_max_s()
+        raw_primary_source_text = str(
+            source_evidence.get("selected_source")
+            or source_evidence.get("sample_source")
+            or sample.get("primary_pressure_source")
+            or sample.get("pressure_source_used_for_decision")
+            or ""
+        )
+        raw_primary_source_lower = raw_primary_source_text.lower()
+        raw_primary_is_digital = bool(
+            "digital_pressure_gauge" in raw_primary_source_lower
+            or raw_primary_source_lower.endswith("_p3")
+            or "p3" in raw_primary_source_lower
+        )
+        raw_primary_age_within_prearm = bool(
+            baseline_pressure is not None
+            and baseline_age is not None
+            and float(baseline_age) <= float(prearm_baseline_freshness_max_s)
+        )
+        disagreement_reason = str(source_evidence.get("disagreement_reason") or "")
+        raw_aux_disagreement_nonblocking = bool(
+            source_evidence.get("disagreement")
+            and disagreement_reason == "digital_latest_stale_pace_aux_disagreement"
+            and raw_primary_is_digital
+            and raw_primary_age_within_prearm
+        )
+        if raw_aux_disagreement_nonblocking:
+            baseline_stale = False
+            sample["is_stale"] = False
+            sample["pressure_sample_is_stale"] = False
+            sample.setdefault("a2_prearm_baseline_freshness_max_s", prearm_baseline_freshness_max_s)
+            sample["baseline_primary_freshness_ok"] = True
+            sample["baseline_aux_disagreement_nonblocking"] = True
         route_baseline = self._a2_latest_route_conditioning_prearm_baseline()
         latest_route_eligible = bool(route_baseline.get("eligible"))
         raw_alignment_ok = bool(
-            raw_observed_source
-            and not bool(source_evidence.get("disagreement"))
+            (raw_observed_source or raw_primary_source_text)
+            and (not bool(source_evidence.get("disagreement")) or raw_aux_disagreement_nonblocking)
             and (
                 prearm_expected_source != "v1_aligned"
-                or "p3" in raw_observed_source.lower()
-                or "route_conditioning" in raw_observed_source.lower()
-                or "digital_pressure_gauge" == raw_observed_source
+                or "p3" in (raw_observed_source or raw_primary_source_text).lower()
+                or "route_conditioning" in (raw_observed_source or raw_primary_source_text).lower()
+                or "digital_pressure_gauge" in raw_primary_source_lower
             )
         )
         use_route_conditioning_baseline = bool(
@@ -7479,7 +7524,7 @@ class WorkflowOrchestrator:
             and (
                 baseline_pressure is None
                 or baseline_stale
-                or bool(source_evidence.get("disagreement"))
+                or (bool(source_evidence.get("disagreement")) and not raw_aux_disagreement_nonblocking)
                 or not raw_alignment_ok
             )
         )
@@ -7506,22 +7551,48 @@ class WorkflowOrchestrator:
                 or use_route_conditioning_baseline
                 or "p3" in selected_source_text.lower()
                 or "route_conditioning" in selected_source_text.lower()
-                or selected_source_text == "digital_pressure_gauge"
+                or "digital_pressure_gauge" in selected_source_text.lower()
             )
-            and (use_route_conditioning_baseline or not bool(source_evidence.get("disagreement")))
+            and (
+                use_route_conditioning_baseline
+                or not bool(source_evidence.get("disagreement"))
+                or raw_aux_disagreement_nonblocking
+            )
         )
-        disagreement_reason = str(source_evidence.get("disagreement_reason") or "")
         prearm_aux_disagreement = bool(
             source_evidence.get("disagreement")
-            and use_route_conditioning_baseline
             and disagreement_reason == "digital_latest_stale_pace_aux_disagreement"
+            and (use_route_conditioning_baseline or raw_aux_disagreement_nonblocking)
         )
         prearm_primary_disagreement = bool(
             source_evidence.get("disagreement") and not prearm_aux_disagreement
         )
         prearm_aux_disagreement_nonblocking = bool(
-            prearm_aux_disagreement and prearm_alignment_ok and latest_route_eligible
+            prearm_aux_disagreement
+            and prearm_alignment_ok
+            and (latest_route_eligible or raw_aux_disagreement_nonblocking)
         )
+        baseline_primary_freshness_ok = bool(
+            baseline_pressure is not None
+            and not baseline_stale
+            and (
+                use_route_conditioning_baseline
+                or baseline_age is None
+                or float(baseline_age) <= float(prearm_baseline_freshness_max_s)
+            )
+        )
+        pace_aux_sample = raw_sample.get("pace_pressure_sample")
+        pace_aux_sample = dict(pace_aux_sample) if isinstance(pace_aux_sample, Mapping) else {}
+        pace_aux_source = str(
+            pace_aux_sample.get("pressure_sample_source")
+            or pace_aux_sample.get("source")
+            or ("pace_controller" if pace_aux_sample else "")
+        )
+        pace_aux_absolute_pressure_comparable = bool(
+            pace_aux_sample.get("absolute_pressure_comparable", False)
+        )
+        if disagreement_reason == "digital_latest_stale_pace_aux_disagreement":
+            pace_aux_absolute_pressure_comparable = False
         baseline_stale_reason = ""
         if baseline_pressure is None:
             baseline_stale_reason = "baseline_pressure_sample_unavailable"
@@ -7543,9 +7614,16 @@ class WorkflowOrchestrator:
                 "prearm_raw_pressure_sample": raw_sample,
                 "baseline_pressure_hpa": baseline_pressure,
                 "baseline_pressure_source": sample.get("pressure_sample_source") or sample.get("source"),
+                "baseline_pressure_primary_source": selected_source_text,
+                "baseline_pressure_aux_source": pace_aux_source,
                 "baseline_pressure_age_s": baseline_age,
                 "baseline_pressure_sample_age_s": baseline_age,
                 "baseline_pressure_stale": baseline_stale,
+                "a2_prearm_baseline_freshness_max_s": prearm_baseline_freshness_max_s,
+                "baseline_primary_freshness_ok": baseline_primary_freshness_ok,
+                "baseline_aux_disagreement_nonblocking": prearm_aux_disagreement_nonblocking,
+                "baseline_aux_disagreement_reason": disagreement_reason if prearm_aux_disagreement else "",
+                "pace_aux_absolute_pressure_comparable": pace_aux_absolute_pressure_comparable,
                 "baseline_pressure_freshness_ok": bool(
                     baseline_pressure is not None and not baseline_stale and prearm_alignment_ok
                 ),
@@ -7686,7 +7764,7 @@ class WorkflowOrchestrator:
         ready_pressure = self._as_float(
             self._cfg_get("workflow.pressure.preseal_ready_pressure_hpa", first_target)
         )
-        abort_pressure = self._as_float(self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", 1150.0))
+        abort_pressure = self._a2_preseal_capture_urgent_seal_threshold_hpa(ready_pressure)
         ready_window = getattr(self.pressure_control_service, "_first_target_ready_to_seal_window", None)
         if callable(ready_window):
             ready_min, ready_max = ready_window(
@@ -7700,6 +7778,45 @@ class WorkflowOrchestrator:
             if abort_pressure is not None and ready_max is not None:
                 ready_max = min(float(ready_max), float(abort_pressure) - 0.001)
         return first_target, ready_pressure, abort_pressure, ready_min, ready_max
+
+    def _a2_preseal_capture_urgent_seal_threshold_hpa(
+        self,
+        ready_pressure_hpa: Optional[float] = None,
+    ) -> Optional[float]:
+        configured = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.preseal_capture_urgent_seal_threshold_hpa",
+                self._cfg_get(
+                    "workflow.pressure.preseal_urgent_seal_threshold_hpa",
+                    self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", None),
+                ),
+            )
+        )
+        if configured is not None:
+            return float(configured)
+        if ready_pressure_hpa is None:
+            return None
+        margin = self._as_float(
+            self._cfg_get("workflow.pressure.preseal_abort_margin_hpa", 40.0)
+        )
+        return float(ready_pressure_hpa) + abs(float(40.0 if margin is None else margin))
+
+    def _a2_preseal_capture_hard_abort_pressure_hpa(
+        self,
+        urgent_seal_threshold_hpa: Optional[float] = None,
+    ) -> Optional[float]:
+        configured = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.preseal_capture_hard_abort_pressure_hpa",
+                self._cfg_get("workflow.pressure.preseal_hard_abort_pressure_hpa", 1250.0),
+            )
+        )
+        if configured is None:
+            return None
+        hard_abort = float(configured)
+        if urgent_seal_threshold_hpa is not None:
+            hard_abort = max(hard_abort, float(urgent_seal_threshold_hpa))
+        return hard_abort
 
     def _a2_preseal_capture_seal_latency_s(self) -> float:
         explicit_latency = self._as_float(
@@ -7733,6 +7850,7 @@ class WorkflowOrchestrator:
         first_target, ready_pressure, abort_pressure, ready_min, ready_max = (
             self._a2_preseal_capture_ready_window(point, context)
         )
+        hard_abort_pressure = self._a2_preseal_capture_hard_abort_pressure_hpa(abort_pressure)
         monitor_context = {
             **dict(context),
             "preseal_capture_started": True,
@@ -7743,7 +7861,18 @@ class WorkflowOrchestrator:
             "preseal_capture_ready_window_min_hpa": ready_min,
             "preseal_capture_ready_window_max_hpa": ready_max,
             "preseal_capture_ready_window_action": "ready_to_seal",
-            "preseal_capture_over_abort_action": "fail_closed",
+            "preseal_capture_over_abort_action": "urgent_seal",
+            "preseal_capture_urgent_seal_threshold_hpa": abort_pressure,
+            "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure,
+            "preseal_capture_over_urgent_threshold_action": "urgent_seal",
+            "preseal_capture_urgent_seal_triggered": False,
+            "preseal_capture_urgent_seal_pressure_hpa": None,
+            "preseal_capture_urgent_seal_reason": "",
+            "preseal_capture_hard_abort_triggered": False,
+            "preseal_capture_hard_abort_reason": "",
+            "preseal_capture_continue_to_control_after_seal": False,
+            "pressure_control_allowed_after_seal_confirmed": False,
+            "pressure_control_target_after_preseal_hpa": first_target,
             "preseal_capture_predictive_ready_to_seal": False,
             "preseal_capture_pressure_rise_rate_hpa_per_s": None,
             "preseal_capture_estimated_time_to_target_s": None,
@@ -7824,6 +7953,8 @@ class WorkflowOrchestrator:
         first_target, _ready_pressure, abort_pressure, ready_min, ready_max = (
             self._a2_preseal_capture_ready_window(point, updated)
         )
+        urgent_seal_threshold = abort_pressure
+        hard_abort_pressure = self._a2_preseal_capture_hard_abort_pressure_hpa(urgent_seal_threshold)
         sample_stale = bool(sample_meta.get("pressure_sample_is_stale", sample_meta.get("is_stale", False)))
         now_mono = time.monotonic()
         previous_pressure = self._as_float(updated.get("preseal_capture_last_pressure_hpa"))
@@ -7862,10 +7993,15 @@ class WorkflowOrchestrator:
                 float(predicted_completion_pressure) >= float(ready_min)
                 and float(predicted_completion_pressure) <= float(ready_max)
             )
-        over_abort = bool(
-            abort_pressure is not None
+        urgent_seal_seen = bool(
+            urgent_seal_threshold is not None
             and not sample_stale
-            and float(pressure_hpa) >= float(abort_pressure)
+            and float(pressure_hpa) >= float(urgent_seal_threshold)
+        )
+        hard_abort_seen = bool(
+            hard_abort_pressure is not None
+            and not sample_stale
+            and float(pressure_hpa) >= float(hard_abort_pressure)
         )
         ready_seen = bool(
             ready_min is not None
@@ -7892,6 +8028,9 @@ class WorkflowOrchestrator:
                 or sample_at,
                 "vent_off_settle_wait_pressure_monitored": True,
                 "vent_off_settle_monitor_sample_count": sample_count,
+                "vent_off_settle_wait_overlimit_seen": bool(
+                    updated.get("vent_off_settle_wait_overlimit_seen", False)
+                ),
                 "vent_close_arm_pressure_hpa": float(pressure_hpa),
                 "vent_close_arm_elapsed_s": round(max(0.0, elapsed_s), 3),
                 "current_line_pressure_hpa": float(pressure_hpa),
@@ -7902,6 +8041,20 @@ class WorkflowOrchestrator:
                 "first_target_ready_to_seal_max_hpa": ready_max,
                 "preseal_capture_ready_window_min_hpa": ready_min,
                 "preseal_capture_ready_window_max_hpa": ready_max,
+                "preseal_capture_urgent_seal_threshold_hpa": urgent_seal_threshold,
+                "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure,
+                "preseal_capture_over_urgent_threshold_action": "urgent_seal",
+                "preseal_capture_hard_abort_triggered": hard_abort_seen,
+                "preseal_capture_hard_abort_reason": (
+                    "preseal_capture_hard_abort_pressure_exceeded" if hard_abort_seen else ""
+                ),
+                "preseal_capture_abort_reason": str(updated.get("preseal_capture_abort_reason") or ""),
+                "preseal_capture_abort_pressure_hpa": updated.get("preseal_capture_abort_pressure_hpa"),
+                "preseal_capture_abort_source": str(updated.get("preseal_capture_abort_source") or ""),
+                "preseal_capture_abort_sample_age_s": updated.get("preseal_capture_abort_sample_age_s"),
+                "preseal_capture_continue_to_control_after_seal": False,
+                "pressure_control_allowed_after_seal_confirmed": False,
+                "pressure_control_target_after_preseal_hpa": first_target,
                 "preseal_capture_pressure_rise_rate_hpa_per_s": rise_rate_hpa_per_s,
                 "preseal_capture_estimated_time_to_target_s": estimated_time_to_target_s,
                 "preseal_capture_seal_completion_latency_s": seal_latency_s,
@@ -7916,10 +8069,15 @@ class WorkflowOrchestrator:
                 **{key: value for key, value in sample_meta.items() if value not in (None, "")},
             }
         )
-        if ready_seen or predictive_ready:
+        if ready_seen or predictive_ready or (urgent_seal_seen and not hard_abort_seen):
+            trigger = (
+                "urgent_seal_threshold"
+                if urgent_seal_seen and not (ready_seen or predictive_ready)
+                else ("ready_pressure" if ready_seen else "predictive_ready_to_seal")
+            )
             updated.update(
                 {
-                    "vent_close_arm_trigger": "ready_pressure" if ready_seen else "predictive_ready_to_seal",
+                    "vent_close_arm_trigger": trigger,
                     "ready_reached_monotonic_s": now_mono,
                     "vent_off_settle_wait_ready_to_seal_seen": True,
                     "ready_to_seal_window_entered": bool(ready_seen),
@@ -7935,14 +8093,26 @@ class WorkflowOrchestrator:
                     "preseal_capture_ready_window_action": (
                         "ready_to_seal"
                         if ready_seen
-                        else "predictive_ready_to_seal_before_target_window"
+                        else (
+                            "urgent_seal"
+                            if urgent_seal_seen
+                            else "predictive_ready_to_seal_before_target_window"
+                        )
+                    ),
+                    "preseal_capture_over_abort_action": "urgent_seal",
+                    "preseal_capture_urgent_seal_triggered": bool(urgent_seal_seen),
+                    "preseal_capture_urgent_seal_pressure_hpa": (
+                        float(pressure_hpa) if urgent_seal_seen else None
+                    ),
+                    "preseal_capture_urgent_seal_reason": (
+                        "urgent_seal_threshold_reached" if urgent_seal_seen else ""
                     ),
                 }
             )
-        if over_abort:
+        if hard_abort_seen:
             updated.update(
                 {
-                    "vent_close_arm_trigger": "abort_pressure",
+                    "vent_close_arm_trigger": "hard_abort_pressure",
                     "vent_off_settle_wait_overlimit_seen": True,
                     "vent_off_settle_first_over_abort_sample_hpa": float(pressure_hpa),
                     "vent_off_settle_first_over_abort_sample_at": sample_at,
@@ -7956,9 +8126,9 @@ class WorkflowOrchestrator:
                     "first_target_ready_to_seal_missed": True,
                     "first_target_ready_to_seal_missed_reason": "abort_before_ready_to_seal",
                     "ready_to_seal_window_missed_reason": "abort_before_ready_to_seal",
-                    "seal_command_blocked_reason": "preseal_capture_abort_pressure_exceeded",
+                    "seal_command_blocked_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "fail_closed_reason": "a2_positive_preseal_pressure_overlimit",
-                    "preseal_capture_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "preseal_capture_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "preseal_capture_abort_pressure_hpa": float(pressure_hpa),
                     "preseal_capture_abort_source": source,
                     "preseal_capture_abort_sample_age_s": self._as_float(
@@ -7967,17 +8137,20 @@ class WorkflowOrchestrator:
                     "preseal_capture_abort_source_path": source_path,
                     "preseal_abort_source_path": source_path,
                     "high_pressure_first_point_abort_pressure_hpa": float(pressure_hpa),
-                    "high_pressure_first_point_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "high_pressure_first_point_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "positive_preseal_pressure_overlimit": True,
                     "positive_preseal_overlimit_fail_closed": True,
-                    "positive_preseal_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "positive_preseal_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "overlimit_elapsed_s_nonnegative": True,
                     "overlimit_elapsed_source": source_path,
                     "preseal_capture_over_abort_action": "fail_closed",
+                    "preseal_capture_over_urgent_threshold_action": "fail_closed",
+                    "preseal_capture_hard_abort_triggered": True,
+                    "preseal_capture_hard_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "seal_command_allowed_after_atmosphere_vent_closed": False,
                 }
             )
-        return updated, bool(ready_seen or predictive_ready), over_abort
+        return updated, bool(ready_seen or predictive_ready or (urgent_seal_seen and not hard_abort_seen)), hard_abort_seen
 
     def _preclose_a2_high_pressure_first_point_vent(self, point: CalibrationPoint) -> dict[str, Any]:
         if not bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False)):
@@ -8020,6 +8193,8 @@ class WorkflowOrchestrator:
         first_target, _ready_pressure, abort_pressure, ready_min, ready_max = (
             self._a2_preseal_capture_ready_window(point, context)
         )
+        urgent_seal_threshold = abort_pressure
+        hard_abort_pressure = self._a2_preseal_capture_hard_abort_pressure_hpa(urgent_seal_threshold)
         monitor_context = self._a2_preseal_capture_arm_context(
             point,
             context,
@@ -8134,11 +8309,17 @@ class WorkflowOrchestrator:
                     },
                 }
             )
-            over_abort = bool(
+            urgent_seal_seen = bool(
                 pressure is not None
-                and abort_pressure is not None
+                and urgent_seal_threshold is not None
                 and not sample_stale
-                and float(pressure) >= float(abort_pressure)
+                and float(pressure) >= float(urgent_seal_threshold)
+            )
+            hard_abort_seen = bool(
+                pressure is not None
+                and hard_abort_pressure is not None
+                and not sample_stale
+                and float(pressure) >= float(hard_abort_pressure)
             )
             ready_in_target_window = bool(
                 pressure is not None
@@ -8185,7 +8366,7 @@ class WorkflowOrchestrator:
                     float(predicted_completion_pressure) >= float(ready_min)
                     and float(predicted_completion_pressure) <= float(ready_max)
                 )
-            ready_seen = bool(ready_in_target_window or predictive_ready)
+            ready_seen = bool(ready_in_target_window or predictive_ready or (urgent_seal_seen and not hard_abort_seen))
             if pressure is not None:
                 monitor_context.update(
                     {
@@ -8199,6 +8380,15 @@ class WorkflowOrchestrator:
                         "preseal_capture_predictive_trigger_reason": (
                             "predicted_seal_completion_in_target_window" if predictive_ready else ""
                         ),
+                        "preseal_capture_urgent_seal_threshold_hpa": urgent_seal_threshold,
+                        "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure,
+                        "preseal_capture_over_urgent_threshold_action": (
+                            "fail_closed" if hard_abort_seen else "urgent_seal"
+                        ),
+                        "preseal_capture_hard_abort_triggered": hard_abort_seen,
+                        "preseal_capture_hard_abort_reason": (
+                            "preseal_capture_hard_abort_pressure_exceeded" if hard_abort_seen else ""
+                        ),
                     }
                 )
             if pressure is not None:
@@ -8211,17 +8401,20 @@ class WorkflowOrchestrator:
                     pressure_hpa=pressure,
                     decision=(
                         "fail_closed"
-                        if over_abort
+                        if hard_abort_seen
                         else ("ready_to_seal" if ready_seen else "monitoring")
                     ),
                     route_state={**monitor_context, "pressure_hpa": pressure},
                 )
             if ready_seen and pressure is not None:
+                trigger = (
+                    "urgent_seal_threshold"
+                    if urgent_seal_seen and not (ready_in_target_window or predictive_ready)
+                    else ("ready_pressure" if ready_in_target_window else "predictive_ready_to_seal")
+                )
                 monitor_context.update(
                     {
-                        "vent_close_arm_trigger": (
-                            "ready_pressure" if ready_in_target_window else "predictive_ready_to_seal"
-                        ),
+                        "vent_close_arm_trigger": trigger,
                         "ready_reached_monotonic_s": time.monotonic(),
                         "vent_off_settle_wait_ready_to_seal_seen": True,
                         "ready_to_seal_window_entered": ready_in_target_window,
@@ -8234,7 +8427,19 @@ class WorkflowOrchestrator:
                         "preseal_capture_ready_window_action": (
                             "ready_to_seal"
                             if ready_in_target_window
-                            else "predictive_ready_to_seal_before_target_window"
+                            else (
+                                "urgent_seal"
+                                if urgent_seal_seen
+                                else "predictive_ready_to_seal_before_target_window"
+                            )
+                        ),
+                        "preseal_capture_over_abort_action": "urgent_seal",
+                        "preseal_capture_urgent_seal_triggered": bool(urgent_seal_seen),
+                        "preseal_capture_urgent_seal_pressure_hpa": (
+                            float(pressure) if urgent_seal_seen else None
+                        ),
+                        "preseal_capture_urgent_seal_reason": (
+                            "urgent_seal_threshold_reached" if urgent_seal_seen else ""
                         ),
                         "seal_command_allowed_after_atmosphere_vent_closed": True,
                         "positive_preseal_pressure_hpa": float(pressure),
@@ -8243,10 +8448,10 @@ class WorkflowOrchestrator:
                     }
                 )
                 break
-            if over_abort and pressure is not None:
+            if hard_abort_seen and pressure is not None:
                 monitor_context.update(
                     {
-                        "vent_close_arm_trigger": "abort_pressure",
+                        "vent_close_arm_trigger": "hard_abort_pressure",
                         "vent_off_settle_wait_overlimit_seen": True,
                         "vent_off_settle_first_over_abort_sample_hpa": float(pressure),
                         "vent_off_settle_first_over_abort_sample_at": sample_at,
@@ -8265,9 +8470,9 @@ class WorkflowOrchestrator:
                         "first_target_ready_to_seal_missed": True,
                         "first_target_ready_to_seal_missed_reason": "abort_before_ready_to_seal",
                         "ready_to_seal_window_missed_reason": "abort_before_ready_to_seal",
-                        "seal_command_blocked_reason": "preseal_capture_abort_pressure_exceeded",
+                        "seal_command_blocked_reason": "preseal_capture_hard_abort_pressure_exceeded",
                         "fail_closed_reason": "a2_positive_preseal_pressure_overlimit",
-                        "preseal_capture_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                        "preseal_capture_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                         "preseal_capture_abort_pressure_hpa": float(pressure),
                         "preseal_capture_abort_source": str(
                             sample.get("pressure_sample_source") or sample.get("source") or ""
@@ -8282,12 +8487,15 @@ class WorkflowOrchestrator:
                         "positive_preseal_pressure_missing_reason": "",
                         "positive_preseal_pressure_overlimit": True,
                         "positive_preseal_overlimit_fail_closed": True,
-                        "positive_preseal_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                        "positive_preseal_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                         "high_pressure_first_point_abort_pressure_hpa": float(pressure),
-                        "high_pressure_first_point_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                        "high_pressure_first_point_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                         "overlimit_elapsed_s_nonnegative": True,
                         "overlimit_elapsed_source": "seal_preparation_vent_off_settle",
                         "preseal_capture_over_abort_action": "fail_closed",
+                        "preseal_capture_over_urgent_threshold_action": "fail_closed",
+                        "preseal_capture_hard_abort_triggered": True,
+                        "preseal_capture_hard_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                         "seal_command_allowed_after_atmosphere_vent_closed": False,
                     }
                 )
@@ -8300,7 +8508,7 @@ class WorkflowOrchestrator:
                     target_pressure_hpa=first_target,
                     pressure_hpa=pressure,
                     decision="fail_closed",
-                    error_code="preseal_abort_pressure_exceeded",
+                    error_code="preseal_capture_hard_abort_pressure_exceeded",
                     route_state=monitor_context,
                 )
                 raise WorkflowValidationError(
@@ -8833,22 +9041,25 @@ class WorkflowOrchestrator:
                 pressure_hpa=pressure_hpa,
                 target_pressure_hpa=target_hpa,
                 decision="fail_closed" if over_abort else ("ready_to_seal" if ready_seen else "monitoring"),
-                error_code="preseal_capture_abort_pressure_exceeded" if over_abort else None,
+                error_code="preseal_capture_hard_abort_pressure_exceeded" if over_abort else None,
                 route_state=updated_capture,
             )
             if over_abort:
-                reason = "co2_preseal_atmosphere_flush_abort_pressure_exceeded"
+                reason = "co2_preseal_atmosphere_flush_hard_abort_pressure_exceeded"
                 details = {
                     **updated_capture,
                     "pressure_hpa": pressure_hpa,
-                    "limit_hpa": float(effective_limit_hpa),
+                    "limit_hpa": self._as_float(
+                        updated_capture.get("preseal_capture_hard_abort_pressure_hpa")
+                    )
+                    or float(effective_limit_hpa),
                     "ready_pressure_hpa": ready_hpa,
                     "point_index": point.index,
                     "reason": reason,
-                    "preseal_capture_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "preseal_capture_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "preseal_capture_abort_source_path": reason,
                     "preseal_abort_source_path": reason,
-                    "positive_preseal_abort_reason": "preseal_capture_abort_pressure_exceeded",
+                    "positive_preseal_abort_reason": "preseal_capture_hard_abort_pressure_exceeded",
                 }
                 setattr(self, "_a2_preseal_vent_close_arm_context", details)
                 recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)

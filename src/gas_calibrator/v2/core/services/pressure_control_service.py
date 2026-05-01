@@ -149,6 +149,40 @@ class PressureControlService:
         )
         return float(ready_pressure_hpa) + abs(float(margin or 0.0))
 
+    def _preseal_capture_urgent_seal_threshold_hpa(
+        self,
+        ready_pressure_hpa: Optional[float],
+    ) -> Optional[float]:
+        configured = self._coerce_float(
+            self.host._cfg_get(
+                "workflow.pressure.preseal_capture_urgent_seal_threshold_hpa",
+                self.host._cfg_get(
+                    "workflow.pressure.preseal_urgent_seal_threshold_hpa",
+                    self.host._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", None),
+                ),
+            )
+        )
+        if configured is not None:
+            return float(configured)
+        return self._positive_preseal_abort_pressure_hpa(ready_pressure_hpa)
+
+    def _preseal_capture_hard_abort_pressure_hpa(
+        self,
+        urgent_seal_threshold_hpa: Optional[float],
+    ) -> Optional[float]:
+        configured = self._coerce_float(
+            self.host._cfg_get(
+                "workflow.pressure.preseal_capture_hard_abort_pressure_hpa",
+                self.host._cfg_get("workflow.pressure.preseal_hard_abort_pressure_hpa", 1250.0),
+            )
+        )
+        if configured is None:
+            return None
+        hard_abort = float(configured)
+        if urgent_seal_threshold_hpa is not None:
+            hard_abort = max(hard_abort, float(urgent_seal_threshold_hpa))
+        return hard_abort
+
     def _pressure_controller_state_snapshot(self, controller: Any) -> dict[str, Any]:
         vent_status = self._pressure_controller_vent_status(controller)
         return {
@@ -2446,12 +2480,27 @@ class PressureControlService:
     ) -> PressureWaitResult:
         elapsed_s = max(0.0, time.time() - started_at)
         extra_data = dict(extra or {})
+        urgent_seal_threshold_hpa = self._coerce_float(
+            extra_data.get("preseal_capture_urgent_seal_threshold_hpa")
+        )
+        hard_abort_pressure_hpa = self._coerce_float(
+            extra_data.get("preseal_capture_hard_abort_pressure_hpa")
+        )
         overlimit = bool(
-            reason in {"preseal_abort_pressure_exceeded", "preseal_abort_pressure_exceeded_before_positive_preseal"}
+            reason
+            in {
+                "preseal_capture_hard_abort_pressure_exceeded",
+                "preseal_hard_abort_pressure_exceeded",
+                "preseal_abort_pressure_exceeded_before_positive_preseal",
+            }
             or (
                 pressure_hpa is not None
-                and abort_pressure_hpa is not None
-                and float(pressure_hpa) >= float(abort_pressure_hpa)
+                and hard_abort_pressure_hpa is not None
+                and float(pressure_hpa) >= float(hard_abort_pressure_hpa)
+            )
+            or (
+                hard_abort_pressure_hpa is None
+                and reason == "preseal_abort_pressure_exceeded"
             )
         )
         first_over_abort_elapsed_s = self._coerce_float(extra_data.get("first_over_abort_elapsed_s"))
@@ -2459,6 +2508,16 @@ class PressureControlService:
             extra_data.setdefault(
                 "first_over_abort_to_abort_latency_s",
                 max(0.0, elapsed_s - float(first_over_abort_elapsed_s)),
+            )
+        if overlimit:
+            extra_data["preseal_capture_hard_abort_triggered"] = True
+            extra_data.setdefault(
+                "preseal_capture_hard_abort_reason",
+                "preseal_capture_hard_abort_pressure_exceeded",
+            )
+            extra_data.setdefault(
+                "preseal_capture_over_urgent_threshold_action",
+                "fail_closed",
             )
         actual = {
             "stage": "positive_preseal_pressurization",
@@ -2477,6 +2536,8 @@ class PressureControlService:
             "ready_pressure_hpa": ready_pressure_hpa,
             "preseal_abort_pressure_hpa": abort_pressure_hpa,
             "abort_pressure_hpa": abort_pressure_hpa,
+            "preseal_capture_urgent_seal_threshold_hpa": urgent_seal_threshold_hpa,
+            "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure_hpa,
             "preseal_ready_timeout_s": timeout_s,
             "preseal_pressure_poll_interval_s": poll_interval_s,
             "elapsed_s": elapsed_s,
@@ -2556,6 +2617,34 @@ class PressureControlService:
             "preseal_capture_over_abort_action": str(
                 extra_data.get("preseal_capture_over_abort_action") or ("fail_closed" if overlimit else "")
             ),
+            "preseal_capture_over_urgent_threshold_action": str(
+                extra_data.get("preseal_capture_over_urgent_threshold_action")
+                or ("fail_closed" if overlimit else "urgent_seal")
+            ),
+            "preseal_capture_urgent_seal_threshold_hpa": urgent_seal_threshold_hpa,
+            "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure_hpa,
+            "preseal_capture_urgent_seal_triggered": bool(
+                extra_data.get("preseal_capture_urgent_seal_triggered", False)
+            ),
+            "preseal_capture_urgent_seal_pressure_hpa": extra_data.get(
+                "preseal_capture_urgent_seal_pressure_hpa"
+            ),
+            "preseal_capture_urgent_seal_reason": str(
+                extra_data.get("preseal_capture_urgent_seal_reason") or ""
+            ),
+            "preseal_capture_hard_abort_triggered": bool(
+                extra_data.get("preseal_capture_hard_abort_triggered", overlimit)
+            ),
+            "preseal_capture_hard_abort_reason": str(
+                extra_data.get(
+                    "preseal_capture_hard_abort_reason",
+                    "preseal_capture_hard_abort_pressure_exceeded" if overlimit else "",
+                )
+                or ""
+            ),
+            "preseal_capture_continue_to_control_after_seal": False,
+            "pressure_control_allowed_after_seal_confirmed": False,
+            "pressure_control_target_after_preseal_hpa": target_pressure_hpa,
             "preseal_capture_predictive_ready_to_seal": bool(
                 extra_data.get("preseal_capture_predictive_ready_to_seal", False)
             ),
@@ -3072,6 +3161,8 @@ class PressureControlService:
         target_pressure_hpa = self.host._as_float(point.target_pressure_hpa)
         ready_pressure_hpa = self._positive_preseal_ready_pressure_hpa(point)
         abort_pressure_hpa = self._positive_preseal_abort_pressure_hpa(ready_pressure_hpa)
+        urgent_seal_threshold_hpa = self._preseal_capture_urgent_seal_threshold_hpa(ready_pressure_hpa)
+        hard_abort_pressure_hpa = self._preseal_capture_hard_abort_pressure_hpa(urgent_seal_threshold_hpa)
         timeout_s = max(
             0.1,
             float(self.host._cfg_get("workflow.pressure.preseal_ready_timeout_s", 30.0)),
@@ -3112,7 +3203,7 @@ class PressureControlService:
         ready_to_seal_min_hpa, ready_to_seal_max_hpa = self._first_target_ready_to_seal_window(
             target_pressure_hpa=target_pressure_hpa,
             ready_pressure_hpa=ready_pressure_hpa,
-            abort_pressure_hpa=abort_pressure_hpa,
+            abort_pressure_hpa=urgent_seal_threshold_hpa,
         )
         vent_closed_at = ""
         timing_recorder = getattr(self.host, "_record_workflow_timing", None)
@@ -3129,7 +3220,18 @@ class PressureControlService:
             "preseal_capture_ready_window_min_hpa": ready_to_seal_min_hpa,
             "preseal_capture_ready_window_max_hpa": ready_to_seal_max_hpa,
             "preseal_capture_ready_window_action": "ready_to_seal",
-            "preseal_capture_over_abort_action": "fail_closed",
+            "preseal_capture_over_abort_action": "urgent_seal",
+            "preseal_capture_urgent_seal_threshold_hpa": urgent_seal_threshold_hpa,
+            "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure_hpa,
+            "preseal_capture_over_urgent_threshold_action": "urgent_seal",
+            "preseal_capture_urgent_seal_triggered": False,
+            "preseal_capture_urgent_seal_pressure_hpa": None,
+            "preseal_capture_urgent_seal_reason": "",
+            "preseal_capture_hard_abort_triggered": False,
+            "preseal_capture_hard_abort_reason": "",
+            "preseal_capture_continue_to_control_after_seal": False,
+            "pressure_control_allowed_after_seal_confirmed": False,
+            "pressure_control_target_after_preseal_hpa": target_pressure_hpa,
             "preseal_capture_predictive_ready_to_seal": False,
             "preseal_capture_pressure_rise_rate_hpa_per_s": None,
             "preseal_capture_estimated_time_to_target_s": None,
@@ -3234,6 +3336,8 @@ class PressureControlService:
                 "ready_pressure_hpa": ready_pressure_hpa,
                 "preseal_abort_pressure_hpa": abort_pressure_hpa,
                 "abort_pressure_hpa": abort_pressure_hpa,
+                "preseal_capture_urgent_seal_threshold_hpa": urgent_seal_threshold_hpa,
+                "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure_hpa,
                 "preseal_ready_timeout_s": timeout_s,
                 "preseal_pressure_poll_interval_s": poll_interval_s,
                 "ready_reached": False,
@@ -3276,9 +3380,16 @@ class PressureControlService:
         )
         guard_overlimit = bool(
             guard_pressure is not None
-            and abort_pressure_hpa is not None
+            and hard_abort_pressure_hpa is not None
             and not guard_stale
-            and float(guard_pressure) >= float(abort_pressure_hpa)
+            and float(guard_pressure) >= float(hard_abort_pressure_hpa)
+        )
+        guard_urgent_seal = bool(
+            guard_pressure is not None
+            and urgent_seal_threshold_hpa is not None
+            and not guard_stale
+            and float(guard_pressure) >= float(urgent_seal_threshold_hpa)
+            and not guard_overlimit
         )
         guard_payload = {
             "stage": "positive_preseal_pressure_guard",
@@ -3289,9 +3400,22 @@ class PressureControlService:
             "positive_preseal_pressure_source": guard_source,
             "positive_preseal_pressure_sample_age_s": guard_sample_age_s,
             "positive_preseal_abort_pressure_hpa": abort_pressure_hpa,
+            "preseal_capture_urgent_seal_threshold_hpa": urgent_seal_threshold_hpa,
+            "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure_hpa,
+            "preseal_capture_urgent_seal_triggered": guard_urgent_seal,
+            "preseal_capture_urgent_seal_pressure_hpa": (
+                float(guard_pressure) if guard_urgent_seal else None
+            ),
+            "preseal_capture_urgent_seal_reason": (
+                "urgent_seal_threshold_reached_before_vent_close" if guard_urgent_seal else ""
+            ),
+            "preseal_capture_hard_abort_triggered": guard_overlimit,
+            "preseal_capture_hard_abort_reason": (
+                "preseal_capture_hard_abort_pressure_exceeded" if guard_overlimit else ""
+            ),
             "positive_preseal_pressure_overlimit": guard_overlimit,
             "positive_preseal_abort_reason": (
-                "preseal_abort_pressure_exceeded" if guard_overlimit else ""
+                "preseal_capture_hard_abort_pressure_exceeded" if guard_overlimit else ""
             ),
             "positive_preseal_setpoint_sent": False,
             "positive_preseal_setpoint_hpa": None,
@@ -3311,12 +3435,12 @@ class PressureControlService:
             "preseal_guard_arm_source_alignment_ok": False,
             "preseal_guard_armed_from_vent_close_command": False,
             "preseal_guard_armed_from_vent_close_command_false_reason": (
-                "preseal_abort_before_vent_close_guard_arm" if guard_overlimit else ""
+                "preseal_hard_abort_before_vent_close_guard_arm" if guard_overlimit else ""
             ),
             "positive_preseal_guard_started_before_first_over_abort": False,
             "positive_preseal_guard_started_after_first_over_abort": bool(guard_overlimit),
             "positive_preseal_guard_late_reason": (
-                "preseal_abort_before_vent_close_guard_arm" if guard_overlimit else ""
+                "preseal_hard_abort_before_vent_close_guard_arm" if guard_overlimit else ""
             ),
             "overlimit_elapsed_s_nonnegative": True,
             "overlimit_elapsed_source": "pre_vent_close_pressure_check",
@@ -3356,8 +3480,8 @@ class PressureControlService:
                 pressure_hpa=float(guard_pressure),
                 pressure_peak_hpa=float(guard_pressure),
                 pressure_last_hpa=float(guard_pressure),
-                reason="preseal_abort_pressure_exceeded",
-                message="Positive preseal pressurization exceeded abort pressure",
+                reason="preseal_capture_hard_abort_pressure_exceeded",
+                message="Positive preseal pressurization exceeded hard abort pressure",
                 extra={
                     **preseal_arm_context,
                     **preseal_guard_state,
@@ -3365,7 +3489,7 @@ class PressureControlService:
                     "pressure_samples_count": 1,
                     "pressure_max_hpa": float(guard_pressure),
                     "pressure_min_hpa": float(guard_pressure),
-                    "seal_command_blocked_reason": "preseal_abort_pressure_exceeded",
+                    "seal_command_blocked_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "emergency_abort_relief_vent_required": True,
                     "emergency_abort_relief_reason": "positive_preseal_abort_pressure_exceeded",
                     "emergency_abort_relief_pressure_hpa": float(guard_pressure),
@@ -3747,6 +3871,7 @@ class PressureControlService:
             over_abort_seen: bool,
             ready_to_seal_seen: bool,
             predictive_ready_to_seal: bool = False,
+            urgent_seal_seen: bool = False,
             ready_window_missed_reason: str = "",
         ) -> None:
             sample_at = str(
@@ -3778,7 +3903,9 @@ class PressureControlService:
                     preseal_guard_state["vent_off_settle_first_ready_to_seal_sample_hpa"] = float(pressure_hpa)
                     preseal_guard_state["vent_off_settle_first_ready_to_seal_sample_at"] = sample_at
                 preseal_guard_state["vent_off_settle_wait_ready_to_seal_seen"] = True
-                preseal_guard_state["ready_to_seal_window_entered"] = not bool(predictive_ready_to_seal)
+                preseal_guard_state["ready_to_seal_window_entered"] = not bool(
+                    predictive_ready_to_seal or urgent_seal_seen
+                )
                 preseal_guard_state["first_target_ready_to_seal_pressure_hpa"] = float(pressure_hpa)
                 preseal_guard_state["first_target_ready_to_seal_elapsed_s"] = elapsed_s
                 preseal_guard_state["first_target_ready_to_seal_before_abort"] = not over_abort_seen
@@ -3786,9 +3913,22 @@ class PressureControlService:
                 preseal_guard_state["first_target_ready_to_seal_missed_reason"] = ""
                 preseal_guard_state["seal_command_allowed_after_atmosphere_vent_closed"] = True
                 preseal_guard_state["preseal_capture_ready_window_action"] = (
-                    "predictive_ready_to_seal_before_target_window"
-                    if predictive_ready_to_seal
-                    else "ready_to_seal"
+                    "urgent_seal"
+                    if urgent_seal_seen
+                    else (
+                        "predictive_ready_to_seal_before_target_window"
+                        if predictive_ready_to_seal
+                        else "ready_to_seal"
+                    )
+                )
+                preseal_guard_state["preseal_capture_over_abort_action"] = "urgent_seal"
+                preseal_guard_state["preseal_capture_over_urgent_threshold_action"] = "urgent_seal"
+                preseal_guard_state["preseal_capture_urgent_seal_triggered"] = bool(urgent_seal_seen)
+                preseal_guard_state["preseal_capture_urgent_seal_pressure_hpa"] = (
+                    float(pressure_hpa) if urgent_seal_seen else None
+                )
+                preseal_guard_state["preseal_capture_urgent_seal_reason"] = (
+                    "urgent_seal_threshold_reached" if urgent_seal_seen else ""
                 )
             if over_abort_seen and pressure_hpa is not None:
                 if preseal_guard_state.get("vent_off_settle_first_over_abort_sample_hpa") is None:
@@ -3809,7 +3949,9 @@ class PressureControlService:
                 preseal_guard_state["ready_to_seal_window_missed_reason"] = "abort_before_ready_to_seal"
                 preseal_guard_state["overlimit_elapsed_s_nonnegative"] = True
                 preseal_guard_state["overlimit_elapsed_source"] = "vent_off_settle_monitor"
-                preseal_guard_state["preseal_capture_abort_reason"] = "preseal_capture_abort_pressure_exceeded"
+                preseal_guard_state["preseal_capture_abort_reason"] = (
+                    "preseal_capture_hard_abort_pressure_exceeded"
+                )
                 preseal_guard_state["preseal_capture_abort_pressure_hpa"] = float(pressure_hpa)
                 preseal_guard_state["preseal_capture_abort_source"] = str(
                     sample_meta.get("pressure_sample_source") or sample_meta.get("source") or ""
@@ -3824,15 +3966,21 @@ class PressureControlService:
                 preseal_guard_state["positive_preseal_pressure_missing_reason"] = ""
                 preseal_guard_state["high_pressure_first_point_abort_pressure_hpa"] = float(pressure_hpa)
                 preseal_guard_state["high_pressure_first_point_abort_reason"] = (
-                    "preseal_capture_abort_pressure_exceeded"
+                    "preseal_capture_hard_abort_pressure_exceeded"
+                )
+                preseal_guard_state["preseal_capture_over_abort_action"] = "fail_closed"
+                preseal_guard_state["preseal_capture_over_urgent_threshold_action"] = "fail_closed"
+                preseal_guard_state["preseal_capture_hard_abort_triggered"] = True
+                preseal_guard_state["preseal_capture_hard_abort_reason"] = (
+                    "preseal_capture_hard_abort_pressure_exceeded"
                 )
             elif ready_window_missed_reason:
                 preseal_guard_state["ready_to_seal_window_missed_reason"] = ready_window_missed_reason
 
         if (
             pressure_at_arm is not None
-            and abort_pressure_hpa is not None
-            and float(pressure_at_arm) >= float(abort_pressure_hpa)
+            and hard_abort_pressure_hpa is not None
+            and float(pressure_at_arm) >= float(hard_abort_pressure_hpa)
             and not bool(arm_sample_meta.get("pressure_sample_is_stale", False))
         ):
             first_over_elapsed_s = max(0.0, time.time() - started_at)
@@ -3857,8 +4005,8 @@ class PressureControlService:
                 pressure_hpa=float(pressure_at_arm),
                 pressure_peak_hpa=pressure_peak_hpa,
                 pressure_last_hpa=pressure_last_hpa,
-                reason="preseal_abort_pressure_exceeded",
-                message="Positive preseal pressurization exceeded abort pressure",
+                reason="preseal_capture_hard_abort_pressure_exceeded",
+                message="Positive preseal pressurization exceeded hard abort pressure",
                 extra={
                     **preseal_arm_context,
                     **preseal_guard_state,
@@ -3870,7 +4018,7 @@ class PressureControlService:
                     "pressure_min_hpa": pressure_min_hpa,
                     "ready_reached_before_vent_close_completed": ready_before_vent_close_completed,
                     "ready_reached_during_vent_close": ready_before_vent_close_completed,
-                    "seal_command_blocked_reason": "preseal_abort_pressure_exceeded",
+                    "seal_command_blocked_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     "first_over_abort_pressure_hpa": float(pressure_at_arm),
                     "first_over_abort_elapsed_s": first_over_elapsed_s,
                     "first_over_abort_source": str(
@@ -3892,51 +4040,31 @@ class PressureControlService:
             )
         if (
             pressure_at_arm is not None
-            and ready_to_seal_min_hpa is not None
-            and ready_to_seal_max_hpa is not None
-            and float(pressure_at_arm) >= float(ready_to_seal_min_hpa)
-            and float(pressure_at_arm) <= float(ready_to_seal_max_hpa)
             and not bool(arm_sample_meta.get("pressure_sample_is_stale", False))
+            and (
+                (
+                    ready_to_seal_min_hpa is not None
+                    and ready_to_seal_max_hpa is not None
+                    and float(pressure_at_arm) >= float(ready_to_seal_min_hpa)
+                    and float(pressure_at_arm) <= float(ready_to_seal_max_hpa)
+                )
+                or (
+                    urgent_seal_threshold_hpa is not None
+                    and float(pressure_at_arm) >= float(urgent_seal_threshold_hpa)
+                )
+            )
         ):
-            if abort_pressure_hpa is not None and float(pressure_at_arm) >= float(abort_pressure_hpa):
-                abort_elapsed_s = max(0.0, time.time() - started_at)
-                mark_vent_off_settle_sample(
-                    pressure_hpa=float(pressure_at_arm),
-                    sample_meta=arm_sample_meta,
-                    elapsed_s=abort_elapsed_s,
-                    over_abort_seen=True,
-                    ready_to_seal_seen=False,
-                )
-                return self._fail_positive_preseal(
-                    point,
-                    route=route,
-                    started_at=started_at,
-                    target_pressure_hpa=target_pressure_hpa,
-                    measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
-                    ambient_reference=ambient_reference,
-                    ready_pressure_hpa=ready_pressure_hpa,
-                    abort_pressure_hpa=abort_pressure_hpa,
-                    timeout_s=timeout_s,
-                    poll_interval_s=poll_interval_s,
-                    pressure_hpa=float(pressure_at_arm),
-                    pressure_peak_hpa=pressure_peak_hpa,
-                    pressure_last_hpa=pressure_last_hpa,
-                    reason="preseal_abort_pressure_exceeded",
-                    message="Positive preseal pressurization exceeded abort pressure",
-                    extra={
-                        **preseal_arm_context,
-                        **preseal_guard_state,
-                        **state_after_vent,
-                        "vent_closed_at": vent_closed_at,
-                        "vent_command_result": "closed",
-                        "pressure_samples_count": 1,
-                        "pressure_max_hpa": pressure_peak_hpa,
-                        "pressure_min_hpa": pressure_min_hpa,
-                        "ready_reached_before_vent_close_completed": ready_before_vent_close_completed,
-                        "ready_reached_during_vent_close": ready_before_vent_close_completed,
-                        "seal_command_blocked_reason": "preseal_abort_pressure_exceeded",
-                    },
-                )
+            arm_ready_in_window = bool(
+                ready_to_seal_min_hpa is not None
+                and ready_to_seal_max_hpa is not None
+                and float(pressure_at_arm) >= float(ready_to_seal_min_hpa)
+                and float(pressure_at_arm) <= float(ready_to_seal_max_hpa)
+            )
+            arm_urgent_seal = bool(
+                urgent_seal_threshold_hpa is not None
+                and float(pressure_at_arm) >= float(urgent_seal_threshold_hpa)
+                and not arm_ready_in_window
+            )
             ready_monotonic_s = self._coerce_float(preseal_arm_context.get("ready_reached_monotonic_s"))
             if ready_monotonic_s is None:
                 ready_monotonic_s = time.monotonic()
@@ -3947,6 +4075,10 @@ class PressureControlService:
                 elapsed_s=ready_elapsed_s,
                 over_abort_seen=False,
                 ready_to_seal_seen=True,
+                urgent_seal_seen=arm_urgent_seal,
+            )
+            preseal_guard_state["vent_close_arm_trigger"] = (
+                "urgent_seal_threshold" if arm_urgent_seal else "ready_pressure"
             )
             ready_payload = {
                 "stage": "positive_preseal_pressurization",
@@ -4247,11 +4379,17 @@ class PressureControlService:
                         )
                     previous_pressure = float(pressure_hpa)
                     previous_elapsed = float(elapsed_s)
-            over_abort_seen = bool(
+            urgent_seal_seen = bool(
                 pressure_hpa is not None
-                and abort_pressure_hpa is not None
+                and urgent_seal_threshold_hpa is not None
                 and not sample_is_stale
-                and float(pressure_hpa) >= float(abort_pressure_hpa)
+                and float(pressure_hpa) >= float(urgent_seal_threshold_hpa)
+            )
+            hard_abort_seen = bool(
+                pressure_hpa is not None
+                and hard_abort_pressure_hpa is not None
+                and not sample_is_stale
+                and float(pressure_hpa) >= float(hard_abort_pressure_hpa)
             )
             ready_to_seal_seen = bool(
                 pressure_hpa is not None
@@ -4291,31 +4429,41 @@ class PressureControlService:
                 preseal_guard_state["preseal_capture_predictive_trigger_reason"] = (
                     "predicted_seal_completion_in_target_window"
                 )
+            if urgent_seal_seen and not hard_abort_seen:
+                ready_to_seal_seen = True
             preseal_guard_state["preseal_capture_pressure_rise_rate_hpa_per_s"] = pressure_rise_rate
             preseal_guard_state["preseal_capture_estimated_time_to_target_s"] = estimated_time_to_target_s
             preseal_guard_state["preseal_capture_seal_completion_latency_s"] = seal_completion_latency_s
             preseal_guard_state["preseal_capture_predicted_seal_completion_pressure_hpa"] = (
                 predicted_seal_completion_pressure_hpa
             )
+            preseal_guard_state["preseal_capture_urgent_seal_threshold_hpa"] = urgent_seal_threshold_hpa
+            preseal_guard_state["preseal_capture_hard_abort_pressure_hpa"] = hard_abort_pressure_hpa
+            preseal_guard_state["preseal_capture_hard_abort_triggered"] = hard_abort_seen
+            preseal_guard_state["preseal_capture_hard_abort_reason"] = (
+                "preseal_capture_hard_abort_pressure_exceeded" if hard_abort_seen else ""
+            )
             ready_window_missed = bool(
                 pressure_hpa is not None
                 and ready_to_seal_max_hpa is not None
                 and not sample_is_stale
                 and float(pressure_hpa) > float(ready_to_seal_max_hpa)
-                and not over_abort_seen
+                and not hard_abort_seen
+                and not urgent_seal_seen
             )
             ready_window_missed_reason = (
                 "pressure_above_ready_to_seal_window_before_abort"
                 if ready_window_missed
-                else ("abort_before_ready_to_seal" if over_abort_seen else "")
+                else ("hard_abort_before_ready_to_seal" if hard_abort_seen else "")
             )
             mark_vent_off_settle_sample(
                 pressure_hpa=None if pressure_hpa is None else float(pressure_hpa),
                 sample_meta=sample_meta,
                 elapsed_s=elapsed_s,
-                over_abort_seen=over_abort_seen,
+                over_abort_seen=hard_abort_seen,
                 ready_to_seal_seen=ready_to_seal_seen,
                 predictive_ready_to_seal=predictive_ready_to_seal,
+                urgent_seal_seen=urgent_seal_seen and not hard_abort_seen,
                 ready_window_missed_reason=ready_window_missed_reason,
             )
             check_payload = {
@@ -4350,7 +4498,7 @@ class PressureControlService:
                 ),
                 "positive_preseal_abort_pressure_hpa": abort_pressure_hpa,
                 "positive_preseal_pressure_overlimit": bool(
-                    over_abort_seen
+                    hard_abort_seen
                 ),
                 "positive_preseal_abort_reason": "",
                 "positive_preseal_setpoint_sent": False,
@@ -4373,31 +4521,50 @@ class PressureControlService:
                 "preseal_capture_predictive_trigger_reason": (
                     "predicted_seal_completion_in_target_window" if predictive_ready_to_seal else ""
                 ),
+                "preseal_capture_urgent_seal_threshold_hpa": urgent_seal_threshold_hpa,
+                "preseal_capture_hard_abort_pressure_hpa": hard_abort_pressure_hpa,
+                "preseal_capture_over_urgent_threshold_action": (
+                    "fail_closed" if hard_abort_seen else "urgent_seal"
+                ),
+                "preseal_capture_urgent_seal_triggered": bool(urgent_seal_seen and not hard_abort_seen),
+                "preseal_capture_urgent_seal_pressure_hpa": (
+                    float(pressure_hpa) if urgent_seal_seen and not hard_abort_seen else None
+                ),
+                "preseal_capture_urgent_seal_reason": (
+                    "urgent_seal_threshold_reached" if urgent_seal_seen and not hard_abort_seen else ""
+                ),
+                "preseal_capture_hard_abort_triggered": hard_abort_seen,
+                "preseal_capture_hard_abort_reason": (
+                    "preseal_capture_hard_abort_pressure_exceeded" if hard_abort_seen else ""
+                ),
+                "preseal_capture_continue_to_control_after_seal": False,
+                "pressure_control_allowed_after_seal_confirmed": False,
+                "pressure_control_target_after_preseal_hpa": target_pressure_hpa,
                 "vent_off_settle_wait_pressure_monitored": True,
-                "vent_off_settle_wait_overlimit_seen": over_abort_seen,
+                "vent_off_settle_wait_overlimit_seen": hard_abort_seen,
                 "vent_off_settle_wait_ready_to_seal_seen": ready_to_seal_seen,
                 "first_target_ready_to_seal_pressure_hpa": (
                     float(pressure_hpa) if ready_to_seal_seen else None
                 ),
                 "first_target_ready_to_seal_elapsed_s": elapsed_s if ready_to_seal_seen else None,
-                "first_target_ready_to_seal_before_abort": bool(ready_to_seal_seen and not over_abort_seen),
-                "first_target_ready_to_seal_missed": ready_window_missed or over_abort_seen,
+                "first_target_ready_to_seal_before_abort": bool(ready_to_seal_seen and not hard_abort_seen),
+                "first_target_ready_to_seal_missed": ready_window_missed or hard_abort_seen,
                 "first_target_ready_to_seal_missed_reason": ready_window_missed_reason,
-                "first_over_abort_pressure_hpa": float(pressure_hpa) if over_abort_seen else None,
-                "first_over_abort_elapsed_s": elapsed_s if over_abort_seen else None,
+                "first_over_abort_pressure_hpa": float(pressure_hpa) if hard_abort_seen else None,
+                "first_over_abort_elapsed_s": elapsed_s if hard_abort_seen else None,
                 "first_over_abort_source": str(
                     sample_meta.get("pressure_sample_source") or sample_meta.get("source") or ""
                 )
-                if over_abort_seen
+                if hard_abort_seen
                 else "",
                 "first_over_abort_sample_age_s": self._coerce_float(
                     sample_meta.get("pressure_sample_age_s", sample_meta.get("sample_age_s"))
                 )
-                if over_abort_seen
+                if hard_abort_seen
                 else None,
-                "first_over_abort_to_abort_latency_s": 0.0 if over_abort_seen else None,
+                "first_over_abort_to_abort_latency_s": 0.0 if hard_abort_seen else None,
                 "positive_preseal_guard_started_before_first_over_abort": bool(
-                    preseal_guard_state.get("preseal_guard_armed") and over_abort_seen
+                    preseal_guard_state.get("preseal_guard_armed") and hard_abort_seen
                 ),
                 "positive_preseal_guard_started_after_first_over_abort": False,
                 "positive_preseal_guard_late_reason": "",
@@ -4490,7 +4657,7 @@ class PressureControlService:
                     )
                 time.sleep(min(poll_interval_s, max(0.05, timeout_s - elapsed_s)))
                 continue
-            if over_abort_seen:
+            if hard_abort_seen:
                 return self._fail_positive_preseal(
                     point,
                     route=route,
@@ -4505,8 +4672,8 @@ class PressureControlService:
                     pressure_hpa=float(pressure_hpa),
                     pressure_peak_hpa=pressure_peak_hpa,
                     pressure_last_hpa=pressure_last_hpa,
-                    reason="preseal_abort_pressure_exceeded",
-                    message="Positive preseal pressurization exceeded abort pressure",
+                    reason="preseal_capture_hard_abort_pressure_exceeded",
+                    message="Positive preseal pressurization exceeded hard abort pressure",
                     extra={
                         **preseal_arm_context,
                         **preseal_guard_state,
@@ -4530,7 +4697,7 @@ class PressureControlService:
                         "pressure_min_hpa": pressure_min_hpa,
                         "ready_reached_before_vent_close_completed": ready_before_vent_close_completed,
                         "ready_reached_during_vent_close": ready_before_vent_close_completed,
-                        "seal_command_blocked_reason": "preseal_abort_pressure_exceeded",
+                        "seal_command_blocked_reason": "preseal_capture_hard_abort_pressure_exceeded",
                     },
                 )
             if ready_to_seal_seen:
@@ -6387,7 +6554,11 @@ class PressureControlService:
                     )
                 return PressureWaitResult(
                     ok=False,
-                    diagnostics={**preseal_exit.diagnostics, **seal_transition.diagnostics},
+                    diagnostics={
+                        **preseal_exit.diagnostics,
+                        **positive_preseal_diagnostics,
+                        **seal_transition.diagnostics,
+                    },
                     error=seal_transition.error,
                 )
             reader = self.host._make_pressure_reader()
@@ -6459,6 +6630,11 @@ class PressureControlService:
                 )
             if positive_preseal:
                 positive_preseal_diagnostics["pressure_control_started_after_seal_confirmed"] = True
+                positive_preseal_diagnostics["preseal_capture_continue_to_control_after_seal"] = True
+                positive_preseal_diagnostics["pressure_control_allowed_after_seal_confirmed"] = True
+                positive_preseal_diagnostics["pressure_control_target_after_preseal_hpa"] = self.host._as_float(
+                    point.target_pressure_hpa
+                )
             target_pressure_hpa = self.host._as_float(point.target_pressure_hpa)
             sealed_pressure_guard_enabled = bool(
                 self.host._cfg_get("workflow.pressure.fail_if_sealed_pressure_below_target", False)

@@ -267,6 +267,17 @@ POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
     "preseal_capture_ready_window_max_hpa",
     "preseal_capture_ready_window_action",
     "preseal_capture_over_abort_action",
+    "preseal_capture_urgent_seal_threshold_hpa",
+    "preseal_capture_hard_abort_pressure_hpa",
+    "preseal_capture_over_urgent_threshold_action",
+    "preseal_capture_urgent_seal_triggered",
+    "preseal_capture_urgent_seal_pressure_hpa",
+    "preseal_capture_urgent_seal_reason",
+    "preseal_capture_hard_abort_triggered",
+    "preseal_capture_hard_abort_reason",
+    "preseal_capture_continue_to_control_after_seal",
+    "pressure_control_allowed_after_seal_confirmed",
+    "pressure_control_target_after_preseal_hpa",
     "preseal_capture_predictive_ready_to_seal",
     "preseal_capture_pressure_rise_rate_hpa_per_s",
     "preseal_capture_estimated_time_to_target_s",
@@ -349,6 +360,17 @@ POSITIVE_PRESEAL_STATE_MACHINE_FIELDS = [
     "preseal_capture_ready_window_max_hpa",
     "preseal_capture_ready_window_action",
     "preseal_capture_over_abort_action",
+    "preseal_capture_urgent_seal_threshold_hpa",
+    "preseal_capture_hard_abort_pressure_hpa",
+    "preseal_capture_over_urgent_threshold_action",
+    "preseal_capture_urgent_seal_triggered",
+    "preseal_capture_urgent_seal_pressure_hpa",
+    "preseal_capture_urgent_seal_reason",
+    "preseal_capture_hard_abort_triggered",
+    "preseal_capture_hard_abort_reason",
+    "preseal_capture_continue_to_control_after_seal",
+    "pressure_control_allowed_after_seal_confirmed",
+    "pressure_control_target_after_preseal_hpa",
     "preseal_capture_predictive_ready_to_seal",
     "preseal_capture_pressure_rise_rate_hpa_per_s",
     "preseal_capture_estimated_time_to_target_s",
@@ -2223,6 +2245,39 @@ def _build_high_pressure_first_point_evidence(
             capture_state.get("preseal_capture_ready_window_action") or ""
         ),
         "preseal_capture_over_abort_action": str(capture_state.get("preseal_capture_over_abort_action") or ""),
+        "preseal_capture_urgent_seal_threshold_hpa": _as_float(
+            capture_state.get("preseal_capture_urgent_seal_threshold_hpa")
+        ),
+        "preseal_capture_hard_abort_pressure_hpa": _as_float(
+            capture_state.get("preseal_capture_hard_abort_pressure_hpa")
+        ),
+        "preseal_capture_over_urgent_threshold_action": str(
+            capture_state.get("preseal_capture_over_urgent_threshold_action") or ""
+        ),
+        "preseal_capture_urgent_seal_triggered": bool(
+            capture_state.get("preseal_capture_urgent_seal_triggered")
+        ),
+        "preseal_capture_urgent_seal_pressure_hpa": _as_float(
+            capture_state.get("preseal_capture_urgent_seal_pressure_hpa")
+        ),
+        "preseal_capture_urgent_seal_reason": str(
+            capture_state.get("preseal_capture_urgent_seal_reason") or ""
+        ),
+        "preseal_capture_hard_abort_triggered": bool(
+            capture_state.get("preseal_capture_hard_abort_triggered")
+        ),
+        "preseal_capture_hard_abort_reason": str(
+            capture_state.get("preseal_capture_hard_abort_reason") or ""
+        ),
+        "preseal_capture_continue_to_control_after_seal": bool(
+            capture_state.get("preseal_capture_continue_to_control_after_seal")
+        ),
+        "pressure_control_allowed_after_seal_confirmed": bool(
+            capture_state.get("pressure_control_allowed_after_seal_confirmed")
+        ),
+        "pressure_control_target_after_preseal_hpa": _as_float(
+            capture_state.get("pressure_control_target_after_preseal_hpa")
+        ),
         "preseal_capture_predictive_ready_to_seal": bool(
             capture_state.get("preseal_capture_predictive_ready_to_seal")
         ),
@@ -3436,6 +3491,17 @@ def _build_positive_preseal_pressurization_evidence(
         "preseal_capture_ready_window_max_hpa": None,
         "preseal_capture_ready_window_action": "",
         "preseal_capture_over_abort_action": "",
+        "preseal_capture_urgent_seal_threshold_hpa": None,
+        "preseal_capture_hard_abort_pressure_hpa": None,
+        "preseal_capture_over_urgent_threshold_action": "",
+        "preseal_capture_urgent_seal_triggered": False,
+        "preseal_capture_urgent_seal_pressure_hpa": None,
+        "preseal_capture_urgent_seal_reason": "",
+        "preseal_capture_hard_abort_triggered": False,
+        "preseal_capture_hard_abort_reason": "",
+        "preseal_capture_continue_to_control_after_seal": False,
+        "pressure_control_allowed_after_seal_confirmed": False,
+        "pressure_control_target_after_preseal_hpa": None,
         "preseal_capture_predictive_ready_to_seal": False,
         "preseal_capture_pressure_rise_rate_hpa_per_s": None,
         "preseal_capture_estimated_time_to_target_s": None,
@@ -3594,7 +3660,19 @@ def _build_positive_preseal_pressurization_evidence(
                     latest["preseal_capture_started"] = bool(actual.get("preseal_capture_started"))
                 elif action.startswith("seal_preparation_vent_off") or actual.get("vent_close_command_sent_at"):
                     latest["preseal_capture_started"] = True
-                if action in capture_abort_actions or result == "fail":
+                hard_capture_abort = bool(
+                    actual.get("preseal_capture_hard_abort_triggered")
+                    or actual.get("positive_preseal_pressure_overlimit")
+                    or str(actual.get("preseal_capture_hard_abort_reason") or "")
+                    or str(actual.get("preseal_capture_abort_reason") or "").startswith(
+                        "preseal_capture_hard_abort"
+                    )
+                    or (
+                        (action in capture_abort_actions or result == "fail")
+                        and not bool(actual.get("preseal_capture_urgent_seal_triggered"))
+                    )
+                )
+                if hard_capture_abort:
                     pressure = _trace_pressure_hpa(actual)
                     abort_reason = str(
                         actual.get("preseal_capture_abort_reason")
