@@ -1,0 +1,70 @@
+Route Trace Diff
+V1 trace: D:\gas_calibrator\_handoff\a2_16_crosscheck_suites\smoke_a2_16_crosscheck_20260430\relay_stuck_channel_causes_route_mismatch\simulated_v1_route_trace.jsonl
+V2 trace: D:\gas_calibrator\_handoff\a2_16_crosscheck_suites\smoke_a2_16_crosscheck_20260430\relay_stuck_channel_causes_route_mismatch\v2_output\run_20260430_163159\route_trace.jsonl
+Compare status: MISMATCH
+Target route: h2o
+Valid for route diff: False
+First failure phase: -
+Bench context: {'co2_0ppm_available': True, 'other_gases_available': True, 'h2o_route_available': True, 'humidity_generator_humidity_feedback_valid': True, 'primary_replacement_route': 'skip0_co2_only_replacement', 'validation_role': 'simulated_diagnostic', 'target_route': 'h2o', 'diagnostic_only': True, 'acceptance_evidence': False}
+
+Reason: target route physical relay state did not match commanded valves on: v1, v2
+
+[V1]
+  ok: True
+  status_phase: simulated.protocol_baseline
+  error_category: -
+  derived_failure_phase: -
+  status_error: -
+  last_runner_stage: -
+  last_runner_event: -
+  abort_message: -
+  trace_expected_but_missing: None
+  entered_target_route: True
+  target_route_event_count: 50
+  first_failure_phase: -
+  route_physical_state_match: False
+  relay_physical_mismatch: True
+  target_open_valves: []
+  actual_open_valves: []
+  mismatched_channels: []
+  cleanup_all_relays_off: True
+  precheck_device_connection: None
+  precheck_sensor_check: None
+  sensor_precheck_enabled: None
+  sensor_precheck_profile: None
+  sensor_precheck_scope: None
+  sensor_precheck_validation_mode: None
+  sensor_precheck_active_send: None
+  sensor_precheck_strict: None
+  expected_disabled_devices: None
+  h2o_humidity_timeout_policy: None
+
+[V2]
+  ok: True
+  status_phase: completed
+  error_category: -
+  derived_failure_phase: -
+  status_error: -
+  last_runner_stage: -
+  last_runner_event: -
+  abort_message: -
+  trace_expected_but_missing: None
+  entered_target_route: True
+  target_route_event_count: 50
+  first_failure_phase: -
+  route_physical_state_match: False
+  relay_physical_mismatch: True
+  target_open_valves: []
+  actual_open_valves: []
+  mismatched_channels: []
+  cleanup_all_relays_off: True
+  precheck_device_connection: False
+  precheck_sensor_check: False
+  sensor_precheck_enabled: True
+  sensor_precheck_profile: raw_frame_first
+  sensor_precheck_scope: first_analyzer_only
+  sensor_precheck_validation_mode: v1_frame_like
+  sensor_precheck_active_send: True
+  sensor_precheck_strict: False
+  expected_disabled_devices: []
+  h2o_humidity_timeout_policy: abort_like_v1

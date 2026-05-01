@@ -1,0 +1,485 @@
+{
+  "schema_version": "step2-wp6-builder-v1",
+  "artifact_type": "external_comparison_importer",
+  "generated_at": "2026-04-30T08:33:40+00:00",
+  "run_id": "run_20260430_163333",
+  "artifact_role": "external_comparison_importer",
+  "evidence_source": "simulated",
+  "evidence_state": "reviewer_readiness_only",
+  "not_real_acceptance_evidence": true,
+  "ready_for_readiness_mapping": true,
+  "not_ready_for_formal_claim": true,
+  "primary_evidence_rewritten": false,
+  "reviewer_stub_only": true,
+  "readiness_mapping_only": true,
+  "not_released_for_formal_claim": true,
+  "boundary_statements": [
+    "Step 2 reviewer readiness only",
+    "simulation / offline / headless only",
+    "file-artifact-first reviewer evidence",
+    "not real acceptance",
+    "not compliance claim",
+    "not accreditation claim",
+    "cannot replace real metrology validation"
+  ],
+  "overall_status": "ready_for_readiness_mapping",
+  "digest": {
+    "importer_id": "run_20260430_163333-comparison-importer",
+    "supported_formats": [
+      "json",
+      "csv"
+    ],
+    "network_access": false,
+    "offline_only": true,
+    "scope_overview_summary": "Step 2 simulation reviewer scope package (run_20260430_163333-step2-scope-package)",
+    "decision_rule_summary": "step2_readiness_reviewer_rule_v1",
+    "current_evidence_coverage_summary": "local JSON/CSV import with conservative normalization and explicit trace fields",
+    "readiness_status_summary": "offline importer only; no network and no formal external-comparison conclusion",
+    "summary": "local JSON/CSV import normalizes schema and stamps source_file/import_mode/evidence_source",
+    "readiness_status": "external_comparison_importer_readiness_stub",
+    "missing_evidence_summary": "importer only supports local file sources, no network access | all imported comparison data is marked simulated",
+    "blocker_summary": "importer only supports local file sources, no network access | all imported comparison data is marked simulated",
+    "next_required_artifacts_summary": "comparison_evidence_pack | scope_comparison_view",
+    "boundary_digest": "Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation",
+    "limitation_note_summary": "Step 2 builds reviewer-facing PT/ILC / comparison readiness sidecars only; real external comparison, formal compliance claims, and accreditation claims remain out of scope."
+  },
+  "review_surface": {
+    "title_text": "External Comparison Importer",
+    "role_text": "external_comparison_importer",
+    "reviewer_note": "PT/ILC importer is offline / local-file only in Step 2. No network access, no real third-party system connection, no formal result certification. All imported data defaults to evidence_source=simulated.",
+    "summary_text": "offline-only importer for local JSON/CSV external comparison files",
+    "summary_lines": [
+      "supported formats: json, csv",
+      "schema normalize: enabled",
+      "trace fields: source_file / import_mode / evidence_source",
+      "network access: disabled",
+      "readiness status: external_comparison_importer_readiness_stub",
+      "next required artifacts: comparison_evidence_pack | scope_comparison_view",
+      "boundary: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation"
+    ],
+    "detail_lines": [
+      "importer_id: run_20260430_163333-comparison-importer",
+      "local-file-only: true",
+      "conservative defaults: reviewer-only / readiness-mapping-only / simulated",
+      "no connection to third-party PT/ILC systems is allowed in Step 2",
+      "missing evidence: importer only supports local file sources, no network access | all imported comparison data is marked simulated",
+      "blockers: importer only supports local file sources, no network access | all imported comparison data is marked simulated",
+      "next required artifacts: comparison_evidence_pack | scope_comparison_view",
+      "limitation: Step 2 builds reviewer-facing PT/ILC / comparison readiness sidecars only; real external comparison, formal compliance claims, and accreditation claims remain out of scope.",
+      "boundary: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation"
+    ],
+    "anchor_id": "external-comparison-importer",
+    "anchor_label": "External Comparison Importer",
+    "phase_filters": [
+      "step2_tail_recognition_ready"
+    ],
+    "route_filters": [],
+    "signal_family_filters": [],
+    "decision_result_filters": [],
+    "policy_version_filters": [],
+    "boundary_filter_rows": [
+      {
+        "id": "boundary:step2_reviewer_readiness_only",
+        "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+        "fragment_family": "boundary",
+        "fragment_key": "step2_reviewer_readiness_only",
+        "canonical_key": "step2_reviewer_readiness_only",
+        "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+        "params": {},
+        "label": "Step 2 reviewer readiness only",
+        "display_text": "Step 2 reviewer readiness only",
+        "text": "Step 2 reviewer readiness only",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:simulation_offline_headless_only",
+        "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+        "fragment_family": "boundary",
+        "fragment_key": "simulation_offline_headless_only",
+        "canonical_key": "simulation_offline_headless_only",
+        "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+        "params": {},
+        "label": "simulation / offline / headless only",
+        "display_text": "simulation / offline / headless only",
+        "text": "simulation / offline / headless only",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:file_artifact_first_reviewer_evidence",
+        "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+        "fragment_family": "boundary",
+        "fragment_key": "file_artifact_first_reviewer_evidence",
+        "canonical_key": "file_artifact_first_reviewer_evidence",
+        "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+        "params": {},
+        "label": "file-artifact-first reviewer evidence",
+        "display_text": "file-artifact-first reviewer evidence",
+        "text": "file-artifact-first reviewer evidence",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:not_real_acceptance_boundary",
+        "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+        "fragment_family": "boundary",
+        "fragment_key": "not_real_acceptance_boundary",
+        "canonical_key": "not_real_acceptance_boundary",
+        "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+        "params": {},
+        "label": "not real acceptance",
+        "display_text": "not real acceptance",
+        "text": "not real acceptance",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:cannot_replace_real_metrology_validation",
+        "canonical_fragment_id": "boundary:cannot_replace_real_metrology_validation",
+        "fragment_family": "boundary",
+        "fragment_key": "cannot_replace_real_metrology_validation",
+        "canonical_key": "cannot_replace_real_metrology_validation",
+        "i18n_key": "reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+        "params": {},
+        "label": "cannot replace real metrology validation",
+        "display_text": "cannot replace real metrology validation",
+        "text": "cannot replace real metrology validation",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      }
+    ],
+    "boundary_filters": [
+      "boundary:step2_reviewer_readiness_only",
+      "boundary:simulation_offline_headless_only",
+      "boundary:file_artifact_first_reviewer_evidence",
+      "boundary:not_real_acceptance_boundary",
+      "boundary:cannot_replace_real_metrology_validation"
+    ],
+    "non_claim_filter_rows": [],
+    "non_claim_filters": [],
+    "evidence_source_filters": [
+      "simulated",
+      "reviewer_readiness_only"
+    ],
+    "artifact_paths": {},
+    "anchor_refs": []
+  },
+  "artifact_paths": {},
+  "evidence_categories": [
+    "recognition_readiness",
+    "pt_ilc_comparison"
+  ],
+  "importer_id": "run_20260430_163333-comparison-importer",
+  "supported_formats": [
+    "json",
+    "csv"
+  ],
+  "supported_import_modes": [
+    "local_json",
+    "local_csv",
+    "local_markdown",
+    "artifact_sidecar",
+    "manual_fixture"
+  ],
+  "import_schema": {
+    "json_root_modes": [
+      "single_row_object",
+      "object_with_rows",
+      "object_with_comparisons"
+    ],
+    "csv_columns": [
+      "comparison_id",
+      "comparison_version",
+      "comparison_type",
+      "scope_id",
+      "decision_rule_id",
+      "status",
+      "scheme_name",
+      "participant_code",
+      "reference_value",
+      "reported_value",
+      "difference_summary",
+      "normalized_result",
+      "linked_uncertainty_case_ids",
+      "linked_method_confirmation_protocol_ids",
+      "linked_software_validation_release_ids",
+      "reference_asset_refs",
+      "certificate_lifecycle_refs"
+    ],
+    "trace_fields": [
+      "source_file",
+      "import_mode",
+      "evidence_source"
+    ],
+    "required_fields": [
+      "comparison_id"
+    ],
+    "auto_linkage_fields": [
+      "linked_uncertainty_case_ids",
+      "linked_method_confirmation_protocol_ids",
+      "linked_software_validation_release_ids",
+      "reference_asset_refs",
+      "certificate_lifecycle_refs",
+      "scope_id",
+      "decision_rule_id"
+    ],
+    "conservative_defaults": {
+      "comparison_type": "readiness_demo",
+      "status": "imported_readiness_demo",
+      "evidence_source": "simulated",
+      "import_mode": "local_json/local_csv"
+    },
+    "network_access": false,
+    "offline_only": true
+  },
+  "network_access": false,
+  "offline_only": true,
+  "default_evidence_source": "simulated",
+  "schema_validation": "normalize_and_conservative_defaults",
+  "legacy_compatibility": true,
+  "missing_field_policy": "conservative_placeholder",
+  "invalid_input_policy": "reviewer_friendly_warning",
+  "reviewer_only": true,
+  "limitation_note": "Step 2 builds reviewer-facing PT/ILC / comparison readiness sidecars only; real external comparison, formal compliance claims, and accreditation claims remain out of scope.",
+  "non_claim_note": "Current artifacts support readiness mapping and reviewer review only; they are not real acceptance evidence, formal external comparison results, or accreditation claims.",
+  "anchor_id": "external-comparison-importer",
+  "anchor_label": "External Comparison Importer",
+  "taxonomy_contract_version": "step2-taxonomy-contract-v1",
+  "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1",
+  "linked_artifact_refs": [],
+  "linked_measurement_phase_artifacts": [],
+  "linked_measurement_phases": [],
+  "linked_measurement_gaps": [],
+  "linked_method_confirmation_items": [],
+  "linked_uncertainty_inputs": [],
+  "linked_traceability_nodes": [],
+  "linked_gap_classification_keys": [],
+  "linked_gap_severity_keys": [],
+  "linked_gap_reason_fragment_keys": [],
+  "linked_blocker_fragment_keys": [],
+  "linked_reviewer_next_step_fragment_keys": [],
+  "linked_measurement_gap_summary": "",
+  "linked_readiness_impact_summary": "",
+  "preseal_partial_gap_summary": "",
+  "gap_reason": "",
+  "gap_reason_fragments": [],
+  "gap_reason_fragment_keys": [],
+  "missing_evidence": [
+    "importer only supports local file sources, no network access",
+    "all imported comparison data is marked simulated"
+  ],
+  "blockers": [
+    "importer only supports local file sources, no network access",
+    "all imported comparison data is marked simulated"
+  ],
+  "blocker_fragments": [
+    {
+      "fragment_family": "blocker",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "importer only supports local file sources, no network access",
+      "display_text": "importer only supports local file sources, no network access",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "blocker",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "all imported comparison data is marked simulated",
+      "display_text": "all imported comparison data is marked simulated",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "blocker_fragment_keys": [],
+  "next_required_artifacts": [
+    "comparison_evidence_pack",
+    "scope_comparison_view"
+  ],
+  "readiness_status": "external_comparison_importer_readiness_stub",
+  "boundary_fragments": [
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "text": "Step 2 reviewer readiness only",
+      "display_text": "Step 2 reviewer readiness only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "text": "simulation / offline / headless only",
+      "display_text": "simulation / offline / headless only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "text": "file-artifact-first reviewer evidence",
+      "display_text": "file-artifact-first reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "text": "not real acceptance",
+      "display_text": "not real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "not compliance claim",
+      "display_text": "not compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "not accreditation claim",
+      "display_text": "not accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "cannot_replace_real_metrology_validation",
+      "canonical_key": "cannot_replace_real_metrology_validation",
+      "canonical_fragment_id": "boundary:cannot_replace_real_metrology_validation",
+      "i18n_key": "reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+      "params": {},
+      "text": "cannot replace real metrology validation",
+      "display_text": "cannot replace real metrology validation",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_fragment_keys": [
+    "step2_reviewer_readiness_only",
+    "simulation_offline_headless_only",
+    "file_artifact_first_reviewer_evidence",
+    "not_real_acceptance_boundary",
+    "cannot_replace_real_metrology_validation"
+  ],
+  "boundary_digest": "Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation",
+  "boundary_filter_rows": [
+    {
+      "id": "boundary:step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "label": "Step 2 reviewer readiness only",
+      "display_text": "Step 2 reviewer readiness only",
+      "text": "Step 2 reviewer readiness only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "label": "simulation / offline / headless only",
+      "display_text": "simulation / offline / headless only",
+      "text": "simulation / offline / headless only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "label": "file-artifact-first reviewer evidence",
+      "display_text": "file-artifact-first reviewer evidence",
+      "text": "file-artifact-first reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "label": "not real acceptance",
+      "display_text": "not real acceptance",
+      "text": "not real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:cannot_replace_real_metrology_validation",
+      "canonical_fragment_id": "boundary:cannot_replace_real_metrology_validation",
+      "fragment_family": "boundary",
+      "fragment_key": "cannot_replace_real_metrology_validation",
+      "canonical_key": "cannot_replace_real_metrology_validation",
+      "i18n_key": "reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+      "params": {},
+      "label": "cannot replace real metrology validation",
+      "display_text": "cannot replace real metrology validation",
+      "text": "cannot replace real metrology validation",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_filters": [
+    "boundary:step2_reviewer_readiness_only",
+    "boundary:simulation_offline_headless_only",
+    "boundary:file_artifact_first_reviewer_evidence",
+    "boundary:not_real_acceptance_boundary",
+    "boundary:cannot_replace_real_metrology_validation"
+  ],
+  "non_claim_fragments": [],
+  "non_claim_fragment_keys": [],
+  "non_claim_digest": "",
+  "non_claim_filter_rows": [],
+  "non_claim_filters": [],
+  "reviewer_next_step_digest": "",
+  "reviewer_next_step_fragments": [],
+  "reviewer_next_step_fragment_keys": [],
+  "recognition_binding": {
+    "scope_id": "",
+    "scope_name": "",
+    "scope_version": "",
+    "decision_rule_id": "",
+    "applicability_scope": {},
+    "applicability_scope_display": "",
+    "limitation_note": "Step 2 builds reviewer-facing PT/ILC / comparison readiness sidecars only; real external comparison, formal compliance claims, and accreditation claims remain out of scope.",
+    "non_claim_note": "Current artifacts support readiness mapping and reviewer review only; they are not real acceptance evidence, formal external comparison results, or accreditation claims.",
+    "readiness_status": "external_comparison_importer_readiness_stub",
+    "reviewer_only": true,
+    "readiness_mapping_only": true,
+    "not_real_acceptance_evidence": true,
+    "not_ready_for_formal_claim": true
+  }
+}

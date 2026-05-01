@@ -1,0 +1,9 @@
+timestamp,point_index,point_tag,temperature_c,co2_ppm,co2_group,cylinder_nominal_ppm,humidity_pct,pressure_hpa,route,status,stability_time_s,total_time_s
+2026-04-30T12:11:30.996,8,co2_groupa_400ppm_1100hpa,20.0,400.0,A,400.0,,1100.0,co2,completed,,
+2026-04-30T12:11:30.997,6,co2_groupa_400ppm_1000hpa,20.0,400.0,A,400.0,,1000.0,co2,completed,,
+2026-04-30T12:11:30.998,7,co2_groupa_400ppm_800hpa,20.0,400.0,A,400.0,,800.0,co2,completed,,
+2026-04-30T12:11:30.999,10,co2_groupa_400ppm_600hpa,20.0,400.0,A,400.0,,600.0,co2,completed,,
+2026-04-30T12:11:32.134,8,co2_groupb_1000ppm_1100hpa,20.0,1000.0,B,1000.0,,1100.0,co2,completed,,
+2026-04-30T12:11:32.135,6,co2_groupb_1000ppm_1000hpa,20.0,1000.0,B,1000.0,,1000.0,co2,completed,,
+2026-04-30T12:11:32.141,7,co2_groupb_1000ppm_800hpa,20.0,1000.0,B,1000.0,,800.0,co2,completed,,
+2026-04-30T12:11:32.142,10,co2_groupb_1000ppm_600hpa,20.0,1000.0,B,1000.0,,600.0,co2,completed,,

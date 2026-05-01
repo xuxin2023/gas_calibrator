@@ -1,0 +1,188 @@
+{
+  "run_id": "run_20260430_154401",
+  "evidence_source": "simulated_protocol",
+  "evidence_state": "collected",
+  "acceptance_level": "offline_regression",
+  "acceptance_scope": "run",
+  "promotion_state": "dry_run_only",
+  "review_state": "pending",
+  "approval_state": "blocked",
+  "ready_for_promotion": false,
+  "not_real_acceptance_evidence": true,
+  "required_gates": [
+    {
+      "name": "offline_execution_complete",
+      "required": true,
+      "passed": true,
+      "current_state": "passed",
+      "evidence_source": "simulated_protocol"
+    },
+    {
+      "name": "reference_quality_gate",
+      "required": true,
+      "passed": false,
+      "current_state": "degraded",
+      "evidence_source": "simulated_protocol"
+    },
+    {
+      "name": "summary_parity_available",
+      "required": false,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "diagnostic"
+    },
+    {
+      "name": "real_probe_evidence_present",
+      "required": true,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "simulated_protocol"
+    },
+    {
+      "name": "real_acceptance_evidence_present",
+      "required": true,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "real_acceptance"
+    },
+    {
+      "name": "review_completed",
+      "required": true,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "diagnostic"
+    },
+    {
+      "name": "approval_granted",
+      "required": true,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "diagnostic"
+    },
+    {
+      "name": "promote_primary_latest",
+      "required": true,
+      "passed": false,
+      "current_state": "dry_run_only",
+      "evidence_source": "simulated_protocol"
+    }
+  ],
+  "missing_conditions": [
+    "reference quality gate",
+    "real probe evidence present",
+    "real acceptance evidence present",
+    "review completed",
+    "approval granted",
+    "promote primary latest"
+  ],
+  "promotion_plan": {
+    "mode": "dry_run",
+    "target": "real_primary_latest",
+    "allowed": false,
+    "requested": false,
+    "current_state": "dry_run_only",
+    "ready_for_promotion": false,
+    "blocking_conditions": [
+      "reference quality gate",
+      "real probe evidence present",
+      "real acceptance evidence present",
+      "review completed",
+      "approval granted",
+      "promote primary latest"
+    ],
+    "publish_primary_latest_allowed": false,
+    "promote_primary_latest_permitted": false
+  },
+  "role_views": {
+    "operator": {
+      "status": "healthy",
+      "failure_points": [],
+      "summary": "run health ready"
+    },
+    "reviewer": {
+      "evidence_complete": false,
+      "notes": [
+        "reference quality gate",
+        "real probe evidence present",
+        "real acceptance evidence present",
+        "review completed",
+        "approval granted",
+        "promote primary latest"
+      ],
+      "summary": "evidence incomplete"
+    },
+    "approver": {
+      "ready": false,
+      "missing_conditions": [
+        "reference quality gate",
+        "real probe evidence present",
+        "real acceptance evidence present",
+        "review completed",
+        "approval granted",
+        "promote primary latest"
+      ],
+      "summary": "promotion blocked"
+    }
+  },
+  "readiness_summary": {
+    "acceptance_level": "offline_regression",
+    "promotion_state": "dry_run_only",
+    "ready_for_promotion": false,
+    "simulated_readiness_only": true,
+    "missing_conditions": [
+      "reference quality gate",
+      "real probe evidence present",
+      "real acceptance evidence present",
+      "review completed",
+      "approval granted",
+      "promote primary latest"
+    ],
+    "summary": "offline_regression | dry_run_only | missing 6 gates"
+  },
+  "state_machine": {
+    "current_state": "simulated_readiness_only",
+    "states": [
+      "simulated_readiness_only",
+      "replay_review_only",
+      "real_probe_collected",
+      "real_probe_reviewed",
+      "real_acceptance_collected",
+      "review_completed",
+      "approval_granted",
+      "promotion_ready",
+      "promoted_primary_latest"
+    ],
+    "transitions": [
+      {
+        "from": "real_probe_collected",
+        "to": "real_probe_reviewed",
+        "condition": "review_state=completed"
+      },
+      {
+        "from": "real_probe_reviewed",
+        "to": "real_acceptance_collected",
+        "condition": "real acceptance executed"
+      },
+      {
+        "from": "real_acceptance_collected",
+        "to": "review_completed",
+        "condition": "review_state=completed"
+      },
+      {
+        "from": "review_completed",
+        "to": "approval_granted",
+        "condition": "approval_state=approved"
+      },
+      {
+        "from": "approval_granted",
+        "to": "promotion_ready",
+        "condition": "all promotion gates green"
+      },
+      {
+        "from": "promotion_ready",
+        "to": "promoted_primary_latest",
+        "condition": "promotion action explicitly allowed"
+      }
+    ]
+  }
+}

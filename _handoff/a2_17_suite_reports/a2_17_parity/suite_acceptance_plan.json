@@ -1,0 +1,139 @@
+{
+  "suite": "parity",
+  "evidence_source": "diagnostic",
+  "evidence_sources_present": [
+    "diagnostic"
+  ],
+  "evidence_state": "collected",
+  "acceptance_level": "offline_regression",
+  "acceptance_scope": "suite",
+  "promotion_state": "dry_run_only",
+  "review_state": "pending",
+  "approval_state": "blocked",
+  "ready_for_promotion": false,
+  "required_gates": [
+    {
+      "name": "offline_suite_green",
+      "required": true,
+      "passed": true,
+      "current_state": "passed",
+      "evidence_source": "simulated_protocol"
+    },
+    {
+      "name": "summary_parity_green",
+      "required": false,
+      "passed": true,
+      "current_state": "passed",
+      "evidence_source": "diagnostic"
+    },
+    {
+      "name": "export_resilience_green",
+      "required": false,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "diagnostic"
+    },
+    {
+      "name": "real_probe_evidence_present",
+      "required": true,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "real_probe"
+    },
+    {
+      "name": "real_acceptance_evidence_present",
+      "required": true,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "real_acceptance"
+    },
+    {
+      "name": "review_completed",
+      "required": true,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "diagnostic"
+    },
+    {
+      "name": "approval_granted",
+      "required": true,
+      "passed": false,
+      "current_state": "missing",
+      "evidence_source": "diagnostic"
+    },
+    {
+      "name": "promote_primary_latest",
+      "required": true,
+      "passed": false,
+      "current_state": "dry_run_only",
+      "evidence_source": "diagnostic"
+    }
+  ],
+  "missing_conditions": [
+    "real probe evidence present",
+    "real acceptance evidence present",
+    "review completed",
+    "approval granted",
+    "promote primary latest"
+  ],
+  "promotion_plan": {
+    "mode": "dry_run",
+    "target": "real_primary_latest",
+    "allowed": false,
+    "requested": false,
+    "current_state": "dry_run_only",
+    "ready_for_promotion": false,
+    "blocking_conditions": [
+      "real probe evidence present",
+      "real acceptance evidence present",
+      "review completed",
+      "approval granted",
+      "promote primary latest"
+    ],
+    "publish_primary_latest_allowed": false,
+    "promote_primary_latest_permitted": false
+  },
+  "role_views": {
+    "operator": {
+      "status": "healthy",
+      "failure_points": [],
+      "summary": "run health ready"
+    },
+    "reviewer": {
+      "evidence_complete": true,
+      "notes": [
+        "real probe evidence present",
+        "real acceptance evidence present",
+        "review completed",
+        "approval granted",
+        "promote primary latest"
+      ],
+      "summary": "evidence complete"
+    },
+    "approver": {
+      "ready": false,
+      "missing_conditions": [
+        "real probe evidence present",
+        "real acceptance evidence present",
+        "review completed",
+        "approval granted",
+        "promote primary latest"
+      ],
+      "summary": "promotion blocked"
+    }
+  },
+  "readiness_summary": {
+    "acceptance_level": "offline_regression",
+    "promotion_state": "dry_run_only",
+    "ready_for_promotion": false,
+    "simulated_readiness_only": true,
+    "missing_conditions": [
+      "real probe evidence present",
+      "real acceptance evidence present",
+      "review completed",
+      "approval granted",
+      "promote primary latest"
+    ],
+    "summary": "offline_regression | dry_run_only | missing 5 gates"
+  }
+}

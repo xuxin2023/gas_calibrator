@@ -1,0 +1,160 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "lineage_summary",
+  "run_id": "run_20260430_155252",
+  "generated_at": "2026-04-30T15:52:56",
+  "parent_run_id": null,
+  "source_artifact_ids": [
+    "run_20260430_155252:source_points"
+  ],
+  "config_version": "cfg-eec9216ff301",
+  "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+  "profile_version": null,
+  "software_build_id": "0.1.0",
+  "artifacts": [
+    {
+      "artifact_id": "run_20260430_155252:coefficient_report",
+      "artifact_name": "coefficient_report",
+      "role": "formal_analysis",
+      "path": "",
+      "present": false,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:io_log",
+      "artifact_name": "io_log",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\io_log.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:manifest",
+      "artifact_name": "manifest",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\manifest.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:points_readable",
+      "artifact_name": "points_readable",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\points_readable.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:qc_report",
+      "artifact_name": "qc_report",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\qc_report.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:results_json",
+      "artifact_name": "results_json",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\results.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:run_summary",
+      "artifact_name": "run_summary",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\summary.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:runtime_points",
+      "artifact_name": "runtime_points",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\points.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:samples_csv",
+      "artifact_name": "samples_csv",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\samples.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:samples_excel",
+      "artifact_name": "samples_excel",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\samples.xlsx",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_155252:temperature_snapshots",
+      "artifact_name": "temperature_snapshots",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\temperature_snapshots.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_155252:source_points"
+      ]
+    }
+  ],
+  "known_output_files": [
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\manifest.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\points_readable.csv",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\qc_manifest.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\qc_report.csv",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\qc_report.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\qc_reviewer_digest.md",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\qc_summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\results.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\route_trace.jsonl",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\samples.csv",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\samples.xlsx",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\temperature_snapshots.json"
+  ],
+  "expected_artifacts": [
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\acceptance_plan.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\analytics_summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\trend_registry.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\lineage_summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\evidence_registry.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\pressure_reference_degraded\\v2_output\\run_20260430_155252\\coefficient_registry.json"
+  ]
+}

@@ -1,0 +1,68 @@
+﻿diff --git a/src/gas_calibrator/v2/core/run001_a2_no_write.py b/src/gas_calibrator/v2/core/run001_a2_no_write.py
+index b8a85bc4..0884a69a 100644
+--- a/src/gas_calibrator/v2/core/run001_a2_no_write.py
++++ b/src/gas_calibrator/v2/core/run001_a2_no_write.py
+@@ -2549,6 +2549,17 @@ def _build_co2_route_conditioning_evidence(
+         "defer_started_at": latest_state_value("defer_started_at", ""),
+         "defer_returned_to_vent_loop": bool(latest_state_value("defer_returned_to_vent_loop", False)),
+         "defer_to_next_vent_loop_ms": latest_state_value("defer_to_next_vent_loop_ms"),
++        "defer_reschedule_latency_ms": latest_state_value("defer_reschedule_latency_ms"),
++        "defer_reschedule_latency_budget_ms": latest_state_value("defer_reschedule_latency_budget_ms"),
++        "defer_reschedule_latency_exceeded": bool(
++            latest_state_value("defer_reschedule_latency_exceeded", False)
++        ),
++        "defer_reschedule_latency_warning": bool(
++            latest_state_value("defer_reschedule_latency_warning", False)
++        ),
++        "defer_reschedule_caused_vent_gap_exceeded": bool(
++            latest_state_value("defer_reschedule_caused_vent_gap_exceeded", False)
++        ),
+         "defer_reschedule_requested": bool(latest_state_value("defer_reschedule_requested", False)),
+         "defer_reschedule_completed": bool(latest_state_value("defer_reschedule_completed", False)),
+         "defer_reschedule_reason": latest_state_value("defer_reschedule_reason", ""),
+@@ -2557,6 +2568,9 @@ def _build_co2_route_conditioning_evidence(
+         "fast_vent_after_defer_write_ms": latest_state_value("fast_vent_after_defer_write_ms"),
+         "terminal_gap_after_defer": bool(latest_state_value("terminal_gap_after_defer", False)),
+         "terminal_gap_after_defer_ms": latest_state_value("terminal_gap_after_defer_ms"),
++        "vent_gap_exceeded_after_defer": bool(latest_state_value("vent_gap_exceeded_after_defer", False)),
++        "vent_gap_after_defer_ms": latest_state_value("vent_gap_after_defer_ms"),
++        "vent_gap_after_defer_threshold_ms": latest_state_value("vent_gap_after_defer_threshold_ms"),
+         "defer_path_no_reschedule": bool(latest_state_value("defer_path_no_reschedule", False)),
+         "defer_path_no_reschedule_reason": latest_state_value("defer_path_no_reschedule_reason", ""),
+         "fail_closed_path_started": bool(latest_state_value("fail_closed_path_started", False)),
+@@ -4823,6 +4837,21 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
+             "defer_started_at": co2_route_conditioning_payload.get("defer_started_at"),
+             "defer_returned_to_vent_loop": co2_route_conditioning_payload.get("defer_returned_to_vent_loop"),
+             "defer_to_next_vent_loop_ms": co2_route_conditioning_payload.get("defer_to_next_vent_loop_ms"),
++            "defer_reschedule_latency_ms": co2_route_conditioning_payload.get(
++                "defer_reschedule_latency_ms"
++            ),
++            "defer_reschedule_latency_budget_ms": co2_route_conditioning_payload.get(
++                "defer_reschedule_latency_budget_ms"
++            ),
++            "defer_reschedule_latency_exceeded": co2_route_conditioning_payload.get(
++                "defer_reschedule_latency_exceeded"
++            ),
++            "defer_reschedule_latency_warning": co2_route_conditioning_payload.get(
++                "defer_reschedule_latency_warning"
++            ),
++            "defer_reschedule_caused_vent_gap_exceeded": co2_route_conditioning_payload.get(
++                "defer_reschedule_caused_vent_gap_exceeded"
++            ),
+             "defer_reschedule_requested": co2_route_conditioning_payload.get("defer_reschedule_requested"),
+             "defer_reschedule_completed": co2_route_conditioning_payload.get("defer_reschedule_completed"),
+             "defer_reschedule_reason": co2_route_conditioning_payload.get("defer_reschedule_reason"),
+@@ -4831,6 +4860,13 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
+             "fast_vent_after_defer_write_ms": co2_route_conditioning_payload.get("fast_vent_after_defer_write_ms"),
+             "terminal_gap_after_defer": co2_route_conditioning_payload.get("terminal_gap_after_defer"),
+             "terminal_gap_after_defer_ms": co2_route_conditioning_payload.get("terminal_gap_after_defer_ms"),
++            "vent_gap_exceeded_after_defer": co2_route_conditioning_payload.get(
++                "vent_gap_exceeded_after_defer"
++            ),
++            "vent_gap_after_defer_ms": co2_route_conditioning_payload.get("vent_gap_after_defer_ms"),
++            "vent_gap_after_defer_threshold_ms": co2_route_conditioning_payload.get(
++                "vent_gap_after_defer_threshold_ms"
++            ),
+             "defer_path_no_reschedule": co2_route_conditioning_payload.get("defer_path_no_reschedule"),
+             "defer_path_no_reschedule_reason": co2_route_conditioning_payload.get(
+                 "defer_path_no_reschedule_reason"

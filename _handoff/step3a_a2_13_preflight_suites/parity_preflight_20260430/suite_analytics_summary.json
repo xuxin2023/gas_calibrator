@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "suite_analytics_summary",
+  "suite": "parity",
+  "generated_at": "2026-04-30T14:12:50",
+  "pass_rates": {
+    "suite_pass_rate": 1.0,
+    "passed": 1,
+    "failed": 0,
+    "total": 1
+  },
+  "case_status_counts": {
+    "MATCH": 1
+  },
+  "case_kind_counts": {
+    "parity": 1
+  },
+  "common_failure_types": {},
+  "top_failure_phases": {},
+  "evidence_sources_present": [
+    "diagnostic"
+  ],
+  "digest": {
+    "summary": "1/1 passed | top failures none",
+    "health": "healthy"
+  }
+}

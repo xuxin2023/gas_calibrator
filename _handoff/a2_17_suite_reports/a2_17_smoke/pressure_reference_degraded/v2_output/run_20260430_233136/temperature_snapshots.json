@@ -1,0 +1,82 @@
+[
+  {
+    "timestamp": "2026-04-30T15:31:37.022997+00:00",
+    "route_type": "co2",
+    "point_index": 9,
+    "temp_setpoint_c": 20.0,
+    "chamber_temperature_box_c": 20.0,
+    "analyzer_id": "ga01",
+    "analyzer_chamber_temp_c": 20.0,
+    "case_temp_c": 20.0
+  },
+  {
+    "timestamp": "2026-04-30T15:31:37.022997+00:00",
+    "route_type": "co2",
+    "point_index": 9,
+    "temp_setpoint_c": 20.0,
+    "chamber_temperature_box_c": 20.0,
+    "analyzer_id": "ga02",
+    "analyzer_chamber_temp_c": 20.0,
+    "case_temp_c": 20.0
+  },
+  {
+    "timestamp": "2026-04-30T15:31:37.022997+00:00",
+    "route_type": "co2",
+    "point_index": 9,
+    "temp_setpoint_c": 20.0,
+    "chamber_temperature_box_c": 20.0,
+    "analyzer_id": "ga03",
+    "analyzer_chamber_temp_c": 20.0,
+    "case_temp_c": 20.0
+  },
+  {
+    "timestamp": "2026-04-30T15:31:37.022997+00:00",
+    "route_type": "co2",
+    "point_index": 9,
+    "temp_setpoint_c": 20.0,
+    "chamber_temperature_box_c": 20.0,
+    "analyzer_id": "ga04",
+    "analyzer_chamber_temp_c": 20.0,
+    "case_temp_c": 20.0
+  },
+  {
+    "timestamp": "2026-04-30T15:31:37.022997+00:00",
+    "route_type": "co2",
+    "point_index": 9,
+    "temp_setpoint_c": 20.0,
+    "chamber_temperature_box_c": 20.0,
+    "analyzer_id": "ga05",
+    "analyzer_chamber_temp_c": 20.0,
+    "case_temp_c": 20.0
+  },
+  {
+    "timestamp": "2026-04-30T15:31:37.022997+00:00",
+    "route_type": "co2",
+    "point_index": 9,
+    "temp_setpoint_c": 20.0,
+    "chamber_temperature_box_c": 20.0,
+    "analyzer_id": "ga06",
+    "analyzer_chamber_temp_c": 20.0,
+    "case_temp_c": 20.0
+  },
+  {
+    "timestamp": "2026-04-30T15:31:37.022997+00:00",
+    "route_type": "co2",
+    "point_index": 9,
+    "temp_setpoint_c": 20.0,
+    "chamber_temperature_box_c": 20.0,
+    "analyzer_id": "ga07",
+    "analyzer_chamber_temp_c": 20.0,
+    "case_temp_c": 20.0
+  },
+  {
+    "timestamp": "2026-04-30T15:31:37.022997+00:00",
+    "route_type": "co2",
+    "point_index": 9,
+    "temp_setpoint_c": 20.0,
+    "chamber_temperature_box_c": 20.0,
+    "analyzer_id": "ga08",
+    "analyzer_chamber_temp_c": 20.0,
+    "case_temp_c": 20.0
+  }
+]

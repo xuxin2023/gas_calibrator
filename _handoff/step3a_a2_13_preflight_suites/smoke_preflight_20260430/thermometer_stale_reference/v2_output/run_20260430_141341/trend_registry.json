@@ -1,0 +1,445 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "trend_registry",
+  "run_id": "run_20260430_141341",
+  "generated_at": "2026-04-30T14:14:09",
+  "history_window": {
+    "run_count": 1
+  },
+  "analyzers": [
+    {
+      "analyzer_id": "GA01",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "coverage_ratio": 1.0,
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.5,
+          "sample_count": 640
+        }
+      ],
+      "drift_indicator": "insufficient_history",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "insufficient_history",
+      "reference_quality_trend": "insufficient_history",
+      "coverage_trend": "insufficient_history"
+    },
+    {
+      "analyzer_id": "GA02",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "coverage_ratio": 1.0,
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.5,
+          "sample_count": 640
+        }
+      ],
+      "drift_indicator": "insufficient_history",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "insufficient_history",
+      "reference_quality_trend": "insufficient_history",
+      "coverage_trend": "insufficient_history"
+    },
+    {
+      "analyzer_id": "GA03",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "coverage_ratio": 1.0,
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.5,
+          "sample_count": 640
+        }
+      ],
+      "drift_indicator": "insufficient_history",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "insufficient_history",
+      "reference_quality_trend": "insufficient_history",
+      "coverage_trend": "insufficient_history"
+    },
+    {
+      "analyzer_id": "GA04",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "coverage_ratio": 1.0,
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.5,
+          "sample_count": 640
+        }
+      ],
+      "drift_indicator": "insufficient_history",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "insufficient_history",
+      "reference_quality_trend": "insufficient_history",
+      "coverage_trend": "insufficient_history"
+    },
+    {
+      "analyzer_id": "GA05",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "coverage_ratio": 1.0,
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.5,
+          "sample_count": 640
+        }
+      ],
+      "drift_indicator": "insufficient_history",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "insufficient_history",
+      "reference_quality_trend": "insufficient_history",
+      "coverage_trend": "insufficient_history"
+    },
+    {
+      "analyzer_id": "GA06",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "coverage_ratio": 1.0,
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.5,
+          "sample_count": 640
+        }
+      ],
+      "drift_indicator": "insufficient_history",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "insufficient_history",
+      "reference_quality_trend": "insufficient_history",
+      "coverage_trend": "insufficient_history"
+    },
+    {
+      "analyzer_id": "GA07",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "coverage_ratio": 1.0,
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.5,
+          "sample_count": 640
+        }
+      ],
+      "drift_indicator": "insufficient_history",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "insufficient_history",
+      "reference_quality_trend": "insufficient_history",
+      "coverage_trend": "insufficient_history"
+    },
+    {
+      "analyzer_id": "GA08",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "coverage_ratio": 1.0,
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.5,
+          "sample_count": 640
+        }
+      ],
+      "drift_indicator": "insufficient_history",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "insufficient_history",
+      "reference_quality_trend": "insufficient_history",
+      "coverage_trend": "insufficient_history"
+    }
+  ],
+  "route_temp_source_groups": [
+    {
+      "route": "co2",
+      "temperature_c": 10.0,
+      "source": "co2:0",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    },
+    {
+      "route": "co2",
+      "temperature_c": 10.0,
+      "source": "co2:100",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    },
+    {
+      "route": "co2",
+      "temperature_c": 10.0,
+      "source": "co2:1000",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    },
+    {
+      "route": "co2",
+      "temperature_c": 20.0,
+      "source": "co2:0",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    },
+    {
+      "route": "co2",
+      "temperature_c": 20.0,
+      "source": "co2:1000",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    },
+    {
+      "route": "co2",
+      "temperature_c": 20.0,
+      "source": "co2:400",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    },
+    {
+      "route": "h2o",
+      "temperature_c": 10.0,
+      "source": "h2o:30",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    },
+    {
+      "route": "h2o",
+      "temperature_c": 10.0,
+      "source": "h2o:50",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    },
+    {
+      "route": "h2o",
+      "temperature_c": 20.0,
+      "source": "h2o:40",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    },
+    {
+      "route": "h2o",
+      "temperature_c": 20.0,
+      "source": "h2o:70",
+      "history": [
+        {
+          "run_id": "run_20260430_141341",
+          "start_time": "2026-04-30T14:14:09",
+          "usable_frame_ratio": 1.0,
+          "reference_quality_score": 0.0
+        }
+      ],
+      "drift_indicator": "stable",
+      "spc_metric": {
+        "metric": "usable_frame_ratio",
+        "center_line": 1.0,
+        "ucl": 1.0,
+        "lcl": 1.0,
+        "latest": 1.0
+      },
+      "control_limit_status": "in_control",
+      "reference_quality_trend": "stable",
+      "coverage_trend": "stable"
+    }
+  ]
+}

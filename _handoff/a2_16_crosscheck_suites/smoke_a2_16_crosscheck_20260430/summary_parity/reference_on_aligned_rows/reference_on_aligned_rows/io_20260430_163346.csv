@@ -1,0 +1,2 @@
+timestamp,port,device,direction,command,response,error
+2026-04-30T16:33:46.481,LOG,run_logger,EVENT,analyzer-summary-align,label=GA01 total=2 valid=1 ref_rows=aligned aligned_count=1,

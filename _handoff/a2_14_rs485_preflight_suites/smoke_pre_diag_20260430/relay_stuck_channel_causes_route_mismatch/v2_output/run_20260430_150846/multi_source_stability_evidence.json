@@ -1,0 +1,1327 @@
+{
+  "schema_version": "2.0",
+  "artifact_type": "multi_source_stability_evidence",
+  "generated_at": "2026-04-30T07:08:53+00:00",
+  "run_id": "run_20260430_150846",
+  "artifact_role": "diagnostic_analysis",
+  "reviewer_only": true,
+  "readiness_mapping_only": true,
+  "not_real_acceptance_evidence": true,
+  "not_ready_for_formal_claim": true,
+  "evidence_source": "simulated",
+  "evidence_state": "shadow_only",
+  "coverage_status": "complete",
+  "overall_status": "degraded",
+  "boundary_statements": [
+    "Step 2 tail / Stage 3 bridge",
+    "simulation / offline / headless only",
+    "not real acceptance",
+    "cannot replace real metrology validation",
+    "shadow evaluation only",
+    "does not modify live sampling gate by default"
+  ],
+  "policy_versions": [
+    {
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "policy_version": "shadow_water_v1",
+      "candidate_policy_version": "shadow_water_v1_candidate",
+      "feature_set_version": "multi_source_stability.step2_shadow_v2",
+      "min_valid_ratio": 0.75,
+      "max_freshness_gap_s": 12.0,
+      "min_hold_time_s": 10.0,
+      "pass_score": 0.82,
+      "warn_score": 0.65,
+      "required_signal_groups": [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality"
+      ]
+    }
+  ],
+  "stability_policy_profile": {
+    "artifact_type": "stability_policy_profile",
+    "feature_set_version": "multi_source_stability.step2_shadow_v2",
+    "policy_versions": [
+      {
+        "route_family": "water",
+        "phase_policy": "sample_ready",
+        "policy_version": "shadow_water_v1",
+        "candidate_policy_version": "shadow_water_v1_candidate",
+        "feature_set_version": "multi_source_stability.step2_shadow_v2",
+        "min_valid_ratio": 0.75,
+        "max_freshness_gap_s": 12.0,
+        "min_hold_time_s": 10.0,
+        "pass_score": 0.82,
+        "warn_score": 0.65,
+        "required_signal_groups": [
+          "reference",
+          "analyzer_raw",
+          "output",
+          "data_quality"
+        ]
+      }
+    ],
+    "route_families": [
+      "water"
+    ],
+    "summary_line": "routes water | main 1 | candidate 1 | feature multi_source_stability.step2_shadow_v2",
+    "reviewer_only": true,
+    "readiness_mapping_only": true,
+    "not_real_acceptance_evidence": true,
+    "not_ready_for_formal_claim": true,
+    "evidence_source": "simulated",
+    "evidence_state": "shadow_only"
+  },
+  "stability_decision_rollup": {
+    "artifact_type": "stability_decision_rollup",
+    "window_count": 4,
+    "decision_counts": {
+      "hold_time_gap": 4
+    },
+    "status_counts": {
+      "degraded": 4
+    },
+    "layer_counts": {
+      "operating_condition": 4,
+      "raw_response": 4,
+      "output_result": 4,
+      "data_quality": 4
+    },
+    "failed_layer_counts": {
+      "operating_condition": 4,
+      "raw_response": 4,
+      "output_result": 4,
+      "data_quality": 4
+    },
+    "layer_summary": "operating_condition 4/4 flagged | raw_response 4/4 flagged | output_result 4/4 flagged | data_quality 4/4 flagged",
+    "summary_line": "hold_time_gap 4",
+    "reviewer_only": true,
+    "readiness_mapping_only": true,
+    "not_real_acceptance_evidence": true,
+    "not_ready_for_formal_claim": true,
+    "evidence_source": "simulated",
+    "evidence_state": "shadow_only"
+  },
+  "shadow_stability_diff": {
+    "artifact_type": "shadow_stability_diff",
+    "feature_set_version": "multi_source_stability.step2_shadow_v2",
+    "changed_window_count": 4,
+    "changed_windows": [
+      {
+        "window_id": "water-sample_ready-1",
+        "decision_result": "hold_time_gap",
+        "candidate_decision_result": "candidate_hold_time_gap",
+        "decision_diff": "hold_time_gap_vs_candidate_hold_time_gap",
+        "status": "degraded",
+        "candidate_status": "degraded",
+        "weighted_score": 0.7537,
+        "candidate_weighted_score": 0.7537,
+        "score_diff": 0.0,
+        "feature_set_version": "multi_source_stability.step2_shadow_v2",
+        "summary": "water/sample_ready | hold_time_gap vs candidate_hold_time_gap | score 0.75->0.75"
+      },
+      {
+        "window_id": "water-sample_ready-2",
+        "decision_result": "hold_time_gap",
+        "candidate_decision_result": "candidate_hold_time_gap",
+        "decision_diff": "hold_time_gap_vs_candidate_hold_time_gap",
+        "status": "degraded",
+        "candidate_status": "degraded",
+        "weighted_score": 0.7537,
+        "candidate_weighted_score": 0.7537,
+        "score_diff": 0.0,
+        "feature_set_version": "multi_source_stability.step2_shadow_v2",
+        "summary": "water/sample_ready | hold_time_gap vs candidate_hold_time_gap | score 0.75->0.75"
+      },
+      {
+        "window_id": "water-sample_ready-1",
+        "decision_result": "hold_time_gap",
+        "candidate_decision_result": "candidate_hold_time_gap",
+        "decision_diff": "hold_time_gap_vs_candidate_hold_time_gap",
+        "status": "degraded",
+        "candidate_status": "degraded",
+        "weighted_score": 0.7537,
+        "candidate_weighted_score": 0.7537,
+        "score_diff": 0.0,
+        "feature_set_version": "multi_source_stability.step2_shadow_v2",
+        "summary": "water/sample_ready | hold_time_gap vs candidate_hold_time_gap | score 0.75->0.75"
+      },
+      {
+        "window_id": "water-sample_ready-2",
+        "decision_result": "hold_time_gap",
+        "candidate_decision_result": "candidate_hold_time_gap",
+        "decision_diff": "hold_time_gap_vs_candidate_hold_time_gap",
+        "status": "degraded",
+        "candidate_status": "degraded",
+        "weighted_score": 0.7537,
+        "candidate_weighted_score": 0.7537,
+        "score_diff": 0.0,
+        "feature_set_version": "multi_source_stability.step2_shadow_v2",
+        "summary": "water/sample_ready | hold_time_gap vs candidate_hold_time_gap | score 0.75->0.75"
+      }
+    ],
+    "summary_line": "changed 4/4 | max score diff 0.0000",
+    "reviewer_only": true,
+    "readiness_mapping_only": true,
+    "not_real_acceptance_evidence": true,
+    "not_ready_for_formal_claim": true,
+    "evidence_source": "simulated",
+    "evidence_state": "shadow_only"
+  },
+  "signal_group_coverage": {
+    "reference": {
+      "window_count": 4,
+      "available_channels": [
+        "temperature_c",
+        "dew_point_c",
+        "pressure_hpa",
+        "pressure_gauge_hpa",
+        "pressure_reference_status"
+      ],
+      "missing_channels": [],
+      "coverage_status": "complete"
+    },
+    "analyzer_raw": {
+      "window_count": 4,
+      "available_channels": [
+        "co2_ratio_raw",
+        "h2o_ratio_raw",
+        "ref_signal",
+        "co2_signal",
+        "h2o_signal",
+        "analyzer_pressure_kpa",
+        "analyzer_chamber_temp_c",
+        "case_temp_c",
+        "frame_status"
+      ],
+      "missing_channels": [],
+      "coverage_status": "complete"
+    },
+    "output": {
+      "window_count": 4,
+      "available_channels": [
+        "co2_ppm",
+        "h2o_mmol",
+        "co2_ratio_f",
+        "h2o_ratio_f"
+      ],
+      "missing_channels": [],
+      "coverage_status": "complete"
+    },
+    "data_quality": {
+      "window_count": 4,
+      "available_channels": [
+        "frame_has_data",
+        "frame_usable",
+        "sample_index",
+        "stability_time_s",
+        "total_time_s",
+        "point_phase",
+        "point_tag"
+      ],
+      "missing_channels": [],
+      "coverage_status": "complete"
+    }
+  },
+  "available_channels_by_group": {
+    "reference": [
+      "temperature_c",
+      "dew_point_c",
+      "pressure_hpa",
+      "pressure_gauge_hpa",
+      "pressure_reference_status"
+    ],
+    "analyzer_raw": [
+      "co2_ratio_raw",
+      "h2o_ratio_raw",
+      "ref_signal",
+      "co2_signal",
+      "h2o_signal",
+      "analyzer_pressure_kpa",
+      "analyzer_chamber_temp_c",
+      "case_temp_c",
+      "frame_status"
+    ],
+    "output": [
+      "co2_ppm",
+      "h2o_mmol",
+      "co2_ratio_f",
+      "h2o_ratio_f"
+    ],
+    "data_quality": [
+      "frame_has_data",
+      "frame_usable",
+      "sample_index",
+      "stability_time_s",
+      "total_time_s",
+      "point_phase",
+      "point_tag"
+    ]
+  },
+  "missing_channels_by_group": {
+    "reference": [],
+    "analyzer_raw": [],
+    "output": [],
+    "data_quality": []
+  },
+  "stability_windows": [
+    {
+      "window_id": "water-sample_ready-1",
+      "point_index": 1,
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "sample_count": 16,
+      "valid_ratio": 1.0,
+      "hold_time_observed_s": 0.01,
+      "freshness_gap_s": 0.052,
+      "coverage_status": "complete"
+    },
+    {
+      "window_id": "water-sample_ready-2",
+      "point_index": 2,
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "sample_count": 16,
+      "valid_ratio": 1.0,
+      "hold_time_observed_s": 0.012,
+      "freshness_gap_s": 0.051,
+      "coverage_status": "complete"
+    },
+    {
+      "window_id": "water-sample_ready-1",
+      "point_index": 1,
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "sample_count": 16,
+      "valid_ratio": 1.0,
+      "hold_time_observed_s": 0.009,
+      "freshness_gap_s": 0.051,
+      "coverage_status": "complete"
+    },
+    {
+      "window_id": "water-sample_ready-2",
+      "point_index": 2,
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "sample_count": 16,
+      "valid_ratio": 1.0,
+      "hold_time_observed_s": 0.012,
+      "freshness_gap_s": 0.051,
+      "coverage_status": "complete"
+    }
+  ],
+  "stability_decisions": [
+    {
+      "window_id": "water-sample_ready-1",
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "policy_version": "shadow_water_v1",
+      "decision_result": "hold_time_gap",
+      "status": "degraded",
+      "weighted_score": 0.7537,
+      "hold_time_met": false,
+      "hard_gate_passed": true,
+      "partial_coverage": false
+    },
+    {
+      "window_id": "water-sample_ready-2",
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "policy_version": "shadow_water_v1",
+      "decision_result": "hold_time_gap",
+      "status": "degraded",
+      "weighted_score": 0.7537,
+      "hold_time_met": false,
+      "hard_gate_passed": true,
+      "partial_coverage": false
+    },
+    {
+      "window_id": "water-sample_ready-1",
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "policy_version": "shadow_water_v1",
+      "decision_result": "hold_time_gap",
+      "status": "degraded",
+      "weighted_score": 0.7537,
+      "hold_time_met": false,
+      "hard_gate_passed": true,
+      "partial_coverage": false
+    },
+    {
+      "window_id": "water-sample_ready-2",
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "policy_version": "shadow_water_v1",
+      "decision_result": "hold_time_gap",
+      "status": "degraded",
+      "weighted_score": 0.7537,
+      "hold_time_met": false,
+      "hard_gate_passed": true,
+      "partial_coverage": false
+    }
+  ],
+  "stability_layer_evaluations": [
+    {
+      "operating_condition": {
+        "layer_name": "operating_condition",
+        "route_family": "water",
+        "signal_group": "reference",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.01
+            },
+            {
+              "gate_id": "valid_ratio",
+              "passed": true,
+              "required": 0.75,
+              "actual": 1.0
+            }
+          ]
+        },
+        "score": 1.0,
+        "hold_duration_s": 0.01,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "operating_condition_hold_duration_gap"
+        ],
+        "next_action_recommendation": "extend_operating_condition_hold",
+        "available_channels": [
+          "temperature_c",
+          "dew_point_c",
+          "pressure_hpa",
+          "pressure_gauge_hpa",
+          "pressure_reference_status"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "raw_response": {
+        "layer_name": "raw_response",
+        "route_family": "water",
+        "signal_group": "analyzer_raw",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.01
+            }
+          ]
+        },
+        "score": 0.6869,
+        "hold_duration_s": 0.01,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "raw_response_hold_duration_gap"
+        ],
+        "next_action_recommendation": "wait_for_raw_response_convergence",
+        "available_channels": [
+          "co2_ratio_raw",
+          "h2o_ratio_raw",
+          "ref_signal",
+          "co2_signal",
+          "h2o_signal",
+          "analyzer_pressure_kpa",
+          "analyzer_chamber_temp_c",
+          "case_temp_c",
+          "frame_status"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "output_result": {
+        "layer_name": "output_result",
+        "route_family": "water",
+        "signal_group": "output",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.01
+            }
+          ]
+        },
+        "score": 0.55,
+        "hold_duration_s": 0.01,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "output_result_hold_duration_gap",
+          "output_result_low_score"
+        ],
+        "next_action_recommendation": "wait_for_output_stability",
+        "available_channels": [
+          "co2_ppm",
+          "h2o_mmol",
+          "co2_ratio_f",
+          "h2o_ratio_f"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "data_quality": {
+        "layer_name": "data_quality",
+        "route_family": "water",
+        "signal_group": "data_quality",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 5.0,
+              "actual": 0.01
+            },
+            {
+              "gate_id": "valid_ratio",
+              "passed": true,
+              "required": 0.75,
+              "actual": 1.0
+            },
+            {
+              "gate_id": "freshness_gap",
+              "passed": true,
+              "required": 12.0,
+              "actual": 0.052
+            }
+          ]
+        },
+        "score": 0.8791,
+        "hold_duration_s": 0.01,
+        "hold_duration_required_s": 5.0,
+        "failure_reasons": [
+          "data_quality_hold_duration_gap"
+        ],
+        "next_action_recommendation": "improve_frame_quality_and_freshness",
+        "available_channels": [
+          "frame_has_data",
+          "frame_usable",
+          "sample_index",
+          "stability_time_s",
+          "total_time_s",
+          "point_phase",
+          "point_tag"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      }
+    },
+    {
+      "operating_condition": {
+        "layer_name": "operating_condition",
+        "route_family": "water",
+        "signal_group": "reference",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.012
+            },
+            {
+              "gate_id": "valid_ratio",
+              "passed": true,
+              "required": 0.75,
+              "actual": 1.0
+            }
+          ]
+        },
+        "score": 1.0,
+        "hold_duration_s": 0.012,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "operating_condition_hold_duration_gap"
+        ],
+        "next_action_recommendation": "extend_operating_condition_hold",
+        "available_channels": [
+          "temperature_c",
+          "dew_point_c",
+          "pressure_hpa",
+          "pressure_gauge_hpa",
+          "pressure_reference_status"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "raw_response": {
+        "layer_name": "raw_response",
+        "route_family": "water",
+        "signal_group": "analyzer_raw",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.012
+            }
+          ]
+        },
+        "score": 0.6869,
+        "hold_duration_s": 0.012,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "raw_response_hold_duration_gap"
+        ],
+        "next_action_recommendation": "wait_for_raw_response_convergence",
+        "available_channels": [
+          "co2_ratio_raw",
+          "h2o_ratio_raw",
+          "ref_signal",
+          "co2_signal",
+          "h2o_signal",
+          "analyzer_pressure_kpa",
+          "analyzer_chamber_temp_c",
+          "case_temp_c",
+          "frame_status"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "output_result": {
+        "layer_name": "output_result",
+        "route_family": "water",
+        "signal_group": "output",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.012
+            }
+          ]
+        },
+        "score": 0.55,
+        "hold_duration_s": 0.012,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "output_result_hold_duration_gap",
+          "output_result_low_score"
+        ],
+        "next_action_recommendation": "wait_for_output_stability",
+        "available_channels": [
+          "co2_ppm",
+          "h2o_mmol",
+          "co2_ratio_f",
+          "h2o_ratio_f"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "data_quality": {
+        "layer_name": "data_quality",
+        "route_family": "water",
+        "signal_group": "data_quality",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 5.0,
+              "actual": 0.012
+            },
+            {
+              "gate_id": "valid_ratio",
+              "passed": true,
+              "required": 0.75,
+              "actual": 1.0
+            },
+            {
+              "gate_id": "freshness_gap",
+              "passed": true,
+              "required": 12.0,
+              "actual": 0.051
+            }
+          ]
+        },
+        "score": 0.8791,
+        "hold_duration_s": 0.012,
+        "hold_duration_required_s": 5.0,
+        "failure_reasons": [
+          "data_quality_hold_duration_gap"
+        ],
+        "next_action_recommendation": "improve_frame_quality_and_freshness",
+        "available_channels": [
+          "frame_has_data",
+          "frame_usable",
+          "sample_index",
+          "stability_time_s",
+          "total_time_s",
+          "point_phase",
+          "point_tag"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      }
+    },
+    {
+      "operating_condition": {
+        "layer_name": "operating_condition",
+        "route_family": "water",
+        "signal_group": "reference",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.009
+            },
+            {
+              "gate_id": "valid_ratio",
+              "passed": true,
+              "required": 0.75,
+              "actual": 1.0
+            }
+          ]
+        },
+        "score": 1.0,
+        "hold_duration_s": 0.009,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "operating_condition_hold_duration_gap"
+        ],
+        "next_action_recommendation": "extend_operating_condition_hold",
+        "available_channels": [
+          "temperature_c",
+          "dew_point_c",
+          "pressure_hpa",
+          "pressure_gauge_hpa",
+          "pressure_reference_status"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "raw_response": {
+        "layer_name": "raw_response",
+        "route_family": "water",
+        "signal_group": "analyzer_raw",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.009
+            }
+          ]
+        },
+        "score": 0.6869,
+        "hold_duration_s": 0.009,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "raw_response_hold_duration_gap"
+        ],
+        "next_action_recommendation": "wait_for_raw_response_convergence",
+        "available_channels": [
+          "co2_ratio_raw",
+          "h2o_ratio_raw",
+          "ref_signal",
+          "co2_signal",
+          "h2o_signal",
+          "analyzer_pressure_kpa",
+          "analyzer_chamber_temp_c",
+          "case_temp_c",
+          "frame_status"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "output_result": {
+        "layer_name": "output_result",
+        "route_family": "water",
+        "signal_group": "output",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.009
+            }
+          ]
+        },
+        "score": 0.55,
+        "hold_duration_s": 0.009,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "output_result_hold_duration_gap",
+          "output_result_low_score"
+        ],
+        "next_action_recommendation": "wait_for_output_stability",
+        "available_channels": [
+          "co2_ppm",
+          "h2o_mmol",
+          "co2_ratio_f",
+          "h2o_ratio_f"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "data_quality": {
+        "layer_name": "data_quality",
+        "route_family": "water",
+        "signal_group": "data_quality",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 5.0,
+              "actual": 0.009
+            },
+            {
+              "gate_id": "valid_ratio",
+              "passed": true,
+              "required": 0.75,
+              "actual": 1.0
+            },
+            {
+              "gate_id": "freshness_gap",
+              "passed": true,
+              "required": 12.0,
+              "actual": 0.051
+            }
+          ]
+        },
+        "score": 0.8791,
+        "hold_duration_s": 0.009,
+        "hold_duration_required_s": 5.0,
+        "failure_reasons": [
+          "data_quality_hold_duration_gap"
+        ],
+        "next_action_recommendation": "improve_frame_quality_and_freshness",
+        "available_channels": [
+          "frame_has_data",
+          "frame_usable",
+          "sample_index",
+          "stability_time_s",
+          "total_time_s",
+          "point_phase",
+          "point_tag"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      }
+    },
+    {
+      "operating_condition": {
+        "layer_name": "operating_condition",
+        "route_family": "water",
+        "signal_group": "reference",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.012
+            },
+            {
+              "gate_id": "valid_ratio",
+              "passed": true,
+              "required": 0.75,
+              "actual": 1.0
+            }
+          ]
+        },
+        "score": 1.0,
+        "hold_duration_s": 0.012,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "operating_condition_hold_duration_gap"
+        ],
+        "next_action_recommendation": "extend_operating_condition_hold",
+        "available_channels": [
+          "temperature_c",
+          "dew_point_c",
+          "pressure_hpa",
+          "pressure_gauge_hpa",
+          "pressure_reference_status"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "raw_response": {
+        "layer_name": "raw_response",
+        "route_family": "water",
+        "signal_group": "analyzer_raw",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.012
+            }
+          ]
+        },
+        "score": 0.6869,
+        "hold_duration_s": 0.012,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "raw_response_hold_duration_gap"
+        ],
+        "next_action_recommendation": "wait_for_raw_response_convergence",
+        "available_channels": [
+          "co2_ratio_raw",
+          "h2o_ratio_raw",
+          "ref_signal",
+          "co2_signal",
+          "h2o_signal",
+          "analyzer_pressure_kpa",
+          "analyzer_chamber_temp_c",
+          "case_temp_c",
+          "frame_status"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "output_result": {
+        "layer_name": "output_result",
+        "route_family": "water",
+        "signal_group": "output",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 10.0,
+              "actual": 0.012
+            }
+          ]
+        },
+        "score": 0.55,
+        "hold_duration_s": 0.012,
+        "hold_duration_required_s": 10.0,
+        "failure_reasons": [
+          "output_result_hold_duration_gap",
+          "output_result_low_score"
+        ],
+        "next_action_recommendation": "wait_for_output_stability",
+        "available_channels": [
+          "co2_ppm",
+          "h2o_mmol",
+          "co2_ratio_f",
+          "h2o_ratio_f"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      },
+      "data_quality": {
+        "layer_name": "data_quality",
+        "route_family": "water",
+        "signal_group": "data_quality",
+        "hard_gate": {
+          "passed": false,
+          "checks": [
+            {
+              "gate_id": "required_channels",
+              "passed": true,
+              "required": 0,
+              "actual": 0
+            },
+            {
+              "gate_id": "hold_duration",
+              "passed": false,
+              "required": 5.0,
+              "actual": 0.012
+            },
+            {
+              "gate_id": "valid_ratio",
+              "passed": true,
+              "required": 0.75,
+              "actual": 1.0
+            },
+            {
+              "gate_id": "freshness_gap",
+              "passed": true,
+              "required": 12.0,
+              "actual": 0.051
+            }
+          ]
+        },
+        "score": 0.8791,
+        "hold_duration_s": 0.012,
+        "hold_duration_required_s": 5.0,
+        "failure_reasons": [
+          "data_quality_hold_duration_gap"
+        ],
+        "next_action_recommendation": "improve_frame_quality_and_freshness",
+        "available_channels": [
+          "frame_has_data",
+          "frame_usable",
+          "sample_index",
+          "stability_time_s",
+          "total_time_s",
+          "point_phase",
+          "point_tag"
+        ],
+        "missing_channels": [],
+        "sample_count": 16
+      }
+    }
+  ],
+  "shadow_evaluation_results": [
+    {
+      "window_id": "water-sample_ready-1",
+      "decision_result": "hold_time_gap",
+      "candidate_decision_result": "candidate_hold_time_gap",
+      "decision_diff": "hold_time_gap_vs_candidate_hold_time_gap",
+      "status": "degraded",
+      "candidate_status": "degraded",
+      "weighted_score": 0.7537,
+      "candidate_weighted_score": 0.7537,
+      "score_diff": 0.0,
+      "feature_set_version": "multi_source_stability.step2_shadow_v2",
+      "summary": "water/sample_ready | hold_time_gap vs candidate_hold_time_gap | score 0.75->0.75"
+    },
+    {
+      "window_id": "water-sample_ready-2",
+      "decision_result": "hold_time_gap",
+      "candidate_decision_result": "candidate_hold_time_gap",
+      "decision_diff": "hold_time_gap_vs_candidate_hold_time_gap",
+      "status": "degraded",
+      "candidate_status": "degraded",
+      "weighted_score": 0.7537,
+      "candidate_weighted_score": 0.7537,
+      "score_diff": 0.0,
+      "feature_set_version": "multi_source_stability.step2_shadow_v2",
+      "summary": "water/sample_ready | hold_time_gap vs candidate_hold_time_gap | score 0.75->0.75"
+    },
+    {
+      "window_id": "water-sample_ready-1",
+      "decision_result": "hold_time_gap",
+      "candidate_decision_result": "candidate_hold_time_gap",
+      "decision_diff": "hold_time_gap_vs_candidate_hold_time_gap",
+      "status": "degraded",
+      "candidate_status": "degraded",
+      "weighted_score": 0.7537,
+      "candidate_weighted_score": 0.7537,
+      "score_diff": 0.0,
+      "feature_set_version": "multi_source_stability.step2_shadow_v2",
+      "summary": "water/sample_ready | hold_time_gap vs candidate_hold_time_gap | score 0.75->0.75"
+    },
+    {
+      "window_id": "water-sample_ready-2",
+      "decision_result": "hold_time_gap",
+      "candidate_decision_result": "candidate_hold_time_gap",
+      "decision_diff": "hold_time_gap_vs_candidate_hold_time_gap",
+      "status": "degraded",
+      "candidate_status": "degraded",
+      "weighted_score": 0.7537,
+      "candidate_weighted_score": 0.7537,
+      "score_diff": 0.0,
+      "feature_set_version": "multi_source_stability.step2_shadow_v2",
+      "summary": "water/sample_ready | hold_time_gap vs candidate_hold_time_gap | score 0.75->0.75"
+    }
+  ],
+  "raw_signal_snapshots": [
+    {
+      "window_id": "water-sample_ready-1",
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "policy_version": "shadow_water_v1",
+      "available_analyzer_raw_channels": [
+        "co2_ratio_raw",
+        "h2o_ratio_raw",
+        "ref_signal",
+        "co2_signal",
+        "h2o_signal",
+        "analyzer_pressure_kpa",
+        "analyzer_chamber_temp_c",
+        "case_temp_c",
+        "frame_status"
+      ],
+      "available_output_channels": [
+        "co2_ppm",
+        "h2o_mmol",
+        "co2_ratio_f",
+        "h2o_ratio_f"
+      ],
+      "decision_result": "hold_time_gap"
+    },
+    {
+      "window_id": "water-sample_ready-2",
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "policy_version": "shadow_water_v1",
+      "available_analyzer_raw_channels": [
+        "co2_ratio_raw",
+        "h2o_ratio_raw",
+        "ref_signal",
+        "co2_signal",
+        "h2o_signal",
+        "analyzer_pressure_kpa",
+        "analyzer_chamber_temp_c",
+        "case_temp_c",
+        "frame_status"
+      ],
+      "available_output_channels": [
+        "co2_ppm",
+        "h2o_mmol",
+        "co2_ratio_f",
+        "h2o_ratio_f"
+      ],
+      "decision_result": "hold_time_gap"
+    },
+    {
+      "window_id": "water-sample_ready-1",
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "policy_version": "shadow_water_v1",
+      "available_analyzer_raw_channels": [
+        "co2_ratio_raw",
+        "h2o_ratio_raw",
+        "ref_signal",
+        "co2_signal",
+        "h2o_signal",
+        "analyzer_pressure_kpa",
+        "analyzer_chamber_temp_c",
+        "case_temp_c",
+        "frame_status"
+      ],
+      "available_output_channels": [
+        "co2_ppm",
+        "h2o_mmol",
+        "co2_ratio_f",
+        "h2o_ratio_f"
+      ],
+      "decision_result": "hold_time_gap"
+    },
+    {
+      "window_id": "water-sample_ready-2",
+      "route_family": "water",
+      "phase_policy": "sample_ready",
+      "policy_version": "shadow_water_v1",
+      "available_analyzer_raw_channels": [
+        "co2_ratio_raw",
+        "h2o_ratio_raw",
+        "ref_signal",
+        "co2_signal",
+        "h2o_signal",
+        "analyzer_pressure_kpa",
+        "analyzer_chamber_temp_c",
+        "case_temp_c",
+        "frame_status"
+      ],
+      "available_output_channels": [
+        "co2_ppm",
+        "h2o_mmol",
+        "co2_ratio_f",
+        "h2o_ratio_f"
+      ],
+      "decision_result": "hold_time_gap"
+    }
+  ],
+  "decision_counts": {
+    "hold_time_gap": 4
+  },
+  "status_counts": {
+    "degraded": 4
+  },
+  "coverage_counts": {
+    "complete": 4
+  },
+  "digest": {
+    "summary": "Step 2 tail / Stage 3 bridge | shadow evaluation only | windows 4 | routes water | coverage complete",
+    "policy_summary": "shadow_water_v1 | shadow_water_v1_candidate | multi_source_stability.step2_shadow_v2",
+    "phase_bucket_summary": "sample_ready 4 | preseal 1 | pressure_stable 1",
+    "route_family_summary": "water 4",
+    "layer_summary": "operating_condition 4/4 flagged | raw_response 4/4 flagged | output_result 4/4 flagged | data_quality 4/4 flagged",
+    "shadow_diff_summary": "changed 4/4 | max score diff 0.0000",
+    "coverage_summary": "reference complete | analyzer_raw complete | output complete | data_quality complete",
+    "decision_summary": "hold_time_gap 4",
+    "gap_summary": "no channel gaps detected",
+    "boundary_summary": "Step 2 tail / Stage 3 bridge | simulation / offline / headless only | not real acceptance | cannot replace real metrology validation | shadow evaluation only | does not modify live sampling gate by default"
+  },
+  "review_surface": {
+    "title_text": "Multi-source Stability Evidence",
+    "role_text": "diagnostic_analysis",
+    "reviewer_note": "Step 2 tail / Stage 3 bridge reviewer evidence. Shadow evaluation only and does not modify live sampling gate by default.",
+    "summary_text": "Step 2 tail / Stage 3 bridge | shadow evaluation only | windows 4 | routes water | coverage complete",
+    "summary_lines": [
+      "Step 2 tail / Stage 3 bridge | shadow evaluation only | windows 4 | routes water | coverage complete",
+      "policy versions: shadow_water_v1 | shadow_water_v1_candidate | multi_source_stability.step2_shadow_v2",
+      "phase buckets: sample_ready 4 | preseal 1 | pressure_stable 1",
+      "routes: water 4",
+      "layers: operating_condition 4/4 flagged | raw_response 4/4 flagged | output_result 4/4 flagged | data_quality 4/4 flagged",
+      "shadow diff: changed 4/4 | max score diff 0.0000",
+      "decision summary: hold_time_gap 4",
+      "coverage: reference complete | analyzer_raw complete | output complete | data_quality complete"
+    ],
+    "detail_lines": [
+      "route families: water",
+      "phase policies: sample_ready, preseal, pressure_stable",
+      "missing channels: no channel gaps detected",
+      "policy profile: routes water | main 1 | candidate 1 | feature multi_source_stability.step2_shadow_v2",
+      "decision rollup: hold_time_gap 4",
+      "boundary: Step 2 tail / Stage 3 bridge",
+      "boundary: simulation / offline / headless only",
+      "boundary: not real acceptance",
+      "boundary: cannot replace real metrology validation",
+      "boundary: shadow evaluation only",
+      "boundary: does not modify live sampling gate by default"
+    ],
+    "anchor_id": "multi-source-stability-evidence",
+    "anchor_label": "Multi-source stability evidence",
+    "phase_filters": [
+      "sample_ready",
+      "preseal",
+      "pressure_stable"
+    ],
+    "route_filters": [
+      "water"
+    ],
+    "signal_family_filters": [
+      "reference",
+      "analyzer_raw",
+      "output",
+      "data_quality"
+    ],
+    "decision_result_filters": [
+      "hold_time_gap",
+      "candidate_hold_time_gap",
+      "hold_time_gap_vs_candidate_hold_time_gap"
+    ],
+    "policy_version_filters": [
+      "shadow_water_v1",
+      "shadow_water_v1_candidate",
+      "multi_source_stability.step2_shadow_v2"
+    ],
+    "boundary_filters": [
+      "Step 2 tail / Stage 3 bridge",
+      "simulation / offline / headless only",
+      "not real acceptance",
+      "cannot replace real metrology validation",
+      "shadow evaluation only",
+      "does not modify live sampling gate by default"
+    ],
+    "evidence_source_filters": [
+      "actual_simulated_run",
+      "shadow_candidate_policy"
+    ],
+    "artifact_paths": {
+      "multi_source_stability_evidence": "D:\\gas_calibrator\\_handoff\\a2_14_rs485_preflight_suites\\smoke_pre_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_150846\\multi_source_stability_evidence.json",
+      "multi_source_stability_evidence_markdown": "D:\\gas_calibrator\\_handoff\\a2_14_rs485_preflight_suites\\smoke_pre_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_150846\\multi_source_stability_evidence.md"
+    }
+  },
+  "artifact_paths": {
+    "multi_source_stability_evidence": "D:\\gas_calibrator\\_handoff\\a2_14_rs485_preflight_suites\\smoke_pre_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_150846\\multi_source_stability_evidence.json",
+    "multi_source_stability_evidence_markdown": "D:\\gas_calibrator\\_handoff\\a2_14_rs485_preflight_suites\\smoke_pre_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_150846\\multi_source_stability_evidence.md"
+  }
+}

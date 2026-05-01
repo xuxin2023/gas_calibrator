@@ -1,0 +1,1949 @@
+timestamp,device,direction,data
+2026-04-30T16:13:04.288,PACE5000Fake,TX,"set_in_limits(0.02, 10.0)"
+2026-04-30T16:13:04.290,PACE5000Fake,RX,ok
+2026-04-30T16:13:04.355,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:04.356,RelayFake,RX,ok
+2026-04-30T16:13:04.358,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:04.359,RelayFake,RX,ok
+2026-04-30T16:13:04.366,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:04.369,RelayFake,RX,ok
+2026-04-30T16:13:04.372,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:04.374,RelayFake,RX,ok
+2026-04-30T16:13:04.377,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:04.384,RelayFake,RX,ok
+2026-04-30T16:13:04.388,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:04.391,RelayFake,RX,ok
+2026-04-30T16:13:04.393,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:04.399,RelayFake,RX,ok
+2026-04-30T16:13:04.403,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:04.406,RelayFake,RX,ok
+2026-04-30T16:13:04.408,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:04.409,RelayFake,RX,ok
+2026-04-30T16:13:04.410,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:04.411,RelayFake,RX,ok
+2026-04-30T16:13:04.412,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:04.413,RelayFake,RX,ok
+2026-04-30T16:13:04.414,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:04.415,RelayFake,RX,ok
+2026-04-30T16:13:04.416,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:04.423,RelayFake,RX,ok
+2026-04-30T16:13:04.427,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:04.435,RelayFake,RX,ok
+2026-04-30T16:13:04.441,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:04.443,RelayFake,RX,ok
+2026-04-30T16:13:04.445,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:04.446,RelayFake,RX,ok
+2026-04-30T16:13:04.447,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:04.448,RelayFake,RX,ok
+2026-04-30T16:13:04.455,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:04.459,RelayFake,RX,ok
+2026-04-30T16:13:04.471,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:04.475,PACE5000Fake,RX,ok
+2026-04-30T16:13:04.477,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:04.478,PACE5000Fake,RX,ok
+2026-04-30T16:13:04.479,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:04.480,PACE5000Fake,RX,ok
+2026-04-30T16:13:04.490,GRZ5013Fake,TX,set_target_temp(10.0)
+2026-04-30T16:13:04.493,GRZ5013Fake,RX,ok
+2026-04-30T16:13:04.499,GRZ5013Fake,TX,set_relative_humidity_pct(30.0)
+2026-04-30T16:13:04.504,GRZ5013Fake,RX,ok
+2026-04-30T16:13:04.509,TemperatureChamberFake,TX,set_temp_c(10.0)
+2026-04-30T16:13:04.510,TemperatureChamberFake,RX,ok
+2026-04-30T16:13:04.512,TemperatureChamberFake,TX,start()
+2026-04-30T16:13:04.513,TemperatureChamberFake,RX,ok
+2026-04-30T16:13:06.650,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:06.654,PACE5000Fake,RX,ok
+2026-04-30T16:13:06.656,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:06.658,PACE5000Fake,RX,ok
+2026-04-30T16:13:06.662,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:06.667,PACE5000Fake,RX,ok
+2026-04-30T16:13:06.673,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:06.676,RelayFake,RX,ok
+2026-04-30T16:13:06.682,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:06.686,RelayFake,RX,ok
+2026-04-30T16:13:06.690,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:06.692,RelayFake,RX,ok
+2026-04-30T16:13:06.697,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:06.701,RelayFake,RX,ok
+2026-04-30T16:13:06.706,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:06.709,RelayFake,RX,ok
+2026-04-30T16:13:06.716,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:06.720,RelayFake,RX,ok
+2026-04-30T16:13:06.723,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:06.725,RelayFake,RX,ok
+2026-04-30T16:13:06.730,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:06.736,RelayFake,RX,ok
+2026-04-30T16:13:06.738,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:06.741,RelayFake,RX,ok
+2026-04-30T16:13:06.742,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:06.744,RelayFake,RX,ok
+2026-04-30T16:13:06.745,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:06.746,RelayFake,RX,ok
+2026-04-30T16:13:06.747,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:06.749,RelayFake,RX,ok
+2026-04-30T16:13:06.757,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:06.763,RelayFake,RX,ok
+2026-04-30T16:13:06.770,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:06.774,RelayFake,RX,ok
+2026-04-30T16:13:06.776,RelayFake,TX,"set_valve(1, True)"
+2026-04-30T16:13:06.778,RelayFake,RX,ok
+2026-04-30T16:13:06.779,RelayFake,TX,"set_valve(2, True)"
+2026-04-30T16:13:06.780,RelayFake,RX,ok
+2026-04-30T16:13:06.781,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:06.784,RelayFake,RX,ok
+2026-04-30T16:13:06.792,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:06.798,RelayFake,RX,ok
+2026-04-30T16:13:07.474,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:07.726,pressure_controller,RX,ok
+2026-04-30T16:13:07.736,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:07.740,RelayFake,RX,ok
+2026-04-30T16:13:07.742,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:07.746,RelayFake,RX,ok
+2026-04-30T16:13:07.751,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:07.755,RelayFake,RX,ok
+2026-04-30T16:13:07.758,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:07.762,RelayFake,RX,ok
+2026-04-30T16:13:07.768,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:07.773,RelayFake,RX,ok
+2026-04-30T16:13:07.775,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:07.780,RelayFake,RX,ok
+2026-04-30T16:13:07.784,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:07.790,RelayFake,RX,ok
+2026-04-30T16:13:07.792,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:07.799,RelayFake,RX,ok
+2026-04-30T16:13:07.803,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:07.807,RelayFake,RX,ok
+2026-04-30T16:13:07.809,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:07.813,RelayFake,RX,ok
+2026-04-30T16:13:07.817,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:07.822,RelayFake,RX,ok
+2026-04-30T16:13:07.824,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:07.826,RelayFake,RX,ok
+2026-04-30T16:13:07.832,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:07.836,RelayFake,RX,ok
+2026-04-30T16:13:07.840,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:07.842,RelayFake,RX,ok
+2026-04-30T16:13:07.849,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:07.854,RelayFake,RX,ok
+2026-04-30T16:13:07.857,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:07.859,RelayFake,RX,ok
+2026-04-30T16:13:07.867,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:07.871,RelayFake,RX,ok
+2026-04-30T16:13:07.875,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:07.879,RelayFake,RX,ok
+2026-04-30T16:13:07.891,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:07.892,PACE5000Fake,RX,ok
+2026-04-30T16:13:07.989,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:07.991,PACE5000Fake,RX,ok
+2026-04-30T16:13:08.088,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:08.091,PACE5000Fake,RX,ok
+2026-04-30T16:13:08.189,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:08.191,PACE5000Fake,RX,ok
+2026-04-30T16:13:08.290,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:08.292,PACE5000Fake,RX,ok
+2026-04-30T16:13:08.298,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:08.303,PACE5000Fake,RX,ok
+2026-04-30T16:13:08.306,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:08.309,PACE5000Fake,RX,ok
+2026-04-30T16:13:08.317,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:08.322,RelayFake,RX,ok
+2026-04-30T16:13:08.325,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:08.327,RelayFake,RX,ok
+2026-04-30T16:13:08.333,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:08.337,RelayFake,RX,ok
+2026-04-30T16:13:08.340,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:08.343,RelayFake,RX,ok
+2026-04-30T16:13:08.350,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:08.355,RelayFake,RX,ok
+2026-04-30T16:13:08.357,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:08.362,RelayFake,RX,ok
+2026-04-30T16:13:08.368,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:08.371,RelayFake,RX,ok
+2026-04-30T16:13:08.374,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:08.378,RelayFake,RX,ok
+2026-04-30T16:13:08.384,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:08.388,RelayFake,RX,ok
+2026-04-30T16:13:08.390,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:08.392,RelayFake,RX,ok
+2026-04-30T16:13:08.399,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:08.404,RelayFake,RX,ok
+2026-04-30T16:13:08.407,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:08.409,RelayFake,RX,ok
+2026-04-30T16:13:08.415,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:08.421,RelayFake,RX,ok
+2026-04-30T16:13:08.424,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:08.429,RelayFake,RX,ok
+2026-04-30T16:13:08.436,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:08.441,RelayFake,RX,ok
+2026-04-30T16:13:08.443,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:08.445,RelayFake,RX,ok
+2026-04-30T16:13:08.446,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:08.447,RelayFake,RX,ok
+2026-04-30T16:13:08.449,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:08.458,RelayFake,RX,ok
+2026-04-30T16:13:08.479,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:08.481,RelayFake,RX,ok
+2026-04-30T16:13:08.484,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:08.491,RelayFake,RX,ok
+2026-04-30T16:13:08.498,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:08.503,RelayFake,RX,ok
+2026-04-30T16:13:08.507,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:08.510,RelayFake,RX,ok
+2026-04-30T16:13:08.512,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:08.513,RelayFake,RX,ok
+2026-04-30T16:13:08.514,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:08.522,RelayFake,RX,ok
+2026-04-30T16:13:08.526,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:08.533,RelayFake,RX,ok
+2026-04-30T16:13:08.538,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:08.542,RelayFake,RX,ok
+2026-04-30T16:13:08.544,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:08.546,RelayFake,RX,ok
+2026-04-30T16:13:08.547,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:08.548,RelayFake,RX,ok
+2026-04-30T16:13:08.556,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:08.565,RelayFake,RX,ok
+2026-04-30T16:13:08.576,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:08.579,RelayFake,RX,ok
+2026-04-30T16:13:08.581,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:08.589,RelayFake,RX,ok
+2026-04-30T16:13:08.596,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:08.605,RelayFake,RX,ok
+2026-04-30T16:13:08.609,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:08.611,RelayFake,RX,ok
+2026-04-30T16:13:08.613,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:08.615,RelayFake,RX,ok
+2026-04-30T16:13:08.623,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:08.631,RelayFake,RX,ok
+2026-04-30T16:13:08.639,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:08.643,RelayFake,RX,ok
+2026-04-30T16:13:08.646,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:08.648,PACE5000Fake,RX,ok
+2026-04-30T16:13:08.653,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:08.659,PACE5000Fake,RX,ok
+2026-04-30T16:13:08.666,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:08.672,PACE5000Fake,RX,ok
+2026-04-30T16:13:08.678,GRZ5013Fake,TX,set_target_temp(10.0)
+2026-04-30T16:13:08.680,GRZ5013Fake,RX,ok
+2026-04-30T16:13:08.681,GRZ5013Fake,TX,set_relative_humidity_pct(50.0)
+2026-04-30T16:13:08.689,GRZ5013Fake,RX,ok
+2026-04-30T16:13:10.222,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:10.225,PACE5000Fake,RX,ok
+2026-04-30T16:13:10.228,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:10.234,PACE5000Fake,RX,ok
+2026-04-30T16:13:10.239,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:10.242,PACE5000Fake,RX,ok
+2026-04-30T16:13:10.254,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:10.258,RelayFake,RX,ok
+2026-04-30T16:13:10.261,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:10.262,RelayFake,RX,ok
+2026-04-30T16:13:10.264,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:10.269,RelayFake,RX,ok
+2026-04-30T16:13:10.275,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:10.282,RelayFake,RX,ok
+2026-04-30T16:13:10.289,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:10.293,RelayFake,RX,ok
+2026-04-30T16:13:10.296,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:10.297,RelayFake,RX,ok
+2026-04-30T16:13:10.304,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:10.313,RelayFake,RX,ok
+2026-04-30T16:13:10.320,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:10.324,RelayFake,RX,ok
+2026-04-30T16:13:10.326,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:10.328,RelayFake,RX,ok
+2026-04-30T16:13:10.330,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:10.333,RelayFake,RX,ok
+2026-04-30T16:13:10.342,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:10.350,RelayFake,RX,ok
+2026-04-30T16:13:10.357,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:10.359,RelayFake,RX,ok
+2026-04-30T16:13:10.362,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:10.363,RelayFake,RX,ok
+2026-04-30T16:13:10.365,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:10.372,RelayFake,RX,ok
+2026-04-30T16:13:10.377,RelayFake,TX,"set_valve(1, True)"
+2026-04-30T16:13:10.386,RelayFake,RX,ok
+2026-04-30T16:13:10.390,RelayFake,TX,"set_valve(2, True)"
+2026-04-30T16:13:10.393,RelayFake,RX,ok
+2026-04-30T16:13:10.395,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:10.396,RelayFake,RX,ok
+2026-04-30T16:13:10.398,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:10.408,RelayFake,RX,ok
+2026-04-30T16:13:10.983,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:11.238,pressure_controller,RX,ok
+2026-04-30T16:13:11.245,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:11.254,RelayFake,RX,ok
+2026-04-30T16:13:11.259,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:11.267,RelayFake,RX,ok
+2026-04-30T16:13:11.273,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:11.278,RelayFake,RX,ok
+2026-04-30T16:13:11.284,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:11.290,RelayFake,RX,ok
+2026-04-30T16:13:11.294,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:11.301,RelayFake,RX,ok
+2026-04-30T16:13:11.307,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:11.311,RelayFake,RX,ok
+2026-04-30T16:13:11.317,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:11.323,RelayFake,RX,ok
+2026-04-30T16:13:11.327,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:11.335,RelayFake,RX,ok
+2026-04-30T16:13:11.340,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:11.344,RelayFake,RX,ok
+2026-04-30T16:13:11.351,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:11.357,RelayFake,RX,ok
+2026-04-30T16:13:11.360,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:11.367,RelayFake,RX,ok
+2026-04-30T16:13:11.371,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:11.374,RelayFake,RX,ok
+2026-04-30T16:13:11.379,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:11.385,RelayFake,RX,ok
+2026-04-30T16:13:11.389,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:11.392,RelayFake,RX,ok
+2026-04-30T16:13:11.398,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:11.404,RelayFake,RX,ok
+2026-04-30T16:13:11.408,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:11.412,RelayFake,RX,ok
+2026-04-30T16:13:11.418,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:11.423,RelayFake,RX,ok
+2026-04-30T16:13:11.429,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:11.435,RelayFake,RX,ok
+2026-04-30T16:13:11.444,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:11.453,PACE5000Fake,RX,ok
+2026-04-30T16:13:11.557,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:11.563,PACE5000Fake,RX,ok
+2026-04-30T16:13:11.674,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:11.680,PACE5000Fake,RX,ok
+2026-04-30T16:13:11.789,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:11.792,PACE5000Fake,RX,ok
+2026-04-30T16:13:11.904,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:11.909,PACE5000Fake,RX,ok
+2026-04-30T16:13:11.915,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:11.921,PACE5000Fake,RX,ok
+2026-04-30T16:13:11.925,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:11.931,PACE5000Fake,RX,ok
+2026-04-30T16:13:11.939,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:11.943,RelayFake,RX,ok
+2026-04-30T16:13:11.951,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:11.957,RelayFake,RX,ok
+2026-04-30T16:13:11.964,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:11.972,RelayFake,RX,ok
+2026-04-30T16:13:11.978,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:11.985,RelayFake,RX,ok
+2026-04-30T16:13:11.990,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:11.994,RelayFake,RX,ok
+2026-04-30T16:13:12.001,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:12.006,RelayFake,RX,ok
+2026-04-30T16:13:12.011,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:12.019,RelayFake,RX,ok
+2026-04-30T16:13:12.024,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:12.031,RelayFake,RX,ok
+2026-04-30T16:13:12.037,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:12.042,RelayFake,RX,ok
+2026-04-30T16:13:12.049,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:12.054,RelayFake,RX,ok
+2026-04-30T16:13:12.058,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:12.066,RelayFake,RX,ok
+2026-04-30T16:13:12.072,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:12.075,RelayFake,RX,ok
+2026-04-30T16:13:12.082,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:12.088,RelayFake,RX,ok
+2026-04-30T16:13:12.093,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:12.102,RelayFake,RX,ok
+2026-04-30T16:13:12.109,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:12.117,RelayFake,RX,ok
+2026-04-30T16:13:12.124,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:12.127,RelayFake,RX,ok
+2026-04-30T16:13:12.129,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:12.131,RelayFake,RX,ok
+2026-04-30T16:13:12.142,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:12.151,RelayFake,RX,ok
+2026-04-30T16:13:12.164,GRZ5013Fake,TX,set_target_temp(20.0)
+2026-04-30T16:13:12.172,GRZ5013Fake,RX,ok
+2026-04-30T16:13:12.180,GRZ5013Fake,TX,set_relative_humidity_pct(40.0)
+2026-04-30T16:13:12.189,GRZ5013Fake,RX,ok
+2026-04-30T16:13:12.196,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:12.198,RelayFake,RX,ok
+2026-04-30T16:13:12.207,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:12.213,RelayFake,RX,ok
+2026-04-30T16:13:12.223,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:12.227,RelayFake,RX,ok
+2026-04-30T16:13:12.229,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:12.231,RelayFake,RX,ok
+2026-04-30T16:13:12.238,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:12.249,RelayFake,RX,ok
+2026-04-30T16:13:12.258,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:12.262,RelayFake,RX,ok
+2026-04-30T16:13:12.264,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:12.272,RelayFake,RX,ok
+2026-04-30T16:13:12.280,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:12.288,RelayFake,RX,ok
+2026-04-30T16:13:12.292,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:12.295,RelayFake,RX,ok
+2026-04-30T16:13:12.297,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:12.304,RelayFake,RX,ok
+2026-04-30T16:13:12.311,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:12.319,RelayFake,RX,ok
+2026-04-30T16:13:12.325,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:12.328,RelayFake,RX,ok
+2026-04-30T16:13:12.330,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:12.336,RelayFake,RX,ok
+2026-04-30T16:13:12.343,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:12.354,RelayFake,RX,ok
+2026-04-30T16:13:12.359,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:12.361,RelayFake,RX,ok
+2026-04-30T16:13:12.363,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:12.365,RelayFake,RX,ok
+2026-04-30T16:13:12.374,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:12.381,RelayFake,RX,ok
+2026-04-30T16:13:12.390,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:12.393,RelayFake,RX,ok
+2026-04-30T16:13:12.396,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:12.400,PACE5000Fake,RX,ok
+2026-04-30T16:13:12.409,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:12.415,PACE5000Fake,RX,ok
+2026-04-30T16:13:12.422,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:12.427,PACE5000Fake,RX,ok
+2026-04-30T16:13:12.430,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:12.437,RelayFake,RX,ok
+2026-04-30T16:13:12.445,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:12.452,RelayFake,RX,ok
+2026-04-30T16:13:12.457,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:12.460,RelayFake,RX,ok
+2026-04-30T16:13:12.462,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:12.464,RelayFake,RX,ok
+2026-04-30T16:13:12.472,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:12.480,RelayFake,RX,ok
+2026-04-30T16:13:12.491,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:12.495,RelayFake,RX,ok
+2026-04-30T16:13:12.497,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:12.502,RelayFake,RX,ok
+2026-04-30T16:13:12.510,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:12.519,RelayFake,RX,ok
+2026-04-30T16:13:12.524,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:12.527,RelayFake,RX,ok
+2026-04-30T16:13:12.529,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:12.533,RelayFake,RX,ok
+2026-04-30T16:13:12.542,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:12.553,RelayFake,RX,ok
+2026-04-30T16:13:12.558,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:12.561,RelayFake,RX,ok
+2026-04-30T16:13:12.563,RelayFake,TX,"set_valve(15, True)"
+2026-04-30T16:13:12.567,RelayFake,RX,ok
+2026-04-30T16:13:12.575,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:12.584,RelayFake,RX,ok
+2026-04-30T16:13:12.591,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:12.595,RelayFake,RX,ok
+2026-04-30T16:13:12.597,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:12.604,RelayFake,RX,ok
+2026-04-30T16:13:12.614,RelayFake,TX,"set_valve(3, True)"
+2026-04-30T16:13:12.624,RelayFake,RX,ok
+2026-04-30T16:13:12.629,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:12.631,RelayFake,RX,ok
+2026-04-30T16:13:12.643,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:12.651,PACE5000Fake,RX,ok
+2026-04-30T16:13:12.658,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:12.661,PACE5000Fake,RX,ok
+2026-04-30T16:13:12.663,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:12.665,PACE5000Fake,RX,ok
+2026-04-30T16:13:12.698,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:12.707,RelayFake,RX,ok
+2026-04-30T16:13:12.717,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:12.724,RelayFake,RX,ok
+2026-04-30T16:13:12.727,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:12.729,RelayFake,RX,ok
+2026-04-30T16:13:12.731,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:12.740,RelayFake,RX,ok
+2026-04-30T16:13:12.749,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:12.756,RelayFake,RX,ok
+2026-04-30T16:13:12.759,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:12.762,RelayFake,RX,ok
+2026-04-30T16:13:12.764,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:12.771,RelayFake,RX,ok
+2026-04-30T16:13:12.777,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:12.788,RelayFake,RX,ok
+2026-04-30T16:13:12.793,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:12.796,RelayFake,RX,ok
+2026-04-30T16:13:12.798,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:12.809,RelayFake,RX,ok
+2026-04-30T16:13:12.817,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:12.824,RelayFake,RX,ok
+2026-04-30T16:13:12.827,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:12.829,RelayFake,RX,ok
+2026-04-30T16:13:12.831,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:12.850,RelayFake,RX,ok
+2026-04-30T16:13:12.857,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:12.861,RelayFake,RX,ok
+2026-04-30T16:13:12.863,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:12.865,RelayFake,RX,ok
+2026-04-30T16:13:12.875,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:12.884,RelayFake,RX,ok
+2026-04-30T16:13:12.892,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:12.895,RelayFake,RX,ok
+2026-04-30T16:13:12.897,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:12.905,RelayFake,RX,ok
+2026-04-30T16:13:12.917,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:12.923,PACE5000Fake,RX,ok
+2026-04-30T16:13:12.927,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:12.929,PACE5000Fake,RX,ok
+2026-04-30T16:13:12.934,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:12.944,PACE5000Fake,RX,ok
+2026-04-30T16:13:12.956,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:12.960,RelayFake,RX,ok
+2026-04-30T16:13:12.962,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:12.964,RelayFake,RX,ok
+2026-04-30T16:13:12.972,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:12.979,RelayFake,RX,ok
+2026-04-30T16:13:12.988,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:12.992,RelayFake,RX,ok
+2026-04-30T16:13:12.996,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:12.998,RelayFake,RX,ok
+2026-04-30T16:13:13.010,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:13.022,RelayFake,RX,ok
+2026-04-30T16:13:13.026,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:13.029,RelayFake,RX,ok
+2026-04-30T16:13:13.031,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:13.041,RelayFake,RX,ok
+2026-04-30T16:13:13.054,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:13.058,RelayFake,RX,ok
+2026-04-30T16:13:13.061,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:13.064,RelayFake,RX,ok
+2026-04-30T16:13:13.075,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:13.090,RelayFake,RX,ok
+2026-04-30T16:13:13.095,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:13.098,RelayFake,RX,ok
+2026-04-30T16:13:13.110,RelayFake,TX,"set_valve(15, True)"
+2026-04-30T16:13:13.128,RelayFake,RX,ok
+2026-04-30T16:13:13.139,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:13.153,RelayFake,RX,ok
+2026-04-30T16:13:13.164,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:13.173,RelayFake,RX,ok
+2026-04-30T16:13:13.185,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:13.195,RelayFake,RX,ok
+2026-04-30T16:13:13.206,RelayFake,TX,"set_valve(3, True)"
+2026-04-30T16:13:13.222,RelayFake,RX,ok
+2026-04-30T16:13:13.230,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:13.234,RelayFake,RX,ok
+2026-04-30T16:13:13.258,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:13.516,pressure_controller,RX,ok
+2026-04-30T16:13:13.532,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:13.539,RelayFake,RX,ok
+2026-04-30T16:13:13.547,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:13.556,RelayFake,RX,ok
+2026-04-30T16:13:13.560,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:13.571,RelayFake,RX,ok
+2026-04-30T16:13:13.576,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:13.587,RelayFake,RX,ok
+2026-04-30T16:13:13.593,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:13.604,RelayFake,RX,ok
+2026-04-30T16:13:13.609,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:13.621,RelayFake,RX,ok
+2026-04-30T16:13:13.627,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:13.639,RelayFake,RX,ok
+2026-04-30T16:13:13.649,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:13.656,RelayFake,RX,ok
+2026-04-30T16:13:13.659,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:13.662,RelayFake,RX,ok
+2026-04-30T16:13:13.664,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:13.675,RelayFake,RX,ok
+2026-04-30T16:13:13.687,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:13.694,RelayFake,RX,ok
+2026-04-30T16:13:13.698,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:13.716,RelayFake,RX,ok
+2026-04-30T16:13:13.724,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:13.728,RelayFake,RX,ok
+2026-04-30T16:13:13.731,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:13.742,RelayFake,RX,ok
+2026-04-30T16:13:13.751,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:13.760,RelayFake,RX,ok
+2026-04-30T16:13:13.763,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:13.771,RelayFake,RX,ok
+2026-04-30T16:13:13.783,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:13.792,RelayFake,RX,ok
+2026-04-30T16:13:13.797,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:13.803,RelayFake,RX,ok
+2026-04-30T16:13:13.824,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:13.829,PACE5000Fake,RX,ok
+2026-04-30T16:13:13.956,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:13.960,PACE5000Fake,RX,ok
+2026-04-30T16:13:14.078,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:14.085,PACE5000Fake,RX,ok
+2026-04-30T16:13:14.215,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:14.228,PACE5000Fake,RX,ok
+2026-04-30T16:13:14.382,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:14.395,RelayFake,RX,ok
+2026-04-30T16:13:14.408,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:14.412,RelayFake,RX,ok
+2026-04-30T16:13:14.419,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:14.433,RelayFake,RX,ok
+2026-04-30T16:13:14.443,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:14.447,RelayFake,RX,ok
+2026-04-30T16:13:14.456,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:14.469,RelayFake,RX,ok
+2026-04-30T16:13:14.478,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:14.480,RelayFake,RX,ok
+2026-04-30T16:13:14.488,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:14.495,RelayFake,RX,ok
+2026-04-30T16:13:14.503,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:14.507,RelayFake,RX,ok
+2026-04-30T16:13:14.511,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:14.514,RelayFake,RX,ok
+2026-04-30T16:13:14.522,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:14.530,RelayFake,RX,ok
+2026-04-30T16:13:14.541,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:14.546,RelayFake,RX,ok
+2026-04-30T16:13:14.548,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:14.559,RelayFake,RX,ok
+2026-04-30T16:13:14.570,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:14.577,RelayFake,RX,ok
+2026-04-30T16:13:14.579,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:14.587,RelayFake,RX,ok
+2026-04-30T16:13:14.596,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:14.606,RelayFake,RX,ok
+2026-04-30T16:13:14.609,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:14.612,RelayFake,RX,ok
+2026-04-30T16:13:14.615,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:14.629,RelayFake,RX,ok
+2026-04-30T16:13:14.638,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:14.643,RelayFake,RX,ok
+2026-04-30T16:13:14.646,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:14.655,PACE5000Fake,RX,ok
+2026-04-30T16:13:14.667,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:14.678,PACE5000Fake,RX,ok
+2026-04-30T16:13:14.681,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:14.692,PACE5000Fake,RX,ok
+2026-04-30T16:13:14.727,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:14.743,RelayFake,RX,ok
+2026-04-30T16:13:14.747,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:14.756,RelayFake,RX,ok
+2026-04-30T16:13:14.766,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:14.776,RelayFake,RX,ok
+2026-04-30T16:13:14.780,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:14.791,RelayFake,RX,ok
+2026-04-30T16:13:14.804,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:14.811,RelayFake,RX,ok
+2026-04-30T16:13:14.819,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:14.834,RelayFake,RX,ok
+2026-04-30T16:13:14.844,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:14.850,RelayFake,RX,ok
+2026-04-30T16:13:14.868,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:14.880,RelayFake,RX,ok
+2026-04-30T16:13:14.889,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:14.902,RelayFake,RX,ok
+2026-04-30T16:13:14.910,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:14.914,RelayFake,RX,ok
+2026-04-30T16:13:14.926,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:14.941,RelayFake,RX,ok
+2026-04-30T16:13:14.945,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:14.952,RelayFake,RX,ok
+2026-04-30T16:13:14.963,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:14.975,RelayFake,RX,ok
+2026-04-30T16:13:14.979,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:14.987,RelayFake,RX,ok
+2026-04-30T16:13:15.001,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:15.011,RelayFake,RX,ok
+2026-04-30T16:13:15.014,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:15.024,RelayFake,RX,ok
+2026-04-30T16:13:15.033,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:15.042,RelayFake,RX,ok
+2026-04-30T16:13:15.046,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:15.056,RelayFake,RX,ok
+2026-04-30T16:13:15.071,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:15.077,PACE5000Fake,RX,ok
+2026-04-30T16:13:15.080,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:15.099,PACE5000Fake,RX,ok
+2026-04-30T16:13:15.109,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:15.113,PACE5000Fake,RX,ok
+2026-04-30T16:13:15.134,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:15.144,RelayFake,RX,ok
+2026-04-30T16:13:15.151,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:15.169,RelayFake,RX,ok
+2026-04-30T16:13:15.178,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:15.189,RelayFake,RX,ok
+2026-04-30T16:13:15.203,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:15.211,RelayFake,RX,ok
+2026-04-30T16:13:15.219,RelayFake,TX,"set_valve(5, True)"
+2026-04-30T16:13:15.231,RelayFake,RX,ok
+2026-04-30T16:13:15.240,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:15.245,RelayFake,RX,ok
+2026-04-30T16:13:15.257,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:15.274,RelayFake,RX,ok
+2026-04-30T16:13:15.280,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:15.289,RelayFake,RX,ok
+2026-04-30T16:13:15.301,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:15.309,RelayFake,RX,ok
+2026-04-30T16:13:15.312,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:15.315,RelayFake,RX,ok
+2026-04-30T16:13:15.326,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:15.337,RelayFake,RX,ok
+2026-04-30T16:13:15.345,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:15.348,RelayFake,RX,ok
+2026-04-30T16:13:15.358,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:15.367,RelayFake,RX,ok
+2026-04-30T16:13:15.375,RelayFake,TX,"set_valve(16, True)"
+2026-04-30T16:13:15.379,RelayFake,RX,ok
+2026-04-30T16:13:15.381,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:15.395,RelayFake,RX,ok
+2026-04-30T16:13:15.405,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:15.410,RelayFake,RX,ok
+2026-04-30T16:13:15.413,RelayFake,TX,"set_valve(3, True)"
+2026-04-30T16:13:15.422,RelayFake,RX,ok
+2026-04-30T16:13:15.428,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:15.437,RelayFake,RX,ok
+2026-04-30T16:13:15.443,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:15.446,PACE5000Fake,RX,ok
+2026-04-30T16:13:15.450,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:15.466,PACE5000Fake,RX,ok
+2026-04-30T16:13:15.475,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:15.479,PACE5000Fake,RX,ok
+2026-04-30T16:13:15.504,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:15.759,pressure_controller,RX,ok
+2026-04-30T16:13:15.775,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:15.784,RelayFake,RX,ok
+2026-04-30T16:13:15.790,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:15.795,RelayFake,RX,ok
+2026-04-30T16:13:15.798,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:15.807,RelayFake,RX,ok
+2026-04-30T16:13:15.816,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:15.826,RelayFake,RX,ok
+2026-04-30T16:13:15.829,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:15.837,RelayFake,RX,ok
+2026-04-30T16:13:15.849,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:15.856,RelayFake,RX,ok
+2026-04-30T16:13:15.860,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:15.863,RelayFake,RX,ok
+2026-04-30T16:13:15.869,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:15.882,RelayFake,RX,ok
+2026-04-30T16:13:15.893,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:15.897,RelayFake,RX,ok
+2026-04-30T16:13:15.906,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:15.916,RelayFake,RX,ok
+2026-04-30T16:13:15.924,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:15.928,RelayFake,RX,ok
+2026-04-30T16:13:15.931,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:15.939,RelayFake,RX,ok
+2026-04-30T16:13:15.948,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:15.957,RelayFake,RX,ok
+2026-04-30T16:13:15.963,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:15.971,RelayFake,RX,ok
+2026-04-30T16:13:15.982,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:15.991,RelayFake,RX,ok
+2026-04-30T16:13:15.994,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:15.997,RelayFake,RX,ok
+2026-04-30T16:13:16.005,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:16.015,RelayFake,RX,ok
+2026-04-30T16:13:16.025,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:16.029,RelayFake,RX,ok
+2026-04-30T16:13:16.043,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:16.057,PACE5000Fake,RX,ok
+2026-04-30T16:13:16.196,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:16.206,PACE5000Fake,RX,ok
+2026-04-30T16:13:16.343,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:16.352,PACE5000Fake,RX,ok
+2026-04-30T16:13:16.486,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:16.491,PACE5000Fake,RX,ok
+2026-04-30T16:13:16.658,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:16.666,RelayFake,RX,ok
+2026-04-30T16:13:16.672,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:16.678,RelayFake,RX,ok
+2026-04-30T16:13:16.687,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:16.692,RelayFake,RX,ok
+2026-04-30T16:13:16.700,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:16.709,RelayFake,RX,ok
+2026-04-30T16:13:16.717,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:16.724,RelayFake,RX,ok
+2026-04-30T16:13:16.732,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:16.740,RelayFake,RX,ok
+2026-04-30T16:13:16.748,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:16.756,RelayFake,RX,ok
+2026-04-30T16:13:16.762,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:16.771,RelayFake,RX,ok
+2026-04-30T16:13:16.778,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:16.790,RelayFake,RX,ok
+2026-04-30T16:13:16.797,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:16.805,RelayFake,RX,ok
+2026-04-30T16:13:16.809,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:16.812,RelayFake,RX,ok
+2026-04-30T16:13:16.820,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:16.829,RelayFake,RX,ok
+2026-04-30T16:13:16.839,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:16.843,RelayFake,RX,ok
+2026-04-30T16:13:16.846,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:16.855,RelayFake,RX,ok
+2026-04-30T16:13:16.863,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:16.872,RelayFake,RX,ok
+2026-04-30T16:13:16.877,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:16.880,RelayFake,RX,ok
+2026-04-30T16:13:16.889,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:16.898,RelayFake,RX,ok
+2026-04-30T16:13:16.905,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:16.909,RelayFake,RX,ok
+2026-04-30T16:13:16.913,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:16.924,PACE5000Fake,RX,ok
+2026-04-30T16:13:16.933,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:16.942,PACE5000Fake,RX,ok
+2026-04-30T16:13:16.945,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:16.948,PACE5000Fake,RX,ok
+2026-04-30T16:13:16.979,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:16.984,RelayFake,RX,ok
+2026-04-30T16:13:16.995,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:17.005,RelayFake,RX,ok
+2026-04-30T16:13:17.011,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:17.014,RelayFake,RX,ok
+2026-04-30T16:13:17.024,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:17.033,RelayFake,RX,ok
+2026-04-30T16:13:17.042,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:17.045,RelayFake,RX,ok
+2026-04-30T16:13:17.048,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:17.065,RelayFake,RX,ok
+2026-04-30T16:13:17.078,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:17.082,RelayFake,RX,ok
+2026-04-30T16:13:17.101,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:17.111,RelayFake,RX,ok
+2026-04-30T16:13:17.115,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:17.132,RelayFake,RX,ok
+2026-04-30T16:13:17.144,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:17.152,RelayFake,RX,ok
+2026-04-30T16:13:17.163,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:17.174,RelayFake,RX,ok
+2026-04-30T16:13:17.178,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:17.181,RelayFake,RX,ok
+2026-04-30T16:13:17.192,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:17.203,RelayFake,RX,ok
+2026-04-30T16:13:17.209,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:17.214,RelayFake,RX,ok
+2026-04-30T16:13:17.224,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:17.233,RelayFake,RX,ok
+2026-04-30T16:13:17.243,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:17.248,RelayFake,RX,ok
+2026-04-30T16:13:17.260,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:17.273,RelayFake,RX,ok
+2026-04-30T16:13:17.278,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:17.281,RelayFake,RX,ok
+2026-04-30T16:13:17.297,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:17.310,PACE5000Fake,RX,ok
+2026-04-30T16:13:17.314,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:17.324,PACE5000Fake,RX,ok
+2026-04-30T16:13:17.333,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:17.342,PACE5000Fake,RX,ok
+2026-04-30T16:13:17.347,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:17.357,RelayFake,RX,ok
+2026-04-30T16:13:17.367,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:17.374,RelayFake,RX,ok
+2026-04-30T16:13:17.378,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:17.381,RelayFake,RX,ok
+2026-04-30T16:13:17.391,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:17.400,RelayFake,RX,ok
+2026-04-30T16:13:17.407,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:17.411,RelayFake,RX,ok
+2026-04-30T16:13:17.414,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:17.425,RelayFake,RX,ok
+2026-04-30T16:13:17.436,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:17.443,RelayFake,RX,ok
+2026-04-30T16:13:17.446,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:17.455,RelayFake,RX,ok
+2026-04-30T16:13:17.469,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:17.477,RelayFake,RX,ok
+2026-04-30T16:13:17.481,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:17.489,RelayFake,RX,ok
+2026-04-30T16:13:17.496,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:17.507,RelayFake,RX,ok
+2026-04-30T16:13:17.511,RelayFake,TX,"set_valve(12, True)"
+2026-04-30T16:13:17.515,RelayFake,RX,ok
+2026-04-30T16:13:17.526,RelayFake,TX,"set_valve(15, True)"
+2026-04-30T16:13:17.538,RelayFake,RX,ok
+2026-04-30T16:13:17.544,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:17.547,RelayFake,RX,ok
+2026-04-30T16:13:17.558,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:17.570,RelayFake,RX,ok
+2026-04-30T16:13:17.577,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:17.581,RelayFake,RX,ok
+2026-04-30T16:13:17.590,RelayFake,TX,"set_valve(3, True)"
+2026-04-30T16:13:17.602,RelayFake,RX,ok
+2026-04-30T16:13:17.609,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:17.613,RelayFake,RX,ok
+2026-04-30T16:13:17.626,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:17.639,PACE5000Fake,RX,ok
+2026-04-30T16:13:17.644,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:17.647,PACE5000Fake,RX,ok
+2026-04-30T16:13:17.658,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:17.668,PACE5000Fake,RX,ok
+2026-04-30T16:13:17.689,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:17.949,pressure_controller,RX,ok
+2026-04-30T16:13:17.959,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:17.967,RelayFake,RX,ok
+2026-04-30T16:13:17.972,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:17.979,RelayFake,RX,ok
+2026-04-30T16:13:17.988,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:17.994,RelayFake,RX,ok
+2026-04-30T16:13:18.005,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:18.012,RelayFake,RX,ok
+2026-04-30T16:13:18.022,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:18.027,RelayFake,RX,ok
+2026-04-30T16:13:18.037,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:18.048,RelayFake,RX,ok
+2026-04-30T16:13:18.056,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:18.062,RelayFake,RX,ok
+2026-04-30T16:13:18.073,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:18.083,RelayFake,RX,ok
+2026-04-30T16:13:18.093,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:18.104,RelayFake,RX,ok
+2026-04-30T16:13:18.112,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:18.123,RelayFake,RX,ok
+2026-04-30T16:13:18.132,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:18.140,RelayFake,RX,ok
+2026-04-30T16:13:18.149,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:18.156,RelayFake,RX,ok
+2026-04-30T16:13:18.162,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:18.171,RelayFake,RX,ok
+2026-04-30T16:13:18.176,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:18.187,RelayFake,RX,ok
+2026-04-30T16:13:18.192,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:18.202,RelayFake,RX,ok
+2026-04-30T16:13:18.216,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:18.229,RelayFake,RX,ok
+2026-04-30T16:13:18.239,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:18.244,RelayFake,RX,ok
+2026-04-30T16:13:18.248,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:18.264,RelayFake,RX,ok
+2026-04-30T16:13:18.278,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:18.285,PACE5000Fake,RX,ok
+2026-04-30T16:13:18.430,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:18.439,PACE5000Fake,RX,ok
+2026-04-30T16:13:18.581,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:18.591,PACE5000Fake,RX,ok
+2026-04-30T16:13:18.734,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:18.742,PACE5000Fake,RX,ok
+2026-04-30T16:13:18.889,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:18.898,RelayFake,RX,ok
+2026-04-30T16:13:18.906,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:18.913,RelayFake,RX,ok
+2026-04-30T16:13:18.924,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:18.932,RelayFake,RX,ok
+2026-04-30T16:13:18.942,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:18.950,RelayFake,RX,ok
+2026-04-30T16:13:18.959,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:18.971,RelayFake,RX,ok
+2026-04-30T16:13:18.979,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:18.990,RelayFake,RX,ok
+2026-04-30T16:13:19.000,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:19.010,RelayFake,RX,ok
+2026-04-30T16:13:19.021,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:19.027,RelayFake,RX,ok
+2026-04-30T16:13:19.040,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:19.050,RelayFake,RX,ok
+2026-04-30T16:13:19.056,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:19.066,RelayFake,RX,ok
+2026-04-30T16:13:19.074,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:19.083,RelayFake,RX,ok
+2026-04-30T16:13:19.092,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:19.103,RelayFake,RX,ok
+2026-04-30T16:13:19.111,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:19.123,RelayFake,RX,ok
+2026-04-30T16:13:19.131,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:19.139,RelayFake,RX,ok
+2026-04-30T16:13:19.146,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:19.154,RelayFake,RX,ok
+2026-04-30T16:13:19.160,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:19.171,RelayFake,RX,ok
+2026-04-30T16:13:19.178,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:19.189,RelayFake,RX,ok
+2026-04-30T16:13:19.195,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:19.206,RelayFake,RX,ok
+2026-04-30T16:13:19.217,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:19.224,PACE5000Fake,RX,ok
+2026-04-30T16:13:19.233,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:19.242,PACE5000Fake,RX,ok
+2026-04-30T16:13:19.253,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:19.267,PACE5000Fake,RX,ok
+2026-04-30T16:13:19.290,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:19.303,RelayFake,RX,ok
+2026-04-30T16:13:19.311,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:19.315,RelayFake,RX,ok
+2026-04-30T16:13:19.329,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:19.340,RelayFake,RX,ok
+2026-04-30T16:13:19.345,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:19.352,RelayFake,RX,ok
+2026-04-30T16:13:19.366,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:19.374,RelayFake,RX,ok
+2026-04-30T16:13:19.379,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:19.389,RelayFake,RX,ok
+2026-04-30T16:13:19.399,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:19.406,RelayFake,RX,ok
+2026-04-30T16:13:19.410,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:19.414,RelayFake,RX,ok
+2026-04-30T16:13:19.424,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:19.436,RelayFake,RX,ok
+2026-04-30T16:13:19.442,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:19.445,RelayFake,RX,ok
+2026-04-30T16:13:19.452,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:19.464,RelayFake,RX,ok
+2026-04-30T16:13:19.474,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:19.479,RelayFake,RX,ok
+2026-04-30T16:13:19.487,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:19.498,RelayFake,RX,ok
+2026-04-30T16:13:19.506,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:19.511,RelayFake,RX,ok
+2026-04-30T16:13:19.519,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:19.529,RelayFake,RX,ok
+2026-04-30T16:13:19.539,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:19.543,RelayFake,RX,ok
+2026-04-30T16:13:19.547,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:19.558,RelayFake,RX,ok
+2026-04-30T16:13:19.568,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:19.576,RelayFake,RX,ok
+2026-04-30T16:13:19.581,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:19.591,PACE5000Fake,RX,ok
+2026-04-30T16:13:19.603,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:19.611,PACE5000Fake,RX,ok
+2026-04-30T16:13:19.615,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:19.626,PACE5000Fake,RX,ok
+2026-04-30T16:13:19.643,TemperatureChamberFake,TX,set_temp_c(20.0)
+2026-04-30T16:13:19.647,TemperatureChamberFake,RX,ok
+2026-04-30T16:13:19.658,TemperatureChamberFake,TX,start()
+2026-04-30T16:13:19.670,TemperatureChamberFake,RX,ok
+2026-04-30T16:13:21.308,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:21.318,PACE5000Fake,RX,ok
+2026-04-30T16:13:21.325,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:21.335,PACE5000Fake,RX,ok
+2026-04-30T16:13:21.342,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:21.352,PACE5000Fake,RX,ok
+2026-04-30T16:13:21.360,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:21.371,RelayFake,RX,ok
+2026-04-30T16:13:21.376,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:21.386,RelayFake,RX,ok
+2026-04-30T16:13:21.392,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:21.401,RelayFake,RX,ok
+2026-04-30T16:13:21.407,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:21.416,RelayFake,RX,ok
+2026-04-30T16:13:21.423,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:21.433,RelayFake,RX,ok
+2026-04-30T16:13:21.441,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:21.450,RelayFake,RX,ok
+2026-04-30T16:13:21.458,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:21.466,RelayFake,RX,ok
+2026-04-30T16:13:21.475,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:21.483,RelayFake,RX,ok
+2026-04-30T16:13:21.491,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:21.500,RelayFake,RX,ok
+2026-04-30T16:13:21.507,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:21.516,RelayFake,RX,ok
+2026-04-30T16:13:21.524,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:21.532,RelayFake,RX,ok
+2026-04-30T16:13:21.541,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:21.550,RelayFake,RX,ok
+2026-04-30T16:13:21.558,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:21.567,RelayFake,RX,ok
+2026-04-30T16:13:21.574,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:21.583,RelayFake,RX,ok
+2026-04-30T16:13:21.591,RelayFake,TX,"set_valve(1, True)"
+2026-04-30T16:13:21.600,RelayFake,RX,ok
+2026-04-30T16:13:21.608,RelayFake,TX,"set_valve(2, True)"
+2026-04-30T16:13:21.620,RelayFake,RX,ok
+2026-04-30T16:13:21.626,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:21.638,RelayFake,RX,ok
+2026-04-30T16:13:21.646,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:21.656,RelayFake,RX,ok
+2026-04-30T16:13:22.232,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:22.492,pressure_controller,RX,ok
+2026-04-30T16:13:22.504,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:22.512,RelayFake,RX,ok
+2026-04-30T16:13:22.524,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:22.533,RelayFake,RX,ok
+2026-04-30T16:13:22.540,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:22.550,RelayFake,RX,ok
+2026-04-30T16:13:22.558,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:22.567,RelayFake,RX,ok
+2026-04-30T16:13:22.574,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:22.583,RelayFake,RX,ok
+2026-04-30T16:13:22.590,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:22.600,RelayFake,RX,ok
+2026-04-30T16:13:22.607,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:22.616,RelayFake,RX,ok
+2026-04-30T16:13:22.624,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:22.637,RelayFake,RX,ok
+2026-04-30T16:13:22.644,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:22.656,RelayFake,RX,ok
+2026-04-30T16:13:22.665,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:22.673,RelayFake,RX,ok
+2026-04-30T16:13:22.682,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:22.689,RelayFake,RX,ok
+2026-04-30T16:13:22.698,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:22.707,RelayFake,RX,ok
+2026-04-30T16:13:22.716,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:22.724,RelayFake,RX,ok
+2026-04-30T16:13:22.733,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:22.741,RelayFake,RX,ok
+2026-04-30T16:13:22.754,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:22.768,RelayFake,RX,ok
+2026-04-30T16:13:22.778,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:22.791,RelayFake,RX,ok
+2026-04-30T16:13:22.810,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:22.823,RelayFake,RX,ok
+2026-04-30T16:13:22.842,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:22.856,RelayFake,RX,ok
+2026-04-30T16:13:22.879,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:22.893,PACE5000Fake,RX,ok
+2026-04-30T16:13:23.114,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:23.134,PACE5000Fake,RX,ok
+2026-04-30T16:13:23.347,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:23.362,PACE5000Fake,RX,ok
+2026-04-30T16:13:23.543,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:23.549,PACE5000Fake,RX,ok
+2026-04-30T16:13:23.746,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:23.759,PACE5000Fake,RX,ok
+2026-04-30T16:13:23.778,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:23.790,PACE5000Fake,RX,ok
+2026-04-30T16:13:23.807,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:23.815,PACE5000Fake,RX,ok
+2026-04-30T16:13:23.839,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:23.847,RelayFake,RX,ok
+2026-04-30T16:13:23.860,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:23.875,RelayFake,RX,ok
+2026-04-30T16:13:23.881,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:23.896,RelayFake,RX,ok
+2026-04-30T16:13:23.909,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:23.913,RelayFake,RX,ok
+2026-04-30T16:13:23.925,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:23.940,RelayFake,RX,ok
+2026-04-30T16:13:23.946,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:23.957,RelayFake,RX,ok
+2026-04-30T16:13:23.973,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:23.980,RelayFake,RX,ok
+2026-04-30T16:13:23.995,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:24.008,RelayFake,RX,ok
+2026-04-30T16:13:24.014,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:24.027,RelayFake,RX,ok
+2026-04-30T16:13:24.042,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:24.048,RelayFake,RX,ok
+2026-04-30T16:13:24.059,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:24.075,RelayFake,RX,ok
+2026-04-30T16:13:24.082,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:24.104,RelayFake,RX,ok
+2026-04-30T16:13:24.113,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:24.125,RelayFake,RX,ok
+2026-04-30T16:13:24.143,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:24.153,RelayFake,RX,ok
+2026-04-30T16:13:24.170,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:24.181,RelayFake,RX,ok
+2026-04-30T16:13:24.196,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:24.210,RelayFake,RX,ok
+2026-04-30T16:13:24.215,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:24.233,RelayFake,RX,ok
+2026-04-30T16:13:24.247,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:24.264,RelayFake,RX,ok
+2026-04-30T16:13:24.310,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:24.322,RelayFake,RX,ok
+2026-04-30T16:13:24.340,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:24.348,RelayFake,RX,ok
+2026-04-30T16:13:24.362,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:24.376,RelayFake,RX,ok
+2026-04-30T16:13:24.385,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:24.402,RelayFake,RX,ok
+2026-04-30T16:13:24.411,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:24.421,RelayFake,RX,ok
+2026-04-30T16:13:24.438,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:24.447,RelayFake,RX,ok
+2026-04-30T16:13:24.459,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:24.475,RelayFake,RX,ok
+2026-04-30T16:13:24.480,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:24.491,RelayFake,RX,ok
+2026-04-30T16:13:24.503,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:24.511,RelayFake,RX,ok
+2026-04-30T16:13:24.522,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:24.537,RelayFake,RX,ok
+2026-04-30T16:13:24.546,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:24.559,RelayFake,RX,ok
+2026-04-30T16:13:24.580,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:24.595,RelayFake,RX,ok
+2026-04-30T16:13:24.610,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:24.615,RelayFake,RX,ok
+2026-04-30T16:13:24.633,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:24.644,RelayFake,RX,ok
+2026-04-30T16:13:24.653,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:24.675,RelayFake,RX,ok
+2026-04-30T16:13:24.689,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:24.708,RelayFake,RX,ok
+2026-04-30T16:13:24.714,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:24.726,RelayFake,RX,ok
+2026-04-30T16:13:24.742,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:24.747,RelayFake,RX,ok
+2026-04-30T16:13:24.771,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:24.780,PACE5000Fake,RX,ok
+2026-04-30T16:13:24.798,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:24.813,PACE5000Fake,RX,ok
+2026-04-30T16:13:24.826,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:24.837,PACE5000Fake,RX,ok
+2026-04-30T16:13:24.845,GRZ5013Fake,TX,set_target_temp(20.0)
+2026-04-30T16:13:24.856,GRZ5013Fake,RX,ok
+2026-04-30T16:13:24.873,GRZ5013Fake,TX,set_relative_humidity_pct(70.0)
+2026-04-30T16:13:24.879,GRZ5013Fake,RX,ok
+2026-04-30T16:13:27.024,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:27.032,PACE5000Fake,RX,ok
+2026-04-30T16:13:27.040,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:27.049,PACE5000Fake,RX,ok
+2026-04-30T16:13:27.056,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:27.066,PACE5000Fake,RX,ok
+2026-04-30T16:13:27.076,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:27.085,RelayFake,RX,ok
+2026-04-30T16:13:27.098,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:27.106,RelayFake,RX,ok
+2026-04-30T16:13:27.116,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:27.124,RelayFake,RX,ok
+2026-04-30T16:13:27.133,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:27.141,RelayFake,RX,ok
+2026-04-30T16:13:27.150,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:27.158,RelayFake,RX,ok
+2026-04-30T16:13:27.167,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:27.175,RelayFake,RX,ok
+2026-04-30T16:13:27.185,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:27.192,RelayFake,RX,ok
+2026-04-30T16:13:27.205,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:27.217,RelayFake,RX,ok
+2026-04-30T16:13:27.229,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:27.241,RelayFake,RX,ok
+2026-04-30T16:13:27.254,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:27.267,RelayFake,RX,ok
+2026-04-30T16:13:27.275,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:27.285,RelayFake,RX,ok
+2026-04-30T16:13:27.292,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:27.301,RelayFake,RX,ok
+2026-04-30T16:13:27.310,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:27.324,RelayFake,RX,ok
+2026-04-30T16:13:27.333,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:27.341,RelayFake,RX,ok
+2026-04-30T16:13:27.350,RelayFake,TX,"set_valve(1, True)"
+2026-04-30T16:13:27.358,RelayFake,RX,ok
+2026-04-30T16:13:27.368,RelayFake,TX,"set_valve(2, True)"
+2026-04-30T16:13:27.378,RelayFake,RX,ok
+2026-04-30T16:13:27.389,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:27.398,RelayFake,RX,ok
+2026-04-30T16:13:27.408,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:27.417,RelayFake,RX,ok
+2026-04-30T16:13:27.990,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:28.250,pressure_controller,RX,ok
+2026-04-30T16:13:28.267,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:28.275,RelayFake,RX,ok
+2026-04-30T16:13:28.284,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:28.292,RelayFake,RX,ok
+2026-04-30T16:13:28.300,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:28.309,RelayFake,RX,ok
+2026-04-30T16:13:28.318,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:28.330,RelayFake,RX,ok
+2026-04-30T16:13:28.341,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:28.351,RelayFake,RX,ok
+2026-04-30T16:13:28.359,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:28.369,RelayFake,RX,ok
+2026-04-30T16:13:28.388,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:28.399,RelayFake,RX,ok
+2026-04-30T16:13:28.406,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:28.416,RelayFake,RX,ok
+2026-04-30T16:13:28.426,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:28.437,RelayFake,RX,ok
+2026-04-30T16:13:28.446,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:28.456,RelayFake,RX,ok
+2026-04-30T16:13:28.466,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:28.475,RelayFake,RX,ok
+2026-04-30T16:13:28.485,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:28.492,RelayFake,RX,ok
+2026-04-30T16:13:28.501,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:28.508,RelayFake,RX,ok
+2026-04-30T16:13:28.518,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:28.526,RelayFake,RX,ok
+2026-04-30T16:13:28.537,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:28.547,RelayFake,RX,ok
+2026-04-30T16:13:28.557,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:28.567,RelayFake,RX,ok
+2026-04-30T16:13:28.575,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:28.585,RelayFake,RX,ok
+2026-04-30T16:13:28.593,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:28.606,RelayFake,RX,ok
+2026-04-30T16:13:28.622,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:28.632,PACE5000Fake,RX,ok
+2026-04-30T16:13:28.799,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:28.809,PACE5000Fake,RX,ok
+2026-04-30T16:13:28.983,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:28.991,PACE5000Fake,RX,ok
+2026-04-30T16:13:29.159,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:29.169,PACE5000Fake,RX,ok
+2026-04-30T16:13:29.346,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:29.358,PACE5000Fake,RX,ok
+2026-04-30T16:13:29.369,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:29.376,PACE5000Fake,RX,ok
+2026-04-30T16:13:29.385,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:29.394,PACE5000Fake,RX,ok
+2026-04-30T16:13:29.408,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:29.418,RelayFake,RX,ok
+2026-04-30T16:13:29.426,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:29.440,RelayFake,RX,ok
+2026-04-30T16:13:29.450,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:29.458,RelayFake,RX,ok
+2026-04-30T16:13:29.468,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:29.476,RelayFake,RX,ok
+2026-04-30T16:13:29.488,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:29.496,RelayFake,RX,ok
+2026-04-30T16:13:29.505,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:29.515,RelayFake,RX,ok
+2026-04-30T16:13:29.524,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:29.533,RelayFake,RX,ok
+2026-04-30T16:13:29.541,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:29.550,RelayFake,RX,ok
+2026-04-30T16:13:29.558,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:29.568,RelayFake,RX,ok
+2026-04-30T16:13:29.576,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:29.588,RelayFake,RX,ok
+2026-04-30T16:13:29.600,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:29.609,RelayFake,RX,ok
+2026-04-30T16:13:29.621,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:29.633,RelayFake,RX,ok
+2026-04-30T16:13:29.641,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:29.651,RelayFake,RX,ok
+2026-04-30T16:13:29.659,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:29.669,RelayFake,RX,ok
+2026-04-30T16:13:29.678,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:29.689,RelayFake,RX,ok
+2026-04-30T16:13:29.699,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:29.708,RelayFake,RX,ok
+2026-04-30T16:13:29.718,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:29.725,RelayFake,RX,ok
+2026-04-30T16:13:29.736,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:29.750,RelayFake,RX,ok
+2026-04-30T16:13:29.786,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:29.798,RelayFake,RX,ok
+2026-04-30T16:13:29.808,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:29.819,RelayFake,RX,ok
+2026-04-30T16:13:29.829,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:29.839,RelayFake,RX,ok
+2026-04-30T16:13:29.850,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:29.863,RelayFake,RX,ok
+2026-04-30T16:13:29.876,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:29.886,RelayFake,RX,ok
+2026-04-30T16:13:29.895,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:29.908,RelayFake,RX,ok
+2026-04-30T16:13:29.919,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:29.928,RelayFake,RX,ok
+2026-04-30T16:13:29.940,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:29.950,RelayFake,RX,ok
+2026-04-30T16:13:29.964,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:29.974,RelayFake,RX,ok
+2026-04-30T16:13:29.984,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:29.993,RelayFake,RX,ok
+2026-04-30T16:13:30.005,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:30.017,RelayFake,RX,ok
+2026-04-30T16:13:30.025,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:30.034,RelayFake,RX,ok
+2026-04-30T16:13:30.044,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:30.056,RelayFake,RX,ok
+2026-04-30T16:13:30.067,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:30.080,RelayFake,RX,ok
+2026-04-30T16:13:30.092,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:30.105,RelayFake,RX,ok
+2026-04-30T16:13:30.115,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:30.126,RelayFake,RX,ok
+2026-04-30T16:13:30.139,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:30.150,RelayFake,RX,ok
+2026-04-30T16:13:30.158,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:30.168,RelayFake,RX,ok
+2026-04-30T16:13:30.184,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:30.191,PACE5000Fake,RX,ok
+2026-04-30T16:13:30.200,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:30.209,PACE5000Fake,RX,ok
+2026-04-30T16:13:30.222,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:30.233,PACE5000Fake,RX,ok
+2026-04-30T16:13:30.255,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:30.273,RelayFake,RX,ok
+2026-04-30T16:13:30.280,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:30.291,RelayFake,RX,ok
+2026-04-30T16:13:30.305,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:30.311,RelayFake,RX,ok
+2026-04-30T16:13:30.321,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:30.336,RelayFake,RX,ok
+2026-04-30T16:13:30.343,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:30.348,RelayFake,RX,ok
+2026-04-30T16:13:30.365,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:30.377,RelayFake,RX,ok
+2026-04-30T16:13:30.386,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:30.399,RelayFake,RX,ok
+2026-04-30T16:13:30.408,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:30.413,RelayFake,RX,ok
+2026-04-30T16:13:30.427,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:30.441,RelayFake,RX,ok
+2026-04-30T16:13:30.446,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:30.457,RelayFake,RX,ok
+2026-04-30T16:13:30.474,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:30.480,RelayFake,RX,ok
+2026-04-30T16:13:30.492,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:30.504,RelayFake,RX,ok
+2026-04-30T16:13:30.510,RelayFake,TX,"set_valve(15, True)"
+2026-04-30T16:13:30.517,RelayFake,RX,ok
+2026-04-30T16:13:30.531,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:30.542,RelayFake,RX,ok
+2026-04-30T16:13:30.547,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:30.558,RelayFake,RX,ok
+2026-04-30T16:13:30.574,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:30.579,RelayFake,RX,ok
+2026-04-30T16:13:30.592,RelayFake,TX,"set_valve(3, True)"
+2026-04-30T16:13:30.608,RelayFake,RX,ok
+2026-04-30T16:13:30.613,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:30.625,RelayFake,RX,ok
+2026-04-30T16:13:30.642,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:30.647,PACE5000Fake,RX,ok
+2026-04-30T16:13:30.659,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:30.674,PACE5000Fake,RX,ok
+2026-04-30T16:13:30.680,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:30.693,PACE5000Fake,RX,ok
+2026-04-30T16:13:30.723,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:30.734,RelayFake,RX,ok
+2026-04-30T16:13:30.742,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:30.747,RelayFake,RX,ok
+2026-04-30T16:13:30.761,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:30.773,RelayFake,RX,ok
+2026-04-30T16:13:30.780,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:30.792,RelayFake,RX,ok
+2026-04-30T16:13:30.805,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:30.811,RelayFake,RX,ok
+2026-04-30T16:13:30.819,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:30.833,RelayFake,RX,ok
+2026-04-30T16:13:30.843,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:30.847,RelayFake,RX,ok
+2026-04-30T16:13:30.860,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:30.874,RelayFake,RX,ok
+2026-04-30T16:13:30.879,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:30.891,RelayFake,RX,ok
+2026-04-30T16:13:30.903,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:30.910,RelayFake,RX,ok
+2026-04-30T16:13:30.915,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:30.932,RelayFake,RX,ok
+2026-04-30T16:13:30.944,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:30.954,RelayFake,RX,ok
+2026-04-30T16:13:30.970,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:30.977,RelayFake,RX,ok
+2026-04-30T16:13:30.988,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:31.001,RelayFake,RX,ok
+2026-04-30T16:13:31.010,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:31.014,RelayFake,RX,ok
+2026-04-30T16:13:31.029,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:31.042,RelayFake,RX,ok
+2026-04-30T16:13:31.047,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:31.059,RelayFake,RX,ok
+2026-04-30T16:13:31.071,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:31.077,RelayFake,RX,ok
+2026-04-30T16:13:31.090,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:31.105,PACE5000Fake,RX,ok
+2026-04-30T16:13:31.111,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:31.123,PACE5000Fake,RX,ok
+2026-04-30T16:13:31.140,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:31.146,PACE5000Fake,RX,ok
+2026-04-30T16:13:31.162,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:31.176,RelayFake,RX,ok
+2026-04-30T16:13:31.181,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:31.196,RelayFake,RX,ok
+2026-04-30T16:13:31.208,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:31.213,RelayFake,RX,ok
+2026-04-30T16:13:31.225,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:31.239,RelayFake,RX,ok
+2026-04-30T16:13:31.246,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:31.258,RelayFake,RX,ok
+2026-04-30T16:13:31.274,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:31.281,RelayFake,RX,ok
+2026-04-30T16:13:31.299,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:31.311,RelayFake,RX,ok
+2026-04-30T16:13:31.320,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:31.334,RelayFake,RX,ok
+2026-04-30T16:13:31.344,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:31.349,RelayFake,RX,ok
+2026-04-30T16:13:31.367,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:31.377,RelayFake,RX,ok
+2026-04-30T16:13:31.387,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:31.400,RelayFake,RX,ok
+2026-04-30T16:13:31.408,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:31.413,RelayFake,RX,ok
+2026-04-30T16:13:31.425,RelayFake,TX,"set_valve(15, True)"
+2026-04-30T16:13:31.440,RelayFake,RX,ok
+2026-04-30T16:13:31.446,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:31.457,RelayFake,RX,ok
+2026-04-30T16:13:31.472,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:31.479,RelayFake,RX,ok
+2026-04-30T16:13:31.489,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:31.502,RelayFake,RX,ok
+2026-04-30T16:13:31.510,RelayFake,TX,"set_valve(3, True)"
+2026-04-30T16:13:31.516,RelayFake,RX,ok
+2026-04-30T16:13:31.531,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:31.541,RelayFake,RX,ok
+2026-04-30T16:13:31.547,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:31.811,pressure_controller,RX,ok
+2026-04-30T16:13:31.825,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:31.836,RelayFake,RX,ok
+2026-04-30T16:13:31.848,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:31.857,RelayFake,RX,ok
+2026-04-30T16:13:31.867,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:31.881,RelayFake,RX,ok
+2026-04-30T16:13:31.892,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:31.903,RelayFake,RX,ok
+2026-04-30T16:13:31.915,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:31.924,RelayFake,RX,ok
+2026-04-30T16:13:31.935,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:31.943,RelayFake,RX,ok
+2026-04-30T16:13:31.958,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:31.971,RelayFake,RX,ok
+2026-04-30T16:13:31.982,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:31.995,RelayFake,RX,ok
+2026-04-30T16:13:32.008,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:32.019,RelayFake,RX,ok
+2026-04-30T16:13:32.029,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:32.041,RelayFake,RX,ok
+2026-04-30T16:13:32.050,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:32.059,RelayFake,RX,ok
+2026-04-30T16:13:32.071,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:32.081,RelayFake,RX,ok
+2026-04-30T16:13:32.091,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:32.102,RelayFake,RX,ok
+2026-04-30T16:13:32.112,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:32.125,RelayFake,RX,ok
+2026-04-30T16:13:32.137,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:32.148,RelayFake,RX,ok
+2026-04-30T16:13:32.158,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:32.168,RelayFake,RX,ok
+2026-04-30T16:13:32.178,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:32.191,RelayFake,RX,ok
+2026-04-30T16:13:32.202,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:32.215,RelayFake,RX,ok
+2026-04-30T16:13:32.235,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:32.249,PACE5000Fake,RX,ok
+2026-04-30T16:13:32.423,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:32.433,PACE5000Fake,RX,ok
+2026-04-30T16:13:32.608,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:32.618,PACE5000Fake,RX,ok
+2026-04-30T16:13:32.803,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:32.813,PACE5000Fake,RX,ok
+2026-04-30T16:13:33.003,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:33.016,RelayFake,RX,ok
+2026-04-30T16:13:33.025,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:33.035,RelayFake,RX,ok
+2026-04-30T16:13:33.049,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:33.058,RelayFake,RX,ok
+2026-04-30T16:13:33.069,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:33.081,RelayFake,RX,ok
+2026-04-30T16:13:33.092,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:33.103,RelayFake,RX,ok
+2026-04-30T16:13:33.113,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:33.124,RelayFake,RX,ok
+2026-04-30T16:13:33.136,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:33.150,RelayFake,RX,ok
+2026-04-30T16:13:33.158,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:33.170,RelayFake,RX,ok
+2026-04-30T16:13:33.180,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:33.191,RelayFake,RX,ok
+2026-04-30T16:13:33.204,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:33.215,RelayFake,RX,ok
+2026-04-30T16:13:33.226,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:33.241,RelayFake,RX,ok
+2026-04-30T16:13:33.258,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:33.273,RelayFake,RX,ok
+2026-04-30T16:13:33.279,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:33.292,RelayFake,RX,ok
+2026-04-30T16:13:33.308,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:33.314,RelayFake,RX,ok
+2026-04-30T16:13:33.332,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:33.342,RelayFake,RX,ok
+2026-04-30T16:13:33.347,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:33.359,RelayFake,RX,ok
+2026-04-30T16:13:33.372,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:33.379,RelayFake,RX,ok
+2026-04-30T16:13:33.390,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:33.406,RelayFake,RX,ok
+2026-04-30T16:13:33.413,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:33.427,PACE5000Fake,RX,ok
+2026-04-30T16:13:33.440,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:33.446,PACE5000Fake,RX,ok
+2026-04-30T16:13:33.457,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:33.472,PACE5000Fake,RX,ok
+2026-04-30T16:13:33.503,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:33.513,RelayFake,RX,ok
+2026-04-30T16:13:33.530,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:33.541,RelayFake,RX,ok
+2026-04-30T16:13:33.547,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:33.558,RelayFake,RX,ok
+2026-04-30T16:13:33.572,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:33.579,RelayFake,RX,ok
+2026-04-30T16:13:33.592,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:33.608,RelayFake,RX,ok
+2026-04-30T16:13:33.614,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:33.628,RelayFake,RX,ok
+2026-04-30T16:13:33.641,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:33.647,RelayFake,RX,ok
+2026-04-30T16:13:33.659,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:33.672,RelayFake,RX,ok
+2026-04-30T16:13:33.678,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:33.690,RelayFake,RX,ok
+2026-04-30T16:13:33.703,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:33.711,RelayFake,RX,ok
+2026-04-30T16:13:33.722,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:33.734,RelayFake,RX,ok
+2026-04-30T16:13:33.744,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:33.753,RelayFake,RX,ok
+2026-04-30T16:13:33.771,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:33.778,RelayFake,RX,ok
+2026-04-30T16:13:33.788,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:33.804,RelayFake,RX,ok
+2026-04-30T16:13:33.814,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:33.827,RelayFake,RX,ok
+2026-04-30T16:13:33.840,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:33.847,RelayFake,RX,ok
+2026-04-30T16:13:33.859,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:33.873,RelayFake,RX,ok
+2026-04-30T16:13:33.879,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:33.891,RelayFake,RX,ok
+2026-04-30T16:13:33.909,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:33.914,PACE5000Fake,RX,ok
+2026-04-30T16:13:33.928,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:33.943,PACE5000Fake,RX,ok
+2026-04-30T16:13:33.949,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:33.970,PACE5000Fake,RX,ok
+2026-04-30T16:13:33.980,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:33.994,RelayFake,RX,ok
+2026-04-30T16:13:34.010,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:34.020,RelayFake,RX,ok
+2026-04-30T16:13:34.036,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:34.045,RelayFake,RX,ok
+2026-04-30T16:13:34.056,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:34.072,RelayFake,RX,ok
+2026-04-30T16:13:34.078,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:34.089,RelayFake,RX,ok
+2026-04-30T16:13:34.107,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:34.114,RelayFake,RX,ok
+2026-04-30T16:13:34.128,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:34.142,RelayFake,RX,ok
+2026-04-30T16:13:34.148,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:34.163,RelayFake,RX,ok
+2026-04-30T16:13:34.176,RelayFake,TX,"set_valve(9, True)"
+2026-04-30T16:13:34.181,RelayFake,RX,ok
+2026-04-30T16:13:34.201,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:34.212,RelayFake,RX,ok
+2026-04-30T16:13:34.225,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:34.241,RelayFake,RX,ok
+2026-04-30T16:13:34.249,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:34.272,RelayFake,RX,ok
+2026-04-30T16:13:34.279,RelayFake,TX,"set_valve(15, True)"
+2026-04-30T16:13:34.291,RelayFake,RX,ok
+2026-04-30T16:13:34.308,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:34.320,RelayFake,RX,ok
+2026-04-30T16:13:34.336,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:34.344,RelayFake,RX,ok
+2026-04-30T16:13:34.357,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:34.372,RelayFake,RX,ok
+2026-04-30T16:13:34.379,RelayFake,TX,"set_valve(3, True)"
+2026-04-30T16:13:34.391,RelayFake,RX,ok
+2026-04-30T16:13:34.403,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:34.410,RelayFake,RX,ok
+2026-04-30T16:13:34.425,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:34.441,PACE5000Fake,RX,ok
+2026-04-30T16:13:34.447,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:34.459,PACE5000Fake,RX,ok
+2026-04-30T16:13:34.474,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:34.482,PACE5000Fake,RX,ok
+2026-04-30T16:13:34.522,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:34.786,pressure_controller,RX,ok
+2026-04-30T16:13:34.801,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:34.816,RelayFake,RX,ok
+2026-04-30T16:13:34.830,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:34.841,RelayFake,RX,ok
+2026-04-30T16:13:34.853,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:34.866,RelayFake,RX,ok
+2026-04-30T16:13:34.876,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:34.891,RelayFake,RX,ok
+2026-04-30T16:13:34.902,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:34.913,RelayFake,RX,ok
+2026-04-30T16:13:34.926,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:34.941,RelayFake,RX,ok
+2026-04-30T16:13:34.952,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:34.966,RelayFake,RX,ok
+2026-04-30T16:13:34.975,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:34.989,RelayFake,RX,ok
+2026-04-30T16:13:35.000,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:35.009,RelayFake,RX,ok
+2026-04-30T16:13:35.023,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:35.035,RelayFake,RX,ok
+2026-04-30T16:13:35.046,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:35.059,RelayFake,RX,ok
+2026-04-30T16:13:35.073,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:35.084,RelayFake,RX,ok
+2026-04-30T16:13:35.096,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:35.108,RelayFake,RX,ok
+2026-04-30T16:13:35.120,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:35.132,RelayFake,RX,ok
+2026-04-30T16:13:35.143,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:35.156,RelayFake,RX,ok
+2026-04-30T16:13:35.167,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:35.180,RelayFake,RX,ok
+2026-04-30T16:13:35.191,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:35.203,RelayFake,RX,ok
+2026-04-30T16:13:35.215,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:35.224,RelayFake,RX,ok
+2026-04-30T16:13:35.241,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:35.256,PACE5000Fake,RX,ok
+2026-04-30T16:13:35.442,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:35.456,PACE5000Fake,RX,ok
+2026-04-30T16:13:35.642,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:35.654,PACE5000Fake,RX,ok
+2026-04-30T16:13:35.849,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:35.858,PACE5000Fake,RX,ok
+2026-04-30T16:13:36.061,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:36.075,RelayFake,RX,ok
+2026-04-30T16:13:36.087,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:36.099,RelayFake,RX,ok
+2026-04-30T16:13:36.109,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:36.121,RelayFake,RX,ok
+2026-04-30T16:13:36.133,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:36.142,RelayFake,RX,ok
+2026-04-30T16:13:36.157,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:36.168,RelayFake,RX,ok
+2026-04-30T16:13:36.179,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:36.191,RelayFake,RX,ok
+2026-04-30T16:13:36.204,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:36.218,RelayFake,RX,ok
+2026-04-30T16:13:36.231,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:36.245,RelayFake,RX,ok
+2026-04-30T16:13:36.260,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:36.274,RelayFake,RX,ok
+2026-04-30T16:13:36.285,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:36.298,RelayFake,RX,ok
+2026-04-30T16:13:36.309,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:36.323,RelayFake,RX,ok
+2026-04-30T16:13:36.333,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:36.346,RelayFake,RX,ok
+2026-04-30T16:13:36.358,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:36.369,RelayFake,RX,ok
+2026-04-30T16:13:36.381,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:36.394,RelayFake,RX,ok
+2026-04-30T16:13:36.408,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:36.419,RelayFake,RX,ok
+2026-04-30T16:13:36.431,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:36.442,RelayFake,RX,ok
+2026-04-30T16:13:36.456,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:36.469,RelayFake,RX,ok
+2026-04-30T16:13:36.483,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:36.491,RelayFake,RX,ok
+2026-04-30T16:13:36.506,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:36.517,PACE5000Fake,RX,ok
+2026-04-30T16:13:36.526,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:36.543,PACE5000Fake,RX,ok
+2026-04-30T16:13:36.559,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:36.572,PACE5000Fake,RX,ok
+2026-04-30T16:13:36.605,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:36.616,RelayFake,RX,ok
+2026-04-30T16:13:36.625,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:36.639,RelayFake,RX,ok
+2026-04-30T16:13:36.650,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:36.659,RelayFake,RX,ok
+2026-04-30T16:13:36.672,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:36.683,RelayFake,RX,ok
+2026-04-30T16:13:36.693,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:36.708,RelayFake,RX,ok
+2026-04-30T16:13:36.721,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:36.732,RelayFake,RX,ok
+2026-04-30T16:13:36.741,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:36.753,RelayFake,RX,ok
+2026-04-30T16:13:36.765,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:36.775,RelayFake,RX,ok
+2026-04-30T16:13:36.788,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:36.800,RelayFake,RX,ok
+2026-04-30T16:13:36.812,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:36.831,RelayFake,RX,ok
+2026-04-30T16:13:36.842,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:36.855,RelayFake,RX,ok
+2026-04-30T16:13:36.866,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:36.879,RelayFake,RX,ok
+2026-04-30T16:13:36.891,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:36.904,RelayFake,RX,ok
+2026-04-30T16:13:36.917,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:36.931,RelayFake,RX,ok
+2026-04-30T16:13:36.942,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:36.953,RelayFake,RX,ok
+2026-04-30T16:13:36.965,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:36.979,RelayFake,RX,ok
+2026-04-30T16:13:36.992,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:37.004,RelayFake,RX,ok
+2026-04-30T16:13:37.015,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:37.026,RelayFake,RX,ok
+2026-04-30T16:13:37.042,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:37.056,PACE5000Fake,RX,ok
+2026-04-30T16:13:37.071,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:37.083,PACE5000Fake,RX,ok
+2026-04-30T16:13:37.092,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:37.105,PACE5000Fake,RX,ok
+2026-04-30T16:13:37.119,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:37.133,RelayFake,RX,ok
+2026-04-30T16:13:37.144,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:37.158,RelayFake,RX,ok
+2026-04-30T16:13:37.172,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:37.183,RelayFake,RX,ok
+2026-04-30T16:13:37.195,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:37.214,RelayFake,RX,ok
+2026-04-30T16:13:37.226,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:37.240,RelayFake,RX,ok
+2026-04-30T16:13:37.256,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:37.271,RelayFake,RX,ok
+2026-04-30T16:13:37.283,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:37.295,RelayFake,RX,ok
+2026-04-30T16:13:37.310,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:37.326,RelayFake,RX,ok
+2026-04-30T16:13:37.339,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:37.350,RelayFake,RX,ok
+2026-04-30T16:13:37.360,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:37.374,RelayFake,RX,ok
+2026-04-30T16:13:37.386,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:37.398,RelayFake,RX,ok
+2026-04-30T16:13:37.408,RelayFake,TX,"set_valve(12, True)"
+2026-04-30T16:13:37.421,RelayFake,RX,ok
+2026-04-30T16:13:37.433,RelayFake,TX,"set_valve(15, True)"
+2026-04-30T16:13:37.442,RelayFake,RX,ok
+2026-04-30T16:13:37.456,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:37.467,RelayFake,RX,ok
+2026-04-30T16:13:37.479,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:37.492,RelayFake,RX,ok
+2026-04-30T16:13:37.505,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:37.517,RelayFake,RX,ok
+2026-04-30T16:13:37.530,RelayFake,TX,"set_valve(3, True)"
+2026-04-30T16:13:37.546,RelayFake,RX,ok
+2026-04-30T16:13:37.563,RelayFake,TX,"set_valve(8, True)"
+2026-04-30T16:13:37.576,RelayFake,RX,ok
+2026-04-30T16:13:37.593,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:37.607,PACE5000Fake,RX,ok
+2026-04-30T16:13:37.619,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:37.633,PACE5000Fake,RX,ok
+2026-04-30T16:13:37.647,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:37.659,PACE5000Fake,RX,ok
+2026-04-30T16:13:37.687,pressure_controller,TX,exit_atmosphere_mode(vent_on=False)
+2026-04-30T16:13:37.950,pressure_controller,RX,ok
+2026-04-30T16:13:37.966,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:37.976,RelayFake,RX,ok
+2026-04-30T16:13:37.992,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:38.006,RelayFake,RX,ok
+2026-04-30T16:13:38.017,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:38.030,RelayFake,RX,ok
+2026-04-30T16:13:38.043,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:38.057,RelayFake,RX,ok
+2026-04-30T16:13:38.072,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:38.084,RelayFake,RX,ok
+2026-04-30T16:13:38.097,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:38.109,RelayFake,RX,ok
+2026-04-30T16:13:38.122,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:38.134,RelayFake,RX,ok
+2026-04-30T16:13:38.146,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:38.159,RelayFake,RX,ok
+2026-04-30T16:13:38.173,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:38.184,RelayFake,RX,ok
+2026-04-30T16:13:38.195,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:38.213,RelayFake,RX,ok
+2026-04-30T16:13:38.230,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:38.243,RelayFake,RX,ok
+2026-04-30T16:13:38.260,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:38.274,RelayFake,RX,ok
+2026-04-30T16:13:38.280,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:38.296,RelayFake,RX,ok
+2026-04-30T16:13:38.311,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:38.323,RelayFake,RX,ok
+2026-04-30T16:13:38.338,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:38.346,RelayFake,RX,ok
+2026-04-30T16:13:38.359,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:38.373,RelayFake,RX,ok
+2026-04-30T16:13:38.380,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:38.393,RelayFake,RX,ok
+2026-04-30T16:13:38.407,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:38.413,RelayFake,RX,ok
+2026-04-30T16:13:38.436,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:38.450,PACE5000Fake,RX,ok
+2026-04-30T16:13:38.650,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:38.664,PACE5000Fake,RX,ok
+2026-04-30T16:13:38.867,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:38.879,PACE5000Fake,RX,ok
+2026-04-30T16:13:39.089,PACE5000Fake,TX,enable_control_output()
+2026-04-30T16:13:39.102,PACE5000Fake,RX,ok
+2026-04-30T16:13:39.314,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:39.326,RelayFake,RX,ok
+2026-04-30T16:13:39.341,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:39.353,RelayFake,RX,ok
+2026-04-30T16:13:39.366,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:39.375,RelayFake,RX,ok
+2026-04-30T16:13:39.388,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:39.399,RelayFake,RX,ok
+2026-04-30T16:13:39.409,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:39.422,RelayFake,RX,ok
+2026-04-30T16:13:39.434,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:39.446,RelayFake,RX,ok
+2026-04-30T16:13:39.458,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:39.471,RelayFake,RX,ok
+2026-04-30T16:13:39.483,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:39.491,RelayFake,RX,ok
+2026-04-30T16:13:39.506,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:39.517,RelayFake,RX,ok
+2026-04-30T16:13:39.532,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:39.549,RelayFake,RX,ok
+2026-04-30T16:13:39.566,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:39.588,RelayFake,RX,ok
+2026-04-30T16:13:39.602,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:39.615,RelayFake,RX,ok
+2026-04-30T16:13:39.629,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:39.642,RelayFake,RX,ok
+2026-04-30T16:13:39.656,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:39.667,RelayFake,RX,ok
+2026-04-30T16:13:39.681,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:39.694,RelayFake,RX,ok
+2026-04-30T16:13:39.708,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:39.721,RelayFake,RX,ok
+2026-04-30T16:13:39.734,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:39.748,RelayFake,RX,ok
+2026-04-30T16:13:39.759,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:39.773,RelayFake,RX,ok
+2026-04-30T16:13:39.788,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:39.803,PACE5000Fake,RX,ok
+2026-04-30T16:13:39.815,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:39.829,PACE5000Fake,RX,ok
+2026-04-30T16:13:39.842,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:39.855,PACE5000Fake,RX,ok
+2026-04-30T16:13:39.886,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:39.900,RelayFake,RX,ok
+2026-04-30T16:13:39.911,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:39.925,RelayFake,RX,ok
+2026-04-30T16:13:39.938,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:39.950,RelayFake,RX,ok
+2026-04-30T16:13:39.965,RelayFake,TX,"set_valve(4, False)"
+2026-04-30T16:13:39.977,RelayFake,RX,ok
+2026-04-30T16:13:39.993,RelayFake,TX,"set_valve(5, False)"
+2026-04-30T16:13:40.015,RelayFake,RX,ok
+2026-04-30T16:13:40.027,RelayFake,TX,"set_valve(6, False)"
+2026-04-30T16:13:40.039,RelayFake,RX,ok
+2026-04-30T16:13:40.060,RelayFake,TX,"set_valve(7, False)"
+2026-04-30T16:13:40.073,RelayFake,RX,ok
+2026-04-30T16:13:40.094,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:40.113,RelayFake,RX,ok
+2026-04-30T16:13:40.128,RelayFake,TX,"set_valve(9, False)"
+2026-04-30T16:13:40.145,RelayFake,RX,ok
+2026-04-30T16:13:40.161,RelayFake,TX,"set_valve(10, False)"
+2026-04-30T16:13:40.175,RelayFake,RX,ok
+2026-04-30T16:13:40.193,RelayFake,TX,"set_valve(11, False)"
+2026-04-30T16:13:40.206,RelayFake,RX,ok
+2026-04-30T16:13:40.227,RelayFake,TX,"set_valve(12, False)"
+2026-04-30T16:13:40.240,RelayFake,RX,ok
+2026-04-30T16:13:40.262,RelayFake,TX,"set_valve(15, False)"
+2026-04-30T16:13:40.280,RelayFake,RX,ok
+2026-04-30T16:13:40.296,RelayFake,TX,"set_valve(16, False)"
+2026-04-30T16:13:40.320,RelayFake,RX,ok
+2026-04-30T16:13:40.443,RelayFake,TX,"set_valve(1, False)"
+2026-04-30T16:13:40.523,RelayFake,RX,ok
+2026-04-30T16:13:40.607,RelayFake,TX,"set_valve(2, False)"
+2026-04-30T16:13:40.690,RelayFake,RX,ok
+2026-04-30T16:13:40.772,RelayFake,TX,"set_valve(3, False)"
+2026-04-30T16:13:40.840,RelayFake,RX,ok
+2026-04-30T16:13:40.878,RelayFake,TX,"set_valve(8, False)"
+2026-04-30T16:13:40.944,RelayFake,RX,ok
+2026-04-30T16:13:40.999,PACE5000Fake,TX,disable_control_output()
+2026-04-30T16:13:41.043,PACE5000Fake,RX,ok
+2026-04-30T16:13:41.113,PACE5000Fake,TX,set_output(False)
+2026-04-30T16:13:41.149,PACE5000Fake,RX,ok
+2026-04-30T16:13:41.247,PACE5000Fake,TX,set_isolation_open(True)
+2026-04-30T16:13:41.307,PACE5000Fake,RX,ok
+2026-04-30T16:13:41.367,PACE5000Fake,TX,vent(True)
+2026-04-30T16:13:41.392,PACE5000Fake,RX,ok
+2026-04-30T16:13:41.414,TemperatureChamberFake,TX,stop()
+2026-04-30T16:13:41.460,TemperatureChamberFake,RX,ok

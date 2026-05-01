@@ -1,0 +1,127 @@
+{
+  "suite": "parity",
+  "description": "只检查 V1/V2 summary/export 口径一致性。",
+  "report_dir": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\parity_a2_12r_i",
+  "failed_cases": [],
+  "cases": [
+    {
+      "name": "summary_parity",
+      "kind": "parity",
+      "expected_statuses": [
+        "MATCH"
+      ],
+      "status": "MATCH",
+      "ok": true,
+      "artifact_dir": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\parity_a2_12r_i\\summary_parity",
+      "details": {
+        "report_json": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\parity_a2_12r_i\\summary_parity\\summary_parity_report.json",
+        "report_markdown": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\parity_a2_12r_i\\summary_parity\\summary_parity_report.md",
+        "comparison_summary": {
+          "cases_total": 2,
+          "cases_matched": 2,
+          "cases_failed": 0,
+          "failed_cases": [],
+          "float_within_tolerance": 10,
+          "float_failed": 0,
+          "exact_matched": 18,
+          "exact_failed": 0
+        },
+        "tolerance_rules": {
+          "default_float_abs": 1e-06,
+          "float_fields": [
+            "ppm_CO2",
+            "ppm_H2O",
+            "Temp",
+            "P",
+            "ppm_H2O_Dew"
+          ],
+          "exact_fields": [
+            "AnalyzerCoverage",
+            "UsableAnalyzers",
+            "ExpectedAnalyzers",
+            "PointIntegrity",
+            "MissingAnalyzers",
+            "UnusableAnalyzers",
+            "ValidFrames",
+            "TotalFrames",
+            "FrameStatus"
+          ]
+        },
+        "expected_divergence": []
+      },
+      "suite": "parity",
+      "evidence_source": "diagnostic",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "suite_case",
+      "parent_run_id": "summary_parity",
+      "source_artifact_ids": [
+        "summary_parity:report_json",
+        "summary_parity:report_markdown"
+      ],
+      "risk_level": "low",
+      "failure_type": "summary_parity",
+      "failure_phase": "summary_parity",
+      "reference_quality": "unknown",
+      "route_physical_mismatch": false
+    }
+  ],
+  "counts": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0
+  },
+  "all_passed": true,
+  "summary_json": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\parity_a2_12r_i\\suite_summary.json",
+  "summary_markdown": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\parity_a2_12r_i\\suite_summary.md",
+  "suite_analytics_summary": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\parity_a2_12r_i\\suite_analytics_summary.json",
+  "suite_acceptance_plan": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\parity_a2_12r_i\\suite_acceptance_plan.json",
+  "suite_evidence_registry": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\parity_a2_12r_i\\suite_evidence_registry.json",
+  "suite_digest": {
+    "summary": "1/1 passed | top failures none",
+    "health": "healthy"
+  },
+  "acceptance_readiness_summary": {
+    "acceptance_level": "offline_regression",
+    "promotion_state": "dry_run_only",
+    "ready_for_promotion": false,
+    "simulated_readiness_only": true,
+    "missing_conditions": [
+      "real probe evidence present",
+      "real acceptance evidence present",
+      "review completed",
+      "approval granted",
+      "promote primary latest"
+    ],
+    "summary": "offline_regression | dry_run_only | missing 5 gates"
+  },
+  "role_views": {
+    "operator": {
+      "status": "healthy",
+      "failure_points": [],
+      "summary": "run health ready"
+    },
+    "reviewer": {
+      "evidence_complete": true,
+      "notes": [
+        "real probe evidence present",
+        "real acceptance evidence present",
+        "review completed",
+        "approval granted",
+        "promote primary latest"
+      ],
+      "summary": "evidence complete"
+    },
+    "approver": {
+      "ready": false,
+      "missing_conditions": [
+        "real probe evidence present",
+        "real acceptance evidence present",
+        "review completed",
+        "approval granted",
+        "promote primary latest"
+      ],
+      "summary": "promotion blocked"
+    }
+  }
+}

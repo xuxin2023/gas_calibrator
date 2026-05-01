@@ -1,0 +1,407 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qc_manifest",
+  "run_id": "run_20260430_145813",
+  "generated_at": "2026-04-30T14:58:44",
+  "evidence_source": "simulated_protocol",
+  "not_real_acceptance_evidence": true,
+  "acceptance_level": "offline_regression",
+  "promotion_state": "dry_run_only",
+  "artifacts": [
+    {
+      "name": "qc_report_json",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_14_offline_suites\\smoke_a2_14_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_145813\\qc_report.json",
+      "present": true
+    },
+    {
+      "name": "qc_report_csv",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_14_offline_suites\\smoke_a2_14_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_145813\\qc_report.csv",
+      "present": true
+    },
+    {
+      "name": "qc_summary_json",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_14_offline_suites\\smoke_a2_14_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_145813\\qc_summary.json",
+      "present": true
+    },
+    {
+      "name": "qc_reviewer_digest_md",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_14_offline_suites\\smoke_a2_14_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_145813\\qc_reviewer_digest.md",
+      "present": true
+    }
+  ],
+  "decision_counts": {
+    "pass": 0,
+    "warn": 8,
+    "reject": 0,
+    "skipped": 0
+  },
+  "run_gate": {
+    "status": "warn",
+    "reason": "review_required",
+    "passed": false
+  },
+  "point_gate_summary": {
+    "status": "warn",
+    "flagged_point_count": 8,
+    "flagged_routes": [
+      "co2"
+    ],
+    "evaluated_routes": [
+      "co2"
+    ],
+    "passed": false
+  },
+  "route_decision_breakdown": {
+    "co2": {
+      "pass": 0,
+      "warn": 8,
+      "reject": 0,
+      "skipped": 0
+    }
+  },
+  "failed_check_taxonomy": [
+    {
+      "code": "time_continuity",
+      "category": "timing",
+      "count": 8
+    }
+  ],
+  "reviewer_card": {
+    "title": "质控审阅卡",
+    "summary": "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+    "status": "warn",
+    "lines": [
+      "质控摘要: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "运行门禁: warn | 原因: review_required",
+      "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+      "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+      "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+      "审阅结论: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "审阅结论: 点级门禁: warn | 关注路由: co2",
+      "审阅结论: 按气路分布: co2: 0/8/0/0",
+      "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+    ],
+    "sections": [
+      {
+        "id": "summary",
+        "title": "审阅结论",
+        "lines": [
+          "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2"
+        ]
+      },
+      {
+        "id": "gates",
+        "title": "门禁状态",
+        "lines": [
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+        ]
+      },
+      {
+        "id": "taxonomy",
+        "title": "风险归类",
+        "lines": [
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "lines": [
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        ]
+      }
+    ]
+  },
+  "review_card_lines": [
+    "质控摘要: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+    "运行门禁: warn | 原因: review_required",
+    "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+    "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+    "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+    "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+    "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+    "审阅结论: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+    "审阅结论: 点级门禁: warn | 关注路由: co2",
+    "审阅结论: 按气路分布: co2: 0/8/0/0",
+    "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+  ],
+  "evidence_section": {
+    "title": "质控证据",
+    "summary": "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+    "status": "warn",
+    "lines": [
+      "质控摘要: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "运行门禁: warn | 原因: review_required",
+      "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+      "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+      "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+      "审阅结论: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "审阅结论: 点级门禁: warn | 关注路由: co2",
+      "审阅结论: 按气路分布: co2: 0/8/0/0",
+      "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+    ],
+    "reviewer_digest": {
+      "summary": "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "status": "warn",
+      "top_reasons": "time_not_continuous",
+      "top_checks": "time_continuity",
+      "route_summary": "co2: 0/8/0/0",
+      "lines": [
+        "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "点级门禁: warn | 关注路由: co2",
+        "按气路分布: co2: 0/8/0/0",
+        "主要拒绝原因: time_not_continuous",
+        "失败检查: time_continuity",
+        "Review invalid points before fitting.",
+        "Improve sampling stability and reduce outliers."
+      ]
+    },
+    "reviewer_card": {
+      "title": "质控审阅卡",
+      "summary": "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "status": "warn",
+      "lines": [
+        "质控摘要: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "运行门禁: warn | 原因: review_required",
+        "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+        "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+        "审阅结论: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "审阅结论: 点级门禁: warn | 关注路由: co2",
+        "审阅结论: 按气路分布: co2: 0/8/0/0",
+        "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+      ],
+      "sections": [
+        {
+          "id": "summary",
+          "title": "审阅结论",
+          "lines": [
+            "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+            "点级门禁: warn | 关注路由: co2"
+          ]
+        },
+        {
+          "id": "gates",
+          "title": "门禁状态",
+          "lines": [
+            "运行门禁: warn | 原因: review_required",
+            "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+            "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+          ]
+        },
+        {
+          "id": "taxonomy",
+          "title": "风险归类",
+          "lines": [
+            "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+            "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+            "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+          ]
+        },
+        {
+          "id": "boundary",
+          "title": "证据边界",
+          "lines": [
+            "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+          ]
+        }
+      ]
+    },
+    "review_card_lines": [
+      "质控摘要: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "运行门禁: warn | 原因: review_required",
+      "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+      "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+      "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+      "审阅结论: 运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "审阅结论: 点级门禁: warn | 关注路由: co2",
+      "审阅结论: 按气路分布: co2: 0/8/0/0",
+      "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+    ],
+    "sections": [
+      {
+        "id": "summary",
+        "title": "审阅结论",
+        "lines": [
+          "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2"
+        ]
+      },
+      {
+        "id": "gates",
+        "title": "门禁状态",
+        "lines": [
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+        ]
+      },
+      {
+        "id": "taxonomy",
+        "title": "风险归类",
+        "lines": [
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "lines": [
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        ]
+      }
+    ],
+    "review_sections": [
+      {
+        "id": "summary",
+        "title": "审阅结论",
+        "lines": [
+          "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2"
+        ]
+      },
+      {
+        "id": "gates",
+        "title": "门禁状态",
+        "lines": [
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+        ]
+      },
+      {
+        "id": "taxonomy",
+        "title": "风险归类",
+        "lines": [
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "lines": [
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        ]
+      }
+    ],
+    "cards": [
+      {
+        "id": "summary",
+        "title": "审阅结论",
+        "summary": "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "lines": [
+          "运行 run_20260430_145813 质控评分 0.60 / 等级 D；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2"
+        ]
+      },
+      {
+        "id": "gates",
+        "title": "门禁状态",
+        "summary": "运行门禁: warn | 原因: review_required",
+        "lines": [
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+        ]
+      },
+      {
+        "id": "taxonomy",
+        "title": "风险归类",
+        "summary": "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "lines": [
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "summary": "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+        "lines": [
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        ]
+      }
+    ],
+    "run_gate": {
+      "status": "warn",
+      "reason": "review_required",
+      "passed": false
+    },
+    "point_gate_summary": {
+      "status": "warn",
+      "flagged_point_count": 8,
+      "flagged_routes": [
+        "co2"
+      ],
+      "evaluated_routes": [
+        "co2"
+      ],
+      "passed": false
+    },
+    "decision_counts": {
+      "pass": 0,
+      "warn": 8,
+      "reject": 0,
+      "skipped": 0
+    },
+    "route_decision_breakdown": {
+      "co2": {
+        "pass": 0,
+        "warn": 8,
+        "reject": 0,
+        "skipped": 0
+      }
+    },
+    "reject_reason_taxonomy": [
+      {
+        "code": "time_not_continuous",
+        "category": "timing",
+        "count": 8
+      }
+    ],
+    "failed_check_taxonomy": [
+      {
+        "code": "time_continuity",
+        "category": "timing",
+        "count": 8
+      }
+    ],
+    "evidence_source": "simulated_protocol",
+    "evidence_state": "collected",
+    "not_real_acceptance_evidence": true,
+    "acceptance_level": "offline_regression",
+    "promotion_state": "dry_run_only"
+  },
+  "rule_profile": {
+    "name": "default",
+    "route": "both",
+    "mode": "normal",
+    "source": "default"
+  },
+  "threshold_profile": {
+    "min_sample_count": 5,
+    "quality_threshold": 0.7,
+    "pass_threshold": 0.7,
+    "warn_threshold": 0.49999999999999994,
+    "reject_threshold": 0.29999999999999993,
+    "max_outlier_ratio": 0.2
+  }
+}

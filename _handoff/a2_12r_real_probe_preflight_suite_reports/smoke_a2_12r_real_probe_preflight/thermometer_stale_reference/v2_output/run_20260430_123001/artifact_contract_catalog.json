@@ -1,0 +1,3514 @@
+{
+  "schema_version": "step2-artifact-compatibility-v1",
+  "artifact_type": "artifact_contract_catalog",
+  "run_id": "run_20260430_123001",
+  "run_dir": "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001",
+  "generated_at": "2026-04-30T12:30:33",
+  "current_reader_mode": "canonical_direct",
+  "current_reader_mode_display": "canonical contract 直读",
+  "compatibility_status": "compatibility_read",
+  "compatibility_status_display": "兼容读取",
+  "regenerate_recommended": false,
+  "summary": "contracts 135 | compatibility-read 43 | missing-sidecar 0",
+  "detail_lines": [
+    "contracts: 135",
+    "compatibility-read entries: 43",
+    "missing regenerable sidecars: 0"
+  ],
+  "contract_rows": [
+    {
+      "artifact_key": "analytics_summary",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "analytics_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\analytics_summary.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "artifact_contract_catalog",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "artifact_contract_catalog.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\artifact_contract_catalog.json"
+      ],
+      "schema_versions": [
+        "step2-artifact-compatibility-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "artifact_contract_catalog_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "artifact_contract_catalog.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\artifact_contract_catalog.md"
+      ],
+      "schema_versions": [
+        "step2-artifact-compatibility-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "artifact_hash_registry",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "artifact_hash_registry.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\artifact_hash_registry.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "artifact_hash_registry_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "artifact_hash_registry.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\artifact_hash_registry.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "audit_event_store",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "audit_event_store.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\audit_event_store.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "audit_event_store_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "audit_event_store.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\audit_event_store.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "audit_readiness_digest",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "audit_readiness_digest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\audit_readiness_digest.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "audit_readiness_digest_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "audit_readiness_digest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\audit_readiness_digest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "certificate_lifecycle_summary_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "certificate_lifecycle_summary.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\certificate_lifecycle_summary.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "certificate_readiness_summary",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "certificate_readiness_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\certificate_readiness_summary.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "certificate_readiness_summary_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "certificate_readiness_summary.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\certificate_readiness_summary.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "comparison_digest",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "comparison_digest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\comparison_digest.json"
+      ],
+      "schema_versions": [
+        "step2-wp6-builder-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "comparison_digest_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "comparison_digest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\comparison_digest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "comparison_evidence_pack",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "comparison_evidence_pack.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\comparison_evidence_pack.json"
+      ],
+      "schema_versions": [
+        "step2-wp6-builder-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "comparison_evidence_pack_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "comparison_evidence_pack.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\comparison_evidence_pack.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "comparison_rollup",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "comparison_rollup.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\comparison_rollup.json"
+      ],
+      "schema_versions": [
+        "step2-wp6-builder-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "comparison_rollup_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "comparison_rollup.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\comparison_rollup.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "compatibility_scan_summary",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "compatibility_scan_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\compatibility_scan_summary.json"
+      ],
+      "schema_versions": [
+        "step2-artifact-compatibility-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "compatibility_scan_summary_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "compatibility_scan_summary.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\compatibility_scan_summary.md"
+      ],
+      "schema_versions": [
+        "step2-artifact-compatibility-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "config_fingerprint",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "config_fingerprint.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\config_fingerprint.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "config_fingerprint_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "config_fingerprint.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\config_fingerprint.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "environment_fingerprint",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "environment_fingerprint.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\environment_fingerprint.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "environment_fingerprint_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "environment_fingerprint.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\environment_fingerprint.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "external_comparison_importer",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "external_comparison_importer.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\external_comparison_importer.json"
+      ],
+      "schema_versions": [
+        "step2-wp6-builder-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "external_comparison_importer_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "external_comparison_importer.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\external_comparison_importer.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "measurement_phase_coverage_report_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "measurement_phase_coverage_report.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\measurement_phase_coverage_report.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "multi_source_stability_evidence",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "multi_source_stability_evidence.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\multi_source_stability_evidence.json"
+      ],
+      "schema_versions": [
+        "2.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "multi_source_stability_evidence_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "multi_source_stability_evidence.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\multi_source_stability_evidence.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "pre_run_readiness_gate",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "pre_run_readiness_gate.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\pre_run_readiness_gate.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "pre_run_readiness_gate_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "pre_run_readiness_gate.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\pre_run_readiness_gate.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "pt_ilc_registry",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "pt_ilc_registry.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\pt_ilc_registry.json"
+      ],
+      "schema_versions": [
+        "step2-wp6-builder-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "pt_ilc_registry_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "pt_ilc_registry.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\pt_ilc_registry.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "qc_manifest",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "qc_manifest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\qc_manifest.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "qc_report",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "qc_report.csv",
+        "qc_report.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\qc_report.csv",
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\qc_report.json"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "qc_reviewer_digest",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "qc_reviewer_digest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\qc_reviewer_digest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "qc_summary",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "qc_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\qc_summary.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "release_boundary_digest",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "release_boundary_digest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_boundary_digest.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "release_boundary_digest_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "release_boundary_digest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_boundary_digest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "release_input_digest",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "release_input_digest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_input_digest.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "release_input_digest_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "release_input_digest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_input_digest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "scope_comparison_view",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "scope_comparison_view.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\scope_comparison_view.json"
+      ],
+      "schema_versions": [
+        "step2-wp6-builder-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "scope_comparison_view_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "scope_comparison_view.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\scope_comparison_view.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "scope_readiness_summary",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "scope_readiness_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\scope_readiness_summary.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "scope_readiness_summary_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "scope_readiness_summary.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\scope_readiness_summary.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "state_transition_evidence",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "state_transition_evidence.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\state_transition_evidence.json"
+      ],
+      "schema_versions": [
+        "2.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "state_transition_evidence_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "state_transition_evidence.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\state_transition_evidence.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "step2_closeout_bundle",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "step2_closeout_bundle.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\step2_closeout_bundle.json"
+      ],
+      "schema_versions": [
+        "step2-closeout-bundle-v1"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "step2_closeout_digest",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "step2_closeout_digest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\step2_closeout_digest.json"
+      ],
+      "schema_versions": [
+        "step2-closeout-digest-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "step2_closeout_digest_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "step2_closeout_digest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\step2_closeout_digest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "step2_closeout_evidence_index",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "step2_closeout_evidence_index.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\step2_closeout_evidence_index.json"
+      ],
+      "schema_versions": [
+        "step2-closeout-bundle-v1"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "step2_closeout_summary_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "step2_closeout_summary.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\step2_closeout_summary.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "temperature_snapshots",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "temperature_snapshots.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\temperature_snapshots.json"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "trend_registry",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "trend_registry.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\trend_registry.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_digest",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_digest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_digest.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_digest_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_digest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_digest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_golden_cases",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_golden_cases.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_golden_cases.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_golden_cases_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_golden_cases.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_golden_cases.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_method_readiness_summary",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_method_readiness_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_method_readiness_summary.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_method_readiness_summary_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_method_readiness_summary.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_method_readiness_summary.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_report_pack",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_report_pack.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_report_pack.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_report_pack_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_report_pack.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_report_pack.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_rollup",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_rollup.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_rollup.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_rollup_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "uncertainty_rollup.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_rollup.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "verification_digest",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "verification_digest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\verification_digest.json"
+      ],
+      "schema_versions": [
+        "step2-method-confirmation-wp4-v1"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "verification_digest_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "verification_digest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\verification_digest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "verification_rollup",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "verification_rollup.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\verification_rollup.json"
+      ],
+      "schema_versions": [
+        "step2-method-confirmation-wp4-v1"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "verification_rollup_markdown",
+      "artifact_role": "diagnostic_analysis",
+      "artifact_names": [
+        "verification_rollup.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\verification_rollup.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "io_log",
+      "artifact_role": "execution_rows",
+      "artifact_names": [
+        "io_log.csv"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\io_log.csv"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "point_summaries",
+      "artifact_role": "execution_rows",
+      "artifact_names": [
+        "point_summaries.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\point_summaries.json"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "results_json",
+      "artifact_role": "execution_rows",
+      "artifact_names": [
+        "results.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\results.json"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "runtime_points",
+      "artifact_role": "execution_rows",
+      "artifact_names": [
+        "points.csv"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\points.csv"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "samples_csv",
+      "artifact_role": "execution_rows",
+      "artifact_names": [
+        "samples.csv"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\samples.csv"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "samples_excel",
+      "artifact_role": "execution_rows",
+      "artifact_names": [
+        "samples.xlsx"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\samples.xlsx"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "acceptance_plan",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "acceptance_plan.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\acceptance_plan.json"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "budget_case",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "budget_case.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\budget_case.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "certificate_lifecycle_summary",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "certificate_lifecycle_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\certificate_lifecycle_summary.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "change_impact_summary",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "change_impact_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\change_impact_summary.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "decision_rule_profile",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "decision_rule_profile.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\decision_rule_profile.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "evidence_registry",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "evidence_registry.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\evidence_registry.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "lineage_summary",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "lineage_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\lineage_summary.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "manifest",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "manifest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\manifest.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "measurement_phase_coverage_report",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "measurement_phase_coverage_report.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\measurement_phase_coverage_report.json"
+      ],
+      "schema_versions": [
+        "1.1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "method_confirmation_matrix",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "method_confirmation_matrix.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\method_confirmation_matrix.json"
+      ],
+      "schema_versions": [
+        "step2-method-confirmation-wp4-v1"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "method_confirmation_protocol",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "method_confirmation_protocol.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\method_confirmation_protocol.json"
+      ],
+      "schema_versions": [
+        "step2-method-confirmation-wp4-v1"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "metrology_traceability_stub",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "metrology_traceability_stub.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\metrology_traceability_stub.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "points_readable",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "points_readable.csv"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\points_readable.csv"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "reference_asset_registry",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "reference_asset_registry.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\reference_asset_registry.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "reindex_manifest",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "reindex_manifest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\reindex_manifest.json"
+      ],
+      "schema_versions": [
+        "step2-artifact-compatibility-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "reindex_manifest_markdown",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "reindex_manifest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\reindex_manifest.md"
+      ],
+      "schema_versions": [
+        "step2-artifact-compatibility-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "release_evidence_pack_index",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "release_evidence_pack_index.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_evidence_pack_index.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "release_manifest",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "release_manifest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_manifest.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "release_scope_summary",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "release_scope_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_scope_summary.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "release_validation_manifest",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "release_validation_manifest.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_validation_manifest.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "requirement_design_code_test_links",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "requirement_design_code_test_links.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\requirement_design_code_test_links.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "rollback_readiness_summary",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "rollback_readiness_summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\rollback_readiness_summary.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "route_specific_validation_matrix",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "route_specific_validation_matrix.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\route_specific_validation_matrix.json"
+      ],
+      "schema_versions": [
+        "step2-method-confirmation-wp4-v1"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "run_artifact_index",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "run_artifact_index.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\run_artifact_index.json"
+      ],
+      "schema_versions": [
+        "step2-artifact-compatibility-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "run_artifact_index_markdown",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "run_artifact_index.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\run_artifact_index.md"
+      ],
+      "schema_versions": [
+        "step2-artifact-compatibility-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "run_summary",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "summary.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\summary.json"
+      ],
+      "schema_versions": [
+        "2.2"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "scope_definition_pack",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "scope_definition_pack.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\scope_definition_pack.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "sensitivity_coefficient_set",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "sensitivity_coefficient_set.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\sensitivity_coefficient_set.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "simulation_evidence_sidecar_bundle",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "simulation_evidence_sidecar_bundle.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\simulation_evidence_sidecar_bundle.json"
+      ],
+      "schema_versions": [
+        "1.1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "software_validation_traceability_matrix",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "software_validation_traceability_matrix.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\software_validation_traceability_matrix.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_budget_stub",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "uncertainty_budget_stub.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_budget_stub.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_input_set",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "uncertainty_input_set.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_input_set.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_model",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "uncertainty_model.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_model.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "validation_evidence_index",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "validation_evidence_index.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\validation_evidence_index.json"
+      ],
+      "schema_versions": [
+        "step2-software-validation-wp5-v1"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ]
+    },
+    {
+      "artifact_key": "validation_run_set",
+      "artifact_role": "execution_summary",
+      "artifact_names": [
+        "validation_run_set.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\validation_run_set.json"
+      ],
+      "schema_versions": [
+        "step2-method-confirmation-wp4-v1"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "change_impact_summary_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "change_impact_summary.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\change_impact_summary.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "coefficient_registry",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "coefficient_registry.json"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\coefficient_registry.json"
+      ],
+      "schema_versions": [
+        "1.0"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "decision_rule_profile_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "decision_rule_profile.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\decision_rule_profile.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "method_confirmation_matrix_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "method_confirmation_matrix.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\method_confirmation_matrix.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "method_confirmation_protocol_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "method_confirmation_protocol.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\method_confirmation_protocol.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "metrology_traceability_stub_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "metrology_traceability_stub.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\metrology_traceability_stub.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "reference_asset_registry_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "reference_asset_registry.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\reference_asset_registry.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "release_evidence_pack_index_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "release_evidence_pack_index.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_evidence_pack_index.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "release_manifest_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "release_manifest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_manifest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "release_scope_summary_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "release_scope_summary.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_scope_summary.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "release_validation_manifest_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "release_validation_manifest.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\release_validation_manifest.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "requirement_design_code_test_links_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "requirement_design_code_test_links.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\requirement_design_code_test_links.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "rollback_readiness_summary_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "rollback_readiness_summary.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\rollback_readiness_summary.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "route_specific_validation_matrix_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "route_specific_validation_matrix.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\route_specific_validation_matrix.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "scope_definition_pack_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "scope_definition_pack.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\scope_definition_pack.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "software_validation_traceability_matrix_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "software_validation_traceability_matrix.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\software_validation_traceability_matrix.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_budget_stub_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "uncertainty_budget_stub.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_budget_stub.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "validation_evidence_index_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "validation_evidence_index.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\validation_evidence_index.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "validation_run_set_markdown",
+      "artifact_role": "formal_analysis",
+      "artifact_names": [
+        "validation_run_set.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\validation_run_set.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results",
+        "review_center"
+      ]
+    },
+    {
+      "artifact_key": "budget_case_markdown",
+      "artifact_role": "unclassified",
+      "artifact_names": [
+        "budget_case.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\budget_case.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "route_trace",
+      "artifact_role": "unclassified",
+      "artifact_names": [
+        "route_trace.jsonl"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\route_trace.jsonl"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "run_log",
+      "artifact_role": "unclassified",
+      "artifact_names": [
+        "run.log"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\run.log"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "samples_runtime",
+      "artifact_role": "unclassified",
+      "artifact_names": [
+        "samples_runtime.csv"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\samples_runtime.csv"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "compatibility_read"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": true,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "sensitivity_coefficient_set_markdown",
+      "artifact_role": "unclassified",
+      "artifact_names": [
+        "sensitivity_coefficient_set.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\sensitivity_coefficient_set.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_input_set_markdown",
+      "artifact_role": "unclassified",
+      "artifact_names": [
+        "uncertainty_input_set.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_input_set.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    },
+    {
+      "artifact_key": "uncertainty_model_markdown",
+      "artifact_role": "unclassified",
+      "artifact_names": [
+        "uncertainty_model.md"
+      ],
+      "artifact_paths": [
+        "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\uncertainty_model.md"
+      ],
+      "schema_versions": [
+        "inferred-unversioned"
+      ],
+      "compatibility_statuses": [
+        "canonical_current"
+      ],
+      "canonical_reader_available": true,
+      "regenerate_recommended": false,
+      "linked_surface_visibility": [
+        "results"
+      ]
+    }
+  ],
+  "linked_surface_visibility": [
+    "results",
+    "review_center"
+  ],
+  "regenerate_scope": "reviewer_index_sidecar_only",
+  "primary_evidence_rewritten": false,
+  "primary_evidence_preserved": true,
+  "evidence_source": "simulated_protocol",
+  "evidence_state": "shadow_only",
+  "not_real_acceptance_evidence": true,
+  "artifact_paths": {
+    "artifact_contract_catalog": "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\artifact_contract_catalog.json",
+    "artifact_contract_catalog_markdown": "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\thermometer_stale_reference\\v2_output\\run_20260430_123001\\artifact_contract_catalog.md"
+  },
+  "boundary_fragments": [
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "step2_tail_stage3_bridge",
+      "canonical_key": "step2_tail_stage3_bridge",
+      "canonical_fragment_id": "boundary:step2_tail_stage3_bridge",
+      "i18n_key": "reviewer_fragments.boundary.step2_tail_stage3_bridge",
+      "params": {},
+      "text": "Step 2 收尾 / Step 3 桥接边界",
+      "display_text": "Step 2 收尾 / Step 3 桥接边界",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "text": "仅用于 Step 2 审阅就绪度",
+      "display_text": "仅用于 Step 2 审阅就绪度",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "text": "仅限 simulation / offline / headless",
+      "display_text": "仅限 simulation / offline / headless",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "text": "以文件工件为先的审阅证据链",
+      "display_text": "以文件工件为先的审阅证据链",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "text": "不是 real acceptance",
+      "display_text": "不是 real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "does_not_modify_live_sampling_gate",
+      "canonical_key": "does_not_modify_live_sampling_gate",
+      "canonical_fragment_id": "boundary:does_not_modify_live_sampling_gate",
+      "i18n_key": "reviewer_fragments.boundary.does_not_modify_live_sampling_gate",
+      "params": {},
+      "text": "默认不改动 live sampling gate",
+      "display_text": "默认不改动 live sampling gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_fragment_keys": [
+    "step2_tail_stage3_bridge",
+    "step2_reviewer_readiness_only",
+    "simulation_offline_headless_only",
+    "file_artifact_first_reviewer_evidence",
+    "not_real_acceptance_boundary",
+    "does_not_modify_live_sampling_gate"
+  ],
+  "boundary_statements": [
+    "compatibility / reindex / regenerate 仅重建 reviewer/index sidecar",
+    "不改写原始主证据"
+  ],
+  "boundary_filter_rows": [
+    {
+      "id": "boundary:step2_tail_stage3_bridge",
+      "canonical_fragment_id": "boundary:step2_tail_stage3_bridge",
+      "fragment_family": "boundary",
+      "fragment_key": "step2_tail_stage3_bridge",
+      "canonical_key": "step2_tail_stage3_bridge",
+      "i18n_key": "reviewer_fragments.boundary.step2_tail_stage3_bridge",
+      "params": {},
+      "label": "Step 2 收尾 / Step 3 桥接边界",
+      "display_text": "Step 2 收尾 / Step 3 桥接边界",
+      "text": "Step 2 收尾 / Step 3 桥接边界",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "label": "仅用于 Step 2 审阅就绪度",
+      "display_text": "仅用于 Step 2 审阅就绪度",
+      "text": "仅用于 Step 2 审阅就绪度",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "label": "仅限 simulation / offline / headless",
+      "display_text": "仅限 simulation / offline / headless",
+      "text": "仅限 simulation / offline / headless",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "label": "以文件工件为先的审阅证据链",
+      "display_text": "以文件工件为先的审阅证据链",
+      "text": "以文件工件为先的审阅证据链",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "label": "不是 real acceptance",
+      "display_text": "不是 real acceptance",
+      "text": "不是 real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:does_not_modify_live_sampling_gate",
+      "canonical_fragment_id": "boundary:does_not_modify_live_sampling_gate",
+      "fragment_family": "boundary",
+      "fragment_key": "does_not_modify_live_sampling_gate",
+      "canonical_key": "does_not_modify_live_sampling_gate",
+      "i18n_key": "reviewer_fragments.boundary.does_not_modify_live_sampling_gate",
+      "params": {},
+      "label": "默认不改动 live sampling gate",
+      "display_text": "默认不改动 live sampling gate",
+      "text": "默认不改动 live sampling gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_filters": [
+    "boundary:step2_tail_stage3_bridge",
+    "boundary:step2_reviewer_readiness_only",
+    "boundary:simulation_offline_headless_only",
+    "boundary:file_artifact_first_reviewer_evidence",
+    "boundary:not_real_acceptance_boundary",
+    "boundary:does_not_modify_live_sampling_gate"
+  ],
+  "boundary_digest": "Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+  "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1",
+  "non_claim_fragments": [
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "simulation_synthetic_reviewer_evidence_only",
+      "canonical_key": "simulation_synthetic_reviewer_evidence_only",
+      "canonical_fragment_id": "non_claim:simulation_synthetic_reviewer_evidence_only",
+      "i18n_key": "reviewer_fragments.non_claim.simulation_synthetic_reviewer_evidence_only",
+      "params": {},
+      "text": "仅为 simulation / synthetic reviewer evidence",
+      "display_text": "仅为 simulation / synthetic reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_real_acceptance",
+      "canonical_key": "not_real_acceptance",
+      "canonical_fragment_id": "non_claim:not_real_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_real_acceptance",
+      "params": {},
+      "text": "不是 real acceptance",
+      "display_text": "不是 real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_live_gate",
+      "canonical_key": "not_live_gate",
+      "canonical_fragment_id": "non_claim:not_live_gate",
+      "i18n_key": "reviewer_fragments.non_claim.not_live_gate",
+      "params": {},
+      "text": "不驱动 live gate",
+      "display_text": "不驱动 live gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_release_gate",
+      "canonical_key": "not_release_gate",
+      "canonical_fragment_id": "non_claim:not_release_gate",
+      "i18n_key": "reviewer_fragments.non_claim.not_release_gate",
+      "params": {},
+      "text": "不是 release gate",
+      "display_text": "不是 release gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_live_acceptance",
+      "canonical_key": "not_live_acceptance",
+      "canonical_fragment_id": "non_claim:not_live_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_live_acceptance",
+      "params": {},
+      "text": "不是 live acceptance",
+      "display_text": "不是 live acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_compliance_claim",
+      "canonical_key": "not_compliance_claim",
+      "canonical_fragment_id": "non_claim:not_compliance_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_compliance_claim",
+      "params": {},
+      "text": "不是 compliance claim",
+      "display_text": "不是 compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_accreditation_claim",
+      "canonical_key": "not_accreditation_claim",
+      "canonical_fragment_id": "non_claim:not_accreditation_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_accreditation_claim",
+      "params": {},
+      "text": "不是 accreditation claim",
+      "display_text": "不是 accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "non_claim_fragment_keys": [
+    "simulation_synthetic_reviewer_evidence_only",
+    "not_real_acceptance",
+    "not_live_gate",
+    "not_release_gate",
+    "not_live_acceptance",
+    "not_compliance_claim",
+    "not_accreditation_claim"
+  ],
+  "non_claim_filter_rows": [
+    {
+      "id": "non_claim:simulation_synthetic_reviewer_evidence_only",
+      "canonical_fragment_id": "non_claim:simulation_synthetic_reviewer_evidence_only",
+      "fragment_family": "non_claim",
+      "fragment_key": "simulation_synthetic_reviewer_evidence_only",
+      "canonical_key": "simulation_synthetic_reviewer_evidence_only",
+      "i18n_key": "reviewer_fragments.non_claim.simulation_synthetic_reviewer_evidence_only",
+      "params": {},
+      "label": "仅为 simulation / synthetic reviewer evidence",
+      "display_text": "仅为 simulation / synthetic reviewer evidence",
+      "text": "仅为 simulation / synthetic reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_real_acceptance",
+      "canonical_fragment_id": "non_claim:not_real_acceptance",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_real_acceptance",
+      "canonical_key": "not_real_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_real_acceptance",
+      "params": {},
+      "label": "不是 real acceptance",
+      "display_text": "不是 real acceptance",
+      "text": "不是 real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_live_gate",
+      "canonical_fragment_id": "non_claim:not_live_gate",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_live_gate",
+      "canonical_key": "not_live_gate",
+      "i18n_key": "reviewer_fragments.non_claim.not_live_gate",
+      "params": {},
+      "label": "不驱动 live gate",
+      "display_text": "不驱动 live gate",
+      "text": "不驱动 live gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_release_gate",
+      "canonical_fragment_id": "non_claim:not_release_gate",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_release_gate",
+      "canonical_key": "not_release_gate",
+      "i18n_key": "reviewer_fragments.non_claim.not_release_gate",
+      "params": {},
+      "label": "不是 release gate",
+      "display_text": "不是 release gate",
+      "text": "不是 release gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_live_acceptance",
+      "canonical_fragment_id": "non_claim:not_live_acceptance",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_live_acceptance",
+      "canonical_key": "not_live_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_live_acceptance",
+      "params": {},
+      "label": "不是 live acceptance",
+      "display_text": "不是 live acceptance",
+      "text": "不是 live acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_compliance_claim",
+      "canonical_fragment_id": "non_claim:not_compliance_claim",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_compliance_claim",
+      "canonical_key": "not_compliance_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_compliance_claim",
+      "params": {},
+      "label": "不是 compliance claim",
+      "display_text": "不是 compliance claim",
+      "text": "不是 compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_accreditation_claim",
+      "canonical_fragment_id": "non_claim:not_accreditation_claim",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_accreditation_claim",
+      "canonical_key": "not_accreditation_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_accreditation_claim",
+      "params": {},
+      "label": "不是 accreditation claim",
+      "display_text": "不是 accreditation claim",
+      "text": "不是 accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "non_claim_filters": [
+    "non_claim:simulation_synthetic_reviewer_evidence_only",
+    "non_claim:not_real_acceptance",
+    "non_claim:not_live_gate",
+    "non_claim:not_release_gate",
+    "non_claim:not_live_acceptance",
+    "non_claim:not_compliance_claim",
+    "non_claim:not_accreditation_claim"
+  ],
+  "non_claim_digest": "仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+  "compatibility_overview": {
+    "compatibility_schema_version": "step2-artifact-compatibility-v1",
+    "index_schema_version": "step2-artifact-compatibility-index-v1",
+    "generated_at": "2026-04-30T12:30:33",
+    "generated_by_tool": "gas_calibrator.v2.core.artifact_compatibility.build_artifact_compatibility_bundle",
+    "observed_artifact_count": 136,
+    "contract_row_count": 135,
+    "schema_or_contract_version_counts": {
+      "step2-artifact-compatibility-v1": 8,
+      "1.0": 26,
+      "2.2": 1,
+      "inferred-unversioned": 66,
+      "step2-software-validation-wp5-v1": 16,
+      "step2-wp6-builder-v1": 6,
+      "1.1": 2,
+      "2.0": 2,
+      "step2-closeout-digest-v1": 1,
+      "step2-method-confirmation-wp4-v1": 6,
+      "step2-closeout-bundle-v1": 2
+    },
+    "observed_contract_versions": [
+      "1.0",
+      "1.1",
+      "2.0",
+      "2.2",
+      "inferred-unversioned",
+      "step2-artifact-compatibility-v1",
+      "step2-closeout-bundle-v1",
+      "step2-closeout-digest-v1",
+      "step2-method-confirmation-wp4-v1",
+      "step2-software-validation-wp5-v1",
+      "step2-wp6-builder-v1"
+    ],
+    "observed_contract_version_summary": "1.0 26 | 1.1 2 | 2.0 2 | 2.2 1 | inferred-unversioned 66 | step2-artifact-compatibility-v1 8 | step2-closeout-bundle-v1 2 | step2-closeout-digest-v1 1 | step2-method-confirmation-wp4-v1 6 | step2-software-validation-wp5-v1 16 | step2-wp6-builder-v1 6",
+    "schema_contract_summary_display": "compatibility bundle step2-artifact-compatibility-v1 | observed 1.0 26 | 1.1 2 | 2.0 2 | 2.2 1 | inferred-unversioned 66 | step2-artifact-compatibility-v1 8 | step2-closeout-bundle-v1 2 | step2-closeout-digest-v1 1 | step2-method-confirmation-wp4-v1 6 | step2-software-validation-wp5-v1 16 | step2-wp6-builder-v1 6",
+    "current_reader_mode": "canonical_direct",
+    "current_reader_mode_display": "canonical contract 直读",
+    "compatibility_status": "compatibility_read",
+    "compatibility_status_display": "兼容读取",
+    "regenerate_recommended": false,
+    "regenerate_scope": "reviewer_index_sidecar_only",
+    "regenerate_recommendation_display": "当前 compatibility sidecar 可直接复用",
+    "primary_evidence_rewritten": false,
+    "linked_surface_visibility": [
+      "results",
+      "review_center",
+      "workbench"
+    ],
+    "non_primary_boundary_display": "仅重建 reviewer/index sidecar，不改写 summary.json / manifest.json / results.json",
+    "non_primary_chain_display": "compatibility / regenerate sidecar 仍属于 non-primary evidence chain",
+    "boundary_digest": "Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+    "non_claim_digest": "仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+    "compatibility_rollup": {
+      "index_schema_version": "step2-artifact-compatibility-index-v1",
+      "generated_at": "2026-04-30T12:30:33",
+      "generated_by_tool": "gas_calibrator.v2.core.artifact_compatibility.build_artifact_compatibility_bundle",
+      "rollup_scope": "run-dir",
+      "parent_run_count": 1,
+      "artifact_count": 136,
+      "compatible_run_count": 1,
+      "legacy_run_count": 0,
+      "regenerate_recommended_count": 0,
+      "reader_mode_counts": {
+        "canonical_direct": 1
+      },
+      "compatibility_status_counts": {
+        "compatibility_read": 1
+      },
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ],
+      "boundary_digest": "Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+      "non_claim_digest": "仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+      "primary_evidence_rewritten": false,
+      "rollup_summary_display": "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0",
+      "summary": "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0",
+      "summary_lines": [
+        "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0",
+        "reader modes: canonical contract 直读 1",
+        "compatibility: 兼容读取 1"
+      ],
+      "detail_lines": [
+        "surfaces: results, review_center, workbench",
+        "boundary: Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+        "non-claim: 仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+        "primary evidence rewritten: false"
+      ]
+    },
+    "rollup_scope": "run-dir",
+    "rollup_summary_display": "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0",
+    "summary": "当前 run 已具备 canonical contract 直读，compatibility sidecar 已就绪。",
+    "summary_lines": [
+      "合同/Schema: compatibility bundle step2-artifact-compatibility-v1 | observed 1.0 26 | 1.1 2 | 2.0 2 | 2.2 1 | inferred-unversioned 66 | step2-artifact-compatibility-v1 8 | step2-closeout-bundle-v1 2 | step2-closeout-digest-v1 1 | step2-method-confirmation-wp4-v1 6 | step2-software-validation-wp5-v1 16 | step2-wp6-builder-v1 6",
+      "读取方式: canonical contract 直读",
+      "兼容状态: 兼容读取",
+      "建议动作: 当前 compatibility sidecar 可直接复用",
+      "主证据改写: false",
+      "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0"
+    ],
+    "detail_lines": [
+      "边界摘要: Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+      "非主张摘要: 仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+      "non-primary 边界: 仅重建 reviewer/index sidecar，不改写 summary.json / manifest.json / results.json",
+      "证据链声明: compatibility / regenerate sidecar 仍属于 non-primary evidence chain",
+      "surfaces: results, review_center, workbench",
+      "boundary: Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+      "non-claim: 仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+      "primary evidence rewritten: false"
+    ]
+  },
+  "schema_or_contract_version_summary": "1.0 26 | 1.1 2 | 2.0 2 | 2.2 1 | inferred-unversioned 66 | step2-artifact-compatibility-v1 8 | step2-closeout-bundle-v1 2 | step2-closeout-digest-v1 1 | step2-method-confirmation-wp4-v1 6 | step2-software-validation-wp5-v1 16 | step2-wp6-builder-v1 6",
+  "schema_or_contract_version_counts": {
+    "step2-artifact-compatibility-v1": 8,
+    "1.0": 26,
+    "2.2": 1,
+    "inferred-unversioned": 66,
+    "step2-software-validation-wp5-v1": 16,
+    "step2-wp6-builder-v1": 6,
+    "1.1": 2,
+    "2.0": 2,
+    "step2-closeout-digest-v1": 1,
+    "step2-method-confirmation-wp4-v1": 6,
+    "step2-closeout-bundle-v1": 2
+  }
+}

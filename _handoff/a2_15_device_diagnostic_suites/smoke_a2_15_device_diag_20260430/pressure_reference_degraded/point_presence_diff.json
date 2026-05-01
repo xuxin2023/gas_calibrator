@@ -1,0 +1,16 @@
+{
+  "matches": true,
+  "v1_only": [],
+  "v2_only": [],
+  "v1_count": 8,
+  "v2_count": 8,
+  "routes": {
+    "co2": {
+      "matches": true,
+      "v1_only": [],
+      "v2_only": [],
+      "v1_count": 8,
+      "v2_count": 8
+    }
+  }
+}

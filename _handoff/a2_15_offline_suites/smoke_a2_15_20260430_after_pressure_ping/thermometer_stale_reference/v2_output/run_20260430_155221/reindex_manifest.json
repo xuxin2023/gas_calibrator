@@ -1,0 +1,525 @@
+{
+  "schema_version": "step2-artifact-compatibility-v1",
+  "artifact_type": "reindex_manifest",
+  "run_id": "run_20260430_155221",
+  "run_dir": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\thermometer_stale_reference\\v2_output\\run_20260430_155221",
+  "generated_at": "2026-04-30T15:52:52",
+  "current_reader_mode": "canonical_direct",
+  "current_reader_mode_display": "canonical contract 直读",
+  "compatibility_status": "compatibility_read",
+  "compatibility_status_display": "兼容读取",
+  "regenerate_recommended": false,
+  "summary": "reindex / regenerate 仅作用于 reviewer/index sidecar",
+  "detail_lines": [
+    "读取方式: canonical contract 直读",
+    "兼容状态: 兼容读取",
+    "作用范围: 仅重建 reviewer/index sidecar",
+    "保护边界: 不改写 summary / manifest / results 等原始主证据",
+    "建议: 当前 sidecar 已齐备，仅在索引变化时再生成"
+  ],
+  "linked_surface_visibility": [
+    "results",
+    "review_center",
+    "workbench"
+  ],
+  "reindex_allowed": true,
+  "reindex_scope": "reviewer_index_sidecar_only",
+  "regenerate_scope": "reviewer_index_sidecar_only",
+  "primary_evidence_preserved": true,
+  "primary_evidence_rewritten": false,
+  "canonical_reader_available": true,
+  "evidence_source": "simulated_protocol",
+  "evidence_state": "shadow_only",
+  "not_real_acceptance_evidence": true,
+  "artifact_paths": {
+    "reindex_manifest": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\thermometer_stale_reference\\v2_output\\run_20260430_155221\\reindex_manifest.json",
+    "reindex_manifest_markdown": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430_after_pressure_ping\\thermometer_stale_reference\\v2_output\\run_20260430_155221\\reindex_manifest.md"
+  },
+  "boundary_fragments": [
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "step2_tail_stage3_bridge",
+      "canonical_key": "step2_tail_stage3_bridge",
+      "canonical_fragment_id": "boundary:step2_tail_stage3_bridge",
+      "i18n_key": "reviewer_fragments.boundary.step2_tail_stage3_bridge",
+      "params": {},
+      "text": "Step 2 收尾 / Step 3 桥接边界",
+      "display_text": "Step 2 收尾 / Step 3 桥接边界",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "text": "仅用于 Step 2 审阅就绪度",
+      "display_text": "仅用于 Step 2 审阅就绪度",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "text": "仅限 simulation / offline / headless",
+      "display_text": "仅限 simulation / offline / headless",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "text": "以文件工件为先的审阅证据链",
+      "display_text": "以文件工件为先的审阅证据链",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "text": "不是 real acceptance",
+      "display_text": "不是 real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "does_not_modify_live_sampling_gate",
+      "canonical_key": "does_not_modify_live_sampling_gate",
+      "canonical_fragment_id": "boundary:does_not_modify_live_sampling_gate",
+      "i18n_key": "reviewer_fragments.boundary.does_not_modify_live_sampling_gate",
+      "params": {},
+      "text": "默认不改动 live sampling gate",
+      "display_text": "默认不改动 live sampling gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_fragment_keys": [
+    "step2_tail_stage3_bridge",
+    "step2_reviewer_readiness_only",
+    "simulation_offline_headless_only",
+    "file_artifact_first_reviewer_evidence",
+    "not_real_acceptance_boundary",
+    "does_not_modify_live_sampling_gate"
+  ],
+  "boundary_statements": [
+    "compatibility / reindex / regenerate 仅重建 reviewer/index sidecar",
+    "不改写原始主证据"
+  ],
+  "boundary_filter_rows": [
+    {
+      "id": "boundary:step2_tail_stage3_bridge",
+      "canonical_fragment_id": "boundary:step2_tail_stage3_bridge",
+      "fragment_family": "boundary",
+      "fragment_key": "step2_tail_stage3_bridge",
+      "canonical_key": "step2_tail_stage3_bridge",
+      "i18n_key": "reviewer_fragments.boundary.step2_tail_stage3_bridge",
+      "params": {},
+      "label": "Step 2 收尾 / Step 3 桥接边界",
+      "display_text": "Step 2 收尾 / Step 3 桥接边界",
+      "text": "Step 2 收尾 / Step 3 桥接边界",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "label": "仅用于 Step 2 审阅就绪度",
+      "display_text": "仅用于 Step 2 审阅就绪度",
+      "text": "仅用于 Step 2 审阅就绪度",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "label": "仅限 simulation / offline / headless",
+      "display_text": "仅限 simulation / offline / headless",
+      "text": "仅限 simulation / offline / headless",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "label": "以文件工件为先的审阅证据链",
+      "display_text": "以文件工件为先的审阅证据链",
+      "text": "以文件工件为先的审阅证据链",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "label": "不是 real acceptance",
+      "display_text": "不是 real acceptance",
+      "text": "不是 real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:does_not_modify_live_sampling_gate",
+      "canonical_fragment_id": "boundary:does_not_modify_live_sampling_gate",
+      "fragment_family": "boundary",
+      "fragment_key": "does_not_modify_live_sampling_gate",
+      "canonical_key": "does_not_modify_live_sampling_gate",
+      "i18n_key": "reviewer_fragments.boundary.does_not_modify_live_sampling_gate",
+      "params": {},
+      "label": "默认不改动 live sampling gate",
+      "display_text": "默认不改动 live sampling gate",
+      "text": "默认不改动 live sampling gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_filters": [
+    "boundary:step2_tail_stage3_bridge",
+    "boundary:step2_reviewer_readiness_only",
+    "boundary:simulation_offline_headless_only",
+    "boundary:file_artifact_first_reviewer_evidence",
+    "boundary:not_real_acceptance_boundary",
+    "boundary:does_not_modify_live_sampling_gate"
+  ],
+  "boundary_digest": "Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+  "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1",
+  "non_claim_fragments": [
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "simulation_synthetic_reviewer_evidence_only",
+      "canonical_key": "simulation_synthetic_reviewer_evidence_only",
+      "canonical_fragment_id": "non_claim:simulation_synthetic_reviewer_evidence_only",
+      "i18n_key": "reviewer_fragments.non_claim.simulation_synthetic_reviewer_evidence_only",
+      "params": {},
+      "text": "仅为 simulation / synthetic reviewer evidence",
+      "display_text": "仅为 simulation / synthetic reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_real_acceptance",
+      "canonical_key": "not_real_acceptance",
+      "canonical_fragment_id": "non_claim:not_real_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_real_acceptance",
+      "params": {},
+      "text": "不是 real acceptance",
+      "display_text": "不是 real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_live_gate",
+      "canonical_key": "not_live_gate",
+      "canonical_fragment_id": "non_claim:not_live_gate",
+      "i18n_key": "reviewer_fragments.non_claim.not_live_gate",
+      "params": {},
+      "text": "不驱动 live gate",
+      "display_text": "不驱动 live gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_release_gate",
+      "canonical_key": "not_release_gate",
+      "canonical_fragment_id": "non_claim:not_release_gate",
+      "i18n_key": "reviewer_fragments.non_claim.not_release_gate",
+      "params": {},
+      "text": "不是 release gate",
+      "display_text": "不是 release gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_live_acceptance",
+      "canonical_key": "not_live_acceptance",
+      "canonical_fragment_id": "non_claim:not_live_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_live_acceptance",
+      "params": {},
+      "text": "不是 live acceptance",
+      "display_text": "不是 live acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_compliance_claim",
+      "canonical_key": "not_compliance_claim",
+      "canonical_fragment_id": "non_claim:not_compliance_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_compliance_claim",
+      "params": {},
+      "text": "不是 compliance claim",
+      "display_text": "不是 compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_accreditation_claim",
+      "canonical_key": "not_accreditation_claim",
+      "canonical_fragment_id": "non_claim:not_accreditation_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_accreditation_claim",
+      "params": {},
+      "text": "不是 accreditation claim",
+      "display_text": "不是 accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "non_claim_fragment_keys": [
+    "simulation_synthetic_reviewer_evidence_only",
+    "not_real_acceptance",
+    "not_live_gate",
+    "not_release_gate",
+    "not_live_acceptance",
+    "not_compliance_claim",
+    "not_accreditation_claim"
+  ],
+  "non_claim_filter_rows": [
+    {
+      "id": "non_claim:simulation_synthetic_reviewer_evidence_only",
+      "canonical_fragment_id": "non_claim:simulation_synthetic_reviewer_evidence_only",
+      "fragment_family": "non_claim",
+      "fragment_key": "simulation_synthetic_reviewer_evidence_only",
+      "canonical_key": "simulation_synthetic_reviewer_evidence_only",
+      "i18n_key": "reviewer_fragments.non_claim.simulation_synthetic_reviewer_evidence_only",
+      "params": {},
+      "label": "仅为 simulation / synthetic reviewer evidence",
+      "display_text": "仅为 simulation / synthetic reviewer evidence",
+      "text": "仅为 simulation / synthetic reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_real_acceptance",
+      "canonical_fragment_id": "non_claim:not_real_acceptance",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_real_acceptance",
+      "canonical_key": "not_real_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_real_acceptance",
+      "params": {},
+      "label": "不是 real acceptance",
+      "display_text": "不是 real acceptance",
+      "text": "不是 real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_live_gate",
+      "canonical_fragment_id": "non_claim:not_live_gate",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_live_gate",
+      "canonical_key": "not_live_gate",
+      "i18n_key": "reviewer_fragments.non_claim.not_live_gate",
+      "params": {},
+      "label": "不驱动 live gate",
+      "display_text": "不驱动 live gate",
+      "text": "不驱动 live gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_release_gate",
+      "canonical_fragment_id": "non_claim:not_release_gate",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_release_gate",
+      "canonical_key": "not_release_gate",
+      "i18n_key": "reviewer_fragments.non_claim.not_release_gate",
+      "params": {},
+      "label": "不是 release gate",
+      "display_text": "不是 release gate",
+      "text": "不是 release gate",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_live_acceptance",
+      "canonical_fragment_id": "non_claim:not_live_acceptance",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_live_acceptance",
+      "canonical_key": "not_live_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_live_acceptance",
+      "params": {},
+      "label": "不是 live acceptance",
+      "display_text": "不是 live acceptance",
+      "text": "不是 live acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_compliance_claim",
+      "canonical_fragment_id": "non_claim:not_compliance_claim",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_compliance_claim",
+      "canonical_key": "not_compliance_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_compliance_claim",
+      "params": {},
+      "label": "不是 compliance claim",
+      "display_text": "不是 compliance claim",
+      "text": "不是 compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_accreditation_claim",
+      "canonical_fragment_id": "non_claim:not_accreditation_claim",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_accreditation_claim",
+      "canonical_key": "not_accreditation_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_accreditation_claim",
+      "params": {},
+      "label": "不是 accreditation claim",
+      "display_text": "不是 accreditation claim",
+      "text": "不是 accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "non_claim_filters": [
+    "non_claim:simulation_synthetic_reviewer_evidence_only",
+    "non_claim:not_real_acceptance",
+    "non_claim:not_live_gate",
+    "non_claim:not_release_gate",
+    "non_claim:not_live_acceptance",
+    "non_claim:not_compliance_claim",
+    "non_claim:not_accreditation_claim"
+  ],
+  "non_claim_digest": "仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+  "compatibility_overview": {
+    "compatibility_schema_version": "step2-artifact-compatibility-v1",
+    "index_schema_version": "step2-artifact-compatibility-index-v1",
+    "generated_at": "2026-04-30T15:52:52",
+    "generated_by_tool": "gas_calibrator.v2.core.artifact_compatibility.build_artifact_compatibility_bundle",
+    "observed_artifact_count": 136,
+    "contract_row_count": 135,
+    "schema_or_contract_version_counts": {
+      "step2-artifact-compatibility-v1": 8,
+      "inferred-unversioned": 66,
+      "2.2": 1,
+      "1.0": 26,
+      "step2-wp6-builder-v1": 6,
+      "step2-software-validation-wp5-v1": 16,
+      "2.0": 2,
+      "step2-closeout-digest-v1": 1,
+      "1.1": 2,
+      "step2-method-confirmation-wp4-v1": 6,
+      "step2-closeout-bundle-v1": 2
+    },
+    "observed_contract_versions": [
+      "1.0",
+      "1.1",
+      "2.0",
+      "2.2",
+      "inferred-unversioned",
+      "step2-artifact-compatibility-v1",
+      "step2-closeout-bundle-v1",
+      "step2-closeout-digest-v1",
+      "step2-method-confirmation-wp4-v1",
+      "step2-software-validation-wp5-v1",
+      "step2-wp6-builder-v1"
+    ],
+    "observed_contract_version_summary": "1.0 26 | 1.1 2 | 2.0 2 | 2.2 1 | inferred-unversioned 66 | step2-artifact-compatibility-v1 8 | step2-closeout-bundle-v1 2 | step2-closeout-digest-v1 1 | step2-method-confirmation-wp4-v1 6 | step2-software-validation-wp5-v1 16 | step2-wp6-builder-v1 6",
+    "schema_contract_summary_display": "compatibility bundle step2-artifact-compatibility-v1 | observed 1.0 26 | 1.1 2 | 2.0 2 | 2.2 1 | inferred-unversioned 66 | step2-artifact-compatibility-v1 8 | step2-closeout-bundle-v1 2 | step2-closeout-digest-v1 1 | step2-method-confirmation-wp4-v1 6 | step2-software-validation-wp5-v1 16 | step2-wp6-builder-v1 6",
+    "current_reader_mode": "canonical_direct",
+    "current_reader_mode_display": "canonical contract 直读",
+    "compatibility_status": "compatibility_read",
+    "compatibility_status_display": "兼容读取",
+    "regenerate_recommended": false,
+    "regenerate_scope": "reviewer_index_sidecar_only",
+    "regenerate_recommendation_display": "当前 compatibility sidecar 可直接复用",
+    "primary_evidence_rewritten": false,
+    "linked_surface_visibility": [
+      "results",
+      "review_center",
+      "workbench"
+    ],
+    "non_primary_boundary_display": "仅重建 reviewer/index sidecar，不改写 summary.json / manifest.json / results.json",
+    "non_primary_chain_display": "compatibility / regenerate sidecar 仍属于 non-primary evidence chain",
+    "boundary_digest": "Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+    "non_claim_digest": "仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+    "compatibility_rollup": {
+      "index_schema_version": "step2-artifact-compatibility-index-v1",
+      "generated_at": "2026-04-30T15:52:52",
+      "generated_by_tool": "gas_calibrator.v2.core.artifact_compatibility.build_artifact_compatibility_bundle",
+      "rollup_scope": "run-dir",
+      "parent_run_count": 1,
+      "artifact_count": 136,
+      "compatible_run_count": 1,
+      "legacy_run_count": 0,
+      "regenerate_recommended_count": 0,
+      "reader_mode_counts": {
+        "canonical_direct": 1
+      },
+      "compatibility_status_counts": {
+        "compatibility_read": 1
+      },
+      "linked_surface_visibility": [
+        "results",
+        "review_center",
+        "workbench"
+      ],
+      "boundary_digest": "Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+      "non_claim_digest": "仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+      "primary_evidence_rewritten": false,
+      "rollup_summary_display": "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0",
+      "summary": "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0",
+      "summary_lines": [
+        "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0",
+        "reader modes: canonical contract 直读 1",
+        "compatibility: 兼容读取 1"
+      ],
+      "detail_lines": [
+        "surfaces: results, review_center, workbench",
+        "boundary: Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+        "non-claim: 仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+        "primary evidence rewritten: false"
+      ]
+    },
+    "rollup_scope": "run-dir",
+    "rollup_summary_display": "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0",
+    "summary": "当前 run 已具备 canonical contract 直读，compatibility sidecar 已就绪。",
+    "summary_lines": [
+      "合同/Schema: compatibility bundle step2-artifact-compatibility-v1 | observed 1.0 26 | 1.1 2 | 2.0 2 | 2.2 1 | inferred-unversioned 66 | step2-artifact-compatibility-v1 8 | step2-closeout-bundle-v1 2 | step2-closeout-digest-v1 1 | step2-method-confirmation-wp4-v1 6 | step2-software-validation-wp5-v1 16 | step2-wp6-builder-v1 6",
+      "读取方式: canonical contract 直读",
+      "兼容状态: 兼容读取",
+      "建议动作: 当前 compatibility sidecar 可直接复用",
+      "主证据改写: false",
+      "compatibility rollup run-dir | runs 1 | artifacts 136 | legacy 0 | regenerate 0"
+    ],
+    "detail_lines": [
+      "边界摘要: Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+      "非主张摘要: 仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+      "non-primary 边界: 仅重建 reviewer/index sidecar，不改写 summary.json / manifest.json / results.json",
+      "证据链声明: compatibility / regenerate sidecar 仍属于 non-primary evidence chain",
+      "surfaces: results, review_center, workbench",
+      "boundary: Step 2 收尾 / Step 3 桥接边界 | 仅用于 reviewer readiness / compatibility | 仅限 simulation / offline / headless | 兼容读取与再生成只服务 reviewer/index sidecar | 不改写原始主证据",
+      "non-claim: 仅为 simulation / synthetic reviewer evidence | 不是 real acceptance | 不是 live gate / release gate | 不是 compliance / accreditation claim",
+      "primary evidence rewritten: false"
+    ]
+  },
+  "schema_or_contract_version_summary": "1.0 26 | 1.1 2 | 2.0 2 | 2.2 1 | inferred-unversioned 66 | step2-artifact-compatibility-v1 8 | step2-closeout-bundle-v1 2 | step2-closeout-digest-v1 1 | step2-method-confirmation-wp4-v1 6 | step2-software-validation-wp5-v1 16 | step2-wp6-builder-v1 6",
+  "schema_or_contract_version_counts": {
+    "step2-artifact-compatibility-v1": 8,
+    "inferred-unversioned": 66,
+    "2.2": 1,
+    "1.0": 26,
+    "step2-wp6-builder-v1": 6,
+    "step2-software-validation-wp5-v1": 16,
+    "2.0": 2,
+    "step2-closeout-digest-v1": 1,
+    "1.1": 2,
+    "step2-method-confirmation-wp4-v1": 6,
+    "step2-closeout-bundle-v1": 2
+  }
+}

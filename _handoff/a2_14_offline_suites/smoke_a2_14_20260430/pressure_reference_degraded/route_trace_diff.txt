@@ -1,0 +1,20 @@
+Route Trace Diff
+V1 trace: D:\gas_calibrator\_handoff\a2_14_offline_suites\smoke_a2_14_20260430\pressure_reference_degraded\simulated_v1_route_trace.jsonl
+V2 trace: D:\gas_calibrator\_handoff\a2_14_offline_suites\smoke_a2_14_20260430\pressure_reference_degraded\v2_output\run_20260430_145929\route_trace.jsonl
+Overall status: MATCH
+
+[CO2]
+  V1 events: 66
+  V2 events: 66
+  Review stages:
+    - baseline_restore: MATCH v1=4 v2=4 missing=0 extra=0 order=0
+    - source_valve_selection: MATCH v1=2 v2=2 missing=0 extra=0 order=0
+    - route_soak: MATCH v1=2 v2=2 missing=0 extra=0 order=0
+    - seal: MATCH v1=6 v2=6 missing=0 extra=0 order=0
+    - setpoint_control: MATCH v1=16 v2=16 missing=0 extra=0 order=0
+    - post_pressure_hold: MATCH v1=8 v2=8 missing=0 extra=0 order=0
+    - sample: MATCH v1=16 v2=16 missing=0 extra=0 order=0
+    - cleanup: MATCH v1=2 v2=2 missing=0 extra=0 order=0
+  Missing in V2: 0
+  Extra in V2: 0
+  Order mismatches: 0
