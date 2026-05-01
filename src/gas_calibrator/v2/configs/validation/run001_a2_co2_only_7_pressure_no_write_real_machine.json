@@ -31,7 +31,21 @@
     "duplicate_device_id_detected": false,
     "duplicate_device_id_value": "",
     "duplicate_device_id_ports": [],
-    "duplicate_device_id_policy": "not_applicable"
+    "duplicate_device_id_policy": "not_applicable",
+    "verified_pressure_controller_port": "COM23",
+    "verified_pressure_meter_port": "COM22",
+    "rejected_pressure_controller_candidate_port": "COM31",
+    "rejected_pressure_meter_candidate_port": "COM30",
+    "pressure_port_mapping_source": "query_only_com_sanity_probe",
+    "pressure_port_mapping_verified_at": "2026-05-01T03:17:57.940+00:00",
+    "a2_19_device_precheck_failure_likely_pressure_port_mismatch": true,
+    "a2_19_state_machine_real_verified": false,
+    "relay_port_identity_confirmed": false,
+    "relay_port_identity_confirmation_reason": "open_only_cannot_distinguish",
+    "relay_a_candidate_ports": ["COM20", "COM28"],
+    "relay_b_candidate_ports": ["COM21", "COM29"],
+    "temperature_chamber_probe_import_path_fixed": true,
+    "temperature_chamber_port_identity_confirmed": false
   },
   "a2_co2_7_pressure_no_write_probe": {
     "scope": "a2_co2_7_pressure_no_write",
@@ -57,7 +71,19 @@
     "chamber_set_temperature_enabled": false,
     "chamber_start_enabled": false,
     "chamber_stop_enabled": false,
-    "real_primary_latest_refresh": false
+    "real_primary_latest_refresh": false,
+    "verified_pressure_controller_port": "COM23",
+    "verified_pressure_meter_port": "COM22",
+    "rejected_pressure_controller_candidate_port": "COM31",
+    "rejected_pressure_meter_candidate_port": "COM30",
+    "pressure_port_mapping_source": "query_only_com_sanity_probe",
+    "pressure_port_mapping_verified_at": "2026-05-01T03:17:57.940+00:00",
+    "relay_port_identity_confirmed": false,
+    "relay_port_identity_confirmation_reason": "open_only_cannot_distinguish",
+    "relay_a_candidate_ports": ["COM20", "COM28"],
+    "relay_b_candidate_ports": ["COM21", "COM29"],
+    "temperature_chamber_probe_import_path_fixed": true,
+    "temperature_chamber_port_identity_confirmed": false
   },
   "features": {
     "use_v2": true,
@@ -66,7 +92,7 @@
   "devices": {
     "pressure_controller": {
       "enabled": true,
-      "port": "COM31",
+      "port": "COM23",
       "baud": 9600,
       "timeout": 1.0,
       "line_ending": "LF",
@@ -82,7 +108,7 @@
     },
     "pressure_gauge": {
       "enabled": true,
-      "port": "COM30",
+      "port": "COM22",
       "baud": 9600,
       "timeout": 1.0,
       "response_timeout_s": 2.2,

@@ -692,6 +692,77 @@ _DEVICE_PRECHECK_LEGACY_EXPECTED_PORTS = {
     "relay_b": "COM21",
     "temperature_chamber": "COM19",
 }
+A2_21_PRESSURE_PORT_MAPPING_SOURCE = "query_only_com_sanity_probe"
+A2_21_PRESSURE_PORT_MAPPING_VERIFIED_AT = "2026-05-01T03:17:57.940+00:00"
+A2_21_VERIFIED_PRESSURE_CONTROLLER_PORT = "COM23"
+A2_21_VERIFIED_PRESSURE_METER_PORT = "COM22"
+A2_21_REJECTED_PRESSURE_CONTROLLER_PORT = "COM31"
+A2_21_REJECTED_PRESSURE_METER_PORT = "COM30"
+A2_21_RELAY_A_CANDIDATE_PORTS = ["COM20", "COM28"]
+A2_21_RELAY_B_CANDIDATE_PORTS = ["COM21", "COM29"]
+
+
+def _a2_21_pressure_port_alignment_metadata() -> dict[str, Any]:
+    return {
+        "verified_pressure_controller_port": A2_21_VERIFIED_PRESSURE_CONTROLLER_PORT,
+        "verified_pressure_meter_port": A2_21_VERIFIED_PRESSURE_METER_PORT,
+        "rejected_pressure_controller_candidate_port": A2_21_REJECTED_PRESSURE_CONTROLLER_PORT,
+        "rejected_pressure_meter_candidate_port": A2_21_REJECTED_PRESSURE_METER_PORT,
+        "pressure_port_mapping_source": A2_21_PRESSURE_PORT_MAPPING_SOURCE,
+        "pressure_port_mapping_verified_at": A2_21_PRESSURE_PORT_MAPPING_VERIFIED_AT,
+        "a2_19_device_precheck_failure_likely_pressure_port_mismatch": True,
+        "a2_19_state_machine_real_verified": False,
+        "relay_port_identity_confirmed": False,
+        "relay_port_identity_confirmation_reason": "open_only_cannot_distinguish",
+        "relay_a_candidate_ports": list(A2_21_RELAY_A_CANDIDATE_PORTS),
+        "relay_b_candidate_ports": list(A2_21_RELAY_B_CANDIDATE_PORTS),
+        "temperature_chamber_probe_import_path_fixed": True,
+        "temperature_chamber_port_identity_confirmed": False,
+        "temperature_chamber_optional_context": True,
+    }
+
+
+def _apply_a2_21_pressure_port_alignment(aligned_raw_cfg: dict[str, Any]) -> dict[str, Any]:
+    metadata = _a2_21_pressure_port_alignment_metadata()
+    devices = aligned_raw_cfg.setdefault("devices", {})
+    if not isinstance(devices, dict):
+        devices = {}
+        aligned_raw_cfg["devices"] = devices
+
+    pressure_controller = devices.setdefault("pressure_controller", {})
+    if isinstance(pressure_controller, dict):
+        pressure_controller["port"] = A2_21_VERIFIED_PRESSURE_CONTROLLER_PORT
+        pressure_controller.setdefault("enabled", True)
+        pressure_controller.setdefault("baud", 9600)
+        pressure_controller.setdefault("line_ending", "LF")
+
+    pressure_aliases = [name for name in ("pressure_meter", "pressure_gauge") if isinstance(devices.get(name), dict)]
+    if not pressure_aliases:
+        pressure_aliases = ["pressure_gauge"]
+        devices["pressure_gauge"] = {"enabled": True, "baud": 9600, "dest_id": "01"}
+    for alias in pressure_aliases:
+        pressure_meter = devices.get(alias)
+        if isinstance(pressure_meter, dict):
+            pressure_meter["port"] = A2_21_VERIFIED_PRESSURE_METER_PORT
+            pressure_meter.setdefault("enabled", True)
+            pressure_meter.setdefault("baud", 9600)
+            pressure_meter.setdefault("dest_id", "01")
+
+    for section_name in ("run001_a2", "a2_co2_7_pressure_no_write_probe"):
+        section = aligned_raw_cfg.setdefault(section_name, {})
+        if isinstance(section, dict):
+            section.update(metadata)
+    workflow = aligned_raw_cfg.setdefault("workflow", {})
+    if not isinstance(workflow, dict):
+        workflow = {}
+        aligned_raw_cfg["workflow"] = workflow
+    pressure_cfg = workflow.setdefault("pressure", {})
+    if not isinstance(pressure_cfg, dict):
+        pressure_cfg = {}
+        workflow["pressure"] = pressure_cfg
+    pressure_cfg.update(metadata)
+    aligned_raw_cfg["a2_21_pressure_port_alignment"] = dict(metadata)
+    return metadata
 
 
 def _device_precheck_service_value(service_summary: Mapping[str, Any], *keys: str) -> Any:
@@ -1552,6 +1623,7 @@ def prepare_a2_downstream_points_config(
         _write_json_no_bom(points_path, rows)
 
     aligned_raw_cfg = _json_clone_mapping(raw_cfg)
+    pressure_port_alignment = _apply_a2_21_pressure_port_alignment(aligned_raw_cfg)
     paths = aligned_raw_cfg.setdefault("paths", {})
     if not isinstance(paths, dict):
         paths = {}
@@ -1626,6 +1698,7 @@ def prepare_a2_downstream_points_config(
         "downstream_point_pressures_hpa": point_pressures,
         "downstream_points_gate_reasons": [],
         "downstream_points_generated": generated,
+        **pressure_port_alignment,
     }
     return aligned_config_path, metadata
 
@@ -2248,6 +2321,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "downstream_point_pressures_hpa": [],
         "downstream_points_gate_reasons": [],
         "downstream_points_generated": False,
+        **_a2_21_pressure_port_alignment_metadata(),
     }
     execution_config_path = str(config_path)
     if admission.approved:
@@ -3256,11 +3330,14 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         }
         for point in point_results
     ]
-    pressure_controller_diagnostics = _pressure_controller_command_diagnostics(raw_cfg, route_rows)
-    pressure_meter_diagnostic_fields = _pressure_meter_diagnostics(raw_cfg, point_results)
-    relay_diagnostic_fields = _relay_diagnostics(raw_cfg, route_rows)
+    diagnostic_cfg = _load_json_dict(execution_config_path) if execution_config_path else {}
+    if not diagnostic_cfg:
+        diagnostic_cfg = raw_cfg
+    pressure_controller_diagnostics = _pressure_controller_command_diagnostics(diagnostic_cfg, route_rows)
+    pressure_meter_diagnostic_fields = _pressure_meter_diagnostics(diagnostic_cfg, point_results)
+    relay_diagnostic_fields = _relay_diagnostics(diagnostic_cfg, route_rows)
     device_precheck_diagnostic_fields = _device_precheck_diagnostics(
-        raw_cfg,
+        diagnostic_cfg,
         execution,
         service_summary,
         route_rows,

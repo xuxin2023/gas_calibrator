@@ -621,6 +621,9 @@ def _execute_device_query(
                         "result": "not_applicable",
                         "raw_response": "",
                         "port_open_close_ok": None,
+                        "relay_port_identity_confirmed": False,
+                        "relay_port_identity_confirmation_reason": "open_only_cannot_distinguish",
+                        "likely_device_match": False,
                     }
                 )
                 continue
@@ -792,6 +795,17 @@ def write_query_only_real_com_probe_artifacts(
             {},
         )
     command_profile_mismatch_reasons = _query_failure_field_reasons(query_failures, raw_cfg)
+    relay_results = [
+        row for row in query_results if row.get("device_type") == "actuator_only" or row.get("device_name") in {"relay", "relay_8"}
+    ]
+    relay_port_identity_confirmed = bool(
+        relay_results and all(row.get("relay_port_identity_confirmed") is True for row in relay_results)
+    )
+    relay_port_identity_confirmation_reason = (
+        ""
+        if relay_port_identity_confirmed
+        else "open_only_cannot_distinguish" if relay_results else ""
+    )
     opened_ports = sorted(
         {
             str(row.get("port") or "")
@@ -873,9 +887,17 @@ def write_query_only_real_com_probe_artifacts(
         "temperature_chamber_protocol_status": chamber_result.get("protocol_status"),
         "temperature_chamber_readonly_driver_probe_status": chamber_result.get("chamber_readonly_driver_probe_status"),
         "temperature_chamber_unavailable": bool(chamber_result.get("temperature_chamber_unavailable")),
+        "temperature_chamber_probe_import_path_fixed": True,
+        "temperature_chamber_port_identity_confirmed": bool(
+            chamber_result and not chamber_result.get("temperature_chamber_unavailable")
+        ),
         "pv_temperature_c": chamber_result.get("pv_temperature_c"),
         "sv_temperature_c": chamber_result.get("sv_temperature_c"),
         "status_value": chamber_result.get("status_value"),
+        "relay_port_identity_confirmed": relay_port_identity_confirmed,
+        "relay_port_identity_confirmation_reason": relay_port_identity_confirmation_reason,
+        "relay_a_candidate_ports": ["COM20", "COM28"],
+        "relay_b_candidate_ports": ["COM21", "COM29"],
         "device_count": len(admission.device_inventory),
         "query_result_count": len(query_results),
         "artifact_paths": artifact_paths,

@@ -16,6 +16,7 @@ from gas_calibrator.v2.core.run001_a2_co2_only_7_pressure_no_write_probe import 
     _artifact_completeness,
     _jsonl_dump,
     _load_jsonl,
+    prepare_a2_downstream_points_config,
     write_a2_co2_7_pressure_no_write_probe_artifacts,
 )
 from gas_calibrator.v2.core.services import trace_size_guard as trace_guard_module
@@ -161,8 +162,8 @@ def _operator_confirmation(tmp_path: Path, config_path: Path, config: Mapping[st
         "pressure_points_hpa": list(A2_ALLOWED_PRESSURE_POINTS_HPA),
         "pressure_source": "v1_aligned",
         "port_manifest": {
-            "pressure_controller": "COM31",
-            "pressure_gauge": "COM30",
+            "pressure_controller": "COM23",
+            "pressure_gauge": "COM22",
             "temperature_chamber": "COM27",
             "thermometer": "COM26",
             "gas_analyzers": ["COM35", "COM37", "COM41", "COM42"],
@@ -207,6 +208,70 @@ def _config_and_operator(tmp_path: Path) -> tuple[dict[str, Any], Path, Path]:
     config_path.write_text(json.dumps(config), encoding="utf-8")
     op_path = _operator_confirmation(tmp_path, config_path, config)
     return config, config_path, op_path
+
+
+def test_a2_21_real_machine_config_uses_verified_pressure_ports() -> None:
+    config_path = (
+        REPO_ROOT
+        / "src"
+        / "gas_calibrator"
+        / "v2"
+        / "configs"
+        / "validation"
+        / "run001_a2_co2_only_7_pressure_no_write_real_machine.json"
+    )
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert config["devices"]["pressure_controller"]["port"] == "COM23"
+    assert config["devices"]["pressure_gauge"]["port"] == "COM22"
+    assert config["devices"]["pressure_controller"]["port"] != "COM31"
+    assert config["devices"]["pressure_gauge"]["port"] != "COM30"
+    assert config["run001_a2"]["verified_pressure_controller_port"] == "COM23"
+    assert config["run001_a2"]["verified_pressure_meter_port"] == "COM22"
+    assert config["run001_a2"]["pressure_port_mapping_source"] == "query_only_com_sanity_probe"
+    assert config["run001_a2"]["a2_19_state_machine_real_verified"] is False
+    assert config["run001_a2"]["relay_port_identity_confirmed"] is False
+    assert config["run001_a2"]["relay_port_identity_confirmation_reason"] == "open_only_cannot_distinguish"
+    assert config["run001_a2"]["relay_a_candidate_ports"] == ["COM20", "COM28"]
+    assert config["run001_a2"]["relay_b_candidate_ports"] == ["COM21", "COM29"]
+    assert config["run001_a2"]["temperature_chamber_probe_import_path_fixed"] is True
+    assert config["run001_a2"]["temperature_chamber_port_identity_confirmed"] is False
+
+
+def test_a2_21_downstream_aligned_config_overrides_rejected_pressure_ports(tmp_path: Path) -> None:
+    config = _base_config(tmp_path)
+    config["devices"].update(
+        {
+            "pressure_controller": {"enabled": True, "port": "COM31", "baud": 9600},
+            "pressure_gauge": {"enabled": True, "port": "COM30", "baud": 9600, "dest_id": "01"},
+            "relay": {"enabled": True, "port": "COM28", "baud": 38400},
+            "relay_8": {"enabled": True, "port": "COM29", "baud": 38400},
+            "temperature_chamber": {"enabled": True, "port": "COM27", "baud": 9600, "addr": 1},
+        }
+    )
+    config_path = tmp_path / "stale_config.json"
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    aligned_path, metadata = prepare_a2_downstream_points_config(
+        config,
+        config_path=config_path,
+        output_dir=tmp_path / "aligned",
+    )
+    aligned = json.loads(aligned_path.read_text(encoding="utf-8"))
+
+    assert aligned["devices"]["pressure_controller"]["port"] == "COM23"
+    assert aligned["devices"]["pressure_gauge"]["port"] == "COM22"
+    assert aligned["devices"]["pressure_controller"]["port"] != "COM31"
+    assert aligned["devices"]["pressure_gauge"]["port"] != "COM30"
+    assert metadata["verified_pressure_controller_port"] == "COM23"
+    assert metadata["verified_pressure_meter_port"] == "COM22"
+    assert metadata["rejected_pressure_controller_candidate_port"] == "COM31"
+    assert metadata["rejected_pressure_meter_candidate_port"] == "COM30"
+    assert aligned["a2_co2_7_pressure_no_write_probe"]["pressure_port_mapping_source"] == (
+        "query_only_com_sanity_probe"
+    )
+    assert aligned["a2_co2_7_pressure_no_write_probe"]["relay_port_identity_confirmed"] is False
+    assert aligned["a2_co2_7_pressure_no_write_probe"]["temperature_chamber_port_identity_confirmed"] is False
 
 
 def _expected_a2_artifact_paths(run_dir: Path) -> dict[str, str]:
@@ -1140,7 +1205,7 @@ def test_a2_probe_summary_records_a2_14_command_diagnostics(tmp_path: Path) -> N
     )
 
     assert summary["pressure_controller_driver_profile"] == "gas_calibrator.devices.pace5000.Pace5000"
-    assert summary["pressure_controller_configured_port"] == "COM31"
+    assert summary["pressure_controller_configured_port"] == "COM23"
     assert summary["pressure_controller_serial_settings"]["baud"] == 9600
     assert summary["pressure_controller_protocol_profile"] == "vendor_unknown_ascii"
     assert summary["pressure_controller_command_terminator"] == "LF"
@@ -1158,7 +1223,7 @@ def test_a2_probe_summary_records_a2_14_command_diagnostics(tmp_path: Path) -> N
 
     assert summary["pressure_meter_alias_resolved"] is True
     assert summary["pressure_meter_selected_device_key"] == "pressure_gauge"
-    assert summary["pressure_meter_port"] == "COM30"
+    assert summary["pressure_meter_port"] == "COM22"
     assert summary["pressure_meter_dest_id"] == "01"
     assert summary["pressure_meter_protocol_profile"] == "paroscientific_p3_readonly"
     assert summary["pressure_meter_first_read_attempted"] is True
@@ -1172,6 +1237,17 @@ def test_a2_probe_summary_records_a2_14_command_diagnostics(tmp_path: Path) -> N
     assert summary["relay_channel_mapping"]["7"]["channel"] == 15
     assert summary["relay_output_command_allowed_in_probe"] is False
     assert summary["relay_output_command_sent"] is False
+    assert summary["verified_pressure_controller_port"] == "COM23"
+    assert summary["verified_pressure_meter_port"] == "COM22"
+    assert summary["rejected_pressure_controller_candidate_port"] == "COM31"
+    assert summary["rejected_pressure_meter_candidate_port"] == "COM30"
+    assert summary["pressure_port_mapping_source"] == "query_only_com_sanity_probe"
+    assert summary["a2_19_device_precheck_failure_likely_pressure_port_mismatch"] is True
+    assert summary["a2_19_state_machine_real_verified"] is False
+    assert summary["relay_port_identity_confirmed"] is False
+    assert summary["relay_port_identity_confirmation_reason"] == "open_only_cannot_distinguish"
+    assert summary["temperature_chamber_probe_import_path_fixed"] is True
+    assert summary["temperature_chamber_port_identity_confirmed"] is False
 
 
 def test_a2_probe_summary_records_a2_20_device_precheck_fail_closed_audit(tmp_path: Path) -> None:
@@ -1325,12 +1401,12 @@ def test_a2_probe_summary_records_a2_20_device_precheck_fail_closed_audit(tmp_pa
         "relay_b",
     ]
     assert summary["device_precheck_optional_failed_devices"] == ["temperature_chamber"]
-    assert summary["device_precheck_config_ports"]["pressure_controller"]["port"] == "COM31"
-    assert summary["device_precheck_config_ports"]["pressure_meter"]["port"] == "COM30"
+    assert summary["device_precheck_config_ports"]["pressure_controller"]["port"] == "COM23"
+    assert summary["device_precheck_config_ports"]["pressure_meter"]["port"] == "COM22"
     assert summary["device_precheck_config_ports"]["relay_a"]["port"] == "COM28"
     assert summary["device_precheck_config_ports"]["relay_b"]["port"] == "COM29"
     assert summary["device_precheck_config_ports"]["temperature_chamber"]["port"] == "COM27"
-    assert summary["device_precheck_legacy_expected_ports_match"]["pressure_controller"] is False
+    assert summary["device_precheck_legacy_expected_ports_match"]["pressure_controller"] is True
     assert summary["device_precheck_wrapper_underlying_config_match"] is True
     assert summary["device_precheck_open_all_results"]["pressure_controller"]["attempted"] is True
     assert summary["device_precheck_open_all_results"]["pressure_controller"]["ok"] is False
@@ -1343,7 +1419,7 @@ def test_a2_probe_summary_records_a2_20_device_precheck_fail_closed_audit(tmp_pa
     )
 
     details = {item["device_name"]: item for item in summary["device_precheck_device_details"]}
-    assert details["pressure_controller"]["configured_port"] == "COM31"
+    assert details["pressure_controller"]["configured_port"] == "COM23"
     assert details["pressure_controller"]["critical_or_optional"] == "critical"
     assert details["pressure_controller"]["open_ok"] is False
     assert details["temperature_chamber"]["critical_or_optional"] == "optional"

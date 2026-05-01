@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections import deque
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 from typing import Any, Mapping
 
 import pytest
@@ -13,6 +16,8 @@ from gas_calibrator.v2.core.run001_query_only_real_com_probe import (
     evaluate_query_only_real_com_gate,
     write_query_only_real_com_probe_artifacts,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _base_config() -> dict:
@@ -39,10 +44,10 @@ def _base_config() -> dict:
         "calibration_write_enabled": False,
         "real_primary_latest_refresh": False,
         "devices": {
-            "pressure_controller": {"enabled": True, "port": "COM31", "baud": 9600},
+            "pressure_controller": {"enabled": True, "port": "COM23", "baud": 9600},
             "pressure_gauge": {
                 "enabled": True,
-                "port": "COM30",
+                "port": "COM22",
                 "baud": 9600,
                 "timeout": 0.01,
                 "response_timeout_s": 0.02,
@@ -81,8 +86,8 @@ def _operator_confirmation(tmp_path: Path) -> Path:
         "HEAD": "4c5facec951ce168bb4564f19361aa82644049a0",
         "config_path": str(tmp_path / "r0_config.json"),
         "port_manifest": {
-            "pressure_controller": "COM31",
-            "pressure_gauge": "COM30",
+            "pressure_controller": "COM23",
+            "pressure_gauge": "COM22",
             "temperature_chamber": "COM27",
             "thermometer": "COM26",
             "relay": "COM28",
@@ -540,6 +545,36 @@ def test_full_r0_temperature_chamber_uses_modbus_readonly_driver(tmp_path: Path)
     assert not any(call.startswith("write_") for call in chamber_client.calls)
 
 
+def test_query_only_com_sanity_script_bootstraps_temperature_chamber_import(tmp_path: Path) -> None:
+    script_path = (
+        REPO_ROOT
+        / "src"
+        / "gas_calibrator"
+        / "v2"
+        / "scripts"
+        / "query_only_com_sanity_probe.py"
+    )
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+
+    completed = subprocess.run(
+        [sys.executable, str(script_path), "--self-check-import-only"],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["temperature_chamber_probe_import_path_fixed"] is True
+    assert payload["temperature_chamber_import_ok"] is True
+    assert payload["temperature_chamber_port_identity_confirmed"] is False
+    assert payload["real_com_opened"] is False
+    assert payload["query_only_probe_executed"] is False
+
+
 def test_relay_open_close_only_is_actuator_not_query_failure(tmp_path: Path) -> None:
     class SilentSerial:
         def write(self, _payload: bytes) -> None:
@@ -584,3 +619,13 @@ def test_relay_open_close_only_is_actuator_not_query_failure(tmp_path: Path) -> 
     assert {item["result"] for item in relay_results} == {"not_applicable"}
     assert all(item["port_open_close_ok"] is True for item in relay_results)
     assert all(item["control_command_sent"] is False for item in relay_results)
+    assert all(item["relay_port_identity_confirmed"] is False for item in relay_results)
+    assert all(
+        item["relay_port_identity_confirmation_reason"] == "open_only_cannot_distinguish"
+        for item in relay_results
+    )
+    assert all(item["likely_device_match"] is False for item in relay_results)
+    assert summary["relay_port_identity_confirmed"] is False
+    assert summary["relay_port_identity_confirmation_reason"] == "open_only_cannot_distinguish"
+    assert summary["relay_a_candidate_ports"] == ["COM20", "COM28"]
+    assert summary["relay_b_candidate_ports"] == ["COM21", "COM29"]
