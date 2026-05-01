@@ -407,23 +407,38 @@ def _attempt_paroscientific_read(
         gauge.open()
         opened = True
         trace.append(_trace_row(device_name="pressure_gauge", device_type="pressure_gauge", port=str(device.get("port") or ""), action=f"{method}_open", result="ok"))
+        # Pre-cancel any lingering continuous mode (P4/P7) from a prior session.
+        # Per the Paroscientific manual, any valid command cancels continuous
+        # output.  We send P3 first to exit continuous mode, then drain stale
+        # frames so the next P3 gets a clean query-response window.
+        cmd_cancel = gauge._cmd("P3")
+        try:
+            gauge.ser.write(cmd_cancel)
+            time.sleep(0.12)
+            drain_input = getattr(gauge.ser, "drain_input_nonblock", None)
+            if callable(drain_input):
+                drain_input(drain_s=0.15, read_timeout_s=0.02)
+            continuous_cancel_sent = True
+            trace.append(_trace_row(device_name="pressure_gauge", device_type="pressure_gauge", port=str(device.get("port") or ""), action=f"{method}_pre_cancel_continuous", result="ok"))
+        except Exception:
+            pass
         if method == "read_pressure_fast":
             value = float(
                 gauge.read_pressure_fast(
                     response_timeout_s=float(device.get("response_timeout_s") or 2.2),
-                    retries=1,
-                    retry_sleep_s=0.0,
-                    clear_buffer=False,
-                    buffered_drain_s=0.08,
+                    retries=2,
+                    retry_sleep_s=0.12,
+                    clear_buffer=True,
+                    buffered_drain_s=0.12,
                 )
             )
         else:
             value = float(
                 gauge.read_pressure(
                     response_timeout_s=float(device.get("response_timeout_s") or 2.2),
-                    retries=1,
-                    retry_sleep_s=0.0,
-                    clear_buffer=False,
+                    retries=2,
+                    retry_sleep_s=0.15,
+                    clear_buffer=True,
                 )
             )
     except Exception as exc:
@@ -460,6 +475,8 @@ def _attempt_paroscientific_read(
         "pressure_hpa": value,
         "error": error,
         "port_open_close_ok": bool(opened and closed),
+        "continuous_cancel_sent": bool(continuous_cancel_sent),
+        "pre_cancel_continuous_attempted": bool(continuous_cancel_sent),
     }, trace
 
 
@@ -582,6 +599,10 @@ def read_pressure_gauge_raw_capture(
         "paroscientific_fast_read_succeeded": bool(fast_result.get("succeeded")),
         "paroscientific_fast_read_failed": bool(fast_result.get("attempted") and not fast_result.get("succeeded")),
         "paroscientific_fast_error": str(fast_result.get("error") or ""),
+        "paroscientific_pre_cancel_continuous_sent": bool(p3_result.get("continuous_cancel_sent")
+            or fast_result.get("continuous_cancel_sent")),
+        "paroscientific_p3_clear_buffer": True,
+        "paroscientific_p3_retries": 2,
         "dest_id_scan_attempted": False,
         "dest_id_scan_hits": [],
         "continuous_mode_supported_by_v1": True,
@@ -1001,3 +1022,5 @@ def write_r0_1_reference_read_probe_artifacts(
     _json_dump(run_dir / "operator_confirmation_record.json", operator_record)
     _json_dump(run_dir / "safety_assertions.json", safety_assertions)
     return summary
+
+

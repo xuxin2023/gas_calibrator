@@ -880,6 +880,10 @@ def write_query_only_real_com_probe_artifacts(
                 else None
             )
         ),
+        "pressure_meter_pre_cancel_continuous_attempted": pressure_result.get("pre_cancel_continuous_attempted"),
+        "pressure_meter_pre_cancel_continuous_sent": pressure_result.get("continuous_cancel_sent"),
+        "pressure_meter_clear_buffer_used": pressure_result.get("paroscientific_p3_read_attempted") and pressure_result.get("paroscientific_p3_read_attempted"),
+        "pressure_meter_retry_count_increased": pressure_result.get("paroscientific_p3_read_attempted"),
         "pressure_meter_raw_response": pressure_result.get("raw_ascii_preview", ""),
         "pressure_meter_raw_response_hex": pressure_result.get("raw_hex_preview", ""),
         "pressure_meter_parse_ok": pressure_result.get("parse_status") == "parse_ok",
@@ -919,3 +923,4 @@ def write_query_only_real_com_probe_artifacts(
     )
     _json_dump(run_dir / "safety_assertions.json", safety_assertions)
     return summary
+
