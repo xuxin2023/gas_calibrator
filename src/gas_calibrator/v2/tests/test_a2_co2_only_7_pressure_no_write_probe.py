@@ -1174,6 +1174,211 @@ def test_a2_probe_summary_records_a2_14_command_diagnostics(tmp_path: Path) -> N
     assert summary["relay_output_command_sent"] is False
 
 
+def test_a2_probe_summary_records_a2_20_device_precheck_fail_closed_audit(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    config["devices"].update(
+        {
+            "pressure_controller": {
+                "enabled": True,
+                "port": "COM31",
+                "baud": 9600,
+                "timeout": 1.0,
+                "line_ending": "LF",
+                "pressure_queries": [":SENS:PRES:INL?", ":SENS:PRES:CONT?", ":SENS:PRES?", ":MEAS:PRES?"],
+            },
+            "pressure_gauge": {
+                "enabled": True,
+                "port": "COM30",
+                "baud": 9600,
+                "timeout": 1.0,
+                "response_timeout_s": 2.2,
+                "dest_id": "01",
+            },
+            "relay": {"enabled": True, "port": "COM28", "baud": 38400, "addr": 1},
+            "relay_8": {"enabled": True, "port": "COM29", "baud": 38400, "addr": 1},
+            "temperature_chamber": {"enabled": True, "port": "COM27", "baud": 9600, "addr": 1},
+        }
+    )
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    def executor(config_path: str | Path) -> dict[str, Any]:
+        failure_text = (
+            "Device precheck failed [failed_devices=['pressure_controller', 'pressure_meter', "
+            "'relay_a', 'relay_b'], critical_devices_failed=['pressure_controller', "
+            "'pressure_meter', 'relay_a', 'relay_b'], "
+            "optional_context_devices_failed=['temperature_chamber'], "
+            "critical_device_init_failure_blocks_probe=True]"
+        )
+        return {
+            "execution_run_dir": "D:/fake_a2_execution",
+            "points_alignment": {"downstream_aligned_config_path": str(config_path)},
+            "run_manifest": {"config_path": str(config_path)},
+            "service_summary": {
+                "failure_stage": "device_precheck",
+                "failed_devices": ["pressure_controller", "pressure_meter", "relay_a", "relay_b"],
+                "service_status_error": failure_text,
+                "safe_stop_duration_s": 164.782,
+                "stats": {
+                    "critical_devices_required": [
+                        "pressure_controller",
+                        "pressure_meter",
+                        "relay_a",
+                        "relay_b",
+                    ],
+                    "critical_devices_failed": [
+                        "pressure_controller",
+                        "pressure_meter",
+                        "relay_a",
+                        "relay_b",
+                    ],
+                    "optional_context_devices": ["temperature_chamber"],
+                    "optional_context_devices_failed": ["temperature_chamber"],
+                    "critical_device_init_failure_blocks_probe": True,
+                    "optional_context_failure_blocks_probe": False,
+                },
+            },
+            "route_trace_rows": [
+                {
+                    "action": "set_output",
+                    "target": {"enabled": False},
+                    "result": "fail",
+                    "message": "PACE_COMMAND_ERROR(command=:OUTP:STAT 0, error=)",
+                },
+                {
+                    "action": "set_vent",
+                    "target": {"vent_on": True},
+                    "result": "fail",
+                    "message": "PACE_COMMAND_ERROR(command=:OUTP:STAT 0, error=)",
+                },
+            ],
+            "timing_trace_rows": [
+                {
+                    "event_name": "device_init_policy",
+                    "stage": "device_precheck",
+                    "decision": "blocked",
+                },
+                {
+                    "event_name": "pressure_atmosphere_vent_start",
+                    "stage": "pressure_atmosphere_vent",
+                    "expected_max_s": 30.0,
+                },
+                {
+                    "event_name": "safe_stop_end",
+                    "stage": "safe_stop",
+                    "duration_s": 164.782,
+                },
+            ],
+            "io_log_rows": [
+                {
+                    "timestamp": "2026-05-01T10:38:38.901",
+                    "device": "NoWriteDeviceProxy",
+                    "direction": "TX",
+                    "data": "set_in_limits(0.02, 10.0)",
+                },
+                {
+                    "timestamp": "2026-05-01T10:39:55.288",
+                    "device": "NoWriteDeviceProxy",
+                    "direction": "TX",
+                    "data": "set_valve(1, False)",
+                },
+            ],
+            "run_log_tail": "\n".join(
+                [
+                    "Pressure controller in-limits setup failed: "
+                    "PACE_COMMAND_ERROR(command=:SOUR:PRES:INL 0.02, error=)",
+                    f"Calibration failed: {failure_text}",
+                    "Startup pressure precheck read failed (pressure_meter): NO_RESPONSE",
+                    "Startup pressure precheck read failed (pressure_controller): NO_RESPONSE",
+                ]
+            ),
+            "point_results": [],
+            "pressure_trace_rows": [],
+            "sample_rows": [],
+        }
+
+    summary = write_a2_co2_7_pressure_no_write_probe_artifacts(
+        config,
+        output_dir=tmp_path / "a2_20_device_precheck_audit",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch=BRANCH,
+        head=HEAD,
+        cli_allow=True,
+        env={A2_ENV_VAR: "1"},
+        execute_probe=True,
+        executor=executor,
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert summary["device_precheck_failure_stage"] == "device_precheck"
+    assert summary["device_precheck_failure_phase"] == "open_all"
+    assert summary["device_precheck_failed_devices"] == [
+        "pressure_controller",
+        "pressure_meter",
+        "relay_a",
+        "relay_b",
+    ]
+    assert summary["device_precheck_critical_failed_devices"] == [
+        "pressure_controller",
+        "pressure_meter",
+        "relay_a",
+        "relay_b",
+    ]
+    assert summary["device_precheck_optional_failed_devices"] == ["temperature_chamber"]
+    assert summary["device_precheck_config_ports"]["pressure_controller"]["port"] == "COM31"
+    assert summary["device_precheck_config_ports"]["pressure_meter"]["port"] == "COM30"
+    assert summary["device_precheck_config_ports"]["relay_a"]["port"] == "COM28"
+    assert summary["device_precheck_config_ports"]["relay_b"]["port"] == "COM29"
+    assert summary["device_precheck_config_ports"]["temperature_chamber"]["port"] == "COM27"
+    assert summary["device_precheck_legacy_expected_ports_match"]["pressure_controller"] is False
+    assert summary["device_precheck_wrapper_underlying_config_match"] is True
+    assert summary["device_precheck_open_all_results"]["pressure_controller"]["attempted"] is True
+    assert summary["device_precheck_open_all_results"]["pressure_controller"]["ok"] is False
+    assert summary["device_precheck_health_check_results"]["pressure_controller"]["attempted"] is False
+    assert "set_in_limits(0.02, 10.0)" in {
+        item["command"] for item in summary["device_precheck_command_attempts"]
+    }
+    assert summary["device_precheck_failure_reason_by_device"]["relay_a"] == (
+        "relay_init_unavailable_or_no_response"
+    )
+
+    details = {item["device_name"]: item for item in summary["device_precheck_device_details"]}
+    assert details["pressure_controller"]["configured_port"] == "COM31"
+    assert details["pressure_controller"]["critical_or_optional"] == "critical"
+    assert details["pressure_controller"]["open_ok"] is False
+    assert details["temperature_chamber"]["critical_or_optional"] == "optional"
+    assert details["temperature_chamber"]["open_ok"] is False
+
+    assert summary["pressure_controller_precheck_command"] == ":SOUR:PRES:INL 0.02"
+    assert summary["pressure_controller_precheck_exception_type"] == "PACE_COMMAND_ERROR"
+    assert summary["pressure_controller_precheck_exception_message"] == "NO_RESPONSE"
+    assert summary["pressure_controller_precheck_sens_pres_query_sent"] is False
+    assert summary["pressure_controller_precheck_output_state_query_sent"] is False
+    assert summary["pressure_controller_precheck_line_ending"] == "LF"
+    assert summary["pressure_meter_precheck_command"] == "*0100P3\\r\\n"
+    assert summary["pressure_meter_precheck_exception_type"] == "RuntimeError"
+    assert summary["pressure_meter_precheck_exception_message"] == "NO_RESPONSE"
+    assert summary["pressure_meter_precheck_line_ending"] == "CRLF"
+    assert summary["relay_a_precheck_failure_reason"] == "relay_init_unavailable_or_no_response"
+    assert summary["relay_b_precheck_failure_reason"] == "relay_init_unavailable_or_no_response"
+    assert summary["safe_stop_controller_unavailable"] is True
+    assert summary["safe_stop_skipped_pressure_command_due_to_unavailable_controller"] is False
+    assert summary["safe_stop_pace_command_error_detail"] == "empty_error_detail"
+    assert summary["safe_stop_bounded_timeout_s"] == 30.0
+    assert summary["safe_stop_duration_exceeded_expected"] is True
+    assert summary["safe_stop_no_pressure_sample_available_reason"] == (
+        "pressure_controller_and_pressure_meter_unavailable"
+    )
+    assert summary["critical_devices_failed"] == [
+        "pressure_controller",
+        "pressure_meter",
+        "relay_a",
+        "relay_b",
+    ]
+    assert summary["optional_context_devices_failed"] == ["temperature_chamber"]
+    assert summary["optional_context_failure_blocks_probe"] is False
+
+
 def test_a2_probe_skip_temp_policy_from_operator_ack_when_raw_config_unaligned(tmp_path: Path) -> None:
     config, config_path, op_path = _config_and_operator(tmp_path)
     config.pop("temperature_stabilization_wait_skipped", None)

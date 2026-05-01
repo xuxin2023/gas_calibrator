@@ -676,6 +676,420 @@ def _relay_diagnostics(raw_cfg: Mapping[str, Any], route_rows: list[dict[str, An
     }
 
 
+_DEVICE_PRECHECK_ALIASES = {
+    "pressure_controller": ("pressure_controller",),
+    "pressure_meter": ("pressure_meter", "pressure_gauge", "digital_pressure_gauge_p3"),
+    "relay_a": ("relay_a", "relay"),
+    "relay_b": ("relay_b", "relay_8"),
+    "temperature_chamber": ("temperature_chamber",),
+}
+
+_DEVICE_PRECHECK_CRITICAL_DEFAULT = ("pressure_controller", "pressure_meter", "relay_a", "relay_b")
+_DEVICE_PRECHECK_LEGACY_EXPECTED_PORTS = {
+    "pressure_controller": "COM23",
+    "pressure_meter": "COM22",
+    "relay_a": "COM20",
+    "relay_b": "COM21",
+    "temperature_chamber": "COM19",
+}
+
+
+def _device_precheck_service_value(service_summary: Mapping[str, Any], *keys: str) -> Any:
+    stats = service_summary.get("stats")
+    for key in keys:
+        if key in service_summary:
+            return service_summary.get(key)
+    if isinstance(stats, Mapping):
+        for key in keys:
+            if key in stats:
+                return stats.get(key)
+    return None
+
+
+def _coerce_string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, tuple):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if value in (None, ""):
+        return []
+    text = str(value).strip()
+    if text.startswith("[") and text.endswith("]"):
+        items = re.findall(r"'([^']+)'|\"([^\"]+)\"|([^,\s\[\]]+)", text)
+        return [next(part for part in item if part).strip() for item in items if any(item)]
+    return [text]
+
+
+def _extract_named_list_from_text(text: str, key: str) -> list[str]:
+    match = re.search(rf"{re.escape(key)}\s*=\s*\[([^\]]*)\]", text)
+    if not match:
+        return []
+    return _coerce_string_list(f"[{match.group(1)}]")
+
+
+def _device_precheck_text_blob(
+    service_summary: Mapping[str, Any],
+    execution: Mapping[str, Any],
+    route_rows: list[dict[str, Any]],
+) -> str:
+    parts: list[str] = []
+    for source in (service_summary, _mapping(service_summary.get("stats")), execution):
+        for key in (
+            "service_status_message",
+            "service_status_error",
+            "failure_reason",
+            "fail_reason",
+            "a1_fail_reason",
+            "execution_error",
+        ):
+            value = source.get(key) if isinstance(source, Mapping) else None
+            if value not in (None, ""):
+                parts.append(str(value))
+    for key in ("run_log_text", "run_log_tail"):
+        value = execution.get(key)
+        if value not in (None, ""):
+            parts.append(str(value))
+    for row in route_rows:
+        message = row.get("message")
+        if message not in (None, ""):
+            parts.append(str(message))
+        actual = row.get("actual")
+        if isinstance(actual, Mapping):
+            command_error = actual.get("command_error")
+            if command_error not in (None, ""):
+                parts.append(str(command_error))
+    return "\n".join(parts)
+
+
+def _selected_device_cfg(raw_cfg: Mapping[str, Any], device_name: str) -> tuple[str, dict[str, Any]]:
+    devices = _mapping(raw_cfg.get("devices"))
+    for alias in _DEVICE_PRECHECK_ALIASES.get(device_name, (device_name,)):
+        value = devices.get(alias)
+        if isinstance(value, Mapping):
+            return alias, dict(value)
+    return "", {}
+
+
+def _device_precheck_config_ports(raw_cfg: Mapping[str, Any]) -> dict[str, Any]:
+    ports: dict[str, Any] = {}
+    for device_name in _DEVICE_PRECHECK_ALIASES:
+        selected_key, cfg = _selected_device_cfg(raw_cfg, device_name)
+        ports[device_name] = {
+            "selected_config_key": selected_key,
+            "port": str(cfg.get("port") or ""),
+            "baud": int(cfg.get("baud") or cfg.get("baudrate") or 9600) if cfg else None,
+            "enabled": (_as_bool(cfg.get("enabled")) if cfg else None),
+        }
+        if cfg and ports[device_name]["enabled"] is None:
+            ports[device_name]["enabled"] = True
+    return ports
+
+
+def _normalized_path_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return str(Path(text)).replace("\\", "/").rstrip("/").lower()
+
+
+def _safe_float_from_rows(rows: list[dict[str, Any]], *names: str) -> Optional[float]:
+    for row in rows:
+        for name in names:
+            parsed = _as_float(row.get(name))
+            if parsed is not None:
+                return float(parsed)
+        actual = row.get("actual")
+        if isinstance(actual, Mapping):
+            for name in names:
+                parsed = _as_float(actual.get(name))
+                if parsed is not None:
+                    return float(parsed)
+    return None
+
+
+def _pace_error_detail(text: str) -> tuple[str, str, str]:
+    match = re.search(r"PACE_COMMAND_ERROR\(command=([^,)]*),\s*error=([^)]*)\)", text)
+    if not match:
+        return "", "", ""
+    command = match.group(1).strip()
+    detail = match.group(2).strip()
+    return command, "PACE_COMMAND_ERROR", detail
+
+
+def _precheck_command_attempts(
+    execution: Mapping[str, Any],
+    route_rows: list[dict[str, Any]],
+    text_blob: str,
+) -> list[dict[str, Any]]:
+    attempts: list[dict[str, Any]] = []
+    for row in execution.get("io_log_rows") or []:
+        if not isinstance(row, Mapping):
+            continue
+        command = str(row.get("data") or row.get("command") or "").strip()
+        if not command:
+            continue
+        device_name = ""
+        if "set_in_limits" in command or "set_output" in command or "set_vent" in command:
+            device_name = "pressure_controller"
+        elif "set_valve" in command:
+            device_name = "relay"
+        attempts.append(
+            {
+                "source": "io_log",
+                "device_name": device_name,
+                "command": command,
+                "direction": str(row.get("direction") or ""),
+                "no_write_proxy": str(row.get("device") or "") == "NoWriteDeviceProxy",
+            }
+        )
+    for row in route_rows:
+        action = str(row.get("action") or "").strip()
+        if action not in {"set_output", "set_vent", "set_valve", "set_valves_bulk"}:
+            continue
+        attempts.append(
+            {
+                "source": "route_trace",
+                "device_name": "pressure_controller" if action in {"set_output", "set_vent"} else "relay",
+                "command": action,
+                "direction": "TX",
+                "result": str(row.get("result") or ""),
+                "message": str(row.get("message") or ""),
+                "no_write_proxy": False,
+            }
+        )
+    for command, detail in re.findall(
+        r"PACE_COMMAND_ERROR\(command=([^,)]*),\s*error=([^)]*)\)",
+        text_blob,
+    ):
+        attempts.append(
+            {
+                "source": "error_text",
+                "device_name": "pressure_controller",
+                "command": command.strip(),
+                "direction": "TX",
+                "result": "fail",
+                "exception_type": "PACE_COMMAND_ERROR",
+                "exception_message": detail.strip(),
+                "no_write_proxy": False,
+            }
+        )
+    return attempts
+
+
+def _device_precheck_diagnostics(
+    raw_cfg: Mapping[str, Any],
+    execution: Mapping[str, Any],
+    service_summary: Mapping[str, Any],
+    route_rows: list[dict[str, Any]],
+    point_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    text_blob = _device_precheck_text_blob(service_summary, execution, route_rows)
+    failure_stage = str(
+        _device_precheck_service_value(service_summary, "failure_stage")
+        or ("device_precheck" if "Device precheck failed" in text_blob else "")
+    ).strip()
+    failed_devices = _coerce_string_list(
+        _device_precheck_service_value(service_summary, "failed_devices")
+    ) or _extract_named_list_from_text(text_blob, "failed_devices")
+    critical_failed = _coerce_string_list(
+        _device_precheck_service_value(service_summary, "critical_devices_failed")
+    ) or _extract_named_list_from_text(text_blob, "critical_devices_failed")
+    optional_failed = _coerce_string_list(
+        _device_precheck_service_value(service_summary, "optional_context_devices_failed")
+    ) or _extract_named_list_from_text(text_blob, "optional_context_devices_failed")
+    critical_devices = _coerce_string_list(
+        _device_precheck_service_value(service_summary, "critical_devices_required")
+    ) or list(_DEVICE_PRECHECK_CRITICAL_DEFAULT)
+    if not critical_failed:
+        critical_failed = [name for name in failed_devices if name in critical_devices]
+    config_ports = _device_precheck_config_ports(raw_cfg)
+    command_attempts = _precheck_command_attempts(execution, route_rows, text_blob)
+    open_all_results: dict[str, Any] = {}
+    health_check_results: dict[str, Any] = {}
+    failure_reason_by_device: dict[str, str] = {}
+    device_details: list[dict[str, Any]] = []
+    device_names = list(dict.fromkeys(list(_DEVICE_PRECHECK_ALIASES) + failed_devices + optional_failed))
+    inferred_failure_phase = "open_all" if failure_stage == "device_precheck" and failed_devices else ""
+
+    controller_command, controller_exc_type, controller_exc_message = _pace_error_detail(text_blob)
+    controller_precheck_command = (
+        controller_command
+        or str(_device_precheck_service_value(service_summary, "pressure_controller_precheck_command") or "")
+    )
+    pressure_meter_exc = "NO_RESPONSE" if "pressure_meter): NO_RESPONSE" in text_blob else ""
+    pressure_controller_no_response = "NO_RESPONSE" if "pressure_controller): NO_RESPONSE" in text_blob else ""
+
+    for device_name in device_names:
+        selected_key, cfg = _selected_device_cfg(raw_cfg, device_name)
+        failed = device_name in failed_devices or device_name in critical_failed or device_name in optional_failed
+        critical_or_optional = "optional" if device_name in optional_failed and device_name not in critical_failed else "critical"
+        enabled = _as_bool(cfg.get("enabled")) if cfg else None
+        if enabled is None and cfg:
+            enabled = True
+        open_attempted = bool(failure_stage == "device_precheck" and enabled is not False)
+        open_ok = False if failed and inferred_failure_phase == "open_all" else (True if open_attempted else None)
+        health_attempted = False
+        health_ok = None
+        command_sent = any(attempt.get("device_name") in {device_name, "relay"} for attempt in command_attempts)
+        exception_type = ""
+        exception_message = ""
+        raw_response = ""
+        if device_name == "pressure_controller":
+            exception_type = controller_exc_type or ("RuntimeError" if pressure_controller_no_response else "")
+            exception_message = controller_exc_message or pressure_controller_no_response
+        elif device_name == "pressure_meter":
+            exception_type = "RuntimeError" if pressure_meter_exc else ""
+            exception_message = pressure_meter_exc
+        elif device_name in {"relay_a", "relay_b"} and failed:
+            exception_message = "relay_init_unavailable_or_no_response"
+        failure_reason = ""
+        if failed:
+            failure_reason = exception_message or "device_precheck_failed"
+        failure_reason_by_device[device_name] = failure_reason
+        open_all_results[device_name] = {
+            "attempted": open_attempted,
+            "ok": open_ok,
+            "failure_reason": failure_reason if inferred_failure_phase == "open_all" else "",
+        }
+        health_check_results[device_name] = {
+            "attempted": health_attempted,
+            "ok": health_ok,
+            "failure_reason": failure_reason if health_attempted else "",
+        }
+        device_details.append(
+            {
+                "device_name": device_name,
+                "selected_config_key": selected_key,
+                "configured_port": str(cfg.get("port") or ""),
+                "baud": int(cfg.get("baud") or cfg.get("baudrate") or 9600) if cfg else None,
+                "enabled": enabled,
+                "critical_or_optional": critical_or_optional,
+                "open_attempted": open_attempted,
+                "open_ok": open_ok,
+                "health_check_attempted": health_attempted,
+                "health_check_ok": health_ok,
+                "command_sent": command_sent,
+                "raw_response": raw_response,
+                "timeout_s": _as_float(
+                    cfg.get("response_timeout_s") or cfg.get("timeout") or cfg.get("timeout_s")
+                )
+                if cfg
+                else None,
+                "exception_type": exception_type,
+                "exception_message": exception_message,
+                "failure_phase": inferred_failure_phase if failed else "",
+                "failure_reason": failure_reason,
+            }
+        )
+
+    points_alignment = _mapping(execution.get("points_alignment"))
+    manifest = _mapping(execution.get("run_manifest")) or _mapping(execution.get("manifest"))
+    wrapper_config = (
+        points_alignment.get("downstream_aligned_config_path")
+        or execution.get("execution_config_path")
+        or execution.get("config_path")
+    )
+    underlying_config = manifest.get("config_path") or execution.get("underlying_config_path") or execution.get("config_path")
+    config_match: Any = None
+    if wrapper_config or underlying_config:
+        config_match = bool(
+            wrapper_config
+            and underlying_config
+            and _normalized_path_text(wrapper_config) == _normalized_path_text(underlying_config)
+        )
+
+    safe_stop_duration_s = _as_float(
+        _device_precheck_service_value(service_summary, "safe_stop_duration_s")
+    ) or _safe_float_from_rows(
+        [dict(row) for row in execution.get("timing_trace_rows") or [] if isinstance(row, Mapping)],
+        "duration_s",
+    )
+    safe_stop_bounded_timeout_s = _safe_float_from_rows(
+        [dict(row) for row in execution.get("timing_trace_rows") or [] if isinstance(row, Mapping)],
+        "expected_max_s",
+    )
+    if safe_stop_bounded_timeout_s is None:
+        safe_stop_bounded_timeout_s = 30.0
+    safe_stop_pace_command_error_detail = controller_exc_message
+    if controller_exc_type and not safe_stop_pace_command_error_detail:
+        safe_stop_pace_command_error_detail = "empty_error_detail"
+    controller_unavailable = "pressure_controller" in failed_devices or bool(pressure_controller_no_response)
+    pressure_meter_unavailable = "pressure_meter" in failed_devices or bool(pressure_meter_exc)
+    pressure_meter_cfg = _device_cfg(raw_cfg, "pressure_meter", "pressure_gauge", "digital_pressure_gauge_p3")
+    pressure_meter_command = str(
+        _device_precheck_service_value(service_summary, "pressure_meter_precheck_command") or ""
+    )
+    if not pressure_meter_command and pressure_meter_cfg:
+        pressure_meter_command = f"*{str(pressure_meter_cfg.get('dest_id') or '01')}00P3\\r\\n"
+
+    legacy_match = {
+        name: str(config_ports.get(name, {}).get("port") or "").upper() == expected
+        for name, expected in _DEVICE_PRECHECK_LEGACY_EXPECTED_PORTS.items()
+    }
+    return {
+        "device_precheck_failure_stage": failure_stage,
+        "device_precheck_failure_phase": inferred_failure_phase,
+        "device_precheck_failed_devices": failed_devices,
+        "device_precheck_critical_failed_devices": critical_failed,
+        "device_precheck_optional_failed_devices": optional_failed,
+        "device_precheck_device_details": device_details,
+        "device_precheck_config_ports": config_ports,
+        "device_precheck_legacy_expected_ports": dict(_DEVICE_PRECHECK_LEGACY_EXPECTED_PORTS),
+        "device_precheck_legacy_expected_ports_match": legacy_match,
+        "device_precheck_wrapper_underlying_config_match": config_match,
+        "device_precheck_open_all_results": open_all_results,
+        "device_precheck_health_check_results": health_check_results,
+        "device_precheck_command_attempts": command_attempts,
+        "device_precheck_failure_reason_by_device": failure_reason_by_device,
+        "pressure_controller_precheck_command": controller_precheck_command,
+        "pressure_controller_precheck_raw_response": "",
+        "pressure_controller_precheck_exception_type": controller_exc_type
+        or ("RuntimeError" if pressure_controller_no_response else ""),
+        "pressure_controller_precheck_exception_message": controller_exc_message
+        or pressure_controller_no_response,
+        "pressure_controller_precheck_sens_pres_query_sent": ":SENS:PRES?" in text_blob,
+        "pressure_controller_precheck_output_state_query_sent": ":OUTP:STAT?" in text_blob,
+        "pressure_controller_precheck_line_ending": _line_ending_label(
+            _device_cfg(raw_cfg, "pressure_controller").get("line_ending")
+        ),
+        "pressure_controller_precheck_timeout_s": _as_float(
+            _device_cfg(raw_cfg, "pressure_controller").get("timeout")
+        ),
+        "pressure_meter_precheck_command": pressure_meter_command,
+        "pressure_meter_precheck_raw_response": "",
+        "pressure_meter_precheck_exception_type": "RuntimeError" if pressure_meter_exc else "",
+        "pressure_meter_precheck_exception_message": pressure_meter_exc,
+        "pressure_meter_precheck_line_ending": "CRLF",
+        "pressure_meter_precheck_timeout_s": _as_float(
+            pressure_meter_cfg.get("response_timeout_s")
+            or pressure_meter_cfg.get("timeout")
+            or pressure_meter_cfg.get("timeout_s")
+        ),
+        "relay_a_precheck_failure_reason": failure_reason_by_device.get("relay_a", ""),
+        "relay_b_precheck_failure_reason": failure_reason_by_device.get("relay_b", ""),
+        "safe_stop_controller_unavailable": bool(controller_unavailable),
+        "safe_stop_skipped_pressure_command_due_to_unavailable_controller": False,
+        "safe_stop_pace_command_error_detail": safe_stop_pace_command_error_detail,
+        "safe_stop_bounded_timeout_s": safe_stop_bounded_timeout_s,
+        "safe_stop_duration_exceeded_expected": bool(
+            safe_stop_duration_s is not None
+            and safe_stop_bounded_timeout_s is not None
+            and float(safe_stop_duration_s) > float(safe_stop_bounded_timeout_s)
+        ),
+        "safe_stop_no_pressure_sample_available_reason": (
+            "pressure_controller_and_pressure_meter_unavailable"
+            if controller_unavailable
+            and pressure_meter_unavailable
+            and not any(
+                _as_float(point.get("pressure_gauge_hpa_before_ready")) is not None
+                or _as_float(point.get("pressure_gauge_hpa_before_sample")) is not None
+                for point in point_results
+            )
+            else ""
+        ),
+    }
+
+
 def _pressure_points(raw_cfg: Mapping[str, Any]) -> list[float]:
     value = _first_value(
         raw_cfg,
@@ -1252,12 +1666,26 @@ def execute_existing_v2_a2_pressure_sweep(config_path: str | Path) -> dict[str, 
     service.run()
     run_dir = Path(service.session.output_dir)
     summary = _load_json_dict(run_dir / "summary.json")
+    run_log_text = ""
+    run_log_path = run_dir / "run.log"
+    if run_log_path.exists():
+        try:
+            run_log_text = run_log_path.read_text(encoding="utf-8", errors="ignore")[-20000:]
+        except Exception:
+            run_log_text = ""
     return {
         "execution_run_dir": str(run_dir),
+        "underlying_config_path": str(resolved_config_path),
+        "run_manifest": _load_json_dict(run_dir / "run_manifest.json"),
+        "manifest": _load_json_dict(run_dir / "manifest.json"),
+        "no_write_guard": _load_json_dict(run_dir / "no_write_guard.json"),
+        "workflow_timing_summary": _load_json_dict(run_dir / "workflow_timing_summary.json"),
         "service_summary": summary,
         "route_trace_rows": _load_jsonl(run_dir / "route_trace.jsonl"),
         "timing_trace_rows": _load_jsonl(run_dir / "workflow_timing_trace.jsonl"),
+        "io_log_rows": _load_csv_dicts(run_dir / "io_log.csv"),
         "sample_rows": _load_csv_dicts(run_dir / "samples.csv"),
+        "run_log_tail": run_log_text,
     }
 
 
@@ -2831,6 +3259,13 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     pressure_controller_diagnostics = _pressure_controller_command_diagnostics(raw_cfg, route_rows)
     pressure_meter_diagnostic_fields = _pressure_meter_diagnostics(raw_cfg, point_results)
     relay_diagnostic_fields = _relay_diagnostics(raw_cfg, route_rows)
+    device_precheck_diagnostic_fields = _device_precheck_diagnostics(
+        raw_cfg,
+        execution,
+        service_summary,
+        route_rows,
+        point_results,
+    )
 
     summary = {
         "schema_version": A2_SCHEMA_VERSION,
@@ -2887,6 +3322,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "optional_context_devices_failed": optional_context_devices_failed,
         "critical_device_init_failure_blocks_probe": critical_device_init_failure_blocks_probe,
         "optional_context_failure_blocks_probe": optional_context_failure_blocks_probe,
+        **device_precheck_diagnostic_fields,
         **pressure_controller_diagnostics,
         **pressure_meter_diagnostic_fields,
         **relay_diagnostic_fields,
