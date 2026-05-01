@@ -700,20 +700,70 @@ A2_21_REJECTED_PRESSURE_CONTROLLER_PORT = "COM31"
 A2_21_REJECTED_PRESSURE_METER_PORT = "COM30"
 A2_21_RELAY_A_CANDIDATE_PORTS = ["COM20", "COM28"]
 A2_21_RELAY_B_CANDIDATE_PORTS = ["COM21", "COM29"]
+A2_21_ADVANTECH_COM_SHIFT_MAPPING = {
+    "COM24": "COM16",
+    "COM25": "COM17",
+    "COM26": "COM18",
+    "COM27": "COM19",
+    "COM28": "COM20",
+    "COM29": "COM21",
+    "COM30": "COM22",
+    "COM31": "COM23",
+}
+A2_21_ADVANTECH_MAPPED_PORTS = {
+    "humidity_generator": "COM16",
+    "dewpoint_meter": "COM17",
+    "thermometer": "COM18",
+    "temperature_chamber": "COM19",
+    "relay_a": "COM20",
+    "relay_b": "COM21",
+    "pressure_meter": "COM22",
+    "pressure_controller": "COM23",
+}
 
 
 def _a2_21_pressure_port_alignment_metadata() -> dict[str, Any]:
+    config_ports = {
+        "humidity_generator": A2_21_ADVANTECH_MAPPED_PORTS["humidity_generator"],
+        "dewpoint_meter": A2_21_ADVANTECH_MAPPED_PORTS["dewpoint_meter"],
+        "thermometer": A2_21_ADVANTECH_MAPPED_PORTS["thermometer"],
+        "temperature_chamber": A2_21_ADVANTECH_MAPPED_PORTS["temperature_chamber"],
+        "relay": A2_21_ADVANTECH_MAPPED_PORTS["relay_a"],
+        "relay_a": A2_21_ADVANTECH_MAPPED_PORTS["relay_a"],
+        "relay_8": A2_21_ADVANTECH_MAPPED_PORTS["relay_b"],
+        "relay_b": A2_21_ADVANTECH_MAPPED_PORTS["relay_b"],
+        "pressure_gauge": A2_21_ADVANTECH_MAPPED_PORTS["pressure_meter"],
+        "pressure_meter": A2_21_ADVANTECH_MAPPED_PORTS["pressure_meter"],
+        "pressure_controller": A2_21_ADVANTECH_MAPPED_PORTS["pressure_controller"],
+    }
     return {
+        "advantech_com_shift_mapping_applied": True,
+        "advantech_com_shift_old_range": "COM24-COM31",
+        "advantech_com_shift_new_range": "COM16-COM23",
+        "advantech_com_shift_delta": -8,
         "verified_pressure_controller_port": A2_21_VERIFIED_PRESSURE_CONTROLLER_PORT,
         "verified_pressure_meter_port": A2_21_VERIFIED_PRESSURE_METER_PORT,
+        "mapped_relay_a_port": A2_21_ADVANTECH_MAPPED_PORTS["relay_a"],
+        "mapped_relay_b_port": A2_21_ADVANTECH_MAPPED_PORTS["relay_b"],
+        "mapped_temperature_chamber_port": A2_21_ADVANTECH_MAPPED_PORTS["temperature_chamber"],
+        "mapped_thermometer_port": A2_21_ADVANTECH_MAPPED_PORTS["thermometer"],
+        "mapped_dewpoint_port": A2_21_ADVANTECH_MAPPED_PORTS["dewpoint_meter"],
+        "mapped_humidity_generator_port": A2_21_ADVANTECH_MAPPED_PORTS["humidity_generator"],
         "rejected_pressure_controller_candidate_port": A2_21_REJECTED_PRESSURE_CONTROLLER_PORT,
         "rejected_pressure_meter_candidate_port": A2_21_REJECTED_PRESSURE_METER_PORT,
+        "rejected_stale_pressure_controller_port": A2_21_REJECTED_PRESSURE_CONTROLLER_PORT,
+        "rejected_stale_pressure_meter_port": A2_21_REJECTED_PRESSURE_METER_PORT,
         "pressure_port_mapping_source": A2_21_PRESSURE_PORT_MAPPING_SOURCE,
         "pressure_port_mapping_verified_at": A2_21_PRESSURE_PORT_MAPPING_VERIFIED_AT,
+        "stale_advantech_ports_found": False,
+        "stale_advantech_ports": [],
+        "a2_real_probe_config_ports_after_mapping": config_ports,
+        "a2_real_probe_config_ports_mapping_source": "advantech_fixed_shift_old_com_minus_8",
         "a2_19_device_precheck_failure_likely_pressure_port_mismatch": True,
+        "a2_19_device_precheck_failure_root_cause": "stale_advantech_com_shift_config_mismatch",
         "a2_19_state_machine_real_verified": False,
         "relay_port_identity_confirmed": False,
-        "relay_port_identity_confirmation_reason": "open_only_cannot_distinguish",
+        "relay_port_identity_confirmation_reason": "advantech_fixed_shift_mapping_applied_open_only_not_identity",
         "relay_a_candidate_ports": list(A2_21_RELAY_A_CANDIDATE_PORTS),
         "relay_b_candidate_ports": list(A2_21_RELAY_B_CANDIDATE_PORTS),
         "temperature_chamber_probe_import_path_fixed": True,
@@ -728,10 +778,18 @@ def _apply_a2_21_pressure_port_alignment(aligned_raw_cfg: dict[str, Any]) -> dic
     if not isinstance(devices, dict):
         devices = {}
         aligned_raw_cfg["devices"] = devices
+    stale_ports = sorted(
+        {
+            str(device.get("port") or "").upper()
+            for device in devices.values()
+            if isinstance(device, Mapping)
+            and str(device.get("port") or "").upper() in A2_21_ADVANTECH_COM_SHIFT_MAPPING
+        }
+    )
 
     pressure_controller = devices.setdefault("pressure_controller", {})
     if isinstance(pressure_controller, dict):
-        pressure_controller["port"] = A2_21_VERIFIED_PRESSURE_CONTROLLER_PORT
+        pressure_controller["port"] = A2_21_ADVANTECH_MAPPED_PORTS["pressure_controller"]
         pressure_controller.setdefault("enabled", True)
         pressure_controller.setdefault("baud", 9600)
         pressure_controller.setdefault("line_ending", "LF")
@@ -743,10 +801,28 @@ def _apply_a2_21_pressure_port_alignment(aligned_raw_cfg: dict[str, Any]) -> dic
     for alias in pressure_aliases:
         pressure_meter = devices.get(alias)
         if isinstance(pressure_meter, dict):
-            pressure_meter["port"] = A2_21_VERIFIED_PRESSURE_METER_PORT
+            pressure_meter["port"] = A2_21_ADVANTECH_MAPPED_PORTS["pressure_meter"]
             pressure_meter.setdefault("enabled", True)
             pressure_meter.setdefault("baud", 9600)
             pressure_meter.setdefault("dest_id", "01")
+
+    direct_port_updates = {
+        "relay": A2_21_ADVANTECH_MAPPED_PORTS["relay_a"],
+        "relay_a": A2_21_ADVANTECH_MAPPED_PORTS["relay_a"],
+        "relay_8": A2_21_ADVANTECH_MAPPED_PORTS["relay_b"],
+        "relay_b": A2_21_ADVANTECH_MAPPED_PORTS["relay_b"],
+        "temperature_chamber": A2_21_ADVANTECH_MAPPED_PORTS["temperature_chamber"],
+        "thermometer": A2_21_ADVANTECH_MAPPED_PORTS["thermometer"],
+        "dewpoint_meter": A2_21_ADVANTECH_MAPPED_PORTS["dewpoint_meter"],
+        "humidity_generator": A2_21_ADVANTECH_MAPPED_PORTS["humidity_generator"],
+    }
+    for device_name, mapped_port in direct_port_updates.items():
+        device_cfg = devices.get(device_name)
+        if isinstance(device_cfg, dict):
+            device_cfg["port"] = mapped_port
+
+    metadata["stale_advantech_ports_found"] = bool(stale_ports)
+    metadata["stale_advantech_ports"] = stale_ports
 
     for section_name in ("run001_a2", "a2_co2_7_pressure_no_write_probe"):
         section = aligned_raw_cfg.setdefault(section_name, {})

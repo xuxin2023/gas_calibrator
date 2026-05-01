@@ -164,8 +164,8 @@ def _operator_confirmation(tmp_path: Path, config_path: Path, config: Mapping[st
         "port_manifest": {
             "pressure_controller": "COM23",
             "pressure_gauge": "COM22",
-            "temperature_chamber": "COM27",
-            "thermometer": "COM26",
+            "temperature_chamber": "COM19",
+            "thermometer": "COM18",
             "gas_analyzers": ["COM35", "COM37", "COM41", "COM42"],
         },
         "explicit_acknowledgement": {
@@ -224,14 +224,42 @@ def test_a2_21_real_machine_config_uses_verified_pressure_ports() -> None:
 
     assert config["devices"]["pressure_controller"]["port"] == "COM23"
     assert config["devices"]["pressure_gauge"]["port"] == "COM22"
+    assert config["devices"]["relay"]["port"] == "COM20"
+    assert config["devices"]["relay_8"]["port"] == "COM21"
+    assert config["devices"]["temperature_chamber"]["port"] == "COM19"
+    assert config["devices"]["thermometer"]["port"] == "COM18"
+    assert config["devices"]["dewpoint_meter"]["port"] == "COM17"
+    assert config["devices"]["humidity_generator"]["port"] == "COM16"
     assert config["devices"]["pressure_controller"]["port"] != "COM31"
     assert config["devices"]["pressure_gauge"]["port"] != "COM30"
+    stale_ports = {f"COM{number}" for number in range(24, 32)}
+    configured_ports = {
+        str(device.get("port") or "")
+        for device in config["devices"].values()
+        if isinstance(device, dict) and device.get("port")
+    }
+    assert configured_ports.isdisjoint(stale_ports)
+    assert config["run001_a2"]["advantech_com_shift_mapping_applied"] is True
+    assert config["run001_a2"]["advantech_com_shift_old_range"] == "COM24-COM31"
+    assert config["run001_a2"]["advantech_com_shift_new_range"] == "COM16-COM23"
+    assert config["run001_a2"]["advantech_com_shift_delta"] == -8
     assert config["run001_a2"]["verified_pressure_controller_port"] == "COM23"
     assert config["run001_a2"]["verified_pressure_meter_port"] == "COM22"
+    assert config["run001_a2"]["mapped_relay_a_port"] == "COM20"
+    assert config["run001_a2"]["mapped_relay_b_port"] == "COM21"
+    assert config["run001_a2"]["mapped_temperature_chamber_port"] == "COM19"
+    assert config["run001_a2"]["mapped_thermometer_port"] == "COM18"
+    assert config["run001_a2"]["mapped_dewpoint_port"] == "COM17"
+    assert config["run001_a2"]["mapped_humidity_generator_port"] == "COM16"
     assert config["run001_a2"]["pressure_port_mapping_source"] == "query_only_com_sanity_probe"
+    assert config["run001_a2"]["a2_real_probe_config_ports_mapping_source"] == (
+        "advantech_fixed_shift_old_com_minus_8"
+    )
     assert config["run001_a2"]["a2_19_state_machine_real_verified"] is False
     assert config["run001_a2"]["relay_port_identity_confirmed"] is False
-    assert config["run001_a2"]["relay_port_identity_confirmation_reason"] == "open_only_cannot_distinguish"
+    assert config["run001_a2"]["relay_port_identity_confirmation_reason"] == (
+        "advantech_fixed_shift_mapping_applied_open_only_not_identity"
+    )
     assert config["run001_a2"]["relay_a_candidate_ports"] == ["COM20", "COM28"]
     assert config["run001_a2"]["relay_b_candidate_ports"] == ["COM21", "COM29"]
     assert config["run001_a2"]["temperature_chamber_probe_import_path_fixed"] is True
@@ -247,6 +275,9 @@ def test_a2_21_downstream_aligned_config_overrides_rejected_pressure_ports(tmp_p
             "relay": {"enabled": True, "port": "COM28", "baud": 38400},
             "relay_8": {"enabled": True, "port": "COM29", "baud": 38400},
             "temperature_chamber": {"enabled": True, "port": "COM27", "baud": 9600, "addr": 1},
+            "thermometer": {"enabled": True, "port": "COM26", "baud": 2400},
+            "dewpoint_meter": {"enabled": False, "port": "COM25", "baud": 9600},
+            "humidity_generator": {"enabled": False, "port": "COM24", "baud": 9600},
         }
     )
     config_path = tmp_path / "stale_config.json"
@@ -261,12 +292,44 @@ def test_a2_21_downstream_aligned_config_overrides_rejected_pressure_ports(tmp_p
 
     assert aligned["devices"]["pressure_controller"]["port"] == "COM23"
     assert aligned["devices"]["pressure_gauge"]["port"] == "COM22"
+    assert aligned["devices"]["relay"]["port"] == "COM20"
+    assert aligned["devices"]["relay_8"]["port"] == "COM21"
+    assert aligned["devices"]["temperature_chamber"]["port"] == "COM19"
+    assert aligned["devices"]["thermometer"]["port"] == "COM18"
+    assert aligned["devices"]["dewpoint_meter"]["port"] == "COM17"
+    assert aligned["devices"]["humidity_generator"]["port"] == "COM16"
     assert aligned["devices"]["pressure_controller"]["port"] != "COM31"
     assert aligned["devices"]["pressure_gauge"]["port"] != "COM30"
+    aligned_ports = {
+        str(device.get("port") or "")
+        for device in aligned["devices"].values()
+        if isinstance(device, dict) and device.get("port")
+    }
+    assert aligned_ports.isdisjoint({f"COM{number}" for number in range(24, 32)})
+    assert metadata["advantech_com_shift_mapping_applied"] is True
     assert metadata["verified_pressure_controller_port"] == "COM23"
     assert metadata["verified_pressure_meter_port"] == "COM22"
+    assert metadata["mapped_relay_a_port"] == "COM20"
+    assert metadata["mapped_relay_b_port"] == "COM21"
+    assert metadata["mapped_temperature_chamber_port"] == "COM19"
+    assert metadata["mapped_thermometer_port"] == "COM18"
+    assert metadata["mapped_dewpoint_port"] == "COM17"
+    assert metadata["mapped_humidity_generator_port"] == "COM16"
     assert metadata["rejected_pressure_controller_candidate_port"] == "COM31"
     assert metadata["rejected_pressure_meter_candidate_port"] == "COM30"
+    assert metadata["rejected_stale_pressure_controller_port"] == "COM31"
+    assert metadata["rejected_stale_pressure_meter_port"] == "COM30"
+    assert metadata["stale_advantech_ports_found"] is True
+    assert metadata["stale_advantech_ports"] == [
+        "COM24",
+        "COM25",
+        "COM26",
+        "COM27",
+        "COM28",
+        "COM29",
+        "COM30",
+        "COM31",
+    ]
     assert aligned["a2_co2_7_pressure_no_write_probe"]["pressure_port_mapping_source"] == (
         "query_only_com_sanity_probe"
     )
@@ -1231,8 +1294,8 @@ def test_a2_probe_summary_records_a2_14_command_diagnostics(tmp_path: Path) -> N
     assert summary["pressure_meter_parse_ok"] is True
     assert summary["v1_v2_pressure_meter_read_alignment"] == "aligned_paroscientific_p3_with_pressure_gauge_alias"
 
-    assert summary["relay_a_configured_port"] == "COM28"
-    assert summary["relay_b_configured_port"] == "COM29"
+    assert summary["relay_a_configured_port"] == "COM20"
+    assert summary["relay_b_configured_port"] == "COM21"
     assert summary["relay_driver_profile"] == "gas_calibrator.devices.relay.RelayController"
     assert summary["relay_channel_mapping"]["7"]["channel"] == 15
     assert summary["relay_output_command_allowed_in_probe"] is False
@@ -1245,7 +1308,9 @@ def test_a2_probe_summary_records_a2_14_command_diagnostics(tmp_path: Path) -> N
     assert summary["a2_19_device_precheck_failure_likely_pressure_port_mismatch"] is True
     assert summary["a2_19_state_machine_real_verified"] is False
     assert summary["relay_port_identity_confirmed"] is False
-    assert summary["relay_port_identity_confirmation_reason"] == "open_only_cannot_distinguish"
+    assert summary["relay_port_identity_confirmation_reason"] == (
+        "advantech_fixed_shift_mapping_applied_open_only_not_identity"
+    )
     assert summary["temperature_chamber_probe_import_path_fixed"] is True
     assert summary["temperature_chamber_port_identity_confirmed"] is False
 
@@ -1403,9 +1468,9 @@ def test_a2_probe_summary_records_a2_20_device_precheck_fail_closed_audit(tmp_pa
     assert summary["device_precheck_optional_failed_devices"] == ["temperature_chamber"]
     assert summary["device_precheck_config_ports"]["pressure_controller"]["port"] == "COM23"
     assert summary["device_precheck_config_ports"]["pressure_meter"]["port"] == "COM22"
-    assert summary["device_precheck_config_ports"]["relay_a"]["port"] == "COM28"
-    assert summary["device_precheck_config_ports"]["relay_b"]["port"] == "COM29"
-    assert summary["device_precheck_config_ports"]["temperature_chamber"]["port"] == "COM27"
+    assert summary["device_precheck_config_ports"]["relay_a"]["port"] == "COM20"
+    assert summary["device_precheck_config_ports"]["relay_b"]["port"] == "COM21"
+    assert summary["device_precheck_config_ports"]["temperature_chamber"]["port"] == "COM19"
     assert summary["device_precheck_legacy_expected_ports_match"]["pressure_controller"] is True
     assert summary["device_precheck_wrapper_underlying_config_match"] is True
     assert summary["device_precheck_open_all_results"]["pressure_controller"]["attempted"] is True
