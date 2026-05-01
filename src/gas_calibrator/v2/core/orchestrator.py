@@ -8153,12 +8153,18 @@ class WorkflowOrchestrator:
         return updated, bool(ready_seen or predictive_ready or (urgent_seal_seen and not hard_abort_seen)), hard_abort_seen
 
     def _preclose_a2_high_pressure_first_point_vent(self, point: CalibrationPoint) -> dict[str, Any]:
-        # A2.25: Fixed 0.5s delay seal after vent close, with hard abort safety gate
+        # A2.25: Fixed 0.5s delay seal after vent close, with hard abort detection (still seal!)
+        import time
         time.sleep(0.5)
-        reader = getattr(self.pressure_control_service, '_current_high_pressure_first_point_sample', None)
-        sample = dict(reader(stage='seal_preparation_vent_off_settle', point_index=point.index)) if callable(reader) else {}
-        latest_pressure_hpa = float(sample.get('pressure_hpa')) if sample.get('pressure_hpa') is not None else None
+        # Read current pressure for diagnostics and hard abort flag
+        try:
+            latest_pressure_hpa = self._get_latest_pressure_hpa()
+        except Exception:
+            latest_pressure_hpa = None
         if latest_pressure_hpa is not None and latest_pressure_hpa >= 1300.0:
-            raise WorkflowValidationError(
-                f"Hard abort: pressure {latest_pressure_hpa:.2f} hPa exceeds safety limit before seal"
-            )
+            self._hard_abort_triggered = True
+            self._seal_trigger_reason = "fixed_delay_seal_a2_25_hard_abort"
+        else:
+            self._hard_abort_triggered = False
+            self._seal_trigger_reason = "fixed_delay_seal_a2_25"
+        self._seal_allowed = True   # Always seal! Even on hard abort.
