@@ -1375,41 +1375,76 @@ class PressureControlService:
         Tries fast reads, then normal reads, then orchestrator fallback.
         A short cooldown is inserted between attempts because the P3 serial
         port can saturate under rapid polling.
+
+        A2.33: if the background digital_gauge continuous stream is active,
+        it will be temporarily stopped before the recovery read and restarted
+        afterwards, because the stream holds the serial port exclusively.
         """
         _gauge = self.host._device("pressure_meter", "pressure_gauge")
         if _gauge is None:
             return None
 
-        for _attempt in range(3):
-            for _method_name in ("read_pressure_fast", "read_pressure", "read_pressure_hpa", "get_pressure", "get_pressure_hpa"):
-                _method = getattr(_gauge, _method_name, None)
-                if not callable(_method):
-                    continue
-                try:
-                    _result = _method()
-                    if isinstance(_result, (int, float)):
-                        _result = float(_result)
-                        if _result > 0:
-                            return _result
-                    elif isinstance(_result, dict):
-                        _value = self._coerce_float(_result.get("pressure_hpa"))
-                        if _value is not None and _value > 0:
-                            return _value
-                except Exception:
-                    continue
-
-            if _attempt < 2:
+        _stream_was_active = False
+        try:
+            _state = self._digital_gauge_stream_state()
+            if isinstance(_state, dict) and bool(_state.get("digital_gauge_continuous_active")):
+                _stream_was_active = True
+                self.host._log("Preseal recovery: pausing continuous digital gauge stream")
+                self._stop_digital_gauge_continuous_stream(
+                    stage="positive_preseal_recovery_stop",
+                    point_index=None,
+                    reason="preseal_pressure_recovery_read",
+                )
                 import time as _time
-                _time.sleep(0.6)
+                _time.sleep(0.3)
+        except Exception:
+            _stream_was_active = False
 
-        _recovery = getattr(self.host, "_get_latest_pressure_hpa", None)
-        if callable(_recovery):
-            try:
-                _value = _recovery()
-                if _value is not None and _value > 0:
-                    return float(_value)
-            except Exception:
-                pass
+        _value: Optional[float] = None
+        try:
+            for _attempt in range(3):
+                for _method_name in ("read_pressure_fast", "read_pressure", "read_pressure_hpa", "get_pressure", "get_pressure_hpa"):
+                    _method = getattr(_gauge, _method_name, None)
+                    if not callable(_method):
+                        continue
+                    try:
+                        _result = _method()
+                        if isinstance(_result, (int, float)):
+                            _result = float(_result)
+                            if _result > 0:
+                                _value = _result
+                                return _value
+                        elif isinstance(_result, dict):
+                            _v = self._coerce_float(_result.get("pressure_hpa"))
+                            if _v is not None and _v > 0:
+                                _value = _v
+                                return _value
+                    except Exception:
+                        continue
+
+                if _attempt < 2:
+                    import time as _time
+                    _time.sleep(0.6)
+
+            _recovery = getattr(self.host, "_get_latest_pressure_hpa", None)
+            if callable(_recovery):
+                try:
+                    _v = _recovery()
+                    if _v is not None and _v > 0:
+                        _value = float(_v)
+                        return _value
+                except Exception:
+                    pass
+        finally:
+            if _stream_was_active:
+                try:
+                    self._start_a2_high_pressure_digital_gauge_stream(
+                        stage="positive_preseal_recovery_restart",
+                        point_index=None,
+                    )
+                    self.host._log("Preseal recovery: restarted continuous digital gauge stream")
+                except Exception:
+                    self.host._log("Preseal recovery: failed to restart continuous digital gauge stream")
 
         return None
 
