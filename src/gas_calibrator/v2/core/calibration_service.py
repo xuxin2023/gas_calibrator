@@ -323,7 +323,9 @@ class CalibrationService:
 
     def run(self, points_path: Optional[str] = None) -> None:
         self.start(points_path=points_path)
-        self.wait()
+        done = self.wait(timeout=900)
+        if not done:
+            self.stop(wait=False)
 
     def get_status(self) -> CalibrationStatus:
         return self.state_manager.status
