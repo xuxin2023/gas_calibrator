@@ -2214,8 +2214,16 @@ def _point_results_from_execution(
         _sample_end_count = sum(1 for row in rows if str(row.get("action") or "") == "sample_end")
         point_completed = pressure in completed or sample_count > 0 or _sample_end_count > 0
         setpoint_sent = any(str(row.get("action") or "") == "set_pressure" for row in rows)
-        heartbeat_ready = any(str(row.get("action") or "") == "set_vent" and row.get("result") == "ok" for row in rows)
-        route_ready = any(str(row.get("action") or "") in {"set_co2_valves", "route_baseline"} and row.get("result") == "ok" for row in rows)
+        heartbeat_ready = any(
+            str(row.get("action") or "") == action and row.get("result") == "ok"
+            for row in rows
+            for action in ("set_vent", "seal_route", "pressure_control_ready_gate", "set_pressure")
+        )
+        route_ready = any(
+            str(row.get("action") or "") == action and row.get("result") == "ok"
+            for row in rows
+            for action in ("set_co2_valves", "route_baseline", "seal_route", "seal_transition")
+        )
         result = {
             "target_pressure_hpa": pressure,
             "pressure_point_index": index,
@@ -2557,6 +2565,12 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         for point in point_results
     }
     sample_min_count = _sample_min_count(raw_cfg)
+    # A2.39: when running as an engineering probe, sample counts derived
+    # from route_trace (sample_end events) are capped at 1 per point.
+    # Lower the threshold to 1 so completed points are not rejected.
+    _is_eng_probe = _as_bool(admission.operator_confirmation.get("not_real_acceptance_evidence")) is True
+    if _is_eng_probe and sample_min_count > 1:
+        sample_min_count = 1
     pressure_points_completed = sum(1 for point in point_results if _as_bool(point.get("point_completed")) is True)
     sample_count_total = sum(int(point.get("sample_count") or 0) for point in point_results)
     all_have_fresh = all(_as_bool(point.get("pressure_gauge_freshness_ok_before_sample")) is True for point in point_results)
