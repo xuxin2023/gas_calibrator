@@ -470,6 +470,7 @@ def read_pressure_gauge_raw_capture(
     raw_cfg: Mapping[str, Any],
     *,
     serial_factory: Callable[[Mapping[str, Any]], Any],
+    recovery_pressure_hpa: Optional[float] = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     device = _pressure_device(raw_cfg)
     read_window_s = float(_path_value(raw_cfg, "r0_1.pressure_gauge.read_window_s") or 0.35)
@@ -540,6 +541,7 @@ def read_pressure_gauge_raw_capture(
     p3_command_preview = _new_pressure_gauge(device, serial_factory)._cmd("P3")
     p3_result = {"attempted": False, "succeeded": False, "pressure_hpa": None, "error": "", "port_open_close_ok": False}
     fast_result = {"attempted": False, "succeeded": False, "pressure_hpa": None, "error": "", "port_open_close_ok": False}
+    retry3_result = {"attempted": False, "succeeded": False, "pressure_hpa": None, "error": "", "port_open_close_ok": False}
     p3_result, p3_trace = _attempt_paroscientific_read(device, serial_factory=serial_factory, method="read_pressure")
     trace.extend(p3_trace)
     if not p3_result.get("succeeded"):
@@ -547,11 +549,31 @@ def read_pressure_gauge_raw_capture(
         trace.extend(fast_trace)
 
     driver_pressure_hpa = p3_result.get("pressure_hpa") if p3_result.get("succeeded") else fast_result.get("pressure_hpa")
+    recovery_source = "none"
+
+    if driver_pressure_hpa is None:
+        retry3_result, retry3_trace = _attempt_paroscientific_read(device, serial_factory=serial_factory, method="read_pressure_p3_retry")
+        trace.extend(retry3_trace)
+        if retry3_result.get("succeeded") and retry3_result.get("pressure_hpa") is not None:
+            driver_pressure_hpa = float(retry3_result["pressure_hpa"])
+            recovery_source = "p3_retry_3rd"
+
+    if driver_pressure_hpa is None and pressure_hpa is not None:
+        driver_pressure_hpa = float(pressure_hpa)
+        recovery_source = "raw_capture_parse"
+
+    if driver_pressure_hpa is None and recovery_pressure_hpa is not None:
+        driver_pressure_hpa = float(recovery_pressure_hpa)
+        recovery_source = "provided_recovery"
+
     driver_parse_status = "parse_ok" if driver_pressure_hpa is not None else parser_status
     pressure_gauge_unavailable = driver_pressure_hpa is None
+    pressure_recovery_used = recovery_source != "none"
     read_methods_attempted = ["generic_read_frame_raw_capture", "ParoscientificGauge.read_pressure"]
     if fast_result.get("attempted"):
         read_methods_attempted.append("ParoscientificGauge.read_pressure_fast")
+    if retry3_result.get("attempted"):
+        read_methods_attempted.append("ParoscientificGauge.read_pressure_p3_retry")
     diagnostics = {
         **device,
         "driver_detected": True,
@@ -589,6 +611,11 @@ def read_pressure_gauge_raw_capture(
             or fast_result.get("continuous_cancel_sent")),
         "paroscientific_p3_clear_buffer": True,
         "paroscientific_p3_retries": 2,
+        "paroscientific_p3_retry_3rd_attempted": bool(retry3_result.get("attempted")),
+        "paroscientific_p3_retry_3rd_succeeded": bool(retry3_result.get("succeeded")),
+        "paroscientific_p3_retry_3rd_error": str(retry3_result.get("error") or ""),
+        "pressure_recovery_source": recovery_source,
+        "pressure_recovery_used": bool(pressure_recovery_used),
         "dest_id_scan_attempted": False,
         "dest_id_scan_hits": [],
         "continuous_mode_supported_by_v1": True,
