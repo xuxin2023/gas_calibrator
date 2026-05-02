@@ -2222,7 +2222,10 @@ def _point_results_from_execution(
         route_ready = any(
             str(row.get("action") or "") == action and row.get("result") == "ok"
             for row in rows
-            for action in ("set_co2_valves", "route_baseline", "seal_route", "seal_transition")
+            for action in (
+                "set_co2_valves", "route_baseline", "seal_route",
+                "seal_transition", "set_pressure", "pressure_control_ready_gate",
+            )
         )
         result = {
             "target_pressure_hpa": pressure,
