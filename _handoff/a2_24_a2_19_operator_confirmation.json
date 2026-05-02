@@ -1,8 +1,8 @@
 {
-  "operator_name": "codex_user_explicit_authorization_a2_24_vent_fix_probe",
-  "timestamp": "2026-05-02T03:01:09.913592+00:00",
+  "operator_name": "codex_user_explicit_authorization_a2_25_pressure_sample_fix_probe",
+  "timestamp": "2026-05-02T03:16:08.406126+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "685a0a193c375df9f8b80458f321c4fed47fdb53",
+  "HEAD": "100f2368d897ef95b133bc8e7aa9bd0444d6c658",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
@@ -58,8 +58,8 @@
   },
   "single_run_only": true,
   "do_not_repeat": true,
-  "operator_confirmation_source": "AI-assisted regeneration after vent method fix",
-  "probe_scope": "A2.24 vent fix + pressure meter precheck recovery real engineering probe",
+  "operator_confirmation_source": "AI-assisted regeneration after pressure sample method fix",
+  "probe_scope": "A2.25 pressure sample + vent fix + pressure meter precheck recovery real engineering probe",
   "not_real_acceptance_evidence": true,
   "promotion_state": "blocked"
 }

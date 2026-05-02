@@ -8226,12 +8226,12 @@ class WorkflowOrchestrator:
 
     def _preclose_a2_high_pressure_first_point_vent(self, point: CalibrationPoint) -> dict[str, Any]:
         import time
-        time.sleep(0.5)
+        time.sleep(0.3)
         try:
             latest_pressure_hpa = self._get_latest_pressure_hpa()
         except Exception:
             latest_pressure_hpa = None
-        if latest_pressure_hpa is not None and latest_pressure_hpa >= 1300.0:
+        if latest_pressure_hpa is not None and latest_pressure_hpa >= 1250.0:
             self._hard_abort_triggered = True
             self._seal_trigger_reason = "fixed_delay_seal_a2_25_hard_abort"
         else:
