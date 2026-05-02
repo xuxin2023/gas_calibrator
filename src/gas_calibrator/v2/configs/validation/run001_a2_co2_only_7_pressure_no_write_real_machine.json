@@ -480,7 +480,7 @@
     "water_first_temp_gte": 100
   },
   "paths": {
-    "points_excel": "run001_a2_co2_only_7_pressure_0ppm_points.json",
+    "points_excel": "run001_a2_co2_only_7_pressure_1000ppm_points.json",
     "output_dir": "../../output/run001_a2/co2_only_7_pressure_no_write"
   },
   "coefficients": {
