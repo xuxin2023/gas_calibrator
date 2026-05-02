@@ -4333,6 +4333,31 @@ class PressureControlService:
                     ),
                 },
             )
+        # A2.38: if valves were already sealed during preclose, skip pressure
+        # rise monitoring and proceed directly to pressure control.
+        if getattr(self.host, "_seal_allowed", False):
+            pressure_now = self._read_pressure_with_recovery() or (pressure_reader() if pressure_reader else None)
+            if pressure_now is not None and pressure_now > 0:
+                self.host._log(
+                    f"Positive preseal skipped: route already sealed at "
+                    f"{pressure_now:.1f} hPa (A2.38 immediate seal)"
+                )
+                return PressureWaitResult(
+                    ok=True,
+                    target_hpa=target_pressure_hpa,
+                    final_pressure_hpa=float(pressure_now),
+                    in_limits=True,
+                    diagnostics={
+                        "preseal_pressure_peak_hpa": float(pressure_now),
+                        "preseal_pressure_last_hpa": float(pressure_now),
+                        "preseal_trigger": "already_sealed_a2_38",
+                        "preseal_trigger_pressure_hpa": float(pressure_now),
+                        "preseal_trigger_threshold_hpa": target_pressure_hpa,
+                        "positive_preseal_started_monotonic_s": started_monotonic_s,
+                        "ready_reached_monotonic_s": float(time.monotonic()),
+                        "seal_command_blocked_reason": "",
+                    },
+                )
         while True:
             self.host._check_stop()
             elapsed_s = max(0.0, time.time() - started_at)
