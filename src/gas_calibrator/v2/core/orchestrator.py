@@ -8164,11 +8164,69 @@ class WorkflowOrchestrator:
             )
         return updated, bool(ready_seen or predictive_ready or (urgent_seal_seen and not hard_abort_seen)), hard_abort_seen
 
+    def _get_latest_pressure_hpa(self) -> Optional[float]:
+        gauge = self._device("pressure_meter", "pressure_gauge")
+        if gauge is None:
+            return None
+        for method_name in ("read_pressure", "read_pressure_hpa", "get_pressure", "get_pressure_hpa"):
+            method = getattr(gauge, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                result = method()
+                if isinstance(result, (int, float)):
+                    return float(result)
+                if isinstance(result, dict):
+                    value = self._as_float(result.get("pressure_hpa"))
+                    if value is not None:
+                        return value
+            except Exception:
+                continue
+        return None
+
+    def _request_a2_high_pressure_route_open_pressure_sample(
+        self,
+        point: CalibrationPoint,
+    ) -> Optional[float]:
+        gauge = self._device("pressure_meter", "pressure_gauge")
+        if gauge is None:
+            self._log("A2 high-pressure first-point pressure sample skipped: no gauge device")
+            return None
+        pressure_hpa: Optional[float] = None
+        read_method = "read_pressure"
+        try:
+            for method_name in ("read_pressure", "read_pressure_hpa", "get_pressure", "get_pressure_hpa"):
+                method = getattr(gauge, method_name, None)
+                if not callable(method):
+                    continue
+                read_method = method_name
+                result = method()
+                if isinstance(result, (int, float)):
+                    pressure_hpa = float(result)
+                elif isinstance(result, dict):
+                    pressure_hpa = self._as_float(result.get("pressure_hpa"))
+                if pressure_hpa is not None:
+                    break
+        except Exception as exc:
+            self._log(f"A2 high-pressure first-point pressure read failed ({read_method}): {exc}")
+        context = dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {})
+        context["route_open_pressure_sample_hpa"] = pressure_hpa
+        context["route_open_pressure_sample_read_method"] = read_method
+        context["route_open_pressure_sample_attempted"] = True
+        setattr(self, "_a2_high_pressure_first_point_context", context)
+        self._record_workflow_timing(
+            "high_pressure_route_open_pressure_sample_read",
+            "info",
+            stage="high_pressure_first_point",
+            point=point,
+            pressure_hpa=pressure_hpa,
+            decision="preseal_pressure_sample",
+        )
+        return pressure_hpa
+
     def _preclose_a2_high_pressure_first_point_vent(self, point: CalibrationPoint) -> dict[str, Any]:
-        # A2.25: Fixed 0.5s delay seal after vent close, with hard abort detection (still seal!)
         import time
         time.sleep(0.5)
-        # Read current pressure for diagnostics and hard abort flag
         try:
             latest_pressure_hpa = self._get_latest_pressure_hpa()
         except Exception:
