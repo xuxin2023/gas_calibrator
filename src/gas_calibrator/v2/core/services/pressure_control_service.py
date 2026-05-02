@@ -6115,6 +6115,7 @@ class PressureControlService:
             if (
                 str(seal_context.get("route") or "").strip().lower() == "co2"
                 and bool(self.host._cfg_get("workflow.pressure.fail_if_sealed_pressure_below_target", False))
+                and not getattr(self.host, "_seal_allowed", False)
             ):
                 current_pressure = self._current_pressure()
                 margin_hpa = abs(
@@ -6795,6 +6796,7 @@ class PressureControlService:
             target_pressure_hpa = self.host._as_float(point.target_pressure_hpa)
             sealed_pressure_guard_enabled = bool(
                 self.host._cfg_get("workflow.pressure.fail_if_sealed_pressure_below_target", False)
+                and not getattr(self.host, "_seal_allowed", False)
             )
             sealed_margin_hpa = float(
                 self.host._cfg_get("workflow.pressure.sealed_pressure_min_margin_hpa", 0.0)
