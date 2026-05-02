@@ -5579,7 +5579,27 @@ class PressureControlService:
                 except Exception:
                     pass
             # 2. Set output mode active + enable output
-            self.host._call_first(controller, ("enable_control_output",))
+            _enable_ok = False
+            try:
+                _enable_ok = self.host._call_first(controller, ("enable_control_output",))
+            except Exception:
+                pass
+            if not _enable_ok:
+                # A2.38: legacy PACE may reject enable_control_output due to
+                # vent_status=3 (trapped pressure on older units). Fall back to
+                # direct SCPI commands.
+                set_mode_active = getattr(controller, "set_output_mode_active", None)
+                if callable(set_mode_active):
+                    try:
+                        set_mode_active()
+                    except Exception:
+                        pass
+                set_output = getattr(controller, "set_output", None)
+                if callable(set_output):
+                    try:
+                        set_output(True)
+                    except Exception:
+                        pass
             extra = f" ({reason})" if reason else ""
             self.host._log(f"Pressure controller output=ON{extra}")
         except Exception as exc:

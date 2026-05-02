@@ -1,8 +1,8 @@
 {
-  "operator_name": "a2_38b",
-  "timestamp": "2026-05-02T11:00:24.988181+00:00",
+  "operator_name": "a2_38c",
+  "timestamp": "2026-05-02T11:11:08.470581+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "e40b7365b1c2e1c29dea815b743fc0b42675f618",
+  "HEAD": "2bd3fbcd2459130e6366b0c08856a7708b3c60c1",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
@@ -58,8 +58,8 @@
   },
   "single_run_only": true,
   "do_not_repeat": true,
-  "operator_confirmation_source": "A2.38b",
-  "probe_scope": "A2.38b skip pressure rise monitoring after immediate seal",
+  "operator_confirmation_source": "A2.38c",
+  "probe_scope": "A2.38c skip below-target guard for pre-seal",
   "not_real_acceptance_evidence": true,
   "promotion_state": "blocked"
 }
