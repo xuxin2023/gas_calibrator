@@ -5545,62 +5545,16 @@ class PressureControlService:
                 self.host._log("Pressure controller output enable blocked before route seal confirmation")
                 return
         try:
-            # A2.37: close vent and clear any stuck continuous-mode state
-            # before enabling output, so the PACE controller doesn't reject
-            # output-enable due to vent!=0.
+            # A2.38: K0472 p.97 OUTP:STAT ON
+            # 1. Ensure vent is closed (VENT 0)
             vent_method = getattr(controller, "vent", None)
             if callable(vent_method):
                 try:
                     vent_method(False)
                 except Exception:
                     pass
-            # A2.37: auto-acknowledge vent popup (required after
-            # trapped-pressure condition on PACE5000e) before output enable.
-            popup_ack = getattr(controller, "set_vent_popup_ack_enabled", None)
-            if callable(popup_ack):
-                try:
-                    popup_ack(True)
-                except Exception:
-                    pass
-            # Also try raw SCPI popup ack (may work on models where the
-            # driver's _ensure_vent_aux_supported blocks the method call).
-            _raw_send = getattr(controller, "send_command", None)
-            if callable(_raw_send):
-                try:
-                    _raw_send(":SOUR:PRES:LEV:IMM:AMPL:VENT:APOP:STAT ENAB")
-                except Exception:
-                    pass
-            _enable_ok = False
-            try:
-                _enable_ok = self.host._call_first(controller, ("enable_control_output",))
-            except Exception:
-                pass
-            if not _enable_ok:
-                # If robust enable_control_output failed (e.g. vent_status=3),
-                # force raw output-on sequence as fallback.
-                # A2.37: trapped pressure needs popup ack before PACE accepts
-                # output commands.  Try the full sequence.
-                set_output_mode = getattr(controller, "set_output_mode_active", None)
-                if callable(set_output_mode):
-                    try:
-                        set_output_mode()
-                    except Exception:
-                        pass
-                # Try raw SCPI output-on (bypasses error checking that
-                # would reject on trapped pressure).
-                _raw_send = getattr(controller, "send_command", None)
-                if callable(_raw_send):
-                    try:
-                        _raw_send(":OUTP:STAT 1")
-                    except Exception:
-                        pass
-                # A2.37: wait for output to take effect after raw command
-                import time as _time
-                for _ in range(10):
-                    _time.sleep(0.15)
-                    _c = self._pressure_output_enabled_for_control(controller)
-                    if _c is True:
-                        break
+            # 2. Set output mode active + enable output
+            self.host._call_first(controller, ("enable_control_output",))
             extra = f" ({reason})" if reason else ""
             self.host._log(f"Pressure controller output=ON{extra}")
         except Exception as exc:
@@ -6208,17 +6162,7 @@ class PressureControlService:
                     error_code=result.error,
                 )
             return result
-            # A2.37: during pressure control, vent must remain CLOSED.
-            # Send explicit vent=0 before enabling output to ensure no
-            # atmosphere ingress during sealed-route pressure control.
-            if seal_context is not None and str(seal_context.get("route") or "").strip().lower() == "co2":
-                _vent_method = getattr(controller, "vent", None)
-                if callable(_vent_method):
-                    try:
-                        _vent_method(False)
-                    except Exception:
-                        pass
-            self.host._enable_pressure_controller_output(reason="after setpoint update")
+        self.host._enable_pressure_controller_output(reason="after setpoint update")
         output_enabled = self._pressure_output_enabled_for_control(controller)
         if output_enabled is not True:
             result = PressureWaitResult(

@@ -8255,14 +8255,27 @@ class WorkflowOrchestrator:
         return pressure_hpa
 
     def _preclose_a2_high_pressure_first_point_vent(self, point: CalibrationPoint) -> dict[str, Any]:
-        # A2.27: fixed delay then unconditionally seal; pressure overshoot is normal during preseal
+        # A2.38: close vent + immediately seal relay valves after 0.3s delay.
+        # This prevents pressure from overshooting to 1600+ hPa before seal.
         import time
         time.sleep(0.3)
 
+        pre_seal_pressure = None
         try:
-            _ = self._get_latest_pressure_hpa()
+            pre_seal_pressure = self._get_latest_pressure_hpa()
         except Exception:
             pass
 
+        # Immediately close all relay valves (gas route + source) to seal
+        # the downstream volume before pressure can overshoot.
+        self._apply_valve_states([])
+
         self._seal_allowed = True
-        self._seal_trigger_reason = "fixed_delay_seal_a2_27"
+        self._seal_trigger_reason = "immediate_seal_a2_38"
+
+        self._log(
+            f"A2.38 immediate seal: valves closed at pre-seal pressure {pre_seal_pressure}"
+            if pre_seal_pressure is not None
+            else "A2.38 immediate seal: valves closed (pressure unavailable)"
+        )
+        return {"pre_seal_pressure_hpa": pre_seal_pressure}
