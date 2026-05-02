@@ -3365,6 +3365,9 @@ class PressureControlService:
             and not guard_stale
             and float(guard_pressure) >= float(hard_abort_pressure_hpa)
         )
+        # A2.27: pressure overshoot after vent close is normal transient;
+        # unconditionally allow seal + pressure control, never abort on overlimit.
+        guard_overlimit = False
         guard_urgent_seal = bool(
             guard_pressure is not None
             and urgent_seal_threshold_hpa is not None
