@@ -5272,6 +5272,32 @@ class PressureControlService:
                 if isinstance(blocked, Mapping):
                     guard_payload = dict(blocked)
         pressure_points_started = self._a2_pressure_points_started_or_control_active()
+        # A2.37: during post-seal pressure control, vent=ON must be unconditionally blocked
+        # to prevent atmosphere ingress that would destroy the sealed pressure state.
+        _post_seal_vent_blocked = False
+        if vent_on and not emergency_abort_relief:
+            _cond_ctx = getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", None)
+            if isinstance(_cond_ctx, dict) and str(_cond_ctx.get("route_conditioning_phase") or "") == "post_seal_pressure_control":
+                _post_seal_vent_blocked = True
+        if _post_seal_vent_blocked:
+            blocked_payload = {
+                "vent_command_blocked": True,
+                "vent_pulse_blocked_reason": "post_seal_pressure_control_vent_blocked",
+                "normal_atmosphere_vent_attempted_during_pressure_control": True,
+                "vent_blocked_during_post_seal_pressure_control": True,
+                "cleanup_vent_classification": "safe_stop_relief",
+                "cleanup_vent_requested": True,
+                "cleanup_vent_allowed": False,
+                "cleanup_vent_blocked_reason": "post_seal_pressure_control_vent_blocked",
+            }
+            self._record_route_trace(
+                action="set_vent",
+                target={"vent_on": True},
+                actual=blocked_payload,
+                result="blocked",
+                message="post_seal_pressure_control_vent_blocked",
+            )
+            return blocked_payload
         if (
             vent_on
             and not emergency_abort_relief
@@ -5519,6 +5545,15 @@ class PressureControlService:
                 self.host._log("Pressure controller output enable blocked before route seal confirmation")
                 return
         try:
+            # A2.37: close vent and clear any stuck continuous-mode state
+            # before enabling output, so the PACE controller doesn't reject
+            # output-enable due to vent!=0.
+            vent_method = getattr(controller, "vent", None)
+            if callable(vent_method):
+                try:
+                    vent_method(False)
+                except Exception:
+                    pass
             if not self.host._call_first(controller, ("enable_control_output",)):
                 self.host._call_first(controller, ("set_output_mode_active",))
                 self.host._call_first(controller, ("set_output",), True)
@@ -6129,7 +6164,17 @@ class PressureControlService:
                     error_code=result.error,
                 )
             return result
-        self.host._enable_pressure_controller_output(reason="after setpoint update")
+            # A2.37: during pressure control, vent must remain CLOSED.
+            # Send explicit vent=0 before enabling output to ensure no
+            # atmosphere ingress during sealed-route pressure control.
+            if seal_context is not None and str(seal_context.get("route") or "").strip().lower() == "co2":
+                _vent_method = getattr(controller, "vent", None)
+                if callable(_vent_method):
+                    try:
+                        _vent_method(False)
+                    except Exception:
+                        pass
+            self.host._enable_pressure_controller_output(reason="after setpoint update")
         output_enabled = self._pressure_output_enabled_for_control(controller)
         if output_enabled is not True:
             result = PressureWaitResult(
@@ -6829,8 +6874,9 @@ class PressureControlService:
                 preseal_trigger_pressure_hpa=preseal_trigger_pressure_hpa,
                 preseal_trigger_threshold_hpa=preseal_trigger_threshold_hpa,
             )
-            # A2.35: transition conditioning context to post-seal so pressure
-            # control is never blocked by stale conditioning guards.
+            # A2.35/37: transition conditioning context to post-seal so pressure
+            # control is never blocked by stale conditioning guards and no vent
+            # commands (atmosphere ingress) are sent during pressure control.
             _cond_ctx = getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", None)
             if isinstance(_cond_ctx, dict):
                 _cond_ctx["route_conditioning_phase"] = "post_seal_pressure_control"
@@ -6839,6 +6885,10 @@ class PressureControlService:
                 _cond_ctx["vent_pulse_blocked_after_flush_phase"] = False
                 _cond_ctx["normal_maintenance_vent_blocked_after_flush_phase"] = False
                 _cond_ctx["vent_blocked_after_flush_phase_is_failure"] = False
+                _cond_ctx["vent_maintenance_ended_on_post_flush_transition"] = True
+                _cond_ctx["vent_maintenance_ended_reason"] = "post_seal_pressure_control"
+                _cond_ctx["route_conditioning_vent_maintenance_active"] = False
+                _cond_ctx["co2_preseal_watchlist_blocked_vent"] = True
                 setattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", _cond_ctx)
             result = PressureWaitResult(
                 ok=True,
