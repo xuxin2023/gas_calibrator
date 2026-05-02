@@ -5,7 +5,7 @@
     "pressure_hpa": 1100.0,
     "route": "co2",
     "co2_ppm": 0.0,
-    "co2_group": "ZERO",
+    "co2_group": "A",
     "cylinder_nominal_ppm": 0.0
   },
   {
@@ -14,7 +14,7 @@
     "pressure_hpa": 1000.0,
     "route": "co2",
     "co2_ppm": 0.0,
-    "co2_group": "ZERO",
+    "co2_group": "A",
     "cylinder_nominal_ppm": 0.0
   },
   {
@@ -23,7 +23,7 @@
     "pressure_hpa": 900.0,
     "route": "co2",
     "co2_ppm": 0.0,
-    "co2_group": "ZERO",
+    "co2_group": "A",
     "cylinder_nominal_ppm": 0.0
   },
   {
@@ -32,7 +32,7 @@
     "pressure_hpa": 800.0,
     "route": "co2",
     "co2_ppm": 0.0,
-    "co2_group": "ZERO",
+    "co2_group": "A",
     "cylinder_nominal_ppm": 0.0
   },
   {
@@ -41,7 +41,7 @@
     "pressure_hpa": 700.0,
     "route": "co2",
     "co2_ppm": 0.0,
-    "co2_group": "ZERO",
+    "co2_group": "A",
     "cylinder_nominal_ppm": 0.0
   },
   {
@@ -50,7 +50,7 @@
     "pressure_hpa": 600.0,
     "route": "co2",
     "co2_ppm": 0.0,
-    "co2_group": "ZERO",
+    "co2_group": "A",
     "cylinder_nominal_ppm": 0.0
   },
   {
@@ -59,7 +59,7 @@
     "pressure_hpa": 500.0,
     "route": "co2",
     "co2_ppm": 0.0,
-    "co2_group": "ZERO",
+    "co2_group": "A",
     "cylinder_nominal_ppm": 0.0
   }
 ]
