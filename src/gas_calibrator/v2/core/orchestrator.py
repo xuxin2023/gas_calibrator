@@ -3590,6 +3590,14 @@ class WorkflowOrchestrator:
         blocked_reason = self._a2_conditioning_unsafe_vent_reason(context)
         if not blocked_reason:
             return {}
+        # A2.35: seal/phase transition is expected after flush — not a failure.
+        if blocked_reason in {
+            "seal_command_sent",
+            "pressure_setpoint_command_sent",
+            "route_conditioning_phase_not_flush",
+            "ready_to_seal_phase_started",
+        }:
+            return {"vent_command_blocked": True, "vent_pulse_blocked_reason": blocked_reason}
         context = self._a2_conditioning_mark_vent_blocked(context, reason=blocked_reason)
         return {
             "vent_command_blocked": True,
@@ -6133,10 +6141,14 @@ class WorkflowOrchestrator:
         if blocked_reason:
             # A2.35: seal_command_sent / pressure_setpoint_command_sent means the
             # conditioning flush phase has concluded normally and the vent must be
-            # closed.  Do not treat this as a failure — just stop vent maintenance.
+            # closed.  route_conditioning_phase_not_flush means the 300s flush
+            # wait has ended (preseal phase), which is also expected.
+            # Do not treat any of these as a failure — just stop vent maintenance.
             _expected_post_flush = blocked_reason in {
                 "seal_command_sent",
                 "pressure_setpoint_command_sent",
+                "route_conditioning_phase_not_flush",
+                "ready_to_seal_phase_started",
             }
             if not _expected_post_flush:
                 blocked_context = self._a2_conditioning_mark_vent_blocked(context, reason=blocked_reason)

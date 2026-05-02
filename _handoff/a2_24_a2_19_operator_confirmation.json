@@ -1,8 +1,8 @@
 {
-  "operator_name": "a2_34b",
-  "timestamp": "2026-05-02T07:07:32.904994+00:00",
+  "operator_name": "a2_35",
+  "timestamp": "2026-05-02T07:30:04.827699+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "04269218a30e1b0c30babdd3c7e3d2a477638163",
+  "HEAD": "d62789479f230ac674f4cc22183419e345f1bac5",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
@@ -58,8 +58,8 @@
   },
   "single_run_only": true,
   "do_not_repeat": true,
-  "operator_confirmation_source": "A2.34b",
-  "probe_scope": "A2.34 p3 retry + apply_valve_states",
+  "operator_confirmation_source": "A2.35",
+  "probe_scope": "A2.35 vent maintenance transition fix",
   "not_real_acceptance_evidence": true,
   "promotion_state": "blocked"
 }
