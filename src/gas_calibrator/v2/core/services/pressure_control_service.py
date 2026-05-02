@@ -5570,16 +5570,20 @@ class PressureControlService:
             if not _enable_ok:
                 # If robust enable_control_output failed (e.g. vent_status=3),
                 # force raw output-on sequence as fallback.
+                # A2.37: trapped pressure needs popup ack before PACE accepts
+                # output commands.  Try the full sequence.
                 set_output_mode = getattr(controller, "set_output_mode_active", None)
                 if callable(set_output_mode):
                     try:
                         set_output_mode()
                     except Exception:
                         pass
-                set_output_raw = getattr(controller, "set_output", None)
-                if callable(set_output_raw):
+                # Try raw SCPI output-on (bypasses error checking that
+                # would reject on trapped pressure).
+                _raw_send = getattr(controller, "send_command", None)
+                if callable(_raw_send):
                     try:
-                        set_output_raw(True)
+                        _raw_send(":OUTP:STAT 1")
                     except Exception:
                         pass
                 # A2.37: wait for output to take effect after raw command

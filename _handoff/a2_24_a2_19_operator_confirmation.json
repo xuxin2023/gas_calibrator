@@ -1,8 +1,8 @@
 {
-  "operator_name": "a2_37",
-  "timestamp": "2026-05-02T09:08:14.055103+00:00",
+  "operator_name": "a2_37b",
+  "timestamp": "2026-05-02T09:24:04.698246+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "16a12605818ac89ef70972c22c6afd395e7b7396",
+  "HEAD": "01e60aa4487e20aefa2c50b9fbeee10b42c26276",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
@@ -58,8 +58,8 @@
   },
   "single_run_only": true,
   "do_not_repeat": true,
-  "operator_confirmation_source": "A2.37",
-  "probe_scope": "A2.37 vent=0 guard + no atmosphere during control",
+  "operator_confirmation_source": "A2.37b",
+  "probe_scope": "A2.37b vent=0 + popup ack + call_first fix",
   "not_real_acceptance_evidence": true,
   "promotion_state": "blocked"
 }
