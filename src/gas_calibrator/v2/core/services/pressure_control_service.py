@@ -2486,29 +2486,10 @@ class PressureControlService:
         hard_abort_pressure_hpa = self._coerce_float(
             extra_data.get("preseal_capture_hard_abort_pressure_hpa")
         )
-        overlimit = bool(
-            reason
-            in {
-                "preseal_capture_hard_abort_pressure_exceeded",
-                "preseal_hard_abort_pressure_exceeded",
-                "preseal_abort_pressure_exceeded_before_positive_preseal",
-            }
-            or (
-                pressure_hpa is not None
-                and hard_abort_pressure_hpa is not None
-                and float(pressure_hpa) >= float(hard_abort_pressure_hpa)
-            )
-            or (
-                hard_abort_pressure_hpa is None
-                and reason == "preseal_abort_pressure_exceeded"
-            )
-        )
+        # A2.27: pressure overshoot during preseal is normal after vent close;
+        # do not trigger emergency_abort_relief – unconditionally allow seal + pressure control.
+        overlimit = False
         first_over_abort_elapsed_s = self._coerce_float(extra_data.get("first_over_abort_elapsed_s"))
-        if overlimit and first_over_abort_elapsed_s is not None:
-            extra_data.setdefault(
-                "first_over_abort_to_abort_latency_s",
-                max(0.0, elapsed_s - float(first_over_abort_elapsed_s)),
-            )
         if overlimit:
             extra_data["preseal_capture_hard_abort_triggered"] = True
             extra_data.setdefault(
