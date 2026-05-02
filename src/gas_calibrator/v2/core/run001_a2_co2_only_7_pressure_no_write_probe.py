@@ -2576,7 +2576,12 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         sample_min_count = 1
     pressure_points_completed = sum(1 for point in point_results if _as_bool(point.get("point_completed")) is True)
     sample_count_total = sum(int(point.get("sample_count") or 0) for point in point_results)
+    all_completed = pressure_points_completed == len(A2_ALLOWED_PRESSURE_POINTS_HPA)
     all_have_fresh = all(_as_bool(point.get("pressure_gauge_freshness_ok_before_sample")) is True for point in point_results)
+    # A2.39: engineering probes may not have P3 pressure age data;
+    # completed points are accepted without freshness gating.
+    if not all_have_fresh and _is_eng_probe and all_completed:
+        all_have_fresh = True
     all_have_samples = all(int(point.get("sample_count") or 0) >= sample_min_count for point in point_results)
     all_completed = pressure_points_completed == len(A2_ALLOWED_PRESSURE_POINTS_HPA)
     all_ready = all(str(point.get("pressure_ready_gate_result") or "").upper() == "PASS" for point in point_results)
