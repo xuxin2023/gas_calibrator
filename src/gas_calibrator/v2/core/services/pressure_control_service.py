@@ -1482,6 +1482,32 @@ class PressureControlService:
                 continue
         return None
 
+    def preclose_vent_and_allow_seal(self, point: Any) -> dict[str, Any]:
+        # A2.38: close vent + immediately seal relay valves after 0.3s delay.
+        # This prevents pressure from overshooting to 1600+ hPa before seal.
+        import time
+        time.sleep(0.3)
+
+        pre_seal_pressure = None
+        try:
+            pre_seal_pressure = self._get_latest_pressure_hpa()
+        except Exception:
+            pass
+
+        # Immediately close all relay valves (gas route + source) to seal
+        # the downstream volume before pressure can overshoot.
+        self.host._apply_valve_states([])
+
+        self.host._seal_allowed = True
+        self.host._seal_trigger_reason = "immediate_seal_a2_38"
+
+        self.host._log(
+            f"A2.38 immediate seal: valves closed at pre-seal pressure {pre_seal_pressure}"
+            if pre_seal_pressure is not None
+            else "A2.38 immediate seal: valves closed (pressure unavailable)"
+        )
+        return {"pre_seal_pressure_hpa": pre_seal_pressure}
+
     def _read_pressure_sample(
         self,
         pressure_reader: Optional[Callable[[], Optional[float]]],
