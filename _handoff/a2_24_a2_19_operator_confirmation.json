@@ -1,37 +1,32 @@
 {
-  "operator_name": "AI-Assisted Operator",
-  "timestamp": "2026-05-01T14:42:25.371354+00:00",
+  "operator_name": "codex_user_explicit_authorization_a2_24_pressure_meter_fix_probe",
+  "timestamp": "2026-05-02T02:34:52.650171+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "702e8358627a1b87c19d167ddbddd180da2e6371",
+  "HEAD": "29b55afb834c47770cb4fd05d30da9ab727e1830",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
-    1100.0,
-    1000.0,
-    900.0,
-    800.0,
-    700.0,
-    600.0,
-    500.0
+    1100,
+    1000,
+    900,
+    800,
+    700,
+    600,
+    500
   ],
   "pressure_source": "v1_aligned",
   "port_manifest": {
-    "pressure_controller": "COM23",
-    "pressure_meter": "COM22",
-    "pressure_gauge": "COM22",
-    "relay_a": "COM20",
-    "relay": "COM20",
-    "relay_b": "COM21",
-    "relay_8": "COM21",
+    "humidity_generator": "COM16",
+    "dewpoint_meter": "COM17",
+    "thermometer": "COM18",
     "temperature_chamber": "COM19",
-    "chamber": "COM19",
-    "analyzers": {
-      "CO2": {
-        "port": "COM16",
-        "type": "li7000",
-        "protocol": "ascii_li7000"
-      }
-    }
+    "relay": "COM20",
+    "relay_a": "COM20",
+    "relay_8": "COM21",
+    "relay_b": "COM21",
+    "pressure_gauge": "COM22",
+    "pressure_meter": "COM22",
+    "pressure_controller": "COM23"
   },
   "explicit_acknowledgement": {
     "only_a2_co2_7_pressure_no_write": true,
@@ -60,5 +55,11 @@
     "full_group_enabled": false,
     "multi_temperature_enabled": false,
     "real_primary_latest_refresh": false
-  }
+  },
+  "single_run_only": true,
+  "do_not_repeat": true,
+  "operator_confirmation_source": "AI-assisted regeneration after pressure meter fix",
+  "probe_scope": "A2.24 pressure meter precheck recovery fix real engineering probe",
+  "not_real_acceptance_evidence": true,
+  "promotion_state": "blocked"
 }

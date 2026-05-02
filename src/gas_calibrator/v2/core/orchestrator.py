@@ -1106,6 +1106,18 @@ class WorkflowOrchestrator:
         except Exception as exc:
             self._log(f"Pressure controller in-limits setup failed: {exc}")
 
+    def _set_pressure_controller_vent(
+        self,
+        vent_on: bool,
+        reason: str = "",
+        **kwargs: Any,
+    ) -> Any:
+        return self.pressure_control_service.set_pressure_controller_vent(
+            vent_on,
+            reason=reason,
+            **kwargs,
+        )
+
     def _route_mode(self) -> str:
         return self.route_planner.route_mode()
 
