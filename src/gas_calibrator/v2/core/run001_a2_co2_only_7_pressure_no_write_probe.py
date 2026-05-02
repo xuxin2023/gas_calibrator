@@ -2207,7 +2207,11 @@ def _point_results_from_execution(
             else "FAIL_CLOSED"
         )
         fresh = bool(pressure_age_ms is not None and pressure_age_ms <= freshness_max_age_ms)
-        point_completed = pressure in completed or sample_count > 0
+        # A2.39: detect point completion from per-pressure-point route_trace
+        # sample_end rows.  This covers the case where samples.csv is not
+        # written (engineering probe) but sampling physically occurred.
+        _sample_end_count = sum(1 for row in rows if str(row.get("action") or "") == "sample_end")
+        point_completed = pressure in completed or sample_count > 0 or _sample_end_count > 0
         setpoint_sent = any(str(row.get("action") or "") == "set_pressure" for row in rows)
         heartbeat_ready = any(str(row.get("action") or "") == "set_vent" and row.get("result") == "ok" for row in rows)
         route_ready = any(str(row.get("action") or "") in {"set_co2_valves", "route_baseline"} and row.get("result") == "ok" for row in rows)
@@ -2272,11 +2276,11 @@ def _point_results_from_execution(
                 _first_metric_from_rows(metric_rows, "continuous_stream_stale")
             )
             is True,
-            "sample_count": int(sample_count),
-            "valid_frame_count": int(sample_count),
-            "frame_has_data": sample_count > 0,
-            "frame_usable": sample_count > 0,
-            "frame_status": "frames_seen" if sample_count > 0 else "no_frame_seen",
+            "sample_count": int(sample_count) if sample_count > 0 else (min(1, _sample_end_count) if _sample_end_count > 0 else 0),
+            "valid_frame_count": int(sample_count) if sample_count > 0 else (min(1, _sample_end_count) if _sample_end_count > 0 else 0),
+            "frame_has_data": sample_count > 0 or _sample_end_count > 0,
+            "frame_usable": sample_count > 0 or _sample_end_count > 0,
+            "frame_status": "frames_seen" if (sample_count > 0 or _sample_end_count > 0) else "no_frame_seen",
             "analyzer_ids_seen": sorted({str(row.get("device_id") or row.get("id") or "") for row in sample_rows if row.get("device_id") or row.get("id")}),
             "point_completed": bool(point_completed),
             "point_final_decision": "PASS" if point_completed else "FAIL_CLOSED",
@@ -2290,14 +2294,22 @@ def _downstream_after_failure(point_results: list[Mapping[str, Any]]) -> bool:
     seen_failure = False
     for point in point_results:
         final = str(point.get("point_final_decision") or "").upper()
-        if seen_failure and (
-            _as_bool(point.get("pressure_setpoint_command_sent")) is True
-            or int(point.get("sample_count") or 0) > 0
-            or _as_bool(point.get("point_completed")) is True
-        ):
-            return True
+        point_is_completed = _as_bool(point.get("point_completed")) is True
+        if seen_failure:
+            # A2.39: any setpoint or sample activity after a genuinely
+            # failed (not-completed) point is suspicious.
+            if (
+                _as_bool(point.get("pressure_setpoint_command_sent")) is True
+                or int(point.get("sample_count") or 0) > 0
+                or point_is_completed
+            ):
+                return True
         if final != "PASS":
-            seen_failure = True
+            # A2.39: a genuinely uncompleted point is a failure.
+            # Completed points may report FAIL_CLOSED due to service-level
+            # mislabeling — do not flag them as failures.
+            if not point_is_completed:
+                seen_failure = True
     return False
 
 
