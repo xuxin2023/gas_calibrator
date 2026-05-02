@@ -5562,6 +5562,14 @@ class PressureControlService:
                     popup_ack(True)
                 except Exception:
                     pass
+            # Also try raw SCPI popup ack (may work on models where the
+            # driver's _ensure_vent_aux_supported blocks the method call).
+            _raw_send = getattr(controller, "send_command", None)
+            if callable(_raw_send):
+                try:
+                    _raw_send(":SOUR:PRES:LEV:IMM:AMPL:VENT:APOP:STAT ENAB")
+                except Exception:
+                    pass
             _enable_ok = False
             try:
                 _enable_ok = self.host._call_first(controller, ("enable_control_output",))
