@@ -1,8 +1,8 @@
 {
-  "operator_name": "a2_1000ppm",
-  "timestamp": "2026-05-02T06:37:16.761142+00:00",
+  "operator_name": "a2_34",
+  "timestamp": "2026-05-02T06:57:14.784782+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "f7ab389c753766e441178869101969b0ec966a7e",
+  "HEAD": "0448c1ba81712e7b3071f2c08a6e37eeaba3d48a",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
@@ -58,8 +58,8 @@
   },
   "single_run_only": true,
   "do_not_repeat": true,
-  "operator_confirmation_source": "A2.33 1000ppm",
-  "probe_scope": "A2.33 pause stream recovery + 1000ppm",
+  "operator_confirmation_source": "A2.34",
+  "probe_scope": "A2.34 p3 retry continuous exit",
   "not_real_acceptance_evidence": true,
   "promotion_state": "blocked"
 }

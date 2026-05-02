@@ -8184,6 +8184,9 @@ class WorkflowOrchestrator:
                 continue
         return None
 
+    def _apply_valve_states(self, open_valves):
+        return self.valve_routing_service.apply_valve_states(open_valves or [])
+
     def _request_a2_high_pressure_route_open_pressure_sample(
         self,
         point: CalibrationPoint,
