@@ -8211,6 +8211,9 @@ class WorkflowOrchestrator:
     def _apply_valve_states(self, open_valves):
         return self.valve_routing_service.apply_valve_states(open_valves or [])
 
+    def _enable_pressure_controller_output(self, *, reason: str = ""):
+        return self.pressure_control_service.enable_pressure_controller_output(reason=reason)
+
     def _request_a2_high_pressure_route_open_pressure_sample(
         self,
         point: CalibrationPoint,
