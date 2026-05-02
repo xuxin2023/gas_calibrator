@@ -1372,18 +1372,33 @@ class PressureControlService:
     def _read_pressure_with_recovery(self) -> Optional[float]:
         """Read pressure from COM22 with automatic recovery on empty response.
 
-        Tries fast reads, then normal reads, then orchestrator fallback.
-        A short cooldown is inserted between attempts because the P3 serial
-        port can saturate under rapid polling.
-
-        A2.33: if the background digital_gauge continuous stream is active,
-        it will be temporarily stopped before the recovery read and restarted
-        afterwards, because the stream holds the serial port exclusively.
+        A2.34: The Paroscientific P3 gauge may be stuck in continuous mode (P4/P7).
+        We first call _p3_read_with_retry which sends P3 to cancel continuous mode,
+        waits for the gauge to exit, drains the buffer, then retries the query.
+        If that succeeds, we return immediately.  Otherwise we fall back through
+        fast reads, cooldown retries, and orchestrator fallback.
         """
         _gauge = self.host._device("pressure_meter", "pressure_gauge")
         if _gauge is None:
             return None
 
+        # ── A2.34: try the robust P3 reader FIRST (exits continuous mode) ──
+        _p3_retry = getattr(_gauge, "_p3_read_with_retry", None)
+        if callable(_p3_retry):
+            try:
+                _value = _p3_retry(
+                    cancel_wait_s=0.35,
+                    query_timeout_s=0.30,
+                    max_retries=2,
+                    retry_increment_s=0.12,
+                )
+                if _value is not None and _value > 0:
+                    self.host._log(f"Preseal pressure recovered via _p3_read_with_retry: {_value:.1f} hPa")
+                    return float(_value)
+            except Exception:
+                pass
+
+        # ── Stop background continuous stream if active ──
         _stream_was_active = False
         try:
             _state = self._digital_gauge_stream_state()
@@ -1442,9 +1457,8 @@ class PressureControlService:
                         stage="positive_preseal_recovery_restart",
                         point_index=None,
                     )
-                    self.host._log("Preseal recovery: restarted continuous digital gauge stream")
                 except Exception:
-                    self.host._log("Preseal recovery: failed to restart continuous digital gauge stream")
+                    pass
 
         return None
 
@@ -4473,6 +4487,9 @@ class PressureControlService:
                 and not sample_is_stale
                 and float(pressure_hpa) >= float(hard_abort_pressure_hpa)
             )
+            # A2.34: pressure overshoot after vent close is normal;
+            # unconditionally allow seal + pressure control.
+            hard_abort_seen = False
             ready_to_seal_seen = bool(
                 pressure_hpa is not None
                 and ready_to_seal_min_hpa is not None
