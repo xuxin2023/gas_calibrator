@@ -7703,7 +7703,21 @@ class PressureControlService:
             else:
                 hard_blockers.append("vent_status=1(in_progress_after_seal)")
         elif int(vent_status) == 3:
-            hard_blockers.append("vent_status=3(watchlist_only_after_seal)")
+            # A2.36: vent_status=3 (watchlist only) is the normal PACE state
+            # after vent=OFF in the sealed-route control context.  Accept it
+            # with prior vent-close + pressure evidence, same as status=1.
+            lag_accepted = bool(
+                seal_context.get("preseal_status_lag_accepted")
+                and seal_context.get("preseal_final_atmosphere_exit_verified")
+                and seal_context.get("final_vent_off_command_sent")
+                and pressure_evidence.get("pressure_observed")
+            )
+            watchlist_accepted = bool(seal_context.get("preseal_watchlist_status_accepted"))
+            if lag_accepted or watchlist_accepted:
+                warnings.append("vent_status=3 observed after preseal; accepted with prior vent-close and pressure evidence")
+                decision_basis.append("vent_status_3_lag_accepted_after_preseal_verification")
+            else:
+                hard_blockers.append("vent_status=3(watchlist_only_after_seal)")
         elif int(vent_status) != 0 and not self._pressure_vent_status_allows_control(controller, vent_status):
             hard_blockers.append(f"vent_status={int(vent_status)}(not_allowed_by_controller)")
         elif int(vent_status) == 2:
