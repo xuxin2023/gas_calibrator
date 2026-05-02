@@ -6829,6 +6829,17 @@ class PressureControlService:
                 preseal_trigger_pressure_hpa=preseal_trigger_pressure_hpa,
                 preseal_trigger_threshold_hpa=preseal_trigger_threshold_hpa,
             )
+            # A2.35: transition conditioning context to post-seal so pressure
+            # control is never blocked by stale conditioning guards.
+            _cond_ctx = getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", None)
+            if isinstance(_cond_ctx, dict):
+                _cond_ctx["route_conditioning_phase"] = "post_seal_pressure_control"
+                _cond_ctx["seal_command_sent"] = True
+                _cond_ctx["pressure_control_started"] = True
+                _cond_ctx["vent_pulse_blocked_after_flush_phase"] = False
+                _cond_ctx["normal_maintenance_vent_blocked_after_flush_phase"] = False
+                _cond_ctx["vent_blocked_after_flush_phase_is_failure"] = False
+                setattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", _cond_ctx)
             result = PressureWaitResult(
                 ok=True,
                 final_pressure_hpa=final_pressure,
@@ -7257,6 +7268,10 @@ class PressureControlService:
         state.sealed_route_last_controlled_pressure_hpa = None
 
     def _clear_pressure_route_seal_state(self) -> None:
+        # A2.35: do not clear seal state while in post-seal pressure control.
+        _cond_ctx = getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", None)
+        if isinstance(_cond_ctx, dict) and str(_cond_ctx.get("route_conditioning_phase") or "") == "post_seal_pressure_control":
+            return
         state = self.run_state.pressure
         state.sealed_route = ""
         state.sealed_source_point_index = None
