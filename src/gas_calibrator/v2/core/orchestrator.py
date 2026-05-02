@@ -6131,20 +6131,32 @@ class WorkflowOrchestrator:
             context["route_open_high_frequency_vent_phase_started"] = True
         blocked_reason = self._a2_conditioning_unsafe_vent_reason(context)
         if blocked_reason:
-            blocked_context = self._a2_conditioning_mark_vent_blocked(context, reason=blocked_reason)
-            self._fail_a2_co2_route_conditioning_closed(
-                point,
-                reason="unsafe_vent_after_flush_phase_blocked",
-                details={
-                    **blocked_context,
-                    "phase": phase,
-                    "vent_command_sent": False,
-                    "command_result": "blocked",
-                    "command_error": blocked_reason,
-                },
-                event_name="co2_route_conditioning_vent_blocked_after_flush_phase",
-                route_trace_action="co2_route_conditioning_vent_blocked_after_flush_phase",
-            )
+            # A2.35: seal_command_sent / pressure_setpoint_command_sent means the
+            # conditioning flush phase has concluded normally and the vent must be
+            # closed.  Do not treat this as a failure — just stop vent maintenance.
+            _expected_post_flush = blocked_reason in {
+                "seal_command_sent",
+                "pressure_setpoint_command_sent",
+            }
+            if not _expected_post_flush:
+                blocked_context = self._a2_conditioning_mark_vent_blocked(context, reason=blocked_reason)
+                self._fail_a2_co2_route_conditioning_closed(
+                    point,
+                    reason="unsafe_vent_after_flush_phase_blocked",
+                    details={
+                        **blocked_context,
+                        "phase": phase,
+                        "vent_command_sent": False,
+                        "command_result": "blocked",
+                        "command_error": blocked_reason,
+                    },
+                    event_name="co2_route_conditioning_vent_blocked_after_flush_phase",
+                    route_trace_action="co2_route_conditioning_vent_blocked_after_flush_phase",
+                )
+            else:
+                context["vent_maintenance_ended_on_post_flush_transition"] = True
+                context["vent_maintenance_ended_reason"] = blocked_reason
+                setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
         gap_state = self._a2_conditioning_heartbeat_gap_state(
             context,
             now_mono=tick_started_monotonic_s,
