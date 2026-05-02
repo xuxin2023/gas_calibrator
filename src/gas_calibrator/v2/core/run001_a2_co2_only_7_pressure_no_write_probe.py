@@ -3265,6 +3265,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         a2_4_temperature_skip_requested
         or str(admission.operator_confirmation.get("pressure_source") or "").strip().lower() == "v1_aligned"
     )
+    # A2.35: engineering probes use v1_aligned for pressure source routing only,
+    # not to enforce formal gate alignment.
+    if _as_bool(admission.operator_confirmation.get("not_real_acceptance_evidence")) is True:
+        a2_4_probe_required = False
     conditioning_monitor_source = str(
         metric_or_summary("selected_pressure_source_for_conditioning_monitor") or ""
     ).strip()

@@ -1,8 +1,8 @@
 {
-  "operator_name": "a2_35b",
-  "timestamp": "2026-05-02T07:41:41.676392+00:00",
+  "operator_name": "a2_35c",
+  "timestamp": "2026-05-02T07:59:23.002763+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "efeb84f8756d1e370a6548f7dc3a873a125e601b",
+  "HEAD": "ef971a47c34b842c0bb4ff38d8131aed9732ab3b",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
@@ -58,8 +58,8 @@
   },
   "single_run_only": true,
   "do_not_repeat": true,
-  "operator_confirmation_source": "A2.35b",
-  "probe_scope": "A2.35 double fix vent blocked",
+  "operator_confirmation_source": "A2.35c",
+  "probe_scope": "A2.35 post-seal pressure control transition",
   "not_real_acceptance_evidence": true,
   "promotion_state": "blocked"
 }
