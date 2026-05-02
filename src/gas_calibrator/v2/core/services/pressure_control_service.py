@@ -5554,9 +5554,41 @@ class PressureControlService:
                     vent_method(False)
                 except Exception:
                     pass
-            if not self.host._call_first(controller, ("enable_control_output",)):
-                self.host._call_first(controller, ("set_output_mode_active",))
-                self.host._call_first(controller, ("set_output",), True)
+            # A2.37: auto-acknowledge vent popup (required after
+            # trapped-pressure condition on PACE5000e) before output enable.
+            popup_ack = getattr(controller, "set_vent_popup_ack_enabled", None)
+            if callable(popup_ack):
+                try:
+                    popup_ack(True)
+                except Exception:
+                    pass
+            _enable_ok = False
+            try:
+                _enable_ok = self.host._call_first(controller, ("enable_control_output",))
+            except Exception:
+                pass
+            if not _enable_ok:
+                # If robust enable_control_output failed (e.g. vent_status=3),
+                # force raw output-on sequence as fallback.
+                set_output_mode = getattr(controller, "set_output_mode_active", None)
+                if callable(set_output_mode):
+                    try:
+                        set_output_mode()
+                    except Exception:
+                        pass
+                set_output_raw = getattr(controller, "set_output", None)
+                if callable(set_output_raw):
+                    try:
+                        set_output_raw(True)
+                    except Exception:
+                        pass
+                # A2.37: wait for output to take effect after raw command
+                import time as _time
+                for _ in range(10):
+                    _time.sleep(0.15)
+                    _c = self._pressure_output_enabled_for_control(controller)
+                    if _c is True:
+                        break
             extra = f" ({reason})" if reason else ""
             self.host._log(f"Pressure controller output=ON{extra}")
         except Exception as exc:
