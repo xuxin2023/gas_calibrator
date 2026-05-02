@@ -4242,6 +4242,31 @@ class PressureControlService:
             else:
                 pressure_sample = self._read_pressure_sample(pressure_reader, source="pressure_gauge")
             pressure_hpa = self._coerce_float(pressure_sample.get("pressure_hpa"))
+            # A2.28: when pressure_reader returns None (COM22 P3 empty), fall back
+            # to multi-method recovery via _get_latest_pressure_hpa (already fixed).
+            if pressure_hpa is None:
+                _none_key = "_preseal_consecutive_none_count"
+                _none_count = getattr(self, _none_key, 0) + 1
+                setattr(self, _none_key, _none_count)
+                if _none_count >= 3:
+                    recovery = getattr(self.host, "_get_latest_pressure_hpa", None)
+                    if callable(recovery):
+                        try:
+                            _recovered = recovery()
+                            if _recovered is not None and float(_recovered) > 0:
+                                pressure_hpa = float(_recovered)
+                                pressure_sample = dict(pressure_sample)
+                                pressure_sample["pressure_hpa"] = pressure_hpa
+                                pressure_sample["pressure_sample_source"] = "positive_preseal_recovery"
+                                pressure_sample["is_stale"] = False
+                                setattr(self, _none_key, 0)
+                                self.host._log(
+                                    f"Preseal pressure recovered via _get_latest_pressure_hpa: {pressure_hpa:.1f} hPa"
+                                )
+                        except Exception:
+                            pass
+            else:
+                setattr(self, "_preseal_consecutive_none_count", 0)
             sample_meta = {
                 key: pressure_sample.get(key)
                 for key in (

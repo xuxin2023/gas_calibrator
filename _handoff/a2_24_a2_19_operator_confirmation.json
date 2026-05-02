@@ -1,8 +1,8 @@
 {
-  "operator_name": "codex_user_explicit_authorization_a2_27_unconditional_seal_probe",
-  "timestamp": "2026-05-02T04:24:04.275770+00:00",
+  "operator_name": "codex_user_a2_28",
+  "timestamp": "2026-05-02T04:42:07.873360+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "bbd6000bfc70ca10721ccac6a2abf566db6da88a",
+  "HEAD": "63046ed55a6419514c6f4c14bf0c8ee34bb82ef6",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
@@ -58,8 +58,8 @@
   },
   "single_run_only": true,
   "do_not_repeat": true,
-  "operator_confirmation_source": "AI-assisted regeneration for unconditional seal probe",
-  "probe_scope": "A2.27 unconditional seal + 0.3s delay + no hard abort",
+  "operator_confirmation_source": "A2.28",
+  "probe_scope": "A2.28 zero overlimit abort",
   "not_real_acceptance_evidence": true,
   "promotion_state": "blocked"
 }
