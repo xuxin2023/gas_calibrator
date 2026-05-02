@@ -2331,6 +2331,15 @@ class ResultsGateway:
         summary_payload = dict(summary or {})
         stats = dict(summary_payload.get("stats", {}) or {})
         role_summary = dict(artifact_role_summary or {})
+
+        def _with_english_compat_anchor(text: str, *, anchor: str, value: str = "") -> str:
+            normalized = str(text or "").strip()
+            if not normalized:
+                return normalized
+            if anchor.lower() in normalized.lower():
+                return normalized
+            suffix = f"{anchor}: {value}" if value else anchor
+            return f"{normalized} ({suffix})"
         safety = dict(config_safety or {})
         safety_review = dict(config_safety_review or {})
         offline_summary = dict(offline_diagnostic_adapter_summary or {})
@@ -2924,45 +2933,70 @@ class ResultsGateway:
                 )
             budget_levels_text = str(
                 uncertainty_rollup_payload.get("budget_level_summary")
+                or uncertainty_report_payload.get("budget_level_summary")
                 or uncertainty_digest_text.get("budget_level_summary")
                 or ""
             ).strip()
+            if (
+                not budget_levels_text
+                and (
+                    uncertainty_rollup_payload
+                    or uncertainty_report_payload
+                    or uncertainty_digest_text
+                )
+            ):
+                budget_levels_text = "--"
             if budget_levels_text:
                 lines.append(
-                    t(
-                        "facade.results.result_summary.uncertainty_budget_levels",
+                    _with_english_compat_anchor(
+                        t(
+                            "facade.results.result_summary.uncertainty_budget_levels",
+                            value=budget_levels_text,
+                            default=f"Uncertainty budget levels: {budget_levels_text}",
+                        ),
+                        anchor="budget levels",
                         value=budget_levels_text,
-                        default=f"Uncertainty budget levels: {budget_levels_text}",
                     )
                 )
             binding_text = str(
                 uncertainty_rollup_payload.get("binding_summary")
+                or uncertainty_report_payload.get("binding_summary")
                 or uncertainty_digest_text.get("binding_summary")
                 or ""
             ).strip()
             if binding_text:
                 lines.append(
-                    t(
-                        "facade.results.result_summary.uncertainty_binding",
+                    _with_english_compat_anchor(
+                        t(
+                            "facade.results.result_summary.uncertainty_binding",
+                            value=binding_text,
+                            default=f"Uncertainty binding: {binding_text}",
+                        ),
+                        anchor="uncertainty binding",
                         value=binding_text,
-                        default=f"Uncertainty binding: {binding_text}",
                     )
                 )
             calculation_chain_text = str(
                 uncertainty_rollup_payload.get("calculation_chain_summary")
+                or uncertainty_report_payload.get("calculation_chain_summary")
                 or uncertainty_digest_text.get("calculation_chain_summary")
                 or ""
             ).strip()
             if calculation_chain_text:
                 lines.append(
-                    t(
-                        "facade.results.result_summary.uncertainty_calculation_chain",
+                    _with_english_compat_anchor(
+                        t(
+                            "facade.results.result_summary.uncertainty_calculation_chain",
+                            value=calculation_chain_text,
+                            default=f"Uncertainty calculation chain: {calculation_chain_text}",
+                        ),
+                        anchor="calculation chain",
                         value=calculation_chain_text,
-                        default=f"Uncertainty calculation chain: {calculation_chain_text}",
                     )
                 )
             fixture_summary_text = str(
                 uncertainty_rollup_payload.get("fixture_summary")
+                or uncertainty_report_payload.get("fixture_summary")
                 or uncertainty_digest_text.get("fixture_summary")
                 or ""
             ).strip()

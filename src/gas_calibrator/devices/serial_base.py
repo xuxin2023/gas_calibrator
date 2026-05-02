@@ -118,6 +118,8 @@ class ReplaySerial:
         if not self.is_open:
             raise RuntimeError("serial not open")
         count = max(0, int(n))
+        while len(self._read_buf) < count and self._line_queue:
+            self._read_buf.extend(self._line_queue.popleft())
         chunk = bytes(self._read_buf[:count])
         del self._read_buf[:count]
         return chunk
@@ -162,6 +164,7 @@ class SerialDevice:
 
         self._ser: Optional[Any] = None
         self._lock = threading.RLock()
+        self._pushback = bytearray()
 
     @staticmethod
     def _safe_log_field(value: Any) -> Optional[str]:
@@ -175,7 +178,14 @@ class SerialDevice:
             except Exception:
                 return f"<unprintable {type(value).__name__}>"
 
-    def _log_io(self, direction: str, command: Any = None, response: Any = None, error: Any = None) -> None:
+    def _log_io(
+        self,
+        direction: str,
+        command: Any = None,
+        response: Any = None,
+        error: Any = None,
+        duration_ms: Any = None,
+    ) -> None:
         logger = self.io_logger
         if not logger or not hasattr(logger, "log_io"):
             return
@@ -184,6 +194,7 @@ class SerialDevice:
                 port=self._safe_log_field(self.port) or "",
                 device=self._safe_log_field(self.device_name) or "",
                 direction=self._safe_log_field(direction) or "",
+                duration_ms=self._safe_log_field(duration_ms),
                 command=self._safe_log_field(command),
                 response=self._safe_log_field(response),
                 error=self._safe_log_field(error),
@@ -245,6 +256,7 @@ class SerialDevice:
             if self._ser and getattr(self._ser, "is_open", True):
                 return
             self._close_handle_locked()
+            self._pushback.clear()
 
             attempts = 1 + max(0, int(self.OPEN_RETRY_COUNT))
             last_exc: Optional[Exception] = None
@@ -285,6 +297,7 @@ class SerialDevice:
                     raise
                 finally:
                     self._ser = None
+                    self._pushback.clear()
 
     def _recover_after_io_error_locked(self, operation: str, exc: Exception, attempt: int, attempts: int) -> bool:
         if attempt + 1 >= attempts or not self._is_recoverable_serial_error(exc):
@@ -326,9 +339,11 @@ class SerialDevice:
             raise RuntimeError("serial not open")
 
         def _write_once() -> None:
+            started = time.perf_counter()
             self._ser.write(data.encode("ascii", errors="ignore"))
             self._ser.flush()
-            self._log_io("TX", command=data)
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            self._log_io("TX", command=data, duration_ms=round(elapsed_ms, 3))
 
         self._run_io(data, _write_once)
 
@@ -337,9 +352,50 @@ class SerialDevice:
             raise RuntimeError("serial not open")
 
         def _readline_once() -> str:
-            line = self._ser.readline()
-            decoded = line.decode("ascii", errors="ignore").strip()
-            self._log_io("RX", response=decoded)
+            started = time.perf_counter()
+            old_timeout = getattr(self._ser, "timeout", None)
+            total_timeout_s = max(0.01, float(old_timeout if old_timeout is not None else self.timeout))
+            deadline = time.monotonic() + total_timeout_s
+            buf = bytearray()
+            try:
+                while True:
+                    if self._pushback:
+                        byte = bytes([self._pushback[0]])
+                        del self._pushback[:1]
+                    else:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            break
+                        if old_timeout is not None:
+                            self._ser.timeout = max(0.01, min(0.05, remaining))
+                        byte = self._ser.read(1)
+                    if not byte:
+                        if buf:
+                            break
+                        continue
+                    if byte == b"\n":
+                        break
+                    if byte == b"\r":
+                        next_byte = b""
+                        if self._pushback:
+                            next_byte = bytes([self._pushback[0]])
+                            del self._pushback[:1]
+                        else:
+                            remaining = deadline - time.monotonic()
+                            if remaining > 0:
+                                if old_timeout is not None:
+                                    self._ser.timeout = max(0.001, min(0.01, remaining))
+                                next_byte = self._ser.read(1)
+                        if next_byte and next_byte != b"\n":
+                            self._pushback.extend(next_byte)
+                        break
+                    buf.extend(byte)
+            finally:
+                if old_timeout is not None:
+                    self._ser.timeout = old_timeout
+            decoded = bytes(buf).decode("ascii", errors="ignore").strip()
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            self._log_io("RX", response=decoded, duration_ms=round(elapsed_ms, 3))
             return decoded
 
         return self._run_io("readline", _readline_once)
@@ -352,21 +408,27 @@ class SerialDevice:
             raise RuntimeError("serial not open")
 
         def _read_available_once() -> str:
+            started = time.perf_counter()
             waiting = self._ser.in_waiting
             if waiting <= 0:
                 return ""
             raw = self._ser.read(waiting)
             decoded = raw.decode("ascii", errors="ignore").strip()
-            self._log_io("RX", response=decoded)
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            self._log_io("RX", response=decoded, duration_ms=round(elapsed_ms, 3))
             return decoded
 
         return self._run_io("read_available", _read_available_once)
 
     def query(self, data: str, delay_s: float = 0.05) -> str:
+        started = time.perf_counter()
         self.write(data)
         if delay_s:
             time.sleep(delay_s)
-        return self.readline()
+        response = self.readline()
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        self._log_io("QUERY", command=data, response=response, duration_ms=round(elapsed_ms, 3))
+        return response
 
     def exchange_readlines(
         self,
@@ -431,6 +493,7 @@ class SerialDevice:
             raise RuntimeError("serial not open")
 
         def _flush_once() -> None:
+            self._pushback.clear()
             self._ser.reset_input_buffer()
             self._log_io("RX", response="<flush_input>")
 

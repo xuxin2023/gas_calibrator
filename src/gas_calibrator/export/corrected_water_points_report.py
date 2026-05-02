@@ -609,6 +609,7 @@ def build_corrected_water_points_report(
         selected = bundle.selected_frame.copy()
         if selected.empty:
             continue
+        selected = selected.drop(columns=["Analyzer", "Gas", "DataScope"], errors="ignore")
         selected.insert(0, "DataScope", bundle.data_scope)
         selected.insert(0, "Gas", bundle.gas)
         selected.insert(0, "Analyzer", bundle.analyzer)

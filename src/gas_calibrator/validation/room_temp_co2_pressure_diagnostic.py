@@ -2073,13 +2073,17 @@ def build_analyzer_chain_isolation_summary(
     thresholds: MetrologyDiagnosticThresholds = DEFAULT_THRESHOLDS,
 ) -> Dict[str, Any]:
     analyzer_connected = bool(setup_metadata.get("analyzer_chain_connected"))
+    gas_analyzer_skipped = bool(setup_metadata.get("gas_analyzer_skipped"))
+    analyzer_sampling_enabled = bool(
+        setup_metadata.get("analyzer_sampling_enabled", analyzer_connected and not gas_analyzer_skipped)
+    )
     analyzer_count_in_path = _safe_int(setup_metadata.get("analyzer_count_in_path")) or (8 if analyzer_connected else 0)
     evidence_reasons: List[str] = []
     if (_safe_int(flush_summary.get("dewpoint_raw_sample_count")) or 0) < int(thresholds.stable_sample_count_min):
         evidence_reasons.append("insufficient_dewpoint_samples")
     if (_safe_int(flush_summary.get("gauge_raw_sample_count")) or 0) < int(thresholds.stable_sample_count_min):
         evidence_reasons.append("insufficient_gauge_samples")
-    if analyzer_connected and (_safe_int(flush_summary.get("analyzer_raw_sample_count")) or 0) < int(thresholds.stable_sample_count_min):
+    if analyzer_sampling_enabled and (_safe_int(flush_summary.get("analyzer_raw_sample_count")) or 0) < int(thresholds.stable_sample_count_min):
         evidence_reasons.append("insufficient_analyzer_samples")
 
     if evidence_reasons:
@@ -2088,8 +2092,8 @@ def build_analyzer_chain_isolation_summary(
         classification = str(flush_summary.get("flush_gate_status") or "insufficient_evidence")
 
     time_to_gate = _safe_float(flush_summary.get("flush_duration_s")) if bool(flush_summary.get("flush_gate_pass")) else None
-    ratio_tail_span = _safe_float(flush_summary.get("flush_last60s_ratio_span")) if analyzer_connected else None
-    ratio_tail_slope = _safe_float(flush_summary.get("flush_last60s_ratio_slope")) if analyzer_connected else None
+    ratio_tail_span = _safe_float(flush_summary.get("flush_last60s_ratio_span")) if analyzer_sampling_enabled else None
+    ratio_tail_slope = _safe_float(flush_summary.get("flush_last60s_ratio_slope")) if analyzer_sampling_enabled else None
 
     return {
         "run_id": run_id,
@@ -2100,12 +2104,21 @@ def build_analyzer_chain_isolation_summary(
         "chain_label": setup_metadata.get("chain_label"),
         "analyzer_count_in_path": analyzer_count_in_path,
         "analyzer_chain_connected": analyzer_connected,
+        "analyzer_sampling_enabled": analyzer_sampling_enabled,
+        "gas_analyzer_skipped": gas_analyzer_skipped,
+        "gas_analyzer_skip_reason": str(setup_metadata.get("gas_analyzer_skip_reason") or ""),
         "analyzers_in_path_text": setup_metadata.get("analyzers_in_path_text"),
         "capture_analyzer_name": setup_metadata.get("capture_analyzer_name"),
         "capture_analyzer_port": setup_metadata.get("capture_analyzer_port"),
         "pace_in_path": bool(setup_metadata.get("pace_in_path")),
         "controller_vent_expected": bool(setup_metadata.get("controller_vent_expected", setup_metadata.get("pace_expected_vent_on"))),
         "controller_vent_state": setup_metadata.get("controller_vent_state"),
+        "flush_vent_refresh_interval_s": _safe_float(setup_metadata.get("flush_vent_refresh_interval_s")),
+        "flush_vent_refresh_interval_s_requested": _safe_float(setup_metadata.get("flush_vent_refresh_interval_s_requested")),
+        "flush_vent_refresh_interval_s_actual_mean": _safe_float(setup_metadata.get("flush_vent_refresh_interval_s_actual_mean")),
+        "flush_vent_refresh_interval_s_actual_max": _safe_float(setup_metadata.get("flush_vent_refresh_interval_s_actual_max")),
+        "flush_vent_refresh_count": _safe_int(setup_metadata.get("flush_vent_refresh_count")),
+        "flush_vent_refresh_thread_used": bool(setup_metadata.get("flush_vent_refresh_thread_used")),
         "classification": classification,
         "flush_gate_status": flush_summary.get("flush_gate_status"),
         "flush_gate_pass": bool(flush_summary.get("flush_gate_pass")),

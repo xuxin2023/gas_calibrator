@@ -571,3 +571,85 @@ def test_build_bundle_marks_bad_ratio_input_in_summary(monkeypatch) -> None:
     assert bundle.summary_row["ratio_unique_count"] == 1
     assert bundle.summary_row["ratio_span"] == 0.0
     assert bundle.summary_row["delivery_recommendation"] == "forbid_download"
+
+
+def test_build_corrected_water_points_report_h2o_selected_rows_tolerates_existing_metadata_columns(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "summary_h2o.xlsx"
+    frame = pd.DataFrame(
+        [
+            {
+                "PointPhase": "姘磋矾",
+                "PointTag": "h2o_pt",
+                "PointTitle": "h2o-point",
+                "Temp": 20.0,
+                "ppm_CO2_Tank": None,
+                "ppm_H2O_Dew": 7.0,
+                "R_CO2": 1.3,
+                "R_H2O": 0.8,
+                "BAR": 108.0,
+            }
+        ]
+    )
+    with pd.ExcelWriter(source_path, engine="openpyxl") as writer:
+        frame.to_excel(writer, sheet_name="GA03", index=False)
+
+    fake_bundle = report_module.CorrectedFitBundle(
+        analyzer="GA03",
+        gas="H2O",
+        data_scope="ambient_only",
+        selected_frame=pd.DataFrame(
+            [
+                {
+                    "Analyzer": "GA03",
+                    "Gas": "H2O",
+                    "DataScope": "ambient_only",
+                    "SelectionOrigin": "h2o_phase",
+                    "PointRow": 9,
+                    "PointPhase": "姘磋矾",
+                    "PointTag": "h2o_pt",
+                    "PointTitle": "h2o-point",
+                    "EnvTempC": 20.0,
+                    "Temp": 20.0,
+                    "FitTemp": 20.0,
+                    "TemperatureColumnUsed": "Temp",
+                    "ppm_CO2_Tank": None,
+                    "ppm_H2O_Dew": 7.0,
+                    "R_CO2": 1.3,
+                    "R_H2O": 0.8,
+                    "BAR": 108.0,
+                    "SourceFile": "summary_h2o.xlsx",
+                    "SourceStamp": "20260420_000000",
+                }
+            ]
+        ),
+        summary_row={"Analyzer": "GA03", "Gas": "H2O", "DataScope": "ambient_only"},
+        simplified_row={"Analyzer": "GA03", "Gas": "H2O", "DataScope": "ambient_only", "a0": 1.0},
+        original_row={"Analyzer": "GA03", "Gas": "H2O", "DataScope": "ambient_only", "a0": 1.0},
+        point_table=pd.DataFrame([{"Analyzer": "GA03", "Gas": "H2O", "DataScope": "ambient_only", "index": 0}]),
+        range_table=pd.DataFrame([{"Analyzer": "GA03", "Gas": "H2O", "DataScope": "ambient_only", "range_label": "0-10"}]),
+        top_error_orig=pd.DataFrame([{"Analyzer": "GA03", "Gas": "H2O", "rank": 1, "index": 0}]),
+        top_error_simple=pd.DataFrame([{"Analyzer": "GA03", "Gas": "H2O", "rank": 1, "index": 0}]),
+        top_pred_diff=pd.DataFrame([{"Analyzer": "GA03", "Gas": "H2O", "rank": 1, "index": 0}]),
+    )
+
+    monkeypatch.setattr(
+        report_module,
+        "select_corrected_fit_rows_with_diagnostics",
+        lambda *_args, **_kwargs: {
+            "selected_frame": pd.DataFrame([{"Temp": 20.0, "PointPhase": "姘磋矾", "PointTag": "h2o_pt"}]),
+            "h2o_anchor_gate_hits": pd.DataFrame(),
+        },
+    )
+    monkeypatch.setattr(report_module, "_build_bundle", lambda *args, **kwargs: fake_bundle)
+
+    out_path = tmp_path / "report_h2o.xlsx"
+    result = report_module.build_corrected_water_points_report([source_path], output_path=out_path)
+
+    selected_rows = pd.DataFrame(result["h2o_selected_rows"])
+    assert out_path.exists()
+    assert selected_rows.shape[0] >= 1
+    assert list(selected_rows.columns[:3]) == ["Analyzer", "Gas", "DataScope"]
+    assert selected_rows["Analyzer"].eq("GA03").all()
