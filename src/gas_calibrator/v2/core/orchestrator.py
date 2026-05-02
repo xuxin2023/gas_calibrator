@@ -8189,24 +8189,7 @@ class WorkflowOrchestrator:
         return updated, bool(ready_seen or predictive_ready or (urgent_seal_seen and not hard_abort_seen)), hard_abort_seen
 
     def _get_latest_pressure_hpa(self) -> Optional[float]:
-        gauge = self._device("pressure_meter", "pressure_gauge")
-        if gauge is None:
-            return None
-        for method_name in ("read_pressure", "read_pressure_hpa", "get_pressure", "get_pressure_hpa"):
-            method = getattr(gauge, method_name, None)
-            if not callable(method):
-                continue
-            try:
-                result = method()
-                if isinstance(result, (int, float)):
-                    return float(result)
-                if isinstance(result, dict):
-                    value = self._as_float(result.get("pressure_hpa"))
-                    if value is not None:
-                        return value
-            except Exception:
-                continue
-        return None
+        return self.pressure_control_service._get_latest_pressure_hpa()
 
     def _apply_valve_states(self, open_valves):
         return self.valve_routing_service.apply_valve_states(open_valves or [])

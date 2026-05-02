@@ -1462,6 +1462,26 @@ class PressureControlService:
 
         return None
 
+    def _get_latest_pressure_hpa(self) -> Optional[float]:
+        gauge = self.host._device("pressure_meter", "pressure_gauge")
+        if gauge is None:
+            return None
+        for method_name in ("read_pressure", "read_pressure_hpa", "get_pressure", "get_pressure_hpa"):
+            method = getattr(gauge, method_name, None)
+            if not callable(method):
+                continue
+            try:
+                result = method()
+                if isinstance(result, (int, float)):
+                    return float(result)
+                if isinstance(result, dict):
+                    value = self.host._as_float(result.get("pressure_hpa"))
+                    if value is not None:
+                        return value
+            except Exception:
+                continue
+        return None
+
     def _read_pressure_sample(
         self,
         pressure_reader: Optional[Callable[[], Optional[float]]],
