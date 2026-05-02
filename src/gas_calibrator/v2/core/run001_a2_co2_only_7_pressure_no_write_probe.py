@@ -1818,7 +1818,8 @@ def execute_existing_v2_a2_pressure_sweep(config_path: str | Path) -> dict[str, 
         require_no_write_guard=True,
     )
     build_no_write_guard_from_raw_config(raw_cfg)
-    service.run()
+    timeout_s = max(3600.0, float(raw_cfg.get("max_runtime_s", 3600.0)))
+    service.run(timeout=timeout_s)
     run_dir = Path(service.session.output_dir)
     summary = _load_json_dict(run_dir / "summary.json")
     run_log_text = ""

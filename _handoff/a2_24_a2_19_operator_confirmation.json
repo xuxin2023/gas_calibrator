@@ -1,8 +1,8 @@
 {
-  "operator_name": "a2_38d",
-  "timestamp": "2026-05-02T11:23:39.779666+00:00",
+  "operator_name": "a2_39b",
+  "timestamp": "2026-05-02T12:13:50.433185+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "37aa485de908da32576e39eeb31082b8468153f0",
+  "HEAD": "9d3c1b8b4c2f0024c55bb20895dc2fb5fffcf45a",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
@@ -58,8 +58,8 @@
   },
   "single_run_only": true,
   "do_not_repeat": true,
-  "operator_confirmation_source": "A2.38d",
-  "probe_scope": "A2.38d direct OUTP:STAT 1 fallback",
+  "operator_confirmation_source": "A2.39b",
+  "probe_scope": "A2.39b full 7-point run",
   "not_real_acceptance_evidence": true,
   "promotion_state": "blocked"
 }

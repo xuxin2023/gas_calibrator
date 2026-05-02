@@ -321,9 +321,9 @@ class CalibrationService:
     def wait(self, timeout: Optional[float] = None) -> bool:
         return self._done_event.wait(timeout=timeout)
 
-    def run(self, points_path: Optional[str] = None) -> None:
+    def run(self, points_path: Optional[str] = None, timeout: float = 900.0) -> None:
         self.start(points_path=points_path)
-        done = self.wait(timeout=900)
+        done = self.wait(timeout=timeout)
         if not done:
             self.stop(wait=False)
 
