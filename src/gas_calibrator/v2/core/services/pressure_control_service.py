@@ -1369,6 +1369,50 @@ class PressureControlService:
         )
         return sample
 
+    def _read_pressure_with_recovery(self) -> Optional[float]:
+        """Read pressure from COM22 with automatic recovery on empty response.
+
+        Tries fast reads, then normal reads, then orchestrator fallback.
+        A short cooldown is inserted between attempts because the P3 serial
+        port can saturate under rapid polling.
+        """
+        _gauge = self.host._device("pressure_meter", "pressure_gauge")
+        if _gauge is None:
+            return None
+
+        for _attempt in range(3):
+            for _method_name in ("read_pressure_fast", "read_pressure", "read_pressure_hpa", "get_pressure", "get_pressure_hpa"):
+                _method = getattr(_gauge, _method_name, None)
+                if not callable(_method):
+                    continue
+                try:
+                    _result = _method()
+                    if isinstance(_result, (int, float)):
+                        _result = float(_result)
+                        if _result > 0:
+                            return _result
+                    elif isinstance(_result, dict):
+                        _value = self._coerce_float(_result.get("pressure_hpa"))
+                        if _value is not None and _value > 0:
+                            return _value
+                except Exception:
+                    continue
+
+            if _attempt < 2:
+                import time as _time
+                _time.sleep(0.6)
+
+        _recovery = getattr(self.host, "_get_latest_pressure_hpa", None)
+        if callable(_recovery):
+            try:
+                _value = _recovery()
+                if _value is not None and _value > 0:
+                    return float(_value)
+            except Exception:
+                pass
+
+        return None
+
     def _read_pressure_sample(
         self,
         pressure_reader: Optional[Callable[[], Optional[float]]],
@@ -3073,7 +3117,11 @@ class PressureControlService:
             if vent_status is None:
                 status_ok = bool(command_status_allows)
             should_read_pressure = bool(capture_pressure or not (output_ok and isolation_ok and vent_on_closed and status_ok))
-            pressure_hpa = None if pressure_reader is None or not should_read_pressure else self._coerce_float(pressure_reader())
+            pressure_hpa = (
+                None
+                if pressure_reader is None or not should_read_pressure
+                else (self._read_pressure_with_recovery() or self._coerce_float(pressure_reader()))
+            )
             delta_from_ambient = (
                 None
                 if pressure_hpa is None or ambient_pressure is None
@@ -3345,8 +3393,13 @@ class PressureControlService:
             guard_sample = dict(preseal_arm_context)
             guard_sample.setdefault("pressure_hpa", guard_pressure)
         elif pressure_reader is not None:
-            guard_sample = self._read_pressure_sample(pressure_reader, source="pressure_gauge")
-            guard_pressure = self._coerce_float(guard_sample.get("pressure_hpa"))
+            _recovered = self._read_pressure_with_recovery()
+            if _recovered is not None:
+                guard_pressure = float(_recovered)
+                guard_sample = {"pressure_hpa": guard_pressure, "source": "positive_preseal_recovery"}
+            else:
+                guard_sample = self._read_pressure_sample(pressure_reader, source="pressure_gauge")
+                guard_pressure = self._coerce_float(guard_sample.get("pressure_hpa"))
         guard_duration_ms = round(max(0.0, time.monotonic() - guard_started) * 1000.0, 3)
         guard_source = str(
             guard_sample.get("pressure_sample_source")
@@ -4242,45 +4295,16 @@ class PressureControlService:
             else:
                 pressure_sample = self._read_pressure_sample(pressure_reader, source="pressure_gauge")
             pressure_hpa = self._coerce_float(pressure_sample.get("pressure_hpa"))
-            # A2.28: when pressure_reader returns None (COM22 P3 empty), fall back
-            # to multi-method recovery.  The serial port may need a cooldown between
-            # fast polls; skip one cycle then re-read.
+            # A2.32: unified recovery — if P3 returns empty, retry with cooldown + orchestrator fallback
             if pressure_hpa is None:
-                _none_key = "_preseal_consecutive_none_count"
-                _none_count = getattr(self, _none_key, 0) + 1
-                setattr(self, _none_key, _none_count)
-                if _none_count >= 3:
-                    import time as _time
-                    _time.sleep(0.6)
-                    _gauge = self.host._device("pressure_meter", "pressure_gauge")
-                    _recovered = None
-                    if _gauge is not None:
-                        for _method_name in ("read_pressure_fast", "read_pressure", "read_pressure_hpa", "get_pressure", "get_pressure_hpa"):
-                            _method = getattr(_gauge, _method_name, None)
-                            if not callable(_method):
-                                continue
-                            try:
-                                _result = _method()
-                                if isinstance(_result, (int, float)):
-                                    _recovered = float(_result)
-                                elif isinstance(_result, dict):
-                                    _recovered = self._coerce_float(_result.get("pressure_hpa"))
-                                if _recovered is not None and _recovered > 0:
-                                    break
-                            except Exception:
-                                continue
-                    if _recovered is not None and _recovered > 0:
-                        pressure_hpa = float(_recovered)
-                        pressure_sample = dict(pressure_sample)
-                        pressure_sample["pressure_hpa"] = pressure_hpa
-                        pressure_sample["pressure_sample_source"] = "positive_preseal_recovery"
-                        pressure_sample["is_stale"] = False
-                        setattr(self, _none_key, 0)
-                        self.host._log(
-                            f"Preseal pressure recovered: {pressure_hpa:.1f} hPa"
-                        )
-            else:
-                setattr(self, "_preseal_consecutive_none_count", 0)
+                _recovered = self._read_pressure_with_recovery()
+                if _recovered is not None and _recovered > 0:
+                    pressure_hpa = float(_recovered)
+                    pressure_sample = dict(pressure_sample)
+                    pressure_sample["pressure_hpa"] = pressure_hpa
+                    pressure_sample["pressure_sample_source"] = "positive_preseal_recovery"
+                    pressure_sample["is_stale"] = False
+                    self.host._log(f"Preseal pressure recovered: {pressure_hpa:.1f} hPa")
             sample_meta = {
                 key: pressure_sample.get(key)
                 for key in (
@@ -5786,7 +5810,7 @@ class PressureControlService:
             except Exception:
                 pass
         reader = self.host._make_pressure_reader()
-        pressure_now = None if reader is None else reader()
+        pressure_now = None if reader is None else (self._read_pressure_with_recovery() or reader())
         tolerance = float(self.host._cfg_get("workflow.pressure_control.setpoint_tolerance_hpa", 0.5))
         return pressure_now, pressure_now is not None and abs(float(pressure_now) - target_hpa) <= tolerance
 
@@ -6328,7 +6352,7 @@ class PressureControlService:
                 sample_interval_s = min(0.5, wait_after_vent_off_s)
                 while True:
                     self.host._check_stop()
-                    pressure_now = None if pressure_reader is None else pressure_reader()
+                    pressure_now = None if pressure_reader is None else (self._read_pressure_with_recovery() or pressure_reader())
                     if pressure_now is not None:
                         preseal_pressure_last = float(pressure_now)
                         if preseal_pressure_peak is None or float(pressure_now) > preseal_pressure_peak:
@@ -6585,7 +6609,7 @@ class PressureControlService:
                     error=seal_transition.error,
                 )
             reader = self.host._make_pressure_reader()
-            final_pressure = None if reader is None else reader()
+            final_pressure = None if reader is None else (self._read_pressure_with_recovery() or reader())
             watchlist = self._preseal_watchlist_snapshot(
                 controller,
                 route=route_text,
