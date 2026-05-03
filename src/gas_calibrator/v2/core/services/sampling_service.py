@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 from ...utils import as_float, safe_get
+from ..device_manager import DeviceStatus
 from ..models import CalibrationPoint, SamplingResult
 from ..orchestration_context import OrchestrationContext
 from ..run_state import RunState
@@ -217,6 +218,8 @@ class SamplingService:
             return value
         dewpoint_meter = self.context.device_manager.get_device("dewpoint_meter")
         if dewpoint_meter is None:
+            return None
+        if self.context.device_manager.get_status("dewpoint_meter") is DeviceStatus.DISABLED:
             return None
         current = self.normalize_snapshot(
             self.read_device_snapshot(
@@ -851,7 +854,7 @@ class SamplingService:
                 row["thermometer_reference_status"] = thermometer_reference_status
             if pressure_reader is not None:
                 row.setdefault("pressure_hpa", pressure_hpa)
-            if dewpoint is not None:
+            if dewpoint is not None and self.context.device_manager.get_status("dewpoint_meter") is not DeviceStatus.DISABLED:
                 if phase == "h2o" and self.run_state.humidity.preseal_dewpoint_snapshot:
                     row["dewpoint_c"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("dewpoint_c")
                     row["dew_temp_c"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("temp_c")
@@ -877,7 +880,7 @@ class SamplingService:
                 humidity_reader = self.host._first_method(chamber, ("read_rh_pct", "read_humidity_pct"))
                 if humidity_reader is not None:
                     row["chamber_rh_pct"] = self.host._as_float(humidity_reader())
-            if generator is not None:
+            if generator is not None and self.context.device_manager.get_status("humidity_generator") is not DeviceStatus.DISABLED:
                 snapshot = self.normalize_snapshot(
                     self.read_device_snapshot(
                         generator,
