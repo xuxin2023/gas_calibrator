@@ -1,8 +1,8 @@
 {
   "operator_name": "a2_42b",
-  "timestamp": "2026-05-03T03:36:34.004624+00:00",
+  "timestamp": "2026-05-03T03:59:10.340718+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "3f05bb988c45ac41af1c9c4995dde6e7e9631348",
+  "HEAD": "087ef995101a4eabcab4310a0e9a353db9522d69",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [

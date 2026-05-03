@@ -92,11 +92,11 @@ class Co2RouteRunner:
             if callable(begin_route_open_transition):
                 begin_route_open_transition(point)
             self.service._record_workflow_timing("co2_route_open_start", "start", stage="co2_route_open", point=point)
-            mark_route_open_started = mark_route_open_started = self.service.a2_hooks.callbacks.get("mark_route_open_started")
+            mark_route_open_started = self.service.a2_hooks.callbacks.get("mark_route_open_started")
             if callable(mark_route_open_started):
                 mark_route_open_started(point)
             self.service.valve_routing_service.set_valves_for_co2(point)
-            mark_route_open_completed = mark_route_open_completed = self.service.a2_hooks.callbacks.get("mark_route_open_completed")
+            mark_route_open_completed = self.service.a2_hooks.callbacks.get("mark_route_open_completed")
             if callable(mark_route_open_completed):
                 mark_route_open_completed(point)
                 route_open_completed_monotonic_s = self.service.a2_hooks.co2_route_open_monotonic_s
@@ -104,14 +104,14 @@ class Co2RouteRunner:
                     route_open_completed_monotonic_s = time.monotonic()
             else:
                 route_open_completed_monotonic_s = time.monotonic()
-            self.service.a2_hooks.co2_route_open_monotonic_s = route_open_completed_monotonic_s)
-            refresh_conditioning_vent = refresh_conditioning_vent = self.service.a2_hooks.callbacks.get("refresh_after_route_open")
+            self.service.a2_hooks.co2_route_open_monotonic_s = route_open_completed_monotonic_s
+            refresh_conditioning_vent = self.service.a2_hooks.callbacks.get("refresh_after_route_open")
             if callable(refresh_conditioning_vent):
                 refresh_conditioning_vent(point)
-            fail_route_open_transition = fail_route_open_transition = self.service.a2_hooks.callbacks.get("fail_route_open_transition")
+            fail_route_open_transition = self.service.a2_hooks.callbacks.get("fail_route_open_transition")
             if callable(fail_route_open_transition):
                 fail_route_open_transition(point)
-            wait_route_open_settle = wait_route_open_settle = self.service.a2_hooks.callbacks.get("wait_route_open_settle")
+            wait_route_open_settle = self.service.a2_hooks.callbacks.get("wait_route_open_settle")
             if callable(wait_route_open_settle):
                 wait_route_open_settle(point)
             route_open_pressure = None
@@ -123,10 +123,10 @@ class Co2RouteRunner:
                         route_open_pressure = self.service._as_float(pressure_reader())
                     except Exception:
                         route_open_pressure = None
-            self.service.a2_hooks.co2_route_open_pressure_hpa = route_open_pressure)
-            self.service.a2_hooks.preseal_pressure_rise_detected = False)
-            self.service.a2_hooks.route_open_pressure_first_sample_recorded = False)
-            complete_route_open_transition = complete_route_open_transition = self.service.a2_hooks.callbacks.get("complete_route_open_transition")
+            self.service.a2_hooks.co2_route_open_pressure_hpa = route_open_pressure
+            self.service.a2_hooks.preseal_pressure_rise_detected = False
+            self.service.a2_hooks.route_open_pressure_first_sample_recorded = False
+            complete_route_open_transition = self.service.a2_hooks.callbacks.get("complete_route_open_transition")
             route_open_transition_state = {}
             if callable(complete_route_open_transition):
                 route_open_transition_state = complete_route_open_transition(point) or {}
@@ -166,7 +166,7 @@ class Co2RouteRunner:
                 )
                 if callable(stream_snapshot):
                     route_open_state["digital_gauge_stream"] = stream_snapshot()
-            a2_timing_recorder = a2_timing_recorder = self.service.a2_hooks.callbacks.get("record_a2_conditioning_workflow_timing")
+            a2_timing_recorder = self.service.a2_hooks.callbacks.get("record_a2_conditioning_workflow_timing")
             if conditioning_active and callable(a2_timing_recorder):
                 route_conditioning_context = self.service.a2_hooks.co2_route_conditioning_at_atmosphere_context
                 a2_timing_recorder(
