@@ -2267,23 +2267,7 @@ class WorkflowOrchestrator:
         return dict(snapshot) if isinstance(snapshot, Mapping) else {}
 
     def _a2_conditioning_pressure_source_mode(self) -> str:
-        value = str(
-            self._cfg_get(
-                "workflow.pressure.a2_conditioning_pressure_source",
-                self._cfg_get("workflow.pressure.conditioning_pressure_source", "continuous"),
-            )
-            or "continuous"
-        ).strip().lower()
-        aliases = {
-            "p3": "p3_fast_poll",
-            "p3_fast": "p3_fast_poll",
-            "fast_poll": "p3_fast_poll",
-            "continuous_stream": "continuous",
-            "v1": "v1_aligned",
-            "v1_aligned_p3": "v1_aligned",
-        }
-        value = aliases.get(value, value)
-        return value if value in {"continuous", "p3_fast_poll", "auto", "v1_aligned"} else "continuous"
+        return self.conditioning_service._a2_conditioning_pressure_source_mode()
 
     def _a2_conditioning_vent_heartbeat_interval_s(self) -> float:
         return self.conditioning_service._a2_conditioning_vent_heartbeat_interval_s()
@@ -2307,112 +2291,37 @@ class WorkflowOrchestrator:
         return self.conditioning_service._a2_conditioning_defer_reschedule_latency_budget_ms()
 
     def _a2_conditioning_pressure_monitor_interval_s(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.pressure_monitor_interval_s",
-                self._cfg_get("workflow.pressure.conditioning_pressure_monitor_interval_s", 0.5),
-            )
-        )
-        return max(0.05, float(0.5 if value is None else value))
+        return self.conditioning_service._a2_conditioning_pressure_monitor_interval_s()
 
     def _a2_conditioning_diagnostic_budget_ms(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.route_conditioning_diagnostic_budget_ms",
-                self._cfg_get("workflow.pressure.conditioning_diagnostic_budget_ms", 100.0),
-            )
-        )
-        return min(200.0, max(10.0, float(100.0 if value is None else value)))
+        return self.conditioning_service._a2_conditioning_diagnostic_budget_ms()
 
     def _a2_conditioning_pressure_monitor_budget_ms(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.route_conditioning_pressure_monitor_budget_ms",
-                self._cfg_get(
-                    "workflow.pressure.conditioning_pressure_monitor_budget_ms",
-                    self._a2_conditioning_diagnostic_budget_ms(),
-                ),
-            )
-        )
-        return min(200.0, max(10.0, float(self._a2_conditioning_diagnostic_budget_ms() if value is None else value)))
+        return self.conditioning_service._a2_conditioning_pressure_monitor_budget_ms()
 
     def _a2_conditioning_continuous_latest_fresh_budget_ms(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.continuous_latest_fresh_budget_ms",
-                self._cfg_get("workflow.pressure.conditioning_continuous_latest_fresh_budget_ms", 5.0),
-            )
-        )
-        return min(50.0, max(1.0, float(5.0 if value is None else value)))
+        return self.conditioning_service._a2_conditioning_continuous_latest_fresh_budget_ms()
 
     def _a2_conditioning_selected_pressure_sample_stale_budget_ms(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.selected_pressure_sample_stale_budget_ms",
-                self._cfg_get("workflow.pressure.conditioning_selected_pressure_sample_stale_budget_ms", 10.0),
-            )
-        )
-        return min(50.0, max(1.0, float(10.0 if value is None else value)))
+        return self.conditioning_service._a2_conditioning_selected_pressure_sample_stale_budget_ms()
 
     def _a2_conditioning_monitor_pressure_max_defer_ms(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.conditioning_monitor_pressure_max_defer_ms",
-                self._cfg_get("workflow.pressure.route_conditioning_pressure_max_defer_ms", 5000.0),
-            )
-        )
-        return max(100.0, float(5000.0 if value is None else value))
+        return self.conditioning_service._a2_conditioning_monitor_pressure_max_defer_ms()
 
     def _a2_conditioning_trace_write_budget_ms(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.route_conditioning_trace_write_budget_ms",
-                self._cfg_get("workflow.pressure.conditioning_trace_write_budget_ms", 50.0),
-            )
-        )
-        return min(200.0, max(5.0, float(50.0 if value is None else value)))
+        return self.conditioning_service._a2_conditioning_trace_write_budget_ms()
 
     def _a2_conditioning_digital_gauge_max_age_s(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.conditioning_digital_gauge_max_age_s",
-                self._cfg_get("workflow.pressure.digital_gauge_max_age_s", 3.0),
-            )
-        )
-        return max(0.1, float(3.0 if value is None else value))
+        return self.conditioning_service._a2_conditioning_digital_gauge_max_age_s()
 
     def _a2_conditioning_pressure_abort_hpa(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.conditioning_pressure_abort_hpa",
-                self._cfg_get(
-                    "workflow.pressure.preseal_atmosphere_flush_abort_pressure_hpa",
-                    self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", 1150.0),
-                ),
-            )
-        )
-        return float(1150.0 if value is None else value)
+        return self.conditioning_service._a2_conditioning_pressure_abort_hpa()
 
     def _a2_cfg_bool(self, path: str, default: bool) -> bool:
-        value = self._cfg_get(path, default)
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            lowered = value.strip().lower()
-            if lowered in {"1", "true", "yes", "y", "on"}:
-                return True
-            if lowered in {"0", "false", "no", "n", "off"}:
-                return False
-        return bool(default if value is None else value)
+        return self.conditioning_service._a2_cfg_bool(path, default)
 
     def _a2_route_conditioning_hard_abort_pressure_hpa(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.route_conditioning_hard_abort_pressure_hpa",
-                self._cfg_get("workflow.pressure.conditioning_hard_abort_pressure_hpa", None),
-            )
-        )
-        return float(1250.0 if value is None else value)
+        return self.conditioning_service._a2_route_conditioning_hard_abort_pressure_hpa()
 
     def _a2_route_open_transient_window_enabled(self) -> bool:
         return self.conditioning_service._a2_route_open_transient_window_enabled()
@@ -7183,34 +7092,13 @@ class WorkflowOrchestrator:
         return dict(self.a2_hooks.high_pressure_first_point_context or context)
 
     def _a2_prearm_route_conditioning_baseline_max_age_s(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.a2_prearm_route_conditioning_baseline_max_age_s",
-                self._cfg_get("workflow.pressure.prearm_route_conditioning_baseline_max_age_s", 2.0),
-            )
-        )
-        return min(10.0, max(0.1, float(2.0 if value is None else value)))
+        return self.conditioning_service._a2_prearm_route_conditioning_baseline_max_age_s()
 
     def _a2_prearm_baseline_freshness_max_s(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.a2_prearm_baseline_freshness_max_s",
-                self._cfg_get(
-                    "workflow.pressure.prearm_baseline_freshness_max_s",
-                    self._cfg_get("workflow.pressure.pressure_sample_stale_threshold_s", 2.0),
-                ),
-            )
-        )
-        return min(10.0, max(0.1, float(2.0 if value is None else value)))
+        return self.conditioning_service._a2_prearm_baseline_freshness_max_s()
 
     def _a2_prearm_baseline_atmosphere_band_hpa(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.a2_prearm_baseline_atmosphere_band_hpa",
-                self._cfg_get("workflow.pressure.prearm_baseline_atmosphere_band_hpa", 2.0),
-            )
-        )
-        return min(25.0, max(0.01, float(2.0 if value is None else value)))
+        return self.conditioning_service._a2_prearm_baseline_atmosphere_band_hpa()
 
     def _a2_prearm_baseline_sources(self, sample: Mapping[str, Any]) -> dict[str, Any]:
         pace_sample = sample.get("pace_pressure_sample")
@@ -7752,23 +7640,7 @@ class WorkflowOrchestrator:
         return hard_abort
 
     def _a2_preseal_capture_seal_latency_s(self) -> float:
-        explicit_latency = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.preseal_capture_predictive_seal_latency_s",
-                self._cfg_get("workflow.pressure.preseal_predictive_seal_latency_s"),
-            )
-        )
-        if explicit_latency is not None:
-            return max(0.0, float(explicit_latency))
-        command_latency = self._as_float(
-            self._cfg_get("workflow.pressure.expected_ready_to_seal_command_max_s")
-        )
-        confirm_latency = self._as_float(
-            self._cfg_get("workflow.pressure.expected_ready_to_seal_confirm_max_s")
-        )
-        if command_latency is None and confirm_latency is None:
-            return 0.0
-        return max(0.0, float(command_latency or 0.0) + float(confirm_latency or 0.0))
+        return self.conditioning_service._a2_preseal_capture_seal_latency_s()
 
     def _a2_preseal_capture_arm_context(
         self,
