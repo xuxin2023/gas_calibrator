@@ -482,6 +482,10 @@ def _float_list(value: Any) -> list[float]:
 
 def _same_pressure_points(value: Any) -> bool:
     points = _float_list(value)
+    if not points:
+        return False
+    if len(points) == 1 and abs(float(points[0]) - 1100.0) <= 1e-6:
+        return True
     if len(points) != len(A2_ALLOWED_PRESSURE_POINTS_HPA):
         return False
     return all(abs(float(a) - float(b)) <= 1e-6 for a, b in zip(points, A2_ALLOWED_PRESSURE_POINTS_HPA))
