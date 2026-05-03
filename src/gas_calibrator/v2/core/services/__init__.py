@@ -2,6 +2,7 @@ from .ai_explanation_service import AIExplanationService
 from .analyzer_fleet_service import AnalyzerFleetService
 from .artifact_service import ArtifactService
 from .coefficient_service import CoefficientService
+from .conditioning_service import ConditioningService
 from .dewpoint_alignment_service import DewpointAlignmentService
 from .humidity_generator_service import HumidityGeneratorService, HumidityWaitResult
 from .pressure_control_service import PressureControlService, PressureWaitResult, StartupPressurePrecheckResult
@@ -17,6 +18,7 @@ __all__ = [
     "AnalyzerFleetService",
     "ArtifactService",
     "CoefficientService",
+    "ConditioningService",
     "DewpointAlignmentService",
     "HumidityGeneratorService",
     "HumidityWaitResult",

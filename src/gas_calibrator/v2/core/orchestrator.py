@@ -32,6 +32,7 @@ from .services import (
     AnalyzerFleetService,
     ArtifactService,
     CoefficientService,
+    ConditioningService,
     DewpointAlignmentService,
     HumidityGeneratorService,
     PressureControlService,
@@ -109,6 +110,7 @@ class WorkflowOrchestrator:
         self.humidity_generator_service = HumidityGeneratorService(self.context, self.run_state, host=self)
         self.pressure_control_service = PressureControlService(self.context, self.run_state, host=self)
         self.a2_hooks = A2Hooks()
+        self.conditioning_service = ConditioningService(host=self)
         self.valve_routing_service = ValveRoutingService(self.context, self.run_state, host=self)
         self.dewpoint_alignment_service = DewpointAlignmentService(self.context, self.run_state, host=self)
         self.artifact_service = ArtifactService(self.context, self.run_state, host=self)
@@ -2458,49 +2460,25 @@ class WorkflowOrchestrator:
         return float(1250.0 if value is None else value)
 
     def _a2_route_open_transient_window_enabled(self) -> bool:
-        return self._a2_cfg_bool("workflow.pressure.route_open_transient_window_enabled", True)
+        return self.conditioning_service._a2_route_open_transient_window_enabled()
 
     def _a2_route_open_transient_recovery_timeout_s(self) -> float:
-        value = self._as_float(
-            self._cfg_get("workflow.pressure.route_open_transient_recovery_timeout_s", 10.0)
-        )
-        return max(0.1, float(10.0 if value is None else value))
+        return self.conditioning_service._a2_route_open_transient_recovery_timeout_s()
 
     def _a2_route_open_transient_recovery_band_hpa(self) -> float:
-        value = self._as_float(
-            self._cfg_get("workflow.pressure.route_open_transient_recovery_band_hpa", 10.0)
-        )
-        return max(0.1, float(10.0 if value is None else value))
+        return self.conditioning_service._a2_route_open_transient_recovery_band_hpa()
 
     def _a2_route_open_transient_stable_hold_s(self) -> float:
-        value = self._as_float(
-            self._cfg_get("workflow.pressure.route_open_transient_stable_hold_s", 2.0)
-        )
-        return max(0.0, float(2.0 if value is None else value))
+        return self.conditioning_service._a2_route_open_transient_stable_hold_s()
 
     def _a2_route_open_transient_stable_span_hpa(self) -> float:
-        value = self._as_float(
-            self._cfg_get(
-                "workflow.pressure.route_open_transient_stable_pressure_span_hpa",
-                self._cfg_get(
-                    "workflow.pressure.route_open_transient_stable_span_hpa",
-                    self._a2_route_open_transient_recovery_band_hpa(),
-                ),
-            )
-        )
-        return max(0.1, float(self._a2_route_open_transient_recovery_band_hpa() if value is None else value))
+        return self.conditioning_service._a2_route_open_transient_stable_span_hpa()
 
     def _a2_route_open_transient_stable_slope_hpa_per_s(self) -> float:
-        value = self._as_float(
-            self._cfg_get("workflow.pressure.route_open_transient_stable_slope_hpa_per_s", 1.0)
-        )
-        return max(0.0, float(1.0 if value is None else value))
+        return self.conditioning_service._a2_route_open_transient_stable_slope_hpa_per_s()
 
     def _a2_route_open_transient_sustained_rise_min_samples(self) -> int:
-        value = self._as_float(
-            self._cfg_get("workflow.pressure.route_open_transient_sustained_rise_min_samples", 3)
-        )
-        return max(2, int(3 if value is None else value))
+        return self.conditioning_service._a2_route_open_transient_sustained_rise_min_samples()
 
     def _a2_conditioning_high_frequency_vent_window_s(self) -> float:
         value = self._as_float(
