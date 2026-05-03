@@ -109,6 +109,7 @@ class WorkflowOrchestrator:
         self.humidity_generator_service = HumidityGeneratorService(self.context, self.run_state, host=self)
         self.pressure_control_service = PressureControlService(self.context, self.run_state, host=self)
         self.a2_hooks = A2Hooks()
+        self.conditioning_service = ConditioningService(host=self)
         self.valve_routing_service = ValveRoutingService(self.context, self.run_state, host=self)
         self.dewpoint_alignment_service = DewpointAlignmentService(self.context, self.run_state, host=self)
         self.artifact_service = ArtifactService(self.context, self.run_state, host=self)
@@ -1905,6 +1906,117 @@ class WorkflowOrchestrator:
                 route_state=sample,
             )
 
+
+    def _a2_cfg_bool(self, *args, **kwargs):
+        return self.conditioning_service._a2_cfg_bool(*args, **kwargs)
+
+    def _a2_conditioning_pressure_source_mode(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_pressure_source_mode(*args, **kwargs)
+
+    def _a2_prearm_baseline_atmosphere_band_hpa(self, *args, **kwargs):
+        return self.conditioning_service._a2_prearm_baseline_atmosphere_band_hpa(*args, **kwargs)
+
+    def _a2_prearm_baseline_freshness_max_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_prearm_baseline_freshness_max_s(*args, **kwargs)
+
+    def _a2_prearm_route_conditioning_baseline_max_age_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_prearm_route_conditioning_baseline_max_age_s(*args, **kwargs)
+
+    def _a2_conditioning_pressure_rise_vent_min_interval_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_pressure_rise_vent_min_interval_s(*args, **kwargs)
+
+    def _a2_conditioning_pressure_rise_vent_trigger_hpa(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_pressure_rise_vent_trigger_hpa(*args, **kwargs)
+
+    def _a2_route_open_settle_wait_slice_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_settle_wait_slice_s(*args, **kwargs)
+
+    def _a2_route_open_settle_wait_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_settle_wait_s(*args, **kwargs)
+
+    def _a2_route_open_transition_block_threshold_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_transition_block_threshold_s(*args, **kwargs)
+
+    def _a2_conditioning_fast_vent_max_duration_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_fast_vent_max_duration_s(*args, **kwargs)
+
+    def _a2_conditioning_high_frequency_vent_interval_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_high_frequency_vent_interval_s(*args, **kwargs)
+
+    def _a2_conditioning_high_frequency_vent_window_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_high_frequency_vent_window_s(*args, **kwargs)
+
+    def _a2_route_open_transient_sustained_rise_min_samples(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_transient_sustained_rise_min_samples(*args, **kwargs)
+
+    def _a2_route_open_transient_stable_slope_hpa_per_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_transient_stable_slope_hpa_per_s(*args, **kwargs)
+
+    def _a2_route_open_transient_stable_span_hpa(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_transient_stable_span_hpa(*args, **kwargs)
+
+    def _a2_route_open_transient_stable_hold_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_transient_stable_hold_s(*args, **kwargs)
+
+    def _a2_route_open_transient_recovery_band_hpa(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_transient_recovery_band_hpa(*args, **kwargs)
+
+    def _a2_route_open_transient_recovery_timeout_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_transient_recovery_timeout_s(*args, **kwargs)
+
+    def _a2_route_open_transient_window_enabled(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_open_transient_window_enabled(*args, **kwargs)
+
+    def _a2_route_conditioning_hard_abort_pressure_hpa(self, *args, **kwargs):
+        return self.conditioning_service._a2_route_conditioning_hard_abort_pressure_hpa(*args, **kwargs)
+
+    def _a2_conditioning_pressure_abort_hpa(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_pressure_abort_hpa(*args, **kwargs)
+
+    def _a2_conditioning_digital_gauge_max_age_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_digital_gauge_max_age_s(*args, **kwargs)
+
+    def _a2_conditioning_trace_write_budget_ms(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_trace_write_budget_ms(*args, **kwargs)
+
+    def _a2_conditioning_monitor_pressure_max_defer_ms(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_monitor_pressure_max_defer_ms(*args, **kwargs)
+
+    def _a2_conditioning_selected_pressure_sample_stale_budget_ms(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_selected_pressure_sample_stale_budget_ms(*args, **kwargs)
+
+    def _a2_conditioning_continuous_latest_fresh_budget_ms(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_continuous_latest_fresh_budget_ms(*args, **kwargs)
+
+    def _a2_conditioning_pressure_monitor_budget_ms(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_pressure_monitor_budget_ms(*args, **kwargs)
+
+    def _a2_conditioning_diagnostic_budget_ms(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_diagnostic_budget_ms(*args, **kwargs)
+
+    def _a2_conditioning_pressure_monitor_interval_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_pressure_monitor_interval_s(*args, **kwargs)
+
+    def _a2_conditioning_defer_reschedule_latency_budget_ms(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_defer_reschedule_latency_budget_ms(*args, **kwargs)
+
+    def _a2_conditioning_scheduler_sleep_step_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_scheduler_sleep_step_s(*args, **kwargs)
+
+    def _a2_conditioning_vent_maintenance_max_gap_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_vent_maintenance_max_gap_s(*args, **kwargs)
+
+    def _a2_conditioning_vent_maintenance_interval_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_vent_maintenance_interval_s(*args, **kwargs)
+
+    def _a2_conditioning_high_frequency_vent_max_gap_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_high_frequency_vent_max_gap_s(*args, **kwargs)
+
+    def _a2_conditioning_vent_max_gap_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_vent_max_gap_s(*args, **kwargs)
+
+    def _a2_conditioning_vent_heartbeat_interval_s(self, *args, **kwargs):
+        return self.conditioning_service._a2_conditioning_vent_heartbeat_interval_s(*args, **kwargs)
     def _a2_high_pressure_pressure_values(
         self,
         point: CalibrationPoint,
@@ -2264,7 +2376,6 @@ class WorkflowOrchestrator:
         snapshot = snapshotter()
         return dict(snapshot) if isinstance(snapshot, Mapping) else {}
 
-    def _a2_conditioning_pressure_source_mode(self) -> str:
         value = str(
             self._cfg_get(
                 "workflow.pressure.a2_conditioning_pressure_source",
@@ -2283,7 +2394,6 @@ class WorkflowOrchestrator:
         value = aliases.get(value, value)
         return value if value in {"continuous", "p3_fast_poll", "auto", "v1_aligned"} else "continuous"
 
-    def _a2_conditioning_vent_heartbeat_interval_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.atmosphere_vent_heartbeat_interval_s",
@@ -2292,7 +2402,6 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(1.0 if value is None else value))
 
-    def _a2_conditioning_vent_max_gap_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.atmosphere_vent_max_gap_s",
@@ -2301,7 +2410,6 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(3.0 if value is None else value))
 
-    def _a2_conditioning_high_frequency_vent_max_gap_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_high_frequency_max_gap_s",
@@ -2310,7 +2418,6 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(1.0 if value is None else value))
 
-    def _a2_conditioning_vent_maintenance_interval_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_vent_maintenance_interval_s",
@@ -2322,7 +2429,6 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(1.0 if value is None else value))
 
-    def _a2_conditioning_vent_maintenance_max_gap_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_vent_maintenance_max_gap_s",
@@ -2331,7 +2437,6 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(2.0 if value is None else value))
 
-    def _a2_conditioning_scheduler_sleep_step_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_scheduler_sleep_step_s",
@@ -2340,7 +2445,6 @@ class WorkflowOrchestrator:
         )
         return min(0.2, max(0.01, float(0.1 if value is None else value)))
 
-    def _a2_conditioning_defer_reschedule_latency_budget_ms(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_defer_reschedule_latency_budget_ms",
@@ -2349,7 +2453,6 @@ class WorkflowOrchestrator:
         )
         return min(1000.0, max(50.0, float(200.0 if value is None else value)))
 
-    def _a2_conditioning_pressure_monitor_interval_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.pressure_monitor_interval_s",
@@ -2358,7 +2461,6 @@ class WorkflowOrchestrator:
         )
         return max(0.05, float(0.5 if value is None else value))
 
-    def _a2_conditioning_diagnostic_budget_ms(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_diagnostic_budget_ms",
@@ -2367,7 +2469,6 @@ class WorkflowOrchestrator:
         )
         return min(200.0, max(10.0, float(100.0 if value is None else value)))
 
-    def _a2_conditioning_pressure_monitor_budget_ms(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_pressure_monitor_budget_ms",
@@ -2379,7 +2480,6 @@ class WorkflowOrchestrator:
         )
         return min(200.0, max(10.0, float(self._a2_conditioning_diagnostic_budget_ms() if value is None else value)))
 
-    def _a2_conditioning_continuous_latest_fresh_budget_ms(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.continuous_latest_fresh_budget_ms",
@@ -2388,7 +2488,6 @@ class WorkflowOrchestrator:
         )
         return min(50.0, max(1.0, float(5.0 if value is None else value)))
 
-    def _a2_conditioning_selected_pressure_sample_stale_budget_ms(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.selected_pressure_sample_stale_budget_ms",
@@ -2397,7 +2496,6 @@ class WorkflowOrchestrator:
         )
         return min(50.0, max(1.0, float(10.0 if value is None else value)))
 
-    def _a2_conditioning_monitor_pressure_max_defer_ms(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.conditioning_monitor_pressure_max_defer_ms",
@@ -2406,7 +2504,6 @@ class WorkflowOrchestrator:
         )
         return max(100.0, float(5000.0 if value is None else value))
 
-    def _a2_conditioning_trace_write_budget_ms(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_trace_write_budget_ms",
@@ -2415,7 +2512,6 @@ class WorkflowOrchestrator:
         )
         return min(200.0, max(5.0, float(50.0 if value is None else value)))
 
-    def _a2_conditioning_digital_gauge_max_age_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.conditioning_digital_gauge_max_age_s",
@@ -2424,7 +2520,6 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(3.0 if value is None else value))
 
-    def _a2_conditioning_pressure_abort_hpa(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.conditioning_pressure_abort_hpa",
@@ -2436,7 +2531,6 @@ class WorkflowOrchestrator:
         )
         return float(1150.0 if value is None else value)
 
-    def _a2_cfg_bool(self, path: str, default: bool) -> bool:
         value = self._cfg_get(path, default)
         if isinstance(value, bool):
             return value
@@ -2448,7 +2542,6 @@ class WorkflowOrchestrator:
                 return False
         return bool(default if value is None else value)
 
-    def _a2_route_conditioning_hard_abort_pressure_hpa(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_hard_abort_pressure_hpa",
@@ -2457,28 +2550,23 @@ class WorkflowOrchestrator:
         )
         return float(1250.0 if value is None else value)
 
-    def _a2_route_open_transient_window_enabled(self) -> bool:
         return self._a2_cfg_bool("workflow.pressure.route_open_transient_window_enabled", True)
 
-    def _a2_route_open_transient_recovery_timeout_s(self) -> float:
         value = self._as_float(
             self._cfg_get("workflow.pressure.route_open_transient_recovery_timeout_s", 10.0)
         )
         return max(0.1, float(10.0 if value is None else value))
 
-    def _a2_route_open_transient_recovery_band_hpa(self) -> float:
         value = self._as_float(
             self._cfg_get("workflow.pressure.route_open_transient_recovery_band_hpa", 10.0)
         )
         return max(0.1, float(10.0 if value is None else value))
 
-    def _a2_route_open_transient_stable_hold_s(self) -> float:
         value = self._as_float(
             self._cfg_get("workflow.pressure.route_open_transient_stable_hold_s", 2.0)
         )
         return max(0.0, float(2.0 if value is None else value))
 
-    def _a2_route_open_transient_stable_span_hpa(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_open_transient_stable_pressure_span_hpa",
@@ -2490,19 +2578,16 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(self._a2_route_open_transient_recovery_band_hpa() if value is None else value))
 
-    def _a2_route_open_transient_stable_slope_hpa_per_s(self) -> float:
         value = self._as_float(
             self._cfg_get("workflow.pressure.route_open_transient_stable_slope_hpa_per_s", 1.0)
         )
         return max(0.0, float(1.0 if value is None else value))
 
-    def _a2_route_open_transient_sustained_rise_min_samples(self) -> int:
         value = self._as_float(
             self._cfg_get("workflow.pressure.route_open_transient_sustained_rise_min_samples", 3)
         )
         return max(2, int(3 if value is None else value))
 
-    def _a2_conditioning_high_frequency_vent_window_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_high_frequency_vent_window_s",
@@ -2511,7 +2596,6 @@ class WorkflowOrchestrator:
         )
         return max(0.0, float(20.0 if value is None else value))
 
-    def _a2_conditioning_high_frequency_vent_interval_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_high_frequency_vent_interval_s",
@@ -2520,7 +2604,6 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(0.5 if value is None else value))
 
-    def _a2_conditioning_fast_vent_max_duration_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_fast_vent_max_duration_s",
@@ -2529,7 +2612,6 @@ class WorkflowOrchestrator:
         )
         return max(0.05, float(0.5 if value is None else value))
 
-    def _a2_route_open_transition_block_threshold_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_open_transition_blocked_vent_scheduler_threshold_s",
@@ -2538,7 +2620,6 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(self._a2_conditioning_high_frequency_vent_max_gap_s() if value is None else value))
 
-    def _a2_route_open_settle_wait_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_open_settle_wait_s",
@@ -2547,7 +2628,6 @@ class WorkflowOrchestrator:
         )
         return max(0.0, float(0.0 if value is None else value))
 
-    def _a2_route_open_settle_wait_slice_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_open_settle_wait_slice_s",
@@ -2556,7 +2636,6 @@ class WorkflowOrchestrator:
         )
         return min(0.2, max(0.01, float(self._a2_conditioning_scheduler_sleep_step_s() if value is None else value)))
 
-    def _a2_conditioning_pressure_rise_vent_trigger_hpa(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_pressure_rise_vent_trigger_hpa",
@@ -2565,7 +2644,6 @@ class WorkflowOrchestrator:
         )
         return max(0.1, float(2.0 if value is None else value))
 
-    def _a2_conditioning_pressure_rise_vent_min_interval_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.route_conditioning_pressure_rise_vent_min_interval_s",
@@ -7297,7 +7375,6 @@ class WorkflowOrchestrator:
         self._request_a2_high_pressure_route_open_pressure_sample(point)
         return dict(self.a2_hooks.high_pressure_first_point_context or context)
 
-    def _a2_prearm_route_conditioning_baseline_max_age_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.a2_prearm_route_conditioning_baseline_max_age_s",
@@ -7306,7 +7383,6 @@ class WorkflowOrchestrator:
         )
         return min(10.0, max(0.1, float(2.0 if value is None else value)))
 
-    def _a2_prearm_baseline_freshness_max_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.a2_prearm_baseline_freshness_max_s",
@@ -7318,7 +7394,6 @@ class WorkflowOrchestrator:
         )
         return min(10.0, max(0.1, float(2.0 if value is None else value)))
 
-    def _a2_prearm_baseline_atmosphere_band_hpa(self) -> float:
         value = self._as_float(
             self._cfg_get(
                 "workflow.pressure.a2_prearm_baseline_atmosphere_band_hpa",

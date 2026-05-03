@@ -115,7 +115,7 @@ class PressureControlService:
     ) -> bool:
         if str(route or "").strip().lower() == "h2o":
             return False
-        if bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False)):
+        if self.host.a2_hooks.high_pressure_first_point_mode_enabled:
             return True
         configured = self._coerce_bool(
             self.host._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", None)
@@ -1616,7 +1616,7 @@ class PressureControlService:
                 if (
                     digital_source
                     and (
-                        bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False))
+                        self.host.a2_hooks.high_pressure_first_point_mode_enabled
                         or bool(command_state.get("last_pressure_command_may_cancel_continuous"))
                     )
                 ):
@@ -1649,7 +1649,7 @@ class PressureControlService:
                 if (
                     digital_source
                     and (
-                        bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False))
+                        self.host.a2_hooks.high_pressure_first_point_mode_enabled
                         or bool(command_state.get("last_pressure_command_may_cancel_continuous"))
                     )
                 ):
@@ -1696,7 +1696,7 @@ class PressureControlService:
                 if (
                     digital_source
                     and (
-                        bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False))
+                        self.host.a2_hooks.high_pressure_first_point_mode_enabled
                         or bool(command_state.get("last_pressure_command_may_cancel_continuous"))
                     )
                 ):
@@ -1729,7 +1729,7 @@ class PressureControlService:
                 if (
                     digital_source
                     and (
-                        bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False))
+                        self.host.a2_hooks.high_pressure_first_point_mode_enabled
                         or bool(command_state.get("last_pressure_command_may_cancel_continuous"))
                     )
                 ):
@@ -2537,14 +2537,14 @@ class PressureControlService:
                     None,
                 )
             )
-            or getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False)
+            or self.host.a2_hooks.high_pressure_first_point_mode_enabled
         )
 
     def _a2_pressure_points_started_or_control_active(self) -> bool:
         state = self.run_state.pressure
         return bool(
-            getattr(self.host, "_a2_pressure_points_started", False)
-            or getattr(self.host, "_a2_pressure_control_active", False)
+            self.host.a2_hooks.pressure_points_started
+            or self.host.a2_hooks.pressure_control_active
             or state.sealed_route_pressure_control_started
             or state.sealed_route_last_controlled_pressure_hpa is not None
         )
@@ -2978,7 +2978,7 @@ class PressureControlService:
         )
         timing_recorder = getattr(self.host, "_record_workflow_timing", None)
         if callable(timing_recorder):
-            if bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False)):
+            if self.host.a2_hooks.high_pressure_first_point_mode_enabled:
                 timing_recorder(
                     "high_pressure_abort",
                     "fail",
@@ -3298,7 +3298,7 @@ class PressureControlService:
         started_at = time.time()
         started_monotonic_s = time.monotonic()
         phase_started_at = datetime.fromtimestamp(started_at, timezone.utc).isoformat()
-        preseal_arm_context = getattr(self.host, "_a2_preseal_vent_close_arm_context", None)
+        preseal_arm_context = self.host.a2_hooks.preseal_vent_close_arm_context
         preseal_arm_context = dict(preseal_arm_context) if isinstance(preseal_arm_context, Mapping) else {}
         vent_close_command_timeout_s = max(
             0.1,
@@ -3313,17 +3313,17 @@ class PressureControlService:
             self.host._cfg_get("workflow.pressure.preseal_vent_close_verify_capture_pressure", False)
         )
         high_pressure_first_point_mode = bool(
-            getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False)
+            self.host.a2_hooks.high_pressure_first_point_mode_enabled
         )
         high_pressure_vent_preclosed = bool(
             high_pressure_first_point_mode
-            and getattr(self.host, "_a2_high_pressure_first_point_vent_preclosed", False)
+            and self.host.a2_hooks.high_pressure_first_point_vent_preclosed
         )
         conditioning_completed_before_high_pressure_mode = bool(
             high_pressure_first_point_mode
-            and getattr(self.host, "_a2_co2_route_conditioning_completed", False)
+            and self.host.a2_hooks.co2_route_conditioning_completed
         )
-        conditioning_completed_at = str(getattr(self.host, "_a2_co2_route_conditioning_completed_at", "") or "")
+        conditioning_completed_at = self.host.a2_hooks.co2_route_conditioning_completed_at
         ready_to_seal_min_hpa, ready_to_seal_max_hpa = self._first_target_ready_to_seal_window(
             target_pressure_hpa=target_pressure_hpa,
             ready_pressure_hpa=ready_pressure_hpa,
@@ -4381,7 +4381,7 @@ class PressureControlService:
             )
         # A2.38: if valves were already sealed during preclose, skip pressure
         # rise monitoring and proceed directly to pressure control.
-        if getattr(self.host, "_seal_allowed", False):
+        if self.host.a2_hooks.seal_allowed:
             pressure_now = self._read_pressure_with_recovery() or (pressure_reader() if pressure_reader else None)
             if pressure_now is not None and pressure_now > 0:
                 self.host._log(
@@ -5230,7 +5230,7 @@ class PressureControlService:
         return diagnostics
 
     def _a2_emergency_abort_relief_context_for_reason(self, reason: str) -> dict[str, Any]:
-        context = dict(getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.host.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         required = bool(
@@ -5266,7 +5266,7 @@ class PressureControlService:
         classification = str(current or "normal_maintenance_vent").strip() or "normal_maintenance_vent"
         if classification != "normal_maintenance_vent":
             return classification
-        context = dict(getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.host.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return classification
         reason_text = str(reason or "").strip().lower()
@@ -5347,7 +5347,7 @@ class PressureControlService:
         # to prevent atmosphere ingress that would destroy the sealed pressure state.
         _post_seal_vent_blocked = False
         if vent_on and not emergency_abort_relief:
-            _cond_ctx = getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", None)
+            _cond_ctx = self.host.a2_hooks.co2_route_conditioning_at_atmosphere_context
             if isinstance(_cond_ctx, dict) and str(_cond_ctx.get("route_conditioning_phase") or "") == "post_seal_pressure_control":
                 _post_seal_vent_blocked = True
         if _post_seal_vent_blocked:
@@ -6181,7 +6181,7 @@ class PressureControlService:
             if (
                 str(seal_context.get("route") or "").strip().lower() == "co2"
                 and bool(self.host._cfg_get("workflow.pressure.fail_if_sealed_pressure_below_target", False))
-                and not getattr(self.host, "_seal_allowed", False)
+                and not self.host.a2_hooks.seal_allowed
             ):
                 current_pressure = self._current_pressure()
                 margin_hpa = abs(
@@ -6434,13 +6434,13 @@ class PressureControlService:
         positive_preseal_diagnostics: dict[str, Any] = {}
         preseal_controller_refreshed_after_vent_off = False
         high_pressure_first_point_mode = bool(
-            route_text == "co2" and getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False)
+            route_text == "co2" and self.host.a2_hooks.high_pressure_first_point_mode_enabled
         )
         conditioning_completed_before_high_pressure_mode = bool(
             high_pressure_first_point_mode
-            and getattr(self.host, "_a2_co2_route_conditioning_completed", False)
+            and self.host.a2_hooks.co2_route_conditioning_completed
         )
-        conditioning_completed_at = str(getattr(self.host, "_a2_co2_route_conditioning_completed_at", "") or "")
+        conditioning_completed_at = self.host.a2_hooks.co2_route_conditioning_completed_at
         measured_atmospheric_pressure_hpa: Optional[float] = None
         ambient_reference: dict[str, Any] = {}
         if route_text != "h2o":
@@ -6958,7 +6958,7 @@ class PressureControlService:
             # A2.35/37: transition conditioning context to post-seal so pressure
             # control is never blocked by stale conditioning guards and no vent
             # commands (atmosphere ingress) are sent during pressure control.
-            _cond_ctx = getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", None)
+            _cond_ctx = self.host.a2_hooks.co2_route_conditioning_at_atmosphere_context
             if isinstance(_cond_ctx, dict):
                 _cond_ctx["route_conditioning_phase"] = "post_seal_pressure_control"
                 _cond_ctx["seal_command_sent"] = True
@@ -6970,7 +6970,7 @@ class PressureControlService:
                 _cond_ctx["vent_maintenance_ended_reason"] = "post_seal_pressure_control"
                 _cond_ctx["route_conditioning_vent_maintenance_active"] = False
                 _cond_ctx["co2_preseal_watchlist_blocked_vent"] = True
-                setattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", _cond_ctx)
+                self.host.a2_hooks.co2_route_conditioning_at_atmosphere_context = _cond_ctx
             result = PressureWaitResult(
                 ok=True,
                 final_pressure_hpa=final_pressure,
@@ -7400,7 +7400,7 @@ class PressureControlService:
 
     def _clear_pressure_route_seal_state(self) -> None:
         # A2.35: do not clear seal state while in post-seal pressure control.
-        _cond_ctx = getattr(self.host, "_a2_co2_route_conditioning_at_atmosphere_context", None)
+        _cond_ctx = self.host.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if isinstance(_cond_ctx, dict) and str(_cond_ctx.get("route_conditioning_phase") or "") == "post_seal_pressure_control":
             return
         state = self.run_state.pressure
