@@ -685,7 +685,7 @@ class SamplingService:
     def sampling_params(self, phase: str = "") -> tuple[int, float]:
         count = int(self.host._cfg_get("workflow.sampling.stable_count", self.host._cfg_get("workflow.sampling.count", 10)))
         count = max(1, count)
-        interval = float(self.host._cfg_get("workflow.sampling.interval_s", 1.0))
+        interval = float(self.host._cfg_get("workflow.sampling.interval_s", 2.0))
         if phase == "co2":
             interval = float(self.host._cfg_get("workflow.sampling.co2_interval_s", interval))
         elif phase == "h2o":

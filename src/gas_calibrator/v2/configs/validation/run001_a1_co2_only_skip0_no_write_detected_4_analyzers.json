@@ -51,7 +51,7 @@
         ":MEAS:PRES?"
       ],
       "in_limits_pct": 0.02,
-      "in_limits_time_s": 10
+      "in_limits_time_s": 3
     },
     "pressure_gauge": {
       "enabled": true,
@@ -259,8 +259,8 @@
     "sampling": {
       "count": 10,
       "stable_count": 10,
-      "interval_s": 1.0,
-      "co2_interval_s": 1.0,
+      "interval_s": 2.0,
+      "co2_interval_s": 2.0,
       "quality": {
         "enabled": false
       }

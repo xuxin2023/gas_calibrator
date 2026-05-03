@@ -6007,7 +6007,7 @@ class PressureControlService:
                 pass
         reader = self.host._make_pressure_reader()
         pressure_now = None if reader is None else (self._read_pressure_with_recovery() or reader())
-        tolerance = float(self.host._cfg_get("workflow.pressure_control.setpoint_tolerance_hpa", 0.5))
+        tolerance = float(self.host._cfg_get("workflow.pressure_control.setpoint_tolerance_hpa", 1.0))
         return pressure_now, pressure_now is not None and abs(float(pressure_now) - target_hpa) <= tolerance
 
     def soft_recover_pressure_controller(self, *, reason: str = "") -> PressureWaitResult:
@@ -6104,7 +6104,7 @@ class PressureControlService:
                 "error": str(exc),
                 "reason": "setpoint_readback_failed",
             }
-        tolerance = float(self.host._cfg_get("workflow.pressure_control.setpoint_tolerance_hpa", 0.5))
+        tolerance = float(self.host._cfg_get("workflow.pressure_control.setpoint_tolerance_hpa", 1.0))
         accepted = readback is not None and abs(float(readback) - float(target_hpa)) <= max(0.05, tolerance)
         return {
             "command_sent": True,
