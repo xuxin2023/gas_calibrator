@@ -806,17 +806,17 @@ class SamplingService:
             preferred_result: Optional[SamplingResult] = None
             first_usable_result: Optional[SamplingResult] = None
             preferred_analyzer_label = analyzers[0][0] if analyzers else ""
-            analyzer_ordered = list(enumerate(analyzers))
-            analyzer_futures: dict[Any, tuple[int, str]] = {}
+            sample_idx = sample_index + 1
             with ThreadPoolExecutor(max_workers=len(analyzers)) as pool:
-                for analyzer_index, (label, analyzer, _) in analyzer_ordered:
+                analyzer_futures: dict[Any, str] = {}
+                for label, analyzer, _ in analyzers:
                     future = pool.submit(
                         self._read_single_analyzer_snapshot,
-                        point, label, analyzer, phase, point_tag, sample_index + 1,
+                        point, label, analyzer, phase, point_tag, sample_idx,
                     )
-                    analyzer_futures[future] = (analyzer_index, label)
+                    analyzer_futures[future] = label
                 for future in as_completed(analyzer_futures):
-                    analyzer_index, label = analyzer_futures[future]
+                    label = analyzer_futures[future]
                     prefix = str(label or "").lower().replace(" ", "_")
                     try:
                         result, raw_snapshot = future.result()
