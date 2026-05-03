@@ -48,6 +48,7 @@ from .stability_checker import StabilityChecker, StabilityType
 from .state_manager import StateManager
 
 
+from ..a2_hooks import A2Hooks
 class WorkflowOrchestrator:
     """Executes workflow business logic for one calibration run."""
 
@@ -107,6 +108,7 @@ class WorkflowOrchestrator:
         self.analyzer_fleet_service = AnalyzerFleetService(self.context, self.run_state, host=self)
         self.humidity_generator_service = HumidityGeneratorService(self.context, self.run_state, host=self)
         self.pressure_control_service = PressureControlService(self.context, self.run_state, host=self)
+        self.a2_hooks = A2Hooks()
         self.valve_routing_service = ValveRoutingService(self.context, self.run_state, host=self)
         self.dewpoint_alignment_service = DewpointAlignmentService(self.context, self.run_state, host=self)
         self.artifact_service = ArtifactService(self.context, self.run_state, host=self)
@@ -123,6 +125,16 @@ class WorkflowOrchestrator:
             all_devices=[],
             stage="initialization",
         )
+        self._populate_a2_hooks_callbacks()
+
+    def _populate_a2_hooks_callbacks(self) -> None:
+        self.a2_hooks.callbacks["mark_route_open_started"] = self._mark_a2_co2_route_open_command_write_started
+        self.a2_hooks.callbacks["mark_route_open_completed"] = self._mark_a2_co2_route_open_command_write_completed
+        self.a2_hooks.callbacks["refresh_after_route_open"] = self._refresh_a2_co2_conditioning_after_route_open
+        self.a2_hooks.callbacks["fail_route_open_transition"] = self._fail_a2_route_open_transition_if_blocked
+        self.a2_hooks.callbacks["wait_route_open_settle"] = self._wait_a2_co2_route_open_settle_before_conditioning
+        self.a2_hooks.callbacks["complete_route_open_transition"] = self._complete_a2_co2_route_open_transition
+        self.a2_hooks.callbacks["record_a2_conditioning_workflow_timing"] = self._record_a2_conditioning_workflow_timing
 
     def set_log_callback(self, callback: Optional[Callable[[str], None]]) -> None:
         self._log_callback = callback
@@ -1481,8 +1493,8 @@ class WorkflowOrchestrator:
                 decision="collect_only_skipped",
             )
             return True
-        high_pressure_first_point_mode = bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False))
-        conditioning_at_atmosphere = bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False))
+        high_pressure_first_point_mode = self.a2_hooks.high_pressure_first_point_mode_enabled
+        conditioning_at_atmosphere = self.a2_hooks.co2_route_conditioning_at_atmosphere_active
         stage_name = (
             "co2_route_conditioning_at_atmosphere"
             if conditioning_at_atmosphere
@@ -1545,18 +1557,18 @@ class WorkflowOrchestrator:
             expected_max_s=soak_s + max(5.0, soak_s * 0.1),
             wait_reason=soak_key,
         )
-        setattr(self, "_a2_preseal_last_pressure_hpa", None)
+        self.a2_hooks.preseal_last_pressure_hpa = None
         setattr(self, "_a2_preseal_last_pressure_monotonic_s", None)
-        setattr(self, "_a2_preseal_pressure_rise_detected", False)
-        setattr(self, "_a2_preseal_vent_close_arm_context", {})
+        self.a2_hooks.preseal_pressure_rise_detected = False
+        self.a2_hooks.preseal_vent_close_arm_context = {}
         if not high_pressure_first_point_mode:
-            setattr(self, "_a2_co2_route_open_pressure_hpa", None)
-            setattr(self, "_a2_route_open_pressure_first_sample_recorded", False)
+            self.a2_hooks.co2_route_open_pressure_hpa = None
+            self.a2_hooks.route_open_pressure_first_sample_recorded = False
         start = time.time()
         if not high_pressure_first_point_mode or self._as_float(
-            getattr(self, "_a2_co2_route_open_monotonic_s", None)
+            self.a2_hooks.co2_route_open_monotonic_s
         ) is None:
-            setattr(self, "_a2_co2_route_open_monotonic_s", time.monotonic())
+            self.a2_hooks.co2_route_open_monotonic_s = time.monotonic()
         self._record_workflow_timing(
             "route_open_pressure_baseline",
             "info",
@@ -1569,7 +1581,7 @@ class WorkflowOrchestrator:
             ),
             route_state={
                 "high_pressure_first_point_mode": high_pressure_first_point_mode,
-                "baseline_context": dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {}),
+                "baseline_context": self.a2_hooks.high_pressure_first_point_context,
                 "primary_pressure_source": self._cfg_get(
                     "workflow.pressure.primary_pressure_source",
                     "digital_pressure_gauge",
@@ -1600,7 +1612,7 @@ class WorkflowOrchestrator:
                 "start",
                 stage=stage_name,
                 point=point,
-                pressure_hpa=getattr(self, "_a2_co2_route_open_pressure_hpa", None),
+                pressure_hpa=self.a2_hooks.co2_route_open_pressure_hpa,
                 expected_max_s=soak_s,
                 wait_reason=(
                     "high_pressure_first_point_positive_pressure_build_up"
@@ -1608,7 +1620,7 @@ class WorkflowOrchestrator:
                     else "continuous_atmosphere_hold"
                 ),
             )
-        handoff_decision = str(getattr(self, "_a2_high_pressure_first_point_initial_decision", "") or "")
+        handoff_decision = self.a2_hooks.high_pressure_first_point_initial_decision
         if high_pressure_first_point_mode and handoff_decision in {
             "positive_preseal_ready_handoff",
             "positive_preseal_arm_handoff",
@@ -1627,7 +1639,7 @@ class WorkflowOrchestrator:
                 break
             if conditioning_at_atmosphere:
                 self._maybe_reassert_a2_conditioning_vent(point)
-                context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+                context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
                 self._record_a2_conditioning_workflow_timing(
                     context,
                     "preseal_soak_tick",
@@ -1737,7 +1749,7 @@ class WorkflowOrchestrator:
         self._first_co2_route_soak_pending = False
         if positive_preseal_enabled:
             if conditioning_at_atmosphere:
-                context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+                context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
                 self._record_a2_conditioning_workflow_timing(
                     context,
                     "preseal_atmosphere_flush_hold_end",
@@ -1761,12 +1773,12 @@ class WorkflowOrchestrator:
             "positive_preseal_ready_handoff",
             "positive_preseal_arm_handoff",
         }:
-            context = dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {})
+            context = self.a2_hooks.high_pressure_first_point_context
             context.update(
                 {
                     "timeout_s": soak_s,
                     "last_decision": handoff_decision or "timeout_before_ready",
-                    "pressure_hpa": getattr(self, "_a2_preseal_last_pressure_hpa", None),
+                    "pressure_hpa": self.a2_hooks.preseal_last_pressure_hpa,
                     "abort_pressure_hpa": self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", None),
                 }
             )
@@ -1775,7 +1787,7 @@ class WorkflowOrchestrator:
                 "fail",
                 stage=stage_name,
                 point=point,
-                pressure_hpa=getattr(self, "_a2_preseal_last_pressure_hpa", None),
+                pressure_hpa=self.a2_hooks.preseal_last_pressure_hpa,
                 target_pressure_hpa=point.target_pressure_hpa,
                 decision="timeout_before_ready",
                 error_code="high_pressure_first_point_ready_timeout",
@@ -1786,7 +1798,7 @@ class WorkflowOrchestrator:
                 details=context,
             )
         if conditioning_at_atmosphere:
-            context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+            context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
             self._record_a2_conditioning_workflow_timing(
                 context,
                 "preseal_soak_end",
@@ -1937,15 +1949,15 @@ class WorkflowOrchestrator:
         point: CalibrationPoint,
         pressure_points: Optional[Iterable[CalibrationPoint]] = None,
     ) -> dict[str, Any]:
-        setattr(self, "_a2_high_pressure_first_point_mode_enabled", False)
-        setattr(self, "_a2_high_pressure_first_point_context", {})
-        setattr(self, "_a2_high_pressure_first_point_initial_decision", "")
-        setattr(self, "_a2_high_pressure_first_point_vent_preclosed", False)
-        setattr(self, "_a2_co2_route_conditioning_completed", False)
-        setattr(self, "_a2_co2_route_conditioning_completed_at", "")
+        self.a2_hooks.high_pressure_first_point_mode_enabled = False
+        self.a2_hooks.high_pressure_first_point_context = {}
+        self.a2_hooks.high_pressure_first_point_initial_decision = ""
+        self.a2_hooks.high_pressure_first_point_vent_preclosed = False
+        self.a2_hooks.co2_route_conditioning_completed = False
+        self.a2_hooks.co2_route_conditioning_completed_at = ""
         if not self._a2_co2_route_conditioning_required(point, pressure_points):
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {})
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_active = False
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = {}
             return {}
         stream_state: dict[str, Any] = {}
         pressure_source_mode = self._a2_conditioning_pressure_source_mode()
@@ -2211,8 +2223,8 @@ class WorkflowOrchestrator:
             "a2_conditioning_pressure_source": pressure_source_mode,
             "a2_3_pressure_source_strategy": pressure_source_mode,
         }
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", True)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_active = True
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         self._record_workflow_timing(
             "co2_route_conditioning_start",
             "start",
@@ -2223,7 +2235,7 @@ class WorkflowOrchestrator:
             route_state=context,
         )
         self._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open")
-        return dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        return self.a2_hooks.co2_route_conditioning_at_atmosphere_context
 
     def _a2_conditioning_stream_snapshot(
         self,
@@ -2570,7 +2582,7 @@ class WorkflowOrchestrator:
     ) -> dict[str, Any]:
         route_open_monotonic = self._as_float(
             context.get("route_open_completed_monotonic_s")
-            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+            or self.a2_hooks.co2_route_open_monotonic_s
         )
         high_frequency_window = False
         route_open_elapsed_s = None
@@ -2937,7 +2949,7 @@ class WorkflowOrchestrator:
         samples.append(dict(state))
         updated["pressure_samples"] = samples
         updated = self._a2_conditioning_context_with_counts(updated)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = updated
         return updated
 
     def _a2_conditioning_defer_if_diagnostic_budget_unsafe(
@@ -3119,7 +3131,7 @@ class WorkflowOrchestrator:
             )
             if isinstance(route_state, dict):
                 route_state.update(self._a2_conditioning_scheduler_evidence(updated))
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = updated
             return {}
         started = time.monotonic()
         record = self._record_workflow_timing(
@@ -3150,7 +3162,7 @@ class WorkflowOrchestrator:
             )
         if isinstance(route_state, dict):
             route_state.update(self._a2_conditioning_scheduler_evidence(updated))
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = updated
         return record
 
     def _a2_conditioning_unsafe_vent_reason(self, context: Mapping[str, Any]) -> str:
@@ -3248,11 +3260,11 @@ class WorkflowOrchestrator:
                 "source_selection_reason",
                 "v1_aligned_fallback_not_allowed_outside_atmosphere_conditioning",
             )
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = updated
         return updated
 
     def _record_positive_preseal_fail_closed_context(self, actual: Mapping[str, Any]) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         actual_data = dict(actual or {})
         pressure_hpa = self._as_float(
             actual_data.get("emergency_abort_relief_pressure_hpa")
@@ -3361,7 +3373,7 @@ class WorkflowOrchestrator:
                     "emergency_abort_relief_reason": "positive_preseal_abort_pressure_exceeded",
                 }
             )
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = updated
         return updated
 
     def _a2_conditioning_emergency_abort_relief_decision(
@@ -3468,7 +3480,7 @@ class WorkflowOrchestrator:
                 "safe_stop_pressure_relief_result": "command_sent" if allowed else f"blocked:{block_reason}",
             }
         )
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = updated
         payload = {key: updated.get(key) for key in (
             "emergency_abort_relief_vent_required",
             "emergency_abort_relief_vent_allowed",
@@ -3535,7 +3547,7 @@ class WorkflowOrchestrator:
                 else f"blocked:{blocked_reason}",
             }
         )
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = updated
         payload = {
             "cleanup_vent_requested": True,
             "cleanup_vent_classification": classification,
@@ -3572,7 +3584,7 @@ class WorkflowOrchestrator:
         relief_context: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
         vent_classification = str(vent_classification or "normal_maintenance_vent").strip()
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         if emergency_abort_relief or vent_classification == "emergency_abort_relief":
@@ -3676,7 +3688,7 @@ class WorkflowOrchestrator:
             return updated
         route_open_monotonic = self._as_float(
             updated.get("route_open_completed_monotonic_s")
-            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+            or self.a2_hooks.co2_route_open_monotonic_s
         )
         if route_open_monotonic is None:
             return updated
@@ -3705,7 +3717,7 @@ class WorkflowOrchestrator:
             return updated
         route_open_monotonic = self._as_float(
             updated.get("route_open_completed_monotonic_s")
-            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+            or self.a2_hooks.co2_route_open_monotonic_s
         )
         if route_open_monotonic is None:
             return updated
@@ -3731,7 +3743,7 @@ class WorkflowOrchestrator:
             context.get("route_conditioning_pressure_before_route_open_hpa"),
             context.get("route_open_transient_recovery_target_hpa"),
             context.get("route_open_pressure_hpa"),
-            getattr(self, "_a2_co2_route_open_pressure_hpa", None),
+            self.a2_hooks.co2_route_open_pressure_hpa,
         )
 
     def _a2_route_open_transient_update(
@@ -3746,7 +3758,7 @@ class WorkflowOrchestrator:
             return updated
         route_open_monotonic = self._as_float(
             updated.get("route_open_completed_monotonic_s")
-            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+            or self.a2_hooks.co2_route_open_monotonic_s
         )
         if route_open_monotonic is None:
             return updated
@@ -3884,7 +3896,7 @@ class WorkflowOrchestrator:
         pressure_value = self._as_float(pressure_hpa)
         route_open_monotonic = self._as_float(
             updated.get("route_open_completed_monotonic_s")
-            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+            or self.a2_hooks.co2_route_open_monotonic_s
         )
         phase_text = str(phase or "")
         before_route_open = bool(
@@ -3912,7 +3924,7 @@ class WorkflowOrchestrator:
                 baseline_hpa = self._as_float(
                     updated.get("route_conditioning_pressure_before_route_open_hpa")
                     or updated.get("route_open_pressure_hpa")
-                    or getattr(self, "_a2_co2_route_open_pressure_hpa", None)
+                    or self.a2_hooks.co2_route_open_pressure_hpa
                     or updated.get("route_conditioning_pressure_after_route_open_hpa")
                 )
                 if baseline_hpa is not None and route_open_monotonic is not None:
@@ -4308,7 +4320,7 @@ class WorkflowOrchestrator:
             details,
             reason="vent_gap_exceeded_before_recovery_evaluation",
         )
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", details)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = details
         self._fail_a2_co2_route_conditioning_closed(
             point,
             reason="route_conditioning_vent_gap_exceeded",
@@ -4324,7 +4336,7 @@ class WorkflowOrchestrator:
         phase: str,
         reason: str,
     ) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         defer_started = self._as_float(context.get("last_diagnostic_defer_monotonic_s"))
@@ -4366,7 +4378,7 @@ class WorkflowOrchestrator:
                     "terminal_gap_detected_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
             self._a2_conditioning_fail_if_defer_not_rescheduled(
                 point,
                 context,
@@ -4383,10 +4395,10 @@ class WorkflowOrchestrator:
         should_vent = bool(last_write is None or (age_s is not None and age_s >= interval_s))
         if not should_vent and age_s is not None:
             should_vent = bool((float(max_gap_s) - float(age_s)) * 1000.0 <= 200.0)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         if should_vent:
             tick = self._record_a2_co2_conditioning_vent_tick(point, phase=phase)
-            context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+            context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
             context["fast_vent_after_defer_sent"] = bool(
                 isinstance(tick, Mapping) and str(tick.get("command_result") or "").lower() == "ok"
             )
@@ -4395,8 +4407,8 @@ class WorkflowOrchestrator:
                 if isinstance(tick, Mapping)
                 else context.get("fast_vent_after_defer_write_ms")
             )
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
-        return dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
+        return dict(self.a2_hooks.co2_route_conditioning_at_atmosphere_context or context)
 
     def _a2_conditioning_heartbeat_gap_state(
         self,
@@ -4472,7 +4484,7 @@ class WorkflowOrchestrator:
         reason: str,
         details: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         detail_payload = dict(details or {})
         now_mono = time.monotonic()
         started = self._as_float(context.get("conditioning_started_monotonic_s"))
@@ -4484,7 +4496,7 @@ class WorkflowOrchestrator:
         context.update(detail_payload)
         route_open_monotonic = self._as_float(
             context.get("route_open_completed_monotonic_s")
-            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+            or self.a2_hooks.co2_route_open_monotonic_s
         )
         flush_phase = str(context.get("route_conditioning_phase") or "route_conditioning_flush_phase") == (
             "route_conditioning_flush_phase"
@@ -4547,7 +4559,7 @@ class WorkflowOrchestrator:
                 reason="vent_gap_exceeded_before_recovery_evaluation",
             )
         context = self._a2_conditioning_context_with_counts(context)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         return context
 
     def _fail_a2_co2_route_conditioning_closed(
@@ -4595,7 +4607,7 @@ class WorkflowOrchestrator:
                 except Exception as exc:
                     context["fail_closed_vent_pulse_sent"] = False
                     context["fail_closed_vent_pulse_result"] = f"failed: {exc}"
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         if fail_started is not None:
             fail_duration_ms = round(max(0.0, time.monotonic() - float(fail_started)) * 1000.0, 3)
             context["fail_closed_path_duration_ms"] = fail_duration_ms
@@ -4606,7 +4618,7 @@ class WorkflowOrchestrator:
                 context.get("fail_closed_path_vent_maintenance_required", False)
                 and fail_duration_ms > float(max_gap_ms)
             )
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         if bool(context.get("fail_closed_path_vent_maintenance_required", False)):
             context.update(
                 {
@@ -4617,7 +4629,7 @@ class WorkflowOrchestrator:
                     "fail_closed_path_vent_maintenance_active": True,
                 }
             )
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         else:
             self._record_workflow_timing(
                 event_name,
@@ -4645,7 +4657,7 @@ class WorkflowOrchestrator:
         )
 
     def _a2_v1_aligned_pressure_fallback_allowed(self) -> bool:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         return bool(
             getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)
             and context.get("atmosphere_vent_enabled", True)
@@ -5264,7 +5276,7 @@ class WorkflowOrchestrator:
         *,
         phase: str,
     ) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         context.setdefault("route_conditioning_diagnostic_blocked_vent_scheduler", False)
@@ -5280,7 +5292,7 @@ class WorkflowOrchestrator:
         context["diagnostic_budget_ms"] = self._a2_conditioning_diagnostic_budget_ms()
         context["pressure_monitor_budget_ms"] = self._a2_conditioning_pressure_monitor_budget_ms()
         context["trace_write_budget_ms"] = self._a2_conditioning_trace_write_budget_ms()
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         monitor_budget_ms = self._a2_conditioning_pressure_monitor_budget_ms()
         high_frequency_window = bool(schedule.get("route_conditioning_high_frequency_window_active"))
         flush_maintenance_window = bool(
@@ -5675,7 +5687,7 @@ class WorkflowOrchestrator:
             and not context.get("route_open_transient_rejection_reason")
         )
         context = self._a2_conditioning_context_with_counts(context)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         schedule = self._a2_conditioning_vent_schedule(context, now_mono=monitor_completed_monotonic_s)
         diagnostic_max_gap_s = float(schedule.get("route_conditioning_effective_max_gap_s") or 0.0)
         if diagnostic_max_gap_s > 0.0 and monitor_duration_s > diagnostic_max_gap_s:
@@ -5707,7 +5719,7 @@ class WorkflowOrchestrator:
                     "fail_closed_reason": "route_conditioning_diagnostic_blocked_vent_scheduler",
                 }
             )
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
             self._fail_a2_co2_route_conditioning_closed(
                 point,
                 reason="route_conditioning_diagnostic_blocked_vent_scheduler",
@@ -5716,7 +5728,7 @@ class WorkflowOrchestrator:
                 route_trace_action="co2_route_conditioning_diagnostic_blocked_vent_scheduler",
             )
         if high_frequency_window:
-            context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+            context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
             context.update(
                 {
                     "trace_write_budget_ms": self._a2_conditioning_trace_write_budget_ms(),
@@ -5733,7 +5745,7 @@ class WorkflowOrchestrator:
                     "trace_write_deferred_for_vent_priority": True,
                 }
             )
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         else:
             self._record_pressure_source_latency_events(
                 contextual_sample,
@@ -5812,9 +5824,9 @@ class WorkflowOrchestrator:
         return monitor_state
 
     def _begin_a2_co2_route_open_transition(self, point: CalibrationPoint) -> dict[str, Any]:
-        if not bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)):
+        if not self.a2_hooks.co2_route_conditioning_at_atmosphere_active:
             return {}
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         now_mono = time.monotonic()
@@ -5837,7 +5849,7 @@ class WorkflowOrchestrator:
                 "_route_open_transition_last_vent_write_sent_monotonic_s": None,
             }
         )
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         self._record_a2_conditioning_workflow_timing(
             context,
             "co2_route_open_transition_start",
@@ -5849,7 +5861,7 @@ class WorkflowOrchestrator:
         return context
 
     def _mark_a2_co2_route_open_command_write_started(self, point: CalibrationPoint) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         now_mono = time.monotonic()
@@ -5861,7 +5873,7 @@ class WorkflowOrchestrator:
                 "route_open_started_at": now_at,
             }
         )
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         self._record_a2_conditioning_workflow_timing(
             context,
             "co2_route_open_command_write_start",
@@ -5873,7 +5885,7 @@ class WorkflowOrchestrator:
         return context
 
     def _mark_a2_co2_route_open_command_write_completed(self, point: CalibrationPoint) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         now_mono = time.monotonic()
@@ -5889,8 +5901,8 @@ class WorkflowOrchestrator:
                 "route_open_completed_monotonic_s": now_mono,
             }
         )
-        setattr(self, "_a2_co2_route_open_monotonic_s", now_mono)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_open_monotonic_s = now_mono
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         self._record_a2_conditioning_workflow_timing(
             context,
             "co2_route_open_command_write_end",
@@ -5903,7 +5915,7 @@ class WorkflowOrchestrator:
         return context
 
     def _fail_a2_route_open_transition_if_blocked(self, point: CalibrationPoint) -> None:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return
         duration_ms = self._as_float(context.get("route_open_command_write_duration_ms"))
@@ -5933,9 +5945,9 @@ class WorkflowOrchestrator:
         )
 
     def _wait_a2_co2_route_open_settle_before_conditioning(self, point: CalibrationPoint) -> dict[str, Any]:
-        if not bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)):
+        if not self.a2_hooks.co2_route_conditioning_at_atmosphere_active:
             return {}
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         total_s = self._a2_route_open_settle_wait_s()
@@ -5947,14 +5959,14 @@ class WorkflowOrchestrator:
                     "route_open_settle_wait_total_ms": 0.0,
                 }
             )
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
             return context
         slice_s = min(self._a2_route_open_settle_wait_slice_s(), self._a2_conditioning_scheduler_sleep_step_s())
         start_mono = time.monotonic()
         deadline = start_mono + total_s
         slice_count = 0
         context.update({"route_open_settle_wait_sliced": True})
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         while True:
             now_mono = time.monotonic()
             if now_mono >= deadline:
@@ -5969,7 +5981,7 @@ class WorkflowOrchestrator:
             time.sleep(sleep_s)
             slice_count += 1
         completed_mono = time.monotonic()
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         context.update(
             {
                 "route_open_settle_wait_sliced": True,
@@ -6012,7 +6024,7 @@ class WorkflowOrchestrator:
                     "whether_safe_to_continue": False,
                 }
             )
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
             self._fail_a2_co2_route_conditioning_closed(
                 point,
                 reason="route_conditioning_vent_gap_exceeded",
@@ -6021,7 +6033,7 @@ class WorkflowOrchestrator:
                 route_trace_action="co2_route_open_settle_wait_blocked_vent_scheduler",
             )
         context = self._a2_conditioning_context_with_counts(context)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         self._record_a2_conditioning_workflow_timing(
             context,
             "co2_route_open_settle_wait",
@@ -6034,7 +6046,7 @@ class WorkflowOrchestrator:
         return context
 
     def _complete_a2_co2_route_open_transition(self, point: CalibrationPoint) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         now_mono = time.monotonic()
@@ -6068,7 +6080,7 @@ class WorkflowOrchestrator:
         )
         context["route_open_transition_completed"] = True
         context = self._a2_conditioning_context_with_counts(context)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         self._record_a2_conditioning_workflow_timing(
             context,
             "co2_route_open_transition_end",
@@ -6085,7 +6097,7 @@ class WorkflowOrchestrator:
         return context
 
     def _record_a2_co2_conditioning_vent_tick(self, point: CalibrationPoint, *, phase: str) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         tick_started_monotonic_s = time.monotonic()
@@ -6131,7 +6143,7 @@ class WorkflowOrchestrator:
         context["route_conditioning_vent_maintenance_active"] = True
         route_open_monotonic = self._as_float(
             context.get("route_open_completed_monotonic_s")
-            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+            or self.a2_hooks.co2_route_open_monotonic_s
         )
         if route_open_monotonic is None:
             context["pre_route_vent_phase_started"] = True
@@ -6168,7 +6180,7 @@ class WorkflowOrchestrator:
             else:
                 context["vent_maintenance_ended_on_post_flush_transition"] = True
                 context["vent_maintenance_ended_reason"] = blocked_reason
-                setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+                self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         gap_state = self._a2_conditioning_heartbeat_gap_state(
             context,
             now_mono=tick_started_monotonic_s,
@@ -6673,7 +6685,7 @@ class WorkflowOrchestrator:
                 ),
             }
         )
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         if bool(schedule.get("route_conditioning_high_frequency_window_active")):
             context.update(
                 {
@@ -6691,7 +6703,7 @@ class WorkflowOrchestrator:
                     "trace_write_deferred_for_vent_priority": True,
                 }
             )
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         else:
             self._record_pressure_source_latency_events(tick, point=point, stage="co2_route_conditioning_at_atmosphere")
         self._record_a2_conditioning_workflow_timing(
@@ -6757,16 +6769,16 @@ class WorkflowOrchestrator:
         return tick
 
     def _maybe_reassert_a2_conditioning_vent(self, point: CalibrationPoint) -> None:
-        if not bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)):
+        if not self.a2_hooks.co2_route_conditioning_at_atmosphere_active:
             return
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return
         now_mono = time.monotonic()
         context = self._a2_conditioning_record_scheduler_loop(context, now_mono=now_mono)
         schedule = self._a2_conditioning_vent_schedule(context, now_mono=now_mono)
         context.update(schedule)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         interval_s = float(schedule["route_conditioning_effective_vent_interval_s"])
         max_gap_s = float(schedule["route_conditioning_effective_max_gap_s"])
         self._a2_conditioning_fail_if_defer_not_rescheduled(
@@ -6790,7 +6802,7 @@ class WorkflowOrchestrator:
         effective_gap_s = observed_gap_s if observed_gap_s is not None else emission_gap_s
         route_open_monotonic = self._as_float(
             context.get("route_open_completed_monotonic_s")
-            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+            or self.a2_hooks.co2_route_open_monotonic_s
         )
         if route_open_monotonic is not None and effective_gap_s is not None and effective_gap_s > max_gap_s:
             gap_ms = round(float(effective_gap_s) * 1000.0, 3)
@@ -6876,7 +6888,7 @@ class WorkflowOrchestrator:
                 phase=str(schedule.get("vent_phase") or "route_conditioning_vent_priority"),
             )
             return
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         last_pressure = self._as_float(context.get("last_pressure_monitor_monotonic_s"))
         pressure_interval_s = self._a2_conditioning_pressure_monitor_interval_s()
         if last_pressure is None or (now_mono - float(last_pressure)) >= pressure_interval_s:
@@ -6884,7 +6896,7 @@ class WorkflowOrchestrator:
                 point,
                 phase="conditioning_pressure_monitor",
             )
-            context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+            context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
             if (
                 isinstance(monitor, Mapping)
                 and bool(
@@ -6927,7 +6939,7 @@ class WorkflowOrchestrator:
                     "whether_safe_to_continue": False,
                 }
                 context.update(details)
-                setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+                self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
                 self._fail_a2_co2_route_conditioning_closed(
                     point,
                     reason="route_conditioning_diagnostic_blocked_vent_scheduler",
@@ -6953,19 +6965,19 @@ class WorkflowOrchestrator:
                 self._record_a2_co2_conditioning_vent_tick(point, phase="pressure_rise_vent_pulse")
 
     def _confirm_a2_co2_conditioning_before_route_open(self, point: CalibrationPoint) -> dict[str, Any]:
-        if not bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)):
+        if not self.a2_hooks.co2_route_conditioning_at_atmosphere_active:
             return {}
         return self._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open_confirm")
 
     def _refresh_a2_co2_conditioning_after_route_open(self, point: CalibrationPoint) -> dict[str, Any]:
-        if not bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)):
+        if not self.a2_hooks.co2_route_conditioning_at_atmosphere_active:
             return {}
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
-        route_open_monotonic = self._as_float(getattr(self, "_a2_co2_route_open_monotonic_s", None))
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
+        route_open_monotonic = self._as_float(self.a2_hooks.co2_route_open_monotonic_s)
         if route_open_monotonic is not None:
             context["route_open_completed_monotonic_s"] = float(route_open_monotonic)
             context["route_open_completed_at"] = datetime.now(timezone.utc).isoformat()
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         return self._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
 
     def _end_a2_co2_route_conditioning_at_atmosphere(
@@ -6975,7 +6987,7 @@ class WorkflowOrchestrator:
         route_soak_ok: bool,
         route_soak_actual: Optional[Mapping[str, Any]] = None,
     ) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {}
         completed_at = datetime.now(timezone.utc).isoformat()
@@ -7030,7 +7042,7 @@ class WorkflowOrchestrator:
                         "whether_safe_to_continue": False,
                     }
                 )
-                setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+                self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
                 self._fail_a2_co2_route_conditioning_closed(
                     point,
                     reason="route_conditioning_vent_gap_exceeded",
@@ -7051,7 +7063,7 @@ class WorkflowOrchestrator:
                 context["route_conditioning_phase"] = "route_conditioning_flush_phase"
                 context["ready_to_seal_phase_started"] = False
                 context["route_conditioning_flush_min_time_completed"] = False
-                setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+                self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
                 self._fail_a2_co2_route_conditioning_closed(
                     point,
                     reason=reason,
@@ -7133,7 +7145,7 @@ class WorkflowOrchestrator:
         if route_soak_ok and high_pressure_seen:
             context["route_conditioning_high_pressure_seen_decision"] = "fail_closed"
             context["fail_closed_reason"] = "route_conditioning_high_pressure_seen_before_preseal"
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
             self._fail_a2_co2_route_conditioning_closed(
                 point,
                 reason="route_conditioning_high_pressure_seen_before_preseal",
@@ -7144,7 +7156,7 @@ class WorkflowOrchestrator:
             )
         if route_soak_ok and pressure_returned_to_atmosphere is False:
             context["fail_closed_reason"] = "route_conditioning_not_atmosphere_stable_before_preseal"
-            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
             self._fail_a2_co2_route_conditioning_closed(
                 point,
                 reason="route_conditioning_not_atmosphere_stable_before_preseal",
@@ -7168,10 +7180,10 @@ class WorkflowOrchestrator:
             }
         )
         context = self._a2_conditioning_context_with_counts(context)
-        setattr(self, "_a2_co2_route_conditioning_completed", bool(route_soak_ok))
-        setattr(self, "_a2_co2_route_conditioning_completed_at", completed_at if route_soak_ok else "")
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)
-        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self.a2_hooks.co2_route_conditioning_completed = bool(route_soak_ok)
+        self.a2_hooks.co2_route_conditioning_completed_at = completed_at if route_soak_ok else ""
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_active = False
+        self.a2_hooks.co2_route_conditioning_at_atmosphere_context = context
         self._record_workflow_timing(
             "co2_route_conditioning_end",
             "end" if route_soak_ok else "fail",
@@ -7196,7 +7208,7 @@ class WorkflowOrchestrator:
             "start",
             stage="preseal_analyzer_gate",
             point=point,
-            route_state={"conditioning_completed": bool(getattr(self, "_a2_co2_route_conditioning_completed", False))},
+            route_state={"conditioning_completed": self.a2_hooks.co2_route_conditioning_completed},
         )
         passed = bool(route_soak_ok)
         if bool(getattr(self, "_gas_route_dewpoint_gate_enabled", lambda: False)()):
@@ -7211,11 +7223,11 @@ class WorkflowOrchestrator:
             decision="PASS" if passed else "FAIL",
             route_state={
                 "preseal_analyzer_gate_passed": passed,
-                "conditioning_completed": bool(getattr(self, "_a2_co2_route_conditioning_completed", False)),
+                "conditioning_completed": self.a2_hooks.co2_route_conditioning_completed,
                 "route_soak_actual": dict(route_soak_actual or {}),
             },
         )
-        setattr(self, "_a2_preseal_analyzer_gate_passed", passed)
+        self.a2_hooks.preseal_analyzer_gate_passed = passed
         return passed
 
     def _prepare_a2_high_pressure_first_point_after_conditioning(
@@ -7225,7 +7237,7 @@ class WorkflowOrchestrator:
     ) -> dict[str, Any]:
         if not self._a2_co2_route_conditioning_required(point, pressure_points):
             return {}
-        if not bool(getattr(self, "_a2_co2_route_conditioning_completed", False)):
+        if not self.a2_hooks.co2_route_conditioning_completed:
             details = {"conditioning_completed": False, "seal_preparation_blocked_reason": "conditioning_not_completed"}
             self._record_workflow_timing(
                 "seal_preparation_after_conditioning_start",
@@ -7237,7 +7249,7 @@ class WorkflowOrchestrator:
                 route_state=details,
             )
             raise WorkflowValidationError("A2 high-pressure first point requires completed CO2 route conditioning", details=details)
-        conditioning_completed_at = str(getattr(self, "_a2_co2_route_conditioning_completed_at", "") or "")
+        conditioning_completed_at = self.a2_hooks.co2_route_conditioning_completed_at
         self._record_workflow_timing(
             "seal_preparation_after_conditioning_start",
             "start",
@@ -7246,7 +7258,7 @@ class WorkflowOrchestrator:
             route_state={
                 "conditioning_completed_before_high_pressure_mode": True,
                 "conditioning_completed_at": conditioning_completed_at,
-                "preseal_analyzer_gate_passed": bool(getattr(self, "_a2_preseal_analyzer_gate_passed", False)),
+                "preseal_analyzer_gate_passed": self.a2_hooks.preseal_analyzer_gate_passed,
             },
         )
         context = self._prearm_a2_high_pressure_first_point_mode(point, pressure_points)
@@ -7257,11 +7269,11 @@ class WorkflowOrchestrator:
             {
                 "conditioning_completed_before_high_pressure_mode": True,
                 "conditioning_completed_at": conditioning_completed_at,
-                "preseal_analyzer_gate_passed": bool(getattr(self, "_a2_preseal_analyzer_gate_passed", False)),
+                "preseal_analyzer_gate_passed": self.a2_hooks.preseal_analyzer_gate_passed,
                 "sealed_after_conditioning": False,
             }
         )
-        setattr(self, "_a2_high_pressure_first_point_context", context)
+        self.a2_hooks.high_pressure_first_point_context = context
         self._record_workflow_timing(
             "high_pressure_first_point_mode_start",
             "start",
@@ -7280,10 +7292,10 @@ class WorkflowOrchestrator:
             point=point,
             target_pressure_hpa=context.get("first_target_pressure_hpa"),
             decision="wait_for_ready_pressure_after_conditioning",
-            route_state=dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or context),
+            route_state=dict(self.a2_hooks.high_pressure_first_point_context or context),
         )
         self._request_a2_high_pressure_route_open_pressure_sample(point)
-        return dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or context)
+        return dict(self.a2_hooks.high_pressure_first_point_context or context)
 
     def _a2_prearm_route_conditioning_baseline_max_age_s(self) -> float:
         value = self._as_float(
@@ -7349,7 +7361,7 @@ class WorkflowOrchestrator:
         }
 
     def _a2_latest_route_conditioning_prearm_baseline(self) -> dict[str, Any]:
-        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         if not context:
             return {
                 "pressure_hpa": None,
@@ -7455,10 +7467,10 @@ class WorkflowOrchestrator:
         point: CalibrationPoint,
         pressure_points: Optional[Iterable[CalibrationPoint]] = None,
     ) -> dict[str, Any]:
-        setattr(self, "_a2_high_pressure_first_point_mode_enabled", False)
-        setattr(self, "_a2_high_pressure_first_point_context", {})
-        setattr(self, "_a2_high_pressure_first_point_initial_decision", "")
-        setattr(self, "_a2_high_pressure_first_point_vent_preclosed", False)
+        self.a2_hooks.high_pressure_first_point_mode_enabled = False
+        self.a2_hooks.high_pressure_first_point_context = {}
+        self.a2_hooks.high_pressure_first_point_initial_decision = ""
+        self.a2_hooks.high_pressure_first_point_vent_preclosed = False
         pressure_cfg_enabled = bool(
             self._cfg_get("workflow.pressure.high_pressure_first_point_mode_enabled", True)
         )
@@ -7499,8 +7511,8 @@ class WorkflowOrchestrator:
         baseline_pressure = self._as_float(sample.get("pressure_hpa"))
         baseline_stale = bool(sample.get("is_stale", sample.get("pressure_sample_is_stale")))
         baseline_age = self._as_float(sample.get("sample_age_s", sample.get("pressure_sample_age_s")))
-        conditioning_completed = bool(getattr(self, "_a2_co2_route_conditioning_completed", False))
-        route_context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        conditioning_completed = self.a2_hooks.co2_route_conditioning_completed
+        route_context = self.a2_hooks.co2_route_conditioning_at_atmosphere_context
         pressure_source_mode = str(
             route_context.get("a2_conditioning_pressure_source_strategy")
             or self._a2_conditioning_pressure_source_mode()
@@ -7731,7 +7743,7 @@ class WorkflowOrchestrator:
             context["trigger_reason"] = "conditioning_completed_first_1100_point"
             context["ambient_reference_margin_hpa"] = margin
             context["conditioning_completed_before_high_pressure_mode"] = True
-            context["conditioning_completed_at"] = str(getattr(self, "_a2_co2_route_conditioning_completed_at", "") or "")
+            context["conditioning_completed_at"] = self.a2_hooks.co2_route_conditioning_completed_at
         elif first_target is not None and float(first_target) >= float(baseline_pressure) + margin:
             context["enabled"] = True
             context["ambient_reference_pressure_hpa"] = baseline_pressure
@@ -7744,10 +7756,10 @@ class WorkflowOrchestrator:
             context["ambient_reference_margin_hpa"] = margin
         else:
             context["trigger_reason"] = "first_target_not_above_ambient_reference"
-        setattr(self, "_a2_high_pressure_first_point_mode_enabled", bool(context["enabled"]))
-        setattr(self, "_a2_high_pressure_first_point_context", dict(context))
+        self.a2_hooks.high_pressure_first_point_mode_enabled = bool(context["enabled"])
+        self.a2_hooks.high_pressure_first_point_context = dict(context)
         if context["enabled"]:
-            setattr(self, "_a2_co2_route_open_pressure_hpa", baseline_pressure)
+            self.a2_hooks.co2_route_open_pressure_hpa = baseline_pressure
             remember = getattr(self.pressure_control_service, "_remember_ambient_reference_pressure", None)
             if callable(remember):
                 remember(
@@ -8222,11 +8234,11 @@ class WorkflowOrchestrator:
                     break
         except Exception as exc:
             self._log(f"A2 high-pressure first-point pressure read failed ({read_method}): {exc}")
-        context = dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {})
+        context = self.a2_hooks.high_pressure_first_point_context
         context["route_open_pressure_sample_hpa"] = pressure_hpa
         context["route_open_pressure_sample_read_method"] = read_method
         context["route_open_pressure_sample_attempted"] = True
-        setattr(self, "_a2_high_pressure_first_point_context", context)
+        self.a2_hooks.high_pressure_first_point_context = context
         self._record_workflow_timing(
             "high_pressure_route_open_pressure_sample_read",
             "info",

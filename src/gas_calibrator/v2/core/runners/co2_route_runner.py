@@ -92,30 +92,30 @@ class Co2RouteRunner:
             if callable(begin_route_open_transition):
                 begin_route_open_transition(point)
             self.service._record_workflow_timing("co2_route_open_start", "start", stage="co2_route_open", point=point)
-            mark_route_open_started = getattr(self.service, "_mark_a2_co2_route_open_command_write_started", None)
+            mark_route_open_started = mark_route_open_started = self.service.a2_hooks.callbacks.get("mark_route_open_started")
             if callable(mark_route_open_started):
                 mark_route_open_started(point)
             self.service.valve_routing_service.set_valves_for_co2(point)
-            mark_route_open_completed = getattr(self.service, "_mark_a2_co2_route_open_command_write_completed", None)
+            mark_route_open_completed = mark_route_open_completed = self.service.a2_hooks.callbacks.get("mark_route_open_completed")
             if callable(mark_route_open_completed):
                 mark_route_open_completed(point)
-                route_open_completed_monotonic_s = getattr(self.service, "_a2_co2_route_open_monotonic_s", None)
+                route_open_completed_monotonic_s = self.service.a2_hooks.co2_route_open_monotonic_s
                 if route_open_completed_monotonic_s is None:
                     route_open_completed_monotonic_s = time.monotonic()
             else:
                 route_open_completed_monotonic_s = time.monotonic()
-            setattr(self.service, "_a2_co2_route_open_monotonic_s", route_open_completed_monotonic_s)
-            refresh_conditioning_vent = getattr(self.service, "_refresh_a2_co2_conditioning_after_route_open", None)
+            self.service.a2_hooks.co2_route_open_monotonic_s = route_open_completed_monotonic_s)
+            refresh_conditioning_vent = refresh_conditioning_vent = self.service.a2_hooks.callbacks.get("refresh_after_route_open")
             if callable(refresh_conditioning_vent):
                 refresh_conditioning_vent(point)
-            fail_route_open_transition = getattr(self.service, "_fail_a2_route_open_transition_if_blocked", None)
+            fail_route_open_transition = fail_route_open_transition = self.service.a2_hooks.callbacks.get("fail_route_open_transition")
             if callable(fail_route_open_transition):
                 fail_route_open_transition(point)
-            wait_route_open_settle = getattr(self.service, "_wait_a2_co2_route_open_settle_before_conditioning", None)
+            wait_route_open_settle = wait_route_open_settle = self.service.a2_hooks.callbacks.get("wait_route_open_settle")
             if callable(wait_route_open_settle):
                 wait_route_open_settle(point)
             route_open_pressure = None
-            conditioning_active = bool(getattr(self.service, "_a2_co2_route_conditioning_at_atmosphere_active", False))
+            conditioning_active = self.service.a2_hooks.co2_route_conditioning_at_atmosphere_active
             if not conditioning_active:
                 pressure_reader = getattr(getattr(self.service, "pressure_control_service", None), "_current_pressure", None)
                 if callable(pressure_reader):
@@ -123,18 +123,16 @@ class Co2RouteRunner:
                         route_open_pressure = self.service._as_float(pressure_reader())
                     except Exception:
                         route_open_pressure = None
-            setattr(self.service, "_a2_co2_route_open_pressure_hpa", route_open_pressure)
-            setattr(self.service, "_a2_preseal_pressure_rise_detected", False)
-            setattr(self.service, "_a2_route_open_pressure_first_sample_recorded", False)
-            complete_route_open_transition = getattr(self.service, "_complete_a2_co2_route_open_transition", None)
+            self.service.a2_hooks.co2_route_open_pressure_hpa = route_open_pressure)
+            self.service.a2_hooks.preseal_pressure_rise_detected = False)
+            self.service.a2_hooks.route_open_pressure_first_sample_recorded = False)
+            complete_route_open_transition = complete_route_open_transition = self.service.a2_hooks.callbacks.get("complete_route_open_transition")
             route_open_transition_state = {}
             if callable(complete_route_open_transition):
                 route_open_transition_state = complete_route_open_transition(point) or {}
             route_open_state = {
                 "high_pressure_first_point_mode": False,
-                "co2_route_conditioning_at_atmosphere": bool(
-                    getattr(self.service, "_a2_co2_route_conditioning_at_atmosphere_active", False)
-                ),
+                "co2_route_conditioning_at_atmosphere": self.service.a2_hooks.co2_route_conditioning_at_atmosphere_active,
             }
             if route_open_transition_state:
                 route_open_state["route_open_transition"] = {
@@ -168,11 +166,9 @@ class Co2RouteRunner:
                 )
                 if callable(stream_snapshot):
                     route_open_state["digital_gauge_stream"] = stream_snapshot()
-            a2_timing_recorder = getattr(self.service, "_record_a2_conditioning_workflow_timing", None)
+            a2_timing_recorder = a2_timing_recorder = self.service.a2_hooks.callbacks.get("record_a2_conditioning_workflow_timing")
             if conditioning_active and callable(a2_timing_recorder):
-                route_conditioning_context = dict(
-                    getattr(self.service, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {}
-                )
+                route_conditioning_context = self.service.a2_hooks.co2_route_conditioning_at_atmosphere_context
                 a2_timing_recorder(
                     route_conditioning_context,
                     "co2_route_open_end",
@@ -228,9 +224,7 @@ class Co2RouteRunner:
             prepare_high_pressure = getattr(self.service, "_prepare_a2_high_pressure_first_point_after_conditioning", None)
             if callable(prepare_high_pressure):
                 prepare_high_pressure(point, pressure_refs)
-            high_pressure_first_point_mode = bool(
-                getattr(self.service, "_a2_high_pressure_first_point_mode_enabled", False)
-            )
+            high_pressure_first_point_mode = self.service.a2_hooks.high_pressure_first_point_mode_enabled
             if high_pressure_first_point_mode:
                 self.service.status_service.log(
                     "A2 1100 hPa high-pressure first-point mode armed after CO2 route conditioning"
