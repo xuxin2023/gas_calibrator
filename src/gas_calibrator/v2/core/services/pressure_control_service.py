@@ -1483,10 +1483,8 @@ class PressureControlService:
         return None
 
     def preclose_vent_and_allow_seal(self, point: Any) -> dict[str, Any]:
-        # A2.38: close vent + immediately seal relay valves after 0.3s delay.
-        # This prevents pressure from overshooting to 1600+ hPa before seal.
         import time
-        time.sleep(0.3)
+        time.sleep(0.6)
 
         pre_seal_pressure = None
         try:
@@ -1494,17 +1492,39 @@ class PressureControlService:
         except Exception:
             pass
 
-        # Immediately close all relay valves (gas route + source) to seal
-        # the downstream volume before pressure can overshoot.
+        if pre_seal_pressure is not None and pre_seal_pressure >= 1300.0:
+            self.host._apply_valve_states([])
+            self.host.a2_hooks.seal_allowed = True
+            self.host.a2_hooks.seal_trigger_reason = "hard_abort_seal"
+            self.host._log(
+                f"A2.38 hard abort seal: valves closed at pre-seal pressure {pre_seal_pressure}"
+            )
+            return {"pre_seal_pressure_hpa": pre_seal_pressure}
+
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            try:
+                pre_seal_pressure = self._get_latest_pressure_hpa()
+            except Exception:
+                pass
+            if pre_seal_pressure is not None and pre_seal_pressure >= 1100.0:
+                break
+            time.sleep(0.2)
+
         self.host._apply_valve_states([])
 
         self.host.a2_hooks.seal_allowed = True
-        self.host.a2_hooks.seal_trigger_reason = "immediate_seal_a2_38"
+        if pre_seal_pressure is not None and pre_seal_pressure >= 1100.0:
+            self.host.a2_hooks.seal_trigger_reason = "fixed_delay_and_pressure_met"
+        else:
+            self.host.a2_hooks.seal_trigger_reason = "fixed_delay_timeout"
 
         self.host._log(
-            f"A2.38 immediate seal: valves closed at pre-seal pressure {pre_seal_pressure}"
+            f"A2.38 seal ({self.host.a2_hooks.seal_trigger_reason}): "
+            f"valves closed at pre-seal pressure {pre_seal_pressure}"
             if pre_seal_pressure is not None
-            else "A2.38 immediate seal: valves closed (pressure unavailable)"
+            else f"A2.38 seal ({self.host.a2_hooks.seal_trigger_reason}): "
+                 f"valves closed (pressure unavailable)"
         )
         return {"pre_seal_pressure_hpa": pre_seal_pressure}
 
@@ -6025,6 +6045,12 @@ class PressureControlService:
     def _apply_pressure_setpoint(self, controller: Any, target_hpa: float) -> dict[str, Any]:
         method_used = ""
         error = ""
+        slew_method = getattr(controller, "set_slew_rate", None)
+        if callable(slew_method):
+            try:
+                slew_method(10.0)
+            except Exception:
+                pass
         for method_name in ("set_setpoint", "set_pressure_hpa", "set_pressure"):
             method = getattr(controller, method_name, None)
             if not callable(method):
@@ -6290,7 +6316,7 @@ class PressureControlService:
             return result
         timeout_s = pressure_timeout_s
         retry_count = int(self.host._cfg_get("workflow.pressure.restabilize_retries", 2))
-        retry_interval_s = float(self.host._cfg_get("workflow.pressure.restabilize_retry_interval_s", 10.0))
+        retry_interval_s = float(self.host._cfg_get("workflow.pressure.restabilize_retry_interval_s", 2.0))
         started_at = time.time()
         next_retry_at = started_at + retry_interval_s
         retries_done = 0
