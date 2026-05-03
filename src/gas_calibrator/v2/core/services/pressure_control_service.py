@@ -1498,8 +1498,8 @@ class PressureControlService:
         # the downstream volume before pressure can overshoot.
         self.host._apply_valve_states([])
 
-        self.host._seal_allowed = True
-        self.host._seal_trigger_reason = "immediate_seal_a2_38"
+        self.host.a2_hooks.seal_allowed = True
+        self.host.a2_hooks.seal_trigger_reason = "immediate_seal_a2_38"
 
         self.host._log(
             f"A2.38 immediate seal: valves closed at pre-seal pressure {pre_seal_pressure}"
@@ -6862,7 +6862,7 @@ class PressureControlService:
             target_pressure_hpa = self.host._as_float(point.target_pressure_hpa)
             sealed_pressure_guard_enabled = bool(
                 self.host._cfg_get("workflow.pressure.fail_if_sealed_pressure_below_target", False)
-                and not getattr(self.host, "_seal_allowed", False)
+                and not self.host.a2_hooks.seal_allowed
             )
             sealed_margin_hpa = float(
                 self.host._cfg_get("workflow.pressure.sealed_pressure_min_margin_hpa", 0.0)
