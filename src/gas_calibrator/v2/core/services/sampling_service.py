@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import datetime, timezone
 from statistics import mean, stdev
@@ -739,6 +740,31 @@ class SamplingService:
             "analyzer_unusable_labels": ",".join(unusable),
         }
 
+    def _read_single_analyzer_snapshot(
+        self,
+        point: CalibrationPoint,
+        label: str,
+        analyzer: Any,
+        phase: str,
+        point_tag: str,
+        sample_index: int,
+    ) -> tuple[Optional[SamplingResult], Any]:
+        raw_snapshot = self.read_analyzer_snapshot(
+            analyzer,
+            label=label,
+            context=f"analyzer {label} batch read",
+        )
+        result = self.collect_sampling_result(
+            point,
+            label,
+            analyzer,
+            phase=phase,
+            point_tag=point_tag,
+            snapshot=raw_snapshot,
+            sample_index=sample_index,
+        )
+        return result, raw_snapshot
+
     def collect_sample_batch(
         self,
         point: CalibrationPoint,
@@ -779,44 +805,44 @@ class SamplingService:
             batch_results: list[SamplingResult] = []
             preferred_result: Optional[SamplingResult] = None
             first_usable_result: Optional[SamplingResult] = None
-            for analyzer_index, (label, analyzer, _) in enumerate(analyzers):
-                prefix = str(label or "").lower().replace(" ", "_")
-                try:
-                    raw_snapshot = self.read_analyzer_snapshot(
-                        analyzer,
-                        label=label,
-                        context=f"analyzer {label} batch read",
+            preferred_analyzer_label = analyzers[0][0] if analyzers else ""
+            analyzer_ordered = list(enumerate(analyzers))
+            analyzer_futures: dict[Any, tuple[int, str]] = {}
+            with ThreadPoolExecutor(max_workers=len(analyzers)) as pool:
+                for analyzer_index, (label, analyzer, _) in analyzer_ordered:
+                    future = pool.submit(
+                        self._read_single_analyzer_snapshot,
+                        point, label, analyzer, phase, point_tag, sample_index + 1,
                     )
-                    result = self.collect_sampling_result(
-                        point,
-                        label,
-                        analyzer,
-                        phase=phase,
-                        point_tag=point_tag,
-                        snapshot=raw_snapshot,
-                        sample_index=sample_index + 1,
-                    )
-                    batch_results.append(result)
-                    snapshot = self.normalize_snapshot(raw_snapshot)
-                    row[f"{prefix}_frame_has_data"] = True
-                    row[f"{prefix}_frame_usable"] = True
-                    row[f"{prefix}_frame_status"] = "ok"
-                    row[f"{prefix}_co2_ppm"] = result.co2_ppm
-                    row[f"{prefix}_h2o_mmol"] = result.h2o_mmol
-                    row[f"{prefix}_co2_ratio_f"] = result.co2_ratio_f
-                    row[f"{prefix}_h2o_ratio_f"] = result.h2o_ratio_f
-                    if first_usable_result is None:
-                        first_usable_result = result
-                    if analyzer_index == 0:
-                        preferred_result = result
-                    for key, value in snapshot.items():
-                        row[f"{prefix}_{key}"] = value
-                except Exception as exc:
-                    row[f"{prefix}_frame_has_data"] = False
-                    row[f"{prefix}_frame_usable"] = False
-                    row[f"{prefix}_frame_status"] = "read_error"
-                    row[f"{prefix}_error"] = str(exc)
-                    batch_failures.append(label)
+                    analyzer_futures[future] = (analyzer_index, label)
+                for future in as_completed(analyzer_futures):
+                    analyzer_index, label = analyzer_futures[future]
+                    prefix = str(label or "").lower().replace(" ", "_")
+                    try:
+                        result, raw_snapshot = future.result()
+                        if result is None:
+                            raise RuntimeError("analyzer read returned None")
+                        batch_results.append(result)
+                        snapshot = self.normalize_snapshot(raw_snapshot)
+                        row[f"{prefix}_frame_has_data"] = True
+                        row[f"{prefix}_frame_usable"] = True
+                        row[f"{prefix}_frame_status"] = "ok"
+                        row[f"{prefix}_co2_ppm"] = result.co2_ppm
+                        row[f"{prefix}_h2o_mmol"] = result.h2o_mmol
+                        row[f"{prefix}_co2_ratio_f"] = result.co2_ratio_f
+                        row[f"{prefix}_h2o_ratio_f"] = result.h2o_ratio_f
+                        if label == preferred_analyzer_label:
+                            preferred_result = result
+                        if first_usable_result is None:
+                            first_usable_result = result
+                        for key, value in snapshot.items():
+                            row[f"{prefix}_{key}"] = value
+                    except Exception as exc:
+                        row[f"{prefix}_frame_has_data"] = False
+                        row[f"{prefix}_frame_usable"] = False
+                        row[f"{prefix}_frame_status"] = "read_error"
+                        row[f"{prefix}_error"] = str(exc)
+                        batch_failures.append(label)
             if preferred_result is None:
                 preferred_result = first_usable_result
             if preferred_result is not None:
