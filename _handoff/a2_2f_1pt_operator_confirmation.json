@@ -1,8 +1,8 @@
 {
   "operator_name": "a2_44_smoke",
-  "timestamp": "2026-05-03T15:30:00.000000+00:00",
+  "timestamp": "2026-05-03T17:30:00.000000+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "5ca937d6351a999480a19d9e3bbf73559f9193a2",
+  "HEAD": "be053831078293d92b398c3917a92eb3ee880b7f",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_1_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [
@@ -51,7 +51,7 @@
     "multi_temperature_enabled": false,
     "real_primary_latest_refresh": false
   },
-  "single_run_only": true,
+  "single_run_only": false,
   "do_not_repeat": true,
   "operator_confirmation_source": "A2.44 smoke",
   "probe_scope": "A2.44 1-point smoke test",

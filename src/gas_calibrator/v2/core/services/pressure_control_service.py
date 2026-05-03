@@ -6049,6 +6049,9 @@ class PressureControlService:
         if callable(slew_method):
             try:
                 slew_method(10.0)
+                set_mode = getattr(controller, "set_slew_mode_linear", None)
+                if callable(set_mode):
+                    set_mode()
             except Exception:
                 pass
         for method_name in ("set_setpoint", "set_pressure_hpa", "set_pressure"):
