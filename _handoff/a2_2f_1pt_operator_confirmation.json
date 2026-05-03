@@ -1,8 +1,8 @@
 {
   "operator_name": "a2_44_smoke",
-  "timestamp": "2026-05-03T05:59:42.589645+00:00",
+  "timestamp": "2026-05-03T06:48:08.680989+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "132438abca18742c40435d0c6da9b7b44e328a19",
+  "HEAD": "f5b86de722a3b56acab9b6b6739eb0c1bad23bb4",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_1_pressure_no_write_real_machine.json",
   "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
   "pressure_points_hpa": [

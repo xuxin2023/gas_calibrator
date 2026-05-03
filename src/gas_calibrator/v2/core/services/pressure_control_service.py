@@ -1484,7 +1484,7 @@ class PressureControlService:
 
     def preclose_vent_and_allow_seal(self, point: Any) -> dict[str, Any]:
         import time
-        time.sleep(0.6)
+        time.sleep(0.8)
 
         pre_seal_pressure = None
         try:
