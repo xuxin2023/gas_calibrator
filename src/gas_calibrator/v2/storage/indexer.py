@@ -15,8 +15,6 @@ from typing import Any, Optional
 
 from sqlalchemy import select
 
-SCHEMA_VERSION = 2
-
 
 def _utc_now_text() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")

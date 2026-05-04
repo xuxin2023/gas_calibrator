@@ -424,6 +424,97 @@ class RunAnalyzerRegistry(Base):
 
 
 
+class StabilityWindowRecord(Base):
+    __tablename__ = "stability_windows"
+    __table_args__ = (
+        Index("ix_stability_windows_run_id", "run_id"),
+        Index("ix_stability_windows_timestamp", "timestamp"),
+        Index("ix_stability_windows_analyzer_sn", "analyzer_sn"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
+    analyzer_sn: Mapped[str] = mapped_column(String(64), nullable=False)
+    state_name: Mapped[str] = mapped_column(String(64), default="")
+    window_start_time: Mapped[str] = mapped_column(String(64), default="")
+    window_end_time: Mapped[str] = mapped_column(String(64), default="")
+    signal_list: Mapped[str] = mapped_column(Text, default="")
+    span_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    slope_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    std_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    valid_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    jump_count: Mapped[int] = mapped_column(Integer, default=0)
+    hard_threshold_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("FALSE"))
+    composite_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("FALSE"))
+    fail_reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class StateTransitionLogRecord(Base):
+    __tablename__ = "state_transition_logs"
+    __table_args__ = (
+        Index("ix_state_transition_logs_run_id", "run_id"),
+        Index("ix_state_transition_logs_timestamp", "timestamp"),
+        Index("ix_state_transition_logs_analyzer_sn", "analyzer_sn"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
+    analyzer_sn: Mapped[str] = mapped_column(String(64), nullable=False)
+    from_state: Mapped[str] = mapped_column(String(64), default="")
+    to_state: Mapped[str] = mapped_column(String(64), default="")
+    trigger: Mapped[str] = mapped_column(String(128), default="")
+    decision_context: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class StabilityDecisionRecord(Base):
+    __tablename__ = "stability_decisions"
+    __table_args__ = (
+        Index("ix_stability_decisions_run_id", "run_id"),
+        Index("ix_stability_decisions_timestamp", "timestamp"),
+        Index("ix_stability_decisions_analyzer_sn", "analyzer_sn"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
+    analyzer_sn: Mapped[str] = mapped_column(String(64), nullable=False)
+    stability_layer: Mapped[str] = mapped_column(String(64), default="")
+    strategy_version: Mapped[str] = mapped_column(String(64), default="")
+    signal_snapshot_ref: Mapped[str] = mapped_column(String(256), default="")
+    hard_threshold_result: Mapped[str] = mapped_column(String(32), default="")
+    composite_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    decision: Mapped[str] = mapped_column(String(32), default="")
+    fail_reason: Mapped[str] = mapped_column(Text, default="")
+    next_action: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RawSignalSnapshotRecord(Base):
+    __tablename__ = "raw_signal_snapshots"
+    __table_args__ = (
+        Index("ix_raw_signal_snapshots_run_id", "run_id"),
+        Index("ix_raw_signal_snapshots_timestamp", "timestamp"),
+        Index("ix_raw_signal_snapshots_analyzer_sn", "analyzer_sn"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
+    analyzer_sn: Mapped[str] = mapped_column(String(64), nullable=False)
+    signal_family: Mapped[str] = mapped_column(String(64), default="")
+    window_start_time: Mapped[str] = mapped_column(String(64), default="")
+    window_end_time: Mapped[str] = mapped_column(String(64), default="")
+    frame_count: Mapped[int] = mapped_column(Integer, default=0)
+    values_summary: Mapped[str] = mapped_column(Text, default="")
+    raw_payload_json: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 def create_schema_sync(engine: Engine, *, enable_timescaledb: bool = False) -> None:
     Base.metadata.create_all(engine)
     if enable_timescaledb:
