@@ -1115,7 +1115,7 @@ class WorkflowOrchestrator:
             return
         try:
             pct = float(self._cfg_get("devices.pressure_controller.in_limits_pct", 0.02))
-            time_s = float(self._cfg_get("devices.pressure_controller.in_limits_time_s", 1.0))
+            time_s = float(self._cfg_get("devices.pressure_controller.in_limits_time_s", 0.5))
             self._call_first(controller, ("set_in_limits",), pct, time_s)
         except Exception as exc:
             self._log(f"Pressure controller in-limits setup failed: {exc}")
