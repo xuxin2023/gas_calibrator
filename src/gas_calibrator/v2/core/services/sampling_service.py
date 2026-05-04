@@ -807,14 +807,22 @@ class SamplingService:
             first_usable_result: Optional[SamplingResult] = None
             preferred_analyzer_label = analyzers[0][0] if analyzers else ""
             sample_idx = sample_index + 1
-            with ThreadPoolExecutor(max_workers=len(analyzers)) as pool:
+            total_workers = len(analyzers) + 4  # analyzers + pressure + thermometer + chamber_temp + chamber_rh
+            with ThreadPoolExecutor(max_workers=total_workers) as executor:
                 analyzer_futures: dict[Any, str] = {}
                 for label, analyzer, _ in analyzers:
-                    future = pool.submit(
+                    future = executor.submit(
                         self._read_single_analyzer_snapshot,
                         point, label, analyzer, phase, point_tag, sample_idx,
                     )
                     analyzer_futures[future] = label
+                pressure_future = executor.submit(pressure_reader) if pressure_reader is not None else None
+                pressure_snapshot_future = executor.submit(pressure_gauge_snapshot_reader) if pressure_gauge_snapshot_reader is not None else None
+                thermometer_snapshot_future = executor.submit(thermometer_snapshot_reader) if thermometer_snapshot_reader is not None else None
+                chamber_temp_future = executor.submit(self.make_temperature_reader(chamber)) if chamber is not None and self.make_temperature_reader(chamber) is not None else None
+                chamber_rh_method = self.host._first_method(chamber, ("read_rh_pct", "read_humidity_pct")) if chamber is not None else None
+                chamber_rh_future = executor.submit(chamber_rh_method) if chamber_rh_method is not None else None
+
                 for future in as_completed(analyzer_futures):
                     label = analyzer_futures[future]
                     prefix = str(label or "").lower().replace(" ", "_")
@@ -843,15 +851,19 @@ class SamplingService:
                         row[f"{prefix}_frame_status"] = "read_error"
                         row[f"{prefix}_error"] = str(exc)
                         batch_failures.append(label)
+
             if preferred_result is None:
                 preferred_result = first_usable_result
             if preferred_result is not None:
                 row.update(self.standard_analyzer_row_values(preferred_result))
             if batch_failures and len(batch_failures) < len(analyzers):
                 self.host._disable_analyzers(batch_failures, reason="sample_timeout")
-            pressure_hpa = pressure_reader() if pressure_reader is not None else None
-            pressure_snapshot = pressure_gauge_snapshot_reader() if pressure_gauge_snapshot_reader is not None else {}
+
+            pressure_hpa = pressure_future.result() if pressure_future is not None else None
+            pressure_snapshot = pressure_snapshot_future.result() if pressure_snapshot_future is not None else {}
             pressure_gauge_hpa = self.pick_numeric(pressure_snapshot, "pressure_gauge_hpa", "pressure_hpa", "pressure")
+            if pressure_gauge_hpa is None and pressure_hpa is not None:
+                pressure_gauge_hpa = pressure_hpa
             if pressure_gauge_hpa is None and pressure_gauge_reader is not None:
                 pressure_gauge_hpa = pressure_gauge_reader()
             pressure_reference_status = self.pick_text(
@@ -859,7 +871,7 @@ class SamplingService:
                 "pressure_reference_status",
                 "reference_status",
             )
-            thermometer_snapshot = thermometer_snapshot_reader() if thermometer_snapshot_reader is not None else {}
+            thermometer_snapshot = thermometer_snapshot_future.result() if thermometer_snapshot_future is not None else {}
             thermometer_temp_c = self.pick_numeric(thermometer_snapshot, "thermometer_temp_c", "temp_c", "temperature_c")
             if thermometer_temp_c is None and thermometer_reader is not None:
                 thermometer_temp_c = thermometer_reader()
@@ -880,6 +892,7 @@ class SamplingService:
                 row["thermometer_reference_status"] = thermometer_reference_status
             if pressure_reader is not None:
                 row.setdefault("pressure_hpa", pressure_hpa)
+
             if dewpoint is not None and self.context.device_manager.get_status("dewpoint_meter") is not DeviceStatus.DISABLED:
                 if phase == "h2o" and self.run_state.humidity.preseal_dewpoint_snapshot:
                     row["dewpoint_c"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("dewpoint_c")
@@ -899,13 +912,12 @@ class SamplingService:
                     row["dewpoint_c"] = snapshot.get("dewpoint_c")
                     row["dew_temp_c"] = snapshot.get("temp_c")
                     row["dew_rh_pct"] = snapshot.get("rh_pct")
-            if chamber is not None:
-                reader = self.make_temperature_reader(chamber)
-                if reader is not None:
-                    row["chamber_temp_c"] = reader()
-                humidity_reader = self.host._first_method(chamber, ("read_rh_pct", "read_humidity_pct"))
-                if humidity_reader is not None:
-                    row["chamber_rh_pct"] = self.host._as_float(humidity_reader())
+
+            if chamber_temp_future is not None:
+                row["chamber_temp_c"] = chamber_temp_future.result()
+            if chamber_rh_future is not None:
+                row["chamber_rh_pct"] = self.host._as_float(chamber_rh_future.result())
+
             if generator is not None and self.context.device_manager.get_status("humidity_generator") is not DeviceStatus.DISABLED:
                 snapshot = self.normalize_snapshot(
                     self.read_device_snapshot(
@@ -918,6 +930,7 @@ class SamplingService:
                 if isinstance(data, dict):
                     for key, value in data.items():
                         row[f"hgen_{key}"] = value
+
             for result in batch_results:
                 results.append(
                     replace(
@@ -930,8 +943,6 @@ class SamplingService:
                     )
                 )
             rows.append(row)
-            if sample_index < count - 1 and interval_s > 0:
-                time.sleep(interval_s)
         return rows, results
 
     def sample_point(self, point: CalibrationPoint, *, phase: str, point_tag: str = "") -> list[SamplingResult]:
