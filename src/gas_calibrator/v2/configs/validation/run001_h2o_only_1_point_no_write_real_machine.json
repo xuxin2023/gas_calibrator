@@ -254,7 +254,7 @@
       "device_connection": true
     },
     "pressure": {
-      "pressurize_high_hpa": 1100,
+      "pressurize_high_hpa": 1013.25,
       "pressurize_wait_after_vent_off_s": 3,
       "pressurize_timeout_s": 120,
       "post_stable_sample_delay_s": 0,
