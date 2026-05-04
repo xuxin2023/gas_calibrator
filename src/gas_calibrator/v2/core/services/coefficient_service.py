@@ -1,10 +1,30 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from ...export import export_ratio_poly_report
 from ..orchestration_context import OrchestrationContext
 from ..run_state import RunState
+
+
+def saturation_vapor_pressure_hpa(temp_c: float) -> float:
+    return 6.112 * math.exp((17.67 * float(temp_c)) / (float(temp_c) + 243.5))
+
+
+def dry_air_corrected_co2_ppm(
+    *,
+    cylinder_co2_ppm: float,
+    pressure_p3_hpa: float,
+    temp_c: float,
+) -> float:
+    if cylinder_co2_ppm is None or pressure_p3_hpa is None or temp_c is None:
+        return cylinder_co2_ppm
+    e_t = saturation_vapor_pressure_hpa(temp_c)
+    if pressure_p3_hpa <= e_t:
+        return cylinder_co2_ppm
+    effective = float(cylinder_co2_ppm) * float(pressure_p3_hpa) / (float(pressure_p3_hpa) - e_t)
+    return round(effective, 4)
 
 
 class CoefficientService:

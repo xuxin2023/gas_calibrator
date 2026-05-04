@@ -128,6 +128,25 @@ def _dewpoint_saturation_pressure_hpa(dewpoint_c: float) -> float:
     return 6.1115 * math.exp((23.036 - temp_c / 333.7) * (temp_c / (279.82 + temp_c)))
 
 
+def _saturation_vapor_pressure_hpa(temp_c: float) -> float:
+    return 6.112 * math.exp((17.67 * float(temp_c)) / (float(temp_c) + 243.5))
+
+
+def _dry_air_corrected_co2_ppm(
+    *,
+    cylinder_co2_ppm: float,
+    pressure_p3_hpa: float,
+    temp_c: float,
+) -> float:
+    if cylinder_co2_ppm is None or pressure_p3_hpa is None or temp_c is None:
+        return cylinder_co2_ppm
+    e_t = _saturation_vapor_pressure_hpa(temp_c)
+    if float(pressure_p3_hpa) <= e_t:
+        return float(cylinder_co2_ppm)
+    effective = float(cylinder_co2_ppm) * float(pressure_p3_hpa) / (float(pressure_p3_hpa) - e_t)
+    return round(effective, 4)
+
+
 def _dewpoint_to_h2o_mmol_per_mol(dewpoint_c: Any, pressure_hpa: Any) -> Optional[float]:
     dewpoint = _safe_float(dewpoint_c)
     pressure = _safe_float(pressure_hpa)
@@ -859,6 +878,15 @@ def build_analyzer_summary_frame(
         missing_analyzers = sorted(set(point_expected) - point_present)
         unusable_analyzers = sorted(point_present - point_usable)
         expected_count = len(point_expected)
+
+        effective_co2_ppm = point.co2_ppm
+        if route == "co2" and point.co2_ppm is not None and reference_pressure_hpa is not None and reference_temp is not None:
+            effective_co2_ppm = _dry_air_corrected_co2_ppm(
+                cylinder_co2_ppm=point.co2_ppm,
+                pressure_p3_hpa=reference_pressure_hpa,
+                temp_c=reference_temp,
+            )
+
         row = {
             "Analyzer": analyzer_id,
             "NUM": num,
@@ -872,7 +900,7 @@ def build_analyzer_summary_frame(
             "Temp": reference_temp,
             "Dew": _mean(sample.dew_point_c for sample in reference_samples),
             "P": reference_pressure_hpa,
-            "ppm_CO2_Tank": point.co2_ppm,
+            "ppm_CO2_Tank": effective_co2_ppm,
             "PressureTarget": point.pressure_hpa,
             "AnalyzerCoverage": f"{len(point_usable)}/{expected_count}" if expected_count else "0/0",
             "UsableAnalyzers": len(point_usable),
