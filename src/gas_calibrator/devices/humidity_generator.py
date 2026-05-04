@@ -1,4 +1,4 @@
-﻿"""Humidity generator serial driver."""
+"""Humidity generator serial driver."""
 
 from __future__ import annotations
 
@@ -342,24 +342,32 @@ class HumidityGenerator:
         except Exception as exc:
             result["flow_off"] = "failed"
             result["flow_off_error"] = str(exc)
+        time.sleep(0.5)
         try:
             self.enable_control(False)
             result["ctrl_off"] = "ok"
         except Exception as exc:
             result["ctrl_off"] = "failed"
             result["ctrl_off_error"] = str(exc)
+        time.sleep(0.5)
         try:
             self.cool_off()
             result["cool_off"] = "ok"
         except Exception as exc:
             result["cool_off"] = "failed"
             result["cool_off_error"] = str(exc)
+        time.sleep(0.5)
         try:
             self.heat_off()
             result["heat_off"] = "ok"
         except Exception as exc:
             result["heat_off"] = "failed"
             result["heat_off_error"] = str(exc)
+        time.sleep(0.5)
+        try:
+            result["final_status"] = self.fetch_all()
+        except Exception as exc:
+            result["final_status_error"] = str(exc)
         return result
 
     def wait_stopped(
