@@ -311,7 +311,7 @@ def _resolve_db_url() -> str:
         return url
     try:
         import psycopg
-        return "postgresql+psycopg://postgres:postgres@localhost:5432/gas_calibrator"
+        return "postgresql+psycopg://postgres:26372023@localhost:5432/gas_calibrator"
     except ImportError:
         return "sqlite:///gas_calibrator_index.db"
 

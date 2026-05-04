@@ -515,6 +515,81 @@ class RawSignalSnapshotRecord(Base):
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class ArtifactRecord(Base):
+    __tablename__ = "artifacts"
+    __table_args__ = (
+        UniqueConstraint("artifact_id", name="uq_artifacts_artifact_id"),
+        Index("ix_artifacts_run_id", "run_id"),
+        Index("ix_artifacts_type", "artifact_type"),
+    )
+
+    artifact_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    artifact_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ManifestRecord(Base):
+    __tablename__ = "manifests"
+    __table_args__ = (
+        UniqueConstraint("manifest_id", name="uq_manifests_manifest_id"),
+        Index("ix_manifests_run_id", "run_id"),
+    )
+
+    manifest_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    manifest_data: Mapped[dict] = mapped_column(JSON_VARIANT, nullable=False, default=dict)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ReviewDigestRecord(Base):
+    __tablename__ = "review_digests"
+    __table_args__ = (
+        UniqueConstraint("digest_id", name="uq_review_digests_digest_id"),
+        Index("ix_review_digests_run_id", "run_id"),
+    )
+
+    digest_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    reviewer: Mapped[str] = mapped_column(String(128), default="")
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class StandardsMappingRecord(Base):
+    __tablename__ = "standards_mappings"
+    __table_args__ = (
+        UniqueConstraint("mapping_id", name="uq_standards_mappings_mapping_id"),
+        Index("ix_standards_mappings_run_id", "run_id"),
+        Index("ix_standards_mappings_standard_family", "standard_family"),
+    )
+
+    mapping_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    standard_family: Mapped[str] = mapped_column(String(128), default="")
+    topic: Mapped[str] = mapped_column(String(256), default="")
+    readiness_status: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class AuditEventRecord(Base):
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        UniqueConstraint("event_id", name="uq_audit_events_event_id"),
+        Index("ix_audit_events_run_id", "run_id"),
+        Index("ix_audit_events_type", "event_type"),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(512), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 def create_schema_sync(engine: Engine, *, enable_timescaledb: bool = False) -> None:
     Base.metadata.create_all(engine)
     if enable_timescaledb:
