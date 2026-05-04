@@ -6057,6 +6057,18 @@ class PressureControlService:
                     set_overshoot(False)
             except Exception:
                 pass
+        supply_pressure = None
+        get_comp1 = getattr(controller, "get_comp1", None)
+        if callable(get_comp1):
+            try:
+                supply_pressure = get_comp1()
+            except Exception:
+                pass
+        if supply_pressure is not None:
+            self.host._log(
+                f"PACE supply pressure: {supply_pressure} hPa "
+                f"(target={target_hpa} hPa)"
+            )
         for method_name in ("set_setpoint", "set_pressure_hpa", "set_pressure"):
             method = getattr(controller, method_name, None)
             if not callable(method):
