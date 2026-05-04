@@ -136,12 +136,13 @@ class H2oRouteRunner:
             self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": lead, "stability_type": "dewpoint"})
             self.service.valve_routing_service.mark_post_h2o_co2_zero_flush_pending()
 
-            h2o_all_ambient = bool(
+            first_point_is_ambient = bool(
                 effective_pressure_points
-                and all(getattr(pp, "is_ambient_pressure_point", False) for pp in effective_pressure_points)
+                and getattr(effective_pressure_points[0], "is_ambient_pressure_point", False)
             )
+            seal_deferred = False
 
-            if not h2o_all_ambient:
+            if not first_point_is_ambient:
                 if not self.service.pressure_control_service.pressurize_and_hold(lead, route=phase).ok:
                     self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O pressure-seal failure")
                     skipped_point_indices.extend(expected_indices)
@@ -151,27 +152,48 @@ class H2oRouteRunner:
                         error="H2O pressure seal failed",
                     )
             else:
-                self.service.valve_routing_service.set_h2o_path(False, lead)
+                seal_deferred = True
                 self.service.pressure_control_service.set_pressure_controller_vent(
-                    True, reason="H2O ambient sampling: keep atmosphere open"
+                    True, reason="H2O first point ambient: keep atmosphere open, seal deferred"
                 )
-                self.service.status_service.log("Pressure controller kept at atmosphere for H2O ambient sampling")
+                self.service.status_service.log("Pressure controller kept at atmosphere for H2O ambient first point (seal deferred)")
                 self.service.status_service.record_route_trace(
                     action="pressure_skip",
                     route=phase,
                     point=lead,
                     target={"pressure_hpa": None, "vent_on": True},
                     result="skipped",
-                    message="H2O ambient sampling: vent stays open, seal/pressurize bypassed",
+                    message="H2O first point ambient: seal/pressurize bypassed, vent stays open",
                 )
 
             for pressure_point in effective_pressure_points:
                 self.service.status_service.check_stop()
                 sample_point = self.service.route_planner.build_h2o_pressure_point(lead, pressure_point)
                 point_tag = self.service.route_planner.h2o_point_tag(sample_point)
+                is_current_ambient = bool(getattr(sample_point, "is_ambient_pressure_point", False))
                 route_context.update(current_point=sample_point, route_state={"sample_point_index": sample_point.index})
                 self.service.status_service.begin_point_timing(sample_point, phase=phase, point_tag=point_tag)
-                if not h2o_all_ambient:
+                if is_current_ambient:
+                    self.service.status_service.record_route_trace(
+                        action="pressure_skip",
+                        route=phase,
+                        point=sample_point,
+                        target={"pressure_hpa": None, "vent_on": True},
+                        result="skipped",
+                        message="H2O ambient pressure point: vent stays open, set_pressure bypassed, P3 ambient read used",
+                    )
+                    self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
+                else:
+                    if seal_deferred:
+                        if not self.service.pressure_control_service.pressurize_and_hold(lead, route=phase).ok:
+                            self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O deferred pressure-seal failure")
+                            skipped_point_indices.extend(expected_indices)
+                            return RouteRunResult(
+                                success=False,
+                                skipped_point_indices=skipped_point_indices,
+                                error="H2O deferred pressure seal failed",
+                            )
+                        seal_deferred = False
                     if not self.service.pressure_control_service.set_pressure_to_target(sample_point).ok:
                         self.service.status_service.log(f"H2O row {sample_point.index} skipped: pressure did not stabilize")
                         self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
@@ -185,16 +207,6 @@ class H2oRouteRunner:
                         self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
                         skipped_point_indices.append(sample_point.index)
                         continue
-                else:
-                    self.service.status_service.record_route_trace(
-                        action="pressure_skip",
-                        route=phase,
-                        point=sample_point,
-                        target={"pressure_hpa": None, "vent_on": True},
-                        result="skipped",
-                        message="H2O ambient pressure point: vent stays open, set_pressure bypassed",
-                    )
-                    self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
                 self.service.status_service.mark_point_stable_for_sampling(sample_point, phase=phase, point_tag=point_tag)
                 self.service.status_service.update_status(
                     phase=CalibrationPhase.SAMPLING,

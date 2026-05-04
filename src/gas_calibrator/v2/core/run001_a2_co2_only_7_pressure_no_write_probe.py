@@ -1614,6 +1614,20 @@ def _build_a2_downstream_point_rows(raw_cfg: Mapping[str, Any]) -> list[dict[str
     temperature_c = _selected_temperature_c(raw_cfg)
     co2_ppm = _co2_point_ppm(raw_cfg)
     rows: list[dict[str, Any]] = []
+    rows.append(
+        {
+            "index": 0,
+            "route": "co2",
+            "pressure_mode": "ambient_open",
+            "pressure_hpa": None,
+            "target_pressure_hpa": None,
+            "co2_ppm": co2_ppm,
+            "temperature_c": temperature_c,
+            "temp_chamber_c": temperature_c,
+            "co2_group": "A",
+            "cylinder_nominal_ppm": co2_ppm,
+        }
+    )
     for index, pressure in enumerate(A2_ALLOWED_PRESSURE_POINTS_HPA, start=1):
         rows.append(
             {
@@ -1641,12 +1655,18 @@ def _point_row_pressure(row: Mapping[str, Any]) -> Optional[float]:
 
 def _validate_a2_downstream_point_rows(rows: list[Mapping[str, Any]]) -> list[str]:
     reasons: list[str] = []
-    if len(rows) != len(A2_ALLOWED_PRESSURE_POINTS_HPA):
+    expected_count = len(A2_ALLOWED_PRESSURE_POINTS_HPA)
+    if len(rows) == expected_count + 1 and rows and str(rows[0].get("pressure_mode", "")).strip().lower() == "ambient_open":
+        expected_count += 1
+    if len(rows) != expected_count:
         reasons.append("a2_point_count_mismatch")
     routes = []
     pressures = []
     for row in rows:
         route = str(row.get("route", "") or "").strip().lower()
+        if str(row.get("pressure_mode", "")).strip().lower() == "ambient_open":
+            routes.append(route)
+            continue
         routes.append(route)
         pressure = _point_row_pressure(row)
         if not route:
