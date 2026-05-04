@@ -6049,7 +6049,7 @@ class PressureControlService:
         if callable(slew_method):
             try:
                 slew_method(20.0)
-                set_mode = getattr(controller, "set_slew_mode_linear", None)
+                set_mode = getattr(controller, "set_slew_mode_max", None)
                 if callable(set_mode):
                     set_mode()
                 set_overshoot = getattr(controller, "set_overshoot_allowed", None)
