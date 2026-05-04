@@ -428,8 +428,8 @@
       "co2_reseal_retry_count": 1
     },
     "sampling": {
-      "count": 10,
-      "stable_count": 10,
+      "count": 3,
+      "stable_count": 3,
       "interval_s": 2.0,
       "co2_interval_s": 2.0,
       "quality": {

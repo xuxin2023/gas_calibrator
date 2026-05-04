@@ -1484,7 +1484,7 @@ class PressureControlService:
 
     def preclose_vent_and_allow_seal(self, point: Any) -> dict[str, Any]:
         import time
-        time.sleep(0.8)
+        time.sleep(1.5)
 
         pre_seal_pressure = None
         try:
@@ -1501,7 +1501,7 @@ class PressureControlService:
             )
             return {"pre_seal_pressure_hpa": pre_seal_pressure}
 
-        deadline = time.monotonic() + 2.0
+        deadline = time.monotonic() + 4.0
         while time.monotonic() < deadline:
             try:
                 pre_seal_pressure = self._get_latest_pressure_hpa()
