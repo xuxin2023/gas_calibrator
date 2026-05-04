@@ -355,15 +355,6 @@ class SamplingService:
                 )
         return None
 
-    def _make_fast_pressure_reader(self) -> Optional[Callable[[], Optional[float]]]:
-        device = self.context.device_manager.get_device("pressure_meter")
-        if device is None:
-            return None
-        p4_method = getattr(device, "read_pressure_p4", None)
-        if callable(p4_method):
-            return lambda p4=p4_method: p4(response_timeout_s=0.3)
-        return None
-
     def make_pressure_gauge_reader(self) -> Optional[Callable[[], Optional[float]]]:
         device = self.context.device_manager.get_device("pressure_meter")
         if device is None:
