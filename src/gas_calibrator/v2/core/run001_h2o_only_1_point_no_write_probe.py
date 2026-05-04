@@ -808,12 +808,21 @@ def _shutdown_humidity_generator(service: Any) -> None:
     generator = service.device_manager.get_device("humidity_generator")
     if generator is None:
         return
+    ser = getattr(generator, "ser", None)
+    if ser is not None and not getattr(getattr(ser, "_ser", None), "is_open", True):
+        return
     stopper = getattr(generator, "safe_stop", None)
     if callable(stopper):
-        stopper()
+        try:
+            stopper()
+        except Exception:
+            pass
     waiter = getattr(generator, "wait_stopped", None)
     if callable(waiter):
-        waiter(max_flow_lpm=0.05, timeout_s=30.0, poll_s=0.5)
+        try:
+            waiter(max_flow_lpm=0.05, timeout_s=30.0, poll_s=0.5)
+        except Exception:
+            pass
 
 
 def execute_h2o_single_point_probe(config_path: str | Path) -> dict[str, Any]:
