@@ -354,6 +354,76 @@ class AlarmIncidentRecord(Base):
     run: Mapped[RunRecord] = relationship(back_populates="alarms")
 
 
+class RunIndexRecord(Base):
+    __tablename__ = "run_index"
+    __table_args__ = (
+        UniqueConstraint("run_id", name="uq_run_index_run_id"),
+        Index("ix_run_index_run_id", "run_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
+    branch: Mapped[str] = mapped_column(String(256), default="")
+    head: Mapped[str] = mapped_column(String(64), default="")
+    final_decision: Mapped[str] = mapped_column(String(64), default="")
+    pressure_points_completed: Mapped[int] = mapped_column(Integer, default=0)
+    sample_count_total: Mapped[int] = mapped_column(Integer, default=0)
+    attempted_write_count: Mapped[int] = mapped_column(Integer, default=0)
+    analyzer_sn: Mapped[str] = mapped_column(String(512), default="")
+    config_path: Mapped[str] = mapped_column(Text, default="")
+    output_dir: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class ArtifactIndexRecord(Base):
+    __tablename__ = "artifact_index"
+    __table_args__ = (
+        UniqueConstraint("run_id", "artifact_type", "file_hash", name="uq_artifact_index_run_type_hash"),
+        Index("ix_artifact_index_run_id", "run_id"),
+        Index("ix_artifact_index_type", "artifact_type"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    artifact_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    artifact_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RunCoefficientVersion(Base):
+    __tablename__ = "coefficient_version"
+    __table_args__ = (
+        Index("ix_coeffver_run_id", "run_id"),
+        Index("ix_coeffver_analyzer_sn", "analyzer_sn"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    analyzer_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    analyzer_sn: Mapped[str] = mapped_column(String(64), default="")
+    coefficient_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    written_to_device: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class RunAnalyzerRegistry(Base):
+    __tablename__ = "analyzer_registry"
+    __table_args__ = (
+        UniqueConstraint("analyzer_sn", name="uq_analyzer_registry_sn"),
+    )
+
+    analyzer_sn: Mapped[str] = mapped_column(String(64), primary_key=True)
+    first_seen_run_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    first_seen_time: Mapped[str] = mapped_column(String(64), nullable=False)
+    last_seen_time: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+
+
 def create_schema_sync(engine: Engine, *, enable_timescaledb: bool = False) -> None:
     Base.metadata.create_all(engine)
     if enable_timescaledb:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict, dataclass, is_dataclass
 import json
+import os
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, Optional
 from urllib.parse import quote_plus
@@ -292,3 +293,47 @@ class DatabaseManager:
             kwargs["pool_size"] = self.settings.pool_size
             kwargs["max_overflow"] = max(2, self.settings.pool_size)
         return kwargs
+
+
+_db_manager: Optional[DatabaseManager] = None
+_db_settings: Optional[StorageSettings] = None
+
+
+def _resolve_db_url() -> str:
+    env_url = os.environ.get("GAS_CAL_DB_URL", "").strip()
+    if env_url:
+        url = env_url
+        safe_drivers = ("psycopg", "psycopg2", "pg8000")
+        if "+asyncpg" in url:
+            url = url.replace("+asyncpg", "+psycopg")
+        elif "://" in url and "postgresql" in url.split("://")[0] and not any(f"+{d}" in url for d in safe_drivers):
+            url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+        return url
+    try:
+        import psycopg
+        return "postgresql+psycopg://postgres:postgres@localhost:5432/gas_calibrator"
+    except ImportError:
+        return "sqlite:///gas_calibrator_index.db"
+
+
+def get_engine() -> Engine:
+    global _db_manager, _db_settings
+    if _db_manager is not None and _db_manager._engine is not None:
+        return _db_manager.engine
+    dsn = _resolve_db_url()
+    backend = "sqlite" if dsn.startswith("sqlite") else "postgresql"
+    _db_settings = StorageSettings.from_dict({"dsn": dsn, "backend": backend})
+    _db_manager = DatabaseManager(_db_settings)
+    _db_manager.initialize()
+    return _db_manager.engine
+
+
+def get_session() -> Session:
+    return get_engine_manager().session_factory()
+
+
+def get_engine_manager() -> DatabaseManager:
+    global _db_manager
+    if _db_manager is None:
+        get_engine()
+    return _db_manager
