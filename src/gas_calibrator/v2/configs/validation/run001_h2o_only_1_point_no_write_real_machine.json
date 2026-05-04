@@ -300,7 +300,7 @@
         "rh_stable_span_pct": 0.3,
         "reach_confirm_count": 3,
         "window_s": 60,
-        "timeout_s": 900,
+        "timeout_s": 1800,
         "poll_s": 1.0
       },
       "h2o_route": {
