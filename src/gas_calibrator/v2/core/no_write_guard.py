@@ -134,6 +134,9 @@ def _run001_policy(raw_cfg: Optional[Mapping[str, Any]]) -> dict[str, Any]:
     candidate = raw_cfg.get("run001_a1")
     if isinstance(candidate, Mapping):
         return dict(candidate)
+    candidate = raw_cfg.get("run001_h2o_1_point")
+    if isinstance(candidate, Mapping):
+        return dict(candidate)
     candidate = raw_cfg.get("run001")
     if isinstance(candidate, Mapping):
         return dict(candidate)

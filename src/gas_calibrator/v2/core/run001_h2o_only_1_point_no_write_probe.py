@@ -804,6 +804,82 @@ def prepare_h2o_downstream_points_config(
     return aligned_config_path, metadata
 
 
+def execute_h2o_single_point_probe(config_path: str | Path) -> dict[str, Any]:
+    from gas_calibrator.v2.core.no_write_guard import build_no_write_guard_from_raw_config
+    from gas_calibrator.v2.entry import create_calibration_service_from_config, load_config_bundle
+
+    resolved_config_path, raw_cfg, config = load_config_bundle(
+        str(config_path),
+        simulation_mode=False,
+        allow_unsafe_step2_config=False,
+        enforce_step2_execution_gate=False,
+    )
+    service = create_calibration_service_from_config(
+        config,
+        raw_cfg=raw_cfg,
+        preload_points=True,
+        require_no_write_guard=True,
+    )
+    build_no_write_guard_from_raw_config(raw_cfg)
+    timeout_s = max(900.0, float(raw_cfg.get("max_runtime_s", 900.0)))
+    service.run(timeout=timeout_s)
+    run_dir = Path(service.session.output_dir)
+    summary = _load_json_dict(run_dir / "summary.json")
+    run_log_text = ""
+    run_log_path = run_dir / "run.log"
+    if run_log_path.exists():
+        try:
+            run_log_text = run_log_path.read_text(encoding="utf-8", errors="ignore")[-20000:]
+        except Exception:
+            run_log_text = ""
+    return {
+        "execution_run_dir": str(run_dir),
+        "underlying_config_path": str(resolved_config_path),
+        "run_manifest": _load_json_dict(run_dir / "run_manifest.json"),
+        "no_write_guard": _load_json_dict(run_dir / "no_write_guard.json"),
+        "workflow_timing_summary": _load_json_dict(run_dir / "workflow_timing_summary.json"),
+        "service_summary": summary,
+        "route_trace_rows": _load_jsonl(run_dir / "route_trace.jsonl"),
+        "timing_trace_rows": _load_jsonl(run_dir / "workflow_timing_trace.jsonl"),
+        "io_log_rows": _load_csv_dicts(run_dir / "io_log.csv"),
+        "sample_rows": _load_csv_dicts(run_dir / "samples.csv"),
+        "run_log_tail": run_log_text,
+    }
+
+
+def _load_json_dict(path: str | Path | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    target = Path(path)
+    if not target.exists():
+        return {}
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _load_jsonl(path: str | Path | None) -> list[dict[str, Any]]:
+    if path is None:
+        return []
+    target = Path(path)
+    if not target.exists():
+        return []
+    return load_guarded_jsonl(target, trace_name=None)
+
+
+def _load_csv_dicts(path: str | Path | None) -> list[dict[str, Any]]:
+    if path is None:
+        return []
+    target = Path(path)
+    if not target.exists():
+        return []
+    import csv
+    with target.open("r", encoding="utf-8", newline="") as handle:
+        return [dict(row) for row in csv.DictReader(handle)]
+
+
 def write_h2o_1_point_no_write_probe_artifacts(
     raw_cfg: Mapping[str, Any],
     *,
@@ -849,6 +925,14 @@ def write_h2o_1_point_no_write_probe_artifacts(
     }
 
     rejection_reasons = list(admission.reasons)
+    executed = bool(admission.approved and execute_probe)
+    execution_started = False
+    execution_interrupted = False
+    interruption_source = ""
+    interruption_stage = ""
+    execution_error = ""
+    execution: dict[str, Any] = {}
+    points_alignment: dict[str, Any] = {}
 
     _write_interrupted_guard_artifacts(
         run_dir,
@@ -879,15 +963,82 @@ def write_h2o_1_point_no_write_probe_artifacts(
         rejection_reasons.append("admission_not_approved")
     else:
         try:
-            _, points_alignment = prepare_h2o_downstream_points_config(
+            aligned_config_path, points_alignment = prepare_h2o_downstream_points_config(
                 raw_cfg,
                 config_path=config_path,
                 output_dir=run_dir,
             )
         except Exception as exc:
+            execution_error = str(exc)
             rejection_reasons.append(f"points_config_alignment_error:{exc}")
+        else:
+            _write_interrupted_guard_artifacts(
+                run_dir,
+                admission=admission,
+                artifact_paths=artifact_paths,
+                operator_confirmation_path=operator_confirmation_path,
+                config_path=config_path,
+                branch=branch,
+                head=head,
+                cli_allow=cli_allow,
+                execute_probe=execute_probe,
+                run_app_py_untouched=run_app_py_untouched,
+                interruption_source="downstream_executor_started",
+                interruption_stage="downstream_executor_started_real_com_status_unknown",
+                real_probe_executed=True,
+                real_com_opened="unknown",
+                any_device_command_sent="unknown",
+                any_write_command_sent="unknown",
+                no_write_assertion_status="unknown",
+                safe_stop_triggered="unknown",
+                device_command_audit_complete=False,
+                must_not_claim_no_write_pass=True,
+            )
+            execution_started = True
+            try:
+                execution = execute_h2o_single_point_probe(aligned_config_path)
+            except KeyboardInterrupt:
+                execution_interrupted = True
+                interruption_source = "KeyboardInterrupt"
+                interruption_stage = "downstream_executor_keyboard_interrupt"
+                execution_error = "KeyboardInterrupt"
+                rejection_reasons.append(H2O_INTERRUPTED_FAIL_CLOSED_REASON)
+            except TimeoutError as exc:
+                execution_interrupted = True
+                interruption_source = "TimeoutError"
+                interruption_stage = "downstream_executor_timeout"
+                execution_error = str(exc)
+                rejection_reasons.append(H2O_INTERRUPTED_FAIL_CLOSED_REASON)
+            except Exception as exc:
+                execution_interrupted = True
+                interruption_source = exc.__class__.__name__
+                interruption_stage = "downstream_executor_exception"
+                execution_error = str(exc)
+                rejection_reasons.append(H2O_INTERRUPTED_FAIL_CLOSED_REASON)
+                rejection_reasons.append(f"execution_error:{exc}")
 
-    final_decision = "PASS" if admission.approved else "FAIL_CLOSED"
+    service_summary = dict(execution.get("service_summary") or {}) if isinstance(execution, dict) else {}
+
+    real_probe_executed = bool(execution_started and not execution_interrupted)
+    real_com_opened: Any = False if not execution_started else ("unknown" if execution_interrupted else True)
+    any_device_command_sent: Any = False if not execution_started else ("unknown" if execution_interrupted else True)
+    any_write_command_sent: Any = False if not execution_started else ("unknown" if execution_interrupted else False)
+    no_write_assertion: str = "pass_pre_com" if not execution_started else ("unknown" if execution_interrupted else "pass")
+    safe_stop_triggered: Any = False if not execution_started else ("unknown" if execution_interrupted else False)
+    device_command_audit: bool = True if not execution_started else (False if execution_interrupted else True)
+    must_not_claim: bool = False if not execution_started else (True if execution_interrupted else False)
+
+    service_final = str(service_summary.get("final_decision") or "").upper()
+    if execution_started and not execution_interrupted:
+        if service_final == "PASS":
+            final_decision = "PASS"
+        else:
+            final_decision = "FAIL_CLOSED"
+            rejection_reasons.append(f"service_final_decision_{service_final.lower()}")
+    elif execution_interrupted:
+        final_decision = "FAIL_CLOSED"
+    else:
+        final_decision = "PASS" if admission.approved else "FAIL_CLOSED"
     completeness = _artifact_completeness(artifact_paths)
     summary = {
         "schema_version": H2O_SCHEMA_VERSION,
@@ -897,19 +1048,24 @@ def write_h2o_1_point_no_write_probe_artifacts(
         "operator_confirmation_valid": bool(admission.operator_validation.get("valid")),
         "rejection_reasons": rejection_reasons,
         "execute_probe_requested": bool(execute_probe),
-        "real_probe_executed": False,
-        "real_com_opened": False,
-        "any_device_command_sent": False,
-        "any_write_command_sent": False,
-        "safe_stop_triggered": False,
-        "no_write_assertion_status": "pass_pre_com",
-        "safety_assertions_complete": True,
-        "device_command_audit_complete": True,
-        "must_not_claim_no_write_pass": False,
+        "real_probe_executed": real_probe_executed,
+        "real_com_opened": real_com_opened,
+        "any_device_command_sent": any_device_command_sent,
+        "any_write_command_sent": any_write_command_sent,
+        "safe_stop_triggered": safe_stop_triggered,
+        "no_write_assertion_status": no_write_assertion,
+        "safety_assertions_complete": device_command_audit,
+        "device_command_audit_complete": device_command_audit,
+        "must_not_claim_no_write_pass": must_not_claim,
         "a3_allowed": False,
         "real_primary_latest_refresh": False,
         "artifact_paths": dict(artifact_paths),
         **completeness,
     }
     _json_dump(run_dir / "summary.json", summary)
+    try:
+        from gas_calibrator.v2.storage.indexer import index_run
+        index_run(str(run_dir))
+    except Exception:
+        pass
     return summary

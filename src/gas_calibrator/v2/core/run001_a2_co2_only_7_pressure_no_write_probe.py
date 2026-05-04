@@ -4537,4 +4537,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         safe_stop_triggered=safe_stop_triggered_value,
         no_write_assertion_status=no_write_assertion_status,
     )
+    try:
+        from gas_calibrator.v2.storage.indexer import index_run
+        index_run(str(run_dir))
+    except Exception:
+        pass
     return summary
