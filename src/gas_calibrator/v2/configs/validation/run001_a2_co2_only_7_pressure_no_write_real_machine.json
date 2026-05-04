@@ -430,8 +430,8 @@
     "sampling": {
       "count": 3,
       "stable_count": 3,
-      "interval_s": 2.0,
-      "co2_interval_s": 2.0,
+      "interval_s": 0.0,
+      "co2_interval_s": 0.0,
       "quality": {
         "enabled": false
       }

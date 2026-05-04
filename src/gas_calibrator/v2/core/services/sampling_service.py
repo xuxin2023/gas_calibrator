@@ -853,6 +853,13 @@ class SamplingService:
                         row[f"{prefix}_error"] = str(exc)
                         batch_failures.append(label)
 
+                pressure_hpa = pressure_future.result() if pressure_future is not None else None
+                pressure_snapshot = pressure_snapshot_future.result() if pressure_snapshot_future is not None else {}
+                thermometer_snapshot = thermometer_snapshot_future.result() if thermometer_snapshot_future is not None else {}
+                thermometer_temp_c_raw = thermometer_future.result() if thermometer_future is not None else None
+                chamber_temp_c_raw = chamber_temp_future.result() if chamber_temp_future is not None else None
+                chamber_rh_raw = self.host._as_float(chamber_rh_future.result()) if chamber_rh_future is not None else None
+
             if preferred_result is None:
                 preferred_result = first_usable_result
             if preferred_result is not None:
@@ -860,10 +867,8 @@ class SamplingService:
             if batch_failures and len(batch_failures) < len(analyzers):
                 self.host._disable_analyzers(batch_failures, reason="sample_timeout")
 
-            pressure_hpa = pressure_future.result() if pressure_future is not None else None
             if pressure_hpa is None and pressure_reader is not None:
                 pressure_hpa = pressure_reader()
-            pressure_snapshot = pressure_snapshot_future.result() if pressure_snapshot_future is not None else {}
             pressure_gauge_hpa = self.pick_numeric(pressure_snapshot, "pressure_gauge_hpa", "pressure_hpa", "pressure")
             if pressure_gauge_hpa is None and pressure_hpa is not None:
                 pressure_gauge_hpa = pressure_hpa
@@ -874,10 +879,9 @@ class SamplingService:
                 "pressure_reference_status",
                 "reference_status",
             )
-            thermometer_snapshot = thermometer_snapshot_future.result() if thermometer_snapshot_future is not None else {}
             thermometer_temp_c = self.pick_numeric(thermometer_snapshot, "thermometer_temp_c", "temp_c", "temperature_c")
-            if thermometer_temp_c is None and thermometer_future is not None:
-                thermometer_temp_c = thermometer_future.result()
+            if thermometer_temp_c is None and thermometer_temp_c_raw is not None:
+                thermometer_temp_c = thermometer_temp_c_raw
             thermometer_reference_status = self.pick_text(
                 thermometer_snapshot,
                 "thermometer_reference_status",
@@ -916,10 +920,10 @@ class SamplingService:
                     row["dew_temp_c"] = snapshot.get("temp_c")
                     row["dew_rh_pct"] = snapshot.get("rh_pct")
 
-            if chamber_temp_future is not None:
-                row["chamber_temp_c"] = chamber_temp_future.result()
-            if chamber_rh_future is not None:
-                row["chamber_rh_pct"] = self.host._as_float(chamber_rh_future.result())
+            if chamber_temp_c_raw is not None:
+                row["chamber_temp_c"] = chamber_temp_c_raw
+            if chamber_rh_raw is not None:
+                row["chamber_rh_pct"] = chamber_rh_raw
 
             if generator is not None and self.context.device_manager.get_status("humidity_generator") is not DeviceStatus.DISABLED:
                 snapshot = self.normalize_snapshot(
