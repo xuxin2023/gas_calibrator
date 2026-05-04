@@ -6447,7 +6447,7 @@ class PressureControlService:
         if route_text == "h2o":
             self.host._capture_preseal_dewpoint_snapshot()
         final_vent_off_command_sent = True
-        wait_after_vent_off_s = float(self.host._cfg_get("workflow.pressure.pressurize_wait_after_vent_off_s", 5.0))
+        wait_after_vent_off_s = float(self.host._cfg_get("workflow.pressure.pressurize_wait_after_vent_off_s", 3.0))
         if route_text != "h2o" and self.run_state.humidity.active_post_h2o_co2_zero_flush:
             wait_after_vent_off_s = float(
                 self.host._cfg_get("workflow.pressure.co2_post_h2o_vent_off_wait_s", wait_after_vent_off_s)
