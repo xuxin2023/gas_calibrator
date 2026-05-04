@@ -6052,6 +6052,9 @@ class PressureControlService:
                 set_mode = getattr(controller, "set_slew_mode_linear", None)
                 if callable(set_mode):
                     set_mode()
+                set_overshoot = getattr(controller, "set_overshoot_allowed", None)
+                if callable(set_overshoot):
+                    set_overshoot(False)
             except Exception:
                 pass
         for method_name in ("set_setpoint", "set_pressure_hpa", "set_pressure"):
