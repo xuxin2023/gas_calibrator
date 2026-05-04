@@ -3105,6 +3105,9 @@ class WorkflowOrchestrator:
     def _apply_valve_states(self, open_valves):
         return self.valve_routing_service.apply_valve_states(open_valves or [])
 
+    def _set_h2o_path(self, is_open: bool, point: Optional[CalibrationPoint] = None) -> None:
+        self.valve_routing_service.set_h2o_path(is_open, point)
+
     def _enable_pressure_controller_output(self, *, reason: str = ""):
         return self.pressure_control_service.enable_pressure_controller_output(reason=reason)
 
