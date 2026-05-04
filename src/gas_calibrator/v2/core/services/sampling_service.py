@@ -355,6 +355,15 @@ class SamplingService:
                 )
         return None
 
+    def _make_fast_pressure_reader(self) -> Optional[Callable[[], Optional[float]]]:
+        device = self.context.device_manager.get_device("pressure_meter")
+        if device is None:
+            return None
+        p4_method = getattr(device, "read_pressure_p4", None)
+        if callable(p4_method):
+            return lambda p4=p4_method: p4(response_timeout_s=0.3)
+        return None
+
     def make_pressure_gauge_reader(self) -> Optional[Callable[[], Optional[float]]]:
         device = self.context.device_manager.get_device("pressure_meter")
         if device is None:
@@ -775,6 +784,7 @@ class SamplingService:
         point_tag: str,
     ) -> tuple[list[dict[str, Any]], list[SamplingResult]]:
         analyzers = self.host._active_gas_analyzers()
+        fast_pressure_reader = self._make_fast_pressure_reader()
         pressure_reader = self.make_pressure_reader()
         pressure_gauge_reader = self.make_pressure_gauge_reader()
         pressure_gauge_snapshot_reader = self.make_pressure_gauge_snapshot_reader()
@@ -816,7 +826,7 @@ class SamplingService:
                         point, label, analyzer, phase, point_tag, sample_idx,
                     )
                     analyzer_futures[future] = label
-                pressure_future = executor.submit(pressure_reader) if pressure_reader is not None else None
+                pressure_p4_future = executor.submit(fast_pressure_reader) if fast_pressure_reader is not None else None
                 pressure_snapshot_future = executor.submit(pressure_gauge_snapshot_reader) if pressure_gauge_snapshot_reader is not None else None
                 thermometer_snapshot_future = executor.submit(thermometer_snapshot_reader) if thermometer_snapshot_reader is not None else None
                 chamber_temp_future = executor.submit(self.make_temperature_reader(chamber)) if chamber is not None and self.make_temperature_reader(chamber) is not None else None
@@ -859,7 +869,9 @@ class SamplingService:
             if batch_failures and len(batch_failures) < len(analyzers):
                 self.host._disable_analyzers(batch_failures, reason="sample_timeout")
 
-            pressure_hpa = pressure_future.result() if pressure_future is not None else None
+            pressure_hpa = pressure_p4_future.result() if pressure_p4_future is not None else None
+            if pressure_hpa is None and pressure_reader is not None:
+                pressure_hpa = pressure_reader()
             pressure_snapshot = pressure_snapshot_future.result() if pressure_snapshot_future is not None else {}
             pressure_gauge_hpa = self.pick_numeric(pressure_snapshot, "pressure_gauge_hpa", "pressure_hpa", "pressure")
             if pressure_gauge_hpa is None and pressure_hpa is not None:

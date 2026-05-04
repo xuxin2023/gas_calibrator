@@ -193,6 +193,39 @@ class ParoscientificGauge:
             raise last_exc
         raise RuntimeError("NO_RESPONSE")
 
+    def read_pressure_p4(
+        self,
+        *,
+        response_timeout_s: float = 0.3,
+    ) -> Optional[float]:
+        cmd = self._cmd("P4")
+        with self._query_lock:
+            exchange_readlines = getattr(self.ser, "exchange_readlines", None)
+            if callable(exchange_readlines):
+                try:
+                    lines = exchange_readlines(
+                        cmd,
+                        response_timeout_s=max(0.05, float(response_timeout_s)),
+                        read_timeout_s=0.02,
+                        clear_input=False,
+                    )
+                    value = self._parse_pressure_lines(list(lines or []), cmd_echo=cmd.strip().upper())
+                    if value is not None:
+                        return value
+                except Exception:
+                    pass
+            try:
+                self.ser.write(cmd)
+                deadline = time.time() + max(0.1, float(response_timeout_s))
+                while time.time() < deadline:
+                    resp = self.ser.readline()
+                    value = self._parse_pressure_lines([(resp or "").strip()], cmd_echo=cmd.strip().upper())
+                    if value is not None:
+                        return value
+            except Exception:
+                pass
+        return None
+
     def _p3_read_with_retry(
         self,
         *,
