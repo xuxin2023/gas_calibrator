@@ -1,0 +1,3454 @@
+{
+  "schema_version": "2.0",
+  "artifact_type": "state_transition_evidence",
+  "generated_at": "2026-04-30T04:30:37+00:00",
+  "run_id": "run_20260430_123033",
+  "artifact_role": "diagnostic_analysis",
+  "reviewer_only": true,
+  "readiness_mapping_only": true,
+  "not_real_acceptance_evidence": true,
+  "not_ready_for_formal_claim": true,
+  "evidence_source": "simulated",
+  "evidence_state": "shadow_only",
+  "boundary_statements": [
+    "Step 2 tail / Stage 3 bridge",
+    "simulation / offline / headless only",
+    "not real acceptance",
+    "cannot replace real metrology validation",
+    "shadow evaluation only",
+    "does not modify live sampling gate by default"
+  ],
+  "canonical_states": [
+    "INIT",
+    "DEVICE_READY",
+    "PLAN_COMPILED",
+    "TEMP_SOAK",
+    "ROUTE_FLUSH",
+    "PRESEAL_STABILITY",
+    "SEAL",
+    "PRESSURE_HANDOFF",
+    "PRESSURE_STABLE",
+    "RAW_SIGNAL_STABLE",
+    "OUTPUT_STABLE",
+    "SAMPLE_WINDOW",
+    "POINT_COMPLETE",
+    "NEXT_POINT",
+    "NEXT_ROUTE",
+    "NEXT_TEMP",
+    "RUN_COMPLETE",
+    "FAULT_CAPTURE",
+    "SAFE_RECOVERY",
+    "ABORT"
+  ],
+  "allowed_transitions": {
+    "INIT": [
+      "DEVICE_READY",
+      "ABORT"
+    ],
+    "DEVICE_READY": [
+      "PLAN_COMPILED",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "PLAN_COMPILED": [
+      "TEMP_SOAK",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "TEMP_SOAK": [
+      "ROUTE_FLUSH",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "ROUTE_FLUSH": [
+      "PRESEAL_STABILITY",
+      "SEAL",
+      "RAW_SIGNAL_STABLE",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "PRESEAL_STABILITY": [
+      "SEAL",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "SEAL": [
+      "PRESSURE_HANDOFF",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "PRESSURE_HANDOFF": [
+      "PRESSURE_STABLE",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "PRESSURE_STABLE": [
+      "RAW_SIGNAL_STABLE",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "RAW_SIGNAL_STABLE": [
+      "OUTPUT_STABLE",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "OUTPUT_STABLE": [
+      "SAMPLE_WINDOW",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "SAMPLE_WINDOW": [
+      "POINT_COMPLETE",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "POINT_COMPLETE": [
+      "NEXT_POINT",
+      "NEXT_ROUTE",
+      "NEXT_TEMP",
+      "RUN_COMPLETE",
+      "FAULT_CAPTURE",
+      "ABORT"
+    ],
+    "NEXT_POINT": [
+      "TEMP_SOAK",
+      "ROUTE_FLUSH",
+      "RUN_COMPLETE",
+      "ABORT"
+    ],
+    "NEXT_ROUTE": [
+      "TEMP_SOAK",
+      "ROUTE_FLUSH",
+      "RUN_COMPLETE",
+      "ABORT"
+    ],
+    "NEXT_TEMP": [
+      "TEMP_SOAK",
+      "RUN_COMPLETE",
+      "ABORT"
+    ],
+    "FAULT_CAPTURE": [
+      "SAFE_RECOVERY",
+      "ABORT"
+    ],
+    "SAFE_RECOVERY": [
+      "TEMP_SOAK",
+      "ROUTE_FLUSH",
+      "RUN_COMPLETE",
+      "ABORT"
+    ],
+    "RUN_COMPLETE": [],
+    "ABORT": []
+  },
+  "state_library": {
+    "artifact_type": "state_library",
+    "schema_version": "2.0",
+    "canonical_states": [
+      {
+        "state_id": "INIT",
+        "state_group": "bootstrap",
+        "display_name": "Init",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "DEVICE_READY",
+        "state_group": "bootstrap",
+        "display_name": "Device Ready",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "PLAN_COMPILED",
+        "state_group": "bootstrap",
+        "display_name": "Plan Compiled",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "TEMP_SOAK",
+        "state_group": "conditioning",
+        "display_name": "Temp Soak",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "ROUTE_FLUSH",
+        "state_group": "conditioning",
+        "display_name": "Route Flush",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "PRESEAL_STABILITY",
+        "state_group": "conditioning",
+        "display_name": "Preseal Stability",
+        "enabled": false,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "SEAL",
+        "state_group": "pressure_control",
+        "display_name": "Seal",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "PRESSURE_HANDOFF",
+        "state_group": "pressure_control",
+        "display_name": "Pressure Handoff",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "PRESSURE_STABLE",
+        "state_group": "pressure_control",
+        "display_name": "Pressure Stable",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "RAW_SIGNAL_STABLE",
+        "state_group": "stability",
+        "display_name": "Raw Signal Stable",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "OUTPUT_STABLE",
+        "state_group": "stability",
+        "display_name": "Output Stable",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "SAMPLE_WINDOW",
+        "state_group": "sampling",
+        "display_name": "Sample Window",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "POINT_COMPLETE",
+        "state_group": "completion",
+        "display_name": "Point Complete",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "NEXT_POINT",
+        "state_group": "routing",
+        "display_name": "Next Point",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "NEXT_ROUTE",
+        "state_group": "routing",
+        "display_name": "Next Route",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "NEXT_TEMP",
+        "state_group": "routing",
+        "display_name": "Next Temp",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "RUN_COMPLETE",
+        "state_group": "terminal",
+        "display_name": "Run Complete",
+        "enabled": true,
+        "terminal": true,
+        "diagnostic_only": false,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "FAULT_CAPTURE",
+        "state_group": "recovery",
+        "display_name": "Fault Capture",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": true,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "SAFE_RECOVERY",
+        "state_group": "recovery",
+        "display_name": "Safe Recovery",
+        "enabled": true,
+        "terminal": false,
+        "diagnostic_only": true,
+        "route_families": [
+          "gas"
+        ]
+      },
+      {
+        "state_id": "ABORT",
+        "state_group": "terminal",
+        "display_name": "Abort",
+        "enabled": true,
+        "terminal": true,
+        "diagnostic_only": true,
+        "route_families": [
+          "gas"
+        ]
+      }
+    ],
+    "allowed_transition_rows": [
+      {
+        "from_state": "INIT",
+        "to_state": "DEVICE_READY",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "INIT",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "DEVICE_READY",
+        "to_state": "PLAN_COMPILED",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "DEVICE_READY",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "DEVICE_READY",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "PLAN_COMPILED",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "PLAN_COMPILED",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "PLAN_COMPILED",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "TEMP_SOAK",
+        "to_state": "ROUTE_FLUSH",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "TEMP_SOAK",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "TEMP_SOAK",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "ROUTE_FLUSH",
+        "to_state": "PRESEAL_STABILITY",
+        "transition_kind": "stability"
+      },
+      {
+        "from_state": "ROUTE_FLUSH",
+        "to_state": "SEAL",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "ROUTE_FLUSH",
+        "to_state": "RAW_SIGNAL_STABLE",
+        "transition_kind": "stability"
+      },
+      {
+        "from_state": "ROUTE_FLUSH",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "ROUTE_FLUSH",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "PRESEAL_STABILITY",
+        "to_state": "SEAL",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "PRESEAL_STABILITY",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "PRESEAL_STABILITY",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "SEAL",
+        "to_state": "PRESSURE_HANDOFF",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "SEAL",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "SEAL",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "PRESSURE_HANDOFF",
+        "to_state": "PRESSURE_STABLE",
+        "transition_kind": "stability"
+      },
+      {
+        "from_state": "PRESSURE_HANDOFF",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "PRESSURE_HANDOFF",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "PRESSURE_STABLE",
+        "to_state": "RAW_SIGNAL_STABLE",
+        "transition_kind": "stability"
+      },
+      {
+        "from_state": "PRESSURE_STABLE",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "PRESSURE_STABLE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "RAW_SIGNAL_STABLE",
+        "to_state": "OUTPUT_STABLE",
+        "transition_kind": "stability"
+      },
+      {
+        "from_state": "RAW_SIGNAL_STABLE",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "RAW_SIGNAL_STABLE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "OUTPUT_STABLE",
+        "to_state": "SAMPLE_WINDOW",
+        "transition_kind": "sampling"
+      },
+      {
+        "from_state": "OUTPUT_STABLE",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "OUTPUT_STABLE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "SAMPLE_WINDOW",
+        "to_state": "POINT_COMPLETE",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "SAMPLE_WINDOW",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "SAMPLE_WINDOW",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "NEXT_POINT",
+        "transition_kind": "routing"
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "NEXT_ROUTE",
+        "transition_kind": "routing"
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "NEXT_TEMP",
+        "transition_kind": "routing"
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "ROUTE_FLUSH",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "ROUTE_FLUSH",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "NEXT_TEMP",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "NEXT_TEMP",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "NEXT_TEMP",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "FAULT_CAPTURE",
+        "to_state": "SAFE_RECOVERY",
+        "transition_kind": "recovery"
+      },
+      {
+        "from_state": "FAULT_CAPTURE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "SAFE_RECOVERY",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "SAFE_RECOVERY",
+        "to_state": "ROUTE_FLUSH",
+        "transition_kind": "progression"
+      },
+      {
+        "from_state": "SAFE_RECOVERY",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal"
+      },
+      {
+        "from_state": "SAFE_RECOVERY",
+        "to_state": "ABORT",
+        "transition_kind": "terminal"
+      }
+    ],
+    "terminal_states": [
+      "ABORT",
+      "RUN_COMPLETE"
+    ],
+    "diagnostic_only_states": [
+      "ABORT",
+      "FAULT_CAPTURE",
+      "SAFE_RECOVERY"
+    ],
+    "summary_line": "canonical states 20 | enabled 19 | allowed transitions 60",
+    "reviewer_only": true,
+    "readiness_mapping_only": true,
+    "not_real_acceptance_evidence": true,
+    "not_ready_for_formal_claim": true,
+    "evidence_source": "simulated",
+    "evidence_state": "shadow_only"
+  },
+  "policy_profile": {
+    "profile_version": "transition_policy_profile_v2",
+    "controlled_state_machine_profile_version": "controlled_flex_v2",
+    "feature_set_version": "controlled_state_machine.step2_offline_v2",
+    "state_library_version": "canonical_state_library_v1",
+    "retry_policy": {
+      "default_retry_limit": 1,
+      "by_state": {
+        "PRESEAL_STABILITY": 2,
+        "PRESSURE_STABLE": 2,
+        "RAW_SIGNAL_STABLE": 2,
+        "OUTPUT_STABLE": 1,
+        "SAMPLE_WINDOW": 1
+      }
+    },
+    "rollback_policy": {
+      "default_rollback_state": "ROUTE_FLUSH"
+    },
+    "skip_policy": {
+      "default_skip_allowed": false
+    },
+    "diagnostic_only_policy": {
+      "states": [
+        "ABORT",
+        "FAULT_CAPTURE",
+        "SAFE_RECOVERY"
+      ]
+    },
+    "route_family_scope": [
+      "gas"
+    ],
+    "enabled_states": [
+      "INIT",
+      "DEVICE_READY",
+      "PLAN_COMPILED",
+      "TEMP_SOAK",
+      "ROUTE_FLUSH",
+      "SEAL",
+      "PRESSURE_HANDOFF",
+      "PRESSURE_STABLE",
+      "RAW_SIGNAL_STABLE",
+      "OUTPUT_STABLE",
+      "SAMPLE_WINDOW",
+      "POINT_COMPLETE",
+      "NEXT_POINT",
+      "NEXT_ROUTE",
+      "NEXT_TEMP",
+      "RUN_COMPLETE",
+      "FAULT_CAPTURE",
+      "SAFE_RECOVERY",
+      "ABORT"
+    ]
+  },
+  "compiled_route_state_graph": {
+    "artifact_type": "compiled_route_state_graph",
+    "graph_version": "compiled_route_state_graph_v2",
+    "enabled_state_count": 19,
+    "edge_count": 56,
+    "nodes": [
+      {
+        "state_id": "INIT",
+        "enabled": true,
+        "state_group": "bootstrap",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "DEVICE_READY",
+        "enabled": true,
+        "state_group": "bootstrap",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "PLAN_COMPILED",
+        "enabled": true,
+        "state_group": "bootstrap",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "TEMP_SOAK",
+        "enabled": true,
+        "state_group": "conditioning",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "ROUTE_FLUSH",
+        "enabled": true,
+        "state_group": "conditioning",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "SEAL",
+        "enabled": true,
+        "state_group": "pressure_control",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "PRESSURE_HANDOFF",
+        "enabled": true,
+        "state_group": "pressure_control",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "PRESSURE_STABLE",
+        "enabled": true,
+        "state_group": "pressure_control",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "RAW_SIGNAL_STABLE",
+        "enabled": true,
+        "state_group": "stability",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "OUTPUT_STABLE",
+        "enabled": true,
+        "state_group": "stability",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "SAMPLE_WINDOW",
+        "enabled": true,
+        "state_group": "sampling",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "POINT_COMPLETE",
+        "enabled": true,
+        "state_group": "completion",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "NEXT_POINT",
+        "enabled": true,
+        "state_group": "routing",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "NEXT_ROUTE",
+        "enabled": true,
+        "state_group": "routing",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "NEXT_TEMP",
+        "enabled": true,
+        "state_group": "routing",
+        "terminal": false,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "RUN_COMPLETE",
+        "enabled": true,
+        "state_group": "terminal",
+        "terminal": true,
+        "diagnostic_only": false
+      },
+      {
+        "state_id": "FAULT_CAPTURE",
+        "enabled": true,
+        "state_group": "recovery",
+        "terminal": false,
+        "diagnostic_only": true
+      },
+      {
+        "state_id": "SAFE_RECOVERY",
+        "enabled": true,
+        "state_group": "recovery",
+        "terminal": false,
+        "diagnostic_only": true
+      },
+      {
+        "state_id": "ABORT",
+        "enabled": true,
+        "state_group": "terminal",
+        "terminal": true,
+        "diagnostic_only": true
+      }
+    ],
+    "edges": [
+      {
+        "from_state": "INIT",
+        "to_state": "DEVICE_READY",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "INIT",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "DEVICE_READY",
+        "to_state": "PLAN_COMPILED",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "DEVICE_READY",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "DEVICE_READY",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "PLAN_COMPILED",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "PLAN_COMPILED",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "PLAN_COMPILED",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "TEMP_SOAK",
+        "to_state": "ROUTE_FLUSH",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "TEMP_SOAK",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "TEMP_SOAK",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "ROUTE_FLUSH",
+        "to_state": "SEAL",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "ROUTE_FLUSH",
+        "to_state": "RAW_SIGNAL_STABLE",
+        "transition_kind": "stability",
+        "enabled_for_profile": true,
+        "retry_limit": 2,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "ROUTE_FLUSH",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "ROUTE_FLUSH",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "SEAL",
+        "to_state": "PRESSURE_HANDOFF",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "SEAL",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "SEAL",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "PRESSURE_HANDOFF",
+        "to_state": "PRESSURE_STABLE",
+        "transition_kind": "stability",
+        "enabled_for_profile": true,
+        "retry_limit": 2,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "PRESSURE_HANDOFF",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "PRESSURE_HANDOFF",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "PRESSURE_STABLE",
+        "to_state": "RAW_SIGNAL_STABLE",
+        "transition_kind": "stability",
+        "enabled_for_profile": true,
+        "retry_limit": 2,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "PRESSURE_STABLE",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "PRESSURE_STABLE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "RAW_SIGNAL_STABLE",
+        "to_state": "OUTPUT_STABLE",
+        "transition_kind": "stability",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "RAW_SIGNAL_STABLE",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "RAW_SIGNAL_STABLE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "OUTPUT_STABLE",
+        "to_state": "SAMPLE_WINDOW",
+        "transition_kind": "sampling",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "OUTPUT_STABLE",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "OUTPUT_STABLE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "SAMPLE_WINDOW",
+        "to_state": "POINT_COMPLETE",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "SAMPLE_WINDOW",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "SAMPLE_WINDOW",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "NEXT_POINT",
+        "transition_kind": "routing",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "NEXT_ROUTE",
+        "transition_kind": "routing",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "NEXT_TEMP",
+        "transition_kind": "routing",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "FAULT_CAPTURE",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "POINT_COMPLETE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "ROUTE_FLUSH",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "ROUTE_FLUSH",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "NEXT_TEMP",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "NEXT_TEMP",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "NEXT_TEMP",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "FAULT_CAPTURE",
+        "to_state": "SAFE_RECOVERY",
+        "transition_kind": "recovery",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "FAULT_CAPTURE",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      },
+      {
+        "from_state": "SAFE_RECOVERY",
+        "to_state": "TEMP_SOAK",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "SAFE_RECOVERY",
+        "to_state": "ROUTE_FLUSH",
+        "transition_kind": "progression",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "SAFE_RECOVERY",
+        "to_state": "RUN_COMPLETE",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": false
+      },
+      {
+        "from_state": "SAFE_RECOVERY",
+        "to_state": "ABORT",
+        "transition_kind": "terminal",
+        "enabled_for_profile": true,
+        "retry_limit": 1,
+        "rollback_state": "ROUTE_FLUSH",
+        "skip_allowed": false,
+        "diagnostic_only": true
+      }
+    ],
+    "route_paths": [
+      {
+        "route_family": "gas",
+        "compiled_state_path": [
+          "TEMP_SOAK",
+          "ROUTE_FLUSH",
+          "SEAL",
+          "PRESSURE_HANDOFF",
+          "PRESSURE_STABLE",
+          "RAW_SIGNAL_STABLE",
+          "OUTPUT_STABLE",
+          "SAMPLE_WINDOW",
+          "POINT_COMPLETE",
+          "RUN_COMPLETE"
+        ],
+        "graph_nodes": 10
+      }
+    ],
+    "summary_line": "routes 1 | nodes 19 | edges 56 | profile transition_policy_profile_v2",
+    "reviewer_only": true,
+    "readiness_mapping_only": true,
+    "not_real_acceptance_evidence": true,
+    "not_ready_for_formal_claim": true,
+    "evidence_source": "simulated",
+    "evidence_state": "shadow_only"
+  },
+  "transition_policy_profile": {
+    "artifact_type": "transition_policy_profile",
+    "policy_version": "transition_policy_profile_v2",
+    "feature_set_version": "controlled_state_machine.step2_offline_v2",
+    "policy_profile": {
+      "profile_version": "transition_policy_profile_v2",
+      "controlled_state_machine_profile_version": "controlled_flex_v2",
+      "feature_set_version": "controlled_state_machine.step2_offline_v2",
+      "state_library_version": "canonical_state_library_v1",
+      "retry_policy": {
+        "default_retry_limit": 1,
+        "by_state": {
+          "PRESEAL_STABILITY": 2,
+          "PRESSURE_STABLE": 2,
+          "RAW_SIGNAL_STABLE": 2,
+          "OUTPUT_STABLE": 1,
+          "SAMPLE_WINDOW": 1
+        }
+      },
+      "rollback_policy": {
+        "default_rollback_state": "ROUTE_FLUSH"
+      },
+      "skip_policy": {
+        "default_skip_allowed": false
+      },
+      "diagnostic_only_policy": {
+        "states": [
+          "ABORT",
+          "FAULT_CAPTURE",
+          "SAFE_RECOVERY"
+        ]
+      },
+      "route_family_scope": [
+        "gas"
+      ],
+      "enabled_states": [
+        "INIT",
+        "DEVICE_READY",
+        "PLAN_COMPILED",
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "RAW_SIGNAL_STABLE",
+        "OUTPUT_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT",
+        "NEXT_ROUTE",
+        "NEXT_TEMP",
+        "RUN_COMPLETE",
+        "FAULT_CAPTURE",
+        "SAFE_RECOVERY",
+        "ABORT"
+      ]
+    },
+    "summary_line": "retry 5 | routes 1 | diagnostic 3",
+    "reviewer_only": true,
+    "readiness_mapping_only": true,
+    "not_real_acceptance_evidence": true,
+    "not_ready_for_formal_claim": true,
+    "evidence_source": "simulated",
+    "evidence_state": "shadow_only"
+  },
+  "state_transition_logs": [
+    {
+      "sequence": 1,
+      "from_state": "--",
+      "to_state": "INIT",
+      "reason": "bootstrap",
+      "point_index": 0,
+      "route_family": "system",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 2,
+      "from_state": "INIT",
+      "to_state": "DEVICE_READY",
+      "reason": "bootstrap",
+      "point_index": 0,
+      "route_family": "system",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 3,
+      "from_state": "DEVICE_READY",
+      "to_state": "PLAN_COMPILED",
+      "reason": "bootstrap",
+      "point_index": 0,
+      "route_family": "system",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 4,
+      "from_state": "PLAN_COMPILED",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 5,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 6,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 7,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 8,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 9,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "RAW_SIGNAL_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 10,
+      "from_state": "RAW_SIGNAL_STABLE",
+      "to_state": "OUTPUT_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 11,
+      "from_state": "OUTPUT_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 12,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 13,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 14,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 15,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 16,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 17,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 18,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 19,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "RAW_SIGNAL_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 20,
+      "from_state": "RAW_SIGNAL_STABLE",
+      "to_state": "OUTPUT_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 21,
+      "from_state": "OUTPUT_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 22,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 23,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 24,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 25,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 26,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 27,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 28,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 29,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 30,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 31,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "FAULT_CAPTURE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 32,
+      "from_state": "FAULT_CAPTURE",
+      "to_state": "SAFE_RECOVERY",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 33,
+      "from_state": "SAFE_RECOVERY",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 34,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 35,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 36,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 37,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 38,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 39,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "RAW_SIGNAL_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 40,
+      "from_state": "RAW_SIGNAL_STABLE",
+      "to_state": "OUTPUT_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 41,
+      "from_state": "OUTPUT_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 42,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 43,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 44,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 45,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 46,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 47,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 48,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 49,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "RAW_SIGNAL_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 50,
+      "from_state": "RAW_SIGNAL_STABLE",
+      "to_state": "OUTPUT_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 51,
+      "from_state": "OUTPUT_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 52,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 53,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 54,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 55,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 56,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 57,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 58,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 59,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 60,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 61,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "FAULT_CAPTURE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 62,
+      "from_state": "FAULT_CAPTURE",
+      "to_state": "SAFE_RECOVERY",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 63,
+      "from_state": "SAFE_RECOVERY",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 64,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 65,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 66,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 67,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 68,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 69,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "RAW_SIGNAL_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 70,
+      "from_state": "RAW_SIGNAL_STABLE",
+      "to_state": "OUTPUT_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 71,
+      "from_state": "OUTPUT_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 72,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 73,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 74,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 75,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 76,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 77,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 78,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 79,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "RAW_SIGNAL_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 80,
+      "from_state": "RAW_SIGNAL_STABLE",
+      "to_state": "OUTPUT_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 81,
+      "from_state": "OUTPUT_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 82,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 83,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 84,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 85,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 86,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 87,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 88,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 89,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 90,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 91,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "FAULT_CAPTURE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 92,
+      "from_state": "FAULT_CAPTURE",
+      "to_state": "SAFE_RECOVERY",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 93,
+      "from_state": "SAFE_RECOVERY",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 94,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 95,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 96,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 97,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 98,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 99,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": false
+    },
+    {
+      "sequence": 100,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 101,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 102,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 103,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 104,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 105,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 106,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 107,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "RAW_SIGNAL_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 108,
+      "from_state": "RAW_SIGNAL_STABLE",
+      "to_state": "OUTPUT_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 109,
+      "from_state": "OUTPUT_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 110,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 111,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 112,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 113,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 114,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 115,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 116,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 117,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "RAW_SIGNAL_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 118,
+      "from_state": "RAW_SIGNAL_STABLE",
+      "to_state": "OUTPUT_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 119,
+      "from_state": "OUTPUT_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 120,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 121,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    },
+    {
+      "sequence": 122,
+      "from_state": "NEXT_POINT",
+      "to_state": "TEMP_SOAK",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 123,
+      "from_state": "TEMP_SOAK",
+      "to_state": "ROUTE_FLUSH",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 124,
+      "from_state": "ROUTE_FLUSH",
+      "to_state": "SEAL",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 125,
+      "from_state": "SEAL",
+      "to_state": "PRESSURE_HANDOFF",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 126,
+      "from_state": "PRESSURE_HANDOFF",
+      "to_state": "PRESSURE_STABLE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 127,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 128,
+      "from_state": "SAMPLE_WINDOW",
+      "to_state": "POINT_COMPLETE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 129,
+      "from_state": "POINT_COMPLETE",
+      "to_state": "FAULT_CAPTURE",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 130,
+      "from_state": "FAULT_CAPTURE",
+      "to_state": "SAFE_RECOVERY",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": true
+    },
+    {
+      "sequence": 131,
+      "from_state": "SAFE_RECOVERY",
+      "to_state": "RUN_COMPLETE",
+      "reason": "run_complete",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": true
+    }
+  ],
+  "phase_decision_logs": [
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "trace_only",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "RAW_SIGNAL_STABLE",
+        "OUTPUT_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "trace_only",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "RAW_SIGNAL_STABLE",
+        "OUTPUT_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "fault_capture_recovery",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "FAULT_CAPTURE",
+        "SAFE_RECOVERY",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "retry_or_recovery",
+      "recommended_policy_action": "replay_fault_window_before_next_point",
+      "evidence_source": "model_only"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "trace_only",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "RAW_SIGNAL_STABLE",
+        "OUTPUT_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "trace_only",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "RAW_SIGNAL_STABLE",
+        "OUTPUT_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "fault_capture_recovery",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "FAULT_CAPTURE",
+        "SAFE_RECOVERY",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "retry_or_recovery",
+      "recommended_policy_action": "replay_fault_window_before_next_point",
+      "evidence_source": "model_only"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "trace_only",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "RAW_SIGNAL_STABLE",
+        "OUTPUT_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "trace_only",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "RAW_SIGNAL_STABLE",
+        "OUTPUT_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "fault_capture_recovery",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "FAULT_CAPTURE",
+        "SAFE_RECOVERY",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "retry_or_recovery",
+      "recommended_policy_action": "replay_fault_window_before_next_point",
+      "evidence_source": "model_only"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "preseal",
+      "decision_result": "trace_only",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "trace_only",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "RAW_SIGNAL_STABLE",
+        "OUTPUT_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "trace_only",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "RAW_SIGNAL_STABLE",
+        "OUTPUT_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "NEXT_POINT"
+      ],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 0,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "fault_capture_recovery",
+      "active_states": [
+        "TEMP_SOAK",
+        "ROUTE_FLUSH",
+        "SEAL",
+        "PRESSURE_HANDOFF",
+        "PRESSURE_STABLE",
+        "SAMPLE_WINDOW",
+        "POINT_COMPLETE",
+        "FAULT_CAPTURE",
+        "SAFE_RECOVERY"
+      ],
+      "recovery_marker": "retry_or_recovery",
+      "recommended_policy_action": "replay_fault_window_before_next_point",
+      "evidence_source": "model_only"
+    },
+    {
+      "point_index": 9,
+      "route_family": "gas",
+      "phase_policy": "preseal",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 8,
+      "route_family": "gas",
+      "phase_policy": "preseal",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 8,
+      "route_family": "gas",
+      "phase_policy": "pressure_stable",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 8,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 6,
+      "route_family": "gas",
+      "phase_policy": "pressure_stable",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 6,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 7,
+      "route_family": "gas",
+      "phase_policy": "pressure_stable",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 7,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 10,
+      "route_family": "gas",
+      "phase_policy": "pressure_stable",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 10,
+      "route_family": "gas",
+      "phase_policy": "sample_ready",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    },
+    {
+      "point_index": 10,
+      "route_family": "gas",
+      "phase_policy": "preseal",
+      "decision_result": "actual_trace_observed",
+      "active_states": [],
+      "recovery_marker": "",
+      "recommended_policy_action": "compare_observed_trace_with_compiled_graph",
+      "evidence_source": "actual_simulated_run"
+    }
+  ],
+  "illegal_transitions": [
+    {
+      "sequence": 29,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 33,
+      "from_state": "SAFE_RECOVERY",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 59,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 63,
+      "from_state": "SAFE_RECOVERY",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 89,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 93,
+      "from_state": "SAFE_RECOVERY",
+      "to_state": "NEXT_POINT",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    },
+    {
+      "sequence": 99,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "",
+      "allowed": false
+    },
+    {
+      "sequence": 127,
+      "from_state": "PRESSURE_STABLE",
+      "to_state": "SAMPLE_WINDOW",
+      "reason": "point_path",
+      "point_index": 0,
+      "route_family": "gas",
+      "recovery_marker": "retry_or_recovery",
+      "allowed": false
+    }
+  ],
+  "replay_trace": {
+    "summary": "point 0: INIT -> DEVICE_READY -> PLAN_COMPILED -> TEMP_SOAK -> ROUTE_FLUSH -> SEAL -> PRESSURE_HANDOFF -> PRESSURE_STABLE",
+    "point_replay_lines": [
+      "point 0: INIT -> DEVICE_READY -> PLAN_COMPILED -> TEMP_SOAK -> ROUTE_FLUSH -> SEAL -> PRESSURE_HANDOFF -> PRESSURE_STABLE"
+    ],
+    "sequence_count": 131
+  },
+  "comparison_rollup": {
+    "summary": "observed 18 | unexpected 2 | compiled_not_visited 40",
+    "unexpected_transitions": [
+      {
+        "from_state": "PRESSURE_STABLE",
+        "to_state": "SAMPLE_WINDOW"
+      },
+      {
+        "from_state": "SAFE_RECOVERY",
+        "to_state": "NEXT_POINT"
+      }
+    ],
+    "compiled_not_visited": [
+      {
+        "from_state": "DEVICE_READY",
+        "to_state": "ABORT"
+      },
+      {
+        "from_state": "DEVICE_READY",
+        "to_state": "FAULT_CAPTURE"
+      },
+      {
+        "from_state": "FAULT_CAPTURE",
+        "to_state": "ABORT"
+      },
+      {
+        "from_state": "INIT",
+        "to_state": "ABORT"
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "ABORT"
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "ROUTE_FLUSH"
+      },
+      {
+        "from_state": "NEXT_POINT",
+        "to_state": "RUN_COMPLETE"
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "ABORT"
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "ROUTE_FLUSH"
+      },
+      {
+        "from_state": "NEXT_ROUTE",
+        "to_state": "RUN_COMPLETE"
+      }
+    ]
+  },
+  "digest": {
+    "summary": "Step 2 tail / Stage 3 bridge | controlled-flex trace | events 131 | illegal 8",
+    "phase_summary": "sample_ready 16 | preseal 4 | pressure_stable 4",
+    "route_summary": "gas 24",
+    "policy_summary": "retry 5 | routes 1 | diagnostic 3",
+    "graph_summary": "routes 1 | nodes 19 | edges 56 | profile transition_policy_profile_v2",
+    "replay_summary": "point 0: INIT -> DEVICE_READY -> PLAN_COMPILED -> TEMP_SOAK -> ROUTE_FLUSH -> SEAL -> PRESSURE_HANDOFF -> PRESSURE_STABLE",
+    "comparison_summary": "observed 18 | unexpected 2 | compiled_not_visited 40",
+    "transition_summary": "--->INIT | INIT->DEVICE_READY | DEVICE_READY->PLAN_COMPILED | PLAN_COMPILED->TEMP_SOAK | TEMP_SOAK->ROUTE_FLUSH | ROUTE_FLUSH->SEAL",
+    "recovery_summary": "retry_or_recovery",
+    "boundary_summary": "Step 2 tail / Stage 3 bridge | simulation / offline / headless only | not real acceptance | cannot replace real metrology validation | shadow evaluation only | does not modify live sampling gate by default"
+  },
+  "review_surface": {
+    "title_text": "State Transition Evidence",
+    "role_text": "diagnostic_analysis",
+    "reviewer_note": "Controlled state machine trace, fixed canonical states, transition policy profile, and compiled route graph for Step 2 offline replay only.",
+    "summary_text": "Step 2 tail / Stage 3 bridge | controlled-flex trace | events 131 | illegal 8",
+    "summary_lines": [
+      "Step 2 tail / Stage 3 bridge | controlled-flex trace | events 131 | illegal 8",
+      "phase buckets: sample_ready 16 | preseal 4 | pressure_stable 4",
+      "route families: gas 24",
+      "policy profile: retry 5 | routes 1 | diagnostic 3",
+      "compiled graph: routes 1 | nodes 19 | edges 56 | profile transition_policy_profile_v2",
+      "replay: point 0: INIT -> DEVICE_READY -> PLAN_COMPILED -> TEMP_SOAK -> ROUTE_FLUSH -> SEAL -> PRESSURE_HANDOFF -> PRESSURE_STABLE",
+      "comparison: observed 18 | unexpected 2 | compiled_not_visited 40"
+    ],
+    "detail_lines": [
+      "transitions: --->INIT | INIT->DEVICE_READY | DEVICE_READY->PLAN_COMPILED | PLAN_COMPILED->TEMP_SOAK | TEMP_SOAK->ROUTE_FLUSH | ROUTE_FLUSH->SEAL",
+      "recovery: retry_or_recovery",
+      "boundary: Step 2 tail / Stage 3 bridge",
+      "boundary: simulation / offline / headless only",
+      "boundary: not real acceptance",
+      "boundary: cannot replace real metrology validation",
+      "boundary: shadow evaluation only",
+      "boundary: does not modify live sampling gate by default",
+      "illegal transitions: 8"
+    ],
+    "anchor_id": "state-transition-evidence",
+    "anchor_label": "State transition evidence",
+    "phase_filters": [
+      "sample_ready",
+      "preseal",
+      "pressure_stable"
+    ],
+    "route_filters": [
+      "gas"
+    ],
+    "signal_family_filters": [
+      "state_machine",
+      "route_graph",
+      "transition_policy"
+    ],
+    "decision_result_filters": [
+      "trace_only",
+      "fault_capture_recovery",
+      "actual_trace_observed"
+    ],
+    "policy_version_filters": [
+      "transition_policy_profile_v2",
+      "controlled_state_machine.step2_offline_v2"
+    ],
+    "boundary_filters": [
+      "Step 2 tail / Stage 3 bridge",
+      "simulation / offline / headless only",
+      "not real acceptance",
+      "cannot replace real metrology validation",
+      "shadow evaluation only",
+      "does not modify live sampling gate by default"
+    ],
+    "evidence_source_filters": [
+      "actual_simulated_run",
+      "model_only"
+    ],
+    "artifact_paths": {
+      "state_transition_evidence": "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\pressure_reference_degraded\\v2_output\\run_20260430_123033\\state_transition_evidence.json",
+      "state_transition_evidence_markdown": "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\pressure_reference_degraded\\v2_output\\run_20260430_123033\\state_transition_evidence.md"
+    }
+  },
+  "artifact_paths": {
+    "state_transition_evidence": "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\pressure_reference_degraded\\v2_output\\run_20260430_123033\\state_transition_evidence.json",
+    "state_transition_evidence_markdown": "D:\\gas_calibrator\\_handoff\\a2_12r_real_probe_preflight_suite_reports\\smoke_a2_12r_real_probe_preflight\\pressure_reference_degraded\\v2_output\\run_20260430_123033\\state_transition_evidence.md"
+  },
+  "overall_status": "degraded"
+}

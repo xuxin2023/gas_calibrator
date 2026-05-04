@@ -1,0 +1,27 @@
+{
+  "schema_version": "step2-local-metrology-fixtures-v1",
+  "gate_mode": "offline_file_backed_advisory",
+  "advisory_only": true,
+  "device_control_allowed": false,
+  "manual_reviewer_override_placeholder": {
+    "allowed": false,
+    "mode": "reviewer_note_only",
+    "note": "Step 3 placeholder only; no live gate override in Step 2."
+  },
+  "block_conditions": {
+    "certificate_statuses": ["missing_certificate", "expired_certificate"],
+    "intermediate_check_statuses": ["missing_intermediate_check", "overdue"],
+    "lot_binding_statuses": ["missing_binding_approval", "unbound_lot"],
+    "lot_usage_linkage_statuses": ["missing_usage_linkage"],
+    "out_of_tolerance_statuses": ["open"],
+    "quarantine_states": ["quarantined_pending_review"]
+  },
+  "warning_conditions": {
+    "certificate_statuses": ["reviewer_stub_only"],
+    "intermediate_check_statuses": ["due_soon"],
+    "lot_binding_statuses": ["reviewer_note_required", "warning_pending_reviewer_note"],
+    "lot_usage_linkage_statuses": ["lot_usage_sidecar_pending"],
+    "out_of_tolerance_statuses": ["investigating"],
+    "substitute_approval_statuses": ["reviewer_note_required", "missing_approval"]
+  }
+}

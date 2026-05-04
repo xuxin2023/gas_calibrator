@@ -1,0 +1,244 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "coefficient_registry",
+  "run_id": "run_20260430_145847",
+  "generated_at": "2026-04-30T14:58:54",
+  "available": false,
+  "report_path": "",
+  "status": "skipped",
+  "not_real_acceptance_evidence": true,
+  "entries": [
+    {
+      "generated_at": "2026-04-30T14:58:54",
+      "analyzer_id": "GA01",
+      "coefficient_version": "coef-missing",
+      "source_run": "run_20260430_145847",
+      "source_artifact_ids": [
+        "run_20260430_145847:coefficient_report",
+        "run_20260430_145847:run_summary",
+        "run_20260430_145847:results_json"
+      ],
+      "route_range": [
+        "h2o"
+      ],
+      "temperature_range_c": {
+        "min": 20.0,
+        "max": 20.0
+      },
+      "source_range": {
+        "co2_ppm_min": null,
+        "co2_ppm_max": null
+      },
+      "parity_status": "missing",
+      "quality_status": "degraded",
+      "config_version": "cfg-66d8464366cd",
+      "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "not_real_acceptance_evidence": true
+    },
+    {
+      "generated_at": "2026-04-30T14:58:54",
+      "analyzer_id": "GA02",
+      "coefficient_version": "coef-missing",
+      "source_run": "run_20260430_145847",
+      "source_artifact_ids": [
+        "run_20260430_145847:coefficient_report",
+        "run_20260430_145847:run_summary",
+        "run_20260430_145847:results_json"
+      ],
+      "route_range": [
+        "h2o"
+      ],
+      "temperature_range_c": {
+        "min": 20.0,
+        "max": 20.0
+      },
+      "source_range": {
+        "co2_ppm_min": null,
+        "co2_ppm_max": null
+      },
+      "parity_status": "missing",
+      "quality_status": "degraded",
+      "config_version": "cfg-66d8464366cd",
+      "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "not_real_acceptance_evidence": true
+    },
+    {
+      "generated_at": "2026-04-30T14:58:54",
+      "analyzer_id": "GA03",
+      "coefficient_version": "coef-missing",
+      "source_run": "run_20260430_145847",
+      "source_artifact_ids": [
+        "run_20260430_145847:coefficient_report",
+        "run_20260430_145847:run_summary",
+        "run_20260430_145847:results_json"
+      ],
+      "route_range": [
+        "h2o"
+      ],
+      "temperature_range_c": {
+        "min": 20.0,
+        "max": 20.0
+      },
+      "source_range": {
+        "co2_ppm_min": null,
+        "co2_ppm_max": null
+      },
+      "parity_status": "missing",
+      "quality_status": "degraded",
+      "config_version": "cfg-66d8464366cd",
+      "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "not_real_acceptance_evidence": true
+    },
+    {
+      "generated_at": "2026-04-30T14:58:54",
+      "analyzer_id": "GA04",
+      "coefficient_version": "coef-missing",
+      "source_run": "run_20260430_145847",
+      "source_artifact_ids": [
+        "run_20260430_145847:coefficient_report",
+        "run_20260430_145847:run_summary",
+        "run_20260430_145847:results_json"
+      ],
+      "route_range": [
+        "h2o"
+      ],
+      "temperature_range_c": {
+        "min": 20.0,
+        "max": 20.0
+      },
+      "source_range": {
+        "co2_ppm_min": null,
+        "co2_ppm_max": null
+      },
+      "parity_status": "missing",
+      "quality_status": "degraded",
+      "config_version": "cfg-66d8464366cd",
+      "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "not_real_acceptance_evidence": true
+    },
+    {
+      "generated_at": "2026-04-30T14:58:54",
+      "analyzer_id": "GA05",
+      "coefficient_version": "coef-missing",
+      "source_run": "run_20260430_145847",
+      "source_artifact_ids": [
+        "run_20260430_145847:coefficient_report",
+        "run_20260430_145847:run_summary",
+        "run_20260430_145847:results_json"
+      ],
+      "route_range": [
+        "h2o"
+      ],
+      "temperature_range_c": {
+        "min": 20.0,
+        "max": 20.0
+      },
+      "source_range": {
+        "co2_ppm_min": null,
+        "co2_ppm_max": null
+      },
+      "parity_status": "missing",
+      "quality_status": "degraded",
+      "config_version": "cfg-66d8464366cd",
+      "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "not_real_acceptance_evidence": true
+    },
+    {
+      "generated_at": "2026-04-30T14:58:54",
+      "analyzer_id": "GA06",
+      "coefficient_version": "coef-missing",
+      "source_run": "run_20260430_145847",
+      "source_artifact_ids": [
+        "run_20260430_145847:coefficient_report",
+        "run_20260430_145847:run_summary",
+        "run_20260430_145847:results_json"
+      ],
+      "route_range": [
+        "h2o"
+      ],
+      "temperature_range_c": {
+        "min": 20.0,
+        "max": 20.0
+      },
+      "source_range": {
+        "co2_ppm_min": null,
+        "co2_ppm_max": null
+      },
+      "parity_status": "missing",
+      "quality_status": "degraded",
+      "config_version": "cfg-66d8464366cd",
+      "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "not_real_acceptance_evidence": true
+    },
+    {
+      "generated_at": "2026-04-30T14:58:54",
+      "analyzer_id": "GA07",
+      "coefficient_version": "coef-missing",
+      "source_run": "run_20260430_145847",
+      "source_artifact_ids": [
+        "run_20260430_145847:coefficient_report",
+        "run_20260430_145847:run_summary",
+        "run_20260430_145847:results_json"
+      ],
+      "route_range": [
+        "h2o"
+      ],
+      "temperature_range_c": {
+        "min": 20.0,
+        "max": 20.0
+      },
+      "source_range": {
+        "co2_ppm_min": null,
+        "co2_ppm_max": null
+      },
+      "parity_status": "missing",
+      "quality_status": "degraded",
+      "config_version": "cfg-66d8464366cd",
+      "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "not_real_acceptance_evidence": true
+    },
+    {
+      "generated_at": "2026-04-30T14:58:54",
+      "analyzer_id": "GA08",
+      "coefficient_version": "coef-missing",
+      "source_run": "run_20260430_145847",
+      "source_artifact_ids": [
+        "run_20260430_145847:coefficient_report",
+        "run_20260430_145847:run_summary",
+        "run_20260430_145847:results_json"
+      ],
+      "route_range": [
+        "h2o"
+      ],
+      "temperature_range_c": {
+        "min": 20.0,
+        "max": 20.0
+      },
+      "source_range": {
+        "co2_ppm_min": null,
+        "co2_ppm_max": null
+      },
+      "parity_status": "missing",
+      "quality_status": "degraded",
+      "config_version": "cfg-66d8464366cd",
+      "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "not_real_acceptance_evidence": true
+    }
+  ]
+}

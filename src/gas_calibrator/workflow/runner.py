@@ -13,7 +13,7 @@ from collections import Counter, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import mean, stdev
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..config import (
     V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
@@ -26,6 +26,7 @@ from ..coefficients.fit_amt import fit_amt_eq4, save_fit_report
 from ..coefficients.data_loader import records_to_dataframe, resolve_column_name
 from ..coefficients.fit_ratio_poly import fit_ratio_poly_rt_p, save_ratio_poly_report
 from ..coefficients.fit_ratio_poly_evolved import fit_ratio_poly_rt_p_evolved
+from ..coefficients.model_feature_policy import resolve_ratio_poly_model_features
 from ..data.points import CalibrationPoint, load_points_from_excel, reorder_points, validate_points
 from ..export.temperature_compensation_export import export_temperature_compensation_artifacts
 from ..h2o_summary_selection import normalize_h2o_summary_selection
@@ -99,8 +100,21 @@ def _optional_env_bool(name: str) -> Optional[bool]:
     return None
 
 
+_LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE = (
+    "local_trace_scan:62_old_v1_route_sealed_to_control_ready_vent_status_3_success_like_chains"
+)
+_LEGACY_V1_AFTER_FULL_SEAL_WATCHLIST_EVIDENCE_SOURCE = (
+    "local_trace_scan:62_old_v1_after_full_seal_control_ready_vent_status_3_to_in_limits_chains"
+)
+_LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE = (
+    "local_trace_scan:42_old_v1_after_full_seal_output_enable_vent_status_3_to_in_limits_chains"
+)
+
+
 _PRESSURE_TRACE_FIELDS = [
     "ts",
+    "phase",
+    "phase_start_ts",
     "point_title",
     "point_phase",
     "point_tag",
@@ -108,15 +122,96 @@ _PRESSURE_TRACE_FIELDS = [
     "route",
     "trace_stage",
     "trigger_reason",
+    "vent_context_json",
+    "valve_route_state",
+    "fresh_vent_command_sent",
+    "vent_status_sequence",
     "pressure_target_hpa",
+    "pressure_hpa",
+    "ambient_hpa",
+    "pressure_delta_from_ambient_hpa",
+    "pressure_slope_hpa_s",
+    "atmosphere_ready",
+    "analyzer_pressure_kpa",
+    "dewpoint_line_pressure_hpa",
+    "route_pressure_guard_status",
+    "route_pressure_guard_reason",
+    "offending_route",
+    "offending_valve_or_group",
     "pace_pressure_hpa",
     "pressure_gauge_hpa",
     "dewpoint_c",
     "dew_temp_c",
     "dew_rh_pct",
+    "dewpoint_stabilization_started",
+    "dewpoint_stabilization_timeout",
+    "abort_reason",
+    "pace_syst_err_query",
     "pace_output_state",
     "pace_isolation_state",
     "pace_vent_status",
+    "pace_outp_state_query",
+    "pace_isol_state_query",
+    "pace_mode_query",
+    "pace_vent_status_query",
+    "pace_legacy_vent_state_3_suspect",
+    "pace_atmosphere_connected_latched_state_suspect",
+    "legacy_vent3_control_ready_used",
+    "legacy_vent3_accept_scope",
+    "vent_status_3_count",
+    "vent3_hard_blocked",
+    "vent3_watchlist_only",
+    "vent3_control_ready_attempted",
+    "vent3_control_ready_prevented",
+    "vent3_block_scope",
+    "ack_callback_invoked",
+    "vent3_post_window_status",
+    "preseal_final_exit_watchlist_status_seen",
+    "preseal_final_exit_watchlist_status_accepted",
+    "preseal_final_exit_watchlist_status_reason",
+    "legacy_v1_preseal_watchlist_evidence_found",
+    "legacy_v1_preseal_watchlist_evidence_source",
+    "after_full_seal_watchlist_status_seen",
+    "after_full_seal_watchlist_status_accepted",
+    "after_full_seal_watchlist_status_reason",
+    "legacy_v1_after_full_seal_watchlist_evidence_found",
+    "legacy_v1_after_full_seal_watchlist_evidence_source",
+    "control_ready_watchlist_status_accepted",
+    "control_ready_watchlist_status_phase",
+    "control_ready_check_watchlist_status_seen",
+    "control_ready_check_watchlist_status_accepted",
+    "after_full_seal_output_enable_watchlist_status_seen",
+    "after_full_seal_output_enable_watchlist_status_accepted",
+    "after_full_seal_output_enable_watchlist_status_reason",
+    "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found",
+    "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source",
+    "output_enable_watchlist_status_accepted",
+    "output_enable_watchlist_status_phase",
+    "output_enable_failed_with_watchlist_status_3",
+    "pace_vent_completed_latched",
+    "pace_vent_clear_attempted",
+    "pace_vent_clear_result",
+    "pace_vent_after_valve_state_query",
+    "pace_vent_popup_state_query",
+    "pace_vent_elapsed_time_query",
+    "pace_vent_orpv_state_query",
+    "pace_vent_pupv_state_query",
+    "pace_effort_query",
+    "pace_comp1_query",
+    "pace_comp2_query",
+    "pace_sens_pres_cont_query",
+    "pace_sens_pres_bar_query",
+    "pace_sens_pres_inl_query",
+    "pace_sens_pres_inl_state_query",
+    "pace_sens_pres_inl_time_query",
+    "pace_sens_inl_query",
+    "pace_sens_inl_time_query",
+    "pace_sens_slew_query",
+    "pace_oper_cond_query",
+    "pace_oper_pres_cond_query",
+    "pace_oper_pres_even_query",
+    "pace_oper_pres_vent_complete_bit",
+    "pace_oper_pres_in_limits_bit",
     "vent_after_valve_supported",
     "vent_after_valve_open",
     "vent_popup_ack_enabled",
@@ -126,7 +221,13 @@ _PRESSURE_TRACE_FIELDS = [
     "handoff_vent_to_safe_open_ms",
     "handoff_safe_open_to_route_open_ms",
     "handoff_total_ms",
+    "handoff_mode",
     "atmosphere_reference_hpa",
+    "superambient_target_hpa",
+    "superambient_precharge_margin_hpa",
+    "superambient_precharge_peak_hpa",
+    "superambient_precharge_result",
+    "superambient_closed_path_verified",
     "handoff_safe_open_delta_hpa",
     "deferred_export_queue_len",
     "dewpoint_live_c",
@@ -141,8 +242,48 @@ _PRESSURE_TRACE_FIELDS = [
     "dewpoint_tail_span_60s",
     "dewpoint_tail_slope_60s",
     "dewpoint_rebound_detected",
+    "capture_hold_status",
+    "capture_hold_reason",
+    "post_isolation_status",
+    "post_isolation_reason",
+    "post_isolation_capture_mode",
+    "post_isolation_fast_capture_status",
+    "post_isolation_fast_capture_reason",
+    "post_isolation_fast_capture_elapsed_s",
+    "post_isolation_fast_capture_fallback",
+    "post_isolation_pressure_start_hpa",
+    "post_isolation_pressure_end_hpa",
+    "post_isolation_pressure_peak_hpa",
+    "post_isolation_pressure_min_hpa",
+    "post_isolation_pressure_drift_hpa",
+    "post_isolation_pressure_slope_hpa_s",
+    "post_isolation_pressure_recovery_toward_ambient",
+    "post_isolation_dewpoint_start_c",
+    "post_isolation_dewpoint_end_c",
+    "post_isolation_dewpoint_rise_c",
+    "post_isolation_dewpoint_slope_c_s",
+    "post_isolation_h2o_start",
+    "post_isolation_h2o_end",
+    "post_isolation_pressure_dew_corr",
+    "post_isolation_diagnosis",
+    "pressure_gate_status",
+    "pressure_gate_reason",
+    "pressure_gate_window_s",
+    "pressure_gate_elapsed_s",
+    "pressure_gate_span_hpa",
+    "pressure_gate_slope_hpa_per_s",
+    "pressure_gate_count",
+    "pressure_dew_sync_status",
+    "pressure_dew_sync_reason",
+    "baseline_sanity_gate_status",
+    "baseline_sanity_gate_reason",
+    "baseline_sanity_target_co2_ppm",
+    "baseline_sanity_plateau_mean_ppm",
+    "baseline_sanity_plateau_span_ppm",
+    "baseline_sanity_plateau_count",
     "flush_gate_status",
     "flush_gate_reason",
+    "root_cause_reject_reason",
     "sample_lag_ms",
     "soft_control_enabled",
     "soft_control_linear_slew_hpa_per_s",
@@ -165,6 +306,14 @@ _POINT_TIMING_SUMMARY_FIELDS = [
     "preseal_vent_off_begin_ts",
     "preseal_trigger_reached_ts",
     "route_sealed_ts",
+    "superambient_precharge_begin_ts",
+    "superambient_precharge_end_ts",
+    "superambient_fine_trim_begin_ts",
+    "superambient_fine_trim_end_ts",
+    "capture_hold_begin_ts",
+    "capture_hold_engaged_ts",
+    "post_isolation_test_begin_ts",
+    "post_isolation_test_end_ts",
     "control_prepare_begin_ts",
     "control_ready_snapshot_acquired_ts",
     "control_ready_wait_begin_ts",
@@ -176,11 +325,94 @@ _POINT_TIMING_SUMMARY_FIELDS = [
     "control_output_verify_wait_end_ts",
     "control_output_on_verified_ts",
     "pressure_in_limits_ts",
+    "pressure_gate_begin_ts",
+    "pressure_gate_end_ts",
     "dewpoint_gate_begin_ts",
     "dewpoint_gate_end_ts",
     "sampling_begin_ts",
     "first_effective_sample_ts",
     "sampling_end_ts",
+    "handoff_mode",
+    "ambient_reference_hpa",
+    "superambient_target_hpa",
+    "superambient_precharge_margin_hpa",
+    "superambient_precharge_peak_hpa",
+    "superambient_precharge_result",
+    "superambient_closed_path_verified",
+    "capture_hold_status",
+    "post_isolation_status",
+    "post_isolation_reason",
+    "post_isolation_pressure_start_hpa",
+    "post_isolation_pressure_end_hpa",
+    "post_isolation_pressure_peak_hpa",
+    "post_isolation_pressure_min_hpa",
+    "post_isolation_pressure_drift_hpa",
+    "post_isolation_pressure_slope_hpa_s",
+    "post_isolation_pressure_recovery_toward_ambient",
+    "post_isolation_dewpoint_start_c",
+    "post_isolation_dewpoint_end_c",
+    "post_isolation_dewpoint_rise_c",
+    "post_isolation_dewpoint_slope_c_s",
+    "post_isolation_h2o_start",
+    "post_isolation_h2o_end",
+    "post_isolation_pressure_dew_corr",
+    "post_isolation_diagnosis",
+    "pace_output_state",
+    "pace_isolation_state",
+    "pace_vent_status",
+    "pace_outp_state_query",
+    "pace_isol_state_query",
+    "pace_mode_query",
+    "pace_vent_status_query",
+    "pace_legacy_vent_state_3_suspect",
+    "pace_atmosphere_connected_latched_state_suspect",
+    "legacy_vent3_control_ready_used",
+    "legacy_vent3_accept_scope",
+    "vent_status_3_count",
+    "vent3_hard_blocked",
+    "vent3_watchlist_only",
+    "vent3_control_ready_attempted",
+    "vent3_control_ready_prevented",
+    "vent3_block_scope",
+    "ack_callback_invoked",
+    "vent3_post_window_status",
+    "pace_vent_completed_latched",
+    "pace_vent_clear_attempted",
+    "pace_vent_clear_result",
+    "pace_vent_after_valve_state_query",
+    "pace_vent_popup_state_query",
+    "pace_vent_elapsed_time_query",
+    "pace_vent_orpv_state_query",
+    "pace_vent_pupv_state_query",
+    "pace_effort_query",
+    "pace_comp1_query",
+    "pace_comp2_query",
+    "pace_sens_pres_cont_query",
+    "pace_sens_pres_bar_query",
+    "pace_sens_pres_inl_query",
+    "pace_sens_pres_inl_state_query",
+    "pace_sens_pres_inl_time_query",
+    "pace_sens_inl_query",
+    "pace_sens_inl_time_query",
+    "pace_sens_slew_query",
+    "pace_oper_cond_query",
+    "pace_oper_pres_cond_query",
+    "pace_oper_pres_even_query",
+    "pace_oper_pres_vent_complete_bit",
+    "pace_oper_pres_in_limits_bit",
+    "baseline_sanity_gate_status",
+    "baseline_sanity_gate_reason",
+    "baseline_sanity_target_co2_ppm",
+    "baseline_sanity_plateau_mean_ppm",
+    "baseline_sanity_plateau_span_ppm",
+    "baseline_sanity_plateau_count",
+    "pressure_gauge_hpa",
+    "dewpoint_c",
+    "temp_c",
+    "rh_pct",
+    "flush_gate_status",
+    "flush_gate_reason",
+    "root_cause_reject_reason",
     "sampling_end_to_atmosphere_enter_begin_ms",
     "atmosphere_enter_begin_to_atmosphere_enter_verified_ms",
     "atmosphere_enter_verified_to_route_open_ms",
@@ -200,6 +432,9 @@ _POINT_TIMING_SUMMARY_FIELDS = [
     "control_output_verify_wait_ms",
     "control_output_on_begin_to_control_output_on_verified_ms",
     "control_output_on_verified_to_pressure_in_limits_ms",
+    "pressure_in_limits_to_post_isolation_test_begin_ms",
+    "post_isolation_test_begin_to_post_isolation_test_end_ms",
+    "post_isolation_test_end_to_pressure_gate_begin_ms",
     "pressure_in_limits_to_dewpoint_gate_begin_ms",
     "dewpoint_gate_begin_to_dewpoint_gate_end_ms",
     "dewpoint_gate_end_to_sampling_begin_ms",
@@ -232,6 +467,15 @@ class CalibrationRunner:
     _DEFAULT_CO2_GROUP_A_PPM = (0, 200, 400, 600, 800, 1000)
     _DEFAULT_CO2_GROUP_B_PPM = (0, 100, 300, 500, 700, 900)
     _FULL_SWEEP_CO2_TEMPS_C = (10.0, 20.0, 30.0)
+    _PRESSURE_MODE_ATMOSPHERE_FLUSH = "AtmosphereFlush"
+    _PRESSURE_MODE_SEAL_TRANSITION = "SealTransition"
+    _PRESSURE_MODE_PRESSURE_SETPOINT_HOLD = "PressureSetpointHold"
+    _CONTINUOUS_ATMOSPHERE_ALLOWED_PHASES = {
+        "BaselineAtmosphere",
+        "SynchronizedAtmosphereFlush",
+        "ContinuousAtmosphereFlowThrough",
+        "FinalStageAtmosphereSafetyGate",
+    }
 
     def __init__(self, config: Dict[str, Any], devices: Dict[str, Any], logger: RunLogger, log_fn, status_fn):
         self.cfg = config
@@ -254,11 +498,28 @@ class CalibrationRunner:
         self._last_pressure_atmosphere_refresh_ts = 0.0
         self._pressure_atmosphere_hold_enabled = False
         self._pressure_atmosphere_refresh_error_logged = False
-        self._pressure_atmosphere_hold_strategy = "legacy_hold_thread"
+        self._pressure_atmosphere_hold_strategy = "single_cycle_query_clear"
         self._pace_vent_after_valve_supported: Optional[bool] = None
         self._pace_vent_after_valve_open: Optional[bool] = None
+        self._pace_vent_after_valve_state_query: Optional[str] = None
         self._pace_vent_popup_ack_enabled: Optional[bool] = None
         self._pace_vent_popup_ack_supported: Optional[bool] = None
+        self._pace_vent_popup_state_query: Optional[str] = None
+        self._pace_vent_elapsed_time_query: Optional[float] = None
+        self._pace_vent_orpv_state_query: Optional[str] = None
+        self._pace_vent_pupv_state_query: Optional[str] = None
+        self._pace_effort_query: Optional[float] = None
+        self._pace_comp1_query: Optional[float] = None
+        self._pace_comp2_query: Optional[float] = None
+        self._pace_sens_pres_cont_query: Optional[float] = None
+        self._pace_sens_pres_bar_query: Optional[float] = None
+        self._pace_sens_pres_inl_query: Optional[float] = None
+        self._pace_sens_pres_inl_state_query: Optional[int] = None
+        self._pace_sens_pres_inl_time_query: Optional[float] = None
+        self._pace_sens_slew_query: Optional[float] = None
+        self._pace_oper_pres_even_query: Optional[int] = None
+        self._pace_oper_pres_vent_complete_bit: Optional[bool] = None
+        self._pace_oper_pres_in_limits_bit: Optional[bool] = None
         self._disabled_analyzers: set[str] = set()
         self._disabled_analyzer_reasons: Dict[str, str] = {}
         self._disabled_analyzer_last_reprobe_ts: Dict[str, float] = {}
@@ -271,11 +532,13 @@ class CalibrationRunner:
         self._sensor_read_reject_states: Dict[Tuple[str, str, str, str, str], Dict[str, Any]] = {}
         self._preseal_dewpoint_snapshot: Optional[Dict[str, Any]] = None
         self._preseal_pressure_control_ready_state: Optional[Dict[str, Any]] = None
+        self._preseal_final_atmosphere_exit_snapshot: Optional[Dict[str, Any]] = None
         self._temperature_wait_context: Optional[Dict[str, Any]] = None
         self._post_h2o_co2_zero_flush_pending = False
         self._initial_co2_zero_flush_pending = self._route_mode() == "co2_only"
         self._active_post_h2o_co2_zero_flush = False
         self._first_co2_route_soak_pending = True
+        self._last_cold_co2_zero_flush_temp_c: Optional[float] = None
         self._temperature_calibration_records: List[Dict[str, Any]] = []
         self._temperature_calibration_capture_keys: set[tuple[str, str]] = set()
         self._pressure_capture_then_hold_cfg_logged = False
@@ -293,6 +556,7 @@ class CalibrationRunner:
         self._pace_state_cache: Dict[str, Any] = {}
         self._relay_state_cache: Dict[Tuple[str, int], bool] = {}
         self._relay_state_cache_lock = threading.Lock()
+        self._current_open_valves: Tuple[int, ...] = ()
         self._deferred_sample_exports: List[Dict[str, Any]] = []
         self._deferred_point_exports: List[Dict[str, Any]] = []
         self._last_sample_completion: Optional[Dict[str, Any]] = None
@@ -300,10 +564,69 @@ class CalibrationRunner:
         self._sample_handoff_request: Optional[Dict[str, Any]] = None
         self._sample_export_deferral_request: Optional[Dict[str, Any]] = None
         self._atmosphere_reference_hpa: Optional[float] = None
+        self._pressure_sequence_ambient_reference_hpa: Optional[float] = None
+        self._active_pressure_sequence_context: Optional[Dict[str, Any]] = None
         self._point_runtime_summary: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        self._source_stage_safety: Dict[str, bool] = {
+            "co2_a": False,
+            "co2_b": False,
+            "h2o": False,
+        }
+        self._route_final_stage_atmosphere_safety: Dict[str, bool] = {
+            "co2_a": False,
+            "co2_b": False,
+            "h2o": False,
+        }
+        self._route_final_stage_seal_safety: Dict[str, bool] = {
+            "co2_a": False,
+            "co2_b": False,
+            "h2o": False,
+        }
+        self._continuous_atmosphere_state: Dict[str, Any] = {
+            "active": False,
+            "route_flow_active": False,
+            "route_key": "",
+            "phase_name": "",
+            "pressure_mode": "",
+            "generation": 0,
+            "keepalive_count": 0,
+            "last_keepalive_ts": None,
+            "last_keepalive_reason": "",
+            "last_keepalive_summary": {},
+            "background_keepalive_active": False,
+            "background_keepalive_count": 0,
+            "background_keepalive_last_ts": None,
+            "background_keepalive_last_error": "",
+        }
+        self._continuous_atmosphere_lock = threading.RLock()
+        self._continuous_atmosphere_background_stop = threading.Event()
+        self._continuous_atmosphere_background_thread: Optional[threading.Thread] = None
+        self._sealed_no_vent_guard: Dict[str, Any] = {
+            "active": False,
+            "phase": "",
+            "reason": "",
+            "generation": 0,
+            "point_row": None,
+            "target_pressure_hpa": None,
+            "activated_ts": None,
+            "released_ts": None,
+        }
         self._lead_in_transition_stage_ts: Dict[str, float] = {}
         self._last_preseal_pressure_control_ready_invalidation: Optional[Dict[str, Any]] = None
         self._active_route_requires_preseal_topoff = True
+        self._last_sealed_pressure_route_context: Optional[Dict[str, Any]] = None
+        self._presample_lock_state: Optional[Dict[str, Any]] = None
+        self._last_atmosphere_gate_summary: Dict[str, Any] = {}
+        self._last_route_pressure_guard_summary: Dict[str, Any] = {}
+        self._last_pace_capability_snapshot: Dict[str, Any] = {}
+        self._pace_error_attribution_log: List[Dict[str, Any]] = []
+        now_iso = datetime.now().isoformat(timespec="milliseconds")
+        self._last_clean_syst_err_ts: str = now_iso
+        self._pace_io_context_rows_cache: Optional[List[Dict[str, Any]]] = None
+        self._pace_io_context_rows_cache_mtime: Optional[float] = None
+        self._pace_sens_pres_cont_supported: Optional[bool] = None
+        self._pace_sens_pres_cont_error: str = ""
+        self._last_abort_reason: str = ""
 
     def _log_run_event(self, command: Any = None, response: Any = None, error: Any = None) -> None:
         try:
@@ -490,6 +813,15 @@ class CalibrationRunner:
         return "" if value is None else value
 
     @staticmethod
+    def _pressure_trace_json(value: Any) -> str:
+        if value in (None, "", {}, [], (), set()):
+            return ""
+        try:
+            return json.dumps(value, ensure_ascii=True, sort_keys=True)
+        except Exception:
+            return str(value)
+
+    @staticmethod
     def _ts_from_datetime(value: datetime) -> str:
         return value.isoformat(timespec="milliseconds")
 
@@ -498,6 +830,36 @@ class CalibrationRunner:
             "pace_output_state": "",
             "pace_isolation_state": "",
             "pace_vent_status": "",
+            "pace_outp_state_query": "",
+            "pace_isol_state_query": "",
+            "pace_mode_query": "",
+            "pace_vent_status_query": "",
+            "pace_legacy_vent_state_3_suspect": "",
+            "pace_atmosphere_connected_latched_state_suspect": "",
+            "pace_vent_completed_latched": "",
+            "pace_vent_clear_attempted": "",
+            "pace_vent_clear_result": "",
+            "pace_vent_after_valve_state_query": "",
+            "pace_vent_popup_state_query": "",
+            "pace_vent_elapsed_time_query": "",
+            "pace_vent_orpv_state_query": "",
+            "pace_vent_pupv_state_query": "",
+            "pace_effort_query": "",
+            "pace_comp1_query": "",
+            "pace_comp2_query": "",
+            "pace_sens_pres_cont_query": "",
+            "pace_sens_pres_bar_query": "",
+            "pace_sens_pres_inl_query": "",
+            "pace_sens_pres_inl_state_query": "",
+            "pace_sens_pres_inl_time_query": "",
+            "pace_sens_inl_query": "",
+            "pace_sens_inl_time_query": "",
+            "pace_sens_slew_query": "",
+            "pace_oper_cond_query": "",
+            "pace_oper_pres_cond_query": "",
+            "pace_oper_pres_even_query": "",
+            "pace_oper_pres_vent_complete_bit": "",
+            "pace_oper_pres_in_limits_bit": "",
         }
         if not self._sampling_pace_state_cache_enabled():
             return snapshot
@@ -516,6 +878,42 @@ class CalibrationRunner:
             "pace_output_state": snapshot.get("pace_output_state", ""),
             "pace_isolation_state": snapshot.get("pace_isolation_state", ""),
             "pace_vent_status": snapshot.get("pace_vent_status", ""),
+            "pace_outp_state_query": snapshot.get("pace_outp_state_query", ""),
+            "pace_isol_state_query": snapshot.get("pace_isol_state_query", ""),
+            "pace_mode_query": snapshot.get("pace_mode_query", ""),
+            "pace_vent_status_query": snapshot.get("pace_vent_status_query", ""),
+            "pace_legacy_vent_state_3_suspect": snapshot.get("pace_legacy_vent_state_3_suspect", ""),
+            "pace_atmosphere_connected_latched_state_suspect": snapshot.get(
+                "pace_atmosphere_connected_latched_state_suspect",
+                snapshot.get("pace_legacy_vent_state_3_suspect", ""),
+            ),
+            "pace_vent_completed_latched": snapshot.get("pace_vent_completed_latched", ""),
+            "pace_vent_clear_attempted": snapshot.get("pace_vent_clear_attempted", ""),
+            "pace_vent_clear_result": snapshot.get("pace_vent_clear_result", ""),
+            "pace_vent_after_valve_state_query": snapshot.get("pace_vent_after_valve_state_query", ""),
+            "pace_vent_popup_state_query": snapshot.get("pace_vent_popup_state_query", ""),
+            "pace_vent_elapsed_time_query": snapshot.get("pace_vent_elapsed_time_query", ""),
+            "pace_vent_orpv_state_query": snapshot.get("pace_vent_orpv_state_query", ""),
+            "pace_vent_pupv_state_query": snapshot.get("pace_vent_pupv_state_query", ""),
+            "pace_effort_query": snapshot.get("pace_effort_query", ""),
+            "pace_comp1_query": snapshot.get("pace_comp1_query", ""),
+            "pace_comp2_query": snapshot.get("pace_comp2_query", ""),
+            "pace_sens_pres_cont_query": snapshot.get("pace_sens_pres_cont_query", ""),
+            "pace_sens_pres_bar_query": snapshot.get("pace_sens_pres_bar_query", ""),
+            "pace_sens_pres_inl_query": snapshot.get("pace_sens_pres_inl_query", ""),
+            "pace_sens_pres_inl_state_query": snapshot.get("pace_sens_pres_inl_state_query", ""),
+            "pace_sens_pres_inl_time_query": snapshot.get("pace_sens_pres_inl_time_query", ""),
+            "pace_sens_inl_query": snapshot.get("pace_sens_inl_query", snapshot.get("pace_sens_pres_inl_query", "")),
+            "pace_sens_inl_time_query": snapshot.get(
+                "pace_sens_inl_time_query",
+                snapshot.get("pace_sens_pres_inl_time_query", ""),
+            ),
+            "pace_sens_slew_query": snapshot.get("pace_sens_slew_query", ""),
+            "pace_oper_cond_query": snapshot.get("pace_oper_cond_query", ""),
+            "pace_oper_pres_cond_query": snapshot.get("pace_oper_pres_cond_query", ""),
+            "pace_oper_pres_even_query": snapshot.get("pace_oper_pres_even_query", ""),
+            "pace_oper_pres_vent_complete_bit": snapshot.get("pace_oper_pres_vent_complete_bit", ""),
+            "pace_oper_pres_in_limits_bit": snapshot.get("pace_oper_pres_in_limits_bit", ""),
         }
 
     def _pace_state_snapshot(self, pace: Any = None, *, refresh: bool = True) -> Dict[str, Any]:
@@ -545,6 +943,1158 @@ class CalibrationRunner:
             return refreshed
         return snapshot
 
+    def _pace_basic_trace_snapshot(self, pace: Any = None, *, refresh: bool = True) -> Dict[str, Any]:
+        snapshot = dict(self._pace_state_snapshot(pace, refresh=refresh))
+        snapshot["pace_outp_state_query"] = snapshot.get("pace_output_state", "")
+        snapshot["pace_isol_state_query"] = snapshot.get("pace_isolation_state", "")
+        snapshot["pace_vent_status_query"] = snapshot.get("pace_vent_status", "")
+        snapshot["pace_vent_completed_latched"] = self._pace_vent_completed_latched_from_snapshot(snapshot)
+        return snapshot
+
+    def _pace_route_trace_optional_diagnostic_key_enabled(self, pace: Any, key: str) -> bool:
+        key_text = str(key or "").strip()
+        if not key_text:
+            return True
+        if key_text == "pace_sens_pres_cont_query":
+            return self._pace_sens_pres_cont_supported is not False
+        if self._pace_profile_name(pace) == "OLD_PACE5000":
+            return key_text not in {
+                "pace_comp1_query",
+                "pace_comp2_query",
+                "pace_sens_pres_bar_query",
+                "pace_sens_pres_inl_time_query",
+                "pace_sens_slew_query",
+                "pace_vent_elapsed_time_query",
+                "pace_vent_orpv_state_query",
+                "pace_vent_pupv_state_query",
+            }
+        return True
+
+    def _pace_identity_indicates_old_profile(self, pace: Any) -> bool:
+        legacy_model = False
+        identity_getter = getattr(pace, "get_device_identity", None)
+        if callable(identity_getter):
+            try:
+                identity = str(identity_getter() or "").strip().upper()
+            except Exception:
+                identity = ""
+            legacy_model = "GE DRUCK" in identity or "PACE5000 USER INTERFACE" in identity
+
+        if not legacy_model:
+            legacy_model_checker = getattr(pace, "has_legacy_vent_status_model", None)
+            if callable(legacy_model_checker):
+                try:
+                    legacy_model = bool(legacy_model_checker())
+                except Exception:
+                    legacy_model = False
+
+        if not legacy_model:
+            return False
+
+        version_getter = getattr(pace, "get_instrument_version", None)
+        if not callable(version_getter):
+            return False
+        try:
+            version_text = str(version_getter() or "").strip()
+        except Exception:
+            return False
+        if not version_text:
+            return False
+        version_match = re.search(r"(\d+\.\d+\.\d+)", version_text)
+        normalized_version = version_match.group(1) if version_match else version_text.strip("\"'")
+        return normalized_version == "02.00.07"
+
+    def _pace_profile_name(self, pace: Any) -> str:
+        if pace is None:
+            return ""
+        detect_profile = getattr(pace, "detect_profile", None)
+        if not callable(detect_profile):
+            detect_profile = getattr(pace, "detectProfile", None)
+        if callable(detect_profile):
+            try:
+                profile = str(detect_profile() or "").strip().upper()
+            except Exception:
+                profile = ""
+            if profile:
+                return profile
+        for attr_name in ("profile", "_profile", "device_profile", "_device_profile"):
+            try:
+                value = str(getattr(pace, attr_name, "") or "").strip().upper()
+            except Exception:
+                value = ""
+            if value:
+                return value
+        compat_enabled = False
+        compat_checker = getattr(pace, "has_legacy_vent_state_3_compatibility", None)
+        if callable(compat_checker):
+            try:
+                compat_enabled = bool(compat_checker())
+            except Exception:
+                compat_enabled = False
+        legacy_status_model = False
+        legacy_model_checker = getattr(pace, "has_legacy_vent_status_model", None)
+        if callable(legacy_model_checker):
+            try:
+                legacy_status_model = bool(legacy_model_checker())
+            except Exception:
+                legacy_status_model = False
+        supports_cont_known = False
+        supports_cont_value = True
+        supports_cont_checker = getattr(pace, "supports_sens_pres_cont", None)
+        if callable(supports_cont_checker):
+            try:
+                supports_cont_value = bool(supports_cont_checker())
+                supports_cont_known = True
+            except Exception:
+                supports_cont_known = False
+        if self._pace_identity_indicates_old_profile(pace) and (
+            compat_enabled
+            or legacy_status_model
+            or (supports_cont_known and not supports_cont_value)
+        ):
+            return "OLD_PACE5000"
+        return ""
+
+    def _legacy_existing_atmosphere_baseline_snapshot(self, pace: Any) -> Optional[Dict[str, Any]]:
+        profile = self._pace_profile_name(pace)
+        if profile != "OLD_PACE5000":
+            return None
+        snapshot = self._pace_basic_trace_snapshot(pace, refresh=True)
+        output_state = self._as_int(snapshot.get("pace_outp_state_query"))
+        isolation_state = self._as_int(snapshot.get("pace_isol_state_query"))
+        vent_status = self._as_int(snapshot.get("pace_vent_status_query"))
+        if output_state != 0 or isolation_state != 1:
+            return None
+        # OLD PACE5000 reports VENT?=2 as a completed latch. We do not treat
+        # that alone as proof that the controller is still freshly synced to
+        # atmosphere for a new route flush; require an idle/ready 0 baseline
+        # before reusing an existing atmosphere state without a new VENT 1.
+        if vent_status != 0:
+            return None
+        return snapshot
+
+    @staticmethod
+    def _pace_bool_query_text(value: Any, *, true_text: str, false_text: str) -> str:
+        if value in (None, ""):
+            return ""
+        return true_text if bool(value) else false_text
+
+    @staticmethod
+    def _pace_oper_register_bit(value: Any, bit_index: int) -> Optional[bool]:
+        try:
+            parsed = int(float(value))
+        except Exception:
+            return None
+        return bool(parsed & (1 << int(bit_index)))
+
+    def _pace_vent_completed_latched_from_snapshot(self, snapshot: Mapping[str, Any]) -> Optional[bool]:
+        vent_status = self._as_int(snapshot.get("pace_vent_status_query"))
+        if vent_status == 2:
+            return True
+        vent_complete_cond = self._pace_oper_register_bit(snapshot.get("pace_oper_pres_cond_query"), 0)
+        if vent_complete_cond is True:
+            return True
+        vent_complete_event = self._pace_oper_register_bit(snapshot.get("pace_oper_pres_even_query"), 0)
+        if vent_complete_event is True:
+            return True
+        if vent_status is None and vent_complete_cond is None and vent_complete_event is None:
+            return None
+        return False
+
+    def _pace_legacy_vent_state_3_compatibility_enabled(self, pace: Any) -> bool:
+        checker = getattr(pace, "has_legacy_vent_state_3_compatibility", None)
+        if callable(checker):
+            try:
+                if bool(checker()):
+                    return True
+            except Exception:
+                pass
+
+        legacy_model = False
+        identity_getter = getattr(pace, "get_device_identity", None)
+        if callable(identity_getter):
+            try:
+                identity = str(identity_getter() or "").strip().upper()
+            except Exception:
+                identity = ""
+            legacy_model = "GE DRUCK" in identity or "PACE5000 USER INTERFACE" in identity
+
+        if not legacy_model:
+            legacy_model_checker = getattr(pace, "has_legacy_vent_status_model", None)
+            if callable(legacy_model_checker):
+                try:
+                    legacy_model = bool(legacy_model_checker())
+                except Exception:
+                    legacy_model = False
+
+        if not legacy_model:
+            return False
+
+        version_getter = getattr(pace, "get_instrument_version", None)
+        if not callable(version_getter):
+            return False
+        try:
+            version_text = str(version_getter() or "").strip()
+        except Exception:
+            return False
+        if not version_text:
+            return False
+        version_match = re.search(r"(\d+\.\d+\.\d+)", version_text)
+        normalized_version = version_match.group(1) if version_match else version_text.strip("\"'")
+        return normalized_version == "02.00.07"
+
+    @staticmethod
+    def _legacy_completed_latch_auto_clear_reason(
+        before_status: Any,
+        after_status: Any = None,
+    ) -> str:
+        before_text = "unknown" if before_status is None else str(before_status)
+        after_value = before_status if after_status is None else after_status
+        after_text = "unknown" if after_value is None else str(after_value)
+        return f"legacy_completed_latch_auto_clear_blocked(before={before_text},after={after_text})"
+
+    @staticmethod
+    def _legacy_completed_latch_bit_only_force_clear_reason(
+        before_status: Any,
+        *,
+        cond_latched: Optional[bool] = None,
+        event_latched: Optional[bool] = None,
+    ) -> str:
+        before_text = "unknown" if before_status is None else str(before_status)
+        cond_text = "unknown" if cond_latched is None else ("1" if cond_latched else "0")
+        event_text = "unknown" if event_latched is None else ("1" if event_latched else "0")
+        return (
+            "legacy_completed_latch_bit_only_force_clear_blocked("
+            f"before={before_text},cond={cond_text},event={event_text})"
+        )
+
+    @staticmethod
+    def _legacy_completed_latch_single_cycle_clear_blocked_reason(
+        before_status: Any,
+    ) -> str:
+        before_text = "unknown" if before_status is None else str(before_status)
+        return (
+            "legacy_completed_latch_single_cycle_clear_blocked("
+            f"before={before_text},strategy=single_cycle_query_clear)"
+        )
+
+    def _pace_legacy_completed_latch_auto_clear_blocked(self, pace: Any, vent_status: Any) -> bool:
+        return (
+            self._as_int(vent_status) == 2
+            and self._pace_legacy_vent_state_3_compatibility_enabled(pace)
+        )
+
+    def _pace_legacy_vent_state_3_suspect_from_snapshot(
+        self,
+        pace: Any,
+        snapshot: Mapping[str, Any],
+    ) -> bool:
+        trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
+        vent_status = self._as_int(
+            snapshot.get("pace_vent_status_query", snapshot.get("pace_vent_status"))
+        )
+        if trapped_pressure_status is None or vent_status is None or vent_status != trapped_pressure_status:
+            return False
+        if pace is None:
+            return True
+        checker = getattr(pace, "has_legacy_vent_state_3_compatibility", None)
+        if not callable(checker):
+            return True
+        try:
+            return bool(checker())
+        except Exception:
+            return True
+
+    @staticmethod
+    def _vent3_block_scope(scope: Any) -> str:
+        text = str(scope or "").strip()
+        return text or "none"
+
+    @staticmethod
+    def _legacy_vent3_accept_scope(scope: Any) -> str:
+        text = str(scope or "").strip()
+        return text or "none"
+
+    def _pace_legacy_vent3_trace_fields(
+        self,
+        pace: Any,
+        vent_status: Any,
+        *,
+        accept_scope: str = "none",
+        control_ready_used: bool = False,
+        block_scope: str = "none",
+        hard_blocked: bool = False,
+        watchlist_only: bool = False,
+        control_ready_attempted: bool = False,
+        control_ready_prevented: bool = False,
+        ack_callback_invoked: Any = None,
+        post_window_status: Any = None,
+    ) -> Dict[str, Any]:
+        is_suspect = self._pace_legacy_vent_state_3_suspect_from_snapshot(
+            pace,
+            {
+                "pace_vent_status_query": vent_status,
+                "pace_vent_status": vent_status,
+            },
+        )
+        used = bool(is_suspect and control_ready_used)
+        blocked = bool(is_suspect and hard_blocked)
+        attempted = bool(is_suspect and control_ready_attempted)
+        prevented = bool(is_suspect and control_ready_prevented)
+        return {
+            "pace_legacy_vent_state_3_suspect": bool(is_suspect),
+            "pace_atmosphere_connected_latched_state_suspect": bool(is_suspect),
+            "legacy_vent3_control_ready_used": used,
+            "legacy_vent3_accept_scope": self._legacy_vent3_accept_scope(accept_scope if used else "none"),
+            "vent_status_3_count": 1 if is_suspect else 0,
+            "vent3_hard_blocked": blocked,
+            # VENT=3 remains observation-only; this flag only records that the
+            # watchlist state was carried into trace/runtime fields.
+            "vent3_watchlist_only": bool(is_suspect and watchlist_only),
+            "vent3_control_ready_attempted": attempted,
+            "vent3_control_ready_prevented": prevented,
+            "vent3_block_scope": self._vent3_block_scope(
+                block_scope if (blocked or attempted or prevented) else "none"
+            ),
+            "ack_callback_invoked": (
+                ""
+                if ack_callback_invoked in ("", None)
+                else bool(ack_callback_invoked)
+            ),
+            "vent3_post_window_status": "" if post_window_status in ("", None) else post_window_status,
+        }
+
+    def _record_legacy_vent3_runtime_fields(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        pace: Any,
+        vent_status: Any,
+        accept_scope: str = "none",
+        control_ready_used: bool = False,
+        block_scope: str = "none",
+        hard_blocked: bool = False,
+        watchlist_only: bool = False,
+        control_ready_attempted: bool = False,
+        control_ready_prevented: bool = False,
+        ack_callback_invoked: Any = None,
+        post_window_status: Any = None,
+    ) -> Dict[str, Any]:
+        trace_fields = self._pace_legacy_vent3_trace_fields(
+            pace,
+            vent_status,
+            accept_scope=accept_scope,
+            control_ready_used=control_ready_used,
+            block_scope=block_scope,
+            hard_blocked=hard_blocked,
+            watchlist_only=watchlist_only,
+            control_ready_attempted=control_ready_attempted,
+            control_ready_prevented=control_ready_prevented,
+            ack_callback_invoked=ack_callback_invoked,
+            post_window_status=post_window_status,
+        )
+        phase_text = str(phase or "").strip().lower()
+        if point is None or not phase_text:
+            return trace_fields
+
+        state = self._point_runtime_state(point, phase=phase_text, create=True)
+        if state is None:
+            return trace_fields
+
+        prev_suspect = bool(self._as_optional_bool(state.get("pace_legacy_vent_state_3_suspect")))
+        prev_atmosphere_latched = bool(
+            self._as_optional_bool(state.get("pace_atmosphere_connected_latched_state_suspect"))
+        )
+        prev_used = bool(self._as_optional_bool(state.get("legacy_vent3_control_ready_used")))
+        prev_scope = self._legacy_vent3_accept_scope(state.get("legacy_vent3_accept_scope"))
+        prev_blocked = bool(self._as_optional_bool(state.get("vent3_hard_blocked")))
+        prev_watchlist_only = bool(self._as_optional_bool(state.get("vent3_watchlist_only")))
+        prev_attempted = bool(self._as_optional_bool(state.get("vent3_control_ready_attempted")))
+        prev_prevented = bool(self._as_optional_bool(state.get("vent3_control_ready_prevented")))
+        prev_block_scope = self._vent3_block_scope(state.get("vent3_block_scope"))
+        prev_ack_callback_invoked = self._as_optional_bool(state.get("ack_callback_invoked"))
+        prev_post_window_status = state.get("vent3_post_window_status")
+        prev_count = self._as_int(state.get("vent_status_3_count")) or 0
+        runtime_fields = {
+            "pace_legacy_vent_state_3_suspect": prev_suspect or trace_fields["pace_legacy_vent_state_3_suspect"],
+            "pace_atmosphere_connected_latched_state_suspect": (
+                prev_atmosphere_latched or trace_fields["pace_atmosphere_connected_latched_state_suspect"]
+            ),
+            "legacy_vent3_control_ready_used": prev_used or trace_fields["legacy_vent3_control_ready_used"],
+            "legacy_vent3_accept_scope": trace_fields["legacy_vent3_accept_scope"],
+            "vent_status_3_count": prev_count + int(trace_fields["vent_status_3_count"] or 0),
+            "vent3_hard_blocked": prev_blocked or trace_fields["vent3_hard_blocked"],
+            "vent3_watchlist_only": prev_watchlist_only or trace_fields["vent3_watchlist_only"],
+            "vent3_control_ready_attempted": prev_attempted or trace_fields["vent3_control_ready_attempted"],
+            "vent3_control_ready_prevented": prev_prevented or trace_fields["vent3_control_ready_prevented"],
+            "vent3_block_scope": trace_fields["vent3_block_scope"],
+            "ack_callback_invoked": (
+                prev_ack_callback_invoked
+                if trace_fields["ack_callback_invoked"] in ("", None)
+                else bool(trace_fields["ack_callback_invoked"])
+            ),
+            "vent3_post_window_status": (
+                prev_post_window_status
+                if trace_fields["vent3_post_window_status"] in ("", None)
+                else trace_fields["vent3_post_window_status"]
+            ),
+        }
+        if (
+            runtime_fields["legacy_vent3_accept_scope"] == "none"
+            and runtime_fields["legacy_vent3_control_ready_used"]
+            and prev_scope != "none"
+        ):
+            runtime_fields["legacy_vent3_accept_scope"] = prev_scope
+        if runtime_fields["vent3_block_scope"] == "none" and prev_block_scope != "none":
+            runtime_fields["vent3_block_scope"] = prev_block_scope
+        self._set_point_runtime_fields(point, phase=phase_text, **runtime_fields)
+        return trace_fields
+
+    def _pace_diagnostic_state_snapshot(
+        self,
+        pace: Any = None,
+        *,
+        refresh: bool = True,
+        refresh_aux: bool = True,
+    ) -> Dict[str, Any]:
+        pace = pace if pace is not None else self.devices.get("pace")
+        snapshot = dict(self._pace_state_snapshot(pace, refresh=refresh))
+        snapshot["pace_outp_state_query"] = snapshot.get("pace_output_state", "")
+        snapshot["pace_isol_state_query"] = snapshot.get("pace_isolation_state", "")
+        snapshot["pace_vent_status_query"] = snapshot.get("pace_vent_status", "")
+        snapshot.setdefault("pace_mode_query", "")
+        snapshot.setdefault("pace_vent_after_valve_state_query", "")
+        snapshot.setdefault("pace_vent_popup_state_query", "")
+        snapshot.setdefault("pace_vent_elapsed_time_query", "")
+        snapshot.setdefault("pace_vent_orpv_state_query", "")
+        snapshot.setdefault("pace_vent_pupv_state_query", "")
+        snapshot.setdefault("pace_effort_query", "")
+        snapshot.setdefault("pace_comp1_query", "")
+        snapshot.setdefault("pace_comp2_query", "")
+        snapshot.setdefault("pace_sens_pres_cont_query", "")
+        snapshot.setdefault("pace_sens_pres_bar_query", "")
+        snapshot.setdefault("pace_sens_pres_inl_query", "")
+        snapshot.setdefault("pace_sens_pres_inl_state_query", "")
+        snapshot.setdefault("pace_sens_pres_inl_time_query", "")
+        snapshot.setdefault("pace_sens_inl_query", "")
+        snapshot.setdefault("pace_sens_inl_time_query", "")
+        snapshot.setdefault("pace_sens_slew_query", "")
+        snapshot.setdefault("pace_oper_cond_query", "")
+        snapshot.setdefault("pace_oper_pres_cond_query", "")
+        snapshot.setdefault("pace_oper_pres_even_query", "")
+        snapshot.setdefault("pace_legacy_vent_state_3_suspect", "")
+        snapshot.setdefault("pace_atmosphere_connected_latched_state_suspect", "")
+        snapshot.setdefault("pace_oper_pres_vent_complete_bit", "")
+        snapshot.setdefault("pace_oper_pres_in_limits_bit", "")
+        snapshot.setdefault("pace_vent_completed_latched", "")
+        snapshot.setdefault("pace_vent_clear_attempted", "")
+        snapshot.setdefault("pace_vent_clear_result", "")
+        if not pace or not refresh:
+            return snapshot
+
+        refreshed = dict(snapshot)
+        any_success = False
+        for attr_name, key in (
+            ("get_output_mode_query", "pace_mode_query"),
+            ("get_output_mode", "pace_mode_query"),
+            ("get_oper_condition", "pace_oper_cond_query"),
+            ("get_oper_pressure_condition", "pace_oper_pres_cond_query"),
+            ("get_oper_pressure_event", "pace_oper_pres_even_query"),
+            ("get_effort_query", "pace_effort_query"),
+            ("get_effort", "pace_effort_query"),
+            ("get_comp1", "pace_comp1_query"),
+            ("get_comp2", "pace_comp2_query"),
+            ("get_control_pressure", "pace_sens_pres_cont_query"),
+            ("get_barometric_pressure", "pace_sens_pres_bar_query"),
+            ("get_in_limits_time_s", "pace_sens_pres_inl_time_query"),
+            ("get_measured_slew_rate", "pace_sens_slew_query"),
+        ):
+            if key == "pace_mode_query" and refreshed.get(key) not in ("", None):
+                continue
+            if key == "pace_effort_query" and refreshed.get(key) not in ("", None):
+                continue
+            if not self._pace_route_trace_optional_diagnostic_key_enabled(pace, key):
+                refreshed[key] = snapshot.get(key, "")
+                continue
+            if key == "pace_sens_pres_cont_query":
+                supports_cont = getattr(pace, "supports_sens_pres_cont", None)
+                if callable(supports_cont):
+                    try:
+                        if not bool(supports_cont()):
+                            refreshed[key] = snapshot.get(key, "")
+                            continue
+                    except Exception:
+                        refreshed[key] = snapshot.get(key, "")
+                        continue
+            getter = getattr(pace, attr_name, None)
+            if not callable(getter):
+                continue
+            try:
+                refreshed[key] = getter()
+                any_success = True
+            except Exception:
+                refreshed[key] = snapshot.get(key, "")
+
+        get_in_limits = getattr(pace, "get_in_limits", None)
+        if refresh_aux and callable(get_in_limits):
+            try:
+                inl_pressure, inl_state = get_in_limits()
+                refreshed["pace_sens_pres_inl_query"] = inl_pressure
+                refreshed["pace_sens_pres_inl_state_query"] = inl_state
+                refreshed["pace_sens_inl_query"] = inl_pressure
+                any_success = True
+            except Exception:
+                refreshed["pace_sens_pres_inl_query"] = snapshot.get("pace_sens_pres_inl_query", "")
+                refreshed["pace_sens_pres_inl_state_query"] = snapshot.get("pace_sens_pres_inl_state_query", "")
+                refreshed["pace_sens_inl_query"] = snapshot.get("pace_sens_inl_query", "")
+
+        if refresh_aux:
+            getter = getattr(pace, "get_vent_after_valve_state", None)
+            if callable(getter):
+                try:
+                    refreshed["pace_vent_after_valve_state_query"] = str(getter() or "").strip().upper()
+                    self._pace_vent_after_valve_state_query = refreshed["pace_vent_after_valve_state_query"] or None
+                    self._pace_vent_after_valve_open = refreshed["pace_vent_after_valve_state_query"] == "OPEN"
+                    self._pace_vent_after_valve_supported = True
+                    any_success = True
+                except Exception:
+                    refreshed["pace_vent_after_valve_state_query"] = snapshot.get(
+                        "pace_vent_after_valve_state_query",
+                        self._pace_vent_after_valve_state_query or "",
+                    )
+            else:
+                getter_bool = getattr(pace, "get_vent_after_valve_open", None)
+                if callable(getter_bool):
+                    try:
+                        value = bool(getter_bool())
+                        text = self._pace_bool_query_text(value, true_text="OPEN", false_text="CLOSED")
+                        refreshed["pace_vent_after_valve_state_query"] = text
+                        self._pace_vent_after_valve_state_query = text
+                        self._pace_vent_after_valve_open = value
+                        self._pace_vent_after_valve_supported = True
+                        any_success = True
+                    except Exception:
+                        refreshed["pace_vent_after_valve_state_query"] = snapshot.get(
+                            "pace_vent_after_valve_state_query",
+                            self._pace_vent_after_valve_state_query or "",
+                        )
+
+            popup_getter = getattr(pace, "get_vent_popup_state", None)
+            if callable(popup_getter):
+                try:
+                    refreshed["pace_vent_popup_state_query"] = str(popup_getter() or "").strip().upper()
+                    self._pace_vent_popup_state_query = refreshed["pace_vent_popup_state_query"] or None
+                    self._pace_vent_popup_ack_enabled = (
+                        refreshed["pace_vent_popup_state_query"] == "ENABLED"
+                    )
+                    self._pace_vent_popup_ack_supported = True
+                    any_success = True
+                except Exception:
+                    refreshed["pace_vent_popup_state_query"] = snapshot.get(
+                        "pace_vent_popup_state_query",
+                        self._pace_vent_popup_state_query or "",
+                    )
+            else:
+                popup_bool_getter = getattr(pace, "get_vent_popup_ack_enabled", None)
+                if callable(popup_bool_getter):
+                    try:
+                        value = bool(popup_bool_getter())
+                        text = self._pace_bool_query_text(value, true_text="ENABLED", false_text="DISABLED")
+                        refreshed["pace_vent_popup_state_query"] = text
+                        self._pace_vent_popup_state_query = text
+                        self._pace_vent_popup_ack_enabled = value
+                        self._pace_vent_popup_ack_supported = True
+                        any_success = True
+                    except Exception:
+                        refreshed["pace_vent_popup_state_query"] = snapshot.get(
+                            "pace_vent_popup_state_query",
+                            self._pace_vent_popup_state_query or "",
+                        )
+
+            for attr_name, key, cache_attr in (
+                ("get_vent_elapsed_time_s", "pace_vent_elapsed_time_query", "_pace_vent_elapsed_time_query"),
+                ("get_vent_over_range_protect_state", "pace_vent_orpv_state_query", "_pace_vent_orpv_state_query"),
+                ("get_vent_power_up_protect_state", "pace_vent_pupv_state_query", "_pace_vent_pupv_state_query"),
+            ):
+                getter = getattr(pace, attr_name, None)
+                if not callable(getter):
+                    continue
+                try:
+                    value = getter()
+                    refreshed[key] = value
+                    setattr(self, cache_attr, value)
+                    any_success = True
+                except Exception:
+                    refreshed[key] = snapshot.get(key, getattr(self, cache_attr, "") or "")
+
+        refreshed["pace_sens_inl_query"] = (
+            refreshed.get("pace_sens_inl_query")
+            if refreshed.get("pace_sens_inl_query") not in ("", None)
+            else refreshed.get("pace_sens_pres_inl_query", "")
+        )
+        refreshed["pace_sens_inl_time_query"] = (
+            refreshed.get("pace_sens_pres_inl_time_query", "")
+        )
+        vent_complete_cond = self._pace_oper_register_bit(refreshed.get("pace_oper_pres_cond_query"), 0)
+        vent_complete_event = self._pace_oper_register_bit(refreshed.get("pace_oper_pres_even_query"), 0)
+        in_limits_cond = self._pace_oper_register_bit(refreshed.get("pace_oper_pres_cond_query"), 2)
+        in_limits_event = self._pace_oper_register_bit(refreshed.get("pace_oper_pres_even_query"), 2)
+        refreshed["pace_oper_pres_vent_complete_bit"] = (
+            True
+            if vent_complete_cond is True or vent_complete_event is True
+            else False
+            if vent_complete_cond is not None or vent_complete_event is not None
+            else ""
+        )
+        refreshed["pace_oper_pres_in_limits_bit"] = (
+            True
+            if in_limits_cond is True or in_limits_event is True
+            else False
+            if in_limits_cond is not None or in_limits_event is not None
+            else ""
+        )
+        refreshed["pace_legacy_vent_state_3_suspect"] = self._pace_legacy_vent_state_3_suspect_from_snapshot(
+            pace,
+            refreshed,
+        )
+        refreshed["pace_atmosphere_connected_latched_state_suspect"] = refreshed[
+            "pace_legacy_vent_state_3_suspect"
+        ]
+        refreshed["pace_vent_completed_latched"] = self._pace_vent_completed_latched_from_snapshot(refreshed)
+        if refreshed.get("pace_vent_clear_attempted") in ("", None):
+            refreshed["pace_vent_clear_attempted"] = snapshot.get("pace_vent_clear_attempted", "")
+        if refreshed.get("pace_vent_clear_result") in ("", None):
+            refreshed["pace_vent_clear_result"] = snapshot.get("pace_vent_clear_result", "")
+
+        self._pace_effort_query = self._as_float(refreshed.get("pace_effort_query"))
+        self._pace_comp1_query = self._as_float(refreshed.get("pace_comp1_query"))
+        self._pace_comp2_query = self._as_float(refreshed.get("pace_comp2_query"))
+        self._pace_sens_pres_cont_query = self._as_float(refreshed.get("pace_sens_pres_cont_query"))
+        self._pace_sens_pres_bar_query = self._as_float(refreshed.get("pace_sens_pres_bar_query"))
+        self._pace_sens_pres_inl_query = self._as_float(refreshed.get("pace_sens_pres_inl_query"))
+        self._pace_sens_pres_inl_state_query = self._as_int(refreshed.get("pace_sens_pres_inl_state_query"))
+        self._pace_sens_pres_inl_time_query = self._as_float(refreshed.get("pace_sens_pres_inl_time_query"))
+        self._pace_sens_slew_query = self._as_float(refreshed.get("pace_sens_slew_query"))
+        self._pace_oper_pres_even_query = self._as_int(refreshed.get("pace_oper_pres_even_query"))
+        self._pace_oper_pres_vent_complete_bit = refreshed.get("pace_oper_pres_vent_complete_bit")
+        self._pace_oper_pres_in_limits_bit = refreshed.get("pace_oper_pres_in_limits_bit")
+
+        refreshed["vent_after_valve_supported"] = self._pace_vent_after_valve_supported
+        refreshed["vent_after_valve_open"] = self._pace_vent_after_valve_open
+        refreshed["vent_popup_ack_enabled"] = self._pace_vent_popup_ack_enabled
+        if any_success:
+            self._update_pace_state_cache(refreshed)
+        return refreshed
+
+    def _pace_read_only_query_text(self, pace: Any, command: str) -> str:
+        query = getattr(pace, "query", None)
+        if not callable(query):
+            raise RuntimeError("QUERY_UNAVAILABLE")
+        return str(query(str(command or "").strip()) or "").strip()
+
+    @staticmethod
+    def _normalize_pace_pressure_unit_text(value: Any) -> str:
+        text = str(value or "").strip().strip("\"'").upper()
+        if not text:
+            return ""
+        matches = re.findall(r"(HPA|KPA|MPA|PA|BARA|BARG|BAR|TORR|PSI)\b", text)
+        if matches:
+            return str(matches[-1] or "").strip().upper()
+        if ":" in text and " " in text:
+            return str(text.rsplit(" ", 1)[-1] or "").strip().strip("\"'").upper()
+        return text
+
+    def _capture_pace_capability_snapshot(
+        self,
+        *,
+        reason: str = "",
+        include_optional_probe: bool = False,
+        drain_errors: bool = True,
+    ) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        if not pace:
+            self._last_pace_capability_snapshot = {}
+            return {}
+
+        snapshot: Dict[str, Any] = {
+            "profile": self._pace_profile_name(pace),
+            "device_identity": "",
+            "pressure_unit": "",
+            "pressure_unit_status": "unknown",
+            "pressure_unit_reason": "PressureUnitUnknown",
+            "pressure_unit_allows_formal_setpoint": False,
+            "output_mode": "",
+            "output_state": None,
+            "source_pressure_range": "",
+            "sensor_pressure_range": "",
+            "source_pressure_in_limits_pct": None,
+            "source_pressure_in_limits_time_s": None,
+            "optional_sens_pres_cont_probe": "",
+            "optional_sens_pres_cont_probe_error": "",
+            "sens_pres_cont_supported": None,
+            "sens_pres_cont_error": "",
+            "drained_errors_before": [],
+            "drained_errors_after": [],
+            "final_syst_err": "",
+        }
+
+        query_available = callable(getattr(pace, "query", None))
+
+        def _extend_drained(rows: Any) -> None:
+            for entry in list(rows or []):
+                text = str(entry or "").strip()
+                if text:
+                    snapshot["drained_errors_after"].append(text)
+
+        if drain_errors:
+            snapshot["drained_errors_before"] = self._drain_pace_system_errors(
+                reason=f"{reason or 'pace capability snapshot'} pre-drain",
+                classification="capability_pre_drain",
+                action="pre_probe_drain",
+            )
+
+            for command, key, classification, action in (
+                ("*IDN?", "device_identity", "capability_probe", "record_only"),
+                (":UNIT:PRES?", "pressure_unit", "capability_probe", "record_only"),
+                (":OUTP:MODE?", "output_mode", "capability_probe", "record_only"),
+                (":OUTP:STAT?", "output_state", "capability_probe", "record_only"),
+                (":SOUR:PRES:RANG?", "source_pressure_range", "capability_probe", "record_only"),
+                (":SENS:PRES:RANG?", "sensor_pressure_range", "capability_probe", "record_only"),
+                (":SOUR:PRES:INL?", "source_pressure_in_limits_pct", "capability_probe", "record_only"),
+                (":SOUR:PRES:INL:TIME?", "source_pressure_in_limits_time_s", "capability_probe", "record_only"),
+            ):
+                if not query_available:
+                    continue
+                result = self._pace_query_with_error_attribution(
+                    command,
+                    classification=classification,
+                    action=action,
+                    reason=f"{reason or 'pace capability snapshot'} {command}",
+                )
+                _extend_drained(result.get("drained_errors"))
+                value = str(result.get("response") or "").strip().strip("\"'")
+                if key == "output_state":
+                    snapshot[key] = self._as_int(value)
+                elif key == "pressure_unit":
+                    snapshot[key] = self._normalize_pace_pressure_unit_text(value)
+                elif key in {"source_pressure_in_limits_pct", "source_pressure_in_limits_time_s"}:
+                    snapshot[key] = self._as_float(value)
+                else:
+                    snapshot[key] = value or snapshot.get(key)
+
+            if include_optional_probe and query_available:
+                result = self._pace_query_with_error_attribution(
+                    ":SENS:PRES:CONT?",
+                    classification="optional_diagnostic_error",
+                    action="disabled_for_formal_flow",
+                    reason=f"{reason or 'pace capability snapshot'} optional :SENS:PRES:CONT? probe",
+                )
+                _extend_drained(result.get("drained_errors"))
+                snapshot["optional_sens_pres_cont_probe"] = str(result.get("response") or "").strip()
+                if str(result.get("query_error") or "").strip():
+                    snapshot["optional_sens_pres_cont_probe_error"] = str(result.get("query_error") or "").strip()
+                if not self._pace_system_error_is_clear(result.get("syst_err")):
+                    snapshot["sens_pres_cont_supported"] = False
+                    snapshot["sens_pres_cont_error"] = str(result.get("syst_err") or "").strip()
+                elif str(result.get("response") or "").strip():
+                    snapshot["sens_pres_cont_supported"] = True
+                    snapshot["sens_pres_cont_error"] = ""
+                else:
+                    snapshot["sens_pres_cont_supported"] = False
+                    snapshot["sens_pres_cont_error"] = str(result.get("query_error") or "").strip()
+            elif include_optional_probe:
+                snapshot["sens_pres_cont_supported"] = self._pace_sens_pres_cont_supported
+                snapshot["sens_pres_cont_error"] = self._pace_sens_pres_cont_error
+
+            for getter_name, key, value_type in (
+                ("get_device_identity", "device_identity", "text"),
+                ("get_pressure_unit", "pressure_unit", "upper_text"),
+                ("get_output_mode", "output_mode", "text"),
+                ("get_output_state", "output_state", "int"),
+                ("get_control_range", "source_pressure_range", "text"),
+                ("get_in_limits_setting", "source_pressure_in_limits_pct", "float"),
+                ("get_in_limits_time_setting_s", "source_pressure_in_limits_time_s", "float"),
+            ):
+                if snapshot.get(key) not in ("", None):
+                    continue
+                getter = getattr(pace, getter_name, None)
+                if not callable(getter):
+                    continue
+                try:
+                    raw_value = getter()
+                except Exception:
+                    continue
+                if value_type == "int":
+                    snapshot[key] = self._as_int(raw_value)
+                elif value_type == "float":
+                    snapshot[key] = self._as_float(raw_value)
+                elif value_type == "upper_text":
+                    snapshot[key] = self._normalize_pace_pressure_unit_text(raw_value)
+                else:
+                    snapshot[key] = str(raw_value or "").strip().strip("\"'")
+
+            if snapshot.get("sensor_pressure_range") in ("", None):
+                snapshot["sensor_pressure_range"] = str(snapshot.get("source_pressure_range") or "").strip()
+        else:
+            identity_getter = getattr(pace, "get_device_identity", None)
+            if callable(identity_getter):
+                try:
+                    snapshot["device_identity"] = str(identity_getter() or "").strip()
+                except Exception as exc:
+                    snapshot["device_identity"] = f"ERROR:{exc}"
+
+            unit_getter = getattr(pace, "get_pressure_unit", None)
+            has_unit_query = callable(unit_getter) or query_available
+            if callable(unit_getter):
+                try:
+                    snapshot["pressure_unit"] = self._normalize_pace_pressure_unit_text(unit_getter())
+                except Exception:
+                    snapshot["pressure_unit"] = ""
+            elif query_available:
+                try:
+                    snapshot["pressure_unit"] = self._normalize_pace_pressure_unit_text(
+                        self._pace_read_only_query_text(pace, ":UNIT:PRES?")
+                    )
+                except Exception:
+                    snapshot["pressure_unit"] = ""
+
+            for getter_name, key in (
+                ("get_output_mode", "output_mode"),
+                ("get_control_range", "source_pressure_range"),
+                ("get_in_limits_setting", "source_pressure_in_limits_pct"),
+                ("get_in_limits_time_setting_s", "source_pressure_in_limits_time_s"),
+            ):
+                getter = getattr(pace, getter_name, None)
+                if not callable(getter):
+                    continue
+                try:
+                    snapshot[key] = getter()
+                except Exception:
+                    pass
+
+            output_state_getter = getattr(pace, "get_output_state", None)
+            if callable(output_state_getter):
+                try:
+                    snapshot["output_state"] = output_state_getter()
+                except Exception:
+                    snapshot["output_state"] = None
+
+            if query_available:
+                for command, key in (
+                    (":SOUR:PRES:RANG?", "source_pressure_range"),
+                    (":SENS:PRES:RANG?", "sensor_pressure_range"),
+                ):
+                    if snapshot.get(key) not in ("", None):
+                        continue
+                    try:
+                        snapshot[key] = self._pace_read_only_query_text(pace, command).strip().strip("\"'")
+                    except Exception:
+                        continue
+                has_unit_query = has_unit_query or query_available
+            else:
+                has_unit_query = callable(unit_getter)
+
+            if include_optional_probe:
+                snapshot["sens_pres_cont_supported"] = self._pace_sens_pres_cont_supported
+                snapshot["sens_pres_cont_error"] = self._pace_sens_pres_cont_error
+
+        unit_text = str(snapshot.get("pressure_unit") or "").strip().upper()
+        has_unit_query = query_available or callable(getattr(pace, "get_pressure_unit", None))
+        if unit_text == "HPA":
+            snapshot["pressure_unit_status"] = "known_hpa"
+            snapshot["pressure_unit_reason"] = ""
+            snapshot["pressure_unit_allows_formal_setpoint"] = True
+        elif unit_text:
+            snapshot["pressure_unit_status"] = "unexpected"
+            snapshot["pressure_unit_reason"] = f"PressureUnitUnexpected:{unit_text}"
+            snapshot["pressure_unit_allows_formal_setpoint"] = False
+        elif not has_unit_query:
+            snapshot["pressure_unit_status"] = "query_unsupported"
+            snapshot["pressure_unit_reason"] = "PressureUnitQueryUnsupportedAssumedHpa"
+            snapshot["pressure_unit_allows_formal_setpoint"] = True
+
+        if snapshot["sens_pres_cont_supported"] is None:
+            snapshot["sens_pres_cont_supported"] = self._pace_sens_pres_cont_supported
+        if not str(snapshot["sens_pres_cont_error"] or "").strip():
+            snapshot["sens_pres_cont_error"] = self._pace_sens_pres_cont_error
+        self._pace_sens_pres_cont_supported = (
+            bool(snapshot["sens_pres_cont_supported"])
+            if snapshot["sens_pres_cont_supported"] is not None
+            else self._pace_sens_pres_cont_supported
+        )
+        self._pace_sens_pres_cont_error = str(snapshot.get("sens_pres_cont_error") or "").strip()
+        if drain_errors and not snapshot["drained_errors_after"]:
+            snapshot["drained_errors_after"] = self._drain_pace_system_errors(
+                reason=f"{reason or 'pace capability snapshot'} post-drain",
+                classification="capability_post_drain",
+                action="post_probe_drain",
+            )
+        if drain_errors:
+            snapshot["final_syst_err"] = self._read_pace_system_error_text()
+        self._last_pace_capability_snapshot = dict(snapshot)
+        return dict(snapshot)
+
+    def _source_stage_safety_snapshot(self) -> Dict[str, bool]:
+        return {str(key): bool(value) for key, value in dict(self._source_stage_safety or {}).items()}
+
+    def _route_final_stage_atmosphere_safety_snapshot(self) -> Dict[str, bool]:
+        return {
+            str(key): bool(value)
+            for key, value in dict(self._route_final_stage_atmosphere_safety or {}).items()
+        }
+
+    def _route_final_stage_seal_safety_snapshot(self) -> Dict[str, bool]:
+        return {
+            str(key): bool(value)
+            for key, value in dict(self._route_final_stage_seal_safety or {}).items()
+        }
+
+    def _recorded_full_seal_transition_completed(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        current_state: Optional[Mapping[str, Any]] = None,
+    ) -> bool:
+        if point is None:
+            return False
+        phase_text = str(phase or "").strip().lower()
+        runtime_state = dict(self._point_runtime_state(point, phase=phase_text) or {})
+        if not bool(runtime_state.get("seal_transition_completed")):
+            return False
+        state = dict(current_state or self._seal_transition_state(point, phase=phase_text))
+        return bool(
+            state.get("seal_transition_completed")
+            and state.get("seal_all_solenoids_closed")
+            and state.get("seal_total_route_valve_closed")
+            and state.get("keepalive_stopped_before_seal")
+        )
+
+    def _seal_total_route_valves_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+    ) -> List[int]:
+        valves_cfg = self.cfg.get("valves", {})
+        phase_text = str(phase or "").strip().lower()
+        keys = ("h2o_path", "hold", "flow_switch") if phase_text == "h2o" else ("h2o_path", "gas_main")
+        valves: List[int] = []
+        for key in keys:
+            value = self._as_int(valves_cfg.get(key))
+            if value is not None and int(value) not in valves:
+                valves.append(int(value))
+        return valves
+
+    def _seal_transition_state(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+    ) -> Dict[str, Any]:
+        required = sorted({int(value) for value in self._managed_valves()})
+        open_set = {int(value) for value in tuple(self._current_open_valves or ())}
+        missing_closed = [value for value in required if value in open_set]
+        total_valves = self._seal_total_route_valves_for_point(point, phase=phase)
+        total_missing = [value for value in total_valves if value in open_set]
+        continuous_state = self._continuous_atmosphere_state_snapshot()
+        keepalive_stopped = not (
+            bool(continuous_state.get("active"))
+            or bool(continuous_state.get("route_flow_active"))
+            or bool(continuous_state.get("background_keepalive_active"))
+        )
+        all_closed = not missing_closed
+        total_closed = not total_missing
+        return {
+            "seal_all_solenoids_closed": bool(all_closed),
+            "seal_total_route_valve_closed": bool(total_closed),
+            "seal_total_route_valves_closed_list": list(total_valves),
+            "seal_required_valves_closed_list": list(required),
+            "seal_missing_closed_valves": list(missing_closed),
+            "seal_transition_completed": bool(all_closed and total_closed and keepalive_stopped),
+            "keepalive_stopped_before_seal": bool(keepalive_stopped),
+            "seal_open_valves_at_check": sorted(open_set),
+        }
+
+    def _record_seal_transition_state(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        trace_stage: str,
+        reason: str,
+        pressure_target_hpa: Any = None,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        state = self._seal_transition_state(point, phase=phase_text)
+        self._set_point_runtime_fields(point, phase=phase_text, **state)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage=trace_stage,
+            trigger_reason=reason,
+            pressure_target_hpa=pressure_target_hpa,
+            offending_valve_or_group="|".join(str(value) for value in state.get("seal_missing_closed_valves") or []),
+            refresh_pace_state=False,
+            note=json.dumps(
+                {
+                    "reason": reason,
+                    **state,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        )
+        return state
+
+    def _verify_full_seal_before_pressure_control(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        pressure_target_hpa: Any,
+        reason: str,
+    ) -> bool:
+        state = self._record_seal_transition_state(
+            point,
+            phase=phase,
+            trace_stage="sealed_control_entry_verified",
+            reason=reason,
+            pressure_target_hpa=pressure_target_hpa,
+        )
+        if bool(state.get("seal_transition_completed")):
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                pressure_in_limits_timeout_phase="",
+                pressure_in_limits_timeout_reason_detail="",
+            )
+            return True
+        detail = (
+            f"missing_closed_valves={state.get('seal_missing_closed_valves') or []}; "
+            f"total_route_valve_closed={bool(state.get('seal_total_route_valve_closed'))}; "
+            f"keepalive_stopped_before_seal={bool(state.get('keepalive_stopped_before_seal'))}"
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            abort_reason="SealTransitionIncomplete",
+            pace_control_started_after_full_seal=False,
+            pressure_in_limits_timeout_phase="seal_not_complete",
+            pressure_in_limits_timeout_reason_detail=detail,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="sealed_control_entry_blocked",
+            trigger_reason="SealTransitionIncomplete",
+            pressure_target_hpa=pressure_target_hpa,
+            offending_valve_or_group="|".join(str(value) for value in state.get("seal_missing_closed_valves") or []),
+            refresh_pace_state=False,
+            note=detail,
+        )
+        return False
+
+    def _continuous_atmosphere_state_snapshot(self) -> Dict[str, Any]:
+        lock = getattr(self, "_continuous_atmosphere_lock", None)
+        if lock is not None:
+            with lock:
+                state = dict(self._continuous_atmosphere_state or {})
+        else:
+            state = dict(self._continuous_atmosphere_state or {})
+        state["active"] = bool(state.get("active"))
+        state["route_flow_active"] = bool(state.get("route_flow_active"))
+        state["generation"] = int(state.get("generation") or 0)
+        state["keepalive_count"] = int(state.get("keepalive_count") or 0)
+        state["last_keepalive_summary"] = dict(state.get("last_keepalive_summary") or {})
+        state["background_keepalive_active"] = bool(state.get("background_keepalive_active"))
+        state["background_keepalive_count"] = int(state.get("background_keepalive_count") or 0)
+        return state
+
+    def _pace_optional_query_error_attribution(
+        self,
+        commands: Sequence[str],
+        *,
+        reason: str = "",
+    ) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for command in list(commands or []):
+            row = self._pace_query_with_error_attribution(
+                str(command or "").strip(),
+                classification="optional_diagnostic_error",
+                action="disabled_for_formal_flow",
+                reason=reason or "optional query attribution",
+                pre_drain=True,
+            )
+            rows.append(dict(row))
+        return rows
+
+    def _pace_unit_allows_formal_setpoint(self) -> Tuple[bool, str, Dict[str, Any]]:
+        snapshot = self._capture_pace_capability_snapshot(
+            reason="formal setpoint unit check",
+            drain_errors=False,
+        )
+        if not snapshot:
+            return True, "", {}
+        if bool(snapshot.get("pressure_unit_allows_formal_setpoint", False)):
+            return True, "", snapshot
+        reason = str(snapshot.get("pressure_unit_reason") or "PressureUnitUnknown")
+        return False, reason, snapshot
+
+    @staticmethod
+    def _pace_snapshot_runtime_fields(snapshot: Mapping[str, Any]) -> Dict[str, Any]:
+        legacy_vent3_suspect = snapshot.get("pace_legacy_vent_state_3_suspect")
+        if legacy_vent3_suspect in ("", None):
+            try:
+                raw_vent = snapshot.get("pace_vent_status_query", snapshot.get("pace_vent_status"))
+                legacy_vent3_suspect = int(float(raw_vent)) == 3
+            except Exception:
+                legacy_vent3_suspect = ""
+        return {
+            "pace_output_state": snapshot.get("pace_output_state"),
+            "pace_isolation_state": snapshot.get("pace_isolation_state"),
+            "pace_vent_status": snapshot.get("pace_vent_status"),
+            "pace_outp_state_query": snapshot.get("pace_outp_state_query"),
+            "pace_isol_state_query": snapshot.get("pace_isol_state_query"),
+            "pace_mode_query": snapshot.get("pace_mode_query"),
+            "pace_vent_status_query": snapshot.get("pace_vent_status_query"),
+            "pace_legacy_vent_state_3_suspect": legacy_vent3_suspect,
+            "pace_atmosphere_connected_latched_state_suspect": snapshot.get(
+                "pace_atmosphere_connected_latched_state_suspect",
+                legacy_vent3_suspect,
+            ),
+            "pace_vent_completed_latched": snapshot.get("pace_vent_completed_latched"),
+            "pace_vent_clear_attempted": snapshot.get("pace_vent_clear_attempted"),
+            "pace_vent_clear_result": snapshot.get("pace_vent_clear_result"),
+            "pace_vent_after_valve_state_query": snapshot.get("pace_vent_after_valve_state_query"),
+            "pace_vent_popup_state_query": snapshot.get("pace_vent_popup_state_query"),
+            "pace_vent_elapsed_time_query": snapshot.get("pace_vent_elapsed_time_query"),
+            "pace_vent_orpv_state_query": snapshot.get("pace_vent_orpv_state_query"),
+            "pace_vent_pupv_state_query": snapshot.get("pace_vent_pupv_state_query"),
+            "pace_effort_query": snapshot.get("pace_effort_query"),
+            "pace_comp1_query": snapshot.get("pace_comp1_query"),
+            "pace_comp2_query": snapshot.get("pace_comp2_query"),
+            "pace_sens_pres_cont_query": snapshot.get("pace_sens_pres_cont_query"),
+            "pace_sens_pres_bar_query": snapshot.get("pace_sens_pres_bar_query"),
+            "pace_sens_pres_inl_query": snapshot.get("pace_sens_pres_inl_query"),
+            "pace_sens_pres_inl_state_query": snapshot.get("pace_sens_pres_inl_state_query"),
+            "pace_sens_pres_inl_time_query": snapshot.get("pace_sens_pres_inl_time_query"),
+            "pace_sens_inl_query": snapshot.get("pace_sens_inl_query", snapshot.get("pace_sens_pres_inl_query")),
+            "pace_sens_inl_time_query": snapshot.get(
+                "pace_sens_inl_time_query",
+                snapshot.get("pace_sens_pres_inl_time_query"),
+            ),
+            "pace_sens_slew_query": snapshot.get("pace_sens_slew_query"),
+            "pace_oper_cond_query": snapshot.get("pace_oper_cond_query"),
+            "pace_oper_pres_cond_query": snapshot.get("pace_oper_pres_cond_query"),
+            "pace_oper_pres_even_query": snapshot.get("pace_oper_pres_even_query"),
+            "pace_oper_pres_vent_complete_bit": snapshot.get("pace_oper_pres_vent_complete_bit"),
+            "pace_oper_pres_in_limits_bit": snapshot.get("pace_oper_pres_in_limits_bit"),
+        }
+
     def _pressure_soft_control_trace_context(self) -> Dict[str, Any]:
         return {
             "soft_control_enabled": bool(self._wf("workflow.pressure.soft_control_enabled", False)),
@@ -558,7 +2108,9 @@ class CalibrationRunner:
             "vent_after_valve_supported": self._pace_vent_after_valve_supported,
             "vent_after_valve_open": self._pace_vent_after_valve_open,
             "vent_popup_ack_enabled": self._pace_vent_popup_ack_enabled,
-            "atmosphere_hold_strategy": self._pressure_atmosphere_hold_strategy,
+            "atmosphere_hold_strategy": self._normalized_atmosphere_hold_strategy_value(
+                self._pressure_atmosphere_hold_strategy
+            ),
         }
 
     def _pressure_trace_row(
@@ -571,6 +2123,12 @@ class CalibrationRunner:
         point_tag: str = "",
         trigger_reason: str = "",
         pressure_target_hpa: Any = None,
+        analyzer_pressure_kpa: Any = None,
+        dewpoint_line_pressure_hpa: Any = None,
+        route_pressure_guard_status: Any = None,
+        route_pressure_guard_reason: Any = None,
+        offending_route: Any = None,
+        offending_valve_or_group: Any = None,
         pace_pressure_hpa: Any = None,
         pressure_gauge_hpa: Any = None,
         dewpoint_c: Any = None,
@@ -579,6 +2137,68 @@ class CalibrationRunner:
         pace_output_state: Any = None,
         pace_isolation_state: Any = None,
         pace_vent_status: Any = None,
+        pace_outp_state_query: Any = None,
+        pace_isol_state_query: Any = None,
+        pace_mode_query: Any = None,
+        pace_vent_status_query: Any = None,
+        pace_legacy_vent_state_3_suspect: Any = None,
+        pace_atmosphere_connected_latched_state_suspect: Any = None,
+        legacy_vent3_control_ready_used: Any = None,
+        legacy_vent3_accept_scope: Any = None,
+        vent_status_3_count: Any = None,
+        vent3_hard_blocked: Any = None,
+        vent3_watchlist_only: Any = None,
+        vent3_control_ready_attempted: Any = None,
+        vent3_control_ready_prevented: Any = None,
+        vent3_block_scope: Any = None,
+        ack_callback_invoked: Any = None,
+        vent3_post_window_status: Any = None,
+        preseal_final_exit_watchlist_status_seen: Any = None,
+        preseal_final_exit_watchlist_status_accepted: Any = None,
+        preseal_final_exit_watchlist_status_reason: Any = None,
+        legacy_v1_preseal_watchlist_evidence_found: Any = None,
+        legacy_v1_preseal_watchlist_evidence_source: Any = None,
+        after_full_seal_watchlist_status_seen: Any = None,
+        after_full_seal_watchlist_status_accepted: Any = None,
+        after_full_seal_watchlist_status_reason: Any = None,
+        legacy_v1_after_full_seal_watchlist_evidence_found: Any = None,
+        legacy_v1_after_full_seal_watchlist_evidence_source: Any = None,
+        control_ready_watchlist_status_accepted: Any = None,
+        control_ready_watchlist_status_phase: Any = None,
+        control_ready_check_watchlist_status_seen: Any = None,
+        control_ready_check_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_seen: Any = None,
+        after_full_seal_output_enable_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_reason: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source: Any = None,
+        output_enable_watchlist_status_accepted: Any = None,
+        output_enable_watchlist_status_phase: Any = None,
+        output_enable_failed_with_watchlist_status_3: Any = None,
+        pace_vent_completed_latched: Any = None,
+        pace_vent_clear_attempted: Any = None,
+        pace_vent_clear_result: Any = None,
+        pace_vent_after_valve_state_query: Any = None,
+        pace_vent_popup_state_query: Any = None,
+        pace_vent_elapsed_time_query: Any = None,
+        pace_vent_orpv_state_query: Any = None,
+        pace_vent_pupv_state_query: Any = None,
+        pace_effort_query: Any = None,
+        pace_comp1_query: Any = None,
+        pace_comp2_query: Any = None,
+        pace_sens_pres_cont_query: Any = None,
+        pace_sens_pres_bar_query: Any = None,
+        pace_sens_pres_inl_query: Any = None,
+        pace_sens_pres_inl_state_query: Any = None,
+        pace_sens_pres_inl_time_query: Any = None,
+        pace_sens_inl_query: Any = None,
+        pace_sens_inl_time_query: Any = None,
+        pace_sens_slew_query: Any = None,
+        pace_oper_cond_query: Any = None,
+        pace_oper_pres_cond_query: Any = None,
+        pace_oper_pres_even_query: Any = None,
+        pace_oper_pres_vent_complete_bit: Any = None,
+        pace_oper_pres_in_limits_bit: Any = None,
         vent_after_valve_supported: Any = None,
         vent_after_valve_open: Any = None,
         vent_popup_ack_enabled: Any = None,
@@ -588,7 +2208,13 @@ class CalibrationRunner:
         handoff_vent_to_safe_open_ms: Any = None,
         handoff_safe_open_to_route_open_ms: Any = None,
         handoff_total_ms: Any = None,
+        handoff_mode: Any = None,
         atmosphere_reference_hpa: Any = None,
+        superambient_target_hpa: Any = None,
+        superambient_precharge_margin_hpa: Any = None,
+        superambient_precharge_peak_hpa: Any = None,
+        superambient_precharge_result: Any = None,
+        superambient_closed_path_verified: Any = None,
         handoff_safe_open_delta_hpa: Any = None,
         deferred_export_queue_len: Any = None,
         dewpoint_live_c: Any = None,
@@ -603,11 +2229,52 @@ class CalibrationRunner:
         dewpoint_tail_span_60s: Any = None,
         dewpoint_tail_slope_60s: Any = None,
         dewpoint_rebound_detected: Any = None,
+        capture_hold_status: Any = None,
+        capture_hold_reason: Any = None,
+        post_isolation_status: Any = None,
+        post_isolation_reason: Any = None,
+        post_isolation_capture_mode: Any = None,
+        post_isolation_fast_capture_status: Any = None,
+        post_isolation_fast_capture_reason: Any = None,
+        post_isolation_fast_capture_elapsed_s: Any = None,
+        post_isolation_fast_capture_fallback: Any = None,
+        post_isolation_pressure_start_hpa: Any = None,
+        post_isolation_pressure_end_hpa: Any = None,
+        post_isolation_pressure_peak_hpa: Any = None,
+        post_isolation_pressure_min_hpa: Any = None,
+        post_isolation_pressure_drift_hpa: Any = None,
+        post_isolation_pressure_slope_hpa_s: Any = None,
+        post_isolation_pressure_recovery_toward_ambient: Any = None,
+        post_isolation_dewpoint_start_c: Any = None,
+        post_isolation_dewpoint_end_c: Any = None,
+        post_isolation_dewpoint_rise_c: Any = None,
+        post_isolation_dewpoint_slope_c_s: Any = None,
+        post_isolation_h2o_start: Any = None,
+        post_isolation_h2o_end: Any = None,
+        post_isolation_pressure_dew_corr: Any = None,
+        post_isolation_diagnosis: Any = None,
+        pressure_gate_status: Any = None,
+        pressure_gate_reason: Any = None,
+        pressure_gate_window_s: Any = None,
+        pressure_gate_elapsed_s: Any = None,
+        pressure_gate_span_hpa: Any = None,
+        pressure_gate_slope_hpa_per_s: Any = None,
+        pressure_gate_count: Any = None,
+        pressure_dew_sync_status: Any = None,
+        pressure_dew_sync_reason: Any = None,
+        baseline_sanity_gate_status: Any = None,
+        baseline_sanity_gate_reason: Any = None,
+        baseline_sanity_target_co2_ppm: Any = None,
+        baseline_sanity_plateau_mean_ppm: Any = None,
+        baseline_sanity_plateau_span_ppm: Any = None,
+        baseline_sanity_plateau_count: Any = None,
         flush_gate_status: Any = None,
         flush_gate_reason: Any = None,
+        root_cause_reject_reason: Any = None,
         sample_lag_ms: Any = None,
         soft_control_enabled: Any = None,
         soft_control_linear_slew_hpa_per_s: Any = None,
+        vent_context: Any = None,
         event_ts: Optional[float] = None,
         note: str = "",
     ) -> Dict[str, Any]:
@@ -616,9 +2283,77 @@ class CalibrationRunner:
         soft_cfg = self._pressure_soft_control_trace_context()
         atmosphere_cfg = self._pressure_atmosphere_trace_context()
         event_dt = datetime.fromtimestamp(float(event_ts)) if event_ts is not None else datetime.now()
+        runtime_state = dict(self._point_runtime_state(point, phase=phase_text) or {}) if point is not None else {}
+        atmosphere_summary = dict(self._last_atmosphere_gate_summary or {})
+        phase_start_ts_text = str(
+            runtime_state.get("phase_start_ts")
+            or atmosphere_summary.get("phase_start_ts")
+            or ""
+        ).strip()
+        fresh_vent_command_sent_value = runtime_state.get(
+            "fresh_vent_command_sent",
+            atmosphere_summary.get("fresh_vent_command_sent"),
+        )
+        vent_status_sequence_text = str(
+            runtime_state.get("vent_status_sequence")
+            or atmosphere_summary.get("vent_status_sequence_text")
+            or ""
+        ).strip()
+        pressure_hpa_value = self._as_float(
+            runtime_state.get("pressure_hpa", atmosphere_summary.get("pressure_hpa"))
+        )
+        ambient_hpa_value = self._as_float(
+            runtime_state.get("ambient_hpa", atmosphere_summary.get("ambient_hpa"))
+        )
+        pressure_delta_from_ambient_hpa_value = self._as_float(
+            runtime_state.get(
+                "pressure_delta_from_ambient_hpa",
+                atmosphere_summary.get("pressure_delta_from_ambient_hpa"),
+            )
+        )
+        pressure_slope_hpa_s_value = self._as_float(
+            runtime_state.get("pressure_slope_hpa_s", atmosphere_summary.get("pressure_slope_hpa_s"))
+        )
+        atmosphere_ready_value = runtime_state.get(
+            "atmosphere_ready",
+            atmosphere_summary.get("atmosphere_ready"),
+        )
+        analyzer_pressure_kpa_value = self._as_float(runtime_state.get("analyzer_pressure_kpa"))
+        dewpoint_line_pressure_hpa_value = self._as_float(runtime_state.get("dewpoint_line_pressure_hpa"))
+        route_pressure_guard_status_value = str(runtime_state.get("route_pressure_guard_status") or "").strip()
+        route_pressure_guard_reason_value = str(runtime_state.get("route_pressure_guard_reason") or "").strip()
+        offending_route_value = str(runtime_state.get("offending_route") or "").strip()
+        offending_valve_or_group_value = str(runtime_state.get("offending_valve_or_group") or "").strip()
+        dewpoint_stabilization_started_value = runtime_state.get("dewpoint_stabilization_started")
+        dewpoint_stabilization_timeout_value = runtime_state.get("dewpoint_stabilization_timeout")
+        abort_reason_value = str(
+            runtime_state.get("abort_reason")
+            or atmosphere_summary.get("abort_reason")
+            or self._last_abort_reason
+            or ""
+        ).strip()
+        pace_syst_err_query_value = str(
+            runtime_state.get("pace_syst_err_query")
+            or atmosphere_summary.get("pace_syst_err_query")
+            or ""
+        ).strip()
+        if baseline_sanity_gate_status is None:
+            baseline_sanity_gate_status = runtime_state.get("baseline_sanity_gate_status")
+        if baseline_sanity_gate_reason is None:
+            baseline_sanity_gate_reason = runtime_state.get("baseline_sanity_gate_reason")
+        if baseline_sanity_target_co2_ppm is None:
+            baseline_sanity_target_co2_ppm = runtime_state.get("baseline_sanity_target_co2_ppm")
+        if baseline_sanity_plateau_mean_ppm is None:
+            baseline_sanity_plateau_mean_ppm = runtime_state.get("baseline_sanity_plateau_mean_ppm")
+        if baseline_sanity_plateau_span_ppm is None:
+            baseline_sanity_plateau_span_ppm = runtime_state.get("baseline_sanity_plateau_span_ppm")
+        if baseline_sanity_plateau_count is None:
+            baseline_sanity_plateau_count = runtime_state.get("baseline_sanity_plateau_count")
         row.update(
             {
                 "ts": event_dt.isoformat(timespec="milliseconds"),
+                "phase": phase_text,
+                "phase_start_ts": phase_start_ts_text,
                 "point_title": self._point_title(point, phase=phase_text, point_tag=point_tag) if point is not None else "",
                 "point_phase": phase_text,
                 "point_tag": str(point_tag or ""),
@@ -626,17 +2361,178 @@ class CalibrationRunner:
                 "route": str(route or phase_text or "").strip().lower(),
                 "trace_stage": str(trace_stage or "").strip(),
                 "trigger_reason": str(trigger_reason or "").strip(),
+                "vent_context_json": self._pressure_trace_json(vent_context),
+                "valve_route_state": self._current_valve_route_state_text(),
+                "fresh_vent_command_sent": self._pressure_trace_cell(fresh_vent_command_sent_value),
+                "vent_status_sequence": vent_status_sequence_text,
                 "pressure_target_hpa": self._pressure_trace_cell(
                     pressure_target_hpa if pressure_target_hpa is not None else getattr(point, "target_pressure_hpa", None)
+                ),
+                "pressure_hpa": self._pressure_trace_cell(pressure_hpa_value),
+                "ambient_hpa": self._pressure_trace_cell(ambient_hpa_value),
+                "pressure_delta_from_ambient_hpa": self._pressure_trace_cell(pressure_delta_from_ambient_hpa_value),
+                "pressure_slope_hpa_s": self._pressure_trace_cell(pressure_slope_hpa_s_value),
+                "atmosphere_ready": self._pressure_trace_cell(atmosphere_ready_value),
+                "analyzer_pressure_kpa": self._pressure_trace_cell(
+                    analyzer_pressure_kpa if analyzer_pressure_kpa is not None else analyzer_pressure_kpa_value
+                ),
+                "dewpoint_line_pressure_hpa": self._pressure_trace_cell(
+                    dewpoint_line_pressure_hpa
+                    if dewpoint_line_pressure_hpa is not None
+                    else dewpoint_line_pressure_hpa_value
+                ),
+                "route_pressure_guard_status": self._pressure_trace_cell(
+                    route_pressure_guard_status
+                    if route_pressure_guard_status is not None
+                    else route_pressure_guard_status_value
+                ),
+                "route_pressure_guard_reason": self._pressure_trace_cell(
+                    route_pressure_guard_reason
+                    if route_pressure_guard_reason is not None
+                    else route_pressure_guard_reason_value
+                ),
+                "offending_route": self._pressure_trace_cell(
+                    offending_route if offending_route is not None else offending_route_value
+                ),
+                "offending_valve_or_group": self._pressure_trace_cell(
+                    offending_valve_or_group
+                    if offending_valve_or_group is not None
+                    else offending_valve_or_group_value
                 ),
                 "pace_pressure_hpa": self._pressure_trace_cell(pace_pressure_hpa),
                 "pressure_gauge_hpa": self._pressure_trace_cell(pressure_gauge_hpa),
                 "dewpoint_c": self._pressure_trace_cell(dewpoint_c),
                 "dew_temp_c": self._pressure_trace_cell(dew_temp_c),
                 "dew_rh_pct": self._pressure_trace_cell(dew_rh_pct),
+                "dewpoint_stabilization_started": self._pressure_trace_cell(dewpoint_stabilization_started_value),
+                "dewpoint_stabilization_timeout": self._pressure_trace_cell(dewpoint_stabilization_timeout_value),
+                "abort_reason": self._pressure_trace_cell(abort_reason_value),
+                "pace_syst_err_query": self._pressure_trace_cell(pace_syst_err_query_value),
                 "pace_output_state": self._pressure_trace_cell(pace_output_state),
                 "pace_isolation_state": self._pressure_trace_cell(pace_isolation_state),
                 "pace_vent_status": self._pressure_trace_cell(pace_vent_status),
+                "pace_outp_state_query": self._pressure_trace_cell(pace_outp_state_query),
+                "pace_isol_state_query": self._pressure_trace_cell(pace_isol_state_query),
+            "pace_mode_query": self._pressure_trace_cell(pace_mode_query),
+            "pace_vent_status_query": self._pressure_trace_cell(pace_vent_status_query),
+            "pace_legacy_vent_state_3_suspect": self._pressure_trace_cell(
+                pace_legacy_vent_state_3_suspect
+            ),
+            "pace_atmosphere_connected_latched_state_suspect": self._pressure_trace_cell(
+                pace_atmosphere_connected_latched_state_suspect
+            ),
+            "legacy_vent3_control_ready_used": self._pressure_trace_cell(legacy_vent3_control_ready_used),
+            "legacy_vent3_accept_scope": self._pressure_trace_cell(legacy_vent3_accept_scope),
+            "vent_status_3_count": self._pressure_trace_cell(vent_status_3_count),
+            "vent3_hard_blocked": self._pressure_trace_cell(vent3_hard_blocked),
+            "vent3_watchlist_only": self._pressure_trace_cell(vent3_watchlist_only),
+            "vent3_control_ready_attempted": self._pressure_trace_cell(vent3_control_ready_attempted),
+            "vent3_control_ready_prevented": self._pressure_trace_cell(vent3_control_ready_prevented),
+            "vent3_block_scope": self._pressure_trace_cell(vent3_block_scope),
+            "ack_callback_invoked": self._pressure_trace_cell(ack_callback_invoked),
+            "vent3_post_window_status": self._pressure_trace_cell(vent3_post_window_status),
+            "preseal_final_exit_watchlist_status_seen": self._pressure_trace_cell(
+                preseal_final_exit_watchlist_status_seen
+            ),
+            "preseal_final_exit_watchlist_status_accepted": self._pressure_trace_cell(
+                preseal_final_exit_watchlist_status_accepted
+            ),
+            "preseal_final_exit_watchlist_status_reason": self._pressure_trace_cell(
+                preseal_final_exit_watchlist_status_reason
+            ),
+            "legacy_v1_preseal_watchlist_evidence_found": self._pressure_trace_cell(
+                legacy_v1_preseal_watchlist_evidence_found
+            ),
+            "legacy_v1_preseal_watchlist_evidence_source": self._pressure_trace_cell(
+                legacy_v1_preseal_watchlist_evidence_source
+            ),
+            "after_full_seal_watchlist_status_seen": self._pressure_trace_cell(
+                after_full_seal_watchlist_status_seen
+            ),
+            "after_full_seal_watchlist_status_accepted": self._pressure_trace_cell(
+                after_full_seal_watchlist_status_accepted
+            ),
+            "after_full_seal_watchlist_status_reason": self._pressure_trace_cell(
+                after_full_seal_watchlist_status_reason
+            ),
+            "legacy_v1_after_full_seal_watchlist_evidence_found": self._pressure_trace_cell(
+                legacy_v1_after_full_seal_watchlist_evidence_found
+            ),
+            "legacy_v1_after_full_seal_watchlist_evidence_source": self._pressure_trace_cell(
+                legacy_v1_after_full_seal_watchlist_evidence_source
+            ),
+            "control_ready_watchlist_status_accepted": self._pressure_trace_cell(
+                control_ready_watchlist_status_accepted
+            ),
+            "control_ready_watchlist_status_phase": self._pressure_trace_cell(
+                control_ready_watchlist_status_phase
+            ),
+            "control_ready_check_watchlist_status_seen": self._pressure_trace_cell(
+                control_ready_check_watchlist_status_seen
+            ),
+            "control_ready_check_watchlist_status_accepted": self._pressure_trace_cell(
+                control_ready_check_watchlist_status_accepted
+            ),
+            "after_full_seal_output_enable_watchlist_status_seen": self._pressure_trace_cell(
+                after_full_seal_output_enable_watchlist_status_seen
+            ),
+            "after_full_seal_output_enable_watchlist_status_accepted": self._pressure_trace_cell(
+                after_full_seal_output_enable_watchlist_status_accepted
+            ),
+            "after_full_seal_output_enable_watchlist_status_reason": self._pressure_trace_cell(
+                after_full_seal_output_enable_watchlist_status_reason
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found": self._pressure_trace_cell(
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_found
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source": self._pressure_trace_cell(
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_source
+            ),
+            "output_enable_watchlist_status_accepted": self._pressure_trace_cell(
+                output_enable_watchlist_status_accepted
+            ),
+            "output_enable_watchlist_status_phase": self._pressure_trace_cell(
+                output_enable_watchlist_status_phase
+            ),
+            "output_enable_failed_with_watchlist_status_3": self._pressure_trace_cell(
+                output_enable_failed_with_watchlist_status_3
+            ),
+            "pace_vent_completed_latched": self._pressure_trace_cell(pace_vent_completed_latched),
+            "pace_vent_clear_attempted": self._pressure_trace_cell(pace_vent_clear_attempted),
+            "pace_vent_clear_result": self._pressure_trace_cell(pace_vent_clear_result),
+                "pace_vent_after_valve_state_query": self._pressure_trace_cell(
+                    pace_vent_after_valve_state_query
+                ),
+                "pace_vent_popup_state_query": self._pressure_trace_cell(pace_vent_popup_state_query),
+                "pace_vent_elapsed_time_query": self._pressure_trace_cell(pace_vent_elapsed_time_query),
+                "pace_vent_orpv_state_query": self._pressure_trace_cell(pace_vent_orpv_state_query),
+                "pace_vent_pupv_state_query": self._pressure_trace_cell(pace_vent_pupv_state_query),
+                "pace_effort_query": self._pressure_trace_cell(pace_effort_query),
+                "pace_comp1_query": self._pressure_trace_cell(pace_comp1_query),
+                "pace_comp2_query": self._pressure_trace_cell(pace_comp2_query),
+                "pace_sens_pres_cont_query": self._pressure_trace_cell(pace_sens_pres_cont_query),
+                "pace_sens_pres_bar_query": self._pressure_trace_cell(pace_sens_pres_bar_query),
+                "pace_sens_pres_inl_query": self._pressure_trace_cell(pace_sens_pres_inl_query),
+                "pace_sens_pres_inl_state_query": self._pressure_trace_cell(pace_sens_pres_inl_state_query),
+                "pace_sens_pres_inl_time_query": self._pressure_trace_cell(pace_sens_pres_inl_time_query),
+                "pace_sens_inl_query": self._pressure_trace_cell(
+                    pace_sens_inl_query if pace_sens_inl_query is not None else pace_sens_pres_inl_query
+                ),
+                "pace_sens_inl_time_query": self._pressure_trace_cell(
+                    pace_sens_inl_time_query
+                    if pace_sens_inl_time_query is not None
+                    else pace_sens_pres_inl_time_query
+                ),
+                "pace_sens_slew_query": self._pressure_trace_cell(pace_sens_slew_query),
+                "pace_oper_cond_query": self._pressure_trace_cell(pace_oper_cond_query),
+                "pace_oper_pres_cond_query": self._pressure_trace_cell(pace_oper_pres_cond_query),
+                "pace_oper_pres_even_query": self._pressure_trace_cell(pace_oper_pres_even_query),
+                "pace_oper_pres_vent_complete_bit": self._pressure_trace_cell(
+                    pace_oper_pres_vent_complete_bit
+                ),
+                "pace_oper_pres_in_limits_bit": self._pressure_trace_cell(
+                    pace_oper_pres_in_limits_bit
+                ),
                 "vent_after_valve_supported": self._pressure_trace_cell(
                     atmosphere_cfg["vent_after_valve_supported"]
                     if vent_after_valve_supported is None
@@ -662,7 +2558,13 @@ class CalibrationRunner:
                 "handoff_vent_to_safe_open_ms": self._pressure_trace_cell(handoff_vent_to_safe_open_ms),
                 "handoff_safe_open_to_route_open_ms": self._pressure_trace_cell(handoff_safe_open_to_route_open_ms),
                 "handoff_total_ms": self._pressure_trace_cell(handoff_total_ms),
+                "handoff_mode": self._pressure_trace_cell(handoff_mode),
                 "atmosphere_reference_hpa": self._pressure_trace_cell(atmosphere_reference_hpa),
+                "superambient_target_hpa": self._pressure_trace_cell(superambient_target_hpa),
+                "superambient_precharge_margin_hpa": self._pressure_trace_cell(superambient_precharge_margin_hpa),
+                "superambient_precharge_peak_hpa": self._pressure_trace_cell(superambient_precharge_peak_hpa),
+                "superambient_precharge_result": self._pressure_trace_cell(superambient_precharge_result),
+                "superambient_closed_path_verified": self._pressure_trace_cell(superambient_closed_path_verified),
                 "handoff_safe_open_delta_hpa": self._pressure_trace_cell(handoff_safe_open_delta_hpa),
                 "deferred_export_queue_len": self._pressure_trace_cell(deferred_export_queue_len),
                 "dewpoint_live_c": self._pressure_trace_cell(dewpoint_live_c),
@@ -677,8 +2579,54 @@ class CalibrationRunner:
                 "dewpoint_tail_span_60s": self._pressure_trace_cell(dewpoint_tail_span_60s),
                 "dewpoint_tail_slope_60s": self._pressure_trace_cell(dewpoint_tail_slope_60s),
                 "dewpoint_rebound_detected": self._pressure_trace_cell(dewpoint_rebound_detected),
+                "capture_hold_status": self._pressure_trace_cell(capture_hold_status),
+                "capture_hold_reason": self._pressure_trace_cell(capture_hold_reason),
+                "post_isolation_status": self._pressure_trace_cell(post_isolation_status),
+                "post_isolation_reason": self._pressure_trace_cell(post_isolation_reason),
+                "post_isolation_capture_mode": self._pressure_trace_cell(post_isolation_capture_mode),
+                "post_isolation_fast_capture_status": self._pressure_trace_cell(post_isolation_fast_capture_status),
+                "post_isolation_fast_capture_reason": self._pressure_trace_cell(post_isolation_fast_capture_reason),
+                "post_isolation_fast_capture_elapsed_s": self._pressure_trace_cell(
+                    post_isolation_fast_capture_elapsed_s
+                ),
+                "post_isolation_fast_capture_fallback": self._pressure_trace_cell(
+                    post_isolation_fast_capture_fallback
+                ),
+                "post_isolation_pressure_start_hpa": self._pressure_trace_cell(post_isolation_pressure_start_hpa),
+                "post_isolation_pressure_end_hpa": self._pressure_trace_cell(post_isolation_pressure_end_hpa),
+                "post_isolation_pressure_peak_hpa": self._pressure_trace_cell(post_isolation_pressure_peak_hpa),
+                "post_isolation_pressure_min_hpa": self._pressure_trace_cell(post_isolation_pressure_min_hpa),
+                "post_isolation_pressure_drift_hpa": self._pressure_trace_cell(post_isolation_pressure_drift_hpa),
+                "post_isolation_pressure_slope_hpa_s": self._pressure_trace_cell(post_isolation_pressure_slope_hpa_s),
+                "post_isolation_pressure_recovery_toward_ambient": self._pressure_trace_cell(
+                    post_isolation_pressure_recovery_toward_ambient
+                ),
+                "post_isolation_dewpoint_start_c": self._pressure_trace_cell(post_isolation_dewpoint_start_c),
+                "post_isolation_dewpoint_end_c": self._pressure_trace_cell(post_isolation_dewpoint_end_c),
+                "post_isolation_dewpoint_rise_c": self._pressure_trace_cell(post_isolation_dewpoint_rise_c),
+                "post_isolation_dewpoint_slope_c_s": self._pressure_trace_cell(post_isolation_dewpoint_slope_c_s),
+                "post_isolation_h2o_start": self._pressure_trace_cell(post_isolation_h2o_start),
+                "post_isolation_h2o_end": self._pressure_trace_cell(post_isolation_h2o_end),
+                "post_isolation_pressure_dew_corr": self._pressure_trace_cell(post_isolation_pressure_dew_corr),
+                "post_isolation_diagnosis": self._pressure_trace_cell(post_isolation_diagnosis),
+                "pressure_gate_status": self._pressure_trace_cell(pressure_gate_status),
+                "pressure_gate_reason": self._pressure_trace_cell(pressure_gate_reason),
+                "pressure_gate_window_s": self._pressure_trace_cell(pressure_gate_window_s),
+                "pressure_gate_elapsed_s": self._pressure_trace_cell(pressure_gate_elapsed_s),
+                "pressure_gate_span_hpa": self._pressure_trace_cell(pressure_gate_span_hpa),
+                "pressure_gate_slope_hpa_per_s": self._pressure_trace_cell(pressure_gate_slope_hpa_per_s),
+                "pressure_gate_count": self._pressure_trace_cell(pressure_gate_count),
+                "pressure_dew_sync_status": self._pressure_trace_cell(pressure_dew_sync_status),
+                "pressure_dew_sync_reason": self._pressure_trace_cell(pressure_dew_sync_reason),
+                "baseline_sanity_gate_status": self._pressure_trace_cell(baseline_sanity_gate_status),
+                "baseline_sanity_gate_reason": self._pressure_trace_cell(baseline_sanity_gate_reason),
+                "baseline_sanity_target_co2_ppm": self._pressure_trace_cell(baseline_sanity_target_co2_ppm),
+                "baseline_sanity_plateau_mean_ppm": self._pressure_trace_cell(baseline_sanity_plateau_mean_ppm),
+                "baseline_sanity_plateau_span_ppm": self._pressure_trace_cell(baseline_sanity_plateau_span_ppm),
+                "baseline_sanity_plateau_count": self._pressure_trace_cell(baseline_sanity_plateau_count),
                 "flush_gate_status": self._pressure_trace_cell(flush_gate_status),
                 "flush_gate_reason": self._pressure_trace_cell(flush_gate_reason),
+                "root_cause_reject_reason": self._pressure_trace_cell(root_cause_reject_reason),
                 "sample_lag_ms": self._pressure_trace_cell(sample_lag_ms),
                 "soft_control_enabled": self._pressure_trace_cell(
                     soft_cfg["soft_control_enabled"] if soft_control_enabled is None else soft_control_enabled
@@ -702,6 +2650,12 @@ class CalibrationRunner:
         point_tag: str = "",
         trigger_reason: str = "",
         pressure_target_hpa: Any = None,
+        analyzer_pressure_kpa: Any = None,
+        dewpoint_line_pressure_hpa: Any = None,
+        route_pressure_guard_status: Any = None,
+        route_pressure_guard_reason: Any = None,
+        offending_route: Any = None,
+        offending_valve_or_group: Any = None,
         pace_pressure_hpa: Any = None,
         pressure_gauge_hpa: Any = None,
         dewpoint_c: Any = None,
@@ -710,6 +2664,68 @@ class CalibrationRunner:
         pace_output_state: Any = None,
         pace_isolation_state: Any = None,
         pace_vent_status: Any = None,
+        pace_outp_state_query: Any = None,
+        pace_isol_state_query: Any = None,
+        pace_mode_query: Any = None,
+        pace_vent_status_query: Any = None,
+        pace_legacy_vent_state_3_suspect: Any = None,
+        pace_atmosphere_connected_latched_state_suspect: Any = None,
+        legacy_vent3_control_ready_used: Any = None,
+        legacy_vent3_accept_scope: Any = None,
+        vent_status_3_count: Any = None,
+        vent3_hard_blocked: Any = None,
+        vent3_watchlist_only: Any = None,
+        vent3_control_ready_attempted: Any = None,
+        vent3_control_ready_prevented: Any = None,
+        vent3_block_scope: Any = None,
+        ack_callback_invoked: Any = None,
+        vent3_post_window_status: Any = None,
+        preseal_final_exit_watchlist_status_seen: Any = None,
+        preseal_final_exit_watchlist_status_accepted: Any = None,
+        preseal_final_exit_watchlist_status_reason: Any = None,
+        legacy_v1_preseal_watchlist_evidence_found: Any = None,
+        legacy_v1_preseal_watchlist_evidence_source: Any = None,
+        after_full_seal_watchlist_status_seen: Any = None,
+        after_full_seal_watchlist_status_accepted: Any = None,
+        after_full_seal_watchlist_status_reason: Any = None,
+        legacy_v1_after_full_seal_watchlist_evidence_found: Any = None,
+        legacy_v1_after_full_seal_watchlist_evidence_source: Any = None,
+        control_ready_watchlist_status_accepted: Any = None,
+        control_ready_watchlist_status_phase: Any = None,
+        control_ready_check_watchlist_status_seen: Any = None,
+        control_ready_check_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_seen: Any = None,
+        after_full_seal_output_enable_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_reason: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source: Any = None,
+        output_enable_watchlist_status_accepted: Any = None,
+        output_enable_watchlist_status_phase: Any = None,
+        output_enable_failed_with_watchlist_status_3: Any = None,
+        pace_vent_completed_latched: Any = None,
+        pace_vent_clear_attempted: Any = None,
+        pace_vent_clear_result: Any = None,
+        pace_vent_after_valve_state_query: Any = None,
+        pace_vent_popup_state_query: Any = None,
+        pace_vent_elapsed_time_query: Any = None,
+        pace_vent_orpv_state_query: Any = None,
+        pace_vent_pupv_state_query: Any = None,
+        pace_effort_query: Any = None,
+        pace_comp1_query: Any = None,
+        pace_comp2_query: Any = None,
+        pace_sens_pres_cont_query: Any = None,
+        pace_sens_pres_bar_query: Any = None,
+        pace_sens_pres_inl_query: Any = None,
+        pace_sens_pres_inl_state_query: Any = None,
+        pace_sens_pres_inl_time_query: Any = None,
+        pace_sens_inl_query: Any = None,
+        pace_sens_inl_time_query: Any = None,
+        pace_sens_slew_query: Any = None,
+        pace_oper_cond_query: Any = None,
+        pace_oper_pres_cond_query: Any = None,
+        pace_oper_pres_even_query: Any = None,
+        pace_oper_pres_vent_complete_bit: Any = None,
+        pace_oper_pres_in_limits_bit: Any = None,
         vent_after_valve_supported: Any = None,
         vent_after_valve_open: Any = None,
         vent_popup_ack_enabled: Any = None,
@@ -723,7 +2739,13 @@ class CalibrationRunner:
         handoff_vent_to_safe_open_ms: Any = None,
         handoff_safe_open_to_route_open_ms: Any = None,
         handoff_total_ms: Any = None,
+        handoff_mode: Any = None,
         atmosphere_reference_hpa: Any = None,
+        superambient_target_hpa: Any = None,
+        superambient_precharge_margin_hpa: Any = None,
+        superambient_precharge_peak_hpa: Any = None,
+        superambient_precharge_result: Any = None,
+        superambient_closed_path_verified: Any = None,
         handoff_safe_open_delta_hpa: Any = None,
         deferred_export_queue_len: Any = None,
         dewpoint_live_c: Any = None,
@@ -738,15 +2760,57 @@ class CalibrationRunner:
         dewpoint_tail_span_60s: Any = None,
         dewpoint_tail_slope_60s: Any = None,
         dewpoint_rebound_detected: Any = None,
+        capture_hold_status: Any = None,
+        capture_hold_reason: Any = None,
+        post_isolation_status: Any = None,
+        post_isolation_reason: Any = None,
+        post_isolation_capture_mode: Any = None,
+        post_isolation_fast_capture_status: Any = None,
+        post_isolation_fast_capture_reason: Any = None,
+        post_isolation_fast_capture_elapsed_s: Any = None,
+        post_isolation_fast_capture_fallback: Any = None,
+        post_isolation_pressure_start_hpa: Any = None,
+        post_isolation_pressure_end_hpa: Any = None,
+        post_isolation_pressure_peak_hpa: Any = None,
+        post_isolation_pressure_min_hpa: Any = None,
+        post_isolation_pressure_drift_hpa: Any = None,
+        post_isolation_pressure_slope_hpa_s: Any = None,
+        post_isolation_pressure_recovery_toward_ambient: Any = None,
+        post_isolation_dewpoint_start_c: Any = None,
+        post_isolation_dewpoint_end_c: Any = None,
+        post_isolation_dewpoint_rise_c: Any = None,
+        post_isolation_dewpoint_slope_c_s: Any = None,
+        post_isolation_h2o_start: Any = None,
+        post_isolation_h2o_end: Any = None,
+        post_isolation_pressure_dew_corr: Any = None,
+        post_isolation_diagnosis: Any = None,
+        pressure_gate_status: Any = None,
+        pressure_gate_reason: Any = None,
+        pressure_gate_window_s: Any = None,
+        pressure_gate_elapsed_s: Any = None,
+        pressure_gate_span_hpa: Any = None,
+        pressure_gate_slope_hpa_per_s: Any = None,
+        pressure_gate_count: Any = None,
+        pressure_dew_sync_status: Any = None,
+        pressure_dew_sync_reason: Any = None,
+        baseline_sanity_gate_status: Any = None,
+        baseline_sanity_gate_reason: Any = None,
+        baseline_sanity_target_co2_ppm: Any = None,
+        baseline_sanity_plateau_mean_ppm: Any = None,
+        baseline_sanity_plateau_span_ppm: Any = None,
+        baseline_sanity_plateau_count: Any = None,
         flush_gate_status: Any = None,
         flush_gate_reason: Any = None,
+        root_cause_reject_reason: Any = None,
         sample_lag_ms: Any = None,
         soft_control_enabled: Any = None,
         soft_control_linear_slew_hpa_per_s: Any = None,
+        vent_context: Any = None,
         event_ts: Optional[float] = None,
         note: str = "",
     ) -> Dict[str, Any]:
         phase_text = str(point_phase or ("h2o" if point is not None and point.is_h2o_point else "co2")).strip().lower()
+        runtime_state = dict(self._point_runtime_state(point, phase=phase_text) or {}) if point is not None else {}
         pace = self.devices.get("pace")
         if read_pace_pressure and pace_pressure_hpa is None and pace:
             reader = getattr(pace, "read_pressure", None)
@@ -785,14 +2849,240 @@ class CalibrationRunner:
                     if dew_rh_pct is None:
                         dew_rh_pct = dew_data.get("rh_pct")
 
-        if pace_output_state is None or pace_isolation_state is None or pace_vent_status is None:
-            pace_state = self._pace_state_snapshot(pace, refresh=refresh_pace_state)
+        if (
+            pace_output_state is None
+            or pace_isolation_state is None
+            or pace_vent_status is None
+            or pace_outp_state_query is None
+            or pace_isol_state_query is None
+            or pace_mode_query is None
+            or pace_vent_status_query is None
+            or pace_legacy_vent_state_3_suspect is None
+            or pace_atmosphere_connected_latched_state_suspect is None
+            or pace_vent_completed_latched is None
+            or pace_vent_clear_attempted is None
+            or pace_vent_clear_result is None
+            or pace_vent_after_valve_state_query is None
+            or pace_vent_popup_state_query is None
+            or pace_vent_elapsed_time_query is None
+            or pace_vent_orpv_state_query is None
+            or pace_vent_pupv_state_query is None
+            or pace_effort_query is None
+            or pace_comp1_query is None
+            or pace_comp2_query is None
+            or pace_sens_pres_cont_query is None
+            or pace_sens_pres_bar_query is None
+            or pace_sens_pres_inl_query is None
+            or pace_sens_pres_inl_state_query is None
+            or pace_sens_pres_inl_time_query is None
+            or pace_sens_inl_query is None
+            or pace_sens_inl_time_query is None
+            or pace_sens_slew_query is None
+            or pace_oper_cond_query is None
+            or pace_oper_pres_cond_query is None
+            or pace_oper_pres_even_query is None
+            or pace_oper_pres_vent_complete_bit is None
+            or pace_oper_pres_in_limits_bit is None
+        ):
+            pace_state = self._pace_diagnostic_state_snapshot(pace, refresh=refresh_pace_state, refresh_aux=False)
             if pace_output_state is None:
                 pace_output_state = pace_state["pace_output_state"]
             if pace_isolation_state is None:
                 pace_isolation_state = pace_state["pace_isolation_state"]
             if pace_vent_status is None:
                 pace_vent_status = pace_state["pace_vent_status"]
+            if pace_outp_state_query is None:
+                pace_outp_state_query = pace_state.get("pace_outp_state_query")
+            if pace_isol_state_query is None:
+                pace_isol_state_query = pace_state.get("pace_isol_state_query")
+            if pace_mode_query is None:
+                pace_mode_query = pace_state.get("pace_mode_query")
+            if pace_vent_status_query is None:
+                pace_vent_status_query = pace_state.get("pace_vent_status_query")
+            if pace_legacy_vent_state_3_suspect is None:
+                pace_legacy_vent_state_3_suspect = pace_state.get("pace_legacy_vent_state_3_suspect")
+            if pace_atmosphere_connected_latched_state_suspect is None:
+                pace_atmosphere_connected_latched_state_suspect = pace_state.get(
+                    "pace_atmosphere_connected_latched_state_suspect",
+                    pace_state.get("pace_legacy_vent_state_3_suspect"),
+                )
+            if pace_vent_completed_latched is None:
+                pace_vent_completed_latched = pace_state.get("pace_vent_completed_latched")
+            if pace_vent_clear_attempted is None:
+                pace_vent_clear_attempted = pace_state.get("pace_vent_clear_attempted")
+            if pace_vent_clear_result is None:
+                pace_vent_clear_result = pace_state.get("pace_vent_clear_result")
+            if pace_vent_after_valve_state_query is None:
+                pace_vent_after_valve_state_query = pace_state.get("pace_vent_after_valve_state_query")
+            if pace_vent_popup_state_query is None:
+                pace_vent_popup_state_query = pace_state.get("pace_vent_popup_state_query")
+            if pace_vent_elapsed_time_query is None:
+                pace_vent_elapsed_time_query = pace_state.get("pace_vent_elapsed_time_query")
+            if pace_vent_orpv_state_query is None:
+                pace_vent_orpv_state_query = pace_state.get("pace_vent_orpv_state_query")
+            if pace_vent_pupv_state_query is None:
+                pace_vent_pupv_state_query = pace_state.get("pace_vent_pupv_state_query")
+            if pace_effort_query is None:
+                pace_effort_query = pace_state.get("pace_effort_query")
+            if pace_comp1_query is None:
+                pace_comp1_query = pace_state.get("pace_comp1_query")
+            if pace_comp2_query is None:
+                pace_comp2_query = pace_state.get("pace_comp2_query")
+            if pace_sens_pres_cont_query is None:
+                pace_sens_pres_cont_query = pace_state.get("pace_sens_pres_cont_query")
+            if pace_sens_pres_bar_query is None:
+                pace_sens_pres_bar_query = pace_state.get("pace_sens_pres_bar_query")
+            if pace_sens_pres_inl_query is None:
+                pace_sens_pres_inl_query = pace_state.get("pace_sens_pres_inl_query")
+            if pace_sens_pres_inl_state_query is None:
+                pace_sens_pres_inl_state_query = pace_state.get("pace_sens_pres_inl_state_query")
+            if pace_sens_pres_inl_time_query is None:
+                pace_sens_pres_inl_time_query = pace_state.get("pace_sens_pres_inl_time_query")
+            if pace_sens_inl_query is None:
+                pace_sens_inl_query = pace_state.get("pace_sens_inl_query")
+            if pace_sens_inl_time_query is None:
+                pace_sens_inl_time_query = pace_state.get("pace_sens_inl_time_query")
+            if pace_sens_slew_query is None:
+                pace_sens_slew_query = pace_state.get("pace_sens_slew_query")
+            if pace_oper_cond_query is None:
+                pace_oper_cond_query = pace_state.get("pace_oper_cond_query")
+            if pace_oper_pres_cond_query is None:
+                pace_oper_pres_cond_query = pace_state.get("pace_oper_pres_cond_query")
+            if pace_oper_pres_even_query is None:
+                pace_oper_pres_even_query = pace_state.get("pace_oper_pres_even_query")
+            if pace_oper_pres_vent_complete_bit is None:
+                pace_oper_pres_vent_complete_bit = pace_state.get("pace_oper_pres_vent_complete_bit")
+            if pace_oper_pres_in_limits_bit is None:
+                pace_oper_pres_in_limits_bit = pace_state.get("pace_oper_pres_in_limits_bit")
+            if vent_after_valve_open is None:
+                vent_after_valve_open = pace_state.get("vent_after_valve_open")
+            if vent_popup_ack_enabled is None:
+                vent_popup_ack_enabled = pace_state.get("vent_popup_ack_enabled")
+            if vent_after_valve_supported is None:
+                vent_after_valve_supported = pace_state.get("vent_after_valve_supported")
+
+        if legacy_vent3_control_ready_used is None:
+            legacy_vent3_control_ready_used = runtime_state.get("legacy_vent3_control_ready_used")
+        if legacy_vent3_accept_scope is None:
+            legacy_vent3_accept_scope = runtime_state.get("legacy_vent3_accept_scope")
+        if vent_status_3_count is None:
+            vent_status_3_count = runtime_state.get("vent_status_3_count")
+        if pace_atmosphere_connected_latched_state_suspect is None:
+            pace_atmosphere_connected_latched_state_suspect = runtime_state.get(
+                "pace_atmosphere_connected_latched_state_suspect"
+            )
+        if vent3_hard_blocked is None:
+            vent3_hard_blocked = runtime_state.get("vent3_hard_blocked")
+        if vent3_watchlist_only is None:
+            vent3_watchlist_only = runtime_state.get("vent3_watchlist_only")
+        if vent3_control_ready_attempted is None:
+            vent3_control_ready_attempted = runtime_state.get("vent3_control_ready_attempted")
+        if vent3_control_ready_prevented is None:
+            vent3_control_ready_prevented = runtime_state.get("vent3_control_ready_prevented")
+        if vent3_block_scope is None:
+            vent3_block_scope = runtime_state.get("vent3_block_scope")
+        if ack_callback_invoked is None:
+            ack_callback_invoked = runtime_state.get("ack_callback_invoked")
+        if vent3_post_window_status is None:
+            vent3_post_window_status = runtime_state.get("vent3_post_window_status")
+        if preseal_final_exit_watchlist_status_seen is None:
+            preseal_final_exit_watchlist_status_seen = runtime_state.get(
+                "preseal_final_exit_watchlist_status_seen"
+            )
+        if preseal_final_exit_watchlist_status_accepted is None:
+            preseal_final_exit_watchlist_status_accepted = runtime_state.get(
+                "preseal_final_exit_watchlist_status_accepted"
+            )
+        if preseal_final_exit_watchlist_status_reason is None:
+            preseal_final_exit_watchlist_status_reason = runtime_state.get(
+                "preseal_final_exit_watchlist_status_reason"
+            )
+        if legacy_v1_preseal_watchlist_evidence_found is None:
+            legacy_v1_preseal_watchlist_evidence_found = runtime_state.get(
+                "legacy_v1_preseal_watchlist_evidence_found"
+            )
+        if legacy_v1_preseal_watchlist_evidence_source is None:
+            legacy_v1_preseal_watchlist_evidence_source = runtime_state.get(
+                "legacy_v1_preseal_watchlist_evidence_source"
+            )
+        if after_full_seal_watchlist_status_seen is None:
+            after_full_seal_watchlist_status_seen = runtime_state.get(
+                "after_full_seal_watchlist_status_seen"
+            )
+        if after_full_seal_watchlist_status_accepted is None:
+            after_full_seal_watchlist_status_accepted = runtime_state.get(
+                "after_full_seal_watchlist_status_accepted"
+            )
+        if after_full_seal_watchlist_status_reason is None:
+            after_full_seal_watchlist_status_reason = runtime_state.get(
+                "after_full_seal_watchlist_status_reason"
+            )
+        if legacy_v1_after_full_seal_watchlist_evidence_found is None:
+            legacy_v1_after_full_seal_watchlist_evidence_found = runtime_state.get(
+                "legacy_v1_after_full_seal_watchlist_evidence_found"
+            )
+        if legacy_v1_after_full_seal_watchlist_evidence_source is None:
+            legacy_v1_after_full_seal_watchlist_evidence_source = runtime_state.get(
+                "legacy_v1_after_full_seal_watchlist_evidence_source"
+            )
+        if control_ready_watchlist_status_accepted is None:
+            control_ready_watchlist_status_accepted = runtime_state.get(
+                "control_ready_watchlist_status_accepted"
+            )
+        if control_ready_watchlist_status_phase is None:
+            control_ready_watchlist_status_phase = runtime_state.get(
+                "control_ready_watchlist_status_phase"
+            )
+        if control_ready_check_watchlist_status_seen is None:
+            control_ready_check_watchlist_status_seen = runtime_state.get(
+                "control_ready_check_watchlist_status_seen"
+            )
+        if control_ready_check_watchlist_status_accepted is None:
+            control_ready_check_watchlist_status_accepted = runtime_state.get(
+                "control_ready_check_watchlist_status_accepted"
+            )
+        if after_full_seal_output_enable_watchlist_status_seen is None:
+            after_full_seal_output_enable_watchlist_status_seen = runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_seen"
+            )
+        if after_full_seal_output_enable_watchlist_status_accepted is None:
+            after_full_seal_output_enable_watchlist_status_accepted = runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_accepted"
+            )
+        if after_full_seal_output_enable_watchlist_status_reason is None:
+            after_full_seal_output_enable_watchlist_status_reason = runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_reason"
+            )
+        if legacy_v1_after_full_seal_output_enable_watchlist_evidence_found is None:
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_found = runtime_state.get(
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found"
+            )
+        if legacy_v1_after_full_seal_output_enable_watchlist_evidence_source is None:
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_source = runtime_state.get(
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source"
+            )
+        if output_enable_watchlist_status_accepted is None:
+            output_enable_watchlist_status_accepted = runtime_state.get(
+                "output_enable_watchlist_status_accepted"
+            )
+        if output_enable_watchlist_status_phase is None:
+            output_enable_watchlist_status_phase = runtime_state.get(
+                "output_enable_watchlist_status_phase"
+            )
+        if output_enable_failed_with_watchlist_status_3 is None:
+            output_enable_failed_with_watchlist_status_3 = runtime_state.get(
+                "output_enable_failed_with_watchlist_status_3"
+            )
+        if post_isolation_capture_mode is None:
+            post_isolation_capture_mode = runtime_state.get("post_isolation_capture_mode")
+        if post_isolation_fast_capture_status is None:
+            post_isolation_fast_capture_status = runtime_state.get("post_isolation_fast_capture_status")
+        if post_isolation_fast_capture_reason is None:
+            post_isolation_fast_capture_reason = runtime_state.get("post_isolation_fast_capture_reason")
+        if post_isolation_fast_capture_elapsed_s is None:
+            post_isolation_fast_capture_elapsed_s = runtime_state.get("post_isolation_fast_capture_elapsed_s")
+        if post_isolation_fast_capture_fallback is None:
+            post_isolation_fast_capture_fallback = runtime_state.get("post_isolation_fast_capture_fallback")
 
         return self._pressure_trace_row(
             point=point,
@@ -802,6 +3092,12 @@ class CalibrationRunner:
             trace_stage="",
             trigger_reason=trigger_reason,
             pressure_target_hpa=pressure_target_hpa,
+            analyzer_pressure_kpa=analyzer_pressure_kpa,
+            dewpoint_line_pressure_hpa=dewpoint_line_pressure_hpa,
+            route_pressure_guard_status=route_pressure_guard_status,
+            route_pressure_guard_reason=route_pressure_guard_reason,
+            offending_route=offending_route,
+            offending_valve_or_group=offending_valve_or_group,
             pace_pressure_hpa=pace_pressure_hpa,
             pressure_gauge_hpa=pressure_gauge_hpa,
             dewpoint_c=dewpoint_c,
@@ -810,6 +3106,68 @@ class CalibrationRunner:
             pace_output_state=pace_output_state,
             pace_isolation_state=pace_isolation_state,
             pace_vent_status=pace_vent_status,
+            pace_outp_state_query=pace_outp_state_query,
+            pace_isol_state_query=pace_isol_state_query,
+            pace_mode_query=pace_mode_query,
+            pace_vent_status_query=pace_vent_status_query,
+            pace_legacy_vent_state_3_suspect=pace_legacy_vent_state_3_suspect,
+            pace_atmosphere_connected_latched_state_suspect=pace_atmosphere_connected_latched_state_suspect,
+            legacy_vent3_control_ready_used=legacy_vent3_control_ready_used,
+            legacy_vent3_accept_scope=legacy_vent3_accept_scope,
+            vent_status_3_count=vent_status_3_count,
+            vent3_hard_blocked=vent3_hard_blocked,
+            vent3_watchlist_only=vent3_watchlist_only,
+            vent3_control_ready_attempted=vent3_control_ready_attempted,
+            vent3_control_ready_prevented=vent3_control_ready_prevented,
+            vent3_block_scope=vent3_block_scope,
+            ack_callback_invoked=ack_callback_invoked,
+            vent3_post_window_status=vent3_post_window_status,
+            preseal_final_exit_watchlist_status_seen=preseal_final_exit_watchlist_status_seen,
+            preseal_final_exit_watchlist_status_accepted=preseal_final_exit_watchlist_status_accepted,
+            preseal_final_exit_watchlist_status_reason=preseal_final_exit_watchlist_status_reason,
+            legacy_v1_preseal_watchlist_evidence_found=legacy_v1_preseal_watchlist_evidence_found,
+            legacy_v1_preseal_watchlist_evidence_source=legacy_v1_preseal_watchlist_evidence_source,
+            after_full_seal_watchlist_status_seen=after_full_seal_watchlist_status_seen,
+            after_full_seal_watchlist_status_accepted=after_full_seal_watchlist_status_accepted,
+            after_full_seal_watchlist_status_reason=after_full_seal_watchlist_status_reason,
+            legacy_v1_after_full_seal_watchlist_evidence_found=legacy_v1_after_full_seal_watchlist_evidence_found,
+            legacy_v1_after_full_seal_watchlist_evidence_source=legacy_v1_after_full_seal_watchlist_evidence_source,
+            control_ready_watchlist_status_accepted=control_ready_watchlist_status_accepted,
+            control_ready_watchlist_status_phase=control_ready_watchlist_status_phase,
+            control_ready_check_watchlist_status_seen=control_ready_check_watchlist_status_seen,
+            control_ready_check_watchlist_status_accepted=control_ready_check_watchlist_status_accepted,
+            after_full_seal_output_enable_watchlist_status_seen=after_full_seal_output_enable_watchlist_status_seen,
+            after_full_seal_output_enable_watchlist_status_accepted=after_full_seal_output_enable_watchlist_status_accepted,
+            after_full_seal_output_enable_watchlist_status_reason=after_full_seal_output_enable_watchlist_status_reason,
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=legacy_v1_after_full_seal_output_enable_watchlist_evidence_found,
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=legacy_v1_after_full_seal_output_enable_watchlist_evidence_source,
+            output_enable_watchlist_status_accepted=output_enable_watchlist_status_accepted,
+            output_enable_watchlist_status_phase=output_enable_watchlist_status_phase,
+            output_enable_failed_with_watchlist_status_3=output_enable_failed_with_watchlist_status_3,
+            pace_vent_completed_latched=pace_vent_completed_latched,
+            pace_vent_clear_attempted=pace_vent_clear_attempted,
+            pace_vent_clear_result=pace_vent_clear_result,
+            pace_vent_after_valve_state_query=pace_vent_after_valve_state_query,
+            pace_vent_popup_state_query=pace_vent_popup_state_query,
+            pace_vent_elapsed_time_query=pace_vent_elapsed_time_query,
+            pace_vent_orpv_state_query=pace_vent_orpv_state_query,
+            pace_vent_pupv_state_query=pace_vent_pupv_state_query,
+            pace_effort_query=pace_effort_query,
+            pace_comp1_query=pace_comp1_query,
+            pace_comp2_query=pace_comp2_query,
+            pace_sens_pres_cont_query=pace_sens_pres_cont_query,
+            pace_sens_pres_bar_query=pace_sens_pres_bar_query,
+            pace_sens_pres_inl_query=pace_sens_pres_inl_query,
+            pace_sens_pres_inl_state_query=pace_sens_pres_inl_state_query,
+            pace_sens_pres_inl_time_query=pace_sens_pres_inl_time_query,
+            pace_sens_inl_query=pace_sens_inl_query,
+            pace_sens_inl_time_query=pace_sens_inl_time_query,
+            pace_sens_slew_query=pace_sens_slew_query,
+            pace_oper_cond_query=pace_oper_cond_query,
+            pace_oper_pres_cond_query=pace_oper_pres_cond_query,
+            pace_oper_pres_even_query=pace_oper_pres_even_query,
+            pace_oper_pres_vent_complete_bit=pace_oper_pres_vent_complete_bit,
+            pace_oper_pres_in_limits_bit=pace_oper_pres_in_limits_bit,
             vent_after_valve_supported=vent_after_valve_supported,
             vent_after_valve_open=vent_after_valve_open,
             vent_popup_ack_enabled=vent_popup_ack_enabled,
@@ -819,7 +3177,13 @@ class CalibrationRunner:
             handoff_vent_to_safe_open_ms=handoff_vent_to_safe_open_ms,
             handoff_safe_open_to_route_open_ms=handoff_safe_open_to_route_open_ms,
             handoff_total_ms=handoff_total_ms,
+            handoff_mode=handoff_mode,
             atmosphere_reference_hpa=atmosphere_reference_hpa,
+            superambient_target_hpa=superambient_target_hpa,
+            superambient_precharge_margin_hpa=superambient_precharge_margin_hpa,
+            superambient_precharge_peak_hpa=superambient_precharge_peak_hpa,
+            superambient_precharge_result=superambient_precharge_result,
+            superambient_closed_path_verified=superambient_closed_path_verified,
             handoff_safe_open_delta_hpa=handoff_safe_open_delta_hpa,
             deferred_export_queue_len=deferred_export_queue_len,
             dewpoint_live_c=dewpoint_live_c,
@@ -834,11 +3198,52 @@ class CalibrationRunner:
             dewpoint_tail_span_60s=dewpoint_tail_span_60s,
             dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
             dewpoint_rebound_detected=dewpoint_rebound_detected,
+            capture_hold_status=capture_hold_status,
+            capture_hold_reason=capture_hold_reason,
+            post_isolation_status=post_isolation_status,
+            post_isolation_reason=post_isolation_reason,
+            post_isolation_capture_mode=post_isolation_capture_mode,
+            post_isolation_fast_capture_status=post_isolation_fast_capture_status,
+            post_isolation_fast_capture_reason=post_isolation_fast_capture_reason,
+            post_isolation_fast_capture_elapsed_s=post_isolation_fast_capture_elapsed_s,
+            post_isolation_fast_capture_fallback=post_isolation_fast_capture_fallback,
+            post_isolation_pressure_start_hpa=post_isolation_pressure_start_hpa,
+            post_isolation_pressure_end_hpa=post_isolation_pressure_end_hpa,
+            post_isolation_pressure_peak_hpa=post_isolation_pressure_peak_hpa,
+            post_isolation_pressure_min_hpa=post_isolation_pressure_min_hpa,
+            post_isolation_pressure_drift_hpa=post_isolation_pressure_drift_hpa,
+            post_isolation_pressure_slope_hpa_s=post_isolation_pressure_slope_hpa_s,
+            post_isolation_pressure_recovery_toward_ambient=post_isolation_pressure_recovery_toward_ambient,
+            post_isolation_dewpoint_start_c=post_isolation_dewpoint_start_c,
+            post_isolation_dewpoint_end_c=post_isolation_dewpoint_end_c,
+            post_isolation_dewpoint_rise_c=post_isolation_dewpoint_rise_c,
+            post_isolation_dewpoint_slope_c_s=post_isolation_dewpoint_slope_c_s,
+            post_isolation_h2o_start=post_isolation_h2o_start,
+            post_isolation_h2o_end=post_isolation_h2o_end,
+            post_isolation_pressure_dew_corr=post_isolation_pressure_dew_corr,
+            post_isolation_diagnosis=post_isolation_diagnosis,
+            pressure_gate_status=pressure_gate_status,
+            pressure_gate_reason=pressure_gate_reason,
+            pressure_gate_window_s=pressure_gate_window_s,
+            pressure_gate_elapsed_s=pressure_gate_elapsed_s,
+            pressure_gate_span_hpa=pressure_gate_span_hpa,
+            pressure_gate_slope_hpa_per_s=pressure_gate_slope_hpa_per_s,
+            pressure_gate_count=pressure_gate_count,
+            pressure_dew_sync_status=pressure_dew_sync_status,
+            pressure_dew_sync_reason=pressure_dew_sync_reason,
+            baseline_sanity_gate_status=baseline_sanity_gate_status,
+            baseline_sanity_gate_reason=baseline_sanity_gate_reason,
+            baseline_sanity_target_co2_ppm=baseline_sanity_target_co2_ppm,
+            baseline_sanity_plateau_mean_ppm=baseline_sanity_plateau_mean_ppm,
+            baseline_sanity_plateau_span_ppm=baseline_sanity_plateau_span_ppm,
+            baseline_sanity_plateau_count=baseline_sanity_plateau_count,
             flush_gate_status=flush_gate_status,
             flush_gate_reason=flush_gate_reason,
+            root_cause_reject_reason=root_cause_reject_reason,
             sample_lag_ms=sample_lag_ms,
             soft_control_enabled=soft_control_enabled,
             soft_control_linear_slew_hpa_per_s=soft_control_linear_slew_hpa_per_s,
+            vent_context=vent_context,
             event_ts=event_ts,
             note=note,
         )
@@ -853,6 +3258,12 @@ class CalibrationRunner:
         point_tag: str = "",
         trigger_reason: str = "",
         pressure_target_hpa: Any = None,
+        analyzer_pressure_kpa: Any = None,
+        dewpoint_line_pressure_hpa: Any = None,
+        route_pressure_guard_status: Any = None,
+        route_pressure_guard_reason: Any = None,
+        offending_route: Any = None,
+        offending_valve_or_group: Any = None,
         pace_pressure_hpa: Any = None,
         pressure_gauge_hpa: Any = None,
         dewpoint_c: Any = None,
@@ -861,6 +3272,68 @@ class CalibrationRunner:
         pace_output_state: Any = None,
         pace_isolation_state: Any = None,
         pace_vent_status: Any = None,
+        pace_outp_state_query: Any = None,
+        pace_isol_state_query: Any = None,
+        pace_mode_query: Any = None,
+        pace_vent_status_query: Any = None,
+        pace_legacy_vent_state_3_suspect: Any = None,
+        pace_atmosphere_connected_latched_state_suspect: Any = None,
+        legacy_vent3_control_ready_used: Any = None,
+        legacy_vent3_accept_scope: Any = None,
+        vent_status_3_count: Any = None,
+        vent3_hard_blocked: Any = None,
+        vent3_watchlist_only: Any = None,
+        vent3_control_ready_attempted: Any = None,
+        vent3_control_ready_prevented: Any = None,
+        vent3_block_scope: Any = None,
+        ack_callback_invoked: Any = None,
+        vent3_post_window_status: Any = None,
+        preseal_final_exit_watchlist_status_seen: Any = None,
+        preseal_final_exit_watchlist_status_accepted: Any = None,
+        preseal_final_exit_watchlist_status_reason: Any = None,
+        legacy_v1_preseal_watchlist_evidence_found: Any = None,
+        legacy_v1_preseal_watchlist_evidence_source: Any = None,
+        after_full_seal_watchlist_status_seen: Any = None,
+        after_full_seal_watchlist_status_accepted: Any = None,
+        after_full_seal_watchlist_status_reason: Any = None,
+        legacy_v1_after_full_seal_watchlist_evidence_found: Any = None,
+        legacy_v1_after_full_seal_watchlist_evidence_source: Any = None,
+        control_ready_watchlist_status_accepted: Any = None,
+        control_ready_watchlist_status_phase: Any = None,
+        control_ready_check_watchlist_status_seen: Any = None,
+        control_ready_check_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_seen: Any = None,
+        after_full_seal_output_enable_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_reason: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source: Any = None,
+        output_enable_watchlist_status_accepted: Any = None,
+        output_enable_watchlist_status_phase: Any = None,
+        output_enable_failed_with_watchlist_status_3: Any = None,
+        pace_vent_completed_latched: Any = None,
+        pace_vent_clear_attempted: Any = None,
+        pace_vent_clear_result: Any = None,
+        pace_vent_after_valve_state_query: Any = None,
+        pace_vent_popup_state_query: Any = None,
+        pace_vent_elapsed_time_query: Any = None,
+        pace_vent_orpv_state_query: Any = None,
+        pace_vent_pupv_state_query: Any = None,
+        pace_oper_cond_query: Any = None,
+        pace_oper_pres_cond_query: Any = None,
+        pace_effort_query: Any = None,
+        pace_comp1_query: Any = None,
+        pace_comp2_query: Any = None,
+        pace_sens_pres_cont_query: Any = None,
+        pace_sens_pres_bar_query: Any = None,
+        pace_sens_pres_inl_query: Any = None,
+        pace_sens_pres_inl_state_query: Any = None,
+        pace_sens_pres_inl_time_query: Any = None,
+        pace_sens_inl_query: Any = None,
+        pace_sens_inl_time_query: Any = None,
+        pace_sens_slew_query: Any = None,
+        pace_oper_pres_even_query: Any = None,
+        pace_oper_pres_vent_complete_bit: Any = None,
+        pace_oper_pres_in_limits_bit: Any = None,
         vent_after_valve_supported: Any = None,
         vent_after_valve_open: Any = None,
         vent_popup_ack_enabled: Any = None,
@@ -874,7 +3347,13 @@ class CalibrationRunner:
         handoff_vent_to_safe_open_ms: Any = None,
         handoff_safe_open_to_route_open_ms: Any = None,
         handoff_total_ms: Any = None,
+        handoff_mode: Any = None,
         atmosphere_reference_hpa: Any = None,
+        superambient_target_hpa: Any = None,
+        superambient_precharge_margin_hpa: Any = None,
+        superambient_precharge_peak_hpa: Any = None,
+        superambient_precharge_result: Any = None,
+        superambient_closed_path_verified: Any = None,
         handoff_safe_open_delta_hpa: Any = None,
         deferred_export_queue_len: Any = None,
         dewpoint_live_c: Any = None,
@@ -889,11 +3368,52 @@ class CalibrationRunner:
         dewpoint_tail_span_60s: Any = None,
         dewpoint_tail_slope_60s: Any = None,
         dewpoint_rebound_detected: Any = None,
+        capture_hold_status: Any = None,
+        capture_hold_reason: Any = None,
+        post_isolation_status: Any = None,
+        post_isolation_reason: Any = None,
+        post_isolation_capture_mode: Any = None,
+        post_isolation_fast_capture_status: Any = None,
+        post_isolation_fast_capture_reason: Any = None,
+        post_isolation_fast_capture_elapsed_s: Any = None,
+        post_isolation_fast_capture_fallback: Any = None,
+        post_isolation_pressure_start_hpa: Any = None,
+        post_isolation_pressure_end_hpa: Any = None,
+        post_isolation_pressure_peak_hpa: Any = None,
+        post_isolation_pressure_min_hpa: Any = None,
+        post_isolation_pressure_drift_hpa: Any = None,
+        post_isolation_pressure_slope_hpa_s: Any = None,
+        post_isolation_pressure_recovery_toward_ambient: Any = None,
+        post_isolation_dewpoint_start_c: Any = None,
+        post_isolation_dewpoint_end_c: Any = None,
+        post_isolation_dewpoint_rise_c: Any = None,
+        post_isolation_dewpoint_slope_c_s: Any = None,
+        post_isolation_h2o_start: Any = None,
+        post_isolation_h2o_end: Any = None,
+        post_isolation_pressure_dew_corr: Any = None,
+        post_isolation_diagnosis: Any = None,
+        pressure_gate_status: Any = None,
+        pressure_gate_reason: Any = None,
+        pressure_gate_window_s: Any = None,
+        pressure_gate_elapsed_s: Any = None,
+        pressure_gate_span_hpa: Any = None,
+        pressure_gate_slope_hpa_per_s: Any = None,
+        pressure_gate_count: Any = None,
+        pressure_dew_sync_status: Any = None,
+        pressure_dew_sync_reason: Any = None,
+        baseline_sanity_gate_status: Any = None,
+        baseline_sanity_gate_reason: Any = None,
+        baseline_sanity_target_co2_ppm: Any = None,
+        baseline_sanity_plateau_mean_ppm: Any = None,
+        baseline_sanity_plateau_span_ppm: Any = None,
+        baseline_sanity_plateau_count: Any = None,
         flush_gate_status: Any = None,
         flush_gate_reason: Any = None,
+        root_cause_reject_reason: Any = None,
         sample_lag_ms: Any = None,
         soft_control_enabled: Any = None,
         soft_control_linear_slew_hpa_per_s: Any = None,
+        vent_context: Any = None,
         event_ts: Optional[float] = None,
         note: str = "",
     ) -> None:
@@ -910,6 +3430,12 @@ class CalibrationRunner:
                 point_tag=point_tag,
                 trigger_reason=trigger_reason,
                 pressure_target_hpa=pressure_target_hpa,
+                analyzer_pressure_kpa=analyzer_pressure_kpa,
+                dewpoint_line_pressure_hpa=dewpoint_line_pressure_hpa,
+                route_pressure_guard_status=route_pressure_guard_status,
+                route_pressure_guard_reason=route_pressure_guard_reason,
+                offending_route=offending_route,
+                offending_valve_or_group=offending_valve_or_group,
                 pace_pressure_hpa=pace_pressure_hpa,
                 pressure_gauge_hpa=pressure_gauge_hpa,
                 dewpoint_c=dewpoint_c,
@@ -918,6 +3444,68 @@ class CalibrationRunner:
                 pace_output_state=pace_output_state,
                 pace_isolation_state=pace_isolation_state,
                 pace_vent_status=pace_vent_status,
+                pace_outp_state_query=pace_outp_state_query,
+                pace_isol_state_query=pace_isol_state_query,
+                pace_mode_query=pace_mode_query,
+                pace_vent_status_query=pace_vent_status_query,
+                pace_legacy_vent_state_3_suspect=pace_legacy_vent_state_3_suspect,
+                pace_atmosphere_connected_latched_state_suspect=pace_atmosphere_connected_latched_state_suspect,
+                legacy_vent3_control_ready_used=legacy_vent3_control_ready_used,
+                legacy_vent3_accept_scope=legacy_vent3_accept_scope,
+                vent_status_3_count=vent_status_3_count,
+                vent3_hard_blocked=vent3_hard_blocked,
+                vent3_watchlist_only=vent3_watchlist_only,
+                vent3_control_ready_attempted=vent3_control_ready_attempted,
+                vent3_control_ready_prevented=vent3_control_ready_prevented,
+                vent3_block_scope=vent3_block_scope,
+                ack_callback_invoked=ack_callback_invoked,
+                vent3_post_window_status=vent3_post_window_status,
+                preseal_final_exit_watchlist_status_seen=preseal_final_exit_watchlist_status_seen,
+                preseal_final_exit_watchlist_status_accepted=preseal_final_exit_watchlist_status_accepted,
+                preseal_final_exit_watchlist_status_reason=preseal_final_exit_watchlist_status_reason,
+                legacy_v1_preseal_watchlist_evidence_found=legacy_v1_preseal_watchlist_evidence_found,
+                legacy_v1_preseal_watchlist_evidence_source=legacy_v1_preseal_watchlist_evidence_source,
+                after_full_seal_watchlist_status_seen=after_full_seal_watchlist_status_seen,
+                after_full_seal_watchlist_status_accepted=after_full_seal_watchlist_status_accepted,
+                after_full_seal_watchlist_status_reason=after_full_seal_watchlist_status_reason,
+                legacy_v1_after_full_seal_watchlist_evidence_found=legacy_v1_after_full_seal_watchlist_evidence_found,
+                legacy_v1_after_full_seal_watchlist_evidence_source=legacy_v1_after_full_seal_watchlist_evidence_source,
+                control_ready_watchlist_status_accepted=control_ready_watchlist_status_accepted,
+                control_ready_watchlist_status_phase=control_ready_watchlist_status_phase,
+                control_ready_check_watchlist_status_seen=control_ready_check_watchlist_status_seen,
+                control_ready_check_watchlist_status_accepted=control_ready_check_watchlist_status_accepted,
+                after_full_seal_output_enable_watchlist_status_seen=after_full_seal_output_enable_watchlist_status_seen,
+                after_full_seal_output_enable_watchlist_status_accepted=after_full_seal_output_enable_watchlist_status_accepted,
+                after_full_seal_output_enable_watchlist_status_reason=after_full_seal_output_enable_watchlist_status_reason,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=legacy_v1_after_full_seal_output_enable_watchlist_evidence_found,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=legacy_v1_after_full_seal_output_enable_watchlist_evidence_source,
+                output_enable_watchlist_status_accepted=output_enable_watchlist_status_accepted,
+                output_enable_watchlist_status_phase=output_enable_watchlist_status_phase,
+                output_enable_failed_with_watchlist_status_3=output_enable_failed_with_watchlist_status_3,
+                pace_vent_completed_latched=pace_vent_completed_latched,
+                pace_vent_clear_attempted=pace_vent_clear_attempted,
+                pace_vent_clear_result=pace_vent_clear_result,
+                pace_vent_after_valve_state_query=pace_vent_after_valve_state_query,
+                pace_vent_popup_state_query=pace_vent_popup_state_query,
+                pace_vent_elapsed_time_query=pace_vent_elapsed_time_query,
+                pace_vent_orpv_state_query=pace_vent_orpv_state_query,
+                pace_vent_pupv_state_query=pace_vent_pupv_state_query,
+                pace_oper_cond_query=pace_oper_cond_query,
+                pace_oper_pres_cond_query=pace_oper_pres_cond_query,
+                pace_effort_query=pace_effort_query,
+                pace_comp1_query=pace_comp1_query,
+                pace_comp2_query=pace_comp2_query,
+                pace_sens_pres_cont_query=pace_sens_pres_cont_query,
+                pace_sens_pres_bar_query=pace_sens_pres_bar_query,
+                pace_sens_pres_inl_query=pace_sens_pres_inl_query,
+                pace_sens_pres_inl_state_query=pace_sens_pres_inl_state_query,
+                pace_sens_pres_inl_time_query=pace_sens_pres_inl_time_query,
+                pace_sens_inl_query=pace_sens_inl_query,
+                pace_sens_inl_time_query=pace_sens_inl_time_query,
+                pace_sens_slew_query=pace_sens_slew_query,
+                pace_oper_pres_even_query=pace_oper_pres_even_query,
+                pace_oper_pres_vent_complete_bit=pace_oper_pres_vent_complete_bit,
+                pace_oper_pres_in_limits_bit=pace_oper_pres_in_limits_bit,
                 vent_after_valve_supported=vent_after_valve_supported,
                 vent_after_valve_open=vent_after_valve_open,
                 vent_popup_ack_enabled=vent_popup_ack_enabled,
@@ -931,7 +3519,13 @@ class CalibrationRunner:
                 handoff_vent_to_safe_open_ms=handoff_vent_to_safe_open_ms,
                 handoff_safe_open_to_route_open_ms=handoff_safe_open_to_route_open_ms,
                 handoff_total_ms=handoff_total_ms,
+                handoff_mode=handoff_mode,
                 atmosphere_reference_hpa=atmosphere_reference_hpa,
+                superambient_target_hpa=superambient_target_hpa,
+                superambient_precharge_margin_hpa=superambient_precharge_margin_hpa,
+                superambient_precharge_peak_hpa=superambient_precharge_peak_hpa,
+                superambient_precharge_result=superambient_precharge_result,
+                superambient_closed_path_verified=superambient_closed_path_verified,
                 handoff_safe_open_delta_hpa=handoff_safe_open_delta_hpa,
                 deferred_export_queue_len=deferred_export_queue_len,
                 dewpoint_live_c=dewpoint_live_c,
@@ -946,11 +3540,52 @@ class CalibrationRunner:
                 dewpoint_tail_span_60s=dewpoint_tail_span_60s,
                 dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
                 dewpoint_rebound_detected=dewpoint_rebound_detected,
+                capture_hold_status=capture_hold_status,
+                capture_hold_reason=capture_hold_reason,
+                post_isolation_status=post_isolation_status,
+                post_isolation_reason=post_isolation_reason,
+                post_isolation_capture_mode=post_isolation_capture_mode,
+                post_isolation_fast_capture_status=post_isolation_fast_capture_status,
+                post_isolation_fast_capture_reason=post_isolation_fast_capture_reason,
+                post_isolation_fast_capture_elapsed_s=post_isolation_fast_capture_elapsed_s,
+                post_isolation_fast_capture_fallback=post_isolation_fast_capture_fallback,
+                post_isolation_pressure_start_hpa=post_isolation_pressure_start_hpa,
+                post_isolation_pressure_end_hpa=post_isolation_pressure_end_hpa,
+                post_isolation_pressure_peak_hpa=post_isolation_pressure_peak_hpa,
+                post_isolation_pressure_min_hpa=post_isolation_pressure_min_hpa,
+                post_isolation_pressure_drift_hpa=post_isolation_pressure_drift_hpa,
+                post_isolation_pressure_slope_hpa_s=post_isolation_pressure_slope_hpa_s,
+                post_isolation_pressure_recovery_toward_ambient=post_isolation_pressure_recovery_toward_ambient,
+                post_isolation_dewpoint_start_c=post_isolation_dewpoint_start_c,
+                post_isolation_dewpoint_end_c=post_isolation_dewpoint_end_c,
+                post_isolation_dewpoint_rise_c=post_isolation_dewpoint_rise_c,
+                post_isolation_dewpoint_slope_c_s=post_isolation_dewpoint_slope_c_s,
+                post_isolation_h2o_start=post_isolation_h2o_start,
+                post_isolation_h2o_end=post_isolation_h2o_end,
+                post_isolation_pressure_dew_corr=post_isolation_pressure_dew_corr,
+                post_isolation_diagnosis=post_isolation_diagnosis,
+                pressure_gate_status=pressure_gate_status,
+                pressure_gate_reason=pressure_gate_reason,
+                pressure_gate_window_s=pressure_gate_window_s,
+                pressure_gate_elapsed_s=pressure_gate_elapsed_s,
+                pressure_gate_span_hpa=pressure_gate_span_hpa,
+                pressure_gate_slope_hpa_per_s=pressure_gate_slope_hpa_per_s,
+                pressure_gate_count=pressure_gate_count,
+                pressure_dew_sync_status=pressure_dew_sync_status,
+                pressure_dew_sync_reason=pressure_dew_sync_reason,
+                baseline_sanity_gate_status=baseline_sanity_gate_status,
+                baseline_sanity_gate_reason=baseline_sanity_gate_reason,
+                baseline_sanity_target_co2_ppm=baseline_sanity_target_co2_ppm,
+                baseline_sanity_plateau_mean_ppm=baseline_sanity_plateau_mean_ppm,
+                baseline_sanity_plateau_span_ppm=baseline_sanity_plateau_span_ppm,
+                baseline_sanity_plateau_count=baseline_sanity_plateau_count,
                 flush_gate_status=flush_gate_status,
                 flush_gate_reason=flush_gate_reason,
+                root_cause_reject_reason=root_cause_reject_reason,
                 sample_lag_ms=sample_lag_ms,
                 soft_control_enabled=soft_control_enabled,
                 soft_control_linear_slew_hpa_per_s=soft_control_linear_slew_hpa_per_s,
+                vent_context=vent_context,
                 event_ts=event_ts,
                 note=note,
             )
@@ -1020,6 +3655,1240 @@ class CalibrationRunner:
             return
         for key, value in fields.items():
             state[key] = value
+
+    def _co2_source_stage_key_for_point(self, point: Optional[CalibrationPoint]) -> str:
+        if point is None or bool(getattr(point, "is_h2o_point", False)):
+            return ""
+        ppm_value = self._as_float(getattr(point, "co2_ppm", None))
+        if ppm_value is None:
+            return ""
+        group = _normalized_co2_group(getattr(point, "co2_group", ""))
+        if group == "B":
+            return "co2_b"
+        valves_cfg = self.cfg.get("valves", {})
+        co2_path = self._co2_path_for_point(point)
+        group2_path = self._as_int(valves_cfg.get("co2_path_group2"))
+        default_path = self._as_int(valves_cfg.get("co2_path"))
+        if (
+            group2_path is not None
+            and default_path is not None
+            and int(group2_path) != int(default_path)
+            and co2_path is not None
+            and int(co2_path) == int(group2_path)
+        ):
+            return "co2_b"
+        return "co2_a"
+
+    def _source_stage_key_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "",
+    ) -> str:
+        phase_text = str(phase or "").strip().lower()
+        if phase_text == "h2o" or bool(getattr(point, "is_h2o_point", False)):
+            return "h2o"
+        return self._co2_source_stage_key_for_point(point)
+
+    def _h2o_final_stage_valve(self) -> Optional[int]:
+        return self._as_int(self.cfg.get("valves", {}).get("flow_switch"))
+
+    def _route_final_stage_valve_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+    ) -> Optional[int]:
+        phase_text = str(phase or "").strip().lower()
+        if phase_text == "h2o" or bool(getattr(point, "is_h2o_point", False)):
+            return self._h2o_final_stage_valve()
+        return self._source_valve_for_point(point)
+
+    def _source_stage_safe_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "",
+    ) -> bool:
+        key = self._source_stage_key_for_point(point, phase=phase)
+        if not key:
+            return True
+        return bool(self._source_stage_safety.get(key, False))
+
+    def _co2_source_stage_safe(self, point: Optional[CalibrationPoint]) -> bool:
+        return self._source_stage_safe_for_point(point, phase="co2")
+
+    def _h2o_source_stage_safe(self, point: Optional[CalibrationPoint]) -> bool:
+        return self._source_stage_safe_for_point(point, phase="h2o")
+
+    def _route_final_stage_atmosphere_safe_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "",
+    ) -> bool:
+        key = self._source_stage_key_for_point(point, phase=phase)
+        if not key:
+            return True
+        return bool(self._route_final_stage_atmosphere_safety.get(key, False))
+
+    def _route_final_stage_seal_safe_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "",
+    ) -> bool:
+        key = self._source_stage_key_for_point(point, phase=phase)
+        if not key:
+            return True
+        return bool(self._route_final_stage_seal_safety.get(key, False))
+
+    def _seal_pressure_blocked_valves(self) -> List[int]:
+        valves_cfg = self.cfg.get("valves", {})
+        blocked: set[int] = set()
+        if isinstance(valves_cfg, dict):
+            for map_name in ("co2_map", "co2_map_group2"):
+                raw_map = valves_cfg.get(map_name, {})
+                if not isinstance(raw_map, dict):
+                    continue
+                for valve_id in raw_map.values():
+                    parsed = self._as_int(valve_id)
+                    if parsed is not None:
+                        blocked.add(int(parsed))
+            flow_switch = self._as_int(valves_cfg.get("flow_switch"))
+            if flow_switch is not None:
+                blocked.add(int(flow_switch))
+        if not blocked:
+            blocked.update({4, 24, 10})
+        return sorted(blocked)
+
+    def _seal_pressure_target_supported_by_hardware(self, point: Optional[CalibrationPoint]) -> bool:
+        target_pressure_hpa = self._as_float(
+            getattr(point, "target_pressure_hpa", None) if point is not None else None
+        )
+        if target_pressure_hpa is None:
+            return False
+        workflow_cfg = self.cfg.get("workflow", {})
+        pressure_cfg = workflow_cfg.get("pressure", {}) if isinstance(workflow_cfg, dict) else {}
+        supported_targets = pressure_cfg.get("seal_pressure_supported_targets_hpa", [])
+        parsed_targets = [
+            float(value)
+            for value in list(supported_targets or [])
+            if self._as_float(value) is not None
+            for value in [self._as_float(value)]
+        ]
+        if parsed_targets:
+            return any(abs(float(target_pressure_hpa) - float(value)) <= 0.5 for value in parsed_targets)
+        cached_value = self._last_pace_capability_snapshot.get("target_pressure_supported")
+        if isinstance(cached_value, bool):
+            return cached_value
+        return float(target_pressure_hpa) > 0.0 and float(target_pressure_hpa) <= 1000.0
+
+    def _seal_pressure_pressure_gauge_snapshot(self, runtime_state: Mapping[str, Any]) -> Tuple[bool, bool]:
+        state = dict(runtime_state or {})
+        available_value = state.get("pressure_gauge_available")
+        pressure_value = self._as_float(
+            state.get("pressure_gauge_hpa", state.get("pressure_gauge_hpa_snapshot"))
+        )
+        available = bool(available_value) if isinstance(available_value, bool) else pressure_value is not None
+        if not available:
+            return False, False
+        fresh_value = state.get("pressure_read_fresh")
+        if isinstance(fresh_value, bool):
+            return True, fresh_value
+        age_s = self._as_float(state.get("pressure_read_age_s"))
+        if age_s is not None:
+            return True, float(age_s) <= 1.0
+        return True, True
+
+    def _seal_pressure_in_limits_cache_fresh(self, runtime_state: Mapping[str, Any]) -> bool:
+        state = dict(runtime_state or {})
+        direct_value = state.get("in_limits_cache_fresh")
+        if isinstance(direct_value, bool):
+            return direct_value
+        cached_value = self._pace_state_cache.get("in_limits_cache_valid")
+        if isinstance(cached_value, bool):
+            return cached_value
+        return False
+
+    def verify_seal_pressure_stage_preconditions(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "",
+        evidence_source: str = "simulated",
+        verification_inputs: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or ("h2o" if bool(getattr(point, "is_h2o_point", False)) else "co2")).strip().lower()
+        route_key = self._source_stage_key_for_point(point, phase=phase_text)
+        runtime_state = dict(self._point_runtime_state(point, phase=phase_text, create=False) or {})
+        continuous_state = self._continuous_atmosphere_state_snapshot()
+        pace_error_counts = dict(self._pace_error_attribution_counts() or {})
+        blocked_valves = self._seal_pressure_blocked_valves()
+        current_open_valves = {
+            int(valve)
+            for valve in tuple(self._current_open_valves or ())
+            if self._as_int(valve) is not None
+        }
+        mechanical_confirmed = self._mechanical_pressure_protection_confirmed()
+        analyzer_required = not bool(mechanical_confirmed)
+        analyzer_active = bool(
+            runtime_state.get("analyzer_pressure_protection_active")
+            or self._last_route_pressure_guard_summary.get("analyzer_pressure_protection_active")
+        )
+        pressure_gauge_available, pressure_read_fresh = self._seal_pressure_pressure_gauge_snapshot(runtime_state)
+        final_syst_err = str(
+            runtime_state.get(
+                "pace_syst_err_query",
+                self._last_route_pressure_guard_summary.get("pace_syst_err_query", '0,"No error"'),
+            )
+            or '0,"No error"'
+        ).strip()
+        evidence_text = str(evidence_source or "").strip()
+        evidence_text_lower = evidence_text.lower()
+        result: Dict[str, Any] = {
+            "eligible": False,
+            "reason": "",
+            "reasons": [],
+            "source_stage_key": route_key,
+            "source_stage_safe": self._source_stage_safe_for_point(point, phase=phase_text),
+            "route_final_stage_atmosphere_safe": self._route_final_stage_atmosphere_safe_for_point(point, phase=phase_text),
+            "route_final_stage_seal_safe": self._route_final_stage_seal_safe_for_point(point, phase=phase_text),
+            "evidence_source": evidence_text,
+            "not_real_acceptance_evidence": evidence_text_lower != "live_safe_sealed_pressure",
+            "route_flow_active": bool(continuous_state.get("route_flow_active")),
+            "continuous_atmosphere_active": bool(continuous_state.get("active")),
+            "atmosphere_keepalive_enabled": bool(continuous_state.get("active")),
+            "stale_keepalive_generation_invalidated": not bool(continuous_state.get("active"))
+            and not bool(continuous_state.get("route_flow_active")),
+            "post_exit_vent1_count": 0,
+            "vent2_tx_count": 0,
+            "exit_boundary_vent0_count": 0,
+            "final_syst_err": final_syst_err,
+            "hidden_syst_err_count": int(pace_error_counts.get("hidden_syst_err_count") or 0),
+            "unclassified_syst_err_count": int(pace_error_counts.get("unclassified_syst_err_count") or 0),
+            "pre_route_drain_syst_err_count": int(pace_error_counts.get("pre_route_drain_syst_err_count") or 0),
+            "pressure_gauge_available": bool(pressure_gauge_available),
+            "pressure_read_fresh": bool(pressure_read_fresh),
+            "in_limits_cache_fresh": bool(self._seal_pressure_in_limits_cache_fresh(runtime_state)),
+            "analyzer_pressure_required": bool(analyzer_required),
+            "analyzer_pressure_protection_active": bool(analyzer_active),
+            "mechanical_pressure_protection_confirmed": bool(mechanical_confirmed),
+            "target_pressure_supported": bool(self._seal_pressure_target_supported_by_hardware(point)),
+            "source_final_valves_open": [valve for valve in blocked_valves if valve in current_open_valves],
+            "blocked_valves": list(blocked_valves),
+        }
+        if verification_inputs:
+            result.update(dict(verification_inputs))
+
+        result["blocked_valves"] = sorted(
+            {
+                int(parsed)
+                for value in list(result.get("blocked_valves") or [])
+                if (parsed := self._as_int(value)) is not None
+            }
+        )
+        result["source_final_valves_open"] = sorted(
+            {
+                int(parsed)
+                for value in list(result.get("source_final_valves_open") or [])
+                if (parsed := self._as_int(value)) is not None
+            }
+        )
+
+        reasons: List[str] = []
+        if not bool(result.get("source_stage_safe")):
+            reasons.append("SourceStageNotVerified")
+        if not bool(result.get("route_final_stage_atmosphere_safe")):
+            reasons.append("AtmosphereFlowStageNotVerified")
+        if (
+            bool(result.get("route_flow_active"))
+            or bool(result.get("continuous_atmosphere_active"))
+            or bool(result.get("atmosphere_keepalive_enabled"))
+        ):
+            reasons.append("ActiveAtmosphereKeepalive")
+        if not bool(result.get("stale_keepalive_generation_invalidated")):
+            reasons.append("KeepaliveGenerationStillValid")
+        if int(result.get("post_exit_vent1_count") or 0) > 0:
+            reasons.append("PostExitVentLeak")
+        if int(result.get("vent2_tx_count") or 0) > 0:
+            reasons.append("Vent2CommandObserved")
+        if int(result.get("exit_boundary_vent0_count") or 0) > 1:
+            reasons.append("ExitBoundaryVent0CountExceeded")
+        if not self._pace_system_error_is_clear(result.get("final_syst_err")):
+            reasons.append("PaceSystemErrorNotClear")
+        if int(result.get("hidden_syst_err_count") or 0) > 0:
+            reasons.append("HiddenSystErrObserved")
+        if int(result.get("unclassified_syst_err_count") or 0) > 0:
+            reasons.append("UnclassifiedSystErrObserved")
+        if int(result.get("pre_route_drain_syst_err_count") or 0) > 0:
+            reasons.append("PreRouteDrainSystErrObserved")
+        if not bool(result.get("pressure_gauge_available")):
+            reasons.append("PressureGaugeUnavailable")
+        elif not bool(result.get("pressure_read_fresh")):
+            reasons.append("PressureReadNotFresh")
+        if not bool(result.get("in_limits_cache_fresh")):
+            reasons.append("StaleInLimitsCache")
+        if bool(result.get("analyzer_pressure_required")):
+            if not bool(result.get("analyzer_pressure_protection_active")):
+                reasons.append("AnalyzerPressureRequiredButUnavailable")
+        elif not bool(result.get("mechanical_pressure_protection_confirmed")):
+            reasons.append("MechanicalPressureProtectionNotConfirmed")
+        if not bool(result.get("target_pressure_supported")):
+            reasons.append("PressureTargetUnsupportedByHardware")
+        if list(result.get("source_final_valves_open") or []):
+            reasons.append("SourceFinalStageNotAllowed")
+
+        effective_evidence_source = str(result.get("evidence_source") or "").strip().lower()
+        if "simulated" in effective_evidence_source:
+            reasons.append("SimulatedEvidenceNotAcceptance")
+            result["not_real_acceptance_evidence"] = True
+        elif effective_evidence_source == "live_safe_preflight":
+            result["not_real_acceptance_evidence"] = True
+        elif effective_evidence_source == "live_safe":
+            reasons.append("LiveSafeEvidenceNotSealedPressureVerified")
+            result["not_real_acceptance_evidence"] = True
+        elif effective_evidence_source != "live_safe_sealed_pressure":
+            reasons.append("SealPressureEvidenceSourceMissing")
+            result["not_real_acceptance_evidence"] = True
+
+        result["eligible"] = not reasons
+        result["reasons"] = reasons
+        result["reason"] = reasons[0] if reasons else ""
+        return result
+
+    def evaluate_seal_pressure_verified_release_candidate(
+        self,
+        verification: Optional[Mapping[str, Any]],
+        *,
+        explicit_allow: bool,
+        pressure_read_fresh: Optional[bool] = None,
+        in_limits_cache_fresh: Optional[bool] = None,
+        target_pressure_supported: Optional[bool] = None,
+        analyzer_pressure_protection_confirmed: Optional[bool] = None,
+        mechanical_pressure_protection_confirmed: Optional[bool] = None,
+        active_atmosphere_keepalive: Optional[bool] = None,
+        post_exit_vent_leak: Optional[bool] = None,
+        hidden_syst_err_count: Optional[int] = None,
+        unclassified_syst_err_count: Optional[int] = None,
+        pre_route_drain_syst_err_count: Optional[int] = None,
+        vent2_tx_observed: Optional[bool] = None,
+        source_final_stage_explicit_safety: bool,
+    ) -> Dict[str, Any]:
+        verification_state = dict(verification or {})
+        raw_reasons = [
+            str(reason or "").strip()
+            for reason in list(verification_state.get("reasons") or [])
+            if str(reason or "").strip()
+        ]
+        acceptance_only_reasons = {
+            "SimulatedEvidenceNotAcceptance",
+            "LiveSafeEvidenceNotSealedPressureVerified",
+            "SealPressureEvidenceSourceMissing",
+        }
+        blocking_precondition_reasons = [
+            reason for reason in raw_reasons if reason not in acceptance_only_reasons
+        ]
+        evidence_source = str(verification_state.get("evidence_source") or "").strip()
+        evidence_source_lower = evidence_source.lower()
+
+        def _state_bool(name: str, fallback: Optional[bool] = None) -> bool:
+            value = verification_state.get(name, fallback)
+            return bool(value)
+
+        def _state_count(name: str, fallback: Optional[int] = None) -> int:
+            parsed = self._as_int(verification_state.get(name, fallback))
+            return int(parsed) if parsed is not None else 0
+
+        blocked_valves = sorted(
+            {
+                int(parsed)
+                for value in list(
+                    verification_state.get("blocked_valves") or self._seal_pressure_blocked_valves()
+                )
+                if (parsed := self._as_int(value)) is not None
+            }
+        )
+        source_final_valves_open = sorted(
+            {
+                int(parsed)
+                for value in list(verification_state.get("source_final_valves_open") or [])
+                if (parsed := self._as_int(value)) is not None
+            }
+        )
+        blocked_valves_required = self._seal_pressure_blocked_valves()
+        source_final_blocked_valves_confirmed = (
+            set(blocked_valves_required).issubset(set(blocked_valves))
+            and not source_final_valves_open
+        )
+
+        active_keepalive = (
+            bool(active_atmosphere_keepalive)
+            if active_atmosphere_keepalive is not None
+            else any(
+                (
+                    _state_bool("route_flow_active"),
+                    _state_bool("continuous_atmosphere_active"),
+                    _state_bool("atmosphere_keepalive_enabled"),
+                )
+            )
+        )
+        vent_leak_observed = (
+            bool(post_exit_vent_leak)
+            if post_exit_vent_leak is not None
+            else _state_count("post_exit_vent1_count") > 0
+        )
+        vent2_observed = (
+            bool(vent2_tx_observed)
+            if vent2_tx_observed is not None
+            else bool(_state_bool("vent2_tx_observed") or _state_count("vent2_tx_count") > 0)
+        )
+        hidden_count = (
+            int(hidden_syst_err_count)
+            if hidden_syst_err_count is not None
+            else _state_count("hidden_syst_err_count")
+        )
+        unclassified_count = (
+            int(unclassified_syst_err_count)
+            if unclassified_syst_err_count is not None
+            else _state_count("unclassified_syst_err_count")
+        )
+        pre_route_drain_count = (
+            int(pre_route_drain_syst_err_count)
+            if pre_route_drain_syst_err_count is not None
+            else _state_count("pre_route_drain_syst_err_count")
+        )
+
+        required_conditions = {
+            "explicit_allow": bool(explicit_allow),
+            "fresh_pressure_read": bool(
+                _state_bool("pressure_read_fresh")
+                if pressure_read_fresh is None
+                else pressure_read_fresh
+            ),
+            "fresh_in_limits_cache": bool(
+                _state_bool("in_limits_cache_fresh")
+                if in_limits_cache_fresh is None
+                else in_limits_cache_fresh
+            ),
+            "target_pressure_supported": bool(
+                _state_bool("target_pressure_supported")
+                if target_pressure_supported is None
+                else target_pressure_supported
+            ),
+            "analyzer_pressure_protection_confirmed": bool(
+                _state_bool("analyzer_pressure_protection_active")
+                if analyzer_pressure_protection_confirmed is None
+                else analyzer_pressure_protection_confirmed
+            ),
+            "mechanical_pressure_protection_confirmed": bool(
+                _state_bool("mechanical_pressure_protection_confirmed")
+                if mechanical_pressure_protection_confirmed is None
+                else mechanical_pressure_protection_confirmed
+            ),
+            "no_active_atmosphere_keepalive": not active_keepalive,
+            "no_post_exit_vent_leak": not vent_leak_observed,
+            "hidden_syst_err_count_zero": hidden_count == 0,
+            "unclassified_syst_err_count_zero": unclassified_count == 0,
+            "pre_route_drain_syst_err_count_zero": pre_route_drain_count == 0,
+            "no_vent2_tx": not vent2_observed,
+            "source_final_stage_explicit_safety": bool(source_final_stage_explicit_safety),
+        }
+
+        reasons: List[str] = []
+        if not bool(required_conditions["explicit_allow"]):
+            reasons.append("ExplicitAllowMissing")
+        if blocking_precondition_reasons:
+            reasons.append("SealPressureStagePreconditionsNotEligible")
+        if not bool(required_conditions["fresh_pressure_read"]):
+            reasons.append("PressureReadNotFresh")
+        if not bool(required_conditions["fresh_in_limits_cache"]):
+            reasons.append("StaleInLimitsCache")
+        if not bool(required_conditions["target_pressure_supported"]):
+            reasons.append("PressureTargetUnsupportedByHardware")
+        if not bool(required_conditions["analyzer_pressure_protection_confirmed"]):
+            reasons.append("AnalyzerPressureProtectionNotConfirmed")
+        if not bool(required_conditions["mechanical_pressure_protection_confirmed"]):
+            reasons.append("MechanicalPressureProtectionNotConfirmed")
+        if not bool(required_conditions["no_active_atmosphere_keepalive"]):
+            reasons.append("ActiveAtmosphereKeepalive")
+        if not bool(required_conditions["no_post_exit_vent_leak"]):
+            reasons.append("PostExitVentLeak")
+        if not bool(required_conditions["hidden_syst_err_count_zero"]):
+            reasons.append("HiddenSystErrObserved")
+        if not bool(required_conditions["unclassified_syst_err_count_zero"]):
+            reasons.append("UnclassifiedSystErrObserved")
+        if not bool(required_conditions["pre_route_drain_syst_err_count_zero"]):
+            reasons.append("PreRouteDrainSystErrObserved")
+        if not bool(required_conditions["no_vent2_tx"]):
+            reasons.append("Vent2CommandObserved")
+        if not bool(required_conditions["source_final_stage_explicit_safety"]):
+            reasons.append("SourceFinalStageExplicitSafetyMissing")
+        if not source_final_blocked_valves_confirmed:
+            reasons.append("SourceFinalBlockedValvesNotConfirmed")
+
+        deduped_reasons: List[str] = []
+        for reason in reasons:
+            if reason not in deduped_reasons:
+                deduped_reasons.append(reason)
+
+        observations: List[str] = []
+        if evidence_source_lower == "live_safe_preflight":
+            observations.append("LiveSafePreflightIsNotAcceptance")
+
+        co2_4_24_opened = any(int(valve) in {4, 24} for valve in source_final_valves_open)
+        h2o_10_opened = any(int(valve) == 10 for valve in source_final_valves_open)
+        candidate = {
+            "candidate_type": "seal_pressure_verified_release_candidate",
+            "audit_only": True,
+            "compute_only": True,
+            "release_performed": False,
+            "route_final_stage_seal_safety_updated": False,
+            "would_require_explicit_apply_step": True,
+            "eligible_for_explicit_release": not deduped_reasons,
+            "reason": deduped_reasons[0] if deduped_reasons else "",
+            "reasons": deduped_reasons,
+            "source_stage_key": str(verification_state.get("source_stage_key") or "").strip(),
+            "required_conditions": required_conditions,
+            "blocked_valves_must_remain_blocked_until_apply": blocked_valves_required,
+            "source_final_valves_open": source_final_valves_open,
+            "source_final_blocked_valves_confirmed": source_final_blocked_valves_confirmed,
+            "source_final_stage_opened": bool(source_final_valves_open),
+            "co2_4_24_opened": bool(co2_4_24_opened),
+            "h2o_10_opened": bool(h2o_10_opened),
+            "real_sealed_pressure_transition_started": False,
+            "real_sealed_pressure_transition_verified": False,
+            "route_final_stage_seal_safe": bool(verification_state.get("route_final_stage_seal_safe")),
+            "seal_pressure_stage_preconditions_eligible": not blocking_precondition_reasons,
+            "seal_pressure_stage_precondition_reasons": raw_reasons,
+            "blocking_precondition_reasons": blocking_precondition_reasons,
+            "evidence_source": evidence_source,
+            "not_real_acceptance_evidence": True,
+            "observations": observations,
+        }
+        return candidate
+
+    def apply_seal_pressure_verified_release_candidate(
+        self,
+        *,
+        source_stage_key: str,
+        candidate: Optional[Mapping[str, Any]],
+        explicit_apply: bool,
+        operator_intent_confirmed: bool,
+        release_scope: str,
+        release_reason: str,
+        expected_blocked_valves: Sequence[int],
+        expected_source_final_valves: Optional[Sequence[int]] = None,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        key = str(source_stage_key or "").strip()
+        candidate_state = dict(candidate or {})
+        candidate_type = str(candidate_state.get("candidate_type") or "").strip()
+        candidate_required_conditions = candidate_state.get("required_conditions")
+        candidate_key = str(candidate_state.get("source_stage_key") or "").strip()
+        release_scope_text = str(release_scope or "").strip()
+        release_reason_text = str(release_reason or "").strip()
+        required_condition_names = (
+            "explicit_allow",
+            "fresh_pressure_read",
+            "fresh_in_limits_cache",
+            "target_pressure_supported",
+            "analyzer_pressure_protection_confirmed",
+            "mechanical_pressure_protection_confirmed",
+            "no_active_atmosphere_keepalive",
+            "no_post_exit_vent_leak",
+            "hidden_syst_err_count_zero",
+            "unclassified_syst_err_count_zero",
+            "pre_route_drain_syst_err_count_zero",
+            "no_vent2_tx",
+            "source_final_stage_explicit_safety",
+        )
+        allowed_release_scopes = {
+            "staged_source_final_release_dry_run",
+            "verified_seal_pressure_stage_release",
+        }
+        disallowed_release_scopes = {
+            "full_v1_production",
+            "production_acceptance",
+            "full_formal",
+            "route_flush_dewpoint_gate",
+        }
+
+        def _normalized_int_set(values: Optional[Sequence[int]]) -> List[int]:
+            return sorted(
+                {
+                    int(parsed)
+                    for value in list(values or [])
+                    if (parsed := self._as_int(value)) is not None
+                }
+            )
+
+        normalized_expected_blocked = _normalized_int_set(expected_blocked_valves)
+        normalized_expected_source_final = _normalized_int_set(expected_source_final_valves)
+        required_blocked_valves = self._seal_pressure_blocked_valves()
+        current_value = bool(self._route_final_stage_seal_safety.get(key, False)) if key else False
+        reasons: List[str] = []
+        candidate_missing_required_conditions = False
+        candidate_required_condition_false = False
+
+        if not bool(explicit_apply):
+            reasons.append("ExplicitApplyMissing")
+        if not bool(operator_intent_confirmed):
+            reasons.append("OperatorIntentMissing")
+        if not release_reason_text:
+            reasons.append("ReleaseReasonMissing")
+        if release_scope_text in disallowed_release_scopes:
+            reasons.append("FullProductionReleaseNotAllowed")
+        elif release_scope_text not in allowed_release_scopes:
+            reasons.append("UnsupportedReleaseScope")
+        if not key or key not in self._route_final_stage_seal_safety:
+            reasons.append("SourceStageKeyMissing")
+        if candidate_type != "seal_pressure_verified_release_candidate":
+            reasons.append("CandidateTypeInvalid")
+        if not bool(candidate_state.get("eligible_for_explicit_release")):
+            reasons.append("CandidateNotEligible")
+        if bool(candidate_state.get("release_performed")) or bool(
+            candidate_state.get("route_final_stage_seal_safety_updated")
+        ):
+            reasons.append("CandidateAlreadyReleasePerformed")
+        if candidate_key and key and candidate_key != key:
+            candidate_required_condition_false = True
+
+        for field_name in (
+            "real_sealed_pressure_transition_started",
+            "source_final_stage_opened",
+            "co2_4_24_opened",
+            "h2o_10_opened",
+        ):
+            if field_name not in candidate_state:
+                candidate_missing_required_conditions = True
+                continue
+            if bool(candidate_state.get(field_name)):
+                candidate_required_condition_false = True
+
+        if not isinstance(candidate_required_conditions, Mapping):
+            candidate_missing_required_conditions = True
+        else:
+            for condition_name in required_condition_names:
+                if condition_name not in candidate_required_conditions:
+                    candidate_missing_required_conditions = True
+                    continue
+                if not bool(candidate_required_conditions.get(condition_name)):
+                    candidate_required_condition_false = True
+
+        candidate_blocked_valves = _normalized_int_set(
+            candidate_state.get("blocked_valves_must_remain_blocked_until_apply")
+        )
+        candidate_source_final_valves = _normalized_int_set(candidate_state.get("source_final_valves_open"))
+        if not set(required_blocked_valves).issubset(set(normalized_expected_blocked)):
+            reasons.append("BlockedValvesNotConfirmed")
+        if not set(required_blocked_valves).issubset(set(candidate_blocked_valves)):
+            reasons.append("BlockedValvesNotConfirmed")
+        if normalized_expected_source_final:
+            if not set(normalized_expected_source_final).issubset(set(required_blocked_valves)):
+                reasons.append("BlockedValvesNotConfirmed")
+            elif candidate_source_final_valves and normalized_expected_source_final != candidate_source_final_valves:
+                reasons.append("BlockedValvesNotConfirmed")
+
+        if candidate_missing_required_conditions:
+            reasons.append("CandidateMissingRequiredConditions")
+        if candidate_required_condition_false:
+            reasons.append("CandidateRequiredConditionFalse")
+
+        deduped_reasons: List[str] = []
+        for reason in reasons:
+            if reason not in deduped_reasons:
+                deduped_reasons.append(reason)
+
+        result = {
+            "apply_type": "seal_pressure_verified_release_apply",
+            "explicit_apply": bool(explicit_apply),
+            "operator_intent_confirmed": bool(operator_intent_confirmed),
+            "release_scope": release_scope_text,
+            "release_reason": release_reason_text,
+            "dry_run": bool(dry_run),
+            "dry_run_release_suppressed": False,
+            "dry_run_authorized_for_staged_source_final": False,
+            "source_stage_key": key,
+            "eligible_candidate": candidate_type == "seal_pressure_verified_release_candidate"
+            and bool(candidate_state.get("eligible_for_explicit_release")),
+            "release_performed": False,
+            "route_final_stage_seal_safety_updated": False,
+            "route_final_stage_seal_safety_key": key,
+            "route_final_stage_seal_safety_value": current_value,
+            "would_update_route_final_stage_seal_safety": False,
+            "opened_valves": [],
+            "pace_commands_sent": [],
+            "real_sealed_pressure_transition_started": False,
+            "source_final_stage_opened": False,
+            "co2_4_24_opened": False,
+            "h2o_10_opened": False,
+            "not_real_acceptance_evidence": True,
+            "first_use_must_be_staged_dry_run": True,
+            "expected_blocked_valves": normalized_expected_blocked,
+            "expected_source_final_valves": normalized_expected_source_final,
+            "candidate_observations": list(candidate_state.get("observations") or []),
+            "candidate_required_conditions": dict(candidate_required_conditions or {}),
+            "reason": deduped_reasons[0] if deduped_reasons else "",
+            "reasons": deduped_reasons,
+            "idempotent": False,
+        }
+        if deduped_reasons:
+            return result
+        if current_value:
+            result["route_final_stage_seal_safety_value"] = True
+            if bool(dry_run):
+                result["dry_run_release_suppressed"] = True
+                result["dry_run_authorized_for_staged_source_final"] = (
+                    release_scope_text == "staged_source_final_release_dry_run"
+                )
+                result["would_update_route_final_stage_seal_safety"] = False
+            result["idempotent"] = True
+            return result
+        if bool(dry_run):
+            result["dry_run_release_suppressed"] = True
+            result["dry_run_authorized_for_staged_source_final"] = (
+                release_scope_text == "staged_source_final_release_dry_run"
+            )
+            result["would_update_route_final_stage_seal_safety"] = True
+            return result
+
+        self._route_final_stage_seal_safety[key] = True
+        result["release_performed"] = True
+        result["route_final_stage_seal_safety_updated"] = True
+        result["route_final_stage_seal_safety_value"] = True
+        result["would_update_route_final_stage_seal_safety"] = True
+        return result
+
+    def _sync_source_stage_runtime_fields(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        key = self._source_stage_key_for_point(point, phase=phase_text)
+        if not key:
+            return {}
+        final_stage_valve = self._route_final_stage_valve_for_point(point, phase=phase_text)
+        atmosphere_safe = bool(self._route_final_stage_atmosphere_safety.get(key, False))
+        seal_safe = bool(self._route_final_stage_seal_safety.get(key, False))
+        continuous_state = self._continuous_atmosphere_state_snapshot()
+        payload = {
+            "source_stage_key": key,
+            "source_stage_safe": bool(self._source_stage_safety.get(key, False)),
+            "route_final_stage_key": key,
+            "route_final_stage_safe": atmosphere_safe,
+            "route_final_stage_atmosphere_safe": atmosphere_safe,
+            "route_final_stage_seal_safe": seal_safe,
+            "atmosphere_flow_safe": atmosphere_safe,
+            "seal_pressure_safe": seal_safe,
+            "source_like_stage": bool(final_stage_valve is not None),
+            "final_stage_valve": final_stage_valve,
+            "continuous_atmosphere_active": bool(continuous_state.get("active")),
+            "route_flow_active": bool(continuous_state.get("route_flow_active")),
+            "continuous_atmosphere_phase": str(continuous_state.get("phase_name") or ""),
+            "vent_keepalive_count": int(continuous_state.get("keepalive_count") or 0),
+        }
+        if str(reason or "").strip():
+            payload["source_stage_reason"] = str(reason or "").strip()
+            payload["route_final_stage_reason"] = str(reason or "").strip()
+        self._set_point_runtime_fields(point, phase=phase_text, **payload)
+        return payload
+
+    def _sync_co2_source_stage_runtime_fields(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "co2",
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        return self._sync_source_stage_runtime_fields(point, phase=phase, reason=reason)
+
+    def _sync_h2o_source_stage_runtime_fields(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "h2o",
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        return self._sync_source_stage_runtime_fields(point, phase=phase, reason=reason)
+
+    def _mark_source_stage_guard_result(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        stage_open_valves: Sequence[int],
+        guard_ok: bool,
+        guard_summary: Mapping[str, Any],
+    ) -> None:
+        phase_text = str(phase or "").strip().lower()
+        key = self._source_stage_key_for_point(point, phase=phase_text)
+        if not key:
+            return
+        final_stage_valve = self._route_final_stage_valve_for_point(point, phase=phase_text)
+        if final_stage_valve is None or int(final_stage_valve) not in {int(value) for value in list(stage_open_valves or [])}:
+            self._sync_source_stage_runtime_fields(point, phase=phase_text)
+            return
+
+        cfg = self._route_open_pressure_guard_cfg()
+        analyzer_pressure_kpa = self._as_float(guard_summary.get("analyzer_pressure_kpa"))
+        pressure_delta_hpa = self._as_float(guard_summary.get("pressure_delta_from_ambient_hpa"))
+        pace_syst_err = str(guard_summary.get("pace_syst_err_query") or "").strip()
+        analyzer_ok = analyzer_pressure_kpa is None or analyzer_pressure_kpa < float(cfg["analyzer_warning_kpa"])
+        pressure_ok = (
+            pressure_delta_hpa is not None
+            and pressure_delta_hpa <= float(cfg["recovery_tolerance_hpa"])
+        )
+        no_abort = not str(guard_summary.get("abort_reason") or "").strip()
+        no_recovery_failure = str(guard_summary.get("vent_recovery_result") or "").strip() != "vent_refresh_failed"
+        syst_err_clear = self._pace_system_error_is_clear(pace_syst_err)
+        hidden_syst_err_count = int(guard_summary.get("hidden_syst_err_count") or 0)
+        unclassified_syst_err_count = int(guard_summary.get("unclassified_syst_err_count") or 0)
+        no_hidden_syst_err = hidden_syst_err_count == 0
+        no_unclassified_syst_err = unclassified_syst_err_count == 0
+        stage_safe = (
+            bool(guard_ok)
+            and no_abort
+            and no_recovery_failure
+            and syst_err_clear
+            and analyzer_ok
+            and pressure_ok
+            and no_hidden_syst_err
+            and no_unclassified_syst_err
+        )
+
+        self._source_stage_safety[key] = bool(stage_safe)
+        self._route_final_stage_atmosphere_safety[key] = bool(stage_safe)
+        self._route_final_stage_seal_safety[key] = False
+        payload = {
+            "source_stage_key": key,
+            "source_stage_safe": bool(stage_safe),
+            "route_final_stage_key": key,
+            "route_final_stage_safe": bool(stage_safe),
+            "route_final_stage_atmosphere_safe": bool(stage_safe),
+            "route_final_stage_seal_safe": False,
+            "atmosphere_flow_safe": bool(stage_safe),
+            "seal_pressure_safe": False,
+            "source_like_stage": True,
+            "final_stage_valve": final_stage_valve,
+            "source_stage_guard_status": "pass" if stage_safe else "fail",
+            "source_stage_guard_reason": "" if stage_safe else str(guard_summary.get("route_pressure_guard_reason") or guard_summary.get("abort_reason") or "SourceStageGuardFailed"),
+            "route_final_stage_guard_status": "pass" if stage_safe else "fail",
+            "route_final_stage_guard_reason": "" if stage_safe else str(guard_summary.get("route_pressure_guard_reason") or guard_summary.get("abort_reason") or "SourceStageGuardFailed"),
+            "source_stage_pressure_delta_from_ambient_hpa": pressure_delta_hpa,
+            "source_stage_analyzer_pressure_kpa": analyzer_pressure_kpa,
+            "source_stage_pace_syst_err_query": pace_syst_err,
+            "hidden_syst_err_count": hidden_syst_err_count,
+            "unclassified_syst_err_count": unclassified_syst_err_count,
+        }
+        self._set_point_runtime_fields(point, phase=phase_text, **payload)
+        self.log(
+            "Route final-stage guard result: "
+            f"key={key} safe={stage_safe} "
+            f"pressure_delta_hpa={pressure_delta_hpa} "
+            f"analyzer_pressure_kpa={analyzer_pressure_kpa} "
+            f"pace_syst_err={pace_syst_err or '0,No error'} "
+            f"hidden_syst_err_count={hidden_syst_err_count} "
+            f"unclassified_syst_err_count={unclassified_syst_err_count}"
+        )
+
+    def _mark_co2_source_stage_guard_result(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        stage_open_valves: Sequence[int],
+        guard_ok: bool,
+        guard_summary: Mapping[str, Any],
+    ) -> None:
+        self._mark_source_stage_guard_result(
+            point,
+            phase=phase,
+            stage_open_valves=stage_open_valves,
+            guard_ok=guard_ok,
+            guard_summary=guard_summary,
+        )
+
+    def _block_source_stage_operation(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        operation: str,
+        trace_stage: str,
+        note: str = "",
+    ) -> bool:
+        phase_text = str(phase or "").strip().lower()
+        state = self._point_runtime_state(point, phase=phase_text, create=False) or {}
+        key = str(state.get("source_stage_key") or "").strip()
+        if not key:
+            return False
+        if bool(self._source_stage_safety.get(key, False)):
+            self._sync_source_stage_runtime_fields(point, phase=phase_text)
+            return False
+        reason = "SourceStageNotVerified"
+        payload = self._sync_source_stage_runtime_fields(
+            point,
+            phase=phase_text,
+            reason=f"{operation}:{reason}",
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            abort_reason=reason,
+            source_stage_blocked_operation=operation,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage=trace_stage,
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            refresh_pace_state=False,
+            note=(
+                f"operation={operation} abort_reason={reason} "
+                f"source_stage_key={key} source_stage_safe={payload.get('source_stage_safe')} "
+                f"{note}".strip()
+            ),
+        )
+        self.log(f"{operation} blocked until {key} source stage is verified safe")
+        return True
+
+    def _block_co2_source_stage_operation(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        operation: str,
+        trace_stage: str,
+        note: str = "",
+    ) -> bool:
+        return self._block_source_stage_operation(
+            point,
+            phase=phase,
+            operation=operation,
+            trace_stage=trace_stage,
+            note=note,
+        )
+
+    def _block_seal_pressure_operation(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        operation: str,
+        trace_stage: str,
+        note: str = "",
+    ) -> bool:
+        phase_text = str(phase or "").strip().lower()
+        state = self._point_runtime_state(point, phase=phase_text, create=False) or {}
+        key = str(state.get("source_stage_key") or "").strip()
+        if not key:
+            return False
+        if bool(self._route_final_stage_seal_safety.get(key, False)):
+            self._sync_source_stage_runtime_fields(point, phase=phase_text)
+            return False
+        payload = self._sync_source_stage_runtime_fields(
+            point,
+            phase=phase_text,
+            reason=f"{operation}:SealPressureStageNotVerified",
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            abort_reason="SealPressureStageNotVerified",
+            seal_pressure_blocked_operation=operation,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage=trace_stage,
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            refresh_pace_state=False,
+            note=(
+                f"operation={operation} abort_reason=SealPressureStageNotVerified "
+                f"source_stage_key={key} seal_pressure_safe={payload.get('seal_pressure_safe')} "
+                f"{note}".strip()
+            ),
+        )
+        self.log(f"{operation} blocked until {key} final stage is verified seal-pressure safe")
+        return True
+
+    def _require_continuous_atmosphere_flow_active(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        operation: str,
+        trace_stage: str,
+        note: str = "",
+    ) -> bool:
+        phase_text = str(phase or "").strip().lower()
+        state = self._point_runtime_state(point, phase=phase_text, create=False) or {}
+        if bool(state.get("continuous_atmosphere_active")):
+            self._sync_source_stage_runtime_fields(point, phase=phase_text)
+            return False
+        self._sync_source_stage_runtime_fields(
+            point,
+            phase=phase_text,
+            reason=f"{operation}:ContinuousAtmosphereFlowthroughNotActive",
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            abort_reason="ContinuousAtmosphereFlowthroughNotActive",
+            continuous_atmosphere_blocked_operation=operation,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage=trace_stage,
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            refresh_pace_state=False,
+            note=(
+                f"operation={operation} abort_reason=ContinuousAtmosphereFlowthroughNotActive "
+                f"{note}".strip()
+            ),
+        )
+        self.log(f"{operation} blocked until continuous atmosphere flowthrough is active for {phase_text}")
+        return True
+
+    def _sealed_no_vent_guard_snapshot(self) -> Dict[str, Any]:
+        state = dict(self._sealed_no_vent_guard or {})
+        state["active"] = bool(state.get("active"))
+        state["generation"] = int(state.get("generation") or 0)
+        return state
+
+    def _sync_sealed_no_vent_guard_runtime_fields(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        state = self._sealed_no_vent_guard_snapshot()
+        payload = {
+            "sealed_no_vent_guard_active": bool(state.get("active")),
+            "sealed_no_vent_guard_phase": str(state.get("phase") or ""),
+            "sealed_no_vent_guard_generation": int(state.get("generation") or 0),
+        }
+        self._set_point_runtime_fields(point, phase=phase_text, **payload)
+        return payload
+
+    def _activate_sealed_no_vent_guard(
+        self,
+        *,
+        point: Optional[CalibrationPoint],
+        phase: str,
+        guard_phase: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        guard_phase_text = str(guard_phase or "").strip() or "PressureSetpointHold"
+        self._stop_continuous_atmosphere_background_keepalive(
+            point=point,
+            phase=phase_text,
+            reason=f"before sealed no-vent guard: {reason or guard_phase_text}",
+        )
+        generation = int(self._sealed_no_vent_guard.get("generation") or 0) + 1
+        self._sealed_no_vent_guard = {
+            "active": True,
+            "phase": guard_phase_text,
+            "reason": str(reason or "").strip(),
+            "generation": generation,
+            "point_row": self._as_int(getattr(point, "index", None) if point is not None else None),
+            "target_pressure_hpa": self._as_float(
+                getattr(point, "target_pressure_hpa", None) if point is not None else None
+            ),
+            "activated_ts": time.time(),
+            "released_ts": None,
+        }
+        self._sync_sealed_no_vent_guard_runtime_fields(point, phase=phase_text)
+        return self._sealed_no_vent_guard_snapshot()
+
+    def _clear_sealed_no_vent_guard(
+        self,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "",
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        previous = self._sealed_no_vent_guard_snapshot()
+        generation = int(previous.get("generation") or 0)
+        if previous.get("active"):
+            generation += 1
+        self._sealed_no_vent_guard = {
+            **previous,
+            "active": False,
+            "reason": str(reason or "").strip(),
+            "generation": generation,
+            "released_ts": time.time(),
+        }
+        self._sync_sealed_no_vent_guard_runtime_fields(point, phase=phase_text or str(previous.get("phase") or "co2"))
+        return self._sealed_no_vent_guard_snapshot()
+
+    def _raise_sealed_no_vent_guard_violation(
+        self,
+        *,
+        point: Optional[CalibrationPoint],
+        phase: str,
+        action: str,
+        reason: str = "",
+    ) -> None:
+        phase_text = str(phase or "").strip().lower() or "co2"
+        guard = self._sealed_no_vent_guard_snapshot()
+        guard_phase = str(guard.get("phase") or "PressureSetpointHold")
+        note = (
+            f"sealed_no_vent_guard_violation:{action} "
+            f"guard_phase={guard_phase} generation={int(guard.get('generation') or 0)} "
+            f"reason={reason or 'unspecified'}"
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            abort_reason=f"sealed_no_vent_guard_violation:{action}",
+            root_cause_reject_reason="ambient_ingress_suspect",
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="sealed_no_vent_guard_violation",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            refresh_pace_state=False,
+            note=note,
+        )
+        raise RuntimeError(f"sealed_no_vent_guard_violation:{action}")
+
+    def _presample_lock_matches(
+        self,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "",
+    ) -> bool:
+        state = self._presample_lock_state
+        if not isinstance(state, dict) or not state:
+            return False
+        if point is None and not phase:
+            return True
+
+        phase_text = str(phase or "").strip().lower()
+        if phase_text:
+            if str(state.get("phase") or "").strip().lower() != phase_text:
+                return False
+
+        if point is None:
+            return True
+
+        lock_key = state.get("point_key")
+        point_key = self._point_runtime_key(point, phase=phase_text or str(state.get("phase") or ""))
+        if lock_key is not None and point_key is not None:
+            return tuple(lock_key) == tuple(point_key)
+
+        point_row = self._as_int(getattr(point, "index", None))
+        lock_row = self._as_int(state.get("point_row"))
+        if point_row is None or lock_row is None:
+            return False
+        return point_row == lock_row
+
+    def _arm_presample_sampling_lock(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        handoff_mode: str,
+    ) -> None:
+        phase_text = str(phase or "").strip().lower()
+        point_key = self._point_runtime_key(point, phase=phase_text)
+        if self._presample_lock_matches(point=point, phase=phase_text):
+            return
+        if self._presample_lock_matches():
+            self._clear_presample_sampling_lock(reason="re-arm for new pressure point")
+        self._presample_lock_state = {
+            "point": point,
+            "phase": phase_text,
+            "point_key": point_key,
+            "point_row": self._as_int(getattr(point, "index", None)),
+            "pressure_target_hpa": self._as_float(getattr(point, "target_pressure_hpa", None)),
+            "handoff_mode": str(handoff_mode or "").strip(),
+            "route_signature": self._route_signature_for_point(point, phase=phase_text),
+            "armed_ts": time.time(),
+        }
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="presample_lock_armed",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            handoff_mode=handoff_mode,
+            refresh_pace_state=False,
+            note=(
+                "pressure in limits latched; forbid OUTP ON / ISOL OPEN / VENT 1 / route reopen "
+                "until sampling_begin"
+            ),
+        )
+
+    def _clear_presample_sampling_lock(
+        self,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "",
+        reason: str = "",
+    ) -> None:
+        if point is not None or phase:
+            if not self._presample_lock_matches(point=point, phase=phase):
+                return
+        if self._presample_lock_state is None:
+            return
+        self._presample_lock_state = None
+
+    def _raise_presample_sampling_lock_violation(
+        self,
+        *,
+        action: str,
+        root_cause_reject_reason: str,
+        note: str,
+    ) -> None:
+        state = dict(self._presample_lock_state or {})
+        point = state.get("point")
+        phase = str(state.get("phase") or "").strip().lower()
+        pressure_target_hpa = state.get("pressure_target_hpa")
+        handoff_mode = state.get("handoff_mode")
+        capture_reason = f"presample_lock_violation:{action}"
+        if point is not None and phase:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                capture_hold_status="fail",
+                capture_hold_reason=capture_reason,
+            )
+            self._set_root_cause_reject_reason(
+                point,
+                phase=phase,
+                reason=root_cause_reject_reason,
+            )
+        self._append_pressure_trace_row(
+            point=point if isinstance(point, CalibrationPoint) else None,
+            route=phase or "pressure",
+            point_phase=phase,
+            trace_stage="presample_lock_violation",
+            pressure_target_hpa=pressure_target_hpa,
+            handoff_mode=handoff_mode,
+            capture_hold_status="fail",
+            capture_hold_reason=capture_reason,
+            root_cause_reject_reason=root_cause_reject_reason,
+            refresh_pace_state=False,
+            note=note,
+        )
+        self._clear_presample_sampling_lock(point=point if isinstance(point, CalibrationPoint) else None, phase=phase)
+        self.log(f"Presample lock violation: action={action}; {note}")
+        raise RuntimeError(capture_reason)
 
     @staticmethod
     def _trace_row_ts_epoch(row: Dict[str, Any]) -> Optional[float]:
@@ -1178,6 +5047,18 @@ class CalibrationRunner:
                 self._as_float(stages.get("control_output_on_verified")),
                 self._as_float(stages.get("pressure_in_limits")),
             ),
+            "pressure_in_limits_to_post_isolation_test_begin_ms": self._timing_ms(
+                self._as_float(stages.get("pressure_in_limits")),
+                self._as_float(stages.get("post_isolation_test_begin")),
+            ),
+            "post_isolation_test_begin_to_post_isolation_test_end_ms": self._timing_ms(
+                self._as_float(stages.get("post_isolation_test_begin")),
+                self._as_float(stages.get("post_isolation_test_end")),
+            ),
+            "post_isolation_test_end_to_pressure_gate_begin_ms": self._timing_ms(
+                self._as_float(stages.get("post_isolation_test_end")),
+                self._as_float(stages.get("pressure_gate_begin")),
+            ),
             "pressure_in_limits_to_dewpoint_gate_begin_ms": self._timing_ms(
                 self._as_float(stages.get("pressure_in_limits")),
                 self._as_float(stages.get("dewpoint_gate_begin")),
@@ -1250,6 +5131,26 @@ class CalibrationRunner:
             "preseal_vent_off_begin_ts": self._timing_ts_text(self._as_float(stages.get("preseal_vent_off_begin"))),
             "preseal_trigger_reached_ts": self._timing_ts_text(self._as_float(stages.get("preseal_trigger_reached"))),
             "route_sealed_ts": self._timing_ts_text(self._as_float(stages.get("route_sealed"))),
+            "superambient_precharge_begin_ts": self._timing_ts_text(
+                self._as_float(stages.get("superambient_precharge_begin"))
+            ),
+            "superambient_precharge_end_ts": self._timing_ts_text(
+                self._as_float(stages.get("superambient_precharge_end"))
+            ),
+            "superambient_fine_trim_begin_ts": self._timing_ts_text(
+                self._as_float(stages.get("superambient_fine_trim_begin"))
+            ),
+            "superambient_fine_trim_end_ts": self._timing_ts_text(
+                self._as_float(stages.get("superambient_fine_trim_end"))
+            ),
+            "capture_hold_begin_ts": self._timing_ts_text(self._as_float(stages.get("capture_hold_begin"))),
+            "capture_hold_engaged_ts": self._timing_ts_text(self._as_float(stages.get("capture_hold_engaged"))),
+            "post_isolation_test_begin_ts": self._timing_ts_text(
+                self._as_float(stages.get("post_isolation_test_begin"))
+            ),
+            "post_isolation_test_end_ts": self._timing_ts_text(
+                self._as_float(stages.get("post_isolation_test_end"))
+            ),
             "control_prepare_begin_ts": self._timing_ts_text(self._as_float(stages.get("control_prepare_begin"))),
             "control_ready_snapshot_acquired_ts": self._timing_ts_text(
                 self._as_float(stages.get("control_ready_snapshot_acquired"))
@@ -1271,6 +5172,8 @@ class CalibrationRunner:
                 self._as_float(stages.get("control_output_on_verified"))
             ),
             "pressure_in_limits_ts": self._timing_ts_text(self._as_float(stages.get("pressure_in_limits"))),
+            "pressure_gate_begin_ts": self._timing_ts_text(self._as_float(stages.get("pressure_gate_begin"))),
+            "pressure_gate_end_ts": self._timing_ts_text(self._as_float(stages.get("pressure_gate_end"))),
             "dewpoint_gate_begin_ts": self._timing_ts_text(self._as_float(stages.get("dewpoint_gate_begin"))),
             "dewpoint_gate_end_ts": self._timing_ts_text(self._as_float(stages.get("dewpoint_gate_end"))),
             "sampling_begin_ts": self._timing_ts_text(self._as_float(stages.get("sampling_begin"))),
@@ -1278,6 +5181,96 @@ class CalibrationRunner:
                 self._as_float(stages.get("first_effective_sample"))
             ),
             "sampling_end_ts": self._timing_ts_text(self._as_float(stages.get("sampling_end"))),
+            "handoff_mode": state.get("handoff_mode"),
+            "ambient_reference_hpa": state.get("ambient_reference_hpa"),
+            "superambient_target_hpa": state.get("superambient_target_hpa"),
+            "superambient_precharge_margin_hpa": state.get("superambient_precharge_margin_hpa"),
+            "superambient_precharge_peak_hpa": state.get("superambient_precharge_peak_hpa"),
+            "superambient_precharge_result": state.get("superambient_precharge_result"),
+            "superambient_closed_path_verified": state.get("superambient_closed_path_verified"),
+            "capture_hold_status": state.get("capture_hold_status"),
+            "post_isolation_status": state.get("post_isolation_status"),
+            "post_isolation_reason": state.get("post_isolation_reason"),
+            "post_isolation_capture_mode": state.get("post_isolation_capture_mode"),
+            "post_isolation_fast_capture_status": state.get("post_isolation_fast_capture_status"),
+            "post_isolation_fast_capture_reason": state.get("post_isolation_fast_capture_reason"),
+            "post_isolation_fast_capture_elapsed_s": state.get("post_isolation_fast_capture_elapsed_s"),
+            "post_isolation_fast_capture_fallback": state.get("post_isolation_fast_capture_fallback"),
+            "post_isolation_pressure_start_hpa": state.get("post_isolation_pressure_start_hpa"),
+            "post_isolation_pressure_end_hpa": state.get("post_isolation_pressure_end_hpa"),
+            "post_isolation_pressure_peak_hpa": state.get("post_isolation_pressure_peak_hpa"),
+            "post_isolation_pressure_min_hpa": state.get("post_isolation_pressure_min_hpa"),
+            "post_isolation_pressure_drift_hpa": state.get("post_isolation_pressure_drift_hpa"),
+            "post_isolation_pressure_slope_hpa_s": state.get("post_isolation_pressure_slope_hpa_s"),
+            "post_isolation_pressure_recovery_toward_ambient": state.get(
+                "post_isolation_pressure_recovery_toward_ambient"
+            ),
+            "post_isolation_dewpoint_start_c": state.get("post_isolation_dewpoint_start_c"),
+            "post_isolation_dewpoint_end_c": state.get("post_isolation_dewpoint_end_c"),
+            "post_isolation_dewpoint_rise_c": state.get("post_isolation_dewpoint_rise_c"),
+            "post_isolation_dewpoint_slope_c_s": state.get("post_isolation_dewpoint_slope_c_s"),
+            "post_isolation_h2o_start": state.get("post_isolation_h2o_start"),
+            "post_isolation_h2o_end": state.get("post_isolation_h2o_end"),
+            "post_isolation_pressure_dew_corr": state.get("post_isolation_pressure_dew_corr"),
+            "post_isolation_diagnosis": state.get("post_isolation_diagnosis"),
+            "pace_output_state": state.get("pace_output_state"),
+            "pace_isolation_state": state.get("pace_isolation_state"),
+            "pace_vent_status": state.get("pace_vent_status"),
+            "pace_outp_state_query": state.get("pace_outp_state_query"),
+            "pace_isol_state_query": state.get("pace_isol_state_query"),
+            "pace_mode_query": state.get("pace_mode_query"),
+            "pace_vent_status_query": state.get("pace_vent_status_query"),
+            "pace_legacy_vent_state_3_suspect": state.get("pace_legacy_vent_state_3_suspect"),
+            "pace_atmosphere_connected_latched_state_suspect": state.get(
+                "pace_atmosphere_connected_latched_state_suspect"
+            ),
+            "legacy_vent3_control_ready_used": state.get("legacy_vent3_control_ready_used"),
+            "legacy_vent3_accept_scope": state.get("legacy_vent3_accept_scope"),
+            "vent_status_3_count": state.get("vent_status_3_count"),
+            "vent3_hard_blocked": state.get("vent3_hard_blocked"),
+            "vent3_watchlist_only": state.get("vent3_watchlist_only"),
+            "vent3_control_ready_attempted": state.get("vent3_control_ready_attempted"),
+            "vent3_control_ready_prevented": state.get("vent3_control_ready_prevented"),
+            "vent3_block_scope": state.get("vent3_block_scope"),
+            "ack_callback_invoked": state.get("ack_callback_invoked"),
+            "vent3_post_window_status": state.get("vent3_post_window_status"),
+            "pace_vent_completed_latched": state.get("pace_vent_completed_latched"),
+            "pace_vent_clear_attempted": state.get("pace_vent_clear_attempted"),
+            "pace_vent_clear_result": state.get("pace_vent_clear_result"),
+            "pace_vent_after_valve_state_query": state.get("pace_vent_after_valve_state_query"),
+            "pace_vent_popup_state_query": state.get("pace_vent_popup_state_query"),
+            "pace_vent_elapsed_time_query": state.get("pace_vent_elapsed_time_query"),
+            "pace_vent_orpv_state_query": state.get("pace_vent_orpv_state_query"),
+            "pace_vent_pupv_state_query": state.get("pace_vent_pupv_state_query"),
+            "pace_effort_query": state.get("pace_effort_query"),
+            "pace_comp1_query": state.get("pace_comp1_query"),
+            "pace_comp2_query": state.get("pace_comp2_query"),
+            "pace_sens_pres_cont_query": state.get("pace_sens_pres_cont_query"),
+            "pace_sens_pres_bar_query": state.get("pace_sens_pres_bar_query"),
+            "pace_sens_pres_inl_query": state.get("pace_sens_pres_inl_query"),
+            "pace_sens_pres_inl_state_query": state.get("pace_sens_pres_inl_state_query"),
+            "pace_sens_pres_inl_time_query": state.get("pace_sens_pres_inl_time_query"),
+            "pace_sens_inl_query": state.get("pace_sens_inl_query"),
+            "pace_sens_inl_time_query": state.get("pace_sens_inl_time_query"),
+            "pace_sens_slew_query": state.get("pace_sens_slew_query"),
+            "pace_oper_cond_query": state.get("pace_oper_cond_query"),
+            "pace_oper_pres_cond_query": state.get("pace_oper_pres_cond_query"),
+            "pace_oper_pres_even_query": state.get("pace_oper_pres_even_query"),
+            "pace_oper_pres_vent_complete_bit": state.get("pace_oper_pres_vent_complete_bit"),
+            "pace_oper_pres_in_limits_bit": state.get("pace_oper_pres_in_limits_bit"),
+            "baseline_sanity_gate_status": state.get("baseline_sanity_gate_status"),
+            "baseline_sanity_gate_reason": state.get("baseline_sanity_gate_reason"),
+            "baseline_sanity_target_co2_ppm": state.get("baseline_sanity_target_co2_ppm"),
+            "baseline_sanity_plateau_mean_ppm": state.get("baseline_sanity_plateau_mean_ppm"),
+            "baseline_sanity_plateau_span_ppm": state.get("baseline_sanity_plateau_span_ppm"),
+            "baseline_sanity_plateau_count": state.get("baseline_sanity_plateau_count"),
+            "pressure_gauge_hpa": state.get("pressure_gauge_hpa"),
+            "dewpoint_c": state.get("dewpoint_c"),
+            "temp_c": state.get("temp_c"),
+            "rh_pct": state.get("rh_pct"),
+            "flush_gate_status": state.get("flush_gate_status"),
+            "flush_gate_reason": state.get("flush_gate_reason"),
+            "root_cause_reject_reason": state.get("root_cause_reject_reason"),
         }
 
         delta_map = self._point_timing_delta_map(stages)
@@ -1294,6 +5287,9 @@ class CalibrationRunner:
             "control_prepare_begin_to_control_ready_verified_ms",
             "control_output_on_begin_to_control_output_on_verified_ms",
             "control_output_on_verified_to_pressure_in_limits_ms",
+            "pressure_in_limits_to_post_isolation_test_begin_ms",
+            "post_isolation_test_begin_to_post_isolation_test_end_ms",
+            "post_isolation_test_end_to_pressure_gate_begin_ms",
             "pressure_in_limits_to_dewpoint_gate_begin_ms",
             "dewpoint_gate_begin_to_dewpoint_gate_end_ms",
             "dewpoint_gate_end_to_sampling_begin_ms",
@@ -1314,14 +5310,20 @@ class CalibrationRunner:
     def _abort_on_vent_off_failure(self) -> bool:
         return bool(self._wf("workflow.pressure.abort_on_vent_off_failure", True))
 
+    @staticmethod
+    def _normalized_atmosphere_hold_strategy_value(value: Any) -> str:
+        text = str(value or "").strip()
+        if text in {"legacy_hold_thread", "vent_valve_open_after_vent", "single_cycle_query_clear"}:
+            return "single_cycle_query_clear"
+        return "single_cycle_query_clear"
+
     def _atmosphere_hold_strategy(self) -> str:
-        text = str(self._wf("workflow.pressure.atmosphere_hold_strategy", "legacy_hold_thread") or "").strip()
-        if text == "legacy_hold_thread":
-            return "legacy_hold_thread"
-        return "vent_valve_open_after_vent"
+        return self._normalized_atmosphere_hold_strategy_value(
+            self._wf("workflow.pressure.atmosphere_hold_strategy", "single_cycle_query_clear")
+        )
 
     def _continuous_atmosphere_hold_enabled(self) -> bool:
-        return bool(self._wf("workflow.pressure.continuous_atmosphere_hold", True))
+        return False
 
     def _vent_hold_interval_s(self) -> float:
         return max(0.1, float(self._wf("workflow.pressure.vent_hold_interval_s", 2.0) or 2.0))
@@ -1350,6 +5352,11 @@ class CalibrationRunner:
         if self._pace_vent_after_valve_supported is not False and callable(getter):
             try:
                 self._pace_vent_after_valve_open = bool(getter())
+                self._pace_vent_after_valve_state_query = self._pace_bool_query_text(
+                    self._pace_vent_after_valve_open,
+                    true_text="OPEN",
+                    false_text="CLOSED",
+                )
                 self._pace_vent_after_valve_supported = True
             except Exception:
                 self._pace_vent_after_valve_supported = False
@@ -1364,9 +5371,29 @@ class CalibrationRunner:
         if self._pace_vent_popup_ack_supported is not False and callable(popup_getter):
             try:
                 self._pace_vent_popup_ack_enabled = bool(popup_getter())
+                self._pace_vent_popup_state_query = self._pace_bool_query_text(
+                    self._pace_vent_popup_ack_enabled,
+                    true_text="ENABLED",
+                    false_text="DISABLED",
+                )
                 self._pace_vent_popup_ack_supported = True
             except Exception:
                 self._pace_vent_popup_ack_supported = False
+        for attr_name, diagnostic_key, cache_attr in (
+            ("get_vent_elapsed_time_s", "pace_vent_elapsed_time_query", "_pace_vent_elapsed_time_query"),
+            ("get_vent_over_range_protect_state", "pace_vent_orpv_state_query", "_pace_vent_orpv_state_query"),
+            ("get_vent_power_up_protect_state", "pace_vent_pupv_state_query", "_pace_vent_pupv_state_query"),
+        ):
+            if not self._pace_route_trace_optional_diagnostic_key_enabled(pace, diagnostic_key):
+                setattr(self, cache_attr, None)
+                continue
+            getter = getattr(pace, attr_name, None)
+            if not callable(getter):
+                continue
+            try:
+                setattr(self, cache_attr, getter())
+            except Exception:
+                pass
 
     def _set_pressure_controller_vent_after_valve_open(
         self,
@@ -1485,17 +5512,3443 @@ class CalibrationRunner:
     def _relay_bulk_write_enabled(self) -> bool:
         return bool(self._wf("workflow.relay.bulk_write_enabled", True))
 
-    def _update_atmosphere_reference_hpa(self, *, reason: str = "") -> Optional[float]:
+    def _read_pace_barometric_reference_hpa(self) -> Tuple[Optional[float], str]:
+        cached_barometric_hpa = self._as_float(self._pace_sens_pres_bar_query)
+        if cached_barometric_hpa is not None and math.isfinite(cached_barometric_hpa) and abs(cached_barometric_hpa) > 1e-9:
+            return float(cached_barometric_hpa), "pace_barometer_cache"
+        pace = self.devices.get("pace")
+        if not pace:
+            return None, "unavailable"
+        getter = getattr(pace, "get_barometric_pressure", None)
+        if not callable(getter):
+            return None, "unsupported"
+        try:
+            value = self._as_float(getter())
+        except Exception as exc:
+            self.log(f"PACE barometer read failed: {exc}")
+            return None, "error"
+        if value is None or not math.isfinite(value) or abs(float(value)) <= 1e-9:
+            return None, "zero_or_invalid"
+        self._pace_sens_pres_bar_query = float(value)
+        return float(value), "pace_barometer"
+
+    def _current_ambient_reference_candidate_hpa(self) -> Tuple[Optional[float], str]:
         pressure_now, source = self._read_preseal_pressure_gauge()
-        if pressure_now is None or source != "pressure_gauge":
+        if pressure_now is not None and source == "pressure_gauge":
+            return float(pressure_now), "pressure_gauge"
+        barometric_hpa, barometric_source = self._read_pace_barometric_reference_hpa()
+        if barometric_hpa is not None:
+            return float(barometric_hpa), barometric_source
+        return None, source or barometric_source
+
+    def _update_atmosphere_reference_hpa(self, *, reason: str = "") -> Optional[float]:
+        pressure_now, source = self._current_ambient_reference_candidate_hpa()
+        if pressure_now is None:
             return self._atmosphere_reference_hpa
         self._atmosphere_reference_hpa = float(pressure_now)
         extra = f" ({reason})" if reason else ""
         self.log(
             f"Atmosphere reference updated{extra}: "
-            f"pressure_gauge_hpa={self._atmosphere_reference_hpa:.3f}"
+            f"ambient_reference_hpa={self._atmosphere_reference_hpa:.3f} source={source}"
         )
         return self._atmosphere_reference_hpa
+
+    def _current_valve_route_state_text(self) -> str:
+        if not self._current_open_valves:
+            return "baseline_closed"
+        return "open:" + "|".join(str(int(valve)) for valve in self._current_open_valves)
+
+    def _read_pace_system_error_text(self) -> str:
+        pace = self.devices.get("pace")
+        if not pace:
+            return ""
+        getter = getattr(pace, "get_system_error", None)
+        if not callable(getter):
+            return ""
+        try:
+            value = str(getter() or "").strip()
+        except Exception as exc:
+            self.log(f"PACE system error query failed: {exc}")
+            return ""
+        if self._pace_system_error_is_clear(value):
+            self._last_clean_syst_err_ts = datetime.now().isoformat(timespec="milliseconds")
+        return value
+
+    @staticmethod
+    def _pace_system_error_is_clear(text: Any) -> bool:
+        raw = str(text or "").strip()
+        if not raw:
+            return True
+        match = re.search(r"(?<!\d)-?\d+", raw)
+        if not match:
+            return True
+        try:
+            return int(match.group(0)) == 0
+        except Exception:
+            return False
+
+    def _record_pace_error_attribution(
+        self,
+        *,
+        classification: str,
+        action: str,
+        syst_err: str,
+        command: str = "",
+        response: str = "",
+        reason: str = "",
+        hidden_syst_err: bool = False,
+        unclassified_syst_err: bool = False,
+    ) -> Dict[str, Any]:
+        first_error_ts = datetime.now().isoformat(timespec="milliseconds")
+        entry = {
+            "timestamp": round(time.time(), 6),
+            "first_error_ts": first_error_ts,
+            "last_clean_syst_err_ts": str(self._last_clean_syst_err_ts or ""),
+            "classification": str(classification or "").strip(),
+            "action": str(action or "").strip(),
+            "command": str(command or "").strip(),
+            "response": str(response or "").strip(),
+            "syst_err": str(syst_err or "").strip(),
+            "reason": str(reason or "").strip(),
+            "hidden_syst_err": bool(hidden_syst_err),
+            "unclassified_syst_err": bool(unclassified_syst_err),
+        }
+        self._pace_error_attribution_log.append(entry)
+        return dict(entry)
+
+    def _pace_error_attribution_log_snapshot(self) -> List[Dict[str, Any]]:
+        return [self._enrich_pace_error_attribution_entry(dict(entry)) for entry in list(self._pace_error_attribution_log or [])]
+
+    def _pace_error_attribution_counts(self) -> Dict[str, int]:
+        entries = list(self._pace_error_attribution_log or [])
+        return {
+            "pace_error_attribution_count": len(entries),
+            "optional_probe_error_count": sum(
+                1 for entry in entries if str(entry.get("classification") or "") == "optional_diagnostic_error"
+            ),
+            "hidden_syst_err_count": sum(1 for entry in entries if bool(entry.get("hidden_syst_err"))),
+            "unclassified_syst_err_count": sum(
+                1 for entry in entries if bool(entry.get("unclassified_syst_err"))
+            ),
+            "pre_route_drain_syst_err_count": sum(
+                1 for entry in entries if str(entry.get("classification") or "") == "pre_route_drain"
+            ),
+        }
+
+    def _load_pace_io_context_rows(self) -> List[Dict[str, Any]]:
+        io_path = getattr(self.logger, "io_path", None)
+        if not io_path:
+            return []
+        path = Path(io_path)
+        if not path.exists():
+            return []
+        try:
+            mtime = path.stat().st_mtime
+        except Exception:
+            mtime = None
+        if (
+            self._pace_io_context_rows_cache is not None
+            and self._pace_io_context_rows_cache_mtime is not None
+            and mtime is not None
+            and abs(float(self._pace_io_context_rows_cache_mtime) - float(mtime)) <= 1e-9
+        ):
+            return list(self._pace_io_context_rows_cache)
+        rows: List[Dict[str, Any]] = []
+        try:
+            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    device = str(row.get("device") or "").strip().lower()
+                    if "pace" not in device:
+                        continue
+                    normalized = dict(row)
+                    normalized["timestamp"] = str(row.get("timestamp") or "").strip()
+                    normalized["direction"] = str(row.get("direction") or "").strip()
+                    normalized["command"] = str(row.get("command") or "").strip()
+                    normalized["response"] = str(row.get("response") or "").strip()
+                    normalized["error"] = str(row.get("error") or "").strip()
+                    rows.append(normalized)
+        except Exception as exc:
+            self.log(f"PACE IO context load failed: {exc}")
+            return []
+        self._pace_io_context_rows_cache = list(rows)
+        self._pace_io_context_rows_cache_mtime = mtime
+        return rows
+
+    def _enrich_pace_error_attribution_entry(self, entry: Dict[str, Any]) -> Dict[str, Any]:
+        rows = self._load_pace_io_context_rows()
+        if not rows:
+            entry.setdefault("commands_since_last_clean_syst_err", [])
+            entry.setdefault("last_20_pace_io_before_error", [])
+            entry.setdefault("next_20_pace_io_after_error", [])
+            entry.setdefault("suspected_command", "")
+            return entry
+        first_error_ts = str(entry.get("first_error_ts") or entry.get("timestamp_iso") or "").strip()
+        last_clean_ts = str(entry.get("last_clean_syst_err_ts") or "").strip()
+        error_index = len(rows)
+        if first_error_ts:
+            for idx, row in enumerate(rows):
+                if str(row.get("timestamp") or "") >= first_error_ts:
+                    error_index = idx
+                    break
+        if error_index >= len(rows):
+            syst_err_text = str(entry.get("syst_err") or "").strip()
+            if syst_err_text:
+                for idx, row in enumerate(rows):
+                    response_text = str(row.get("response") or "").strip()
+                    error_text = str(row.get("error") or "").strip()
+                    if syst_err_text in response_text or syst_err_text in error_text:
+                        error_index = idx
+                        break
+        if error_index >= len(rows):
+            for idx, row in enumerate(rows):
+                response_text = str(row.get("response") or "").strip().upper()
+                command_text = str(row.get("command") or "").strip().upper()
+                if ":SYST:ERR" in response_text or ":SYST:ERR?" in command_text:
+                    error_index = idx
+                    break
+        before_rows = rows[max(0, error_index - 20) : error_index]
+        after_rows = rows[error_index : error_index + 20]
+        command_rows = [
+            row
+            for row in rows
+            if (not last_clean_ts or str(row.get("timestamp") or "") >= last_clean_ts)
+            and (not first_error_ts or str(row.get("timestamp") or "") <= first_error_ts)
+        ]
+        commands_since_last_clean = [
+            str(row.get("command") or "").strip()
+            for row in command_rows
+            if str(row.get("direction") or "").strip().upper() in {"TX", "QUERY"}
+            and str(row.get("command") or "").strip()
+        ]
+        suspected_command = ""
+        for command_text in reversed(commands_since_last_clean):
+            if ":SYST:ERR?" not in command_text.upper():
+                suspected_command = command_text
+                break
+        entry["commands_since_last_clean_syst_err"] = commands_since_last_clean
+        entry["last_20_pace_io_before_error"] = before_rows
+        entry["next_20_pace_io_after_error"] = after_rows
+        entry["suspected_command"] = suspected_command
+        return entry
+
+    def _pace_query_with_error_attribution(
+        self,
+        command: str,
+        *,
+        classification: str,
+        action: str,
+        reason: str = "",
+        pre_drain: bool = False,
+    ) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        command_text = str(command or "").strip()
+        result: Dict[str, Any] = {
+            "command": command_text,
+            "response": "",
+            "query_error": "",
+            "syst_err": "",
+            "drained_errors": [],
+            "classification": str(classification or "").strip(),
+            "action": str(action or "").strip(),
+        }
+        if not pace or not command_text:
+            return result
+        if pre_drain:
+            result["pre_drain_errors"] = self._drain_pace_system_errors(
+                reason=f"{reason or command_text} pre-query drain",
+                classification="pre_query_drain",
+                action="pre_query_drain",
+                command=command_text,
+            )
+        try:
+            result["response"] = self._pace_read_only_query_text(pace, command_text)
+        except Exception as exc:
+            result["query_error"] = str(exc)
+        syst_err = str(self._read_pace_system_error_text() or "").strip()
+        result["syst_err"] = syst_err
+        if not self._pace_system_error_is_clear(syst_err):
+            result["drained_errors"] = self._drain_pace_system_errors(
+                reason=f"{reason or command_text} attributed drain",
+                classification=classification,
+                action=action,
+                command=command_text,
+                response=result["query_error"] or result["response"],
+            )
+        return result
+
+    @classmethod
+    def _route_flush_pressure_mode(cls, phase: str) -> str:
+        phase_text = str(phase or "").strip().lower()
+        if phase_text in {"co2", "h2o"}:
+            return cls._PRESSURE_MODE_ATMOSPHERE_FLUSH
+        return "Unknown"
+
+    @classmethod
+    def _seal_transition_pressure_mode(cls) -> str:
+        return cls._PRESSURE_MODE_SEAL_TRANSITION
+
+    @classmethod
+    def _pressure_setpoint_hold_mode(cls) -> str:
+        return cls._PRESSURE_MODE_PRESSURE_SETPOINT_HOLD
+
+    @staticmethod
+    def _pace_vent_status_text(value: Any) -> str:
+        status = CalibrationRunner._as_int(value)
+        if status == 0:
+            return "idle"
+        if status == 1:
+            return "in_progress"
+        if status == 2:
+            return "completed"
+        if status == 3:
+            return "trapped_pressure"
+        return "unknown"
+
+    def _continuous_atmosphere_keepalive_interval_s(self) -> float:
+        return max(
+            0.2,
+            float(
+                self._wf(
+                    "workflow.pressure.continuous_atmosphere_keepalive_interval_s",
+                    0.5,
+                )
+                or 0.5
+            ),
+        )
+
+    def _continuous_atmosphere_rise_trigger_delta_hpa(self) -> float:
+        return max(
+            0.5,
+            float(
+                self._wf(
+                    "workflow.pressure.continuous_atmosphere_rise_trigger_delta_hpa",
+                    self._wf("workflow.pressure.continuous_atmosphere_keepalive_trigger_delta_hpa", 2.0),
+                )
+                or 2.0
+            ),
+        )
+
+    def _continuous_atmosphere_keepalive_trigger_delta_hpa(self) -> float:
+        return self._continuous_atmosphere_rise_trigger_delta_hpa()
+
+    def _pre_source_final_vent_burst_count(self) -> int:
+        return max(
+            0,
+            int(
+                float(
+                    self._wf(
+                        "workflow.pressure.pre_source_final_vent_burst_count",
+                        2,
+                    )
+                    or 0
+                )
+            ),
+        )
+
+    def _pre_source_final_vent_burst_interval_s(self) -> float:
+        return max(
+            0.1,
+            float(
+                self._wf(
+                    "workflow.pressure.pre_source_final_vent_burst_interval_s",
+                    0.2,
+                )
+                or 0.2
+            ),
+        )
+
+    def _post_source_final_vent_burst_window_s(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.pressure.post_source_final_vent_burst_window_s",
+                    1.5,
+                )
+                or 0.0
+            ),
+        )
+
+    def _post_source_final_vent_burst_interval_s(self) -> float:
+        return max(
+            0.1,
+            float(
+                self._wf(
+                    "workflow.pressure.post_source_final_vent_burst_interval_s",
+                    0.3,
+                )
+                or 0.3
+            ),
+        )
+
+    def _continuous_atmosphere_keepalive_due(self) -> bool:
+        state = self._continuous_atmosphere_state_snapshot()
+        if not bool(state.get("active")) or not bool(state.get("route_flow_active")):
+            return False
+        if str(state.get("pressure_mode") or "").strip() != self._PRESSURE_MODE_ATMOSPHERE_FLUSH:
+            return False
+        if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+            return False
+        last_ts = self._as_float(state.get("last_keepalive_ts"))
+        if last_ts is None:
+            return True
+        return (time.time() - float(last_ts)) >= self._continuous_atmosphere_keepalive_interval_s()
+
+    def _continuous_atmosphere_open_route_pace_state(self, pace: Any) -> Tuple[bool, Dict[str, Any]]:
+        output_state = None
+        isolation_state = None
+        if pace is not None:
+            output_getter = getattr(pace, "get_output_state", None)
+            if callable(output_getter):
+                try:
+                    output_state = self._as_int(output_getter())
+                except Exception:
+                    output_state = None
+            isolation_getter = getattr(pace, "get_isolation_state", None)
+            if callable(isolation_getter):
+                try:
+                    isolation_state = self._as_int(isolation_getter())
+                except Exception:
+                    isolation_state = None
+        state = {
+            "pace_output_state": output_state,
+            "pace_isolation_state": isolation_state,
+        }
+        if output_state not in (None, 0):
+            return False, state
+        if isolation_state not in (None, 1):
+            return False, state
+        return True, state
+
+    def _continuous_atmosphere_background_keepalive_enabled(self) -> bool:
+        value = self._wf("workflow.pressure.continuous_atmosphere_background_keepalive_enabled", True)
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"0", "false", "no", "n", "off"}:
+                return False
+            if text in {"1", "true", "yes", "y", "on"}:
+                return True
+        return bool(value)
+
+    def _continuous_atmosphere_background_keepalive_allow_fake(self) -> bool:
+        value = self._wf("workflow.pressure.continuous_atmosphere_background_keepalive_allow_fake", False)
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"1", "true", "yes", "y", "on"}:
+                return True
+            if text in {"0", "false", "no", "n", "off"}:
+                return False
+        return bool(value)
+
+    def _continuous_atmosphere_background_keepalive_allowed_for_pace(self, pace: Any) -> bool:
+        if pace is None:
+            return False
+        if not callable(getattr(pace, "vent", None)):
+            return False
+        if self._continuous_atmosphere_background_keepalive_allow_fake():
+            return True
+        return hasattr(pace, "ser")
+
+    def _start_continuous_atmosphere_background_keepalive(
+        self,
+        *,
+        route_key: str,
+        point: Optional[CalibrationPoint],
+        phase: str,
+        point_tag: str = "",
+        phase_name: str,
+        reason: str = "",
+        stage_label: str = "",
+    ) -> Dict[str, Any]:
+        if not self._continuous_atmosphere_background_keepalive_enabled():
+            return self._continuous_atmosphere_state_snapshot()
+        if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+            return self._continuous_atmosphere_state_snapshot()
+        pace = self.devices.get("pace")
+        if not self._continuous_atmosphere_background_keepalive_allowed_for_pace(pace):
+            return self._continuous_atmosphere_state_snapshot()
+        state = self._continuous_atmosphere_state_snapshot()
+        if not bool(state.get("active")) or not bool(state.get("route_flow_active")):
+            return state
+        if str(state.get("pressure_mode") or "").strip() != self._PRESSURE_MODE_ATMOSPHERE_FLUSH:
+            return state
+        open_route_ready, open_route_state = self._continuous_atmosphere_open_route_pace_state(pace)
+        if not open_route_ready:
+            return {
+                **state,
+                "background_keepalive_started": False,
+                "background_keepalive_blocked_reason": "not_open_route",
+                **open_route_state,
+            }
+
+        self._stop_continuous_atmosphere_background_keepalive(
+            point=point,
+            phase=phase,
+            point_tag=point_tag,
+            reason=f"restart {reason or phase_name}",
+            trace=False,
+        )
+        stop_event = threading.Event()
+        expected_generation = int(state.get("generation") or 0)
+        interval_s = self._continuous_atmosphere_keepalive_interval_s()
+        with self._continuous_atmosphere_lock:
+            self._continuous_atmosphere_background_stop = stop_event
+            self._continuous_atmosphere_state.update(
+                {
+                    "background_keepalive_active": True,
+                    "background_keepalive_last_error": "",
+                }
+            )
+        thread = threading.Thread(
+            target=self._continuous_atmosphere_background_keepalive_loop,
+            args=(pace, stop_event, expected_generation, route_key, phase, phase_name, interval_s),
+            name=f"continuous-atmosphere-vent1-{expected_generation}",
+            daemon=True,
+        )
+        with self._continuous_atmosphere_lock:
+            self._continuous_atmosphere_background_thread = thread
+        thread.start()
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            point_tag=point_tag,
+            trace_stage="continuous_atmosphere_background_keepalive_start",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            refresh_pace_state=False,
+            note=(
+                f"route_key={route_key or ''} phase_name={phase_name} interval_s={interval_s:.3f} "
+                f"generation={expected_generation} reason={reason or ''}"
+            ),
+        )
+        self._sync_continuous_atmosphere_runtime_fields(point, phase=phase)
+        return self._continuous_atmosphere_state_snapshot()
+
+    def _stop_continuous_atmosphere_background_keepalive(
+        self,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "",
+        point_tag: str = "",
+        reason: str = "",
+        trace: bool = True,
+    ) -> Dict[str, Any]:
+        thread = getattr(self, "_continuous_atmosphere_background_thread", None)
+        stop_event = getattr(self, "_continuous_atmosphere_background_stop", None)
+        if stop_event is not None:
+            stop_event.set()
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            try:
+                thread.join(timeout=min(1.0, max(0.2, self._continuous_atmosphere_keepalive_interval_s() * 2.0)))
+            except Exception:
+                pass
+        with self._continuous_atmosphere_lock:
+            previous = dict(self._continuous_atmosphere_state or {})
+            was_active = bool(previous.get("background_keepalive_active")) or bool(thread is not None)
+            self._continuous_atmosphere_state.update(
+                {
+                    "background_keepalive_active": False,
+                }
+            )
+            if thread is self._continuous_atmosphere_background_thread:
+                self._continuous_atmosphere_background_thread = None
+        phase_text = str(phase or "").strip().lower()
+        if trace and was_active:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                point_tag=point_tag,
+                trace_stage="continuous_atmosphere_background_keepalive_stop",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+                offending_route=self._current_valve_route_state_text(),
+                refresh_pace_state=False,
+                note=(
+                    f"reason={reason or ''} "
+                    f"background_count={int(previous.get('background_keepalive_count') or 0)}"
+                ),
+            )
+        if phase_text:
+            self._sync_continuous_atmosphere_runtime_fields(point, phase=phase_text)
+        return self._continuous_atmosphere_state_snapshot()
+
+    def _continuous_atmosphere_background_keepalive_loop(
+        self,
+        pace: Any,
+        stop_event: threading.Event,
+        expected_generation: int,
+        route_key: str,
+        phase: str,
+        phase_name: str,
+        interval_s: float,
+    ) -> None:
+        logged_error = False
+        while not stop_event.is_set():
+            state = self._continuous_atmosphere_state_snapshot()
+            if int(state.get("generation") or 0) != int(expected_generation):
+                break
+            if not bool(state.get("active")) or not bool(state.get("route_flow_active")):
+                break
+            if str(state.get("pressure_mode") or "").strip() != self._PRESSURE_MODE_ATMOSPHERE_FLUSH:
+                break
+            if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+                break
+            try:
+                vent_command = getattr(pace, "vent", None)
+                if not callable(vent_command):
+                    raise RuntimeError("VENT_COMMAND_UNAVAILABLE")
+                vent_command(True)
+                now = time.time()
+                keepalive_summary = {
+                    "fresh_vent_command_sent": True,
+                    "continuous_atmosphere_background_keepalive": True,
+                    "fresh_vent_completed": False,
+                    "atmosphere_ready": False,
+                    "pace_vent_command_sent": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
+                    "pace_vent_status_returned": None,
+                    "pace_vent_status_text": "",
+                    "vent_status_sequence": "",
+                    "vent_status_sequence_text": "",
+                    "pressure_mode": self._PRESSURE_MODE_ATMOSPHERE_FLUSH,
+                    "route_key": str(route_key or "").strip(),
+                    "phase_name": str(phase_name or "").strip(),
+                }
+                with self._continuous_atmosphere_lock:
+                    current = dict(self._continuous_atmosphere_state or {})
+                    if int(current.get("generation") or 0) != int(expected_generation):
+                        break
+                    if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+                        break
+                    self._continuous_atmosphere_state.update(
+                        {
+                            "keepalive_count": int(current.get("keepalive_count") or 0) + 1,
+                            "last_keepalive_ts": now,
+                            "last_keepalive_reason": "background_continuous_atmosphere_keepalive",
+                            "last_keepalive_summary": keepalive_summary,
+                            "background_keepalive_active": True,
+                            "background_keepalive_count": int(
+                                current.get("background_keepalive_count") or 0
+                            )
+                            + 1,
+                            "background_keepalive_last_ts": now,
+                            "background_keepalive_last_error": "",
+                        }
+                    )
+            except Exception as exc:
+                with self._continuous_atmosphere_lock:
+                    self._continuous_atmosphere_state.update(
+                        {
+                            "background_keepalive_last_error": str(exc),
+                        }
+                    )
+                if not logged_error:
+                    logged_error = True
+                    self.log(f"Continuous atmosphere background VENT 1 keepalive failed: {exc}")
+            if stop_event.wait(max(0.05, float(interval_s or 0.5))):
+                break
+        with self._continuous_atmosphere_lock:
+            current = dict(self._continuous_atmosphere_state or {})
+            if int(current.get("generation") or 0) == int(expected_generation):
+                self._continuous_atmosphere_state.update({"background_keepalive_active": False})
+
+    def _continuous_atmosphere_keepalive_event_reason(
+        self,
+        *,
+        pressure_delta_hpa: Optional[float],
+        pressure_rise_hpa: Optional[float],
+        analyzer_pressure_status: str,
+    ) -> str:
+        trigger_delta = self._continuous_atmosphere_rise_trigger_delta_hpa()
+        if pressure_delta_hpa is not None and float(pressure_delta_hpa) >= trigger_delta:
+            return "pressure_delta_from_ambient_hpa"
+        if pressure_rise_hpa is not None and float(pressure_rise_hpa) >= trigger_delta:
+            return "pressure_rise_hpa"
+        if str(analyzer_pressure_status or "").strip().lower() == "warning":
+            return "analyzer_pressure_warning"
+        return ""
+
+    def _continuous_atmosphere_failure_delta_hpa(self) -> float:
+        return max(
+            self._continuous_atmosphere_keepalive_trigger_delta_hpa(),
+            float(
+                self._wf(
+                    "workflow.pressure.continuous_atmosphere_fail_delta_hpa",
+                    self._wf("workflow.pressure.route_open_guard_recovery_trigger_delta_hpa", 50.0),
+                )
+                or 50.0
+            ),
+        )
+
+    def _sync_continuous_atmosphere_runtime_fields(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        state = self._continuous_atmosphere_state_snapshot()
+        keepalive = dict(state.get("last_keepalive_summary") or {})
+        payload = {
+            "continuous_atmosphere_active": bool(state.get("active")),
+            "route_flow_active": bool(state.get("route_flow_active")),
+            "continuous_atmosphere_phase": str(state.get("phase_name") or ""),
+            "continuous_atmosphere_route_key": str(state.get("route_key") or ""),
+            "continuous_atmosphere_pressure_mode": str(state.get("pressure_mode") or ""),
+            "vent_keepalive_count": int(state.get("keepalive_count") or 0),
+            "continuous_atmosphere_background_keepalive_active": bool(
+                state.get("background_keepalive_active")
+            ),
+            "continuous_atmosphere_background_keepalive_count": int(
+                state.get("background_keepalive_count") or 0
+            ),
+            "pace_vent_command_sent": str(keepalive.get("pace_vent_command_sent") or ""),
+            "pace_vent_status_returned": self._as_int(keepalive.get("pace_vent_status_returned")),
+            "pace_vent_status_text": str(keepalive.get("pace_vent_status_text") or ""),
+            "vent_status_sequence": str(keepalive.get("vent_status_sequence") or ""),
+            "pressure_before_vent_hpa": self._as_float(keepalive.get("pressure_before_vent_hpa")),
+            "pressure_after_vent_hpa": self._as_float(keepalive.get("pressure_after_vent_hpa")),
+            "pressure_delta_from_ambient_hpa": self._as_float(keepalive.get("pressure_delta_from_ambient_hpa")),
+        }
+        self._set_point_runtime_fields(point, phase=phase_text, **payload)
+        return payload
+
+    def _record_continuous_atmosphere_keepalive_summary(
+        self,
+        *,
+        route_key: str,
+        point: Optional[CalibrationPoint],
+        phase: str,
+        phase_name: str,
+        reason: str,
+        summary: Mapping[str, Any],
+        pressure_before: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        phase_name_text = str(phase_name or "").strip() or "ContinuousAtmosphereFlowThrough"
+        vent_sequence = list(summary.get("vent_status_sequence") or [])
+        vent_status = self._as_int(vent_sequence[-1] if vent_sequence else None)
+        keepalive_summary = {
+            **dict(summary or {}),
+            "pace_vent_command_sent": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+            if bool(summary.get("fresh_vent_command_sent"))
+            else "",
+            "pace_vent_status_returned": vent_status,
+            "pace_vent_status_text": self._pace_vent_status_text(vent_status),
+            "vent_status_sequence": str(summary.get("vent_status_sequence_text") or ""),
+            "pressure_before_vent_hpa": self._as_float(
+                (pressure_before or {}).get("pressure_hpa") if isinstance(pressure_before, Mapping) else None
+            ),
+            "pressure_after_vent_hpa": self._as_float(summary.get("pressure_hpa")),
+            "pressure_delta_from_ambient_hpa": self._as_float(summary.get("pressure_delta_from_ambient_hpa")),
+            "abort_reason": str(summary.get("abort_reason") or ""),
+        }
+        keepalive_count = int(self._continuous_atmosphere_state.get("keepalive_count") or 0)
+        if bool(summary.get("fresh_vent_command_sent")):
+            keepalive_count += 1
+        generation = int(self._continuous_atmosphere_state.get("generation") or 0)
+        if generation <= 0:
+            generation = 1
+        previous_background = dict(self._continuous_atmosphere_state or {})
+        self._continuous_atmosphere_state = {
+            "active": True,
+            "route_flow_active": True,
+            "route_key": str(route_key or "").strip(),
+            "phase_name": phase_name_text,
+            "pressure_mode": self._route_flush_pressure_mode(phase_text),
+            "generation": generation,
+            "keepalive_count": keepalive_count,
+            "last_keepalive_ts": time.time(),
+            "last_keepalive_reason": str(reason or phase_name_text),
+            "last_keepalive_summary": keepalive_summary,
+            "background_keepalive_active": bool(previous_background.get("background_keepalive_active")),
+            "background_keepalive_count": int(previous_background.get("background_keepalive_count") or 0),
+            "background_keepalive_last_ts": previous_background.get("background_keepalive_last_ts"),
+            "background_keepalive_last_error": str(previous_background.get("background_keepalive_last_error") or ""),
+        }
+        self._sync_continuous_atmosphere_runtime_fields(point, phase=phase_text)
+        self._sync_source_stage_runtime_fields(point, phase=phase_text)
+        return self._continuous_atmosphere_state_snapshot()
+
+    def enter_continuous_atmosphere_flowthrough(
+        self,
+        route_key: str,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str,
+        point_tag: str = "",
+        phase_name: str = "ContinuousAtmosphereFlowThrough",
+        reason: str = "",
+        stage_label: str = "",
+    ) -> Dict[str, Any]:
+        phase_name_text = str(phase_name or "").strip() or "ContinuousAtmosphereFlowThrough"
+        route_key_text = str(route_key or "").strip()
+        phase_text = str(phase or "").strip().lower()
+        if phase_name_text not in self._CONTINUOUS_ATMOSPHERE_ALLOWED_PHASES:
+            return self._continuous_atmosphere_state_snapshot()
+        if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+            return self._continuous_atmosphere_state_snapshot()
+        self._disable_pressure_controller_output(
+            reason=f"{phase_name_text} {route_key_text or phase_text} requires output off"
+        )
+        keepalive_count = int(self._continuous_atmosphere_state.get("keepalive_count") or 0)
+        generation = int(self._continuous_atmosphere_state.get("generation") or 0) + 1
+        self._continuous_atmosphere_state = {
+            "active": True,
+            "route_flow_active": True,
+            "route_key": route_key_text,
+            "phase_name": phase_name_text,
+            "pressure_mode": self._route_flush_pressure_mode(phase_text),
+            "generation": generation,
+            "keepalive_count": keepalive_count,
+            "last_keepalive_ts": self._continuous_atmosphere_state.get("last_keepalive_ts"),
+            "last_keepalive_reason": str(reason or phase_name_text),
+            "last_keepalive_summary": dict(self._continuous_atmosphere_state.get("last_keepalive_summary") or {}),
+            "background_keepalive_active": False,
+            "background_keepalive_count": int(
+                self._continuous_atmosphere_state.get("background_keepalive_count") or 0
+            ),
+            "background_keepalive_last_ts": self._continuous_atmosphere_state.get("background_keepalive_last_ts"),
+            "background_keepalive_last_error": "",
+        }
+        self._sync_continuous_atmosphere_runtime_fields(point, phase=phase_text)
+        self._sync_source_stage_runtime_fields(point, phase=phase_text)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage="continuous_atmosphere_enter",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            refresh_pace_state=False,
+            note=(
+                f"phase_name={phase_name_text} route_key={route_key_text} "
+                f"keepalive_count={keepalive_count} reason={reason or ''}"
+            ),
+        )
+        self._start_continuous_atmosphere_background_keepalive(
+            route_key=route_key_text,
+            point=point,
+            phase=phase_text,
+            point_tag=point_tag,
+            phase_name=phase_name_text,
+            reason=reason,
+            stage_label=stage_label,
+        )
+        return self._continuous_atmosphere_state_snapshot()
+
+    def maintain_continuous_atmosphere_flowthrough(
+        self,
+        route_key: str,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str,
+        point_tag: str = "",
+        phase_name: str = "ContinuousAtmosphereFlowThrough",
+        reason: str = "",
+        stage_label: str = "",
+        force: bool = False,
+        quick: bool = False,
+        abort_on_pressure_delta: bool = True,
+        read_pressure_before: bool = True,
+        quick_sample_after: bool = True,
+        quick_query_vent_status: bool = True,
+        quick_read_system_error: bool = True,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        phase_name_text = str(phase_name or "").strip() or "ContinuousAtmosphereFlowThrough"
+        phase_text = str(phase or "").strip().lower()
+        if phase_name_text not in self._CONTINUOUS_ATMOSPHERE_ALLOWED_PHASES:
+            return True, self._continuous_atmosphere_state_snapshot()
+        state = self._continuous_atmosphere_state_snapshot()
+        if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+            failure_reason = "KeepaliveBlockedBySealedNoVentGuard"
+            if bool(state.get("active")) or bool(state.get("route_flow_active")):
+                self.exit_continuous_atmosphere_flowthrough(
+                    route_key or str(state.get("route_key") or ""),
+                    point=point,
+                    phase=phase_text,
+                    point_tag=point_tag,
+                    reason=failure_reason,
+                )
+                state = self._continuous_atmosphere_state_snapshot()
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                abort_reason=failure_reason,
+            )
+            return False, {
+                **state,
+                "abort_reason": failure_reason,
+            }
+        if not bool(state.get("active")):
+            return True, self.enter_continuous_atmosphere_flowthrough(
+                route_key,
+                point=point,
+                phase=phase_text,
+                point_tag=point_tag,
+                phase_name=phase_name_text,
+                reason=reason or "maintain_without_active_window",
+                stage_label=stage_label,
+            )
+        sample_before = self._read_current_pressure_hpa_for_atmosphere() if read_pressure_before else {}
+        ambient_hpa = self._as_float((self._last_atmosphere_gate_summary or {}).get("ambient_hpa"))
+        pressure_before_hpa = self._as_float(sample_before.get("pressure_hpa"))
+        pressure_delta_before = (
+            None
+            if pressure_before_hpa is None or ambient_hpa is None
+            else float(pressure_before_hpa) - float(ambient_hpa)
+        )
+        elapsed_s = None
+        if state.get("last_keepalive_ts") is not None:
+            elapsed_s = max(0.0, time.time() - float(state["last_keepalive_ts"]))
+        need_keepalive = bool(force)
+        if not need_keepalive and elapsed_s is not None:
+            need_keepalive = elapsed_s >= self._continuous_atmosphere_keepalive_interval_s()
+        if (
+            not need_keepalive
+            and pressure_delta_before is not None
+            and pressure_delta_before >= self._continuous_atmosphere_rise_trigger_delta_hpa()
+        ):
+            need_keepalive = True
+        if not need_keepalive:
+            self._sync_continuous_atmosphere_runtime_fields(point, phase=phase_text)
+            self._sync_source_stage_runtime_fields(point, phase=phase_text)
+            return True, self._continuous_atmosphere_state_snapshot()
+        pace = self.devices.get("pace")
+        open_route_ready, open_route_state = self._continuous_atmosphere_open_route_pace_state(pace)
+        if not open_route_ready:
+            failure_reason = "ContinuousAtmosphereKeepaliveNotOpenRoute"
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                abort_reason=failure_reason,
+                **open_route_state,
+            )
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                point_tag=point_tag,
+                trace_stage="continuous_atmosphere_keepalive_blocked",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+                pace_output_state=open_route_state.get("pace_output_state"),
+                pace_isolation_state=open_route_state.get("pace_isolation_state"),
+                refresh_pace_state=False,
+                note="keepalive blocked because PACE is not in OUTP=0 / ISOL=1 open-route state",
+            )
+            return False, {
+                **self._continuous_atmosphere_state_snapshot(),
+                "abort_reason": failure_reason,
+                **open_route_state,
+            }
+        if quick:
+            summary = self._continuous_atmosphere_quick_vent1_refresh(
+                point,
+                phase=phase_text,
+                point_tag=point_tag,
+                stage_label=stage_label,
+                log_context=reason or f"{phase_name_text} keepalive",
+                recovery_attempt=int(state.get("keepalive_count") or 0),
+                pressure_before=sample_before,
+                sample_pressure_after=quick_sample_after,
+                query_vent_status=quick_query_vent_status,
+                read_system_error=quick_read_system_error,
+            )
+        else:
+            summary = self._route_stage_fresh_vent_refresh(
+                point,
+                phase=phase_text,
+                point_tag=point_tag,
+                stage_label=stage_label,
+                log_context=reason or f"{phase_name_text} keepalive",
+                recovery_attempt=int(state.get("keepalive_count") or 0),
+            )
+        vent_sequence = list(summary.get("vent_status_sequence") or [])
+        vent_status = self._as_int(vent_sequence[-1] if vent_sequence else None)
+        pressure_after_hpa = self._as_float(summary.get("pressure_hpa"))
+        pressure_delta_after = self._as_float(summary.get("pressure_delta_from_ambient_hpa"))
+        keepalive_count = int(state.get("keepalive_count") or 0)
+        if bool(summary.get("fresh_vent_command_sent")):
+            keepalive_count += 1
+        keepalive_summary = {
+            **dict(summary or {}),
+            "pace_vent_command_sent": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+            if bool(summary.get("fresh_vent_command_sent"))
+            else "",
+            "pace_vent_status_returned": vent_status,
+            "pace_vent_status_text": self._pace_vent_status_text(vent_status),
+            "vent_status_sequence": str(summary.get("vent_status_sequence_text") or ""),
+            "pressure_before_vent_hpa": pressure_before_hpa,
+            "pressure_after_vent_hpa": pressure_after_hpa,
+            "pressure_delta_from_ambient_hpa": pressure_delta_after,
+            "abort_reason": str(summary.get("abort_reason") or ""),
+        }
+        self._continuous_atmosphere_state.update(
+            {
+                "active": True,
+                "route_flow_active": True,
+                "route_key": str(route_key or state.get("route_key") or "").strip(),
+                "phase_name": phase_name_text,
+                "pressure_mode": self._route_flush_pressure_mode(phase_text),
+                "keepalive_count": keepalive_count,
+                "last_keepalive_ts": time.time(),
+                "last_keepalive_reason": str(reason or phase_name_text),
+                "last_keepalive_summary": keepalive_summary,
+            }
+        )
+        self._sync_continuous_atmosphere_runtime_fields(point, phase=phase_text)
+        self._sync_source_stage_runtime_fields(point, phase=phase_text)
+        failure_reason = ""
+        if str(summary.get("abort_reason") or "").strip():
+            failure_reason = str(summary.get("abort_reason") or "").strip()
+        elif (
+            bool(abort_on_pressure_delta)
+            and pressure_delta_after is not None
+            and pressure_delta_after > self._continuous_atmosphere_failure_delta_hpa()
+        ):
+            failure_reason = "AtmospherePathInsufficientUnderFlow"
+        if failure_reason:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                abort_reason=failure_reason,
+            )
+            return False, {
+                **self._continuous_atmosphere_state_snapshot(),
+                "abort_reason": failure_reason,
+            }
+        return True, self._continuous_atmosphere_state_snapshot()
+
+    def exit_continuous_atmosphere_flowthrough(
+        self,
+        route_key: str = "",
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str,
+        point_tag: str = "",
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        route_key_text = str(route_key or self._continuous_atmosphere_state.get("route_key") or "").strip()
+        self._stop_continuous_atmosphere_background_keepalive(
+            point=point,
+            phase=phase_text,
+            point_tag=point_tag,
+            reason=reason or "continuous atmosphere flowthrough exit",
+        )
+        generation = int(self._continuous_atmosphere_state.get("generation") or 0) + 1
+        self._continuous_atmosphere_state = {
+            **dict(self._continuous_atmosphere_state or {}),
+            "active": False,
+            "route_flow_active": False,
+            "route_key": route_key_text,
+            "phase_name": "",
+            "generation": generation,
+        }
+        self._sync_continuous_atmosphere_runtime_fields(point, phase=phase_text)
+        self._sync_source_stage_runtime_fields(point, phase=phase_text)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage="continuous_atmosphere_exit",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            refresh_pace_state=False,
+            note=f"route_key={route_key_text} reason={reason or ''}",
+        )
+        return self._continuous_atmosphere_state_snapshot()
+
+    def _drain_pace_system_errors(
+        self,
+        *,
+        reason: str = "",
+        max_queries: int = 8,
+        classification: str = "pre_existing_error_drain",
+        action: str = "drained",
+        command: str = "",
+        response: str = "",
+        hidden_syst_err: bool = False,
+        unclassified_syst_err: bool = False,
+    ) -> List[str]:
+        pace = self.devices.get("pace")
+        if not pace:
+            return []
+        drain_errors = getattr(pace, "drain_system_errors", None)
+        drained: List[str] = []
+        if callable(drain_errors):
+            try:
+                drained = [
+                    str(entry or "").strip()
+                    for entry in list(drain_errors())
+                    if str(entry or "").strip()
+                ]
+            except Exception as exc:
+                self.log(f"PACE system-error drain failed ({reason or 'unspecified'}): {exc}")
+                return [f"drain_failed:{exc}"]
+            if drained:
+                for entry in drained:
+                    self._record_pace_error_attribution(
+                        classification=classification,
+                        action=action,
+                        syst_err=entry,
+                        command=command,
+                        response=response,
+                        reason=reason,
+                        hidden_syst_err=hidden_syst_err,
+                        unclassified_syst_err=unclassified_syst_err,
+                    )
+                self.log(
+                    "PACE system-error drain"
+                    + (f" ({reason})" if reason else "")
+                    + ": "
+                    + "; ".join(drained)
+                )
+            return drained
+
+        for _ in range(max(1, int(max_queries))):
+            value = str(self._read_pace_system_error_text() or "").strip()
+            if not value:
+                break
+            if self._pace_system_error_is_clear(value):
+                break
+            drained.append(value)
+            self._record_pace_error_attribution(
+                classification=classification,
+                action=action,
+                syst_err=value,
+                command=command,
+                response=response,
+                reason=reason,
+                hidden_syst_err=hidden_syst_err,
+                unclassified_syst_err=unclassified_syst_err,
+            )
+        if drained:
+            self.log(
+                "PACE system-error drain"
+                + (f" ({reason})" if reason else "")
+                + ": "
+                + "; ".join(drained)
+            )
+        return drained
+
+    def _pressure_rising_assessment(
+        self,
+        *,
+        metrics: Mapping[str, Any],
+        pressure_delta_hpa: Optional[float],
+        slope_max_hpa_s: float,
+        min_delta_hpa: float,
+        min_samples: int = 3,
+        grace_delta_hpa: float = 2.0,
+        hard_fail_min_rise_hpa: float = 2.0,
+    ) -> Dict[str, Any]:
+        sample_count = int(metrics.get("count") or 0)
+        pressure_slope = self._as_float(metrics.get("slope_per_s"))
+        pressure_first = self._as_float(metrics.get("first_value"))
+        pressure_last = self._as_float(metrics.get("last_value"))
+        pressure_rise = None
+        if pressure_first is not None and pressure_last is not None:
+            pressure_rise = float(pressure_last) - float(pressure_first)
+        delta_abs = abs(float(pressure_delta_hpa)) if pressure_delta_hpa is not None else None
+        suspicious = bool(
+            pressure_slope is not None
+            and pressure_rise is not None
+            and sample_count >= 2
+            and float(pressure_slope) > float(slope_max_hpa_s)
+            and float(pressure_rise) > max(0.0, float(min_delta_hpa))
+        )
+        hard_fail = bool(
+            suspicious
+            and sample_count >= max(1, int(min_samples))
+            and pressure_rise is not None
+            and float(pressure_rise) >= max(float(min_delta_hpa), float(hard_fail_min_rise_hpa))
+            and not (delta_abs is not None and delta_abs <= float(grace_delta_hpa))
+        )
+        return {
+            "sample_count": sample_count,
+            "pressure_slope_hpa_s": pressure_slope,
+            "pressure_first_hpa": pressure_first,
+            "pressure_last_hpa": pressure_last,
+            "pressure_rise_hpa": pressure_rise,
+            "pressure_delta_abs_hpa": delta_abs,
+            "pressure_rising_suspicious": suspicious,
+            "pressure_rising": hard_fail,
+        }
+
+    def _merge_pressure_windows(
+        self,
+        first_window: Mapping[str, Any],
+        second_window: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        first_samples = list(first_window.get("samples") or [])
+        second_samples = list(second_window.get("samples") or [])
+        combined_samples = list(first_samples) + list(second_samples)
+        last_sample = dict(second_window.get("last_sample") or first_window.get("last_sample") or {})
+        return {
+            "samples": combined_samples,
+            "metrics": self._numeric_series_metrics(combined_samples),
+            "last_sample": last_sample,
+        }
+
+    def _should_extend_atmosphere_gate_monitor(
+        self,
+        summary: Mapping[str, Any],
+        cfg: Mapping[str, Any],
+    ) -> bool:
+        abort_reason = str(summary.get("abort_reason") or "").strip()
+        if abort_reason != "PressureRisingDuringFlush":
+            return False
+        required_samples = max(
+            3,
+            int(cfg.get("pressure_rising_fail_min_samples", cfg.get("min_samples", 3)) or 3),
+        )
+        if int(summary.get("pressure_sample_count") or 0) < required_samples:
+            return False
+        delta_value = self._as_float(summary.get("pressure_delta_from_ambient_hpa"))
+        if delta_value is None:
+            return False
+        delta_abs = abs(float(delta_value))
+        return delta_abs <= float(cfg.get("retry_delta_hpa", 15.0) or 15.0)
+
+    def _atmosphere_gate_cfg(self) -> Dict[str, Any]:
+        return {
+            "monitor_s": max(
+                0.0,
+                float(self._wf("workflow.pressure.atmosphere_gate_monitor_s", 0.0) or 0.0),
+            ),
+            "poll_s": max(
+                0.0,
+                float(self._wf("workflow.pressure.atmosphere_gate_poll_s", 0.0) or 0.0),
+            ),
+            "min_samples": max(
+                1,
+                int(self._wf("workflow.pressure.atmosphere_gate_min_samples", 3) or 3),
+            ),
+            "pressure_tolerance_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.atmosphere_gate_pressure_tolerance_hpa", 15.0) or 15.0),
+            ),
+            "pressure_rising_slope_max_hpa_s": float(
+                self._wf("workflow.pressure.atmosphere_gate_pressure_rising_slope_max_hpa_s", 0.05) or 0.05
+            ),
+            "pressure_rising_min_delta_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.atmosphere_gate_pressure_rising_min_delta_hpa", 0.5) or 0.5),
+            ),
+            "pressure_rising_grace_delta_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.atmosphere_gate_pressure_rising_grace_delta_hpa", 2.0) or 2.0),
+            ),
+            "pressure_rising_fail_min_samples": max(
+                1,
+                int(self._wf("workflow.pressure.atmosphere_gate_pressure_rising_fail_min_samples", 3) or 3),
+            ),
+            "pressure_rising_fail_min_rise_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.atmosphere_gate_pressure_rising_fail_min_rise_hpa", 2.0) or 2.0),
+            ),
+            "hard_fail_delta_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.atmosphere_gate_hard_fail_delta_hpa", 30.0) or 30.0),
+            ),
+            "retry_delta_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.atmosphere_gate_retry_delta_hpa", 15.0) or 15.0),
+            ),
+            "retry_max_attempts": max(
+                0,
+                int(self._wf("workflow.pressure.atmosphere_gate_retry_max_attempts", 1) or 1),
+            ),
+            "fallback_ambient_hpa": self._as_float(
+                self._wf("workflow.pressure.atmosphere_gate_fallback_ambient_hpa", None)
+            ),
+        }
+
+    def _pressure_guard_cfg(self) -> Dict[str, Any]:
+        return {
+            "pressure_tolerance_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.flush_guard_pressure_tolerance_hpa", 15.0) or 15.0),
+            ),
+            "pressure_rising_slope_max_hpa_s": float(
+                self._wf("workflow.pressure.flush_guard_pressure_rising_slope_max_hpa_s", 0.05) or 0.05
+            ),
+            "pressure_rising_min_delta_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.flush_guard_pressure_rising_min_delta_hpa", 0.5) or 0.5),
+            ),
+            "pressure_rising_grace_delta_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.flush_guard_pressure_rising_grace_delta_hpa", 2.0) or 2.0),
+            ),
+            "pressure_rising_fail_min_samples": max(
+                1,
+                int(self._wf("workflow.pressure.flush_guard_pressure_rising_fail_min_samples", 3) or 3),
+            ),
+            "pressure_rising_fail_min_rise_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.flush_guard_pressure_rising_fail_min_rise_hpa", 2.0) or 2.0),
+            ),
+        }
+
+    def _read_current_pressure_hpa_for_atmosphere(self) -> Dict[str, Any]:
+        result = {
+            "pressure_hpa": None,
+            "pressure_source": "unavailable",
+            "pace_pressure_hpa": None,
+            "pressure_gauge_hpa": None,
+        }
+        pressure_now, source = self._read_preseal_pressure_gauge()
+        if pressure_now is not None and math.isfinite(pressure_now):
+            result["pressure_gauge_hpa"] = float(pressure_now)
+            result["pressure_hpa"] = float(pressure_now)
+            result["pressure_source"] = source or "pressure_gauge"
+        pace = self.devices.get("pace")
+        value = None
+        if pace is not None:
+            reader = getattr(pace, "read_pressure", None)
+            if callable(reader):
+                try:
+                    value = self._as_float(reader())
+                except Exception as exc:
+                    self.log(f"PACE pressure read failed during atmosphere gate: {exc}")
+                    value = None
+                if value is not None and math.isfinite(value):
+                    result["pace_pressure_hpa"] = float(value)
+            if result["pressure_hpa"] is None and value is not None and math.isfinite(value):
+                result["pressure_hpa"] = float(value)
+                result["pressure_source"] = "pace_pressure"
+        return result
+
+    def _sample_atmosphere_pressure_window(
+        self,
+        *,
+        monitor_s: float,
+        poll_s: float,
+        min_samples: int,
+    ) -> Dict[str, Any]:
+        deadline = time.monotonic() + max(0.0, float(monitor_s))
+        samples: List[Tuple[float, float]] = []
+        last_sample: Dict[str, Any] = {
+            "pressure_hpa": None,
+            "pressure_source": "unavailable",
+            "pace_pressure_hpa": None,
+            "pressure_gauge_hpa": None,
+        }
+        while True:
+            sample = self._read_current_pressure_hpa_for_atmosphere()
+            pressure_hpa = self._as_float(sample.get("pressure_hpa"))
+            if pressure_hpa is not None:
+                samples.append((time.monotonic(), float(pressure_hpa)))
+                last_sample = sample
+            if len(samples) >= max(1, int(min_samples)) and time.monotonic() >= deadline:
+                break
+            if len(samples) >= max(1, int(min_samples)) and float(monitor_s) <= 0.0:
+                break
+            if time.monotonic() >= deadline and len(samples) >= max(1, int(min_samples)):
+                break
+            if time.monotonic() >= deadline and len(samples) > 0:
+                break
+            if self.stop_event.is_set():
+                break
+            if float(poll_s) > 0.0:
+                time.sleep(float(poll_s))
+            elif len(samples) >= max(1, int(min_samples)):
+                break
+        metrics = self._numeric_series_metrics(samples)
+        return {
+            "samples": samples,
+            "metrics": metrics,
+            "last_sample": last_sample,
+        }
+
+    def _resolve_atmosphere_gate_ambient_hpa(
+        self,
+        pressure_window: Mapping[str, Any],
+        *,
+        fallback_ambient_hpa: Optional[float] = None,
+    ) -> Tuple[Optional[float], str]:
+        barometric_hpa, barometric_source = self._read_pace_barometric_reference_hpa()
+        if barometric_hpa is not None:
+            return float(barometric_hpa), barometric_source
+        metrics = dict(pressure_window.get("metrics") or {})
+        if metrics:
+            mean_value = self._as_float(metrics.get("mean_value"))
+            if mean_value is not None and math.isfinite(mean_value):
+                return float(mean_value), "fresh_vent_pressure_window"
+        last_sample = dict(pressure_window.get("last_sample") or {})
+        sample_pressure = self._as_float(last_sample.get("pressure_hpa"))
+        if sample_pressure is not None and math.isfinite(sample_pressure):
+            return float(sample_pressure), "fresh_vent_pressure_single"
+        cached = self._as_float(self._atmosphere_reference_hpa)
+        if cached is not None and math.isfinite(cached):
+            return float(cached), "latest_atmosphere_verified"
+        if fallback_ambient_hpa is not None and math.isfinite(fallback_ambient_hpa):
+            return float(fallback_ambient_hpa), "configured_fallback"
+        return None, barometric_source or "unavailable"
+
+    def _copy_atmosphere_gate_summary_to_runtime(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        summary: Mapping[str, Any],
+    ) -> None:
+        if point is None:
+            return
+        phase_text = str(phase or "").strip().lower()
+        if not phase_text:
+            return
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            fresh_vent_command_sent=bool(summary.get("fresh_vent_command_sent")),
+            vent_status_sequence=str(summary.get("vent_status_sequence_text") or ""),
+            pressure_hpa=self._as_float(summary.get("pressure_hpa")),
+            ambient_hpa=self._as_float(summary.get("ambient_hpa")),
+            pressure_delta_from_ambient_hpa=self._as_float(summary.get("pressure_delta_from_ambient_hpa")),
+            pressure_slope_hpa_s=self._as_float(summary.get("pressure_slope_hpa_s")),
+            atmosphere_ready=bool(summary.get("atmosphere_ready")),
+            abort_reason=str(summary.get("abort_reason") or ""),
+            pace_syst_err_query=str(summary.get("pace_syst_err_query") or ""),
+        )
+
+    def _best_effort_fail_fast_safe_stop(self, *, abort_reason: str, note: str = "") -> Dict[str, Any]:
+        self._last_abort_reason = str(abort_reason or "").strip()
+        if not self._last_abort_reason:
+            return {}
+        try:
+            result = _perform_safe_stop(self.devices, log_fn=self.log, cfg=self.cfg)
+            self.log(
+                "Fail-fast safe stop complete: "
+                f"abort_reason={self._last_abort_reason}"
+                + (f" note={note}" if note else "")
+            )
+            return dict(result or {})
+        except Exception as exc:
+            self.log(
+                "Fail-fast safe stop failed: "
+                f"abort_reason={self._last_abort_reason} error={exc}"
+            )
+            return {"safe_stop_error": str(exc)}
+
+    def _finalize_atmosphere_gate_summary(
+        self,
+        *,
+        phase_start_ts: float,
+        reason: str,
+        fresh_vent_command_sent: bool,
+        vent_status_sequence: Sequence[Any],
+        vent_completed: bool,
+        pace_syst_err_query: str,
+        pressure_window: Mapping[str, Any],
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "",
+    ) -> Dict[str, Any]:
+        cfg = self._atmosphere_gate_cfg()
+        metrics = dict(pressure_window.get("metrics") or {})
+        last_sample = dict(pressure_window.get("last_sample") or {})
+        pressure_hpa = self._as_float(last_sample.get("pressure_hpa"))
+        ambient_hpa, ambient_source = self._resolve_atmosphere_gate_ambient_hpa(
+            pressure_window,
+            fallback_ambient_hpa=self._as_float(cfg.get("fallback_ambient_hpa")),
+        )
+        pressure_delta = None
+        if pressure_hpa is not None and ambient_hpa is not None:
+            pressure_delta = float(pressure_hpa) - float(ambient_hpa)
+        rising_assessment = self._pressure_rising_assessment(
+            metrics=metrics,
+            pressure_delta_hpa=pressure_delta,
+            slope_max_hpa_s=float(cfg["pressure_rising_slope_max_hpa_s"]),
+            min_delta_hpa=float(cfg["pressure_rising_min_delta_hpa"]),
+            min_samples=int(cfg["pressure_rising_fail_min_samples"]),
+            grace_delta_hpa=float(cfg["pressure_rising_grace_delta_hpa"]),
+            hard_fail_min_rise_hpa=float(cfg["pressure_rising_fail_min_rise_hpa"]),
+        )
+        pressure_slope = self._as_float(rising_assessment.get("pressure_slope_hpa_s"))
+        pressure_first = self._as_float(rising_assessment.get("pressure_first_hpa"))
+        pressure_last = self._as_float(rising_assessment.get("pressure_last_hpa"))
+        pressure_rise = self._as_float(rising_assessment.get("pressure_rise_hpa"))
+        pressure_delta_abs = self._as_float(rising_assessment.get("pressure_delta_abs_hpa"))
+        pressure_near_ambient = (
+            pressure_delta_abs is not None
+            and float(pressure_delta_abs) <= float(cfg["pressure_tolerance_hpa"])
+        )
+        pressure_rising = bool(rising_assessment.get("pressure_rising"))
+        pressure_rising_suspicious = bool(rising_assessment.get("pressure_rising_suspicious"))
+        hard_pressure_lost = bool(
+            pressure_delta_abs is not None
+            and float(pressure_delta_abs) > float(cfg["hard_fail_delta_hpa"])
+        )
+        syst_err_ok = self._pace_system_error_is_clear(pace_syst_err_query)
+        abort_reason = ""
+        if not fresh_vent_command_sent:
+            abort_reason = "FreshVentNotSent"
+        elif not vent_completed:
+            abort_reason = "FreshVentNotCompleted"
+        elif ambient_hpa is None:
+            abort_reason = "AmbientReferenceUnavailable"
+        elif pressure_hpa is None:
+            abort_reason = "PressureUnavailable"
+        elif hard_pressure_lost:
+            abort_reason = "AtmosphereLost"
+        elif not pressure_near_ambient:
+            abort_reason = "AtmosphereLost"
+        elif pressure_rising:
+            abort_reason = "PressureRisingDuringFlush"
+        elif not syst_err_ok:
+            abort_reason = "PaceSystemError"
+        summary = {
+            "phase_start_ts": datetime.fromtimestamp(float(phase_start_ts)).isoformat(timespec="milliseconds"),
+            "reason": str(reason or ""),
+            "fresh_vent_command_sent": bool(fresh_vent_command_sent),
+            "vent_status_sequence": [self._as_int(item) for item in list(vent_status_sequence or [])],
+            "vent_status_sequence_text": ",".join(
+                str(self._as_int(item)) for item in list(vent_status_sequence or []) if self._as_int(item) is not None
+            ),
+            "fresh_vent_completed": bool(vent_completed),
+            "pace_syst_err_query": str(pace_syst_err_query or "").strip(),
+            "pressure_hpa": pressure_hpa,
+            "pressure_source": str(last_sample.get("pressure_source") or "unavailable"),
+            "pace_pressure_hpa": self._as_float(last_sample.get("pace_pressure_hpa")),
+            "pressure_gauge_hpa": self._as_float(last_sample.get("pressure_gauge_hpa")),
+            "ambient_hpa": ambient_hpa,
+            "ambient_source": ambient_source,
+            "pressure_delta_from_ambient_hpa": pressure_delta,
+            "pressure_slope_hpa_s": pressure_slope,
+            "pressure_first_hpa": pressure_first,
+            "pressure_last_hpa": pressure_last,
+            "pressure_rise_hpa": pressure_rise,
+            "pressure_span_hpa": self._as_float(metrics.get("span")),
+            "pressure_sample_count": int(metrics.get("count") or len(list(pressure_window.get("samples") or []))),
+            "pressure_rising": pressure_rising,
+            "pressure_rising_suspicious": pressure_rising_suspicious,
+            "pressure_near_ambient": pressure_near_ambient,
+            "pressure_hard_over_ambient": hard_pressure_lost,
+            "syst_err_ok": syst_err_ok,
+            "atmosphere_ready": not bool(abort_reason),
+            "abort_reason": abort_reason,
+        }
+        self._last_atmosphere_gate_summary = dict(summary)
+        if summary["atmosphere_ready"] and ambient_hpa is not None and math.isfinite(float(ambient_hpa)):
+            self._atmosphere_reference_hpa = float(ambient_hpa)
+        if point is not None:
+            self._copy_atmosphere_gate_summary_to_runtime(point, phase=phase, summary=summary)
+        return summary
+
+    def _require_atmosphere_gate_before_dewpoint(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        log_context: str,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        pace = self.devices.get("pace")
+        if not pace:
+            return True, {}
+        summary = dict(self._last_atmosphere_gate_summary or {})
+        if not summary:
+            summary = self._finalize_atmosphere_gate_summary(
+                phase_start_ts=time.time(),
+                reason=f"{log_context} precheck",
+                fresh_vent_command_sent=False,
+                vent_status_sequence=[],
+                vent_completed=False,
+                pace_syst_err_query="",
+                pressure_window={"samples": [], "metrics": {}, "last_sample": {}},
+                point=point,
+                phase=phase,
+            )
+        else:
+            self._copy_atmosphere_gate_summary_to_runtime(point, phase=phase, summary=summary)
+        if bool(summary.get("atmosphere_ready")):
+            return True, summary
+        abort_reason = str(summary.get("abort_reason") or "AtmosphereGateFailed")
+        self._last_abort_reason = abort_reason
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            abort_reason=abort_reason,
+        )
+        self._best_effort_fail_fast_safe_stop(
+            abort_reason=abort_reason,
+            note=f"{log_context} atmosphere gate precheck failed",
+        )
+        return False, summary
+
+    def _check_flush_pressure_guard(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        pressure_rows: List[Tuple[float, float]],
+        log_context: str,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        pace = self.devices.get("pace")
+        if not pace:
+            return True, {}
+        phase_text = str(phase or "").strip().lower()
+        continuous_state = self._continuous_atmosphere_state_snapshot()
+        if bool(continuous_state.get("active")) or bool(continuous_state.get("route_flow_active")):
+            keepalive_ok, keepalive_state = self.maintain_continuous_atmosphere_flowthrough(
+                self._source_stage_key_for_point(point, phase=phase_text) or phase_text,
+                point=point,
+                phase=phase_text,
+                phase_name="ContinuousAtmosphereFlowThrough",
+                reason=f"{log_context} flush pressure guard",
+            )
+            if not keepalive_ok:
+                abort_reason = str(keepalive_state.get("abort_reason") or "AtmospherePathInsufficientUnderFlow")
+                summary = {
+                    "abort_reason": abort_reason,
+                    "route_pressure_guard_status": "fail",
+                    "route_pressure_guard_reason": abort_reason,
+                    **self._pace_error_attribution_counts(),
+                }
+                self._set_point_runtime_fields(point, phase=phase_text, abort_reason=abort_reason, **summary)
+                return False, summary
+        sample = self._read_current_pressure_hpa_for_atmosphere()
+        pressure_hpa = self._as_float(sample.get("pressure_hpa"))
+        if pressure_hpa is not None:
+            pressure_rows.append((time.monotonic(), float(pressure_hpa)))
+        metrics = self._numeric_series_metrics(list(pressure_rows))
+        summary = dict(self._last_atmosphere_gate_summary or {})
+        ambient_hpa = self._as_float(summary.get("ambient_hpa"))
+        pressure_delta = None
+        if pressure_hpa is not None and ambient_hpa is not None:
+            pressure_delta = float(pressure_hpa) - float(ambient_hpa)
+        cfg = self._pressure_guard_cfg()
+        rising_assessment = self._pressure_rising_assessment(
+            metrics=metrics,
+            pressure_delta_hpa=pressure_delta,
+            slope_max_hpa_s=float(cfg["pressure_rising_slope_max_hpa_s"]),
+            min_delta_hpa=float(cfg["pressure_rising_min_delta_hpa"]),
+            min_samples=int(cfg["pressure_rising_fail_min_samples"]),
+            grace_delta_hpa=float(cfg["pressure_rising_grace_delta_hpa"]),
+            hard_fail_min_rise_hpa=float(cfg["pressure_rising_fail_min_rise_hpa"]),
+        )
+        pressure_slope = self._as_float(rising_assessment.get("pressure_slope_hpa_s"))
+        pressure_rise = self._as_float(rising_assessment.get("pressure_rise_hpa"))
+        pressure_delta_abs = self._as_float(rising_assessment.get("pressure_delta_abs_hpa"))
+        abort_reason = ""
+        if pressure_hpa is None:
+            abort_reason = "PressureUnavailable"
+        elif ambient_hpa is not None and pressure_delta is not None and pressure_delta > float(cfg["pressure_tolerance_hpa"]):
+            abort_reason = "AtmosphereLost"
+        elif bool(rising_assessment.get("pressure_rising")) and not (
+            pressure_delta_abs is not None and pressure_delta_abs <= float(cfg["pressure_rising_grace_delta_hpa"])
+        ):
+            abort_reason = "PressureRisingDuringFlush"
+        state_payload = {
+            "pressure_hpa": pressure_hpa,
+            "ambient_hpa": ambient_hpa,
+            "pressure_delta_from_ambient_hpa": pressure_delta,
+            "pressure_slope_hpa_s": pressure_slope,
+            "pressure_rise_hpa": pressure_rise,
+            "pressure_sample_count": int(rising_assessment.get("sample_count") or len(pressure_rows)),
+        }
+        if abort_reason:
+            self._last_abort_reason = abort_reason
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                flush_gate_status="fail",
+                flush_gate_reason=abort_reason,
+                abort_reason=abort_reason,
+                **state_payload,
+            )
+            self._best_effort_fail_fast_safe_stop(
+                abort_reason=abort_reason,
+                note=f"{log_context} pressure guard tripped",
+            )
+            return False, {
+                **state_payload,
+                "abort_reason": abort_reason,
+            }
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            **state_payload,
+        )
+        return True, state_payload
+
+    def _route_open_pressure_guard_cfg(self) -> Dict[str, Any]:
+        return {
+            "enabled": bool(self._wf("workflow.pressure.route_open_guard_enabled", True)),
+            "monitor_s": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_monitor_s", 8.0) or 8.0),
+            ),
+            "poll_s": max(
+                0.1,
+                float(self._wf("workflow.pressure.route_open_guard_poll_s", 1.0) or 1.0),
+            ),
+            "pressure_tolerance_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_pressure_tolerance_hpa", 30.0) or 30.0),
+            ),
+            "pressure_rising_slope_max_hpa_s": float(
+                self._wf("workflow.pressure.route_open_guard_pressure_rising_slope_max_hpa_s", 0.2) or 0.2
+            ),
+            "pressure_rising_min_delta_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_pressure_rising_min_delta_hpa", 2.0) or 2.0),
+            ),
+            "pressure_rising_grace_delta_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_pressure_rising_grace_delta_hpa", 2.0) or 2.0),
+            ),
+            "pressure_rising_fail_min_samples": max(
+                1,
+                int(self._wf("workflow.pressure.route_open_guard_pressure_rising_fail_min_samples", 3) or 3),
+            ),
+            "pressure_rising_fail_min_rise_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_pressure_rising_fail_min_rise_hpa", 2.0) or 2.0),
+            ),
+            "recovery_trigger_delta_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_recovery_trigger_delta_hpa", 50.0) or 50.0),
+            ),
+            "recovery_tolerance_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_recovery_tolerance_hpa", 30.0) or 30.0),
+            ),
+            "vent_recovery_attempts": max(
+                0,
+                int(self._wf("workflow.pressure.route_open_guard_vent_recovery_attempts", 1) or 1),
+            ),
+            "analyzer_warning_kpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_analyzer_warning_kpa", 120.0) or 120.0),
+            ),
+            "analyzer_abort_kpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_analyzer_abort_kpa", 150.0) or 150.0),
+            ),
+            "dewpoint_line_tolerance_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.route_open_guard_dewpoint_line_tolerance_hpa", 30.0) or 30.0),
+            ),
+        }
+
+    def _read_route_guard_analyzer_pressure_kpa(self) -> Tuple[Optional[float], str]:
+        for label, ga, _cfg in self._active_gas_analyzers():
+            cached = self._get_fresh_live_analyzer_frame_cache(ga)
+            if isinstance(cached, dict):
+                parsed = cached.get("parsed", {})
+                if isinstance(parsed, dict):
+                    cached_value = self._as_float(parsed.get("pressure_kpa"))
+                    if cached_value is not None and math.isfinite(cached_value):
+                        return float(cached_value), str(label)
+            try:
+                _line, parsed = self._read_sensor_parsed(
+                    ga,
+                    required_key="pressure_kpa",
+                    require_usable=False,
+                    frame_acceptance_mode="required_key_relaxed",
+                )
+            except Exception as exc:
+                self.log(f"Route-open analyzer pressure read failed: {label} err={exc}")
+                continue
+            analyzer_value = self._as_float(parsed.get("pressure_kpa")) if parsed else None
+            if analyzer_value is not None and math.isfinite(analyzer_value):
+                return float(analyzer_value), str(label)
+        return None, ""
+
+    def _read_route_guard_dewpoint_line_pressure_hpa(self) -> Optional[float]:
+        snapshot = dict(self._preseal_dewpoint_snapshot or {})
+        pressure_hpa = self._as_float(snapshot.get("pressure_hpa"))
+        if pressure_hpa is not None and math.isfinite(pressure_hpa):
+            return float(pressure_hpa)
+        return None
+
+    def _route_open_guard_abort(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        abort_reason: str,
+        log_context: str,
+        state_payload: Mapping[str, Any],
+    ) -> None:
+        phase_text = str(phase or "").strip().lower()
+        self._last_abort_reason = str(abort_reason or "").strip()
+        self._stop_continuous_atmosphere_background_keepalive(
+            point=point,
+            phase=phase_text,
+            reason=f"route-open abort: {abort_reason}",
+        )
+        if point is not None:
+            runtime_payload = dict(state_payload or {})
+            runtime_payload.setdefault("route_pressure_guard_status", "fail")
+            runtime_payload.setdefault("route_pressure_guard_reason", abort_reason)
+            runtime_payload.setdefault("abort_reason", abort_reason)
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                **runtime_payload,
+            )
+        try:
+            self._apply_route_baseline_valves()
+        except Exception as exc:
+            self.log(f"Route-open pressure guard baseline close failed: {exc}")
+        self._best_effort_fail_fast_safe_stop(
+            abort_reason=abort_reason,
+            note=f"{log_context} route-open pressure guard tripped",
+        )
+
+    def _route_stage_fresh_vent_refresh(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        point_tag: str,
+        stage_label: str,
+        log_context: str,
+        recovery_attempt: int,
+    ) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        if not pace:
+            return {}
+        phase_text = str(phase or "").strip().lower()
+        pressure_mode = self._route_flush_pressure_mode(phase_text)
+        open_route_ready, open_route_state = self._continuous_atmosphere_open_route_pace_state(pace)
+        if not open_route_ready:
+            abort_reason = "ContinuousAtmosphereKeepaliveNotOpenRoute"
+            summary = {
+                "fresh_vent_command_sent": False,
+                "vent_status_sequence": [],
+                "vent_status_sequence_text": "",
+                "fresh_vent_completed": False,
+                "atmosphere_ready": False,
+                "abort_reason": abort_reason,
+                "pressure_mode": pressure_mode,
+                **open_route_state,
+            }
+            if point is not None:
+                self._set_point_runtime_fields(point, phase=phase_text, abort_reason=abort_reason, **open_route_state)
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                point_tag=point_tag,
+                trace_stage="route_open_fresh_vent_blocked",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+                offending_route=self._current_valve_route_state_text(),
+                offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+                pace_output_state=open_route_state.get("pace_output_state"),
+                pace_isolation_state=open_route_state.get("pace_isolation_state"),
+                refresh_pace_state=False,
+                note=(
+                    f"context={log_context} pressure_mode={pressure_mode} "
+                    "blocked because PACE is not OUTP=0 / ISOL=1"
+                ),
+            )
+            return summary
+        drained_errors = self._drain_pace_system_errors(
+            reason=f"{log_context} stage={stage_label or self._current_valve_route_state_text()} vent refresh pre-drain",
+            classification="pre_route_drain",
+            action="pre_route_drain",
+            command=f"fresh_vent:{stage_label or self._current_valve_route_state_text()}",
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage="route_open_fresh_vent_begin",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} pressure_mode={pressure_mode} "
+                f"recovery_attempt={int(recovery_attempt)} drained_errors={len(drained_errors)}"
+            ),
+        )
+        timeout_s = float(
+            self._wf(
+                "workflow.pressure.vent_transition_timeout_s",
+                max(5.0, float(self._wf("workflow.pressure.vent_time_s", 0.0) or 0.0)),
+            )
+            or 5.0
+        )
+        summary = self._enter_pressure_controller_atmosphere_single_cycle(
+            pace,
+            timeout_s=timeout_s,
+            reason=(
+                f"{pressure_mode} synchronized route flush stage={stage_label or self._current_valve_route_state_text()} "
+                f"recovery_attempt={int(recovery_attempt)}"
+            ),
+        )
+        if point is not None:
+            self._copy_atmosphere_gate_summary_to_runtime(point, phase=phase_text, summary=summary)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage="route_open_fresh_vent_end",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} pressure_mode={pressure_mode} "
+                f"recovery_attempt={int(recovery_attempt)} "
+                f"abort_reason={summary.get('abort_reason') or ''}"
+            ),
+        )
+        result = dict(summary)
+        result["pre_existing_error_drained"] = bool(drained_errors)
+        result["drained_errors"] = drained_errors
+        return result
+
+    def _continuous_atmosphere_quick_vent1_refresh(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        point_tag: str,
+        stage_label: str,
+        log_context: str,
+        recovery_attempt: int,
+        pressure_before: Optional[Mapping[str, Any]] = None,
+        sample_pressure_after: bool = True,
+        query_vent_status: bool = True,
+        read_system_error: bool = True,
+    ) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        if not pace:
+            return {}
+        phase_text = str(phase or "").strip().lower()
+        pressure_mode = self._route_flush_pressure_mode(phase_text)
+        open_route_ready, open_route_state = self._continuous_atmosphere_open_route_pace_state(pace)
+        if not open_route_ready:
+            abort_reason = "ContinuousAtmosphereKeepaliveNotOpenRoute"
+            summary = {
+                "fresh_vent_command_sent": False,
+                "continuous_atmosphere_quick_refresh": True,
+                "vent_status_sequence": [],
+                "vent_status_sequence_text": "",
+                "fresh_vent_completed": False,
+                "atmosphere_ready": False,
+                "abort_reason": abort_reason,
+                "pressure_mode": pressure_mode,
+                **open_route_state,
+            }
+            if point is not None:
+                self._set_point_runtime_fields(point, phase=phase_text, abort_reason=abort_reason, **open_route_state)
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                point_tag=point_tag,
+                trace_stage="continuous_atmosphere_vent1_refresh_blocked",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+                offending_route=self._current_valve_route_state_text(),
+                offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+                pace_output_state=open_route_state.get("pace_output_state"),
+                pace_isolation_state=open_route_state.get("pace_isolation_state"),
+                refresh_pace_state=False,
+                note=(
+                    f"context={log_context} pressure_mode={pressure_mode} "
+                    "blocked because PACE is not OUTP=0 / ISOL=1"
+                ),
+            )
+            return summary
+
+        vent_status_sequence: List[int] = []
+        pace_syst_err_query = ""
+        abort_reason = ""
+        command_sent = False
+        try:
+            vent_command = getattr(pace, "vent", None)
+            if not callable(vent_command):
+                raise RuntimeError("VENT_COMMAND_UNAVAILABLE")
+            vent_command(True)
+            command_sent = True
+            if read_system_error:
+                pace_syst_err_query = str(self._read_pace_system_error_text() or "").strip()
+            if pace_syst_err_query and not self._pace_system_error_is_clear(pace_syst_err_query):
+                abort_reason = "PaceSystemError"
+            vent_status_getter = getattr(pace, "get_vent_status", None)
+            if query_vent_status and callable(vent_status_getter):
+                try:
+                    vent_status = self._as_int(vent_status_getter())
+                    if vent_status is not None:
+                        vent_status_sequence.append(int(vent_status))
+                except Exception:
+                    pass
+        except Exception as exc:
+            abort_reason = "FreshVentNotSent"
+            pace_syst_err_query = str(pace_syst_err_query or exc)
+            self.log(f"Continuous atmosphere quick VENT 1 refresh failed ({log_context}): {exc}")
+
+        sample_after_values: Dict[str, Any] = {}
+        if sample_pressure_after:
+            try:
+                sample_after_values = dict(self._read_current_pressure_hpa_for_atmosphere() or {})
+            except Exception:
+                sample_after_values = {}
+        pressure_before_hpa = self._as_float(
+            (pressure_before or {}).get("pressure_hpa") if isinstance(pressure_before, Mapping) else None
+        )
+        pressure_after_hpa = self._as_float(sample_after_values.get("pressure_hpa"))
+        if pressure_after_hpa is None:
+            pressure_after_hpa = pressure_before_hpa
+        ambient_hpa = self._as_float((self._last_atmosphere_gate_summary or {}).get("ambient_hpa"))
+        if ambient_hpa is None:
+            ambient_hpa = self._as_float(sample_after_values.get("ambient_hpa"))
+        pressure_delta = (
+            None
+            if pressure_after_hpa is None or ambient_hpa is None
+            else float(pressure_after_hpa) - float(ambient_hpa)
+        )
+        vent_status_text = ",".join(str(value) for value in vent_status_sequence)
+        summary = {
+            "fresh_vent_command_sent": bool(command_sent),
+            "continuous_atmosphere_quick_refresh": True,
+            "vent_status_sequence": list(vent_status_sequence),
+            "vent_status_sequence_text": vent_status_text,
+            "fresh_vent_completed": False,
+            "atmosphere_ready": False,
+            "pace_syst_err_query": pace_syst_err_query,
+            "abort_reason": abort_reason,
+            "pressure_hpa": pressure_after_hpa,
+            "pressure_gauge_hpa": self._as_float(sample_after_values.get("pressure_gauge_hpa")),
+            "pace_pressure_hpa": self._as_float(sample_after_values.get("pace_pressure_hpa")),
+            "ambient_hpa": ambient_hpa,
+            "pressure_delta_from_ambient_hpa": pressure_delta,
+            "pressure_before_vent_hpa": pressure_before_hpa,
+            "pressure_mode": pressure_mode,
+            **open_route_state,
+        }
+        if point is not None:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                fresh_vent_command_sent=bool(command_sent),
+                vent_status_sequence=vent_status_text,
+                pressure_hpa=pressure_after_hpa,
+                ambient_hpa=ambient_hpa,
+                pressure_delta_from_ambient_hpa=pressure_delta,
+                atmosphere_ready=False,
+                abort_reason=abort_reason,
+                pace_syst_err_query=pace_syst_err_query,
+            )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage="continuous_atmosphere_vent1_refresh",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            pressure_gauge_hpa=summary.get("pressure_gauge_hpa"),
+            pace_pressure_hpa=summary.get("pace_pressure_hpa"),
+            pace_output_state=open_route_state.get("pace_output_state"),
+            pace_isolation_state=open_route_state.get("pace_isolation_state"),
+            pace_vent_status=vent_status_sequence[-1] if vent_status_sequence else None,
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} pressure_mode={pressure_mode} "
+                f"recovery_attempt={int(recovery_attempt)} "
+                f"delta_hpa={pressure_delta} abort_reason={abort_reason}"
+            ),
+        )
+        return summary
+
+    def _route_stage_flowthrough_vent_refresh(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        point_tag: str,
+        stage_label: str,
+        log_context: str,
+        recovery_attempt: int,
+        pressure_before: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        state = self._continuous_atmosphere_state_snapshot()
+        if (
+            self._route_flush_pressure_mode(phase_text) == self._PRESSURE_MODE_ATMOSPHERE_FLUSH
+            and bool(state.get("background_keepalive_active"))
+        ):
+            return self._continuous_atmosphere_quick_vent1_refresh(
+                point,
+                phase=phase_text,
+                point_tag=point_tag,
+                stage_label=stage_label,
+                log_context=log_context,
+                recovery_attempt=recovery_attempt,
+                pressure_before=pressure_before,
+                sample_pressure_after=True,
+                query_vent_status=False,
+                read_system_error=True,
+            )
+        return self._route_stage_fresh_vent_refresh(
+            point,
+            phase=phase_text,
+            point_tag=point_tag,
+            stage_label=stage_label,
+            log_context=log_context,
+            recovery_attempt=recovery_attempt,
+        )
+
+    def _run_continuous_atmosphere_vent_burst(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        point_tag: str,
+        route_key: str,
+        phase_name: str,
+        stage_label: str,
+        log_context: str,
+        trace_prefix: str,
+        count: int = 0,
+        window_s: float = 0.0,
+        interval_s: float = 0.2,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        phase_text = str(phase or "").strip().lower()
+        pressure_mode = self._route_flush_pressure_mode(phase_text)
+        attempts_limit = max(0, int(count or 0))
+        window = max(0.0, float(window_s or 0.0))
+        interval = max(0.1, float(interval_s or 0.0))
+        if attempts_limit <= 0 and window <= 0.0:
+            return True, {
+                "burst_status": "skipped",
+                "burst_reason": "disabled",
+                "burst_attempt_count": 0,
+            }
+        if pressure_mode != self._PRESSURE_MODE_ATMOSPHERE_FLUSH:
+            return True, {
+                "burst_status": "skipped",
+                "burst_reason": "not_atmosphere_flush",
+                "burst_attempt_count": 0,
+                "pressure_mode": pressure_mode,
+            }
+
+        if attempts_limit <= 0:
+            attempts_limit = max(1, int(math.floor(window / interval)) + 1)
+        attempts_limit = max(1, attempts_limit)
+        trace_name = str(trace_prefix or "continuous_atmosphere_vent_burst").strip()
+        started = time.monotonic()
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage=f"{trace_name}_begin",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} pressure_mode={pressure_mode} "
+                f"count={int(count or 0)} window_s={window:.3f} interval_s={interval:.3f}"
+            ),
+        )
+        ok = True
+        state: Dict[str, Any] = {}
+        attempts = 0
+        abort_reason = ""
+        for attempt_index in range(attempts_limit):
+            if attempt_index > 0 and window > 0.0 and (time.monotonic() - started) > window:
+                break
+            if self.stop_event.is_set():
+                break
+            attempts += 1
+            ok, state = self.maintain_continuous_atmosphere_flowthrough(
+                route_key,
+                point=point,
+                phase=phase_text,
+                point_tag=point_tag,
+                phase_name=phase_name,
+                reason=f"{log_context} {trace_name} attempt {attempts}",
+                stage_label=stage_label,
+                force=True,
+                quick=True,
+                abort_on_pressure_delta=False,
+                read_pressure_before=False,
+                quick_sample_after=False,
+                quick_query_vent_status=False,
+                quick_read_system_error=False,
+            )
+            if not ok:
+                abort_reason = str(state.get("abort_reason") or "AtmospherePathInsufficientUnderFlow")
+                break
+            if attempt_index < attempts_limit - 1:
+                if window > 0.0:
+                    remaining = window - (time.monotonic() - started)
+                    if remaining <= 0.0:
+                        break
+                    time.sleep(min(interval, max(0.0, remaining)))
+                else:
+                    time.sleep(interval)
+        elapsed_s = round(max(0.0, time.monotonic() - started), 3)
+        summary = {
+            "burst_status": "fail" if abort_reason else "pass",
+            "burst_reason": abort_reason,
+            "burst_attempt_count": attempts,
+            "burst_elapsed_s": elapsed_s,
+            "pressure_mode": pressure_mode,
+            "continuous_atmosphere_state": dict(state or self._continuous_atmosphere_state_snapshot()),
+        }
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage=f"{trace_name}_end",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} status={summary['burst_status']} "
+                f"attempts={attempts} elapsed_s={elapsed_s:.3f} abort_reason={abort_reason}"
+            ),
+        )
+        return ok, summary
+
+    def _run_route_open_pressure_guard(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        log_context: str,
+        point_tag: str = "",
+        stage_label: str = "",
+    ) -> Tuple[bool, Dict[str, Any]]:
+        cfg = self._route_open_pressure_guard_cfg()
+        phase_text = str(phase or "").strip().lower()
+        pressure_mode = self._route_flush_pressure_mode(phase_text)
+        route_key = self._source_stage_key_for_point(point, phase=phase_text) or phase_text
+        final_stage_valve = self._route_final_stage_valve_for_point(point, phase=phase_text)
+        current_open_valves = {int(value) for value in list(self._current_open_valves or ())}
+        flow_phase_name = "SynchronizedAtmosphereFlush"
+        if current_open_valves:
+            flow_phase_name = (
+                "FinalStageAtmosphereSafetyGate"
+                if final_stage_valve is not None and int(final_stage_valve) in current_open_valves
+                else "ContinuousAtmosphereFlowThrough"
+            )
+        allow_vent_recovery = pressure_mode == self._PRESSURE_MODE_ATMOSPHERE_FLUSH
+        if not bool(cfg.get("enabled")):
+            summary = {
+                "route_pressure_guard_status": "skipped",
+                "route_pressure_guard_reason": "disabled",
+                "offending_route": self._current_valve_route_state_text(),
+                "offending_valve_or_group": str(stage_label or self._current_valve_route_state_text()),
+            }
+            self._last_route_pressure_guard_summary = dict(summary)
+            if point is not None:
+                self._set_point_runtime_fields(point, phase=phase_text, **summary)
+            return True, summary
+
+        atmosphere_summary = dict(self._last_atmosphere_gate_summary or {})
+        ambient_hpa = self._as_float(atmosphere_summary.get("ambient_hpa"))
+        guard_started_ts = time.time()
+        pressure_rows: List[Tuple[float, float]] = []
+        analyzer_warning_logged = False
+        recovery_attempts = 0
+        recovery_result = ""
+        continuous_keepalive_refreshes = 0
+        continuous_event_keepalive_refreshes = 0
+        continuous_keepalive_trigger_reason = ""
+        pressure_before_refresh = None
+        last_refresh_summary = self._route_stage_flowthrough_vent_refresh(
+            point,
+            phase=phase_text,
+            point_tag=point_tag,
+            stage_label=stage_label,
+            log_context=log_context,
+            recovery_attempt=0,
+        )
+        self._record_continuous_atmosphere_keepalive_summary(
+            route_key=route_key,
+            point=point,
+            phase=phase_text,
+            phase_name=flow_phase_name,
+            reason=f"{log_context} initial fresh vent",
+            summary=last_refresh_summary,
+            pressure_before=pressure_before_refresh,
+        )
+        if ambient_hpa is None:
+            ambient_hpa = self._as_float(last_refresh_summary.get("ambient_hpa"))
+        initial_refresh_pressure = self._as_float(last_refresh_summary.get("pressure_hpa"))
+        terminal_refresh_abort = str(last_refresh_summary.get("abort_reason") or "").strip()
+        if terminal_refresh_abort in {
+            "FreshVentNotSent",
+            "FreshVentNotCompleted",
+            "AmbientReferenceUnavailable",
+            "PressureUnavailable",
+            "PaceSystemError",
+            "ContinuousAtmosphereKeepaliveNotOpenRoute",
+        }:
+            summary = {
+                "route_pressure_guard_status": "fail",
+                "route_pressure_guard_reason": terminal_refresh_abort,
+                "offending_route": self._current_valve_route_state_text(),
+                "offending_valve_or_group": str(stage_label or self._current_valve_route_state_text()),
+                "pressure_start_hpa": initial_refresh_pressure,
+                "pressure_end_hpa": initial_refresh_pressure,
+                "pressure_peak_hpa": initial_refresh_pressure,
+                "pressure_hpa": initial_refresh_pressure,
+                "ambient_hpa": ambient_hpa,
+                "pressure_delta_from_ambient_hpa": self._as_float(
+                    last_refresh_summary.get("pressure_delta_from_ambient_hpa")
+                ),
+                "pressure_slope_hpa_s": self._as_float(last_refresh_summary.get("pressure_slope_hpa_s")),
+                "analyzer_pressure_kpa": None,
+                "analyzer_pressure_available": False,
+                "analyzer_pressure_protection_active": False,
+                "analyzer_pressure_status": "unavailable",
+                "dewpoint_line_pressure_hpa": None,
+                "pace_syst_err_query": str(last_refresh_summary.get("pace_syst_err_query") or ""),
+                "abort_reason": terminal_refresh_abort,
+                "guard_elapsed_s": round(max(0.0, time.time() - guard_started_ts), 3),
+                "pressure_span_hpa": self._as_float(last_refresh_summary.get("pressure_span_hpa")),
+                "pressure_sample_count": int(last_refresh_summary.get("pressure_sample_count") or len(pressure_rows)),
+                "vent_recovery_attempted": False,
+                "vent_recovery_count": 0,
+                "vent_recovery_result": "",
+                "continuous_keepalive_refresh_count": continuous_keepalive_refreshes,
+                "continuous_event_keepalive_refresh_count": continuous_event_keepalive_refreshes,
+                "continuous_keepalive_trigger_reason": continuous_keepalive_trigger_reason,
+                "fresh_vent_command_sent": bool(last_refresh_summary.get("fresh_vent_command_sent")),
+                "vent_status_sequence": str(last_refresh_summary.get("vent_status_sequence_text") or ""),
+                **self._pace_error_attribution_counts(),
+            }
+            self._last_route_pressure_guard_summary = dict(summary)
+            if point is not None:
+                self._set_point_runtime_fields(point, phase=phase_text, **summary)
+            self._route_open_guard_abort(
+                point,
+                phase=phase_text,
+                abort_reason=terminal_refresh_abort,
+                log_context=log_context,
+                state_payload=summary,
+            )
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                point_tag=point_tag,
+                trace_stage="route_open_pressure_guard_end",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+                route_pressure_guard_status="fail",
+                route_pressure_guard_reason=terminal_refresh_abort,
+                offending_route=summary["offending_route"],
+                offending_valve_or_group=summary["offending_valve_or_group"],
+                refresh_pace_state=False,
+                note=f"context={log_context} result=abort abort_reason={terminal_refresh_abort}",
+            )
+            return False, summary
+        summary: Dict[str, Any] = {
+            "route_pressure_guard_status": "running",
+            "route_pressure_guard_reason": "",
+            "offending_route": self._current_valve_route_state_text(),
+            "offending_valve_or_group": str(stage_label or self._current_valve_route_state_text()),
+            "pressure_start_hpa": None,
+            "pressure_end_hpa": None,
+            "pressure_peak_hpa": None,
+            "pressure_hpa": None,
+            "ambient_hpa": ambient_hpa,
+            "pressure_delta_from_ambient_hpa": None,
+            "pressure_slope_hpa_s": None,
+            "analyzer_pressure_kpa": None,
+            "analyzer_pressure_available": False,
+            "analyzer_pressure_protection_active": False,
+            "analyzer_pressure_status": "unavailable",
+            "dewpoint_line_pressure_hpa": None,
+            "pace_syst_err_query": "",
+            "abort_reason": "",
+            "vent_recovery_attempted": False,
+            "vent_recovery_count": 0,
+            "vent_recovery_result": "",
+            "continuous_keepalive_refresh_count": continuous_keepalive_refreshes,
+            "continuous_event_keepalive_refresh_count": continuous_event_keepalive_refreshes,
+            "continuous_keepalive_trigger_reason": continuous_keepalive_trigger_reason,
+            "fresh_vent_command_sent": bool(last_refresh_summary.get("fresh_vent_command_sent")),
+            "vent_status_sequence": str(last_refresh_summary.get("vent_status_sequence_text") or ""),
+            **self._pace_error_attribution_counts(),
+        }
+        if point is not None:
+            self._set_point_runtime_fields(point, phase=phase_text, **summary)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage="route_open_pressure_guard_begin",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            route_pressure_guard_status="running",
+            offending_route=summary["offending_route"],
+            offending_valve_or_group=summary["offending_valve_or_group"],
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} monitor_s={float(cfg['monitor_s']):.3f} "
+                f"poll_s={float(cfg['poll_s']):.3f} ambient_hpa={ambient_hpa} "
+                f"pressure_mode={pressure_mode}"
+            ),
+        )
+
+        deadline = time.monotonic() + float(cfg["monitor_s"])
+        min_guard_samples = max(2, int(cfg["pressure_rising_fail_min_samples"] or 0))
+        pending_sample: Optional[Dict[str, Any]] = None
+        if initial_refresh_pressure is not None:
+            pending_sample = {
+                "pressure_hpa": initial_refresh_pressure,
+                "pace_pressure_hpa": self._as_float(last_refresh_summary.get("pace_pressure_hpa")),
+                "pressure_gauge_hpa": self._as_float(last_refresh_summary.get("pressure_gauge_hpa")),
+            }
+        while True:
+            if pending_sample is not None:
+                sample = dict(pending_sample)
+                pending_sample = None
+            else:
+                sample = self._read_current_pressure_hpa_for_atmosphere()
+            pressure_hpa = self._as_float(sample.get("pressure_hpa"))
+            if pressure_hpa is not None:
+                pressure_rows.append((time.monotonic(), float(pressure_hpa)))
+            metrics = self._numeric_series_metrics(list(pressure_rows))
+            pressure_delta = None if pressure_hpa is None or ambient_hpa is None else float(pressure_hpa) - float(ambient_hpa)
+            rising_assessment = self._pressure_rising_assessment(
+                metrics=metrics,
+                pressure_delta_hpa=pressure_delta,
+                slope_max_hpa_s=float(cfg["pressure_rising_slope_max_hpa_s"]),
+                min_delta_hpa=float(cfg["pressure_rising_min_delta_hpa"]),
+                min_samples=int(cfg["pressure_rising_fail_min_samples"]),
+                grace_delta_hpa=float(cfg["pressure_rising_grace_delta_hpa"]),
+                hard_fail_min_rise_hpa=float(cfg["pressure_rising_fail_min_rise_hpa"]),
+            )
+            pressure_slope = self._as_float(rising_assessment.get("pressure_slope_hpa_s"))
+            pressure_first = self._as_float(rising_assessment.get("pressure_first_hpa"))
+            pressure_last = self._as_float(rising_assessment.get("pressure_last_hpa"))
+            pressure_rise = self._as_float(rising_assessment.get("pressure_rise_hpa"))
+
+            analyzer_pressure_kpa, analyzer_label = self._read_route_guard_analyzer_pressure_kpa()
+            analyzer_pressure_available = analyzer_pressure_kpa is not None
+            analyzer_pressure_status = "unavailable"
+            if analyzer_pressure_available:
+                if analyzer_pressure_kpa >= float(cfg["analyzer_abort_kpa"]):
+                    analyzer_pressure_status = "abort"
+                elif analyzer_pressure_kpa >= float(cfg["analyzer_warning_kpa"]):
+                    analyzer_pressure_status = "warning"
+                else:
+                    analyzer_pressure_status = "ok"
+            dewpoint_line_pressure_hpa = self._read_route_guard_dewpoint_line_pressure_hpa()
+            abort_reason = ""
+            guard_reason = ""
+            needs_vent_recovery = False
+            if ambient_hpa is None:
+                abort_reason = "AmbientReferenceUnavailable"
+                guard_reason = abort_reason
+            elif pressure_hpa is None:
+                abort_reason = "PressureUnavailable"
+                guard_reason = abort_reason
+            elif (
+                dewpoint_line_pressure_hpa is not None
+                and (float(dewpoint_line_pressure_hpa) - float(ambient_hpa)) > float(cfg["dewpoint_line_tolerance_hpa"])
+            ):
+                abort_reason = "RouteOpenPressureRise"
+                guard_reason = "DewpointLinePressureHigh"
+            elif analyzer_pressure_kpa is not None and analyzer_pressure_kpa >= float(cfg["analyzer_abort_kpa"]):
+                abort_reason = "RouteOpenPressureRise"
+                guard_reason = "AnalyzerPressureTooHigh"
+            else:
+                over_tolerance = bool(
+                    pressure_delta is not None and pressure_delta > float(cfg["pressure_tolerance_hpa"])
+                )
+                over_recovery_trigger = bool(
+                    pressure_delta is not None and pressure_delta > float(cfg["recovery_trigger_delta_hpa"])
+                )
+                pressure_rising = bool(rising_assessment.get("pressure_rising"))
+                if over_tolerance or pressure_rising:
+                    if allow_vent_recovery and recovery_attempts < int(cfg["vent_recovery_attempts"]):
+                        needs_vent_recovery = True
+                        guard_reason = (
+                            "PressureAboveRecoveryTrigger"
+                            if over_recovery_trigger
+                            else ("PressureRisingDuringFlush" if pressure_rising else "AtmosphereLostAfterRouteOpen")
+                        )
+                    else:
+                        if recovery_attempts > 0:
+                            abort_reason = "RouteVentPathNotEffective"
+                        elif over_tolerance:
+                            abort_reason = "AtmosphereLostAfterRouteOpen"
+                        else:
+                            abort_reason = "RouteOpenPressureRise"
+                        guard_reason = abort_reason
+
+            if (
+                analyzer_pressure_kpa is not None
+                and analyzer_pressure_kpa >= float(cfg["analyzer_warning_kpa"])
+                and not analyzer_warning_logged
+            ):
+                analyzer_warning_logged = True
+                self.log(
+                    "Route-open analyzer pressure warning: "
+                    f"context={log_context} analyzer={analyzer_label or 'unknown'} "
+                    f"pressure_kpa={analyzer_pressure_kpa:.3f}"
+                )
+
+            pace_syst_err_query = str(self._read_pace_system_error_text() or "").strip()
+            if not self._pace_system_error_is_clear(pace_syst_err_query):
+                drained_unclassified = self._drain_pace_system_errors(
+                    reason=f"{log_context} stage={stage_label or self._current_valve_route_state_text()} route-guard syst err",
+                    classification="unclassified_route_stage_error",
+                    action="abort_route_stage",
+                    command=f"route_guard:{stage_label or self._current_valve_route_state_text()}",
+                    response=pace_syst_err_query,
+                    unclassified_syst_err=True,
+                )
+                if not drained_unclassified:
+                    self._record_pace_error_attribution(
+                        classification="unclassified_route_stage_error",
+                        action="abort_route_stage",
+                        syst_err=pace_syst_err_query,
+                        command=f"route_guard:{stage_label or self._current_valve_route_state_text()}",
+                        response=pace_syst_err_query,
+                        reason=(
+                            f"{log_context} stage={stage_label or self._current_valve_route_state_text()} "
+                            "route-guard query"
+                        ),
+                        unclassified_syst_err=True,
+                    )
+                abort_reason = "UnclassifiedPaceSystErrDuringRouteStage"
+                guard_reason = abort_reason
+
+            summary = {
+                "route_pressure_guard_status": "fail" if abort_reason else "pass",
+                "route_pressure_guard_reason": guard_reason,
+                "offending_route": self._current_valve_route_state_text(),
+                "offending_valve_or_group": str(stage_label or self._current_valve_route_state_text()),
+                "pressure_start_hpa": pressure_first,
+                "pressure_end_hpa": pressure_last if pressure_last is not None else pressure_hpa,
+                "pressure_peak_hpa": self._as_float(metrics.get("max_value")),
+                "pressure_hpa": pressure_hpa,
+                "ambient_hpa": ambient_hpa,
+                "pressure_delta_from_ambient_hpa": pressure_delta,
+                "pressure_slope_hpa_s": pressure_slope,
+                "analyzer_pressure_kpa": analyzer_pressure_kpa,
+                "analyzer_pressure_available": analyzer_pressure_available,
+                "analyzer_pressure_protection_active": analyzer_pressure_available,
+                "analyzer_pressure_status": analyzer_pressure_status,
+                "dewpoint_line_pressure_hpa": dewpoint_line_pressure_hpa,
+                "pace_syst_err_query": pace_syst_err_query,
+                "abort_reason": abort_reason,
+                "guard_elapsed_s": round(max(0.0, time.time() - guard_started_ts), 3),
+                "pressure_span_hpa": self._as_float(metrics.get("span")),
+                "pressure_sample_count": int(metrics.get("count") or len(pressure_rows)),
+                "vent_recovery_attempted": recovery_attempts > 0,
+                "vent_recovery_count": recovery_attempts,
+                "vent_recovery_result": recovery_result,
+                "continuous_keepalive_refresh_count": continuous_keepalive_refreshes,
+                "continuous_event_keepalive_refresh_count": continuous_event_keepalive_refreshes,
+                "continuous_keepalive_trigger_reason": continuous_keepalive_trigger_reason,
+                "fresh_vent_command_sent": bool(last_refresh_summary.get("fresh_vent_command_sent")),
+                "vent_status_sequence": str(last_refresh_summary.get("vent_status_sequence_text") or ""),
+                **self._pace_error_attribution_counts(),
+            }
+            self._last_route_pressure_guard_summary = dict(summary)
+            if point is not None:
+                self._set_point_runtime_fields(point, phase=phase_text, **summary)
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                point_tag=point_tag,
+                trace_stage="route_open_pressure_guard_sample",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+                analyzer_pressure_kpa=analyzer_pressure_kpa,
+                dewpoint_line_pressure_hpa=dewpoint_line_pressure_hpa,
+                route_pressure_guard_status="running" if not abort_reason else "fail",
+                route_pressure_guard_reason=guard_reason,
+                offending_route=summary["offending_route"],
+                offending_valve_or_group=summary["offending_valve_or_group"],
+                pace_pressure_hpa=self._as_float(sample.get("pace_pressure_hpa")),
+                pressure_gauge_hpa=self._as_float(sample.get("pressure_gauge_hpa")),
+                refresh_pace_state=False,
+                note=(
+                    f"context={log_context} elapsed_s={summary['guard_elapsed_s']:.3f} "
+                    f"analyzer={analyzer_label or ''} pressure_mode={pressure_mode} "
+                    f"recovery_attempts={recovery_attempts}"
+                ),
+            )
+            guard_window_complete = time.monotonic() >= deadline and len(pressure_rows) >= min_guard_samples
+            event_keepalive_reason = ""
+            if allow_vent_recovery:
+                event_keepalive_reason = self._continuous_atmosphere_keepalive_event_reason(
+                    pressure_delta_hpa=pressure_delta,
+                    pressure_rise_hpa=pressure_rise,
+                    analyzer_pressure_status=analyzer_pressure_status,
+                )
+            keepalive_due = self._continuous_atmosphere_keepalive_due()
+            if (
+                not abort_reason
+                and not needs_vent_recovery
+                and not guard_window_complete
+                and (keepalive_due or bool(event_keepalive_reason))
+            ):
+                continuous_keepalive_trigger_reason = (
+                    event_keepalive_reason if event_keepalive_reason else "heartbeat_interval"
+                )
+                keepalive_ok, keepalive_state = self.maintain_continuous_atmosphere_flowthrough(
+                    route_key,
+                    point=point,
+                    phase=phase_text,
+                    point_tag=point_tag,
+                    phase_name=flow_phase_name,
+                    reason=f"{log_context} route-open {continuous_keepalive_trigger_reason} keepalive",
+                    stage_label=stage_label,
+                    force=True,
+                    quick=True,
+                    abort_on_pressure_delta=False,
+                    read_pressure_before=False,
+                    quick_sample_after=False,
+                    quick_query_vent_status=False,
+                    quick_read_system_error=False,
+                )
+                last_keepalive_summary = dict(keepalive_state.get("last_keepalive_summary") or {})
+                if bool(last_keepalive_summary.get("fresh_vent_command_sent")):
+                    continuous_keepalive_refreshes += 1
+                    if event_keepalive_reason:
+                        continuous_event_keepalive_refreshes += 1
+                    last_refresh_summary = dict(last_keepalive_summary)
+                summary["continuous_keepalive_refresh_count"] = continuous_keepalive_refreshes
+                summary["continuous_event_keepalive_refresh_count"] = continuous_event_keepalive_refreshes
+                summary["continuous_keepalive_trigger_reason"] = continuous_keepalive_trigger_reason
+                summary["fresh_vent_command_sent"] = bool(last_refresh_summary.get("fresh_vent_command_sent"))
+                summary["vent_status_sequence"] = str(last_refresh_summary.get("vent_status_sequence_text") or "")
+                if not keepalive_ok:
+                    abort_reason = str(
+                        keepalive_state.get("abort_reason")
+                        or last_keepalive_summary.get("abort_reason")
+                        or "AtmospherePathInsufficientUnderFlow"
+                    )
+                    guard_reason = abort_reason
+                    summary["abort_reason"] = abort_reason
+                    summary["route_pressure_guard_status"] = "fail"
+                    summary["route_pressure_guard_reason"] = guard_reason
+                    self._last_route_pressure_guard_summary = dict(summary)
+                else:
+                    if ambient_hpa is None:
+                        ambient_hpa = self._as_float(last_keepalive_summary.get("ambient_hpa"))
+                    refreshed_pressure = self._as_float(last_keepalive_summary.get("pressure_hpa"))
+                    if refreshed_pressure is not None:
+                        pending_sample = {
+                            "pressure_hpa": refreshed_pressure,
+                            "pace_pressure_hpa": self._as_float(last_keepalive_summary.get("pace_pressure_hpa")),
+                            "pressure_gauge_hpa": self._as_float(last_keepalive_summary.get("pressure_gauge_hpa")),
+                        }
+                    self._last_route_pressure_guard_summary = dict(summary)
+                    continue
+            if needs_vent_recovery:
+                recovery_attempts += 1
+                pressure_before_refresh = dict(sample or {})
+                last_refresh_summary = self._route_stage_flowthrough_vent_refresh(
+                    point,
+                    phase=phase_text,
+                    point_tag=point_tag,
+                    stage_label=stage_label,
+                    log_context=log_context,
+                    recovery_attempt=recovery_attempts,
+                    pressure_before=pressure_before_refresh,
+                )
+                self._record_continuous_atmosphere_keepalive_summary(
+                    route_key=route_key,
+                    point=point,
+                    phase=phase_text,
+                    phase_name=flow_phase_name,
+                    reason=f"{log_context} recovery vent",
+                    summary=last_refresh_summary,
+                    pressure_before=pressure_before_refresh,
+                )
+                if ambient_hpa is None:
+                    ambient_hpa = self._as_float(last_refresh_summary.get("ambient_hpa"))
+                refreshed_pressure = self._as_float(last_refresh_summary.get("pressure_hpa"))
+                if refreshed_pressure is not None:
+                    pending_sample = {
+                        "pressure_hpa": refreshed_pressure,
+                        "pace_pressure_hpa": self._as_float(last_refresh_summary.get("pace_pressure_hpa")),
+                        "pressure_gauge_hpa": self._as_float(last_refresh_summary.get("pressure_gauge_hpa")),
+                    }
+                recovery_result = "vent_refresh_recovered" if not last_refresh_summary.get("abort_reason") else ""
+                terminal_refresh_abort = str(last_refresh_summary.get("abort_reason") or "").strip()
+                if terminal_refresh_abort in {
+                    "FreshVentNotSent",
+                    "FreshVentNotCompleted",
+                    "AmbientReferenceUnavailable",
+                    "PressureUnavailable",
+                    "PaceSystemError",
+                    "ContinuousAtmosphereKeepaliveNotOpenRoute",
+                }:
+                    abort_reason = terminal_refresh_abort
+                    summary["abort_reason"] = abort_reason
+                    summary["route_pressure_guard_status"] = "fail"
+                    summary["route_pressure_guard_reason"] = abort_reason
+                else:
+                    continue
+            if abort_reason:
+                if recovery_attempts > 0:
+                    summary["vent_recovery_result"] = "vent_refresh_failed"
+                self._route_open_guard_abort(
+                    point,
+                    phase=phase_text,
+                    abort_reason=abort_reason,
+                    log_context=log_context,
+                    state_payload=summary,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase_text,
+                    point_phase=phase_text,
+                    point_tag=point_tag,
+                    trace_stage="route_open_pressure_guard_end",
+                    pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+                    analyzer_pressure_kpa=analyzer_pressure_kpa,
+                    dewpoint_line_pressure_hpa=dewpoint_line_pressure_hpa,
+                    route_pressure_guard_status="fail",
+                    route_pressure_guard_reason=guard_reason,
+                    offending_route=summary["offending_route"],
+                    offending_valve_or_group=summary["offending_valve_or_group"],
+                    refresh_pace_state=False,
+                    note=f"context={log_context} result=abort abort_reason={abort_reason}",
+                )
+                return False, summary
+            if guard_window_complete:
+                break
+            if self.stop_event.is_set():
+                break
+            time.sleep(float(cfg["poll_s"]))
+
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage="route_open_pressure_guard_end",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            analyzer_pressure_kpa=summary.get("analyzer_pressure_kpa"),
+            dewpoint_line_pressure_hpa=summary.get("dewpoint_line_pressure_hpa"),
+            route_pressure_guard_status="pass",
+            route_pressure_guard_reason="",
+            offending_route=summary["offending_route"],
+            offending_valve_or_group=summary["offending_valve_or_group"],
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} result=pass pressure_mode={pressure_mode} "
+                f"recovery_result={recovery_result or 'none'}"
+            ),
+        )
+        if recovery_attempts > 0:
+            summary["vent_recovery_result"] = recovery_result or "vent_refresh_recovered"
+        return True, summary
+
+    def _superambient_precharge_cfg(self) -> Dict[str, Any]:
+        return {
+            "enabled": bool(self._wf("workflow.pressure.superambient_precharge_enabled", False)),
+            "trigger_margin_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.superambient_trigger_margin_hpa", 5.0) or 5.0),
+            ),
+            "precharge_margin_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.superambient_precharge_margin_hpa", 8.0) or 8.0),
+            ),
+            "timeout_s": max(
+                0.1,
+                float(self._wf("workflow.pressure.superambient_precharge_timeout_s", 30.0) or 30.0),
+            ),
+            "same_gas_only": bool(self._wf("workflow.pressure.superambient_precharge_same_gas_only", True)),
+            "reject_without_closed_path": bool(
+                self._wf("workflow.pressure.superambient_reject_without_closed_path", True)
+            ),
+            "forbid_atmosphere_fallback": bool(
+                self._wf("workflow.pressure.superambient_forbid_atmosphere_fallback", True)
+            ),
+        }
+
+    def _clear_pressure_sequence_context(self, *, reason: str = "") -> None:
+        self._active_pressure_sequence_context = None
+        self._pressure_sequence_ambient_reference_hpa = None
+
+    def _record_pressure_sequence_context(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str = "",
+    ) -> Optional[float]:
+        pressure_now, _source = self._current_ambient_reference_candidate_hpa()
+        ambient_reference_hpa = None if pressure_now is None else float(pressure_now)
+        if ambient_reference_hpa is None:
+            ambient_reference_hpa = self._as_float(self._atmosphere_reference_hpa)
+        elif math.isfinite(ambient_reference_hpa):
+            self._atmosphere_reference_hpa = float(ambient_reference_hpa)
+        self._pressure_sequence_ambient_reference_hpa = ambient_reference_hpa
+        self._active_pressure_sequence_context = {
+            "phase": str(phase or "").strip().lower(),
+            "route_signature": self._route_signature_for_point(point, phase=phase),
+            "point_row": int(point.index),
+            "ambient_reference_hpa": ambient_reference_hpa,
+            "recorded_wall_ts": time.time(),
+            "reason": str(reason or ""),
+        }
+        self._clear_pressure_sequence_completed_vent_latch_if_present(
+            point,
+            phase=phase,
+            reason=reason,
+        )
+        return ambient_reference_hpa
+
+    def _resolve_superambient_ambient_reference_hpa(self) -> Tuple[Optional[float], str]:
+        barometric_hpa, barometric_source = self._read_pace_barometric_reference_hpa()
+        if barometric_hpa is not None:
+            return barometric_hpa, barometric_source
+        atmosphere_reference_hpa = self._as_float(self._atmosphere_reference_hpa)
+        if atmosphere_reference_hpa is not None:
+            return atmosphere_reference_hpa, "latest_atmosphere_verified"
+        sequence_reference_hpa = self._as_float(self._pressure_sequence_ambient_reference_hpa)
+        if sequence_reference_hpa is not None:
+            return sequence_reference_hpa, "pressure_sequence_start"
+        context = dict(self._active_pressure_sequence_context or {})
+        context_reference_hpa = self._as_float(context.get("ambient_reference_hpa"))
+        if context_reference_hpa is not None:
+            return context_reference_hpa, "pressure_sequence_context"
+        return None, "unavailable"
+
+    def _resolve_pressure_sequence_ambient_reference_hpa(self) -> Tuple[Optional[float], str]:
+        return self._resolve_superambient_ambient_reference_hpa()
+
+    def _pace_upstream_check_valve_installed(
+        self,
+        point: Optional[CalibrationPoint] = None,
+        *,
+        phase: str = "",
+    ) -> bool:
+        if not bool(self._wf("workflow.pressure.pace_upstream_check_valve_installed", False)):
+            return False
+        phase_text = str(phase or ("h2o" if point is not None and point.is_h2o_point else "co2")).strip().lower()
+        if phase_text != "co2":
+            return False
+        if point is None:
+            return True
+        target_pressure_hpa = self._as_float(getattr(point, "target_pressure_hpa", None))
+        return target_pressure_hpa is None or target_pressure_hpa <= 1000.0
+
+    def _post_isolation_pressure_truth_source(self) -> str:
+        source = str(
+            self._wf("workflow.pressure.post_isolation_pressure_truth_source", "external_gauge") or "external_gauge"
+        ).strip().lower()
+        return "pace" if source == "pace" else "external_gauge"
+
+    def _post_isolation_pressure_truth_value(
+        self,
+        ready_values: Mapping[str, Any],
+        *,
+        truth_source: str,
+    ) -> Optional[float]:
+        primary_key, secondary_key = (
+            ("pace_pressure_hpa", "pressure_gauge_hpa")
+            if str(truth_source or "").strip().lower() == "pace"
+            else ("pressure_gauge_hpa", "pace_pressure_hpa")
+        )
+        value = self._as_float(ready_values.get(primary_key))
+        if value is not None:
+            return value
+        return self._as_float(ready_values.get(secondary_key))
+
+    def _post_isolation_fast_capture_cfg(self, point: CalibrationPoint) -> Dict[str, Any]:
+        pressure_cfg = self._post_isolation_leak_test_cfg(point)
+        fast_capture_enabled = bool(
+            self._wf("workflow.pressure.post_isolation_fast_capture_enabled", False)
+        )
+        min_s = max(
+            1.0,
+            float(
+                self._wf(
+                    "workflow.pressure.fast_smoke_capture_min_s",
+                    self._wf("workflow.pressure.post_isolation_fast_capture_min_s", 5.0),
+                )
+                or 5.0
+            ),
+        )
+        extended_diag_window_s = max(
+            min_s,
+            float(self._wf("workflow.pressure.post_isolation_extended_diag_window_s", 20.0) or 20.0),
+        )
+        drift_limit = self._as_float(
+            self._wf(
+                "workflow.pressure.fast_smoke_pressure_drift_max_hpa",
+                self._wf("workflow.pressure.fast_capture_pressure_drift_max_hpa", pressure_cfg["pressure_drift_limit_hpa"]),
+            )
+        )
+        slope_limit = self._as_float(
+            self._wf(
+                "workflow.pressure.fast_smoke_pressure_slope_max_hpa_s",
+                self._wf(
+                    "workflow.pressure.fast_capture_pressure_slope_max_hpa_s",
+                    max(float(pressure_cfg["pressure_drift_limit_hpa"]) / max(min_s, 1.0), 0.01),
+                ),
+            )
+        )
+        dew_rise_limit = self._as_float(
+            self._wf(
+                "workflow.pressure.fast_smoke_dewpoint_rise_max_c",
+                self._wf("workflow.pressure.fast_capture_dewpoint_rise_max_c", pressure_cfg["dewpoint_rise_limit_c"]),
+            )
+        )
+        no_extended_fallback = bool(self._wf("workflow.pressure.fast_smoke_capture_no_extended_fallback", False))
+        return {
+            "enabled": bool(fast_capture_enabled and pressure_cfg.get("enabled")),
+            "allow_early_sample": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_allow_early_sample", False)
+            ),
+            "min_s": min_s,
+            "check_valve_installed": self._pace_upstream_check_valve_installed(point, phase="co2"),
+            "pressure_truth_source": self._post_isolation_pressure_truth_source(),
+            "require_vent_ok": bool(
+                self._wf(
+                    "workflow.pressure.post_isolation_fast_capture_require_vent_ok",
+                    self._wf("workflow.pressure.post_isolation_fast_capture_require_vent_zero", True),
+                )
+            ),
+            "require_vent_zero": bool(
+                self._wf(
+                    "workflow.pressure.post_isolation_fast_capture_require_vent_zero",
+                    self._wf("workflow.pressure.post_isolation_fast_capture_require_vent_ok", True),
+                )
+            ),
+            "require_in_limits": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_in_limits", True)
+            ),
+            "require_eff_zero": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_eff_zero", True)
+            ),
+            "effort_abs_max": max(
+                0.0,
+                float(self._wf("workflow.pressure.post_isolation_fast_capture_eff_abs_max", 0.01) or 0.01),
+            ),
+            "slew_abs_max": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.pressure.post_isolation_fast_capture_slew_abs_max",
+                        self._wf("workflow.pressure.fast_capture_pressure_slope_max_hpa_s", 0.05),
+                    )
+                    or 0.05
+                ),
+            ),
+            "require_isol_closed": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_isol_closed", True)
+            ),
+            "fallback_to_extended_diag": False
+            if no_extended_fallback
+            else bool(self._wf("workflow.pressure.post_isolation_fast_capture_fallback_to_extended_diag", True)),
+            "extended_diag_window_s": extended_diag_window_s,
+            "pressure_drift_max_hpa": max(0.0, float(drift_limit or 0.0)),
+            "pressure_slope_max_hpa_s": max(0.0, float(slope_limit or 0.0)),
+            "dewpoint_rise_max_c": max(0.0, float(dew_rise_limit or 0.0)),
+        }
+
+    def _evaluate_post_isolation_fast_capture(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        fast_cfg: Dict[str, Any],
+        pace_snapshot: Mapping[str, Any],
+        pressure_drift_hpa: Optional[float],
+        pressure_slope_hpa_s: Optional[float],
+        dewpoint_rise_c: Optional[float],
+        elapsed_s: float,
+    ) -> Tuple[bool, str]:
+        state = dict(self._point_runtime_state(point, phase=phase) or {})
+        pace_outp_query = self._as_int(pace_snapshot.get("pace_outp_state_query"))
+        pace_isol_query = self._as_int(pace_snapshot.get("pace_isol_state_query"))
+        pace_vent_query = self._as_int(pace_snapshot.get("pace_vent_status_query"))
+        pace_aft_state = str(pace_snapshot.get("pace_vent_after_valve_state_query") or "").strip().upper()
+        pace_popup_state = str(pace_snapshot.get("pace_vent_popup_state_query") or "").strip().upper()
+        pace_orpv_state = str(pace_snapshot.get("pace_vent_orpv_state_query") or "").strip().upper()
+        pace_pupv_state = str(pace_snapshot.get("pace_vent_pupv_state_query") or "").strip().upper()
+        pace_effort_query = self._as_float(pace_snapshot.get("pace_effort_query"))
+        pace_in_limits_state = self._as_int(pace_snapshot.get("pace_sens_pres_inl_state_query"))
+        pace_in_limits_time_s = self._as_float(
+            pace_snapshot.get("pace_sens_pres_inl_time_query", pace_snapshot.get("pace_sens_inl_time_query"))
+        )
+        pace_measured_slew_hpa_s = self._as_float(pace_snapshot.get("pace_sens_slew_query"))
+        pace_in_limits_bit = pace_snapshot.get("pace_oper_pres_in_limits_bit")
+        check_valve_installed = bool(fast_cfg.get("check_valve_installed"))
+        if pace_outp_query not in (None, 0):
+            return False, "output_not_off_verified"
+        if bool(fast_cfg.get("require_isol_closed")) and pace_isol_query not in (None, 0):
+            return False, "isolation_not_closed_verified"
+        if bool(fast_cfg.get("require_vent_ok", fast_cfg.get("require_vent_zero"))):
+            if pace_vent_query is None:
+                return False, "vent_query_missing"
+            if pace_vent_query != 0:
+                self._record_legacy_vent3_runtime_fields(
+                    point,
+                    phase=phase,
+                    pace=self.devices.get("pace"),
+                    vent_status=pace_vent_query,
+                    accept_scope="none",
+                    control_ready_used=False,
+                    block_scope="post_isolation_fast_capture",
+                    hard_blocked=True,
+                    watchlist_only=True,
+                    control_ready_attempted=True,
+                    control_ready_prevented=True,
+                )
+                return False, "vent_not_zero"
+        elif bool(fast_cfg.get("require_vent_zero")):
+            if pace_vent_query not in (None, 0):
+                self._record_legacy_vent3_runtime_fields(
+                    point,
+                    phase=phase,
+                    pace=self.devices.get("pace"),
+                    vent_status=pace_vent_query,
+                    accept_scope="none",
+                    control_ready_used=False,
+                    block_scope="post_isolation_fast_capture",
+                    hard_blocked=True,
+                    watchlist_only=True,
+                    control_ready_attempted=True,
+                    control_ready_prevented=True,
+                )
+                return False, "vent_not_zero"
+        if bool(fast_cfg.get("require_in_limits")):
+            in_limits_ok = pace_in_limits_state == 1 or pace_in_limits_bit is True
+            if not in_limits_ok:
+                return False, "in_limits_not_verified"
+            if pace_in_limits_time_s is None:
+                return False, "in_limits_time_query_missing"
+            if float(pace_in_limits_time_s) < float(fast_cfg.get("min_s") or 0.0):
+                return False, "in_limits_time_not_ready"
+        if bool(fast_cfg.get("require_eff_zero")):
+            if pace_effort_query is None:
+                return False, "effort_query_missing"
+            if abs(float(pace_effort_query)) > float(fast_cfg.get("effort_abs_max") or 0.0):
+                return False, "effort_not_zero_after_output_off"
+        slew_abs_max = self._as_float(fast_cfg.get("slew_abs_max"))
+        if slew_abs_max is not None:
+            if pace_measured_slew_hpa_s is None:
+                return False, "slew_query_missing"
+            if abs(float(pace_measured_slew_hpa_s)) > float(slew_abs_max):
+                return False, "slew_not_quiet_after_output_off"
+        if self._presample_lock_matches(point=point, phase=phase) is False and self._presample_lock_matches():
+            return False, "presample_lock_mismatch"
+        # AFT:VVAL is the configured post-vent valve policy, not direct proof
+        # of the current instantaneous valve position. We only let it fast-pass
+        # block capture as a config suspicion here, then upgrade it later if the
+        # extended post-isolation evidence also shows drift or rebound.
+        if pace_aft_state == "OPEN":
+            return False, "vent_after_valve_config_open"
+        if pace_orpv_state == "ENABLED" or pace_pupv_state == "ENABLED":
+            return False, "protective_vent_enabled"
+        if pace_popup_state == "ENABLED":
+            return False, "vent_popup_enabled"
+        if pressure_drift_hpa is None or abs(float(pressure_drift_hpa)) > float(fast_cfg["pressure_drift_max_hpa"]):
+            return False, "pressure_drift_exceeded"
+        if (
+            pressure_slope_hpa_s is None
+            or abs(float(pressure_slope_hpa_s)) > float(fast_cfg["pressure_slope_max_hpa_s"])
+        ):
+            return False, "pressure_slope_exceeded"
+        if dewpoint_rise_c is None or float(dewpoint_rise_c) > float(fast_cfg["dewpoint_rise_max_c"]):
+            return False, "dewpoint_rise_exceeded"
+        if elapsed_s < float(fast_cfg["min_s"]):
+            return False, "fast_capture_window_not_filled"
+        return True, "fast_capture_clean"
+
+    def _clear_pressure_sequence_completed_vent_latch_if_present(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        pace = self.devices.get("pace")
+        status_clear_result = "not_available"
+        drained_errors: List[str] = []
+        if pace is not None:
+            clear_status = getattr(pace, "clear_status", None)
+            if callable(clear_status):
+                try:
+                    clear_status()
+                    status_clear_result = "*CLS sent"
+                except Exception as exc:
+                    status_clear_result = f"*CLS failed:{exc}"
+            drain_errors = getattr(pace, "drain_system_errors", None)
+            if callable(drain_errors):
+                try:
+                    drained_errors = [str(entry or "").strip() for entry in list(drain_errors()) if str(entry or "").strip()]
+                except Exception as exc:
+                    drained_errors = [f"drain_failed:{exc}"]
+        snapshot_before = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=False)
+        before_vent_status = self._as_int(snapshot_before.get("pace_vent_status_query"))
+        completed_latched_before = self._pace_vent_completed_latched_from_snapshot(snapshot_before)
+        force_clear_latched = bool(completed_latched_before is True and before_vent_status != 2)
+        clear_attempted = False
+        clear_blocked = False
+        clear_result_text = "not_needed"
+        clear_error = ""
+        self._set_point_runtime_fields(point, phase=phase_text, **self._pace_snapshot_runtime_fields(snapshot_before))
+        before_legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+            point,
+            phase=phase_text,
+            pace=pace,
+            vent_status=snapshot_before.get("pace_vent_status_query"),
+            accept_scope="none",
+            control_ready_used=False,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="pace_vent_clear_latch_begin",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            pace_outp_state_query=snapshot_before.get("pace_outp_state_query"),
+            pace_isol_state_query=snapshot_before.get("pace_isol_state_query"),
+            pace_mode_query=snapshot_before.get("pace_mode_query"),
+            pace_vent_status_query=snapshot_before.get("pace_vent_status_query"),
+            pace_vent_completed_latched=completed_latched_before,
+            pace_vent_clear_attempted=False,
+            pace_vent_clear_result="pending" if before_vent_status == 2 or completed_latched_before is True else "not_needed",
+            **before_legacy_vent3_trace,
+            pace_vent_after_valve_state_query=snapshot_before.get("pace_vent_after_valve_state_query"),
+            pace_vent_popup_state_query=snapshot_before.get("pace_vent_popup_state_query"),
+            pace_vent_elapsed_time_query=snapshot_before.get("pace_vent_elapsed_time_query"),
+            pace_vent_orpv_state_query=snapshot_before.get("pace_vent_orpv_state_query"),
+            pace_vent_pupv_state_query=snapshot_before.get("pace_vent_pupv_state_query"),
+            pace_effort_query=snapshot_before.get("pace_effort_query"),
+            pace_comp1_query=snapshot_before.get("pace_comp1_query"),
+            pace_comp2_query=snapshot_before.get("pace_comp2_query"),
+            pace_sens_pres_cont_query=snapshot_before.get("pace_sens_pres_cont_query"),
+            pace_sens_pres_bar_query=snapshot_before.get("pace_sens_pres_bar_query"),
+            pace_sens_pres_inl_query=snapshot_before.get("pace_sens_pres_inl_query"),
+            pace_sens_pres_inl_state_query=snapshot_before.get("pace_sens_pres_inl_state_query"),
+            pace_sens_pres_inl_time_query=snapshot_before.get("pace_sens_pres_inl_time_query"),
+            pace_oper_cond_query=snapshot_before.get("pace_oper_cond_query"),
+            pace_oper_pres_cond_query=snapshot_before.get("pace_oper_pres_cond_query"),
+            pace_oper_pres_even_query=snapshot_before.get("pace_oper_pres_even_query"),
+            pace_oper_pres_vent_complete_bit=snapshot_before.get("pace_oper_pres_vent_complete_bit"),
+            pace_oper_pres_in_limits_bit=snapshot_before.get("pace_oper_pres_in_limits_bit"),
+            refresh_pace_state=False,
+            note=(
+                f"sequence_start clear completed vent latch if present; reason={reason}; "
+                f"status_clear={status_clear_result}; "
+                f"syst_err_cleared={'|'.join(drained_errors) if drained_errors else 'none'}"
+            ),
+        )
+        snapshot_after_override: Optional[Dict[str, Any]] = None
+        if pace is None:
+            clear_result_text = "skipped_no_pace"
+        else:
+            clear_latch = getattr(pace, "clear_completed_vent_latch_if_present", None)
+            guard_state = self._sealed_no_vent_guard_snapshot()
+            guard_phase = str(guard_state.get("phase") or "").strip()
+            guarded_phase_blocks_clear = (
+                bool(guard_state.get("active"))
+                and guard_phase in {
+                    "PressureSetpointHold",
+                    "PressurePointSwitch",
+                    "SamplingUnderPressure",
+                    "SealTransition",
+                }
+                and (before_vent_status == 2 or completed_latched_before is True or force_clear_latched)
+            )
+            if guarded_phase_blocks_clear:
+                clear_blocked = True
+                snapshot_after_override = dict(snapshot_before)
+                clear_result_text = self._pressure_vent0_abort_reason_for_guard_phase(guard_phase)
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase_text,
+                    abort_reason=clear_result_text,
+                    root_cause_reject_reason="ambient_ingress_suspect",
+                )
+                self._append_pressure_vent0_trace(
+                    point=point,
+                    phase=phase_text,
+                    trace_stage="pressure_vent0_blocked",
+                    helper_name="_clear_pressure_sequence_completed_vent_latch_if_present",
+                    reason_code="clear_completed_vent_latch",
+                    phase_label=guard_phase,
+                    output_state_before=snapshot_before.get("pace_output_state"),
+                    isolation_state_before=snapshot_before.get("pace_isolation_state"),
+                    vent_status_before=snapshot_before.get("pace_vent_status_query"),
+                    before_seal_transition_start=False,
+                    before_pressure_hold_start=guard_phase == "PressureSetpointHold",
+                    before_sour_pres_command=False,
+                    before_outp_stat_1_command=False,
+                    command_sent=False,
+                    blocked=True,
+                    abort_reason=clear_result_text,
+                    note=(
+                        f"blocked VENT 0 latch clear during guarded pressure phase {guard_phase}; "
+                        f"before_status={before_vent_status}"
+                    ),
+                )
+            elif force_clear_latched:
+                clear_blocked = True
+                snapshot_after_override = dict(snapshot_before)
+                clear_result_text = self._legacy_completed_latch_bit_only_force_clear_reason(
+                    before_vent_status,
+                    cond_latched=self._pace_oper_register_bit(
+                        snapshot_before.get("pace_oper_pres_cond_query"),
+                        0,
+                    ),
+                    event_latched=self._pace_oper_register_bit(
+                        snapshot_before.get("pace_oper_pres_even_query"),
+                        0,
+                    ),
+                )
+                self.log(
+                    "Pressure sequence completed vent latch auto-clear blocked: inferred completed latch "
+                    "remains set while VENT? is not 2; manual intervention required before control can continue"
+                )
+            elif callable(clear_latch):
+                try:
+                    clear_summary = clear_latch(timeout_s=5.0, poll_s=0.25)
+                    clear_attempted = bool(clear_summary.get("clear_attempted"))
+                    clear_blocked = bool(clear_summary.get("blocked"))
+                    if clear_attempted:
+                        self._append_pressure_vent0_trace(
+                            point=point,
+                            phase=phase_text,
+                            trace_stage="pressure_vent0_command",
+                            helper_name="_clear_pressure_sequence_completed_vent_latch_if_present",
+                            reason_code="clear_completed_vent_latch",
+                            phase_label=str(self._sealed_no_vent_guard_snapshot().get("phase") or "PreHoldBoundary"),
+                            output_state_before=snapshot_before.get("pace_output_state"),
+                            isolation_state_before=snapshot_before.get("pace_isolation_state"),
+                            vent_status_before=snapshot_before.get("pace_vent_status_query"),
+                            before_seal_transition_start=False,
+                            before_pressure_hold_start=False,
+                            before_sour_pres_command=False,
+                            before_outp_stat_1_command=False,
+                            command_sent=True,
+                            blocked=False,
+                            note=(
+                                "send VENT 0 via clear_completed_vent_latch_if_present "
+                                f"before_status={clear_summary.get('before_status')}"
+                            ),
+                        )
+                    if not clear_blocked:
+                        clear_blocked = (
+                            str(clear_summary.get("reason") or "").strip().lower()
+                            == "legacy_completed_latch_auto_clear_blocked"
+                        )
+                    if clear_blocked:
+                        clear_result_text = self._legacy_completed_latch_auto_clear_reason(
+                            clear_summary.get("before_status"),
+                            clear_summary.get("after_status"),
+                        )
+                        self.log(
+                            "Pressure sequence completed vent latch auto-clear blocked on legacy PACE5000 "
+                            "while VENT?=2; manual intervention required before control can continue"
+                        )
+                    elif clear_attempted:
+                        if bool(clear_summary.get("cleared")):
+                            after_status = self._as_int(clear_summary.get("after_status"))
+                            if after_status == 0:
+                                clear_result_text = (
+                                    f"cleared_to_zero(before={clear_summary.get('before_status')},"
+                                    f"after={clear_summary.get('after_status')})"
+                                )
+                            else:
+                                clear_result_text = (
+                                    f"cleared_to_terminal_status_{clear_summary.get('after_status')}("
+                                    f"before={clear_summary.get('before_status')},"
+                                    f"after={clear_summary.get('after_status')})"
+                                )
+                        else:
+                            after_status = self._as_int(clear_summary.get("after_status"))
+                            trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
+                            if (
+                                trapped_pressure_status is not None
+                                and after_status == trapped_pressure_status
+                                and self._pace_legacy_vent_state_3_compatibility_enabled(pace)
+                            ):
+                                clear_result_text = (
+                                    f"clear_attempted_watchlist_status_3(before={clear_summary.get('before_status')},"
+                                    f"after={clear_summary.get('after_status')})"
+                                )
+                            else:
+                                clear_result_text = (
+                                    f"clear_attempted_not_zero(before={clear_summary.get('before_status')},"
+                                    f"after={clear_summary.get('after_status')})"
+                                )
+                    else:
+                        clear_result_text = f"not_needed(status={clear_summary.get('before_status')})"
+                except Exception as exc:
+                    clear_attempted = before_vent_status == 2
+                    clear_error = str(exc)
+                    clear_result_text = f"failed:{clear_error}"
+            else:
+                clear_result_text = "skipped_clear_method_unavailable"
+        snapshot_after = snapshot_after_override or self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=False)
+        snapshot_after["pace_vent_clear_attempted"] = clear_attempted
+        snapshot_after["pace_vent_clear_result"] = clear_result_text
+        snapshot_after["pace_vent_completed_latched"] = self._pace_vent_completed_latched_from_snapshot(snapshot_after)
+        if clear_attempted and snapshot_after["pace_vent_completed_latched"] is True and not clear_error:
+            clear_result_text = (
+                f"clear_attempted_latch_still_set(before={before_vent_status},"
+                f"after={self._as_int(snapshot_after.get('pace_vent_status_query'))})"
+            )
+            snapshot_after["pace_vent_clear_result"] = clear_result_text
+        self._update_pace_state_cache(snapshot_after)
+        self._set_point_runtime_fields(point, phase=phase_text, **self._pace_snapshot_runtime_fields(snapshot_after))
+        after_legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+            point,
+            phase=phase_text,
+            pace=pace,
+            vent_status=snapshot_after.get("pace_vent_status_query"),
+            accept_scope="none",
+            control_ready_used=False,
+            block_scope="vent_clear_watchlist",
+            hard_blocked=("watchlist_status_3" in clear_result_text),
+            watchlist_only=True,
+            control_ready_attempted=False,
+            control_ready_prevented=False,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="pace_vent_clear_latch_end",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            pace_outp_state_query=snapshot_after.get("pace_outp_state_query"),
+            pace_isol_state_query=snapshot_after.get("pace_isol_state_query"),
+            pace_mode_query=snapshot_after.get("pace_mode_query"),
+            pace_vent_status_query=snapshot_after.get("pace_vent_status_query"),
+            pace_vent_completed_latched=snapshot_after.get("pace_vent_completed_latched"),
+            pace_vent_clear_attempted=clear_attempted,
+            pace_vent_clear_result=clear_result_text,
+            **after_legacy_vent3_trace,
+            pace_vent_after_valve_state_query=snapshot_after.get("pace_vent_after_valve_state_query"),
+            pace_vent_popup_state_query=snapshot_after.get("pace_vent_popup_state_query"),
+            pace_vent_elapsed_time_query=snapshot_after.get("pace_vent_elapsed_time_query"),
+            pace_vent_orpv_state_query=snapshot_after.get("pace_vent_orpv_state_query"),
+            pace_vent_pupv_state_query=snapshot_after.get("pace_vent_pupv_state_query"),
+            pace_effort_query=snapshot_after.get("pace_effort_query"),
+            pace_comp1_query=snapshot_after.get("pace_comp1_query"),
+            pace_comp2_query=snapshot_after.get("pace_comp2_query"),
+            pace_sens_pres_cont_query=snapshot_after.get("pace_sens_pres_cont_query"),
+            pace_sens_pres_bar_query=snapshot_after.get("pace_sens_pres_bar_query"),
+            pace_sens_pres_inl_query=snapshot_after.get("pace_sens_pres_inl_query"),
+            pace_sens_pres_inl_state_query=snapshot_after.get("pace_sens_pres_inl_state_query"),
+            pace_sens_pres_inl_time_query=snapshot_after.get("pace_sens_pres_inl_time_query"),
+            pace_oper_cond_query=snapshot_after.get("pace_oper_cond_query"),
+            pace_oper_pres_cond_query=snapshot_after.get("pace_oper_pres_cond_query"),
+            pace_oper_pres_even_query=snapshot_after.get("pace_oper_pres_even_query"),
+            pace_oper_pres_vent_complete_bit=snapshot_after.get("pace_oper_pres_vent_complete_bit"),
+            pace_oper_pres_in_limits_bit=snapshot_after.get("pace_oper_pres_in_limits_bit"),
+            refresh_pace_state=False,
+            note=(
+                f"vent_clear_result={clear_result_text}"
+                if not clear_error
+                else f"vent_clear_result={clear_result_text}; error={clear_error}"
+            ),
+        )
+        return {
+            "before": snapshot_before,
+            "after": snapshot_after,
+            "status": "blocked" if clear_blocked else ("applied" if clear_attempted else "skipped"),
+            "reason": clear_result_text,
+            "manual_intervention_required": bool(clear_blocked),
+        }
+
+    def _skip_pressure_sequence_completed_vent_latch_clear_after_full_seal(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        pace = self.devices.get("pace")
+        snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=False)
+        completed_latched = self._pace_vent_completed_latched_from_snapshot(snapshot)
+        snapshot["pace_vent_clear_attempted"] = False
+        snapshot["pace_vent_clear_result"] = "skipped_after_full_seal"
+        snapshot["pace_vent_completed_latched"] = completed_latched
+        self._update_pace_state_cache(snapshot)
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            **self._pace_snapshot_runtime_fields(snapshot),
+        )
+        legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+            point,
+            phase=phase_text,
+            pace=pace,
+            vent_status=snapshot.get("pace_vent_status_query"),
+            accept_scope="none",
+            control_ready_used=False,
+            block_scope="vent_clear_skipped_after_full_seal",
+            hard_blocked=False,
+            watchlist_only=True,
+            control_ready_attempted=False,
+            control_ready_prevented=False,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="pace_vent_clear_latch_skipped_after_full_seal",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+            pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+            pace_mode_query=snapshot.get("pace_mode_query"),
+            pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+            pace_vent_completed_latched=completed_latched,
+            pace_vent_clear_attempted=False,
+            pace_vent_clear_result="skipped_after_full_seal",
+            **legacy_vent3_trace,
+            pace_vent_after_valve_state_query=snapshot.get("pace_vent_after_valve_state_query"),
+            pace_vent_popup_state_query=snapshot.get("pace_vent_popup_state_query"),
+            pace_vent_elapsed_time_query=snapshot.get("pace_vent_elapsed_time_query"),
+            pace_vent_orpv_state_query=snapshot.get("pace_vent_orpv_state_query"),
+            pace_vent_pupv_state_query=snapshot.get("pace_vent_pupv_state_query"),
+            pace_effort_query=snapshot.get("pace_effort_query"),
+            pace_comp1_query=snapshot.get("pace_comp1_query"),
+            pace_comp2_query=snapshot.get("pace_comp2_query"),
+            pace_sens_pres_cont_query=snapshot.get("pace_sens_pres_cont_query"),
+            pace_sens_pres_bar_query=snapshot.get("pace_sens_pres_bar_query"),
+            pace_sens_pres_inl_query=snapshot.get("pace_sens_pres_inl_query"),
+            pace_sens_pres_inl_state_query=snapshot.get("pace_sens_pres_inl_state_query"),
+            pace_sens_pres_inl_time_query=snapshot.get("pace_sens_pres_inl_time_query"),
+            pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+            pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+            pace_oper_pres_even_query=snapshot.get("pace_oper_pres_even_query"),
+            pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
+            pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
+            refresh_pace_state=False,
+            note=(
+                "full seal already verified; no post-seal VENT 0 latch clear attempted; "
+                f"reason={reason}"
+            ),
+        )
+        return {
+            "before": snapshot,
+            "after": snapshot,
+            "status": "skipped",
+            "reason": "skipped_after_full_seal",
+            "manual_intervention_required": False,
+        }
 
     def _sampling_fixed_rate_enabled(self) -> bool:
         return bool(self._wf("workflow.sampling.fixed_rate_enabled", True))
@@ -2477,6 +9930,13 @@ class CalibrationRunner:
                         f"{result['sampling_window_qc_reason']}"
                     )
         self._set_point_runtime_fields(point, phase=phase, **result)
+        if str(result.get("sampling_window_qc_status") or "").strip().lower() in {"fail", "warn"}:
+            root_reason = self._presample_failure_root_cause(
+                point,
+                phase=phase,
+                failure_stage="sampling_window_qc",
+            )
+            self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
         return result
 
     def _update_point_quality_summary(
@@ -2569,6 +10029,36 @@ class CalibrationRunner:
                     sampling_window_qc_reason or "sampling_window_qc",
                 )
 
+        cold_co2_quality_gate_status = str(state.get("cold_co2_quality_gate_status") or "").strip().lower()
+        cold_co2_quality_gate_reason = str(state.get("cold_co2_quality_gate_reason") or "").strip()
+        if cold_co2_quality_gate_status == "warn":
+            _add_issue(
+                "cold_co2_quality_gate",
+                "warn",
+                cold_co2_quality_gate_reason or "cold_co2_quality_gate",
+            )
+        elif cold_co2_quality_gate_status == "fail":
+            _add_issue(
+                "cold_co2_quality_gate",
+                "fail",
+                cold_co2_quality_gate_reason or "cold_co2_quality_gate",
+            )
+
+        baseline_sanity_gate_status = str(state.get("baseline_sanity_gate_status") or "").strip().lower()
+        baseline_sanity_gate_reason = str(state.get("baseline_sanity_gate_reason") or "").strip()
+        if baseline_sanity_gate_status == "warn":
+            _add_issue(
+                "baseline_sanity_gate",
+                "warn",
+                baseline_sanity_gate_reason or "baseline_sanity_gate",
+            )
+        elif baseline_sanity_gate_status == "fail":
+            _add_issue(
+                "baseline_sanity_gate",
+                "fail",
+                baseline_sanity_gate_reason or "baseline_sanity_gate",
+            )
+
         stale_ratio = self._as_float(state.get("pressure_gauge_stale_ratio"))
         stale_warn_max = self._as_float(self._wf("workflow.sampling.pressure_gauge_stale_ratio_warn_max", None))
         stale_reject_max = self._as_float(self._wf("workflow.sampling.pressure_gauge_stale_ratio_reject_max", None))
@@ -2643,6 +10133,41 @@ class CalibrationRunner:
     ) -> None:
         state = dict(self._point_runtime_state(point, phase=phase) or {})
         export_fields = (
+            "handoff_mode",
+            "capture_hold_status",
+            "capture_hold_reason",
+            "post_isolation_status",
+            "post_isolation_reason",
+            "post_isolation_capture_mode",
+            "post_isolation_fast_capture_status",
+            "post_isolation_fast_capture_reason",
+            "post_isolation_fast_capture_elapsed_s",
+            "post_isolation_fast_capture_fallback",
+            "post_isolation_pressure_start_hpa",
+            "post_isolation_pressure_end_hpa",
+            "post_isolation_pressure_peak_hpa",
+            "post_isolation_pressure_min_hpa",
+            "post_isolation_pressure_drift_hpa",
+            "post_isolation_pressure_slope_hpa_s",
+            "post_isolation_pressure_recovery_toward_ambient",
+            "post_isolation_dewpoint_start_c",
+            "post_isolation_dewpoint_end_c",
+            "post_isolation_dewpoint_rise_c",
+            "post_isolation_dewpoint_slope_c_s",
+            "post_isolation_h2o_start",
+            "post_isolation_h2o_end",
+            "post_isolation_pressure_dew_corr",
+            "post_isolation_diagnosis",
+            "pressure_gate_status",
+            "pressure_gate_reason",
+            "pressure_gate_window_s",
+            "pressure_gate_elapsed_s",
+            "pressure_gate_span_hpa",
+            "pressure_gate_slope_hpa_per_s",
+            "pressure_gate_count",
+            "pressure_dew_sync_status",
+            "pressure_dew_sync_reason",
+            "root_cause_reject_reason",
             "preseal_dewpoint_c",
             "preseal_temp_c",
             "preseal_rh_pct",
@@ -2657,6 +10182,12 @@ class CalibrationRunner:
             "postseal_timeout_blocked",
             "point_quality_timeout_flag",
             "dewpoint_gate_pass_live_c",
+            "cold_co2_quality_gate_status",
+            "cold_co2_quality_gate_reason",
+            "cold_co2_quality_gate_reference_temp_c",
+            "cold_co2_quality_gate_checked_count",
+            "cold_co2_quality_gate_invalid_count",
+            "cold_co2_quality_gate_invalid_labels",
             "presample_long_guard_status",
             "presample_long_guard_reason",
             "presample_long_guard_elapsed_s",
@@ -2677,6 +10208,42 @@ class CalibrationRunner:
             "pressure_gauge_stale_count",
             "pressure_gauge_total_count",
             "pressure_gauge_stale_ratio",
+            "pace_output_state",
+            "pace_isolation_state",
+            "pace_vent_status",
+            "pace_outp_state_query",
+            "pace_isol_state_query",
+            "pace_mode_query",
+            "pace_vent_status_query",
+            "pace_legacy_vent_state_3_suspect",
+            "pace_atmosphere_connected_latched_state_suspect",
+            "legacy_vent3_control_ready_used",
+            "legacy_vent3_accept_scope",
+            "vent_status_3_count",
+            "vent3_hard_blocked",
+            "vent3_watchlist_only",
+            "vent3_control_ready_attempted",
+            "vent3_control_ready_prevented",
+            "vent3_block_scope",
+            "ack_callback_invoked",
+            "vent3_post_window_status",
+            "pace_vent_after_valve_state_query",
+            "pace_vent_popup_state_query",
+            "pace_vent_elapsed_time_query",
+            "pace_vent_orpv_state_query",
+            "pace_vent_pupv_state_query",
+            "pace_oper_cond_query",
+            "pace_oper_pres_cond_query",
+            "pressure_gauge_hpa",
+            "dewpoint_c",
+            "temp_c",
+            "rh_pct",
+            "baseline_sanity_gate_status",
+            "baseline_sanity_gate_reason",
+            "baseline_sanity_target_co2_ppm",
+            "baseline_sanity_plateau_mean_ppm",
+            "baseline_sanity_plateau_span_ppm",
+            "baseline_sanity_plateau_count",
             "point_quality_status",
             "point_quality_reason",
             "point_quality_flags",
@@ -4745,6 +12312,10 @@ class CalibrationRunner:
             self.log("Run finished.")
             self._log_run_event(command="run-finished", response="completed normally")
             completed_normally = True
+        except (KeyboardInterrupt, SystemExit):
+            self.log("Run aborted by keyboard interrupt or system exit")
+            self._log_run_event(command="run-aborted", error="KeyboardInterrupt/SystemExit")
+            raise
         except Exception as exc:
             self.log(f"Run aborted: {exc}")
             self._log_run_event(command="run-aborted", error=exc)
@@ -5110,6 +12681,13 @@ class CalibrationRunner:
         route: str,
         sealed_control_refs: Optional[List[CalibrationPoint]] = None,
     ) -> bool:
+        if self._block_seal_pressure_operation(
+            point,
+            phase=str(route or "").strip().lower(),
+            operation="seal_route_for_pressure_control",
+            trace_stage="seal_route_blocked",
+        ):
+            return False
         require_preseal_topoff = self._route_requires_preseal_topoff(sealed_control_refs or [point])
         route_label = str(route or ("h2o" if point.is_h2o_point else "co2")).strip().upper()
         if require_preseal_topoff:
@@ -5463,10 +13041,19 @@ class CalibrationRunner:
         workflow_cfg = self.cfg.get("workflow", {})
         route_mode = str(workflow_cfg.get("route_mode", "") or "").strip().lower()
         if route_mode in {"h2o_only", "co2_only", "h2o_then_co2"}:
-            return route_mode
-        if bool(workflow_cfg.get("skip_h2o", False)):
-            return "co2_only"
-        return "h2o_then_co2"
+            resolved = route_mode
+        elif bool(workflow_cfg.get("skip_h2o", False)):
+            resolved = "co2_only"
+        else:
+            resolved = "h2o_then_co2"
+        # V1 safety: if H2O zero/span is NOT_SUPPORTED, auto-downgrade to co2_only
+        if resolved != "co2_only":
+            from ..config import v1_h2o_zero_span_capability
+            h2o_cap = v1_h2o_zero_span_capability(self.cfg.get("coefficients"))
+            if h2o_cap.get("status") == "NOT_SUPPORTED":
+                self.log(f"H2O zero/span NOT_SUPPORTED: route_mode auto-downgraded from '{resolved}' to 'co2_only'")
+                resolved = "co2_only"
+        return resolved
 
     def _filter_selected_temperatures(self, points: List[CalibrationPoint]) -> List[CalibrationPoint]:
         workflow_cfg = self.cfg.get("workflow", {})
@@ -5735,6 +13322,10 @@ class CalibrationRunner:
         self.log(msg)
 
     def _cleanup(self) -> None:
+        try:
+            self._stop_sampling_window_context(self._sampling_window_context)
+        except Exception as exc:
+            self.log(f"Sampling window stop failed during cleanup: {exc}")
         self._pending_route_handoff = None
         self._sample_export_deferral_request = None
         self._clear_preseal_pressure_control_ready_state(reason="runner_cleanup")
@@ -5832,10 +13423,16 @@ class CalibrationRunner:
             response=json.dumps(summary, ensure_ascii=False, separators=(",", ":"), default=str),
         )
 
-    def _configure_devices(self) -> None:
+    def _configure_pressure_controller_startup(self) -> None:
         pace = self.devices.get("pace")
         if pace:
-            pace.set_units_hpa()
+            capability_snapshot = self._capture_pace_capability_snapshot(
+                reason="pressure controller startup",
+                include_optional_probe=True,
+            )
+            unit_reason = str(capability_snapshot.get("pressure_unit_reason") or "").strip()
+            if unit_reason:
+                self.log(f"Pressure controller startup capability snapshot: {unit_reason}")
             soft_control_enabled = bool(self._wf("workflow.pressure.soft_control_enabled", False))
             if soft_control_enabled:
                 self._configure_pressure_soft_control(pace)
@@ -5858,6 +13455,11 @@ class CalibrationRunner:
                 self.cfg["devices"]["pressure_controller"]["in_limits_pct"],
                 self.cfg["devices"]["pressure_controller"]["in_limits_time_s"],
             )
+
+    def _configure_devices(self, *, configure_gas_analyzers: bool = True) -> None:
+        self._configure_pressure_controller_startup()
+        if not configure_gas_analyzers:
+            return
 
         gas_cfg_default = self.cfg.get("devices", {}).get("gas_analyzer", {})
         analyzers = self._gas_analyzers()
@@ -6953,6 +14555,19 @@ class CalibrationRunner:
             return None
         return v
 
+    @staticmethod
+    def _as_optional_bool(value: Any) -> Optional[bool]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "y", "on"}:
+            return True
+        if text in {"0", "false", "no", "n", "off"}:
+            return False
+        return None
+
     def _pick_numeric(self, data: Dict[str, Any], keys: List[str]) -> Optional[float]:
         for key in keys:
             if key not in data:
@@ -7040,6 +14655,341 @@ class CalibrationRunner:
             if abs(raw_temp_c - paired_temp_c) > max_pair_gap_c:
                 return False, "cell_shell_gap_too_large"
         return True, ""
+
+    def _cold_co2_quality_gate_cfg(self) -> Dict[str, Any]:
+        raw = cfg_get(self.cfg, "workflow.stability.co2_cold_quality_gate", {}) or {}
+        cfg = raw if isinstance(raw, dict) else {}
+        policy = self._normalized_policy(
+            cfg.get("policy", "warn"),
+            allowed={"off", "warn", "reject"},
+            default="warn",
+        )
+        return {
+            "enabled": bool(cfg.get("enabled", True)),
+            "policy": policy,
+            "apply_temp_max_c": float(cfg.get("apply_temp_max_c", 0.0)),
+            "temp_min_c": float(cfg.get("raw_temp_min_c", -30.0)),
+            "temp_max_c": float(cfg.get("raw_temp_max_c", 85.0)),
+            "max_abs_delta_from_ref_c": float(cfg.get("max_abs_delta_from_ref_c", 20.0)),
+            "max_cell_shell_gap_c": float(cfg.get("max_cell_shell_gap_c", 15.0)),
+            "hard_bad_values_c": [
+                float(value)
+                for value in (cfg.get("hard_bad_values_c", [-40.0, 60.0]) or [-40.0, 60.0])
+                if value is not None
+            ],
+            "hard_bad_value_tolerance_c": float(cfg.get("hard_bad_value_tolerance_c", 0.05)),
+        }
+
+    def _cold_co2_quality_reference_temp_c(self, point: CalibrationPoint) -> Optional[float]:
+        thermometer = self.devices.get("thermometer")
+        if thermometer is not None and hasattr(thermometer, "read_temp_c"):
+            try:
+                reading = self._as_float(thermometer.read_temp_c())
+                if reading is not None:
+                    return float(reading)
+            except Exception as exc:
+                self.log(f"Cold CO2 quality gate reference temp read failed: {exc}")
+        if getattr(point, "temp_chamber_c", None) is not None:
+            try:
+                return float(point.temp_chamber_c)
+            except Exception:
+                return None
+        return None
+
+    def _baseline_sanity_gate_cfg(self) -> Dict[str, Any]:
+        raw = cfg_get(self.cfg, "workflow.stability.sensor.baseline_sanity_gate", {}) or {}
+        cfg = raw if isinstance(raw, dict) else {}
+        policy = self._normalized_policy(
+            cfg.get("policy", "reject"),
+            allowed={"off", "warn", "reject"},
+            default="reject",
+        )
+        return {
+            "enabled": bool(cfg.get("enabled", False)),
+            "policy": policy,
+            "same_gas_only": bool(cfg.get("same_gas_only", True)),
+            "target_co2_ppm": self._as_float(cfg.get("target_co2_ppm")),
+            "target_co2_tolerance_ppm": abs(float(cfg.get("target_co2_tolerance_ppm", 120.0) or 120.0)),
+            "pressure_min_hpa": self._as_float(cfg.get("pressure_min_hpa", 980.0)),
+            "pressure_max_hpa": self._as_float(cfg.get("pressure_max_hpa", 1020.0)),
+            "plateau_sample_count": max(2, int(cfg.get("plateau_sample_count", 5) or 5)),
+            "plateau_read_interval_s": max(0.05, float(cfg.get("plateau_read_interval_s", 0.4) or 0.4)),
+            "max_plateau_span_ppm": self._as_float(cfg.get("max_plateau_span_ppm", 40.0)),
+        }
+
+    def _baseline_sanity_target_co2_ppm(
+        self,
+        point: CalibrationPoint,
+        cfg: Mapping[str, Any],
+    ) -> Optional[float]:
+        configured = self._as_float(cfg.get("target_co2_ppm"))
+        if configured is not None:
+            return configured
+        return self._as_float(getattr(point, "co2_ppm", None))
+
+    def _collect_baseline_plateau_observation(self, cfg: Mapping[str, Any]) -> Dict[str, Any]:
+        analyzers = self._active_gas_analyzers()
+        if not analyzers:
+            return {}
+        frame_acceptance_mode = self._resolve_sensor_frame_acceptance_mode("co2_ppm", require_usable=True)
+        sample_count = max(2, int(cfg.get("plateau_sample_count", 5) or 5))
+        read_interval_s = max(0.05, float(cfg.get("plateau_read_interval_s", 0.4) or 0.4))
+        samples: List[Tuple[float, float]] = []
+        checked_labels: set[str] = set()
+        for index in range(sample_count):
+            sample_ts = time.monotonic()
+            for label, ga, _ga_cfg in analyzers:
+                _line, parsed = self._read_sensor_parsed(
+                    ga,
+                    required_key="co2_ppm",
+                    frame_acceptance_mode=frame_acceptance_mode,
+                )
+                if not isinstance(parsed, dict) or not parsed:
+                    continue
+                value = self._as_float(parsed.get("co2_ppm"))
+                if value is None:
+                    continue
+                checked_labels.add(str(label))
+                samples.append((sample_ts, float(value)))
+            if index + 1 < sample_count:
+                if not self._sampling_window_wait(read_interval_s):
+                    break
+        metrics = self._numeric_series_metrics(samples)
+        if not metrics:
+            return {}
+        metrics["checked_analyzers"] = len(checked_labels)
+        return metrics
+
+    def _wait_co2_preseal_baseline_sanity_gate(self, point: CalibrationPoint) -> bool:
+        cfg = self._baseline_sanity_gate_cfg()
+        result = {
+            "baseline_sanity_gate_status": "skipped",
+            "baseline_sanity_gate_reason": "",
+            "baseline_sanity_target_co2_ppm": None,
+            "baseline_sanity_plateau_mean_ppm": None,
+            "baseline_sanity_plateau_span_ppm": None,
+            "baseline_sanity_plateau_count": 0,
+        }
+
+        def _store_result() -> None:
+            self._set_point_runtime_fields(point, phase="co2", **result)
+
+        if point.is_h2o_point:
+            result["baseline_sanity_gate_reason"] = "not_co2_point"
+            _store_result()
+            return True
+        if not bool(cfg.get("enabled", False)):
+            result["baseline_sanity_gate_reason"] = "gate_disabled"
+            _store_result()
+            return True
+        if str(cfg.get("policy") or "reject").lower() == "off":
+            result["baseline_sanity_gate_reason"] = "policy_off"
+            _store_result()
+            return True
+
+        target_pressure_hpa = self._as_float(getattr(point, "target_pressure_hpa", None))
+        pressure_min_hpa = self._as_float(cfg.get("pressure_min_hpa"))
+        pressure_max_hpa = self._as_float(cfg.get("pressure_max_hpa"))
+        if (
+            target_pressure_hpa is None
+            or pressure_min_hpa is None
+            or pressure_max_hpa is None
+            or target_pressure_hpa < pressure_min_hpa
+            or target_pressure_hpa > pressure_max_hpa
+        ):
+            result["baseline_sanity_gate_reason"] = "not_near_ambient_target"
+            _store_result()
+            return True
+
+        target_co2_ppm = self._baseline_sanity_target_co2_ppm(point, cfg)
+        result["baseline_sanity_target_co2_ppm"] = target_co2_ppm
+        if target_co2_ppm is None:
+            result["baseline_sanity_gate_reason"] = "target_co2_unavailable"
+            _store_result()
+            return True
+
+        point_target_co2_ppm = self._as_float(getattr(point, "co2_ppm", None))
+        if (
+            bool(cfg.get("same_gas_only", True))
+            and point_target_co2_ppm is not None
+            and abs(float(point_target_co2_ppm) - float(target_co2_ppm)) > 0.5
+        ):
+            result["baseline_sanity_gate_reason"] = "point_target_mismatch"
+            _store_result()
+            return True
+
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="baseline_sanity_gate_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"policy={cfg['policy']} target_co2_ppm={float(target_co2_ppm):.3f} "
+                f"tolerance_ppm={float(cfg['target_co2_tolerance_ppm']):.3f} "
+                f"pressure_band_hpa={float(pressure_min_hpa):.3f}-{float(pressure_max_hpa):.3f}"
+            ),
+        )
+
+        observation = self._collect_baseline_plateau_observation(cfg)
+        if not observation:
+            status = "fail" if str(cfg.get("policy") or "reject").lower() == "reject" else "warn"
+            result["baseline_sanity_gate_status"] = status
+            result["baseline_sanity_gate_reason"] = "plateau_observation_unavailable"
+            _store_result()
+            if status == "fail":
+                self._set_root_cause_reject_reason(
+                    point,
+                    phase="co2",
+                    reason="baseline_precondition_wrong_plateau_suspect",
+                )
+            self._update_point_quality_summary(point, phase="co2")
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="baseline_sanity_gate_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                note=f"result={status} reason=plateau_observation_unavailable",
+            )
+            return status != "fail"
+
+        plateau_mean_ppm = self._as_float(observation.get("mean_value"))
+        plateau_span_ppm = self._as_float(observation.get("span"))
+        plateau_count = int(observation.get("count") or 0)
+        tolerance_ppm = float(cfg.get("target_co2_tolerance_ppm", 120.0) or 120.0)
+        max_plateau_span_ppm = self._as_float(cfg.get("max_plateau_span_ppm"))
+        abs_delta_ppm = (
+            None
+            if plateau_mean_ppm is None or target_co2_ppm is None
+            else abs(float(plateau_mean_ppm) - float(target_co2_ppm))
+        )
+        result.update(
+            {
+                "baseline_sanity_target_co2_ppm": target_co2_ppm,
+                "baseline_sanity_plateau_mean_ppm": plateau_mean_ppm,
+                "baseline_sanity_plateau_span_ppm": plateau_span_ppm,
+                "baseline_sanity_plateau_count": plateau_count,
+            }
+        )
+        within_target = abs_delta_ppm is not None and abs_delta_ppm <= tolerance_ppm
+        within_span = (
+            True
+            if max_plateau_span_ppm is None or plateau_span_ppm is None
+            else plateau_span_ppm <= float(max_plateau_span_ppm)
+        )
+        if within_target and within_span:
+            result["baseline_sanity_gate_status"] = "pass"
+            _store_result()
+            self._update_point_quality_summary(point, phase="co2")
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="baseline_sanity_gate_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                note=(
+                    f"result=pass plateau_mean_ppm={float(plateau_mean_ppm):.3f} "
+                    f"abs_delta_ppm={float(abs_delta_ppm or 0.0):.3f} "
+                    f"plateau_span_ppm={float(plateau_span_ppm or 0.0):.3f} count={plateau_count}"
+                ),
+            )
+            self.log(
+                "CO2 baseline sanity gate pass: "
+                f"point={point.index} plateau_mean_ppm={plateau_mean_ppm:.3f} "
+                f"target_co2_ppm={float(target_co2_ppm):.3f}"
+            )
+            return True
+
+        status = "fail" if str(cfg.get("policy") or "reject").lower() == "reject" else "warn"
+        reasons: List[str] = []
+        if plateau_mean_ppm is not None:
+            reasons.append(f"plateau_mean_ppm={plateau_mean_ppm:.3f}")
+        if target_co2_ppm is not None:
+            reasons.append(f"target_co2_ppm={float(target_co2_ppm):.3f}")
+        if abs_delta_ppm is not None:
+            reasons.append(f"abs_delta_ppm={float(abs_delta_ppm):.3f}")
+        reasons.append(f"tolerance_ppm={tolerance_ppm:.3f}")
+        if plateau_span_ppm is not None:
+            reasons.append(f"plateau_span_ppm={plateau_span_ppm:.3f}")
+        if max_plateau_span_ppm is not None:
+            reasons.append(f"max_plateau_span_ppm={float(max_plateau_span_ppm):.3f}")
+        reasons.append(f"count={plateau_count}")
+        reasons.append(f"policy={cfg['policy']}")
+        result["baseline_sanity_gate_status"] = status
+        result["baseline_sanity_gate_reason"] = ";".join(reasons)
+        _store_result()
+        if status == "fail":
+            self._set_root_cause_reject_reason(
+                point,
+                phase="co2",
+                reason="baseline_precondition_wrong_plateau_suspect",
+            )
+        self._update_point_quality_summary(point, phase="co2")
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="baseline_sanity_gate_end",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=f"result={status} {result['baseline_sanity_gate_reason']}",
+        )
+        self.log(
+            "CO2 baseline sanity gate "
+            f"{status}: point={point.index} {result['baseline_sanity_gate_reason']}"
+        )
+        return status != "fail"
+
+    def _evaluate_cold_co2_analyzer_temp_state(
+        self,
+        parsed: Optional[Dict[str, Any]],
+        *,
+        ref_temp_c: Optional[float],
+        cfg: Dict[str, Any],
+    ) -> tuple[bool, str, Optional[float], Optional[float]]:
+        if not isinstance(parsed, dict) or not parsed:
+            return False, "no_frame", None, None
+
+        runtime_ok, runtime_reason = self._assess_runtime_required_key_frame(parsed, "chamber_temp_c")
+        if not runtime_ok:
+            return False, runtime_reason, None, None
+
+        cell_temp_c = self._as_float(parsed.get("chamber_temp_c"))
+        if cell_temp_c is None:
+            cell_temp_c = self._as_float(parsed.get("temp_c"))
+        shell_temp_c = self._as_float(parsed.get("case_temp_c"))
+        if cell_temp_c is None:
+            return False, "missing_chamber_temp", None, shell_temp_c
+
+        bad_values = list(cfg.get("hard_bad_values_c", []) or [])
+        bad_tol = float(cfg.get("hard_bad_value_tolerance_c", 0.05))
+        if self._temp_matches_hard_bad_value(cell_temp_c, bad_values, bad_tol):
+            return False, "chamber_hard_bad_value", cell_temp_c, shell_temp_c
+        if shell_temp_c is not None and self._temp_matches_hard_bad_value(shell_temp_c, bad_values, bad_tol):
+            return False, "shell_hard_bad_value", cell_temp_c, shell_temp_c
+
+        temp_min_c = float(cfg.get("temp_min_c", -30.0))
+        temp_max_c = float(cfg.get("temp_max_c", 85.0))
+        if cell_temp_c < temp_min_c or cell_temp_c > temp_max_c:
+            return False, "chamber_temp_out_of_range", cell_temp_c, shell_temp_c
+        if shell_temp_c is not None and (shell_temp_c < temp_min_c or shell_temp_c > temp_max_c):
+            return False, "shell_temp_out_of_range", cell_temp_c, shell_temp_c
+
+        if ref_temp_c is not None:
+            max_ref_delta_c = float(cfg.get("max_abs_delta_from_ref_c", 20.0))
+            if abs(cell_temp_c - ref_temp_c) > max_ref_delta_c:
+                return False, "chamber_too_far_from_ref", cell_temp_c, shell_temp_c
+
+        if shell_temp_c is not None:
+            max_gap_c = float(cfg.get("max_cell_shell_gap_c", 15.0))
+            if abs(cell_temp_c - shell_temp_c) > max_gap_c:
+                return False, "cell_shell_gap_too_large", cell_temp_c, shell_temp_c
+
+        return True, "", cell_temp_c, shell_temp_c
 
     @staticmethod
     def _temperature_capture_key(point: CalibrationPoint, route_type: str) -> tuple[str, str]:
@@ -7511,23 +15461,22 @@ class CalibrationRunner:
         pace = self.devices.get("pace")
         if not pace:
             return {}
-        query = getattr(pace, "query", None)
-        if not callable(query):
-            return {}
-
         snap: Dict[str, Any] = {}
-        commands = {
-            "outp_stat": ":OUTP:STAT?",
-            "outp_mode": ":OUTP:MODE?",
-            "setpoint": ":SOUR:PRES:LEV:IMM:AMPL?",
-            "in_limits": ":SENS:PRES:INL?",
-            "effort": ":SOUR:PRES:EFF?",
-            "comp": ":SOUR:PRES:COMP?",
-            "comp1": ":SOUR:PRES:COMP1?",
+        readers = {
+            "outp_stat": lambda: pace.get_output_state(),
+            "outp_mode": lambda: pace.get_output_mode(),
+            "setpoint": lambda: pace.get_setpoint(),
+            "in_limits": lambda: pace.get_in_limits(),
+            "effort": lambda: pace.get_effort(),
+            "comp1": lambda: pace.get_comp1(),
+            "comp2": lambda: pace.get_comp2(),
         }
-        for key, cmd in commands.items():
+        for key, reader in readers.items():
             try:
-                snap[key] = query(cmd)
+                value = reader()
+                snap[key] = value
+                if key == "comp1" and "comp" not in snap:
+                    snap["comp"] = value
             except Exception as exc:
                 snap[f"{key}_err"] = str(exc)
         return snap
@@ -7535,12 +15484,20 @@ class CalibrationRunner:
     def _set_h2o_path(self, is_open: bool, point: Optional[CalibrationPoint] = None) -> None:
         self._apply_valve_states(self._h2o_open_valves(point) if is_open else [])
 
-    def _h2o_open_valves(self, point: Optional[CalibrationPoint] = None) -> List[int]:
+    def _h2o_open_valves(
+        self,
+        point: Optional[CalibrationPoint] = None,
+        *,
+        include_final_stage: bool = True,
+    ) -> List[int]:
         valves_cfg = self.cfg.get("valves", {})
         open_list: List[int] = []
-        # Water-path action must only use water-related valves (relay_8 mapping).
-        # Do not open any CO2 source/path valves during H2O routing.
-        for key in ("h2o_path", "hold", "flow_switch"):
+        # Legacy config key `h2o_path` is the shared total-route valve in current wiring.
+        # H2O route must therefore open the total valve first, then the dedicated H2O hold/flow path.
+        keys = ["h2o_path", "hold"]
+        if include_final_stage:
+            keys.append("flow_switch")
+        for key in keys:
             iv = self._as_int(valves_cfg.get(key))
             if iv is not None:
                 open_list.append(iv)
@@ -7955,12 +15912,72 @@ class CalibrationRunner:
 
         target = float(point.target_pressure_hpa)
         phase = "h2o" if point.is_h2o_point else "co2"
+        handoff_mode = self._prepare_sampling_handoff_mode(point, phase=phase)
+        unit_ok, unit_reason, capability_snapshot = self._pace_unit_allows_formal_setpoint()
+        if not unit_ok:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                abort_reason=unit_reason,
+                pace_pressure_unit_query=capability_snapshot.get("pressure_unit"),
+                pace_pressure_unit_status=capability_snapshot.get("pressure_unit_status"),
+                pace_pressure_unit_reason=unit_reason,
+            )
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="control_prepare_blocked",
+                pressure_target_hpa=target,
+                refresh_pace_state=False,
+                note=unit_reason,
+            )
+            self.log(f"Pressure control aborted before setpoint: {unit_reason}")
+            return False
+        seal_state_at_entry = self._seal_transition_state(point, phase=phase)
+        full_seal_at_entry = self._recorded_full_seal_transition_completed(
+            point,
+            phase=phase,
+            current_state=seal_state_at_entry,
+        )
+        if full_seal_at_entry:
+            vent_clear_summary = self._skip_pressure_sequence_completed_vent_latch_clear_after_full_seal(
+                point,
+                phase=phase,
+                reason="before pressure control ready-for-control check",
+            )
+            if not self._verify_full_seal_before_pressure_control(
+                point,
+                phase=phase,
+                pressure_target_hpa=target,
+                reason="before_pressure_control_ready_check",
+            ):
+                return False
+        else:
+            vent_clear_summary = self._clear_pressure_sequence_completed_vent_latch_if_present(
+                point,
+                phase=phase,
+                reason="before pressure control ready-for-control check",
+            )
+        if str(vent_clear_summary.get("status") or "").strip().lower() == "blocked":
+            self.log(
+                "Pressure control aborted before ready-for-control check: "
+                f"{vent_clear_summary.get('reason')}; manual intervention required"
+            )
+            return False
         self._emit_stage_event(
             current=self._stage_label_for_point(point, phase=phase),
             point=point,
             phase=phase,
             wait_reason="控压中",
         )
+        superambient_triggered, superambient_ready = self._maybe_run_same_gas_superambient_precharge(
+            point,
+            phase=phase,
+            target_hpa=target,
+        )
+        if superambient_triggered and not superambient_ready:
+            return False
         prepared = (
             (not recovery_attempted)
             and
@@ -7983,7 +16000,11 @@ class CalibrationRunner:
             trace_stage="control_prepare_begin",
             pressure_target_hpa=target,
             refresh_pace_state=False,
-            note="before pressure controller ready-for-control check",
+            handoff_mode=handoff_mode,
+            note=(
+                "before pressure controller ready-for-control check; "
+                f"pressure_mode={self._pressure_setpoint_hold_mode()} handoff_mode={handoff_mode}"
+            ),
         )
 
         if prepared:
@@ -7992,9 +16013,23 @@ class CalibrationRunner:
                 point,
                 phase=phase,
                 pressure_target_hpa=target,
+                attempt_recovery=not bool(self._seal_transition_state(point, phase=phase).get("seal_transition_completed")),
                 note="prepared target path",
             ):
                 return False
+            if not self._verify_full_seal_before_pressure_control(
+                point,
+                phase=phase,
+                pressure_target_hpa=target,
+                reason="prepared_target_path",
+            ):
+                return False
+            self._activate_sealed_no_vent_guard(
+                point=point,
+                phase=phase,
+                guard_phase="PressureSetpointHold",
+                reason="prepared_target_path",
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -8005,7 +16040,12 @@ class CalibrationRunner:
                 read_pressure_gauge=True,
                 note="before output on using prepared setpoint",
             )
-            if not self._enable_pressure_controller_output(reason="using prepared setpoint"):
+            if not self._enable_pressure_controller_output(
+                reason="using prepared setpoint",
+                point=point,
+                phase=phase,
+                pressure_target_hpa=target,
+            ):
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -8036,6 +16076,11 @@ class CalibrationRunner:
         else:
             ready_for_control = False
             reused_preseal_ready = False
+            vent_off_skipped_after_full_seal = False
+            full_seal_recorded_for_control = self._recorded_full_seal_transition_completed(
+                point,
+                phase=phase,
+            )
             if not preseal_ready_state and preseal_reuse_reject_reason:
                 self._append_pressure_trace_row(
                     point=point,
@@ -8077,6 +16122,9 @@ class CalibrationRunner:
                         point,
                         phase=phase,
                         pressure_target_hpa=target,
+                        attempt_recovery=not bool(
+                            self._seal_transition_state(point, phase=phase).get("seal_transition_completed")
+                        ),
                         note="reused preseal vent-off state; deferred live ready check before setpoint",
                     )
                     if not ready_for_control:
@@ -8085,6 +16133,36 @@ class CalibrationRunner:
                 elif not preseal_failures:
                     reused_preseal_ready = True
                     ready_for_control = True
+                    reuse_phase = (
+                        "preseal_final_exit_reused_after_full_seal"
+                        if bool(preseal_ready_state.get("preseal_final_atmosphere_exit_verified"))
+                        else "preseal_ready_reused_after_full_seal"
+                    )
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=phase,
+                        control_ready_check_vent_status=self._as_int(preseal_ready_state.get("pace_vent_status")),
+                        control_ready_check_phase=reuse_phase,
+                        control_ready_failure_reason_detail="",
+                        control_ready_failed_after_full_seal=False,
+                        control_ready_failed_with_watchlist_status_3=False,
+                        control_ready_watchlist_status_accepted=False,
+                    )
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="control_ready_check_started",
+                        pressure_target_hpa=target,
+                        pace_output_state=preseal_ready_state.get("pace_output_state"),
+                        pace_isolation_state=preseal_ready_state.get("pace_isolation_state"),
+                        pace_vent_status=preseal_ready_state.get("pace_vent_status"),
+                        refresh_pace_state=False,
+                        note=(
+                            f"phase={reuse_phase}; "
+                            "reuse verified pre-seal state without post-seal vent command"
+                        ),
+                    )
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
@@ -8099,115 +16177,161 @@ class CalibrationRunner:
                     )
 
             if preseal_ready_state and not ready_for_control:
-                self._append_pressure_trace_row(
-                    point=point,
-                    route=phase,
-                    point_phase=phase,
-                    trace_stage="control_vent_off_begin",
-                    pressure_target_hpa=target,
-                    refresh_pace_state=False,
-                    note="before conservative vent off recovery for control",
-                )
-                try:
-                    vent_off_ok = self._set_pressure_controller_vent(False, reason="before setpoint control")
-                except Exception as exc:
+                if full_seal_recorded_for_control:
+                    vent_off_skipped_after_full_seal = True
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
                         point_phase=phase,
-                        trace_stage="control_vent_off_failed",
+                        trace_stage="control_vent_off_skipped_after_full_seal",
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note=str(exc),
+                        refresh_pace_state=False,
+                        note="full seal already verified; no conservative VENT 0 recovery before setpoint",
                     )
-                    return False
-                if vent_off_ok is False:
+                    ready_for_control = self._ensure_pressure_controller_ready_for_control(
+                        point,
+                        phase=phase,
+                        pressure_target_hpa=target,
+                        attempt_recovery=False,
+                        note="full seal already verified; ready check without vent recovery",
+                    )
+                    if not ready_for_control:
+                        return False
+                else:
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
                         point_phase=phase,
-                        trace_stage="control_vent_off_failed",
+                        trace_stage="control_vent_off_begin",
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note="vent off command returned False before setpoint control",
+                        refresh_pace_state=False,
+                        note="before conservative vent off recovery for control",
                     )
-                    return False
-                if self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent":
-                    self._append_pressure_trace_row(
-                        point=point,
-                        route=phase,
-                        point_phase=phase,
-                        trace_stage="control_vent_after_valve_closed",
+                    try:
+                        vent_off_ok = self._set_pressure_controller_vent(
+                            False,
+                            reason="before setpoint control",
+                            point=point,
+                            phase=phase,
+                            helper_name="_set_pressure_to_target",
+                            vent_phase_label="PreHoldBoundary",
+                            before_seal_transition_start=False,
+                            before_pressure_hold_start=True,
+                            before_sour_pres_command=True,
+                            before_outp_stat_1_command=True,
+                            vent_command_reason="exit_atmosphere_abort_vent",
+                        )
+                    except Exception as exc:
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="control_vent_off_failed",
+                            pressure_target_hpa=target,
+                            read_pace_pressure=True,
+                            read_pressure_gauge=True,
+                            note=str(exc),
+                        )
+                        return False
+                    if vent_off_ok is False:
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="control_vent_off_failed",
+                            pressure_target_hpa=target,
+                            read_pace_pressure=True,
+                            read_pressure_gauge=True,
+                            note="vent off command returned False before setpoint control",
+                        )
+                        return False
+                    ready_for_control = self._ensure_pressure_controller_ready_for_control(
+                        point,
+                        phase=phase,
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note="vent-after-valve restored to CLOSED before control",
+                        attempt_recovery=False,
+                        note="after vent off before setpoint",
                     )
-                ready_for_control = self._ensure_pressure_controller_ready_for_control(
-                    point,
-                    phase=phase,
-                    pressure_target_hpa=target,
-                    attempt_recovery=False,
-                    note="after vent off before setpoint",
-                )
-                if not ready_for_control:
-                    return False
+                    if not ready_for_control:
+                        return False
             elif not preseal_ready_state:
-                self._append_pressure_trace_row(
-                    point=point,
-                    route=phase,
-                    point_phase=phase,
-                    trace_stage="control_vent_off_begin",
-                    pressure_target_hpa=target,
-                    refresh_pace_state=False,
-                    note="before vent off command for control",
-                )
-                try:
-                    vent_off_ok = self._set_pressure_controller_vent(False, reason="before setpoint control")
-                except Exception as exc:
+                if full_seal_recorded_for_control:
+                    vent_off_skipped_after_full_seal = True
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
                         point_phase=phase,
-                        trace_stage="control_vent_off_failed",
+                        trace_stage="control_vent_off_skipped_after_full_seal",
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note=str(exc),
+                        refresh_pace_state=False,
+                        note=(
+                            "preseal ready snapshot unavailable/rejected after full seal; "
+                            "ready check proceeds without VENT 0 recovery"
+                        ),
                     )
-                    return False
-                if vent_off_ok is False:
+                    if not self._ensure_pressure_controller_ready_for_control(
+                        point,
+                        phase=phase,
+                        pressure_target_hpa=target,
+                        attempt_recovery=False,
+                        note="full seal already verified; ready check without vent recovery",
+                    ):
+                        return False
+                else:
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
                         point_phase=phase,
-                        trace_stage="control_vent_off_failed",
+                        trace_stage="control_vent_off_begin",
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note="vent off command returned False before setpoint control",
+                        refresh_pace_state=False,
+                        note="before vent off command for control",
                     )
-                    return False
-                if self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent":
-                    self._append_pressure_trace_row(
-                        point=point,
-                        route=phase,
-                        point_phase=phase,
-                        trace_stage="control_vent_after_valve_closed",
+                    try:
+                        vent_off_ok = self._set_pressure_controller_vent(
+                            False,
+                            reason="before setpoint control",
+                            point=point,
+                            phase=phase,
+                            helper_name="_set_pressure_to_target",
+                            vent_phase_label="PreHoldBoundary",
+                            before_seal_transition_start=False,
+                            before_pressure_hold_start=True,
+                            before_sour_pres_command=True,
+                            before_outp_stat_1_command=True,
+                            vent_command_reason="exit_atmosphere_abort_vent",
+                        )
+                    except Exception as exc:
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="control_vent_off_failed",
+                            pressure_target_hpa=target,
+                            read_pace_pressure=True,
+                            read_pressure_gauge=True,
+                            note=str(exc),
+                        )
+                        return False
+                    if vent_off_ok is False:
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="control_vent_off_failed",
+                            pressure_target_hpa=target,
+                            read_pace_pressure=True,
+                            read_pressure_gauge=True,
+                            note="vent off command returned False before setpoint control",
+                        )
+                        return False
+                    if not self._ensure_pressure_controller_ready_for_control(
+                        point,
+                        phase=phase,
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note="vent-after-valve restored to CLOSED before control",
-                    )
-                if not self._ensure_pressure_controller_ready_for_control(
-                    point,
-                    phase=phase,
-                    pressure_target_hpa=target,
-                    note="after vent off before setpoint",
-                ):
-                    return False
+                        note="after vent off before setpoint",
+                    ):
+                        return False
 
             self._append_pressure_trace_row(
                 point=point,
@@ -8219,8 +16343,28 @@ class CalibrationRunner:
                 note=(
                     "reused preseal vent-off state; controller ready before setpoint"
                     if reused_preseal_ready
+                    else "full seal already verified; controller ready without post-seal vent command"
+                    if vent_off_skipped_after_full_seal
                     else "vent off command completed; controller ready before setpoint"
                 ),
+            )
+            self._configure_same_gas_low_pressure_standard_control(
+                pace,
+                point,
+                phase=phase,
+            )
+            if not self._verify_full_seal_before_pressure_control(
+                point,
+                phase=phase,
+                pressure_target_hpa=target,
+                reason="set_pressure_to_target",
+            ):
+                return False
+            self._activate_sealed_no_vent_guard(
+                point=point,
+                phase=phase,
+                guard_phase="PressureSetpointHold",
+                reason="set_pressure_to_target",
             )
             pace.set_setpoint(target)
             self._append_pressure_trace_row(
@@ -8232,7 +16376,12 @@ class CalibrationRunner:
                 refresh_pace_state=False,
                 note="before output on after setpoint update",
             )
-            if not self._enable_pressure_controller_output(reason="after setpoint update"):
+            if not self._enable_pressure_controller_output(
+                reason="after setpoint update",
+                point=point,
+                phase=phase,
+                pressure_target_hpa=target,
+            ):
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -8261,6 +16410,15 @@ class CalibrationRunner:
             ):
                 return False
 
+        final_seal_state = self._seal_transition_state(point, phase=phase)
+        if bool(final_seal_state.get("seal_transition_completed")):
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                pace_control_started_after_full_seal=True,
+                **final_seal_state,
+            )
+
         self._clear_preseal_pressure_control_ready_state(
             reason="control_sequence_completed",
             point=point,
@@ -8279,6 +16437,20 @@ class CalibrationRunner:
         last_pressure_now: Optional[float] = None
         closest_pressure_now: Optional[float] = None
         closest_error_hpa: Optional[float] = None
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="pressure_in_limits_wait_started",
+            pressure_target_hpa=target,
+            read_pace_pressure=True,
+            read_pressure_gauge=True,
+            refresh_pace_state=False,
+            note=(
+                "pressure in-limits wait started after sealed_control_entry_verified; "
+                f"timeout_s={timeout_s:g}"
+            ),
+        )
         while time.time() - start < timeout_s:
             if self.stop_event.is_set():
                 return False
@@ -8312,6 +16484,37 @@ class CalibrationRunner:
                 note=f"pace_in_limits={inl}",
             )
             if inl == 1:
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    pressure_in_limits_timeout_phase="",
+                    pressure_in_limits_timeout_reason_detail="",
+                )
+                runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
+                if str(runtime_state.get("handoff_mode") or "").strip() == "same_gas_superambient_precharge_handoff":
+                    fine_trim_end_ts = time.time()
+                    state = self._point_runtime_state(point, phase=phase, create=True)
+                    if state is not None:
+                        state.setdefault("timing_stages", {})["superambient_fine_trim_end"] = fine_trim_end_ts
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="superambient_fine_trim_end",
+                        pressure_target_hpa=target,
+                        handoff_mode="same_gas_superambient_precharge_handoff",
+                        atmosphere_reference_hpa=runtime_state.get("ambient_reference_hpa"),
+                        superambient_target_hpa=runtime_state.get("superambient_target_hpa"),
+                        superambient_precharge_margin_hpa=runtime_state.get("superambient_precharge_margin_hpa"),
+                        superambient_precharge_peak_hpa=runtime_state.get("superambient_precharge_peak_hpa"),
+                        superambient_precharge_result=runtime_state.get("superambient_precharge_result"),
+                        superambient_closed_path_verified=runtime_state.get("superambient_closed_path_verified"),
+                        pace_pressure_hpa=pressure_value,
+                        read_pressure_gauge=True,
+                        refresh_pace_state=False,
+                        event_ts=fine_trim_end_ts,
+                        note="PACE fine trim reached in-limits; presample lock will arm next",
+                    )
                 self._emit_stage_event(
                     current=self._stage_label_for_point(point, phase=phase),
                     point=point,
@@ -8349,7 +16552,13 @@ class CalibrationRunner:
                     read_pressure_gauge=True,
                     note="before output on after setpoint re-apply",
                 )
-                if not self._enable_pressure_controller_output(reason="after setpoint re-apply"):
+                if not self._enable_pressure_controller_output(
+                    reason="after setpoint re-apply",
+                    point=point,
+                    phase=phase,
+                    pressure_target_hpa=target,
+                    allow_watchlist_acceptance=False,
+                ):
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
@@ -8371,6 +16580,39 @@ class CalibrationRunner:
                 next_retry_at = now + retry_interval_s
             time.sleep(trace_poll_s)
         self.log(f"Pressure stabilize timeout at target {target} hPa")
+        seal_state = self._seal_transition_state(point, phase=phase)
+        timeout_phase = "sealed_control" if bool(seal_state.get("seal_transition_completed")) else "seal_not_complete"
+        timeout_detail = (
+            "seal_verified_but_pace_not_in_limits; "
+            f"last_pressure_hpa={last_pressure_now if last_pressure_now is not None else 'unavailable'}; "
+            f"closest_pressure_hpa={closest_pressure_now if closest_pressure_now is not None else 'unavailable'}; "
+            f"closest_error_hpa={closest_error_hpa if closest_error_hpa is not None else 'unavailable'}; "
+            f"seal_transition_completed={bool(seal_state.get('seal_transition_completed'))}; "
+            f"missing_closed_valves={seal_state.get('seal_missing_closed_valves') or []}; "
+            f"total_route_valve_closed={bool(seal_state.get('seal_total_route_valve_closed'))}"
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            abort_reason="PressureInLimitsTimeout",
+            pressure_in_limits_timeout_phase=timeout_phase,
+            pressure_in_limits_timeout_reason_detail=timeout_detail,
+            pace_control_started_after_full_seal=bool(seal_state.get("seal_transition_completed")),
+            **seal_state,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="pressure_in_limits_wait_timeout",
+            trigger_reason="PressureInLimitsTimeout",
+            pressure_target_hpa=target,
+            pace_pressure_hpa=last_pressure_now,
+            read_pressure_gauge=True,
+            read_dewpoint=True,
+            refresh_pace_state=False,
+            note=timeout_detail,
+        )
         snap = self._pressure_snapshot()
         if snap:
             self.log(
@@ -8399,7 +16641,32 @@ class CalibrationRunner:
                 and abs(last_pressure_now - target) >= closest_error_hpa + 10.0
             ):
                 self.log("Pressure timeout pattern: target vicinity reached, then drifted away while sealed")
+        same_route_follow_on_handoff = self._same_route_follow_on_pressure_switch_active(
+            point,
+            phase=phase,
+        )
         if not recovery_attempted and bool(self._wf("workflow.pressure.soft_recover_on_pressure_timeout", True)):
+            if same_route_follow_on_handoff:
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="control_timeout_recovery_skipped",
+                    pressure_target_hpa=target,
+                    pace_pressure_hpa=last_pressure_now,
+                    handoff_mode="same_gas_pressure_step_handoff",
+                    read_pressure_gauge=True,
+                    refresh_pace_state=False,
+                    note=(
+                        "same-route sealed pressure-point handoff active; "
+                        "skip atmosphere-reset soft recovery after timeout"
+                    ),
+                )
+                self.log(
+                    f"Pressure target {target} hPa timed out during same-route sealed pressure handoff; "
+                    "skip atmosphere-reset soft recovery to avoid reopening atmosphere before the point is abandoned"
+                )
+                return False
             self.log(
                 f"Pressure target {target} hPa did not stabilize; "
                 "attempt pressure-controller soft recovery and retry once"
@@ -8452,14 +16719,6 @@ class CalibrationRunner:
             self.log(f"Pressure controller soft recovery reopen failed: {exc}")
 
         try:
-            set_units_hpa = getattr(pace, "set_units_hpa", None)
-            if callable(set_units_hpa):
-                set_units_hpa()
-        except Exception as exc:
-            ok = False
-            self.log(f"Pressure controller soft recovery set-units failed: {exc}")
-
-        try:
             set_in_limits = getattr(pace, "set_in_limits", None)
             if callable(set_in_limits):
                 set_in_limits(
@@ -8470,7 +16729,18 @@ class CalibrationRunner:
             ok = False
             self.log(f"Pressure controller soft recovery set in-limits failed: {exc}")
 
+        capability_snapshot = self._capture_pace_capability_snapshot(
+            reason="pressure controller soft recovery",
+            include_optional_probe=False,
+        )
+        if str(capability_snapshot.get("pressure_unit_reason") or "").strip():
+            self.log(
+                "Pressure controller soft recovery capability snapshot: "
+                f"{capability_snapshot.get('pressure_unit_reason')}"
+            )
+
         try:
+            self._clear_sealed_no_vent_guard(phase="co2", reason="soft recovery atmosphere reset")
             self._set_pressure_controller_vent(True, reason="soft recovery atmosphere reset")
         except Exception as exc:
             ok = False
@@ -8487,9 +16757,9 @@ class CalibrationRunner:
         if not pace:
             return
         try:
-            self._set_pressure_controller_vent(True, reason="H2O route precondition")
+            self._set_pressure_controller_vent(False, reason="H2O idle precondition")
             self._h2o_pressure_prepared_target = None
-            self.log("Pressure controller kept at atmosphere for H2O route conditioning")
+            self.log("Pressure controller isolated from atmosphere while waiting for H2O route conditioning")
         except Exception as exc:
             self._h2o_pressure_prepared_target = None
             self.log(f"H2O pressure precondition failed: {exc}")
@@ -8529,6 +16799,7 @@ class CalibrationRunner:
     ) -> None:
         prior_state = dict(self._preseal_pressure_control_ready_state or {})
         self._preseal_pressure_control_ready_state = None
+        self._preseal_final_atmosphere_exit_snapshot = None
         if reason or prior_state:
             invalidation_phase = str(phase or prior_state.get("phase") or "").strip().lower()
             invalidation_point_row = self._as_int(
@@ -8543,6 +16814,403 @@ class CalibrationRunner:
                 ),
                 "ts": time.time(),
             }
+
+    def _preseal_final_atmosphere_exit_matches_point(
+        self,
+        state: Mapping[str, Any],
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> bool:
+        if not bool(state.get("preseal_final_atmosphere_exit_verified")):
+            return False
+        if str(state.get("phase") or "") != str(phase or "").strip().lower():
+            return False
+        if self._as_int(state.get("point_row")) != int(point.index):
+            return False
+        target_pressure_hpa = self._as_float(getattr(point, "target_pressure_hpa", None))
+        snapshot_target_hpa = self._as_float(state.get("target_pressure_hpa"))
+        if target_pressure_hpa is None or snapshot_target_hpa is None:
+            return True
+        return abs(target_pressure_hpa - snapshot_target_hpa) <= self._preseal_ready_target_tolerance_hpa()
+
+    def _preseal_final_atmosphere_exit_detail(
+        self,
+        *,
+        failures: Iterable[str],
+        snapshot: Mapping[str, Any],
+        phase_label: str,
+        wait_iterations: int = 0,
+    ) -> str:
+        failure_text = ",".join(str(item) for item in list(failures or [])) or "none"
+        return (
+            f"phase={phase_label}; failures={failure_text}; "
+            f"vent_status={self._as_int(snapshot.get('pace_vent_status'))}; "
+            f"output_state={self._as_int(snapshot.get('pace_output_state'))}; "
+            f"isolation_state={self._as_int(snapshot.get('pace_isolation_state'))}; "
+            f"wait_iterations={int(wait_iterations)}"
+        )
+
+    def _preseal_final_exit_watchlist_acceptance(
+        self,
+        pace: Any,
+        snapshot: Mapping[str, Any],
+        failures: Iterable[str],
+        *,
+        phase_label: str,
+        final_vent0_command_sent: bool,
+    ) -> Tuple[bool, str]:
+        failure_items = [str(item) for item in list(failures or [])]
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        watchlist_failure = f"vent_status={vent_status}(watchlist_only)"
+        if vent_status != 3 or watchlist_failure not in failure_items:
+            return False, ""
+        if str(phase_label or "") != "preseal_before_full_seal":
+            return False, f"preseal_exit_watchlist_only_failure:phase={phase_label or 'unknown'}"
+        if not final_vent0_command_sent:
+            return False, "preseal_exit_watchlist_only_failure:final_vent0_command_not_confirmed"
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        if output_state != 0 or isolation_state != 1:
+            return (
+                False,
+                "preseal_exit_watchlist_only_failure:"
+                f"output_state={output_state};isolation_state={isolation_state}",
+            )
+        extra_failures = [item for item in failure_items if item != watchlist_failure]
+        if extra_failures:
+            return (
+                False,
+                "preseal_exit_watchlist_only_failure:additional_failures="
+                + ",".join(extra_failures),
+            )
+        if self._pace_profile_name(pace) != "OLD_PACE5000":
+            return False, "preseal_exit_watchlist_only_failure:not_old_pace5000"
+        if not self._pace_legacy_vent_state_3_suspect_from_snapshot(pace, snapshot):
+            return False, "preseal_exit_watchlist_only_failure:not_legacy_watchlist_status"
+        return (
+            True,
+            "preseal_exit_watchlist_only_but_accepted:"
+            "scope=old_k0472_preseal_before_full_seal_after_final_vent0;"
+            "control_ready_watchlist_status_accepted=false",
+        )
+
+    def _after_full_seal_watchlist_acceptance(
+        self,
+        pace: Any,
+        snapshot: Mapping[str, Any],
+        failures: Iterable[str],
+        *,
+        seal_state: Mapping[str, Any],
+        guard_state: Mapping[str, Any],
+        control_ready_check_phase: str,
+        attempt_recovery: bool,
+    ) -> Tuple[bool, str]:
+        failure_items = [str(item) for item in list(failures or [])]
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        watchlist_failure = f"vent_status={vent_status}(watchlist_only)"
+        if vent_status != 3 or watchlist_failure not in failure_items:
+            return False, ""
+        if str(control_ready_check_phase or "") != "after_full_seal":
+            return False, f"after_full_seal_watchlist_only_failure:phase={control_ready_check_phase or 'unknown'}"
+        if bool(attempt_recovery):
+            return False, "after_full_seal_watchlist_only_failure:post_seal_recovery_enabled"
+        if not bool(seal_state.get("seal_transition_completed")):
+            return False, "after_full_seal_watchlist_only_failure:seal_transition_not_completed"
+        if not bool(seal_state.get("seal_all_solenoids_closed")):
+            return False, "after_full_seal_watchlist_only_failure:solenoids_not_closed"
+        if not bool(seal_state.get("seal_total_route_valve_closed")):
+            return False, "after_full_seal_watchlist_only_failure:total_route_valve_not_closed"
+        if not bool(seal_state.get("keepalive_stopped_before_seal")):
+            return False, "after_full_seal_watchlist_only_failure:keepalive_not_stopped_before_seal"
+        if list(seal_state.get("seal_missing_closed_valves") or []):
+            return False, "after_full_seal_watchlist_only_failure:missing_closed_valves"
+        guard_phase = str(guard_state.get("phase") or "").strip()
+        if not bool(guard_state.get("active")) or guard_phase not in {
+            "SealTransition",
+            "PressureSetpointHold",
+            "PressurePointSwitch",
+        }:
+            return False, f"after_full_seal_watchlist_only_failure:no_vent_guard_inactive:{guard_phase or 'none'}"
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        if output_state != 0 or isolation_state != 1:
+            return (
+                False,
+                "after_full_seal_watchlist_only_failure:"
+                f"output_state={output_state};isolation_state={isolation_state}",
+            )
+        extra_failures = [item for item in failure_items if item != watchlist_failure]
+        if extra_failures:
+            return (
+                False,
+                "after_full_seal_watchlist_only_failure:additional_failures="
+                + ",".join(extra_failures),
+            )
+        if self._pace_profile_name(pace) != "OLD_PACE5000":
+            return False, "after_full_seal_watchlist_only_failure:not_old_pace5000"
+        if not self._pace_legacy_vent_state_3_suspect_from_snapshot(pace, snapshot):
+            return False, "after_full_seal_watchlist_only_failure:not_legacy_watchlist_status"
+        return (
+            True,
+            "after_full_seal_watchlist_only_but_accepted:"
+            "scope=old_k0472_after_full_seal_control_ready_no_post_seal_vent;"
+            "control_ready_entry_only=true",
+        )
+
+    def _after_full_seal_output_enable_watchlist_acceptance(
+        self,
+        pace: Any,
+        snapshot: Mapping[str, Any],
+        failures: Iterable[str],
+        *,
+        seal_state: Mapping[str, Any],
+        guard_state: Mapping[str, Any],
+        output_enable_phase: str,
+        required_output_state: int,
+        control_ready_watchlist_status_accepted: bool,
+    ) -> Tuple[bool, str]:
+        failure_items = [str(item) for item in list(failures or [])]
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        watchlist_failure = f"vent_status={vent_status}(watchlist_only)"
+        if vent_status != 3 or watchlist_failure not in failure_items:
+            return False, ""
+        if str(output_enable_phase or "") != "after_full_seal":
+            return False, f"after_full_seal_output_enable_watchlist_only_failure:phase={output_enable_phase or 'unknown'}"
+        if not bool(seal_state.get("seal_transition_completed")):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:seal_transition_not_completed"
+        if not bool(seal_state.get("seal_all_solenoids_closed")):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:solenoids_not_closed"
+        if not bool(seal_state.get("seal_total_route_valve_closed")):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:total_route_valve_not_closed"
+        if not bool(seal_state.get("keepalive_stopped_before_seal")):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:keepalive_not_stopped_before_seal"
+        if list(seal_state.get("seal_missing_closed_valves") or []):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:missing_closed_valves"
+        guard_phase = str(guard_state.get("phase") or "").strip()
+        if not bool(guard_state.get("active")) or guard_phase not in {
+            "SealTransition",
+            "PressureSetpointHold",
+            "PressurePointSwitch",
+        }:
+            return False, (
+                "after_full_seal_output_enable_watchlist_only_failure:"
+                f"no_vent_guard_inactive:{guard_phase or 'none'}"
+            )
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        if output_state != int(required_output_state) or isolation_state != 1:
+            return (
+                False,
+                "after_full_seal_output_enable_watchlist_only_failure:"
+                f"output_state={output_state};isolation_state={isolation_state}",
+            )
+        extra_failures = [item for item in failure_items if item != watchlist_failure]
+        if extra_failures:
+            return (
+                False,
+                "after_full_seal_output_enable_watchlist_only_failure:additional_failures="
+                + ",".join(extra_failures),
+            )
+        if not bool(control_ready_watchlist_status_accepted):
+            return (
+                False,
+                "after_full_seal_output_enable_watchlist_only_failure:"
+                "control_ready_watchlist_status_not_accepted",
+            )
+        if self._pace_profile_name(pace) != "OLD_PACE5000":
+            return False, "after_full_seal_output_enable_watchlist_only_failure:not_old_pace5000"
+        if not self._pace_legacy_vent_state_3_suspect_from_snapshot(pace, snapshot):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:not_legacy_watchlist_status"
+        return (
+            True,
+            "after_full_seal_output_enable_watchlist_only_but_accepted:"
+            "scope=old_k0472_after_full_seal_output_enable_no_post_seal_vent;"
+            "output_enable_entry_only=true",
+        )
+
+    def _verify_preseal_final_atmosphere_exit(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str,
+        pressure_target_hpa: Optional[float],
+        final_vent0_command_sent: bool = False,
+    ) -> bool:
+        pace = self.devices.get("pace")
+        phase_text = str(phase or "").strip().lower() or "co2"
+        phase_label = "preseal_before_full_seal"
+        if not pace:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                preseal_final_atmosphere_exit_required=True,
+                preseal_final_atmosphere_exit_started=True,
+                preseal_final_atmosphere_exit_verified=True,
+                preseal_final_atmosphere_exit_phase=phase_label,
+                preseal_final_atmosphere_exit_reason="pressure_controller_unavailable",
+                preseal_final_exit_watchlist_status_seen=False,
+                preseal_final_exit_watchlist_status_accepted=False,
+                preseal_final_exit_watchlist_status_reason="",
+                legacy_v1_preseal_watchlist_evidence_found=False,
+                legacy_v1_preseal_watchlist_evidence_source="",
+                control_ready_watchlist_status_accepted=False,
+            )
+            return True
+
+        wait_timeout_s = self._pressure_control_ready_wait_timeout_s()
+        wait_poll_s = self._pressure_control_ready_wait_poll_s()
+        wait_iterations = 0
+        deadline = time.time() + wait_timeout_s
+        snapshot = self._pressure_controller_ready_snapshot(pace)
+        failures = self._pressure_controller_ready_failures(snapshot, pace)
+        while failures and wait_timeout_s > 0 and time.time() < deadline:
+            time.sleep(wait_poll_s)
+            wait_iterations += 1
+            snapshot = self._pressure_controller_ready_snapshot(pace)
+            failures = self._pressure_controller_ready_failures(snapshot, pace)
+
+        watchlist_status_seen = any(str(item) == "vent_status=3(watchlist_only)" for item in failures)
+        watchlist_status_accepted, watchlist_status_reason = self._preseal_final_exit_watchlist_acceptance(
+            pace,
+            snapshot,
+            failures,
+            phase_label=phase_label,
+            final_vent0_command_sent=final_vent0_command_sent,
+        )
+        if watchlist_status_seen and not watchlist_status_reason:
+            watchlist_status_reason = "preseal_exit_watchlist_only_failure"
+        effective_failures = [] if watchlist_status_accepted else list(failures)
+        legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+            point,
+            phase=phase_text,
+            pace=pace,
+            vent_status=snapshot.get("pace_vent_status"),
+            accept_scope="none",
+            control_ready_used=False,
+            block_scope="preseal_final_atmosphere_exit",
+            hard_blocked=bool(effective_failures),
+            watchlist_only=True,
+            control_ready_attempted=False,
+            control_ready_prevented=bool(effective_failures),
+        )
+        detail = self._preseal_final_atmosphere_exit_detail(
+            failures=failures,
+            snapshot=snapshot,
+            phase_label=phase_label,
+            wait_iterations=wait_iterations,
+        )
+        if watchlist_status_seen:
+            detail = f"{detail}; watchlist_status_reason={watchlist_status_reason}"
+        verified = not bool(effective_failures)
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            preseal_final_atmosphere_exit_required=True,
+            preseal_final_atmosphere_exit_started=True,
+            preseal_final_atmosphere_exit_verified=verified,
+            preseal_final_atmosphere_exit_phase=phase_label,
+            preseal_final_atmosphere_exit_reason=(
+                detail
+                if (not verified or watchlist_status_seen)
+                else str(reason or "ensure_vent_closed_before_seal")
+            ),
+            preseal_final_exit_watchlist_status_seen=watchlist_status_seen,
+            preseal_final_exit_watchlist_status_accepted=watchlist_status_accepted,
+            preseal_final_exit_watchlist_status_reason=watchlist_status_reason,
+            legacy_v1_preseal_watchlist_evidence_found=watchlist_status_accepted,
+            legacy_v1_preseal_watchlist_evidence_source=(
+                _LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE if watchlist_status_accepted else ""
+            ),
+            control_ready_watchlist_status_accepted=False,
+        )
+        if verified:
+            cached_snapshot = dict(snapshot)
+            cached_snapshot.update(
+                {
+                    "phase": phase_text,
+                    "point_row": int(point.index),
+                    "target_pressure_hpa": self._as_float(pressure_target_hpa),
+                    "recorded_wall_ts": time.time(),
+                    "failures": list(failures) if watchlist_status_accepted else [],
+                    "preseal_final_atmosphere_exit_required": True,
+                    "preseal_final_atmosphere_exit_started": True,
+                    "preseal_final_atmosphere_exit_verified": True,
+                    "preseal_final_atmosphere_exit_phase": phase_label,
+                    "preseal_final_atmosphere_exit_reason": (
+                        detail if watchlist_status_seen else str(reason or "ensure_vent_closed_before_seal")
+                    ),
+                    "preseal_final_exit_watchlist_status_seen": watchlist_status_seen,
+                    "preseal_final_exit_watchlist_status_accepted": watchlist_status_accepted,
+                    "preseal_final_exit_watchlist_status_reason": watchlist_status_reason,
+                    "legacy_v1_preseal_watchlist_evidence_found": watchlist_status_accepted,
+                    "legacy_v1_preseal_watchlist_evidence_source": (
+                        _LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE if watchlist_status_accepted else ""
+                    ),
+                    "control_ready_watchlist_status_accepted": False,
+                }
+            )
+            self._preseal_final_atmosphere_exit_snapshot = cached_snapshot
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                trace_stage="preseal_final_atmosphere_exit_verified",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
+                preseal_final_exit_watchlist_status_seen=watchlist_status_seen,
+                preseal_final_exit_watchlist_status_accepted=watchlist_status_accepted,
+                preseal_final_exit_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_preseal_watchlist_evidence_found=watchlist_status_accepted,
+                legacy_v1_preseal_watchlist_evidence_source=(
+                    _LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE if watchlist_status_accepted else ""
+                ),
+                control_ready_watchlist_status_accepted=False,
+                refresh_pace_state=False,
+                note=detail,
+            )
+            return True
+
+        self._preseal_final_atmosphere_exit_snapshot = None
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            abort_reason="PresealFinalAtmosphereExitNotVerified",
+            control_ready_failure_reason_detail=detail,
+            control_ready_failed_after_full_seal=False,
+            control_ready_failed_with_watchlist_status_3=watchlist_status_seen,
+            preseal_final_exit_watchlist_status_seen=watchlist_status_seen,
+            preseal_final_exit_watchlist_status_accepted=False,
+            preseal_final_exit_watchlist_status_reason=watchlist_status_reason,
+            legacy_v1_preseal_watchlist_evidence_found=False,
+            legacy_v1_preseal_watchlist_evidence_source="",
+            control_ready_watchlist_status_accepted=False,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="preseal_final_atmosphere_exit_failed",
+            pressure_target_hpa=pressure_target_hpa,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            **legacy_vent3_trace,
+            preseal_final_exit_watchlist_status_seen=watchlist_status_seen,
+            preseal_final_exit_watchlist_status_accepted=False,
+            preseal_final_exit_watchlist_status_reason=watchlist_status_reason,
+            legacy_v1_preseal_watchlist_evidence_found=False,
+            legacy_v1_preseal_watchlist_evidence_source="",
+            control_ready_watchlist_status_accepted=False,
+            refresh_pace_state=False,
+            note=detail,
+        )
+        self.log(f"Pre-seal final atmosphere exit not verified before full seal: {detail}")
+        return False
 
     def _record_preseal_pressure_control_ready_state(
         self,
@@ -8559,7 +17227,16 @@ class CalibrationRunner:
                 phase=phase,
             )
             return
-        if defer_live_check:
+        preseal_exit_state = dict(self._preseal_final_atmosphere_exit_snapshot or {})
+        reuse_preseal_exit = self._preseal_final_atmosphere_exit_matches_point(
+            preseal_exit_state,
+            point,
+            phase=phase,
+        )
+        if reuse_preseal_exit:
+            snapshot = dict(preseal_exit_state)
+            defer_live_check = False
+        elif defer_live_check:
             snapshot = self._pressure_controller_ready_snapshot(
                 pace,
                 refresh_state=False,
@@ -8576,9 +17253,46 @@ class CalibrationRunner:
                 "route_sealed": True,
                 "atmosphere_hold_stopped": not bool(snapshot.get("hold_thread_active")),
                 "ready_verification_pending": bool(defer_live_check),
+                "preseal_final_atmosphere_exit_required": bool(
+                    snapshot.get("preseal_final_atmosphere_exit_required", False)
+                ),
+                "preseal_final_atmosphere_exit_started": bool(
+                    snapshot.get("preseal_final_atmosphere_exit_started", False)
+                ),
+                "preseal_final_atmosphere_exit_verified": bool(
+                    snapshot.get("preseal_final_atmosphere_exit_verified", False)
+                ),
+                "preseal_final_atmosphere_exit_phase": str(
+                    snapshot.get("preseal_final_atmosphere_exit_phase") or ""
+                ),
+                "preseal_final_atmosphere_exit_reason": str(
+                    snapshot.get("preseal_final_atmosphere_exit_reason") or ""
+                ),
+                "preseal_final_exit_watchlist_status_seen": bool(
+                    snapshot.get("preseal_final_exit_watchlist_status_seen", False)
+                ),
+                "preseal_final_exit_watchlist_status_accepted": bool(
+                    snapshot.get("preseal_final_exit_watchlist_status_accepted", False)
+                ),
+                "preseal_final_exit_watchlist_status_reason": str(
+                    snapshot.get("preseal_final_exit_watchlist_status_reason") or ""
+                ),
+                "legacy_v1_preseal_watchlist_evidence_found": bool(
+                    snapshot.get("legacy_v1_preseal_watchlist_evidence_found", False)
+                ),
+                "legacy_v1_preseal_watchlist_evidence_source": str(
+                    snapshot.get("legacy_v1_preseal_watchlist_evidence_source") or ""
+                ),
+                "control_ready_watchlist_status_accepted": bool(
+                    snapshot.get("control_ready_watchlist_status_accepted", False)
+                ),
+                **self._seal_transition_state(point, phase=phase),
             }
         )
-        snapshot["failures"] = [] if defer_live_check else self._pressure_controller_ready_failures(snapshot, pace)
+        if reuse_preseal_exit:
+            snapshot["failures"] = list(preseal_exit_state.get("failures") or [])
+        else:
+            snapshot["failures"] = [] if defer_live_check else self._pressure_controller_ready_failures(snapshot, pace)
         self._preseal_pressure_control_ready_state = snapshot
         self._last_preseal_pressure_control_ready_invalidation = None
 
@@ -8619,16 +17333,32 @@ class CalibrationRunner:
             return None, f"target_pressure_mismatch:{target_delta_hpa:.3f}hPa"
         recorded_wall_ts = self._as_float(state.get("recorded_wall_ts"))
         age_s = None if recorded_wall_ts is None else max(0.0, time.time() - recorded_wall_ts)
-        if age_s is not None and age_s > self._preseal_ready_snapshot_max_age_s():
+        preseal_final_exit_verified = bool(state.get("preseal_final_atmosphere_exit_verified"))
+        if (
+            age_s is not None
+            and age_s > self._preseal_ready_snapshot_max_age_s()
+            and not preseal_final_exit_verified
+        ):
             return None, f"snapshot_age_exceeded:{age_s:.3f}s"
         if state.get("route_sealed") is not True:
             return None, "snapshot_not_route_sealed"
         if state.get("atmosphere_hold_stopped") is not True:
             return None, "atmosphere_hold_not_stopped"
+        if state.get("seal_all_solenoids_closed") is not True:
+            return None, "seal_all_solenoids_not_closed"
+        if state.get("seal_total_route_valve_closed") is not True:
+            return None, "seal_total_route_valve_not_closed"
+        if state.get("seal_transition_completed") is not True:
+            return None, "seal_transition_not_completed"
+        if state.get("keepalive_stopped_before_seal") is not True:
+            return None, "keepalive_not_stopped_before_seal"
         return state, ""
 
     def _pressure_controller_ready_snapshot_requires_aux_refresh(self) -> bool:
-        return self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent"
+        strategy = str(self._pressure_atmosphere_hold_strategy or "").strip().lower()
+        return strategy == "vent_valve_open_after_vent" or bool(
+            self._wf("workflow.pressure.vent_after_valve_open", False)
+        )
 
     def _pressure_controller_ready_snapshot(
         self,
@@ -8637,7 +17367,7 @@ class CalibrationRunner:
         refresh_state: bool = True,
         refresh_aux: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        snapshot = self._pace_state_snapshot(pace, refresh=refresh_state)
+        snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=refresh_state, refresh_aux=False)
         snapshot["hold_thread_active"] = self._pressure_controller_hold_thread_active(pace)
         should_refresh_aux = (
             self._pressure_controller_ready_snapshot_requires_aux_refresh()
@@ -8646,10 +17376,18 @@ class CalibrationRunner:
         )
         if should_refresh_aux:
             self._refresh_pressure_controller_aux_state(pace)
+        snapshot["pace_vent_after_valve_state_query"] = (
+            snapshot.get("pace_vent_after_valve_state_query") or self._pace_vent_after_valve_state_query or ""
+        )
+        snapshot["pace_vent_popup_state_query"] = (
+            snapshot.get("pace_vent_popup_state_query") or self._pace_vent_popup_state_query or ""
+        )
         snapshot["vent_after_valve_open"] = self._pace_vent_after_valve_open
         snapshot["vent_popup_ack_enabled"] = self._pace_vent_popup_ack_enabled
         snapshot["vent_after_valve_supported"] = self._pace_vent_after_valve_supported
-        snapshot["atmosphere_hold_strategy"] = self._pressure_atmosphere_hold_strategy
+        snapshot["atmosphere_hold_strategy"] = self._normalized_atmosphere_hold_strategy_value(
+            self._pressure_atmosphere_hold_strategy
+        )
         return snapshot
 
     def _pressure_control_ready_wait_timeout_s(self) -> float:
@@ -8667,27 +17405,27 @@ class CalibrationRunner:
     def _pressure_output_on_recovery_retries(self) -> int:
         return max(0, int(self._wf("workflow.pressure.output_on_recovery_retries", 1) or 1))
 
-    def _pressure_output_on_recovery_requires_trapped(self) -> bool:
-        return bool(self._wf("workflow.pressure.output_on_recovery_requires_trapped", True))
-
     def _pace_vent_status_allows_control(self, pace: Any, vent_status: Any) -> bool:
-        status_value = self._as_int(vent_status)
-        if status_value is None:
-            return False
         checker = getattr(pace, "vent_status_allows_control", None)
         if callable(checker):
             try:
-                return bool(checker(status_value))
+                return bool(checker(vent_status))
             except Exception:
                 pass
-        return status_value == 0
-
-    def _pace_trapped_pressure_allows_control(self, pace: Any, vent_status: Any) -> bool:
         status_value = self._as_int(vent_status)
-        trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
-        if status_value is None or trapped_pressure_status is None or status_value != trapped_pressure_status:
+        if status_value is None:
             return False
-        return self._pace_vent_status_allows_control(pace, status_value)
+        if status_value == 2:
+            # K0472: VENT?=2 is a completed vent latch until explicitly
+            # cleared with VENT 0, so it is never a control-ready state.
+            return False
+        trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
+        if trapped_pressure_status is not None and status_value == trapped_pressure_status:
+            # VENT?=3 remains watchlist-only on legacy GE Druck units. Real
+            # read-only evidence does not close the loop between this value and
+            # the front-panel popup state, so automation must not depend on it.
+            return False
+        return status_value == 0
 
     def _pressure_controller_ready_failures(self, snapshot: Dict[str, Any], pace: Any = None) -> List[str]:
         failures: List[str] = []
@@ -8695,23 +17433,13 @@ class CalibrationRunner:
         output_state = self._as_int(snapshot.get("pace_output_state"))
         isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
         hold_thread_active = bool(snapshot.get("hold_thread_active"))
-        vent_after_valve_open = snapshot.get("vent_after_valve_open")
-        atmosphere_hold_strategy = str(
-            snapshot.get("atmosphere_hold_strategy") or self._pressure_atmosphere_hold_strategy or ""
-        ).strip()
         trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
         if hold_thread_active:
             failures.append("atmosphere_hold_active")
-        if atmosphere_hold_strategy == "vent_valve_open_after_vent" and vent_after_valve_open is True:
-            failures.append("vent_after_valve_open")
         if vent_status is None:
             failures.append("vent_status_unavailable")
-        elif (
-            trapped_pressure_status is not None
-            and vent_status == trapped_pressure_status
-            and not self._pace_trapped_pressure_allows_control(pace, vent_status)
-        ):
-            failures.append(f"vent_status={vent_status}(trapped_pressure)")
+        elif trapped_pressure_status is not None and vent_status == trapped_pressure_status:
+            failures.append(f"vent_status={vent_status}(watchlist_only)")
         elif not self._pace_vent_status_allows_control(pace, vent_status):
             failures.append(f"vent_status={vent_status}")
         if output_state is None:
@@ -8737,8 +17465,70 @@ class CalibrationRunner:
         if not pace:
             return True
 
+        guard_state = self._sealed_no_vent_guard_snapshot()
+        guard_phase = str(guard_state.get("phase") or "").strip()
+        seal_state_at_check = self._seal_transition_state(point, phase=phase)
+        check_after_full_seal = bool(seal_state_at_check.get("seal_transition_completed"))
+        control_ready_check_phase = "after_full_seal" if check_after_full_seal else "preseal_or_unsealed"
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            control_ready_check_vent_status=None,
+            control_ready_check_phase=control_ready_check_phase,
+            control_ready_failure_reason_detail="",
+            control_ready_failed_after_full_seal=False,
+            control_ready_failed_with_watchlist_status_3=False,
+            control_ready_watchlist_status_accepted=False,
+            control_ready_watchlist_status_phase=control_ready_check_phase,
+            control_ready_check_watchlist_status_seen=False,
+            control_ready_check_watchlist_status_accepted=False,
+            after_full_seal_watchlist_status_seen=False,
+            after_full_seal_watchlist_status_accepted=False,
+            after_full_seal_watchlist_status_reason="",
+            legacy_v1_after_full_seal_watchlist_evidence_found=False,
+            legacy_v1_after_full_seal_watchlist_evidence_source="",
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="control_ready_check_started",
+            pressure_target_hpa=pressure_target_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"phase={control_ready_check_phase}; "
+                f"attempt_recovery={bool(attempt_recovery)}; {note or 'pressure controller ready check'}"
+            ),
+        )
+        if bool(guard_state.get("active")) and guard_phase in {
+            "PressureSetpointHold",
+            "PressurePointSwitch",
+            "SamplingUnderPressure",
+            "SealTransition",
+        }:
+            attempt_recovery = False
+
         snapshot = self._pressure_controller_ready_snapshot(pace)
         failures = self._pressure_controller_ready_failures(snapshot, pace)
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            control_ready_check_vent_status=self._as_int(snapshot.get("pace_vent_status")),
+            control_ready_check_phase=control_ready_check_phase,
+        )
+        legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+            point,
+            phase=phase,
+            pace=pace,
+            vent_status=snapshot.get("pace_vent_status"),
+            accept_scope="none",
+            control_ready_used=False,
+            block_scope="pressure_control_ready",
+            hard_blocked=bool(failures),
+            watchlist_only=True,
+            control_ready_attempted=True,
+            control_ready_prevented=bool(failures),
+        )
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -8748,6 +17538,7 @@ class CalibrationRunner:
             pace_output_state=snapshot.get("pace_output_state"),
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
+            **legacy_vent3_trace,
             refresh_pace_state=False,
             note=note if not failures else f"{note}; failures={','.join(failures)}",
         )
@@ -8765,6 +17556,7 @@ class CalibrationRunner:
                 pace_output_state=snapshot.get("pace_output_state"),
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
                 refresh_pace_state=False,
                 event_ts=wait_start_ts,
                 note=f"timeout_s={wait_timeout_s:.3f} poll_s={wait_poll_s:.3f} failures={','.join(failures)}",
@@ -8775,6 +17567,25 @@ class CalibrationRunner:
                 wait_iterations += 1
                 snapshot = self._pressure_controller_ready_snapshot(pace)
                 failures = self._pressure_controller_ready_failures(snapshot, pace)
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                control_ready_check_vent_status=self._as_int(snapshot.get("pace_vent_status")),
+                control_ready_check_phase=control_ready_check_phase,
+            )
+            legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+                point,
+                phase=phase,
+                pace=pace,
+                vent_status=snapshot.get("pace_vent_status"),
+                accept_scope="none",
+                control_ready_used=False,
+                block_scope="pressure_control_ready",
+                hard_blocked=bool(failures),
+                watchlist_only=True,
+                control_ready_attempted=True,
+                control_ready_prevented=bool(failures),
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -8784,6 +17595,7 @@ class CalibrationRunner:
                 pace_output_state=snapshot.get("pace_output_state"),
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
                 refresh_pace_state=False,
                 note=(
                     f"iterations={wait_iterations} result=ready"
@@ -8791,9 +17603,137 @@ class CalibrationRunner:
                     else f"iterations={wait_iterations} remaining_failures={','.join(failures)}"
                 ),
             )
+        seal_state_for_acceptance = self._seal_transition_state(point, phase=phase)
+        control_ready_check_phase = (
+            "after_full_seal"
+            if bool(seal_state_for_acceptance.get("seal_transition_completed"))
+            else "preseal_or_unsealed"
+        )
+        watchlist_status_seen = any(str(item) == "vent_status=3(watchlist_only)" for item in failures)
+        watchlist_status_accepted, watchlist_status_reason = self._after_full_seal_watchlist_acceptance(
+            pace,
+            snapshot,
+            failures,
+            seal_state=seal_state_for_acceptance,
+            guard_state=guard_state,
+            control_ready_check_phase=control_ready_check_phase,
+            attempt_recovery=attempt_recovery,
+        )
+        if watchlist_status_seen and not watchlist_status_reason:
+            watchlist_status_reason = "after_full_seal_watchlist_only_failure"
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            control_ready_check_phase=control_ready_check_phase,
+            control_ready_check_watchlist_status_seen=watchlist_status_seen,
+            control_ready_check_watchlist_status_accepted=watchlist_status_accepted,
+            control_ready_watchlist_status_accepted=watchlist_status_accepted,
+            control_ready_watchlist_status_phase=control_ready_check_phase,
+            after_full_seal_watchlist_status_seen=(
+                watchlist_status_seen and control_ready_check_phase == "after_full_seal"
+            ),
+            after_full_seal_watchlist_status_accepted=watchlist_status_accepted,
+            after_full_seal_watchlist_status_reason=watchlist_status_reason,
+            legacy_v1_after_full_seal_watchlist_evidence_found=watchlist_status_accepted,
+            legacy_v1_after_full_seal_watchlist_evidence_source=(
+                _LEGACY_V1_AFTER_FULL_SEAL_WATCHLIST_EVIDENCE_SOURCE if watchlist_status_accepted else ""
+            ),
+        )
+        if watchlist_status_seen:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="control_ready_check_watchlist_status_seen",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
+                control_ready_check_watchlist_status_seen=True,
+                control_ready_check_watchlist_status_accepted=watchlist_status_accepted,
+                control_ready_watchlist_status_accepted=watchlist_status_accepted,
+                control_ready_watchlist_status_phase=control_ready_check_phase,
+                after_full_seal_watchlist_status_seen=(control_ready_check_phase == "after_full_seal"),
+                after_full_seal_watchlist_status_accepted=watchlist_status_accepted,
+                after_full_seal_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_after_full_seal_watchlist_evidence_found=watchlist_status_accepted,
+                legacy_v1_after_full_seal_watchlist_evidence_source=(
+                    _LEGACY_V1_AFTER_FULL_SEAL_WATCHLIST_EVIDENCE_SOURCE if watchlist_status_accepted else ""
+                ),
+                refresh_pace_state=False,
+                note=f"phase={control_ready_check_phase}; watchlist_status_reason={watchlist_status_reason}",
+            )
+        if watchlist_status_accepted:
+            failures = []
+            legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+                point,
+                phase=phase,
+                pace=pace,
+                vent_status=snapshot.get("pace_vent_status"),
+                accept_scope="old_k0472_after_full_seal_control_ready_watchlist",
+                control_ready_used=True,
+                block_scope="none",
+                hard_blocked=False,
+                watchlist_only=True,
+                control_ready_attempted=True,
+                control_ready_prevented=False,
+            )
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                control_ready_failed_with_watchlist_status_3=False,
+                vent3_hard_blocked=False,
+                vent3_control_ready_prevented=False,
+                vent3_block_scope="none",
+                legacy_vent3_control_ready_used=True,
+                legacy_vent3_accept_scope="old_k0472_after_full_seal_control_ready_watchlist",
+            )
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="control_ready_check_watchlist_status_accepted",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
+                control_ready_check_watchlist_status_seen=True,
+                control_ready_check_watchlist_status_accepted=True,
+                control_ready_watchlist_status_accepted=True,
+                control_ready_watchlist_status_phase=control_ready_check_phase,
+                after_full_seal_watchlist_status_seen=True,
+                after_full_seal_watchlist_status_accepted=True,
+                after_full_seal_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_after_full_seal_watchlist_evidence_found=True,
+                legacy_v1_after_full_seal_watchlist_evidence_source=(
+                    _LEGACY_V1_AFTER_FULL_SEAL_WATCHLIST_EVIDENCE_SOURCE
+                ),
+                refresh_pace_state=False,
+                note=watchlist_status_reason,
+            )
         if not failures and not self._strict_control_ready_check_enabled():
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                control_ready_failure_reason_detail="",
+                control_ready_failed_after_full_seal=False,
+                control_ready_failed_with_watchlist_status_3=False,
+                control_ready_watchlist_status_accepted=watchlist_status_accepted,
+                control_ready_watchlist_status_phase=control_ready_check_phase,
+            )
             return True
         if not failures:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                control_ready_failure_reason_detail="",
+                control_ready_failed_after_full_seal=False,
+                control_ready_failed_with_watchlist_status_3=False,
+                control_ready_watchlist_status_accepted=watchlist_status_accepted,
+                control_ready_watchlist_status_phase=control_ready_check_phase,
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -8803,8 +17743,22 @@ class CalibrationRunner:
                 pace_output_state=snapshot.get("pace_output_state"),
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
+                control_ready_check_watchlist_status_seen=watchlist_status_seen,
+                control_ready_check_watchlist_status_accepted=watchlist_status_accepted,
+                control_ready_watchlist_status_accepted=watchlist_status_accepted,
+                control_ready_watchlist_status_phase=control_ready_check_phase,
+                after_full_seal_watchlist_status_seen=(
+                    watchlist_status_seen and control_ready_check_phase == "after_full_seal"
+                ),
+                after_full_seal_watchlist_status_accepted=watchlist_status_accepted,
+                after_full_seal_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_after_full_seal_watchlist_evidence_found=watchlist_status_accepted,
+                legacy_v1_after_full_seal_watchlist_evidence_source=(
+                    _LEGACY_V1_AFTER_FULL_SEAL_WATCHLIST_EVIDENCE_SOURCE if watchlist_status_accepted else ""
+                ),
                 refresh_pace_state=False,
-                note=note or "pressure controller ready for control",
+                note=watchlist_status_reason if watchlist_status_accepted else note or "pressure controller ready for control",
             )
             return True
 
@@ -8829,7 +17783,30 @@ class CalibrationRunner:
                     self.log(f"Pressure controller control-ready recovery failed: {exc}")
             snapshot = self._pressure_controller_ready_snapshot(pace)
             failures = self._pressure_controller_ready_failures(snapshot, pace)
+            legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+                point,
+                phase=phase,
+                pace=pace,
+                vent_status=snapshot.get("pace_vent_status"),
+                accept_scope="none",
+                control_ready_used=False,
+                block_scope="pressure_control_ready",
+                hard_blocked=bool(failures),
+                watchlist_only=True,
+                control_ready_attempted=True,
+                control_ready_prevented=bool(failures),
+            )
             if not failures:
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    control_ready_check_vent_status=self._as_int(snapshot.get("pace_vent_status")),
+                    control_ready_check_phase=control_ready_check_phase,
+                    control_ready_failure_reason_detail="",
+                    control_ready_failed_after_full_seal=False,
+                    control_ready_failed_with_watchlist_status_3=False,
+                    control_ready_watchlist_status_accepted=False,
+                )
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -8839,12 +17816,39 @@ class CalibrationRunner:
                     pace_output_state=snapshot.get("pace_output_state"),
                     pace_isolation_state=snapshot.get("pace_isolation_state"),
                     pace_vent_status=snapshot.get("pace_vent_status"),
+                    **legacy_vent3_trace,
                     refresh_pace_state=False,
                     note="pressure controller ready after recovery",
                 )
                 return True
 
         failure_text = ", ".join(failures) if failures else "unknown"
+        seal_state = self._seal_transition_state(point, phase=phase)
+        failed_after_full_seal = bool(seal_state.get("seal_transition_completed"))
+        control_ready_check_phase = "after_full_seal" if failed_after_full_seal else "preseal_or_unsealed"
+        failed_with_watchlist_status_3 = any(str(item) == "vent_status=3(watchlist_only)" for item in failures)
+        watchlist_status_seen = failed_with_watchlist_status_3
+        _, watchlist_status_reason = self._after_full_seal_watchlist_acceptance(
+            pace,
+            snapshot,
+            failures,
+            seal_state=seal_state,
+            guard_state=guard_state,
+            control_ready_check_phase=control_ready_check_phase,
+            attempt_recovery=attempt_recovery,
+        )
+        if watchlist_status_seen and not watchlist_status_reason:
+            watchlist_status_reason = "after_full_seal_watchlist_only_failure"
+        failure_detail = (
+            f"control_ready_failed; phase={control_ready_check_phase}; "
+            f"vent_status={self._as_int(snapshot.get('pace_vent_status'))}; "
+            f"failures={failure_text}; "
+            f"seal_transition_completed={bool(seal_state.get('seal_transition_completed'))}; "
+            f"missing_closed_valves={seal_state.get('seal_missing_closed_valves') or []}; "
+            f"total_route_valve_closed={bool(seal_state.get('seal_total_route_valve_closed'))}; "
+            f"post_seal_recovery_attempted={bool(attempt_recovery)}"
+            + (f"; watchlist_status_reason={watchlist_status_reason}" if watchlist_status_seen else "")
+        )
         pace_pressure_now: Optional[float] = None
         pressure_gauge_now: Optional[float] = None
         try:
@@ -8857,6 +17861,52 @@ class CalibrationRunner:
                 pressure_gauge_now = self._as_float(gauge.read_pressure())
             except Exception:
                 pressure_gauge_now = None
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            abort_reason="PressureControllerNotReadyForControl",
+            pressure_in_limits_timeout_phase="",
+            pressure_in_limits_timeout_reason_detail=failure_detail,
+            control_ready_check_vent_status=self._as_int(snapshot.get("pace_vent_status")),
+            control_ready_check_phase=control_ready_check_phase,
+            control_ready_failure_reason_detail=failure_detail,
+            control_ready_failed_after_full_seal=failed_after_full_seal,
+            control_ready_failed_with_watchlist_status_3=failed_with_watchlist_status_3,
+            control_ready_watchlist_status_accepted=False,
+            control_ready_watchlist_status_phase=control_ready_check_phase,
+            control_ready_check_watchlist_status_seen=watchlist_status_seen,
+            control_ready_check_watchlist_status_accepted=False,
+            after_full_seal_watchlist_status_seen=watchlist_status_seen and failed_after_full_seal,
+            after_full_seal_watchlist_status_accepted=False,
+            after_full_seal_watchlist_status_reason=watchlist_status_reason,
+            legacy_v1_after_full_seal_watchlist_evidence_found=False,
+            legacy_v1_after_full_seal_watchlist_evidence_source="",
+            pace_control_started_after_full_seal=False,
+            **seal_state,
+        )
+        if failed_with_watchlist_status_3:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="control_ready_check_failed_watchlist_status_3",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
+                control_ready_check_watchlist_status_seen=True,
+                control_ready_check_watchlist_status_accepted=False,
+                control_ready_watchlist_status_accepted=False,
+                control_ready_watchlist_status_phase=control_ready_check_phase,
+                after_full_seal_watchlist_status_seen=failed_after_full_seal,
+                after_full_seal_watchlist_status_accepted=False,
+                after_full_seal_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_after_full_seal_watchlist_evidence_found=False,
+                legacy_v1_after_full_seal_watchlist_evidence_source="",
+                refresh_pace_state=False,
+                note=failure_detail,
+            )
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -8866,9 +17916,19 @@ class CalibrationRunner:
             pace_output_state=snapshot.get("pace_output_state"),
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
+            **legacy_vent3_trace,
+            control_ready_check_watchlist_status_seen=watchlist_status_seen,
+            control_ready_check_watchlist_status_accepted=False,
+            control_ready_watchlist_status_accepted=False,
+            control_ready_watchlist_status_phase=control_ready_check_phase,
+            after_full_seal_watchlist_status_seen=watchlist_status_seen and failed_after_full_seal,
+            after_full_seal_watchlist_status_accepted=False,
+            after_full_seal_watchlist_status_reason=watchlist_status_reason,
+            legacy_v1_after_full_seal_watchlist_evidence_found=False,
+            legacy_v1_after_full_seal_watchlist_evidence_source="",
             read_pace_pressure=True,
             read_pressure_gauge=True,
-            note=f"ready failures: {failure_text}",
+            note=failure_detail,
         )
         self.log(
             "Pressure controller not ready for control: "
@@ -8877,36 +17937,265 @@ class CalibrationRunner:
         )
         return False
 
-    def _enter_pressure_controller_atmosphere_with_legacy_hold(self, pace: Any, *, timeout_s: float) -> None:
-        enter_atmosphere = getattr(pace, "enter_atmosphere_mode", None)
-        if callable(enter_atmosphere):
-            try:
-                enter_atmosphere(
-                    timeout_s=timeout_s,
-                    hold_open=True,
-                    hold_interval_s=self._vent_hold_interval_s(),
+    def _enter_pressure_controller_atmosphere_single_cycle(
+        self,
+        pace: Any,
+        *,
+        timeout_s: float,
+        reason: str = "",
+        poll_s: float = 0.25,
+    ) -> Dict[str, Any]:
+        phase_start_ts = time.time()
+        vent_status_sequence: List[int] = []
+        gate_cfg = self._atmosphere_gate_cfg()
+
+        def _record_status(value: Any) -> Optional[int]:
+            parsed = self._as_int(value)
+            if parsed is None:
+                return None
+            if not vent_status_sequence or vent_status_sequence[-1] != parsed:
+                vent_status_sequence.append(parsed)
+            return parsed
+
+        def _finalize_with_optional_retry(
+            *,
+            vent_completed: bool,
+            pressure_window: Mapping[str, Any],
+            pace_syst_err_query: str,
+            default_reason: str,
+        ) -> Dict[str, Any]:
+            merged_window = dict(pressure_window)
+            summary = self._finalize_atmosphere_gate_summary(
+                phase_start_ts=phase_start_ts,
+                reason=reason or default_reason,
+                fresh_vent_command_sent=True,
+                vent_status_sequence=vent_status_sequence,
+                vent_completed=vent_completed,
+                pace_syst_err_query=pace_syst_err_query,
+                pressure_window=merged_window,
+            )
+            retry_attempts = int(gate_cfg.get("retry_max_attempts", 0) or 0)
+            while retry_attempts > 0 and self._should_extend_atmosphere_gate_monitor(summary, gate_cfg):
+                extra_window = self._sample_atmosphere_pressure_window(
+                    monitor_s=float(gate_cfg["monitor_s"]),
+                    poll_s=max(0.0, float(gate_cfg["poll_s"])),
+                    min_samples=int(gate_cfg["min_samples"]),
                 )
-            except TypeError:
-                try:
-                    enter_atmosphere(timeout_s=timeout_s, hold_open=True)
-                except TypeError:
-                    try:
-                        enter_atmosphere(timeout_s=timeout_s)
-                    except TypeError:
-                        enter_atmosphere()
-        else:
-            set_output = getattr(pace, "set_output", None)
-            if callable(set_output):
-                set_output(False)
-            set_isolation_open = getattr(pace, "set_isolation_open", None)
-            if callable(set_isolation_open):
-                set_isolation_open(True)
-            pace.vent(True)
-            start_hold = getattr(pace, "start_atmosphere_hold", None)
-            if callable(start_hold):
-                start_hold(interval_s=self._vent_hold_interval_s())
-        self._pace_vent_after_valve_supported = False
-        self._pace_vent_after_valve_open = False
+                merged_window = self._merge_pressure_windows(merged_window, extra_window)
+                self._append_pressure_trace_row(
+                    point=None,
+                    route="pressure",
+                    trace_stage="atmosphere_gate_monitor_extended",
+                    atmosphere_hold_strategy="fresh_vent_guarded",
+                    refresh_pace_state=False,
+                    note=(
+                        f"{reason or default_reason}; extended monitor due to small-delta slope "
+                        f"delta_hpa={summary.get('pressure_delta_from_ambient_hpa')} "
+                        f"slope_hpa_s={summary.get('pressure_slope_hpa_s')}"
+                    ),
+                )
+                summary = self._finalize_atmosphere_gate_summary(
+                    phase_start_ts=phase_start_ts,
+                    reason=reason or default_reason,
+                    fresh_vent_command_sent=True,
+                    vent_status_sequence=vent_status_sequence,
+                    vent_completed=vent_completed,
+                    pace_syst_err_query=pace_syst_err_query,
+                    pressure_window=merged_window,
+                )
+                retry_attempts -= 1
+            return summary
+
+        self._last_atmosphere_gate_summary = {
+            "phase_start_ts": datetime.fromtimestamp(float(phase_start_ts)).isoformat(timespec="milliseconds"),
+            "reason": str(reason or ""),
+            "fresh_vent_command_sent": True,
+            "vent_status_sequence": [],
+            "vent_status_sequence_text": "",
+            "fresh_vent_completed": False,
+            "pace_syst_err_query": "",
+            "pressure_hpa": None,
+            "ambient_hpa": None,
+            "pressure_delta_from_ambient_hpa": None,
+            "pressure_slope_hpa_s": None,
+            "atmosphere_ready": False,
+            "abort_reason": "",
+        }
+        set_output = getattr(pace, "set_output", None)
+        if callable(set_output):
+            set_output(False)
+        set_isolation_open = getattr(pace, "set_isolation_open", None)
+        if callable(set_isolation_open):
+            set_isolation_open(True)
+        enter_atmosphere = getattr(pace, "enter_atmosphere_mode", None)
+        vent_command = getattr(pace, "vent", None)
+        vent_status_getter = getattr(pace, "get_vent_status", None)
+        if not callable(vent_command):
+            if not callable(enter_atmosphere):
+                raise RuntimeError("VENT_COMMAND_UNAVAILABLE")
+            status = enter_atmosphere(timeout_s=timeout_s)
+            _record_status(status)
+            pace_syst_err_query = self._read_pace_system_error_text()
+            pressure_window = self._sample_atmosphere_pressure_window(
+                monitor_s=float(gate_cfg["monitor_s"]),
+                poll_s=max(0.0, float(gate_cfg["poll_s"])),
+                min_samples=int(gate_cfg["min_samples"]),
+            )
+            summary = _finalize_with_optional_retry(
+                vent_completed=True,
+                pressure_window=pressure_window,
+                pace_syst_err_query=pace_syst_err_query,
+                default_reason="manual atmosphere helper start",
+            )
+            self._pace_vent_after_valve_supported = False
+            self._pace_vent_after_valve_open = False
+            self._append_pressure_trace_row(
+                point=None,
+                route="pressure",
+                trace_stage="atmosphere_vent_started",
+                atmosphere_hold_strategy="fresh_vent_guarded",
+                refresh_pace_state=False,
+                note=(reason or "manual atmosphere helper start") + "; enter_atmosphere_mode helper",
+            )
+            return summary
+        self._drain_pace_system_errors(reason=f"before fresh vent: {reason or 'single vent cycle'}")
+        vent_command(True)
+        pace_syst_err_query = self._read_pace_system_error_text()
+        self._last_atmosphere_gate_summary["pace_syst_err_query"] = pace_syst_err_query
+        self._append_pressure_trace_row(
+            point=None,
+            route="pressure",
+            trace_stage="atmosphere_vent_started",
+            atmosphere_hold_strategy="fresh_vent_guarded",
+            refresh_pace_state=True,
+            note=(reason or "single vent cycle start") + "; fresh VENT 1 sent",
+        )
+        if not callable(vent_status_getter):
+            self._pace_vent_after_valve_supported = False
+            self._pace_vent_after_valve_open = False
+            pressure_window = self._sample_atmosphere_pressure_window(
+                monitor_s=float(gate_cfg["monitor_s"]),
+                poll_s=max(0.0, float(gate_cfg["poll_s"])),
+                min_samples=int(gate_cfg["min_samples"]),
+            )
+            return _finalize_with_optional_retry(
+                vent_completed=False,
+                pressure_window=pressure_window,
+                pace_syst_err_query=pace_syst_err_query,
+                default_reason="single vent cycle without status query",
+            )
+
+        deadline = time.time() + max(0.5, float(timeout_s))
+        saw_in_progress = False
+        old_profile = self._pace_profile_name(pace) == "OLD_PACE5000"
+        while time.time() < deadline:
+            if self.stop_event.is_set():
+                raise RuntimeError("STOP_REQUESTED_DURING_VENT_POLL")
+            snapshot = self._pace_basic_trace_snapshot(pace, refresh=True)
+            vent_status = _record_status(snapshot.get("pace_vent_status_query"))
+            if vent_status == 1:
+                if not saw_in_progress:
+                    self._append_pressure_trace_row(
+                        point=None,
+                        route="pressure",
+                        trace_stage="atmosphere_vent_in_progress",
+                        atmosphere_hold_strategy="fresh_vent_guarded",
+                        pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+                        pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+                        pace_mode_query=snapshot.get("pace_mode_query"),
+                        pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+                        pace_vent_completed_latched=snapshot.get("pace_vent_completed_latched"),
+                        pace_effort_query=snapshot.get("pace_effort_query"),
+                        pace_comp1_query=snapshot.get("pace_comp1_query"),
+                        pace_comp2_query=snapshot.get("pace_comp2_query"),
+                        pace_sens_pres_cont_query=snapshot.get("pace_sens_pres_cont_query"),
+                        pace_sens_pres_bar_query=snapshot.get("pace_sens_pres_bar_query"),
+                        pace_sens_pres_inl_query=snapshot.get("pace_sens_pres_inl_query"),
+                        pace_sens_pres_inl_state_query=snapshot.get("pace_sens_pres_inl_state_query"),
+                        pace_sens_pres_inl_time_query=snapshot.get("pace_sens_pres_inl_time_query"),
+                        pace_sens_inl_query=snapshot.get("pace_sens_inl_query"),
+                        pace_sens_inl_time_query=snapshot.get("pace_sens_inl_time_query"),
+                        pace_sens_slew_query=snapshot.get("pace_sens_slew_query"),
+                        pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+                        pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+                        pace_oper_pres_even_query=snapshot.get("pace_oper_pres_even_query"),
+                        pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
+                        pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
+                        refresh_pace_state=False,
+                        note="VENT?=1 vent in progress; waiting for fresh vent terminal state",
+                    )
+                    saw_in_progress = True
+                time.sleep(max(0.05, float(poll_s)))
+                continue
+            fresh_vent_completed = bool(old_profile and vent_status == 2) or bool((not old_profile) and vent_status == 0)
+            if fresh_vent_completed:
+                self._append_pressure_trace_row(
+                    point=None,
+                    route="pressure",
+                    trace_stage="atmosphere_vent_completed",
+                    atmosphere_hold_strategy="fresh_vent_guarded",
+                    pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+                    pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+                    pace_mode_query=snapshot.get("pace_mode_query"),
+                    pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+                    pace_vent_completed_latched=bool(old_profile and vent_status == 2),
+                    pace_effort_query=snapshot.get("pace_effort_query"),
+                    pace_comp1_query=snapshot.get("pace_comp1_query"),
+                    pace_comp2_query=snapshot.get("pace_comp2_query"),
+                    pace_sens_pres_cont_query=snapshot.get("pace_sens_pres_cont_query"),
+                    pace_sens_pres_bar_query=snapshot.get("pace_sens_pres_bar_query"),
+                    pace_sens_pres_inl_query=snapshot.get("pace_sens_pres_inl_query"),
+                    pace_sens_pres_inl_state_query=snapshot.get("pace_sens_pres_inl_state_query"),
+                    pace_sens_pres_inl_time_query=snapshot.get("pace_sens_pres_inl_time_query"),
+                    pace_sens_inl_query=snapshot.get("pace_sens_inl_query"),
+                    pace_sens_inl_time_query=snapshot.get("pace_sens_inl_time_query"),
+                    pace_sens_slew_query=snapshot.get("pace_sens_slew_query"),
+                    pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+                    pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+                    pace_oper_pres_even_query=snapshot.get("pace_oper_pres_even_query"),
+                    pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
+                    pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
+                    pace_vent_clear_attempted=False if old_profile and vent_status == 2 else None,
+                    pace_vent_clear_result=(
+                        "legacy_completed_latch_observed_ready_without_clear"
+                        if old_profile and vent_status == 2
+                        else None
+                    ),
+                    refresh_pace_state=False,
+                    note=(
+                        "fresh vent completed on OLD_PACE5000; VENT?=2 only marks this-cycle completion"
+                        if old_profile
+                        else "fresh vent completed; terminal idle state observed"
+                    ),
+                )
+                pressure_window = self._sample_atmosphere_pressure_window(
+                    monitor_s=float(gate_cfg["monitor_s"]),
+                    poll_s=max(0.0, float(gate_cfg["poll_s"])),
+                    min_samples=int(gate_cfg["min_samples"]),
+                )
+                self._pace_vent_after_valve_supported = False
+                self._pace_vent_after_valve_open = False
+                return _finalize_with_optional_retry(
+                    vent_completed=True,
+                    pressure_window=pressure_window,
+                    pace_syst_err_query=pace_syst_err_query,
+                    default_reason="fresh vent complete",
+                )
+            if old_profile and vent_status == 0:
+                time.sleep(max(0.05, float(poll_s)))
+                continue
+            raise RuntimeError(f"VENT_STATUS_{vent_status}")
+        pressure_window = self._sample_atmosphere_pressure_window(
+            monitor_s=float(gate_cfg["monitor_s"]),
+            poll_s=max(0.0, float(gate_cfg["poll_s"])),
+            min_samples=int(gate_cfg["min_samples"]),
+        )
+        return _finalize_with_optional_retry(
+            vent_completed=False,
+            pressure_window=pressure_window,
+            pace_syst_err_query=pace_syst_err_query,
+            default_reason="fresh vent timeout",
+        )
 
     def _enter_pressure_controller_atmosphere_with_open_vent_valve(self, pace: Any, *, timeout_s: float) -> None:
         popup_ack_enabled = self._vent_popup_ack_override()
@@ -8921,7 +18210,169 @@ class CalibrationRunner:
         self._pace_vent_after_valve_open = True
         self._refresh_pressure_controller_aux_state(pace)
 
-    def _set_pressure_controller_vent(self, vent_on: bool, reason: str = "") -> bool:
+    @staticmethod
+    def _pressure_vent0_abort_reason_for_guard_phase(guard_phase: str) -> str:
+        phase_text = str(guard_phase or "").strip()
+        mapping = {
+            "PressureSetpointHold": "PressureHoldVentAbortLeak",
+            "PressurePointSwitch": "PressurePointSwitchVentAbortLeak",
+            "SamplingUnderPressure": "SamplingUnderPressureVentAbortLeak",
+            "SealTransition": "SealTransitionVentAbortLeak",
+        }
+        return mapping.get(phase_text, "SealedPressureVentAbortLeak")
+
+    @staticmethod
+    def _pressure_vent0_reason_code(reason: str, *, fallback: str = "exit_atmosphere_abort_vent") -> str:
+        text = str(reason or "").strip()
+        if not text:
+            return fallback
+        return text
+
+    def _build_pressure_vent0_context(
+        self,
+        *,
+        point: Optional[CalibrationPoint],
+        phase: str,
+        helper_name: str,
+        reason_code: str,
+        phase_label: str,
+        output_state_before: Any,
+        isolation_state_before: Any,
+        vent_status_before: Any,
+        before_seal_transition_start: Optional[bool],
+        before_pressure_hold_start: Optional[bool],
+        before_sour_pres_command: Optional[bool],
+        before_outp_stat_1_command: Optional[bool],
+        command_sent: bool,
+        blocked: bool,
+        abort_reason: str = "",
+    ) -> Dict[str, Any]:
+        continuous_state = self._continuous_atmosphere_state_snapshot()
+        guard_state = self._sealed_no_vent_guard_snapshot()
+        keepalive_generation_valid = not bool(continuous_state.get("active")) and not bool(
+            continuous_state.get("route_flow_active")
+        )
+        phase_text = str(phase or "").strip().lower() or "co2"
+        phase_label_text = str(phase_label or guard_state.get("phase") or "").strip()
+        return {
+            "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+            "command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
+            "command_sent": bool(command_sent),
+            "blocked": bool(blocked),
+            "abort_reason": str(abort_reason or "").strip(),
+            "current_phase_before_command": phase_label_text,
+            "current_phase_after_command": phase_label_text,
+            "reason": str(reason_code or "").strip(),
+            "callsite": str(helper_name or "_set_pressure_controller_vent").strip(),
+            "pressure_point_id": self._as_int(getattr(point, "index", None) if point is not None else None),
+            "point_phase": phase_text,
+            "target_pressure": self._as_float(
+                getattr(point, "target_pressure_hpa", None) if point is not None else None
+            ),
+            "output_state_before_command": self._as_int(output_state_before),
+            "isolation_state_before_command": self._as_int(isolation_state_before),
+            "vent_status_before_command": self._as_int(vent_status_before),
+            "whether_before_seal_transition_start": bool(before_seal_transition_start),
+            "whether_before_pressure_hold_start": bool(before_pressure_hold_start),
+            "whether_before_sour_pres": bool(before_sour_pres_command),
+            "whether_before_outp_stat_1": bool(before_outp_stat_1_command),
+            "route_flow_active": bool(continuous_state.get("route_flow_active")),
+            "continuous_atmosphere_active": bool(continuous_state.get("active")),
+            "atmosphere_keepalive_enabled": bool(continuous_state.get("active")),
+            "continuous_atmosphere_generation": int(continuous_state.get("generation") or 0),
+            "keepalive_generation_valid": bool(keepalive_generation_valid),
+            "sealed_no_vent_guard_active": bool(guard_state.get("active")),
+            "sealed_no_vent_guard_phase": str(guard_state.get("phase") or ""),
+            "is_exit_atmosphere_boundary_abort": str(reason_code or "").strip()
+            in {"exit_atmosphere_abort_vent", "ensure_vent_closed_before_seal"},
+            "is_pressure_hold_phase_leak": bool(str(guard_state.get("phase") or "").strip() == "PressureSetpointHold"),
+        }
+
+    def _append_pressure_vent0_trace(
+        self,
+        *,
+        point: Optional[CalibrationPoint],
+        phase: str,
+        trace_stage: str,
+        helper_name: str,
+        reason_code: str,
+        phase_label: str,
+        output_state_before: Any,
+        isolation_state_before: Any,
+        vent_status_before: Any,
+        before_seal_transition_start: Optional[bool],
+        before_pressure_hold_start: Optional[bool],
+        before_sour_pres_command: Optional[bool],
+        before_outp_stat_1_command: Optional[bool],
+        command_sent: bool,
+        blocked: bool,
+        abort_reason: str = "",
+        note: str = "",
+    ) -> None:
+        phase_text = str(phase or "").strip().lower() or "co2"
+        vent_context = self._build_pressure_vent0_context(
+            point=point,
+            phase=phase_text,
+            helper_name=helper_name,
+            reason_code=reason_code,
+            phase_label=phase_label,
+            output_state_before=output_state_before,
+            isolation_state_before=isolation_state_before,
+            vent_status_before=vent_status_before,
+            before_seal_transition_start=before_seal_transition_start,
+            before_pressure_hold_start=before_pressure_hold_start,
+            before_sour_pres_command=before_sour_pres_command,
+            before_outp_stat_1_command=before_outp_stat_1_command,
+            command_sent=command_sent,
+            blocked=blocked,
+            abort_reason=abort_reason,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage=trace_stage,
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            pace_output_state=output_state_before,
+            pace_isolation_state=isolation_state_before,
+            pace_vent_status=vent_status_before,
+            refresh_pace_state=False,
+            vent_context=vent_context,
+            note=note,
+        )
+
+    def _set_pressure_controller_vent(
+        self,
+        vent_on: bool,
+        reason: str = "",
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "co2",
+        helper_name: str = "",
+        vent_phase_label: str = "",
+        before_seal_transition_start: Optional[bool] = None,
+        before_pressure_hold_start: Optional[bool] = None,
+        before_sour_pres_command: Optional[bool] = None,
+        before_outp_stat_1_command: Optional[bool] = None,
+        vent_command_reason: str = "",
+    ) -> bool:
+        phase_text = str(phase or "").strip().lower() or "co2"
+        if vent_on and bool(self._sealed_no_vent_guard_snapshot().get("active")):
+            self._raise_sealed_no_vent_guard_violation(
+                point=point,
+                phase=phase_text,
+                action="vent_on",
+                reason=reason,
+            )
+        if vent_on and self._presample_lock_matches():
+            self._raise_presample_sampling_lock_violation(
+                action="vent_on",
+                root_cause_reject_reason="ambient_ingress_suspect",
+                note=(
+                    "forbidden VENT 1 / atmosphere refresh after pressure_in_limits and before sampling_begin; "
+                    f"reason={reason or 'unspecified'}"
+                ),
+            )
         pace = self.devices.get("pace")
         if not pace:
             return True
@@ -8932,7 +18383,6 @@ class CalibrationRunner:
             self._wf("workflow.pressure.vent_transition_timeout_s", max(5.0, vent_time_s))
         )
         requested_strategy = self._atmosphere_hold_strategy()
-        aux_restore_failed = False
         try:
             if not self._stop_pressure_controller_atmosphere_hold(
                 pace,
@@ -8953,96 +18403,227 @@ class CalibrationRunner:
                     trace_stage="atmosphere_hold_strategy_selected",
                     note=(
                         f"requested_strategy={requested_strategy} "
-                        f"vent_after_valve_open={self._vent_after_valve_open_enabled()} "
-                        f"popup_ack_override={self._vent_popup_ack_override()}"
+                        "fresh VENT 1 -> poll VENT? -> pressure-confirmed AtmosphereGate"
                     ),
                     atmosphere_hold_strategy=requested_strategy,
                 )
-                strategy_used = requested_strategy
-                if requested_strategy == "vent_valve_open_after_vent" and self._vent_after_valve_open_enabled():
-                    try:
-                        self._enter_pressure_controller_atmosphere_with_open_vent_valve(
-                            pace,
-                            timeout_s=vent_transition_timeout_s,
-                        )
-                    except Exception as exc:
-                        strategy_used = "legacy_hold_thread"
-                        self._pace_vent_after_valve_supported = False
-                        self.log(
-                            "WARNING: pressure controller atmosphere hold strategy fallback -> "
-                            f"legacy hold thread ({exc})"
-                        )
-                        self._append_pressure_trace_row(
-                            point=None,
-                            route="pressure",
-                            trace_stage="atmosphere_hold_legacy_fallback",
-                            note=str(exc),
-                            atmosphere_hold_strategy=strategy_used,
-                        )
-                        self._enter_pressure_controller_atmosphere_with_legacy_hold(
-                            pace,
-                            timeout_s=vent_transition_timeout_s,
-                        )
-                else:
-                    if requested_strategy != "legacy_hold_thread":
-                        self.log(
-                            "WARNING: pressure controller atmosphere hold strategy fallback -> "
-                            "legacy hold thread (vent_after_valve_open disabled)"
-                        )
-                        self._append_pressure_trace_row(
-                            point=None,
-                            route="pressure",
-                            trace_stage="atmosphere_hold_legacy_fallback",
-                            note="vent_after_valve_open disabled by configuration",
-                            atmosphere_hold_strategy="legacy_hold_thread",
-                        )
-                    strategy_used = "legacy_hold_thread"
-                    self._enter_pressure_controller_atmosphere_with_legacy_hold(
-                        pace,
-                        timeout_s=vent_transition_timeout_s,
-                    )
-                self._pressure_atmosphere_hold_strategy = strategy_used
+                atmosphere_summary = self._enter_pressure_controller_atmosphere_single_cycle(
+                    pace,
+                    timeout_s=vent_transition_timeout_s,
+                    reason=reason or "enter atmosphere mode",
+                )
+                self._pressure_atmosphere_hold_strategy = requested_strategy
                 self._refresh_pressure_controller_aux_state(pace)
+                if not bool(atmosphere_summary.get("atmosphere_ready")):
+                    abort_reason = str(atmosphere_summary.get("abort_reason") or "AtmosphereGateFailed")
+                    self._last_abort_reason = abort_reason
+                    self._append_pressure_trace_row(
+                        point=None,
+                        route="pressure",
+                        trace_stage="atmosphere_gate_failed",
+                        atmosphere_hold_strategy=self._pressure_atmosphere_hold_strategy,
+                        refresh_pace_state=True,
+                        note=(
+                            f"fresh vent sent but AtmosphereGate failed: abort_reason={abort_reason} "
+                            f"pressure_hpa={atmosphere_summary.get('pressure_hpa')} "
+                            f"ambient_hpa={atmosphere_summary.get('ambient_hpa')} "
+                            f"delta_hpa={atmosphere_summary.get('pressure_delta_from_ambient_hpa')} "
+                            f"slope_hpa_s={atmosphere_summary.get('pressure_slope_hpa_s')}"
+                        ),
+                    )
+                    self._best_effort_fail_fast_safe_stop(
+                        abort_reason=abort_reason,
+                        note=reason or "enter atmosphere mode failed",
+                    )
+                    raise RuntimeError(f"ATMOSPHERE_GATE_FAILED({abort_reason})")
+                self._last_abort_reason = ""
                 self._append_pressure_trace_row(
                     point=None,
                     route="pressure",
                     trace_stage="atmosphere_enter_verified",
                     atmosphere_hold_strategy=self._pressure_atmosphere_hold_strategy,
-                    note="enter atmosphere mode complete",
+                    note=(
+                        "fresh vent + pressure-confirmed AtmosphereGate complete; "
+                        f"ambient_hpa={atmosphere_summary.get('ambient_hpa')} "
+                        f"pressure_hpa={atmosphere_summary.get('pressure_hpa')} "
+                        f"delta_hpa={atmosphere_summary.get('pressure_delta_from_ambient_hpa')} "
+                        f"slope_hpa_s={atmosphere_summary.get('pressure_slope_hpa_s')}"
+                    ),
                     refresh_pace_state=True,
                 )
             else:
                 self._refresh_pressure_controller_aux_state(pace)
-                need_restore_closed = (
-                    self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent"
-                    and self._pace_vent_after_valve_open is True
-                )
-                if need_restore_closed:
+                current_vent_status = None
+                vent_status_getter = getattr(pace, "get_vent_status", None)
+                if callable(vent_status_getter):
                     try:
-                        self._set_pressure_controller_vent_after_valve_open(
-                            False,
-                            strict=True,
-                            reason=reason,
-                        )
-                        self._refresh_pressure_controller_aux_state(pace)
-                    except Exception as exc:
-                        aux_restore_failed = True
-                        self.log(f"Pressure controller vent auxiliary restore failed ({state}): {exc}")
-                        raise
+                        current_vent_status = vent_status_getter()
+                    except Exception:
+                        current_vent_status = None
+                snapshot_before = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=False)
+                output_state_before = self._as_int(snapshot_before.get("pace_output_state"))
+                isolation_state_before = self._as_int(snapshot_before.get("pace_isolation_state"))
+                if current_vent_status is None:
+                    current_vent_status = snapshot_before.get("pace_vent_status_query")
+                control_ready_under_adapter = self._pace_vent_status_allows_control(pace, current_vent_status)
+                if (
+                    self._pace_legacy_completed_latch_auto_clear_blocked(pace, current_vent_status)
+                    and not control_ready_under_adapter
+                ):
+                    block_reason = self._legacy_completed_latch_auto_clear_reason(current_vent_status)
+                    self._append_pressure_trace_row(
+                        point=None,
+                        route="pressure",
+                        trace_stage="control_vent_off_blocked",
+                        atmosphere_hold_strategy=self._pressure_atmosphere_hold_strategy,
+                        pace_vent_status_query=current_vent_status,
+                        pace_vent_clear_attempted=False,
+                        pace_vent_clear_result=block_reason,
+                        refresh_pace_state=False,
+                        note=(
+                            f"{reason or 'vent off'}; legacy VENT?=2 auto-clear blocked to avoid sending VENT 0; "
+                            "manual intervention required"
+                        ),
+                    )
+                    raise RuntimeError("VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED(last_status=2)")
+                guard_state = self._sealed_no_vent_guard_snapshot()
+                guard_phase = str(guard_state.get("phase") or "").strip()
+                reason_code = self._pressure_vent0_reason_code(
+                    vent_command_reason,
+                    fallback="exit_atmosphere_abort_vent",
+                )
+                phase_label = str(vent_phase_label or guard_phase or "PreHoldBoundary").strip()
+                actual_vent0_required = True
+                if guard_phase == "PressurePointSwitch" and control_ready_under_adapter:
+                    actual_vent0_required = False
+                if not actual_vent0_required and guard_phase:
+                    phase_label = guard_phase
+                if actual_vent0_required and bool(guard_state.get("active")) and guard_phase in {
+                    "PressureSetpointHold",
+                    "PressurePointSwitch",
+                    "SamplingUnderPressure",
+                    "SealTransition",
+                }:
+                    abort_reason = self._pressure_vent0_abort_reason_for_guard_phase(guard_phase)
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=phase_text,
+                        abort_reason=abort_reason,
+                        root_cause_reject_reason="ambient_ingress_suspect",
+                    )
+                    self._append_pressure_vent0_trace(
+                        point=point,
+                        phase=phase_text,
+                        trace_stage="pressure_vent0_blocked",
+                        helper_name=helper_name or "_set_pressure_controller_vent",
+                        reason_code=reason_code,
+                        phase_label=phase_label,
+                        output_state_before=output_state_before,
+                        isolation_state_before=isolation_state_before,
+                        vent_status_before=current_vent_status,
+                        before_seal_transition_start=before_seal_transition_start,
+                        before_pressure_hold_start=before_pressure_hold_start,
+                        before_sour_pres_command=before_sour_pres_command,
+                        before_outp_stat_1_command=before_outp_stat_1_command,
+                        command_sent=False,
+                        blocked=True,
+                        abort_reason=abort_reason,
+                        note=(
+                            f"blocked VENT 0 during guarded pressure phase {guard_phase}; "
+                            f"helper={helper_name or '_set_pressure_controller_vent'} reason={reason or 'unspecified'}"
+                        ),
+                    )
+                    raise RuntimeError(abort_reason)
+                if not actual_vent0_required:
+                    set_output = getattr(pace, "set_output", None)
+                    if callable(set_output) and output_state_before not in (None, 0):
+                        set_output(False)
+                    set_isolation_open = getattr(pace, "set_isolation_open", None)
+                    if callable(set_isolation_open) and isolation_state_before not in (None, 1):
+                        set_isolation_open(True)
+                    self._append_pressure_vent0_trace(
+                        point=point,
+                        phase=phase_text,
+                        trace_stage="pressure_vent0_not_needed",
+                        helper_name=helper_name or "_set_pressure_controller_vent",
+                        reason_code=reason_code,
+                        phase_label=phase_label,
+                        output_state_before=output_state_before,
+                        isolation_state_before=isolation_state_before,
+                        vent_status_before=current_vent_status,
+                        before_seal_transition_start=before_seal_transition_start,
+                        before_pressure_hold_start=before_pressure_hold_start,
+                        before_sour_pres_command=before_sour_pres_command,
+                        before_outp_stat_1_command=before_outp_stat_1_command,
+                        command_sent=False,
+                        blocked=False,
+                        note=(
+                            "VENT 0 skipped because vent was already closed at pressure-point switch; "
+                            "opened output path only"
+                        ),
+                    )
+                    extra = f" ({reason})" if reason else ""
+                    self.log(f"Pressure controller vent={state}{extra}")
+                    self._pressure_atmosphere_hold_enabled = False
+                    self._pressure_atmosphere_refresh_error_logged = False
+                    self._last_pressure_atmosphere_refresh_ts = 0.0
+                    return True
                 exit_atmosphere = getattr(pace, "exit_atmosphere_mode", None)
                 if callable(exit_atmosphere) and not fast_preseal_vent_off:
+                    self._append_pressure_vent0_trace(
+                        point=point,
+                        phase=phase_text,
+                        trace_stage="pressure_vent0_command",
+                        helper_name=helper_name or "_set_pressure_controller_vent",
+                        reason_code=reason_code,
+                        phase_label=phase_label,
+                        output_state_before=output_state_before,
+                        isolation_state_before=isolation_state_before,
+                        vent_status_before=current_vent_status,
+                        before_seal_transition_start=before_seal_transition_start,
+                        before_pressure_hold_start=before_pressure_hold_start,
+                        before_sour_pres_command=before_sour_pres_command,
+                        before_outp_stat_1_command=before_outp_stat_1_command,
+                        command_sent=True,
+                        blocked=False,
+                        note=(
+                            f"send VENT 0 via exit_atmosphere_mode helper={helper_name or '_set_pressure_controller_vent'} "
+                            f"reason={reason or 'unspecified'}"
+                        ),
+                    )
                     exit_atmosphere(timeout_s=vent_transition_timeout_s)
                 else:
                     set_output = getattr(pace, "set_output", None)
                     if callable(set_output):
                         set_output(False)
+                    self._append_pressure_vent0_trace(
+                        point=point,
+                        phase=phase_text,
+                        trace_stage="pressure_vent0_command",
+                        helper_name=helper_name or "_set_pressure_controller_vent",
+                        reason_code=reason_code,
+                        phase_label=phase_label,
+                        output_state_before=output_state_before,
+                        isolation_state_before=isolation_state_before,
+                        vent_status_before=current_vent_status,
+                        before_seal_transition_start=before_seal_transition_start,
+                        before_pressure_hold_start=before_pressure_hold_start,
+                        before_sour_pres_command=before_sour_pres_command,
+                        before_outp_stat_1_command=before_outp_stat_1_command,
+                        command_sent=True,
+                        blocked=False,
+                        note=(
+                            f"send VENT 0 via direct vent(False) helper={helper_name or '_set_pressure_controller_vent'} "
+                            f"reason={reason or 'unspecified'}"
+                        ),
+                    )
                     pace.vent(False)
                     set_isolation_open = getattr(pace, "set_isolation_open", None)
                     if callable(set_isolation_open):
                         set_isolation_open(True)
             extra = f" ({reason})" if reason else ""
             self.log(f"Pressure controller vent={state}{extra}")
-            self._pressure_atmosphere_hold_enabled = bool(vent_on)
+            self._pressure_atmosphere_hold_enabled = False
             self._pressure_atmosphere_refresh_error_logged = False
             self._last_pressure_atmosphere_refresh_ts = time.time() if vent_on else 0.0
             if vent_on:
@@ -9054,8 +18635,7 @@ class CalibrationRunner:
                 self._clear_preseal_pressure_control_ready_state(
                     reason=f"vent_on_failed:{reason or 'unspecified'}"
                 )
-            if not aux_restore_failed:
-                self.log(f"Pressure controller vent command failed ({state}): {exc}")
+            self.log(f"Pressure controller vent command failed ({state}): {exc}")
             if vent_on or self._abort_on_vent_off_failure():
                 raise RuntimeError(f"Pressure controller vent {state} failed: {exc}") from exc
             return False
@@ -9064,77 +18644,270 @@ class CalibrationRunner:
             wait_s = float(self._wf("workflow.pressure.vent_time_s", 0))
             if wait_s > 0:
                 time.sleep(wait_s)
-            self._update_atmosphere_reference_hpa(reason=reason or "vent on")
         return True
 
     def _refresh_pressure_controller_atmosphere_hold(self, *, force: bool = False, reason: str = "") -> None:
+        if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+            self._raise_sealed_no_vent_guard_violation(
+                point=None,
+                phase="co2",
+                action="atmosphere_refresh",
+                reason=reason,
+            )
+        if self._presample_lock_matches():
+            self._raise_presample_sampling_lock_violation(
+                action="atmosphere_refresh",
+                root_cause_reject_reason="ambient_ingress_suspect",
+                note=(
+                    "forbidden atmosphere refresh after pressure_in_limits and before sampling_begin; "
+                    f"reason={reason or 'unspecified'}"
+                ),
+            )
         pace = self.devices.get("pace")
         if not pace:
             return
+        return
 
-        pcfg = self.cfg.get("workflow", {}).get("pressure", {})
-        interval_s = max(0.1, float(pcfg.get("vent_hold_interval_s", 2.0)))
-        now = time.time()
-        if not self._pressure_atmosphere_hold_enabled:
-            return
-        if self._pressure_atmosphere_hold_strategy != "legacy_hold_thread":
-            return
-        if not force and (now - self._last_pressure_atmosphere_refresh_ts) < interval_s:
-            return
-
-        try:
-            set_output = getattr(pace, "set_output", None)
-            if callable(set_output):
-                set_output(False)
-            set_isolation_open = getattr(pace, "set_isolation_open", None)
-            if callable(set_isolation_open):
-                set_isolation_open(True)
-            pace.vent(True)
-            self._last_pressure_atmosphere_refresh_ts = now
-            self._pressure_atmosphere_refresh_error_logged = False
-        except Exception as exc:
-            if not self._pressure_atmosphere_refresh_error_logged:
-                extra = f" ({reason})" if reason else ""
-                self.log(f"Pressure controller atmosphere refresh failed{extra}: {exc}")
-                self._pressure_atmosphere_refresh_error_logged = True
-
-    def _enable_pressure_controller_output(self, reason: str = "") -> bool:
-        pace = self.devices.get("pace")
-        if not pace:
-            return True
-        try:
-            enable_output = getattr(pace, "enable_control_output", None)
-            if callable(enable_output):
-                enable_output()
-            else:
-                set_mode_active = getattr(pace, "set_output_mode_active", None)
-                if callable(set_mode_active):
-                    set_mode_active()
-                pace.set_output(True)
-            extra = f" ({reason})" if reason else ""
-            self.log(f"Pressure controller output=ON{extra}")
-            return True
-        except Exception as exc:
-            self.log(f"Pressure controller output enable failed: {exc}")
-            return False
-
-    def _pressure_controller_output_on_failures(self, snapshot: Dict[str, Any], pace: Any = None) -> List[str]:
+    def _pressure_controller_output_enable_entry_failures(
+        self,
+        snapshot: Dict[str, Any],
+        pace: Any = None,
+    ) -> List[str]:
         failures: List[str] = []
         vent_status = self._as_int(snapshot.get("pace_vent_status"))
         output_state = self._as_int(snapshot.get("pace_output_state"))
         isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
-        atmosphere_hold_strategy = str(
-            snapshot.get("atmosphere_hold_strategy") or self._pressure_atmosphere_hold_strategy or ""
-        ).strip()
         trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
         if vent_status is None:
             failures.append("vent_status_unavailable")
-        elif (
-            trapped_pressure_status is not None
-            and vent_status == trapped_pressure_status
-            and not self._pace_trapped_pressure_allows_control(pace, vent_status)
-        ):
-            failures.append(f"vent_status={vent_status}(trapped_pressure)")
+        elif trapped_pressure_status is not None and vent_status == trapped_pressure_status:
+            failures.append(f"vent_status={vent_status}(watchlist_only)")
+        elif not self._pace_vent_status_allows_control(pace, vent_status):
+            failures.append(f"vent_status={vent_status}")
+        if output_state is None:
+            failures.append("output_state_unavailable")
+        elif output_state != 0:
+            failures.append(f"output_state={output_state}")
+        if isolation_state is None:
+            failures.append("isolation_state_unavailable")
+        elif isolation_state != 1:
+            failures.append(f"isolation_state={isolation_state}")
+        if snapshot.get("hold_thread_active"):
+            failures.append("atmosphere_hold_active")
+        return failures
+
+    def _enable_pressure_controller_output(
+        self,
+        reason: str = "",
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "",
+        pressure_target_hpa: Optional[float] = None,
+        allow_watchlist_acceptance: bool = True,
+    ) -> bool:
+        if self._presample_lock_matches():
+            self._raise_presample_sampling_lock_violation(
+                action="output_enable",
+                root_cause_reject_reason="controller_hunting_suspect",
+                note=(
+                    "forbidden OUTP ON after pressure_in_limits and before sampling_begin; "
+                    f"reason={reason or 'unspecified'}"
+                ),
+            )
+        pace = self.devices.get("pace")
+        if not pace:
+            return True
+        phase_text = str(phase or "").strip().lower()
+        snapshot = self._pressure_controller_ready_snapshot(pace)
+        seal_state = self._seal_transition_state(point, phase=phase_text) if point is not None else {}
+        output_enable_phase = "after_full_seal" if bool(seal_state.get("seal_transition_completed")) else "preseal_or_unsealed"
+        guard_state = self._sealed_no_vent_guard_snapshot()
+        entry_failures = self._pressure_controller_output_enable_entry_failures(snapshot, pace)
+        watchlist_status_seen = any(str(item) == "vent_status=3(watchlist_only)" for item in entry_failures)
+        watchlist_status_accepted = False
+        watchlist_status_reason = ""
+        if point is not None:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                trace_stage="output_enable_started",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                output_enable_watchlist_status_phase=output_enable_phase,
+                refresh_pace_state=False,
+                note=reason or "output enable started",
+            )
+        if watchlist_status_seen:
+            watchlist_status_accepted, watchlist_status_reason = self._after_full_seal_output_enable_watchlist_acceptance(
+                pace,
+                snapshot,
+                entry_failures,
+                seal_state=seal_state,
+                guard_state=guard_state,
+                output_enable_phase=output_enable_phase,
+                required_output_state=0,
+                control_ready_watchlist_status_accepted=bool(
+                    (self._point_runtime_state(point, phase=phase_text) or {}).get(
+                        "control_ready_watchlist_status_accepted",
+                        False,
+                    )
+                ),
+            )
+            if not bool(allow_watchlist_acceptance):
+                watchlist_status_accepted = False
+                watchlist_status_reason = (
+                    "after_full_seal_output_enable_watchlist_only_failure:"
+                    "watchlist_acceptance_disabled"
+                )
+            if not watchlist_status_reason:
+                watchlist_status_reason = "after_full_seal_output_enable_watchlist_only_failure"
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                after_full_seal_output_enable_watchlist_status_seen=(
+                    output_enable_phase == "after_full_seal"
+                ),
+                after_full_seal_output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=watchlist_status_accepted,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                    _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                    if watchlist_status_accepted
+                    else ""
+                ),
+                output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                output_enable_watchlist_status_phase=output_enable_phase,
+                output_enable_failed_with_watchlist_status_3=False,
+            )
+            if point is not None:
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase_text,
+                    point_phase=phase_text,
+                    trace_stage="output_enable_watchlist_status_seen",
+                    pressure_target_hpa=pressure_target_hpa,
+                    pace_output_state=snapshot.get("pace_output_state"),
+                    pace_isolation_state=snapshot.get("pace_isolation_state"),
+                    pace_vent_status=snapshot.get("pace_vent_status"),
+                    after_full_seal_output_enable_watchlist_status_seen=(
+                        output_enable_phase == "after_full_seal"
+                    ),
+                    after_full_seal_output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                    after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=watchlist_status_accepted,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                        _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                        if watchlist_status_accepted
+                        else ""
+                    ),
+                    output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                    output_enable_watchlist_status_phase=output_enable_phase,
+                    output_enable_failed_with_watchlist_status_3=False,
+                    refresh_pace_state=False,
+                    note=watchlist_status_reason,
+                )
+        try:
+            if watchlist_status_accepted:
+                set_mode_active = getattr(pace, "set_output_mode_active", None)
+                if callable(set_mode_active):
+                    set_mode_active()
+                pace.set_output(True)
+                if point is not None:
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase_text,
+                        point_phase=phase_text,
+                        trace_stage="output_enable_watchlist_status_accepted",
+                        pressure_target_hpa=pressure_target_hpa,
+                        pace_output_state=1,
+                        pace_isolation_state=snapshot.get("pace_isolation_state"),
+                        pace_vent_status=snapshot.get("pace_vent_status"),
+                        after_full_seal_output_enable_watchlist_status_seen=True,
+                        after_full_seal_output_enable_watchlist_status_accepted=True,
+                        after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=True,
+                        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                            _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                        ),
+                        output_enable_watchlist_status_accepted=True,
+                        output_enable_watchlist_status_phase=output_enable_phase,
+                        output_enable_failed_with_watchlist_status_3=False,
+                        refresh_pace_state=False,
+                        note=watchlist_status_reason,
+                    )
+            else:
+                enable_output = getattr(pace, "enable_control_output", None)
+                if callable(enable_output):
+                    enable_output()
+                else:
+                    set_mode_active = getattr(pace, "set_output_mode_active", None)
+                    if callable(set_mode_active):
+                        set_mode_active()
+                    pace.set_output(True)
+            extra = f" ({reason})" if reason else ""
+            self.log(f"Pressure controller output=ON{extra}")
+            return True
+        except Exception as exc:
+            if watchlist_status_seen or "VENT_STATUS_3_WATCHLIST" in str(exc):
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase_text,
+                    after_full_seal_output_enable_watchlist_status_seen=(
+                        output_enable_phase == "after_full_seal"
+                    ),
+                    after_full_seal_output_enable_watchlist_status_accepted=False,
+                    after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason
+                    or f"after_full_seal_output_enable_watchlist_only_failure:{exc}",
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=False,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_source="",
+                    output_enable_watchlist_status_accepted=False,
+                    output_enable_watchlist_status_phase=output_enable_phase,
+                    output_enable_failed_with_watchlist_status_3=True,
+                )
+                if point is not None:
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase_text,
+                        point_phase=phase_text,
+                        trace_stage="output_enable_failed_watchlist_status_3",
+                        pressure_target_hpa=pressure_target_hpa,
+                        pace_output_state=snapshot.get("pace_output_state"),
+                        pace_isolation_state=snapshot.get("pace_isolation_state"),
+                        pace_vent_status=snapshot.get("pace_vent_status"),
+                        after_full_seal_output_enable_watchlist_status_seen=(
+                            output_enable_phase == "after_full_seal"
+                        ),
+                        after_full_seal_output_enable_watchlist_status_accepted=False,
+                        after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason
+                        or f"after_full_seal_output_enable_watchlist_only_failure:{exc}",
+                        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=False,
+                        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source="",
+                        output_enable_watchlist_status_accepted=False,
+                        output_enable_watchlist_status_phase=output_enable_phase,
+                        output_enable_failed_with_watchlist_status_3=True,
+                        refresh_pace_state=False,
+                        note=str(exc),
+                    )
+            self.log(f"Pressure controller output enable failed: {exc}")
+            return False
+
+    def _pressure_controller_output_on_failures(
+        self,
+        snapshot: Dict[str, Any],
+        pace: Any = None,
+    ) -> List[str]:
+        failures: List[str] = []
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
+        if vent_status is None:
+            failures.append("vent_status_unavailable")
+        elif trapped_pressure_status is not None and vent_status == trapped_pressure_status:
+            failures.append(f"vent_status={vent_status}(watchlist_only)")
         elif not self._pace_vent_status_allows_control(pace, vent_status):
             failures.append(f"vent_status={vent_status}")
         if output_state is None:
@@ -9147,8 +18920,6 @@ class CalibrationRunner:
             failures.append(f"isolation_state={isolation_state}")
         if snapshot.get("hold_thread_active"):
             failures.append("atmosphere_hold_active")
-        if atmosphere_hold_strategy == "vent_valve_open_after_vent" and snapshot.get("vent_after_valve_open") is True:
-            failures.append("vent_after_valve_open")
         return failures
 
     def _attempt_pressure_controller_output_on_recovery(
@@ -9172,19 +18943,38 @@ class CalibrationRunner:
             output_state = self._as_int(snapshot.get("pace_output_state"))
             isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
             vent_ready_for_control = self._pace_vent_status_allows_control(pace, vent_status)
+            trapped_pressure_active = trapped_pressure_status is not None and vent_status == trapped_pressure_status
+            legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+                point,
+                phase=phase,
+                pace=pace,
+                vent_status=vent_status,
+                accept_scope="none",
+                control_ready_used=False,
+                block_scope="output_recovery",
+                hard_blocked=bool(trapped_pressure_active),
+                watchlist_only=True,
+                control_ready_attempted=True,
+                control_ready_prevented=bool(trapped_pressure_active),
+            )
             if output_state == 1 and isolation_state == 1 and vent_ready_for_control:
                 return True
-            trapped_pressure_active = trapped_pressure_status is not None and vent_status == trapped_pressure_status
-            trapped_ready_for_control = trapped_pressure_active and self._pace_trapped_pressure_allows_control(
-                pace,
-                vent_status,
-            )
-            if trapped_pressure_active and not trapped_ready_for_control:
+            if trapped_pressure_active:
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="control_output_on_recovery_blocked",
+                    pressure_target_hpa=pressure_target_hpa,
+                    pace_output_state=snapshot.get("pace_output_state"),
+                    pace_isolation_state=snapshot.get("pace_isolation_state"),
+                    pace_vent_status=snapshot.get("pace_vent_status"),
+                    **legacy_vent3_trace,
+                    refresh_pace_state=False,
+                    note="VENT?=3 remains watchlist-only; popup correlation is not established, so output recovery is blocked",
+                )
                 return False
-            if self._pressure_output_on_recovery_requires_trapped():
-                if not trapped_ready_for_control or isolation_state != 1:
-                    return False
-            elif not vent_ready_for_control or isolation_state != 1:
+            if not vent_ready_for_control or isolation_state != 1:
                 return False
             self.log(
                 "Pressure controller output-on recovery attempt "
@@ -9204,7 +18994,60 @@ class CalibrationRunner:
                     set_isolation_open(True)
                 except Exception as exc:
                     self.log(f"Pressure controller output-on recovery isolation-open failed: {exc}")
+            guard_state = self._sealed_no_vent_guard_snapshot()
+            guard_phase = str(guard_state.get("phase") or "").strip()
+            if bool(guard_state.get("active")) and guard_phase in {
+                "PressureSetpointHold",
+                "PressurePointSwitch",
+                "SamplingUnderPressure",
+                "SealTransition",
+            }:
+                abort_reason = self._pressure_vent0_abort_reason_for_guard_phase(guard_phase)
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    abort_reason=abort_reason,
+                    root_cause_reject_reason="ambient_ingress_suspect",
+                )
+                self._append_pressure_vent0_trace(
+                    point=point,
+                    phase=phase,
+                    trace_stage="pressure_vent0_blocked",
+                    helper_name="_attempt_pressure_controller_output_on_recovery",
+                    reason_code="output_on_recovery_vent_off",
+                    phase_label=guard_phase,
+                    output_state_before=output_state,
+                    isolation_state_before=isolation_state,
+                    vent_status_before=vent_status,
+                    before_seal_transition_start=False,
+                    before_pressure_hold_start=False,
+                    before_sour_pres_command=False,
+                    before_outp_stat_1_command=False,
+                    command_sent=False,
+                    blocked=True,
+                    abort_reason=abort_reason,
+                    note="blocked VENT 0 during sealed pressure phase while attempting output-on recovery",
+                )
+                return False
             try:
+                self._append_pressure_vent0_trace(
+                    point=point,
+                    phase=phase,
+                    trace_stage="pressure_vent0_command",
+                    helper_name="_attempt_pressure_controller_output_on_recovery",
+                    reason_code="output_on_recovery_vent_off",
+                    phase_label=guard_phase or "PressureSetpointHold",
+                    output_state_before=output_state,
+                    isolation_state_before=isolation_state,
+                    vent_status_before=vent_status,
+                    before_seal_transition_start=False,
+                    before_pressure_hold_start=False,
+                    before_sour_pres_command=False,
+                    before_outp_stat_1_command=False,
+                    command_sent=True,
+                    blocked=False,
+                    note="send VENT 0 during output-on recovery attempt",
+                )
                 pace.vent(False)
             except Exception as exc:
                 self.log(f"Pressure controller output-on recovery vent-off failed: {exc}")
@@ -9222,12 +19065,17 @@ class CalibrationRunner:
                 pace_output_state=snapshot.get("pace_output_state"),
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
                 read_pace_pressure=True,
                 read_pressure_gauge=True,
                 note=note or f"output-on recovery attempt {attempt_idx + 1}",
             )
             if not self._enable_pressure_controller_output(
-                reason=f"output-on recovery attempt {attempt_idx + 1}"
+                reason=f"output-on recovery attempt {attempt_idx + 1}",
+                point=point,
+                phase=phase,
+                pressure_target_hpa=pressure_target_hpa,
+                allow_watchlist_acceptance=False,
             ):
                 continue
             if self._verify_pressure_controller_output_on(
@@ -9253,7 +19101,23 @@ class CalibrationRunner:
         if not pace:
             return True
         snapshot = self._pressure_controller_ready_snapshot(pace)
-        failures = self._pressure_controller_output_on_failures(snapshot, pace)
+        failures = self._pressure_controller_output_on_failures(
+            snapshot,
+            pace,
+        )
+        legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+            point,
+            phase=phase,
+            pace=pace,
+            vent_status=snapshot.get("pace_vent_status"),
+            accept_scope="none",
+            control_ready_used=False,
+            block_scope="output_on_verify",
+            hard_blocked=bool(failures),
+            watchlist_only=True,
+            control_ready_attempted=True,
+            control_ready_prevented=bool(failures),
+        )
         wait_timeout_s = self._pressure_output_on_verify_timeout_s()
         wait_poll_s = self._pressure_output_on_verify_poll_s()
         wait_iterations = 0
@@ -9268,6 +19132,7 @@ class CalibrationRunner:
                 pace_output_state=snapshot.get("pace_output_state"),
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
                 refresh_pace_state=False,
                 event_ts=wait_start_ts,
                 note=f"timeout_s={wait_timeout_s:.3f} poll_s={wait_poll_s:.3f} failures={','.join(failures)}",
@@ -9277,7 +19142,23 @@ class CalibrationRunner:
                 time.sleep(wait_poll_s)
                 wait_iterations += 1
                 snapshot = self._pressure_controller_ready_snapshot(pace)
-                failures = self._pressure_controller_output_on_failures(snapshot, pace)
+                failures = self._pressure_controller_output_on_failures(
+                    snapshot,
+                    pace,
+                )
+            legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+                point,
+                phase=phase,
+                pace=pace,
+                vent_status=snapshot.get("pace_vent_status"),
+                accept_scope="none",
+                control_ready_used=False,
+                block_scope="output_on_verify",
+                hard_blocked=bool(failures),
+                watchlist_only=True,
+                control_ready_attempted=True,
+                control_ready_prevented=bool(failures),
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -9287,6 +19168,7 @@ class CalibrationRunner:
                 pace_output_state=snapshot.get("pace_output_state"),
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
                 refresh_pace_state=False,
                 note=(
                     f"iterations={wait_iterations} result=ready"
@@ -9294,6 +19176,114 @@ class CalibrationRunner:
                     else f"iterations={wait_iterations} remaining_failures={','.join(failures)}"
                 ),
             )
+        watchlist_status_seen = any(str(item) == "vent_status=3(watchlist_only)" for item in failures)
+        watchlist_status_accepted = False
+        watchlist_status_reason = ""
+        if watchlist_status_seen:
+            runtime_state = self._point_runtime_state(point, phase=phase) or {}
+            seal_state = self._seal_transition_state(point, phase=phase)
+            output_enable_phase = (
+                "after_full_seal"
+                if bool(seal_state.get("seal_transition_completed"))
+                else "preseal_or_unsealed"
+            )
+            watchlist_status_accepted, watchlist_status_reason = (
+                self._after_full_seal_output_enable_watchlist_acceptance(
+                    pace,
+                    snapshot,
+                    failures,
+                    seal_state=seal_state,
+                    guard_state=self._sealed_no_vent_guard_snapshot(),
+                    output_enable_phase=output_enable_phase,
+                    required_output_state=1,
+                    control_ready_watchlist_status_accepted=bool(
+                        runtime_state.get("control_ready_watchlist_status_accepted")
+                    )
+                    and bool(runtime_state.get("output_enable_watchlist_status_accepted")),
+                )
+            )
+            if not watchlist_status_reason:
+                watchlist_status_reason = "after_full_seal_output_enable_watchlist_only_failure"
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                after_full_seal_output_enable_watchlist_status_seen=(
+                    output_enable_phase == "after_full_seal"
+                ),
+                after_full_seal_output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=watchlist_status_accepted,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                    _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                    if watchlist_status_accepted
+                    else ""
+                ),
+                output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                output_enable_watchlist_status_phase=output_enable_phase,
+                output_enable_failed_with_watchlist_status_3=not watchlist_status_accepted,
+            )
+            if watchlist_status_accepted:
+                failures = []
+                legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+                    point,
+                    phase=phase,
+                    pace=pace,
+                    vent_status=snapshot.get("pace_vent_status"),
+                    accept_scope="old_k0472_after_full_seal_output_enable_watchlist",
+                    control_ready_used=True,
+                    block_scope="none",
+                    hard_blocked=False,
+                    watchlist_only=True,
+                    control_ready_attempted=True,
+                    control_ready_prevented=False,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="output_enable_verified",
+                    pressure_target_hpa=pressure_target_hpa,
+                    pace_output_state=snapshot.get("pace_output_state"),
+                    pace_isolation_state=snapshot.get("pace_isolation_state"),
+                    pace_vent_status=snapshot.get("pace_vent_status"),
+                    **legacy_vent3_trace,
+                    after_full_seal_output_enable_watchlist_status_seen=True,
+                    after_full_seal_output_enable_watchlist_status_accepted=True,
+                    after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=True,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                        _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                    ),
+                    output_enable_watchlist_status_accepted=True,
+                    output_enable_watchlist_status_phase=output_enable_phase,
+                    output_enable_failed_with_watchlist_status_3=False,
+                    refresh_pace_state=False,
+                    note=watchlist_status_reason,
+                )
+            else:
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="output_enable_failed_watchlist_status_3",
+                    pressure_target_hpa=pressure_target_hpa,
+                    pace_output_state=snapshot.get("pace_output_state"),
+                    pace_isolation_state=snapshot.get("pace_isolation_state"),
+                    pace_vent_status=snapshot.get("pace_vent_status"),
+                    **legacy_vent3_trace,
+                    after_full_seal_output_enable_watchlist_status_seen=(
+                        output_enable_phase == "after_full_seal"
+                    ),
+                    after_full_seal_output_enable_watchlist_status_accepted=False,
+                    after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=False,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_source="",
+                    output_enable_watchlist_status_accepted=False,
+                    output_enable_watchlist_status_phase=output_enable_phase,
+                    output_enable_failed_with_watchlist_status_3=True,
+                    refresh_pace_state=False,
+                    note=watchlist_status_reason,
+                )
         trace_stage = "control_output_on_verified"
         if failures:
             trace_stage = "control_output_on_failed"
@@ -9306,6 +19296,7 @@ class CalibrationRunner:
             pace_output_state=snapshot.get("pace_output_state"),
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
+            **legacy_vent3_trace,
             read_pace_pressure=bool(failures),
             read_pressure_gauge=bool(failures),
             refresh_pace_state=False,
@@ -9645,6 +19636,345 @@ class CalibrationRunner:
 
         return sorted(managed)
 
+    @staticmethod
+    def _logical_valve_key(valve_id: Any) -> Optional[int]:
+        try:
+            return int(valve_id)
+        except Exception:
+            return None
+
+    def _build_valve_role_map(self) -> Dict[int, Dict[str, Any]]:
+        valves_cfg = self.cfg.get("valves", {})
+        role_map: Dict[int, Dict[str, Any]] = {}
+
+        def _register(
+            valve_id: Any,
+            *,
+            role: str,
+            legacy_config_key: str,
+            route_name: str,
+            meaning: str,
+            connects_from: str,
+            connects_to: str,
+            can_introduce_pressure_source: bool,
+            can_vent_to_atmosphere: bool,
+            can_connect_analyzer: bool,
+            can_connect_pace: bool,
+            required_for_co2_route: bool,
+            required_for_h2o_route: bool,
+            requires_active_atmosphere_flush: bool,
+            risk_amplifier: bool,
+            risk_evidence: str,
+            stage_priority: int,
+            source_like_stage: bool = False,
+            final_stage: bool = False,
+            requires_explicit_allow: bool = False,
+        ) -> None:
+            logical_valve = self._logical_valve_key(valve_id)
+            if logical_valve is None:
+                return
+            role_map[logical_valve] = {
+                "valve_id": logical_valve,
+                "role": role,
+                "legacy_config_key": str(legacy_config_key or ""),
+                "route_name": route_name,
+                "meaning": meaning,
+                "normally_open_or_closed": "normally_closed",
+                "connects_from": connects_from,
+                "connects_to": connects_to,
+                "can_introduce_pressure_source": bool(can_introduce_pressure_source),
+                "can_vent_to_atmosphere": bool(can_vent_to_atmosphere),
+                "can_connect_analyzer": bool(can_connect_analyzer),
+                "can_connect_pace": bool(can_connect_pace),
+                "required_for_co2_route": bool(required_for_co2_route),
+                "required_for_h2o_route": bool(required_for_h2o_route),
+                "requires_active_atmosphere_flush": bool(requires_active_atmosphere_flush),
+                "risk_amplifier": bool(risk_amplifier),
+                "risk_evidence": str(risk_evidence or ""),
+                "stage_priority": int(stage_priority),
+                "source_like_stage": bool(source_like_stage),
+                "final_stage": bool(final_stage),
+                "requires_explicit_allow": bool(requires_explicit_allow),
+            }
+
+        _register(
+            valves_cfg.get("h2o_path"),
+            role="common_total_valve",
+            legacy_config_key="h2o_path",
+            route_name="common_total",
+            meaning="总阀门 / 总路阀",
+            connects_from="common route manifold",
+            connects_to="gas main / analyzer / PACE manifold",
+            can_introduce_pressure_source=False,
+            can_vent_to_atmosphere=False,
+            can_connect_analyzer=True,
+            can_connect_pace=True,
+            required_for_co2_route=True,
+            required_for_h2o_route=True,
+            requires_active_atmosphere_flush=True,
+            risk_amplifier=False,
+            risk_evidence="open:8 can expose pressurized/common volume if PACE vent is not synchronized",
+            stage_priority=10,
+        )
+        _register(
+            valves_cfg.get("gas_main"),
+            role="gas_main",
+            legacy_config_key="gas_main",
+            route_name="common_gas",
+            meaning="总气路阀",
+            connects_from="selected gas path",
+            connects_to="analyzer / downstream manifold",
+            can_introduce_pressure_source=False,
+            can_vent_to_atmosphere=False,
+            can_connect_analyzer=True,
+            can_connect_pace=True,
+            required_for_co2_route=True,
+            required_for_h2o_route=False,
+            requires_active_atmosphere_flush=True,
+            risk_amplifier=True,
+            risk_evidence="8|11 amplifies pressure rise",
+            stage_priority=10,
+        )
+        _register(
+            valves_cfg.get("hold"),
+            role="hold",
+            legacy_config_key="hold",
+            route_name="h2o_hold",
+            meaning="水路保压阀",
+            connects_from="humidity branch",
+            connects_to="hold volume",
+            can_introduce_pressure_source=False,
+            can_vent_to_atmosphere=False,
+            can_connect_analyzer=False,
+            can_connect_pace=False,
+            required_for_co2_route=False,
+            required_for_h2o_route=True,
+            requires_active_atmosphere_flush=True,
+            risk_amplifier=False,
+            risk_evidence="",
+            stage_priority=10,
+        )
+        _register(
+            valves_cfg.get("flow_switch"),
+            role="flow_switch",
+            legacy_config_key="flow_switch",
+            route_name="h2o_flow_switch",
+            meaning="水路切换阀",
+            connects_from="humidity branch",
+            connects_to="selected downstream path",
+            can_introduce_pressure_source=False,
+            can_vent_to_atmosphere=False,
+            can_connect_analyzer=False,
+            can_connect_pace=False,
+            required_for_co2_route=False,
+            required_for_h2o_route=True,
+            requires_active_atmosphere_flush=True,
+            risk_amplifier=True,
+            risk_evidence="8|9|10 can introduce upstream H2O source pressure at final injection stage",
+            stage_priority=30,
+            source_like_stage=True,
+            final_stage=True,
+            requires_explicit_allow=True,
+        )
+        _register(
+            valves_cfg.get("co2_path"),
+            role="co2_path_group1",
+            legacy_config_key="co2_path",
+            route_name="co2_group1",
+            meaning="A组总气路阀",
+            connects_from="group1 source selector",
+            connects_to="gas main",
+            can_introduce_pressure_source=False,
+            can_vent_to_atmosphere=False,
+            can_connect_analyzer=True,
+            can_connect_pace=True,
+            required_for_co2_route=True,
+            required_for_h2o_route=False,
+            requires_active_atmosphere_flush=True,
+            risk_amplifier=False,
+            risk_evidence="",
+            stage_priority=20,
+        )
+        _register(
+            valves_cfg.get("co2_path_group2"),
+            role="co2_path_group2",
+            legacy_config_key="co2_path_group2",
+            route_name="co2_group2",
+            meaning="B组总气路阀",
+            connects_from="group2 source selector",
+            connects_to="gas main",
+            can_introduce_pressure_source=False,
+            can_vent_to_atmosphere=False,
+            can_connect_analyzer=True,
+            can_connect_pace=True,
+            required_for_co2_route=True,
+            required_for_h2o_route=False,
+            requires_active_atmosphere_flush=True,
+            risk_amplifier=False,
+            risk_evidence="",
+            stage_priority=20,
+        )
+
+        for ppm_key, valve_id in dict(valves_cfg.get("co2_map", {}) or {}).items():
+            _register(
+                valve_id,
+                role=f"co2_source_{ppm_key}ppm_group1",
+                legacy_config_key="co2_map",
+                route_name="co2_group1_source",
+                meaning=f"A组 {ppm_key} ppm 源阀",
+                connects_from=f"group1 {ppm_key} ppm source manifold",
+                connects_to="co2_path_group1",
+                can_introduce_pressure_source=True,
+                can_vent_to_atmosphere=False,
+                can_connect_analyzer=True,
+                can_connect_pace=True,
+                required_for_co2_route=True,
+                required_for_h2o_route=False,
+                requires_active_atmosphere_flush=True,
+                risk_amplifier=False,
+                risk_evidence="source valve can introduce upstream gas pressure after route seal",
+                stage_priority=30,
+                source_like_stage=True,
+                final_stage=True,
+                requires_explicit_allow=True,
+            )
+        for ppm_key, valve_id in dict(valves_cfg.get("co2_map_group2", {}) or {}).items():
+            _register(
+                valve_id,
+                role=f"co2_source_{ppm_key}ppm_group2",
+                legacy_config_key="co2_map_group2",
+                route_name="co2_group2_source",
+                meaning=f"B组 {ppm_key} ppm 源阀",
+                connects_from=f"group2 {ppm_key} ppm source manifold",
+                connects_to="co2_path_group2",
+                can_introduce_pressure_source=True,
+                can_vent_to_atmosphere=False,
+                can_connect_analyzer=True,
+                can_connect_pace=True,
+                required_for_co2_route=True,
+                required_for_h2o_route=False,
+                requires_active_atmosphere_flush=True,
+                risk_amplifier=False,
+                risk_evidence="source valve can introduce upstream gas pressure after route seal",
+                stage_priority=30,
+                source_like_stage=True,
+                final_stage=True,
+                requires_explicit_allow=True,
+            )
+
+        for logical_valve in self._managed_valves():
+            if logical_valve in role_map:
+                continue
+            role_map[logical_valve] = {
+                "valve_id": int(logical_valve),
+                "role": "unknown",
+                "legacy_config_key": "",
+                "route_name": "unknown",
+                "meaning": "unknown",
+                "normally_open_or_closed": "normally_closed",
+                "connects_from": "unknown",
+                "connects_to": "unknown",
+                "can_introduce_pressure_source": False,
+                "can_vent_to_atmosphere": False,
+                "can_connect_analyzer": False,
+                "can_connect_pace": False,
+                "required_for_co2_route": False,
+                "required_for_h2o_route": False,
+                "requires_active_atmosphere_flush": False,
+                "risk_amplifier": False,
+                "risk_evidence": "",
+                "stage_priority": 999,
+            }
+        return role_map
+
+    def _valve_role_map(self) -> Dict[int, Dict[str, Any]]:
+        return self._build_valve_role_map()
+
+    def valve_role_map_for_ids(self, valve_ids: Optional[Sequence[int]] = None) -> List[Dict[str, Any]]:
+        role_map = self._valve_role_map()
+        logical_valves = (
+            [int(value) for value in valve_ids or []]
+            if valve_ids is not None
+            else sorted(role_map.keys())
+        )
+        return [dict(role_map.get(int(valve), {})) for valve in logical_valves if int(valve) in role_map]
+
+    def _route_stage_groups_for_open_valves(
+        self,
+        open_valves: Sequence[int],
+    ) -> Tuple[List[List[int]], List[int]]:
+        role_map = self._valve_role_map()
+        unknown: List[int] = []
+        ordered_valves: List[int] = []
+        seen: set[int] = set()
+        for raw_valve in list(open_valves or []):
+            logical_valve = self._logical_valve_key(raw_valve)
+            if logical_valve is None:
+                continue
+            metadata = role_map.get(logical_valve) or {}
+            if str(metadata.get("role") or "").strip().lower() == "unknown":
+                unknown.append(logical_valve)
+                continue
+            if logical_valve in seen:
+                continue
+            seen.add(logical_valve)
+            ordered_valves.append(logical_valve)
+        if unknown:
+            return [], unknown
+
+        valves_cfg = self.cfg.get("valves", {})
+        total_valve = self._as_int(valves_cfg.get("h2o_path"))
+        gas_main = self._as_int(valves_cfg.get("gas_main"))
+        hold_valve = self._as_int(valves_cfg.get("hold"))
+        flow_switch = self._as_int(valves_cfg.get("flow_switch"))
+        co2_path_a = self._as_int(valves_cfg.get("co2_path"))
+        co2_path_b = self._as_int(valves_cfg.get("co2_path_group2", valves_cfg.get("co2_path")))
+        group_a_sources = {self._as_int(value) for value in dict(valves_cfg.get("co2_map", {}) or {}).values()}
+        group_b_sources = {self._as_int(value) for value in dict(valves_cfg.get("co2_map_group2", {}) or {}).values()}
+        group_a_sources.discard(None)
+        group_b_sources.discard(None)
+        open_set = set(ordered_valves)
+
+        def _stages_for_sequence(sequence: Sequence[Optional[int]]) -> List[List[int]]:
+            stages: List[List[int]] = []
+            for valve in sequence:
+                if valve is None:
+                    continue
+                if int(valve) in open_set:
+                    stages.append([int(valve)])
+            return stages
+
+        if total_valve is not None and open_set == {value for value in (total_valve, hold_valve, flow_switch) if value is not None}:
+            return _stages_for_sequence((total_valve, hold_valve, flow_switch)), []
+
+        source_a = next((value for value in ordered_valves if value in group_a_sources), None)
+        source_b = next((value for value in ordered_valves if value in group_b_sources), None)
+        is_co2_a = bool(source_a is not None or (co2_path_a is not None and co2_path_a in open_set))
+        is_co2_b = bool(source_b is not None or (co2_path_b is not None and co2_path_b in open_set and not is_co2_a))
+
+        if is_co2_a and total_valve is not None and gas_main is not None:
+            return _stages_for_sequence((total_valve, gas_main, co2_path_a, source_a)), []
+        if is_co2_b and total_valve is not None and gas_main is not None:
+            return _stages_for_sequence((total_valve, gas_main, co2_path_b, source_b)), []
+
+        stages: List[List[int]] = []
+        current_priority: Optional[int] = None
+        current_group: List[int] = []
+        for logical_valve in ordered_valves:
+            metadata = role_map.get(logical_valve) or {}
+            priority = int(metadata.get("stage_priority", 999) or 999)
+            if current_priority is None or priority == current_priority:
+                current_group.append(logical_valve)
+                current_priority = priority
+                continue
+            if current_group:
+                stages.append(list(current_group))
+            current_group = [logical_valve]
+            current_priority = priority
+        if current_group:
+            stages.append(list(current_group))
+        return stages, []
+
     def _startup_preflight_reset(self) -> None:
         """Reset actuators to a known safe baseline before the run starts."""
         self.log("Startup preflight: checking and resetting device states")
@@ -9671,8 +20001,97 @@ class CalibrationRunner:
 
         if self.devices.get("pace"):
             # Start every run from vent/open-atmosphere baseline.
+            self._clear_sealed_no_vent_guard(phase="co2", reason="startup preflight reset")
             self._set_pressure_controller_vent(True, reason="startup preflight reset")
             self._h2o_pressure_prepared_target = None
+
+    def _mechanical_pressure_protection_confirmed(self) -> bool:
+        workflow_cfg = self.cfg.get("workflow", {})
+        pressure_cfg = workflow_cfg.get("pressure", {}) if isinstance(workflow_cfg, dict) else {}
+        return bool(
+            pressure_cfg.get("mechanical_pressure_protection_confirmed", False)
+            or workflow_cfg.get("mechanical_pressure_protection_confirmed", False)
+            or self.cfg.get("mechanical_pressure_protection_confirmed", False)
+        )
+
+    def _startup_pressure_precheck_source_stage_decision(
+        self,
+        point: CalibrationPoint,
+        *,
+        route: str,
+        cfg: Mapping[str, Any],
+        guard_enabled: bool,
+    ) -> Dict[str, Any]:
+        phase_text = str(route or "co2").strip().lower()
+        is_h2o = phase_text == "h2o"
+        allow_flag_key = "allow_h2o_final_stage_open" if is_h2o else "allow_source_open"
+        skipped_reason = (
+            "H2OFinalStage10RequiresExplicitAllowFlag"
+            if is_h2o
+            else "SourceStageRequiresExplicitAllowFlag"
+        )
+        decision: Dict[str, Any] = {
+            "include_source_stage": False,
+            "startup_precheck_scope": "partial_no_source",
+            "startup_precheck_source_stage_skipped": True,
+            "startup_precheck_source_stage_skipped_reason": skipped_reason,
+            "source_stage_safe_required_for_startup_precheck": False,
+            "source_stage_safe_required_for_final_stage_only": True,
+            "allow_flag": bool(cfg.get(allow_flag_key, False)),
+            "mechanical_pressure_protection_confirmed": False,
+            "analyzer_pressure_required": False,
+            "analyzer_pressure_available": False,
+            "analyzer_pressure_protection_active": False,
+            "analyzer_pressure_kpa": None,
+            "analyzer_pressure_label": "",
+            "failure_reason": "",
+        }
+        if not decision["allow_flag"]:
+            return decision
+
+        if not guard_enabled:
+            decision["startup_precheck_source_stage_skipped_reason"] = (
+                "StartupPressurePrecheckSourceStageGuardRequired"
+            )
+            decision["failure_reason"] = "StartupPressurePrecheckSourceStageGuardRequired"
+            return decision
+
+        mechanical_confirmed = self._mechanical_pressure_protection_confirmed()
+        decision["mechanical_pressure_protection_confirmed"] = bool(mechanical_confirmed)
+        if mechanical_confirmed:
+            decision.update(
+                {
+                    "include_source_stage": True,
+                    "startup_precheck_scope": "full_source_authorized",
+                    "startup_precheck_source_stage_skipped": False,
+                    "startup_precheck_source_stage_skipped_reason": "",
+                }
+            )
+            return decision
+
+        decision["analyzer_pressure_required"] = True
+        analyzer_pressure_kpa, analyzer_label = self._read_route_guard_analyzer_pressure_kpa()
+        analyzer_available = analyzer_pressure_kpa is not None
+        decision["analyzer_pressure_available"] = analyzer_available
+        decision["analyzer_pressure_protection_active"] = analyzer_available
+        decision["analyzer_pressure_kpa"] = analyzer_pressure_kpa
+        decision["analyzer_pressure_label"] = str(analyzer_label or "")
+        if not analyzer_available:
+            decision["startup_precheck_source_stage_skipped_reason"] = (
+                "AnalyzerPressureRequiredButUnavailable"
+            )
+            decision["failure_reason"] = "AnalyzerPressureRequiredButUnavailable"
+            return decision
+
+        decision.update(
+            {
+                "include_source_stage": True,
+                "startup_precheck_scope": "full_source_authorized",
+                "startup_precheck_source_stage_skipped": False,
+                "startup_precheck_source_stage_skipped_reason": "",
+            }
+        )
+        return decision
 
     def _startup_pressure_precheck(self, points: List[CalibrationPoint]) -> None:
         cfg = self.cfg.get("workflow", {}).get("startup_pressure_precheck", {})
@@ -9681,6 +20100,7 @@ class CalibrationRunner:
 
         route = str(cfg.get("route", "co2") or "co2").strip().lower()
         strict = bool(cfg.get("strict", True))
+        guard_enabled = bool(self._route_open_pressure_guard_cfg().get("enabled"))
         point = self._startup_pressure_precheck_point(points, route=route)
         if point is None:
             msg = f"Startup pressure precheck skipped: no usable {route.upper()} point found"
@@ -9697,12 +20117,90 @@ class CalibrationRunner:
 
         route_soak_s = max(0.0, float(cfg.get("route_soak_s", 3.0)))
         try:
+            startup_scope = self._startup_pressure_precheck_source_stage_decision(
+                point,
+                route=route,
+                cfg=cfg,
+                guard_enabled=guard_enabled,
+            )
+            self._set_point_runtime_fields(
+                point,
+                phase=route,
+                startup_precheck_scope=startup_scope["startup_precheck_scope"],
+                startup_precheck_source_stage_skipped=startup_scope["startup_precheck_source_stage_skipped"],
+                startup_precheck_source_stage_skipped_reason=startup_scope[
+                    "startup_precheck_source_stage_skipped_reason"
+                ],
+                source_stage_safe_required_for_startup_precheck=startup_scope[
+                    "source_stage_safe_required_for_startup_precheck"
+                ],
+                source_stage_safe_required_for_final_stage_only=startup_scope[
+                    "source_stage_safe_required_for_final_stage_only"
+                ],
+                analyzer_pressure_required=startup_scope["analyzer_pressure_required"],
+                analyzer_pressure_available=startup_scope["analyzer_pressure_available"],
+                analyzer_pressure_protection_active=startup_scope["analyzer_pressure_protection_active"],
+                mechanical_pressure_protection_confirmed=startup_scope[
+                    "mechanical_pressure_protection_confirmed"
+                ],
+            )
+            if startup_scope["startup_precheck_source_stage_skipped"]:
+                self.log(
+                    "Startup pressure precheck source/final stage skipped: "
+                    f"{startup_scope['startup_precheck_source_stage_skipped_reason']}"
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=route,
+                    point_phase=route,
+                    trace_stage="startup_pressure_precheck_source_stage_skipped",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    note=str(startup_scope["startup_precheck_source_stage_skipped_reason"] or ""),
+                )
+            if startup_scope["failure_reason"]:
+                raise RuntimeError(str(startup_scope["failure_reason"]))
             if route == "h2o":
-                self._set_pressure_controller_vent(True, reason="startup pressure precheck H2O route open")
-                self._set_h2o_path(True, point)
+                self._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
+                guarded_h2o_open_valves = self._h2o_open_valves(
+                    point,
+                    include_final_stage=bool(startup_scope["include_source_stage"]),
+                )
+                if guard_enabled:
+                    self._apply_route_baseline_valves()
+                    self._clear_sealed_no_vent_guard(point=point, phase="h2o", reason="startup pressure precheck H2O route open")
+                    self._set_pressure_controller_vent(True, reason="startup pressure precheck H2O route open")
+                    if not self._open_route_with_pressure_guard(
+                        point,
+                        phase="h2o",
+                        point_tag=self._h2o_point_tag(point),
+                        open_valves=guarded_h2o_open_valves,
+                        log_context="startup pressure precheck H2O route open",
+                    ):
+                        raise RuntimeError("Startup pressure precheck could not guarded-open H2O route")
+                else:
+                    self._clear_sealed_no_vent_guard(point=point, phase="h2o", reason="startup pressure precheck H2O route open")
+                    self._set_pressure_controller_vent(True, reason="startup pressure precheck H2O route open")
+                    self._apply_valve_states(guarded_h2o_open_valves)
             else:
+                self._sync_co2_source_stage_runtime_fields(point, phase="co2")
+                guarded_co2_open_valves = self._co2_open_valves(
+                    point,
+                    include_total_valve=True,
+                    include_source_valve=bool(startup_scope["include_source_stage"]),
+                )
                 self._set_co2_route_baseline(reason="before startup pressure precheck")
-                self._set_valves_for_co2(point)
+                if guard_enabled:
+                    if not self._open_route_with_pressure_guard(
+                        point,
+                        phase="co2",
+                        point_tag=self._co2_point_tag(point),
+                        open_valves=guarded_co2_open_valves,
+                        log_context="startup pressure precheck CO2 route open",
+                    ):
+                        raise RuntimeError("Startup pressure precheck could not guarded-open CO2 route")
+                else:
+                    self._apply_valve_states(guarded_co2_open_valves)
 
             if route_soak_s > 0:
                 self.log(
@@ -9910,6 +20408,8 @@ class CalibrationRunner:
             return
 
         strict = bool(cfg.get("strict", True))
+        guard_enabled = bool(self._route_open_pressure_guard_cfg().get("enabled"))
+        allow_source_open = bool(cfg.get("allow_source_open", False))
         target_hpa = float(cfg.get("target_hpa", 1000.0) or 1000.0)
         flush_soak_s = max(0.0, float(cfg.get("flush_soak_s", 10.0) or 10.0))
         sample_duration_s = max(1.0, float(cfg.get("sample_duration_s", 8.0) or 8.0))
@@ -9944,9 +20444,46 @@ class CalibrationRunner:
                 "Startup pressure sensor calibration: "
                 f"zero-gas flush at atmosphere, then seal and control to {target_hpa:.0f} hPa"
             )
+            self._clear_sealed_no_vent_guard(phase="co2", reason="startup pressure sensor calibration flush")
             self._set_pressure_controller_vent(True, reason="startup pressure sensor calibration flush")
             self._set_co2_route_baseline(reason="before startup pressure sensor calibration")
-            self._set_valves_for_co2(template_point)
+            self._sync_co2_source_stage_runtime_fields(template_point, phase="co2")
+            guarded_open_valves = self._co2_open_valves(
+                template_point,
+                include_total_valve=True,
+                include_source_valve=allow_source_open and self._co2_source_stage_safe(template_point),
+            )
+            self._append_pressure_trace_row(
+                point=template_point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="startup_pressure_sensor_calibration_route_guarded",
+                pressure_target_hpa=target_hpa,
+                refresh_pace_state=False,
+                note=f"open_valves={guarded_open_valves}",
+            )
+            if allow_source_open and not self._co2_source_stage_safe(template_point):
+                self.log("startup_pressure_sensor_calibration_source_stage_blocked")
+                self._append_pressure_trace_row(
+                    point=template_point,
+                    route="co2",
+                    point_phase="co2",
+                    trace_stage="startup_pressure_sensor_calibration_source_stage_blocked",
+                    pressure_target_hpa=target_hpa,
+                    refresh_pace_state=False,
+                    note="allow_source_open=true but source stage not verified; use partial route only",
+                )
+            if guard_enabled:
+                if not self._open_route_with_pressure_guard(
+                    template_point,
+                    phase="co2",
+                    point_tag=self._co2_point_tag(template_point),
+                    open_valves=guarded_open_valves,
+                    log_context="startup pressure sensor calibration route guard",
+                ):
+                    raise RuntimeError("startup pressure sensor calibration guarded route open failed")
+            else:
+                self._apply_valve_states(guarded_open_valves)
             if flush_soak_s > 0:
                 time.sleep(flush_soak_s)
 
@@ -10070,6 +20607,22 @@ class CalibrationRunner:
 
     def _sample_open_route_point(self, point: CalibrationPoint, *, phase: str, point_tag: str) -> None:
         phase_text = str(phase or ("h2o" if point.is_h2o_point else "co2")).strip().lower()
+        if self._block_co2_source_stage_operation(
+            point,
+            phase=phase_text,
+            operation="sampling_open_route",
+            trace_stage="sampling_blocked",
+            note=f"point_tag={point_tag}",
+        ):
+            return
+        if self._require_continuous_atmosphere_flow_active(
+            point,
+            phase=phase_text,
+            operation="sampling_open_route",
+            trace_stage="sampling_blocked",
+            note=f"point_tag={point_tag}",
+        ):
+            return
         self._emit_stage_event(
             current=self._stage_label_for_point(point, phase=phase_text),
             point=point,
@@ -10225,6 +20778,93 @@ class CalibrationRunner:
             except Exception as exc:
                 self.log(f"Pressure soft-control warning: {name} failed: {exc}")
 
+    def _same_gas_low_pressure_standard_control_cfg(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        last_context = dict(self._last_sealed_pressure_route_context or {})
+        current_signature = self._route_signature_for_point(point, phase=phase_text)
+        same_route = (
+            bool(last_context)
+            and str(last_context.get("phase") or "").strip().lower() == phase_text
+            and tuple(last_context.get("route_signature") or ()) == current_signature
+        )
+        use_linear_slew = bool(self._wf("workflow.pressure.low_pressure_same_gas_use_linear_slew", True))
+        slew_rate_hpa_per_s = self._as_float(
+            self._wf("workflow.pressure.same_gas_low_pressure_standard_control_slew_hpa_per_s", None)
+        )
+        slew_mode = str(
+            self._wf("workflow.pressure.same_gas_low_pressure_standard_control_slew_mode", "LIN") or "LIN"
+        ).strip().upper()
+        if use_linear_slew:
+            slew_mode = "LIN"
+        return {
+            "enabled": bool(
+                self._wf("workflow.pressure.same_gas_low_pressure_standard_control_enabled", False)
+            )
+            and phase_text == "co2"
+            and self._is_co2_low_pressure_sealed_point(point)
+            and same_route,
+            "same_route": same_route,
+            "slew_mode": slew_mode,
+            "slew_hpa_per_s": slew_rate_hpa_per_s,
+            "overshoot_allowed": bool(
+                self._wf(
+                    "workflow.pressure.low_pressure_same_gas_overshoot_allowed",
+                    self._wf("workflow.pressure.same_gas_low_pressure_standard_control_overshoot_allowed", False),
+                )
+            ),
+        }
+
+    def _configure_same_gas_low_pressure_standard_control(
+        self,
+        pace: Any,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> None:
+        cfg = self._same_gas_low_pressure_standard_control_cfg(point, phase=phase)
+        if not bool(cfg.get("enabled")):
+            return
+        commands: List[Tuple[str, Any, tuple[Any, ...]]] = []
+        if str(cfg.get("slew_mode") or "").upper() == "LIN":
+            commands.append(("set_slew_mode_linear", getattr(pace, "set_slew_mode_linear", None), ()))
+        slew_rate_hpa_per_s = self._as_float(cfg.get("slew_hpa_per_s"))
+        if slew_rate_hpa_per_s is not None:
+            commands.append(("set_slew_rate", getattr(pace, "set_slew_rate", None), (float(slew_rate_hpa_per_s),)))
+        commands.append(
+            (
+                "set_overshoot_allowed",
+                getattr(pace, "set_overshoot_allowed", None),
+                (bool(cfg.get("overshoot_allowed", False)),),
+            )
+        )
+        for name, fn, args in commands:
+            if not callable(fn):
+                self.log(f"Same-gas low-pressure standard control warning: {name} unsupported")
+                continue
+            try:
+                fn(*args)
+            except Exception as exc:
+                self.log(f"Same-gas low-pressure standard control warning: {name} failed: {exc}")
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="same_gas_low_pressure_standard_control_applied",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            refresh_pace_state=False,
+            note=(
+                "K0472 same-gas low-pressure standard control profile: "
+                f"slew_mode={cfg.get('slew_mode')} "
+                f"slew_hpa_per_s={slew_rate_hpa_per_s if slew_rate_hpa_per_s is not None else 'unchanged'} "
+                f"overshoot_allowed={cfg.get('overshoot_allowed')}"
+            ),
+        )
+
     def _pressure_sampling_gate_cfg(self, point: CalibrationPoint) -> Dict[str, Any]:
         cfg = {
             "enabled": bool(self._wf("workflow.pressure.adaptive_pressure_sampling_enabled", False)),
@@ -10371,6 +21011,148 @@ class CalibrationRunner:
             )
         return cfg
 
+    def _post_isolation_leak_test_cfg(self, point: CalibrationPoint) -> Dict[str, Any]:
+        capture_hold_enabled = bool(self._pressure_output_off_hold_cfg(point).get("enabled"))
+        enabled = bool(
+            self._wf(
+                "workflow.pressure.h2o_post_isolation_diagnostic_enabled"
+                if point.is_h2o_point
+                else "workflow.pressure.co2_post_isolation_diagnostic_enabled",
+                False,
+            )
+        )
+        return {
+            "enabled": capture_hold_enabled and enabled and self._is_co2_low_pressure_sealed_point(point),
+            "window_s": max(
+                1.0,
+                float(
+                    self._wf(
+                        "workflow.pressure.h2o_post_isolation_window_s"
+                        if point.is_h2o_point
+                        else "workflow.pressure.co2_post_isolation_window_s",
+                        10.0,
+                    )
+                    or 10.0
+                ),
+            ),
+            "poll_s": max(
+                0.1,
+                float(
+                    self._wf(
+                        "workflow.pressure.h2o_post_isolation_poll_s"
+                        if point.is_h2o_point
+                        else "workflow.pressure.co2_post_isolation_poll_s",
+                        0.5,
+                    )
+                    or 0.5
+                ),
+            ),
+            "pressure_drift_limit_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.co2_post_isolation_pressure_drift_hpa", 0.35) or 0.35),
+            ),
+            "pressure_stable_span_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.co2_post_isolation_pressure_stable_span_hpa", 0.20) or 0.20),
+            ),
+            "dewpoint_rise_limit_c": max(
+                0.0,
+                float(self._wf("workflow.pressure.co2_post_isolation_dewpoint_rise_c", 0.12) or 0.12),
+            ),
+            "dewpoint_slope_limit_c_per_s": max(
+                0.0,
+                float(self._wf("workflow.pressure.co2_post_isolation_dewpoint_slope_c_per_s", 0.01) or 0.01),
+            ),
+            "ambient_recovery_min_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.co2_post_isolation_ambient_recovery_min_hpa", 0.20) or 0.20),
+            ),
+            "fast_capture_enabled": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_enabled", False)
+            ),
+            "fast_capture_allow_early_sample": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_allow_early_sample", False)
+            ),
+            "fast_capture_min_s": max(
+                1.0,
+                float(self._wf("workflow.pressure.post_isolation_fast_capture_min_s", 5.0) or 5.0),
+            ),
+            "fast_capture_require_vent_ok": bool(
+                self._wf(
+                    "workflow.pressure.post_isolation_fast_capture_require_vent_ok",
+                    self._wf("workflow.pressure.post_isolation_fast_capture_require_vent_zero", True),
+                )
+            ),
+            "fast_capture_require_vent_zero": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_vent_zero", True)
+            ),
+            "fast_capture_require_in_limits": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_in_limits", True)
+            ),
+            "fast_capture_require_eff_zero": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_eff_zero", True)
+            ),
+            "fast_capture_eff_abs_max": max(
+                0.0,
+                float(self._wf("workflow.pressure.post_isolation_fast_capture_eff_abs_max", 0.01) or 0.01),
+            ),
+            "fast_capture_slew_abs_max": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.pressure.post_isolation_fast_capture_slew_abs_max",
+                        self._wf("workflow.pressure.fast_capture_pressure_slope_max_hpa_s", 0.05),
+                    )
+                    or 0.05
+                ),
+            ),
+            "fast_capture_require_isol_closed": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_isol_closed", True)
+            ),
+            "fast_capture_fallback_to_extended_diag": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_fallback_to_extended_diag", True)
+            ),
+            "extended_diag_window_s": max(
+                5.0,
+                float(self._wf("workflow.pressure.post_isolation_extended_diag_window_s", 20.0) or 20.0),
+            ),
+            "fast_capture_pressure_drift_max_hpa": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.pressure.fast_capture_pressure_drift_max_hpa",
+                        self._wf("workflow.pressure.co2_post_isolation_pressure_drift_hpa", 0.35),
+                    )
+                    or 0.35
+                ),
+            ),
+            "fast_capture_pressure_slope_max_hpa_s": max(
+                0.0,
+                float(self._wf("workflow.pressure.fast_capture_pressure_slope_max_hpa_s", 0.06) or 0.06),
+            ),
+            "fast_capture_dewpoint_rise_max_c": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.pressure.fast_capture_dewpoint_rise_max_c",
+                        self._wf("workflow.pressure.co2_post_isolation_dewpoint_rise_c", 0.12),
+                    )
+                    or 0.12
+                ),
+            ),
+            "effort_nonzero_abs_max": max(
+                0.0,
+                float(self._wf("workflow.pressure.post_isolation_effort_nonzero_abs_max", 0.01) or 0.01),
+            ),
+            "supply_vacuum_comp_source_min_abs": max(
+                0.0,
+                float(self._wf("workflow.pressure.post_isolation_comp_source_min_abs", 0.01) or 0.01),
+            ),
+        }
+
+    def _post_isolation_same_gas_dead_volume_purge_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.postseal_same_gas_dead_volume_purge_enabled", False))
+
     def _read_best_pressure_for_output_off_hold(self, prefer_gauge: bool) -> Tuple[Optional[float], str]:
         order = ["pressure_gauge", "pace"] if prefer_gauge else ["pace", "pressure_gauge"]
         for name in order:
@@ -10388,6 +21170,1272 @@ class CalibrationRunner:
             if math.isfinite(value):
                 return value, name
         return None, "unavailable"
+
+    def _route_signature_for_point(self, point: CalibrationPoint, *, phase: str) -> Tuple[int, ...]:
+        open_valves = self._route_open_valves(point, phase=phase)
+        return tuple(sorted(int(valve) for valve in open_valves))
+
+    def _clear_last_sealed_pressure_route_context(self, *, reason: str = "") -> None:
+        if self._last_sealed_pressure_route_context is None:
+            return
+        self._last_sealed_pressure_route_context = None
+
+    def _remember_last_sealed_pressure_route_context(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        point_row = self._as_int(getattr(point, "index", None))
+        if point_row is None or not phase_text:
+            return {}
+
+        context: Dict[str, Any] = {
+            "phase": phase_text,
+            "route_signature": self._route_signature_for_point(point, phase=phase_text),
+            "point_row": point_row,
+        }
+        runtime_state = dict(self._point_runtime_state(point, phase=phase_text) or {})
+        timing_stages = dict(runtime_state.get("timing_stages") or {})
+        timing_snapshot = {
+            stage_name: stage_ts
+            for stage_name in (
+                "route_open",
+                "soak_begin",
+                "soak_end",
+                "preseal_vent_off_begin",
+                "preseal_trigger_reached",
+                "route_sealed",
+            )
+            if (stage_ts := self._as_float(timing_stages.get(stage_name))) is not None
+        }
+        if timing_snapshot:
+            context["timing_stages"] = timing_snapshot
+        if str(reason or "").strip():
+            context["sealed_context_reason"] = str(reason or "").strip()
+
+        self._last_sealed_pressure_route_context = context
+        return dict(context)
+
+    def _last_sealed_route_timing_snapshot(
+        self,
+        *,
+        phase: str,
+        last_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, float]:
+        stage_names = (
+            "route_open",
+            "soak_begin",
+            "soak_end",
+            "preseal_vent_off_begin",
+            "preseal_trigger_reached",
+            "route_sealed",
+        )
+        context = dict(last_context or self._last_sealed_pressure_route_context or {})
+        snapshot: Dict[str, float] = {}
+
+        direct_stages = dict(context.get("timing_stages") or {})
+        for stage_name in stage_names:
+            stage_ts = self._as_float(direct_stages.get(stage_name))
+            if stage_ts is not None:
+                snapshot[stage_name] = stage_ts
+
+        source_phase = str(context.get("phase") or phase or "").strip().lower()
+        source_point_row = self._as_int(context.get("point_row"))
+        if source_phase and source_point_row is not None:
+            source_state = self._point_runtime_state(
+                phase=source_phase,
+                point_key=self._point_runtime_key_from_values(phase=source_phase, point_row=source_point_row),
+            )
+            source_stages = dict((source_state or {}).get("timing_stages") or {})
+            for stage_name in stage_names:
+                if stage_name in snapshot:
+                    continue
+                stage_ts = self._as_float(source_stages.get(stage_name))
+                if stage_ts is not None:
+                    snapshot[stage_name] = stage_ts
+
+        for stage_name in ("route_open", "soak_begin", "soak_end"):
+            if stage_name in snapshot:
+                continue
+            stage_ts = self._as_float(self._lead_in_transition_stage_ts.get(stage_name))
+            if stage_ts is not None:
+                snapshot[stage_name] = stage_ts
+        return snapshot
+
+    def _inherit_last_sealed_route_timing_stages(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        last_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, float]:
+        state = self._point_runtime_state(point, phase=phase, create=True)
+        if state is None:
+            return {}
+        stages = state.setdefault("timing_stages", {})
+        if self._as_float(stages.get("route_sealed")) is not None:
+            return {}
+
+        inherited: Dict[str, float] = {}
+        timing_snapshot = self._last_sealed_route_timing_snapshot(phase=phase, last_context=last_context)
+        for stage_name, stage_ts in timing_snapshot.items():
+            if self._as_float(stages.get(stage_name)) is None:
+                stages[stage_name] = stage_ts
+                inherited[stage_name] = stage_ts
+
+        if inherited:
+            context = dict(last_context or self._last_sealed_pressure_route_context or {})
+            source_point_row = self._as_int(context.get("point_row"))
+            inherited_names = ",".join(sorted(inherited.keys()))
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="handoff_route_sealed_evidence_reused",
+                pressure_target_hpa=point.target_pressure_hpa,
+                handoff_mode="same_gas_pressure_step_handoff",
+                refresh_pace_state=False,
+                note=(
+                    f"inherited_stages={inherited_names} "
+                    f"source_point_row={source_point_row if source_point_row is not None else 'unknown'}"
+                ),
+            )
+        return inherited
+
+    def _same_route_follow_on_pressure_switch_active(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> bool:
+        phase_text = str(phase or "").strip().lower()
+        point_row = self._as_int(getattr(point, "index", None))
+        if point_row is None or not phase_text:
+            return False
+        route_signature = self._route_signature_for_point(point, phase=phase_text)
+        last_context = dict(self._last_sealed_pressure_route_context or {})
+        last_phase = str(last_context.get("phase") or "").strip().lower()
+        last_row = self._as_int(last_context.get("point_row"))
+        last_signature = tuple(last_context.get("route_signature") or ())
+        return (
+            last_phase == phase_text
+            and last_row is not None
+            and last_row != point_row
+            and last_signature == route_signature
+        )
+
+    def _same_gas_superambient_sequence_match(self, point: CalibrationPoint, *, phase: str) -> bool:
+        phase_text = str(phase or "").strip().lower()
+        route_signature = self._route_signature_for_point(point, phase=phase_text)
+        if not route_signature:
+            return False
+        active_context = dict(self._active_pressure_sequence_context or {})
+        if (
+            str(active_context.get("phase") or "").strip().lower() == phase_text
+            and tuple(active_context.get("route_signature") or ()) == route_signature
+        ):
+            return True
+        last_context = dict(self._last_sealed_pressure_route_context or {})
+        return (
+            str(last_context.get("phase") or "").strip().lower() == phase_text
+            and tuple(last_context.get("route_signature") or ()) == route_signature
+        )
+
+    def _superambient_guard_requires_reject_without_reference(
+        self,
+        target_hpa: float,
+        *,
+        cfg: Dict[str, Any],
+    ) -> bool:
+        # Without a verified ambient reference, only clearly positive-pressure targets
+        # are treated as superambient candidates; reject rather than guess a safe fallback.
+        return float(target_hpa) > (1000.0 + float(cfg.get("trigger_margin_hpa", 0.0) or 0.0))
+
+    def _superambient_precharge_open_valves(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> Tuple[Optional[List[int]], bool, str]:
+        if str(phase or "").strip().lower() != "co2":
+            return None, False, "superambient_precharge_phase_unsupported"
+        if not self._same_gas_superambient_sequence_match(point, phase=phase):
+            return None, False, "superambient_precharge_requires_same_gas_sequence"
+        hold_valve = self._as_int(self.cfg.get("valves", {}).get("hold"))
+        if hold_valve is None:
+            return None, False, "superambient_precharge_hold_valve_missing"
+        route_open_valves = self._route_open_valves(point, phase=phase)
+        if not route_open_valves:
+            return None, False, "superambient_precharge_route_signature_missing"
+        open_valves = sorted({int(valve) for valve in route_open_valves + [hold_valve]})
+        return open_valves, True, ""
+
+    def _reject_superambient_precharge(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        target_hpa: float,
+        ambient_reference_hpa: Optional[float],
+        cfg: Dict[str, Any],
+        reject_reason: str,
+        note: str,
+        precharge_peak_hpa: Optional[float] = None,
+        closed_path_verified: Optional[bool] = None,
+    ) -> None:
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            handoff_mode="same_gas_superambient_precharge_handoff",
+            ambient_reference_hpa=ambient_reference_hpa,
+            superambient_target_hpa=float(target_hpa),
+            superambient_precharge_margin_hpa=float(cfg.get("precharge_margin_hpa", 0.0) or 0.0),
+            superambient_precharge_peak_hpa=precharge_peak_hpa,
+            superambient_precharge_result=reject_reason,
+            superambient_closed_path_verified=closed_path_verified,
+        )
+        self._set_root_cause_reject_reason(point, phase=phase, reason=reject_reason)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="superambient_precharge_end",
+            pressure_target_hpa=target_hpa,
+            handoff_mode="same_gas_superambient_precharge_handoff",
+            atmosphere_reference_hpa=ambient_reference_hpa,
+            superambient_target_hpa=target_hpa,
+            superambient_precharge_margin_hpa=cfg.get("precharge_margin_hpa"),
+            superambient_precharge_peak_hpa=precharge_peak_hpa,
+            superambient_precharge_result=reject_reason,
+            superambient_closed_path_verified=closed_path_verified,
+            root_cause_reject_reason=reject_reason,
+            read_pressure_gauge=True,
+            refresh_pace_state=False,
+            note=note,
+        )
+
+    def _maybe_run_same_gas_superambient_precharge(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        target_hpa: float,
+    ) -> Tuple[bool, bool]:
+        cfg = self._superambient_precharge_cfg()
+        phase_text = str(phase or "").strip().lower()
+        if not bool(cfg.get("enabled")) or phase_text != "co2":
+            return False, True
+        if bool(cfg.get("same_gas_only")) and point.co2_ppm is None:
+            return False, True
+        if not self._same_gas_superambient_sequence_match(point, phase=phase_text):
+            return False, True
+
+        ambient_reference_hpa, ambient_source = self._resolve_superambient_ambient_reference_hpa()
+        if ambient_reference_hpa is None:
+            if not self._superambient_guard_requires_reject_without_reference(target_hpa, cfg=cfg):
+                return False, True
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=None,
+                cfg=cfg,
+                reject_reason="ambient_reference_unavailable",
+                note=(
+                    "same-gas superambient target requires verified ambient reference; "
+                    f"ambient_source={ambient_source}"
+                ),
+                closed_path_verified=False,
+            )
+            return True, False
+
+        trigger_threshold_hpa = float(ambient_reference_hpa) + float(cfg["trigger_margin_hpa"])
+        if float(target_hpa) <= trigger_threshold_hpa:
+            return False, True
+
+        open_valves, closed_path_verified, unavailable_reason = self._superambient_precharge_open_valves(
+            point,
+            phase=phase_text,
+        )
+        if not closed_path_verified or not open_valves:
+            reject_reason = "superambient_precharge_unavailable"
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=ambient_reference_hpa,
+                cfg=cfg,
+                reject_reason=reject_reason,
+                note=(
+                    "same-gas closed precharge path unavailable; "
+                    f"detail={unavailable_reason or 'unknown'} "
+                    f"forbid_atmosphere_fallback={bool(cfg.get('forbid_atmosphere_fallback'))}"
+                ),
+                closed_path_verified=False,
+            )
+            return True, False
+
+        pace = self.devices.get("pace")
+        if pace is None:
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=ambient_reference_hpa,
+                cfg=cfg,
+                reject_reason="superambient_precharge_unavailable",
+                note="PACE unavailable before superambient fine trim",
+                closed_path_verified=True,
+            )
+            return True, False
+
+        try:
+            self._set_pressure_controller_vent(False, reason="before same-gas superambient precharge")
+        except Exception as exc:
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=ambient_reference_hpa,
+                cfg=cfg,
+                reject_reason="superambient_precharge_unavailable",
+                note=f"failed to disconnect PACE from atmosphere before precharge: {exc}",
+                closed_path_verified=True,
+            )
+            return True, False
+
+        try:
+            set_output_verified = getattr(pace, "set_output_enabled_verified", None)
+            if callable(set_output_verified):
+                set_output_verified(False)
+            else:
+                set_output_enabled = getattr(pace, "set_output_enabled", None)
+                if callable(set_output_enabled):
+                    set_output_enabled(False)
+                else:
+                    set_output = getattr(pace, "set_output", None)
+                    if callable(set_output):
+                        set_output(False)
+                verify_output = getattr(pace, "verify_output_enabled", None)
+                if callable(verify_output):
+                    verify_output(False)
+                elif hasattr(pace, "get_output_state") and int(pace.get_output_state()) != 0:
+                    raise RuntimeError("OUTPUT_NOT_OFF")
+
+            set_isolated_verified = getattr(pace, "set_output_isolated_verified", None)
+            if callable(set_isolated_verified):
+                set_isolated_verified(True)
+            else:
+                set_isolated = getattr(pace, "set_output_isolated", None)
+                if callable(set_isolated):
+                    set_isolated(True)
+                else:
+                    set_isolation_open = getattr(pace, "set_isolation_open", None)
+                    if callable(set_isolation_open):
+                        set_isolation_open(False)
+                verify_isolated = getattr(pace, "verify_output_isolated", None)
+                if callable(verify_isolated):
+                    verify_isolated(True)
+                elif hasattr(pace, "get_isolation_state") and int(pace.get_isolation_state()) != 0:
+                    raise RuntimeError("ISOLATION_NOT_CLOSED")
+        except Exception as exc:
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=ambient_reference_hpa,
+                cfg=cfg,
+                reject_reason="superambient_precharge_unavailable",
+                note=f"failed to force PACE non-sampling isolation before precharge: {exc}",
+                closed_path_verified=True,
+            )
+            return True, False
+
+        precharge_margin_hpa = float(cfg["precharge_margin_hpa"])
+        precharge_target_hpa = float(target_hpa) + precharge_margin_hpa
+        overshoot_limit_hpa = precharge_target_hpa + max(5.0, precharge_margin_hpa)
+        timeout_s = float(cfg["timeout_s"])
+        poll_s = max(0.05, self._pressure_trace_poll_s(point))
+        begin_ts = time.time()
+        precharge_peak_hpa: Optional[float] = None
+        last_pressure_hpa: Optional[float] = None
+
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            handoff_mode="same_gas_superambient_precharge_handoff",
+            ambient_reference_hpa=ambient_reference_hpa,
+            superambient_target_hpa=float(target_hpa),
+            superambient_precharge_margin_hpa=precharge_margin_hpa,
+            superambient_precharge_peak_hpa=None,
+            superambient_precharge_result="running",
+            superambient_closed_path_verified=True,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="superambient_precharge_begin",
+            pressure_target_hpa=target_hpa,
+            handoff_mode="same_gas_superambient_precharge_handoff",
+            atmosphere_reference_hpa=ambient_reference_hpa,
+            superambient_target_hpa=target_hpa,
+            superambient_precharge_margin_hpa=precharge_margin_hpa,
+            superambient_precharge_result="running",
+            superambient_closed_path_verified=True,
+            read_pressure_gauge=True,
+            refresh_pace_state=False,
+            event_ts=begin_ts,
+            note=(
+                f"ambient_source={ambient_source} precharge_target_hpa={precharge_target_hpa:.3f} "
+                f"open_valves={open_valves}"
+            ),
+        )
+
+        pressure_state = self._point_runtime_state(point, phase=phase_text, create=True)
+        if pressure_state is not None:
+            pressure_state.setdefault("timing_stages", {})["superambient_precharge_begin"] = begin_ts
+
+        start = time.time()
+        self._apply_valve_states(open_valves)
+        try:
+            while (time.time() - start) < timeout_s:
+                if self.stop_event.is_set():
+                    self._reject_superambient_precharge(
+                        point,
+                        phase=phase_text,
+                        target_hpa=target_hpa,
+                        ambient_reference_hpa=ambient_reference_hpa,
+                        cfg=cfg,
+                        reject_reason="superambient_precharge_timeout",
+                        note="interrupted while waiting for same-gas superambient precharge",
+                        precharge_peak_hpa=precharge_peak_hpa,
+                        closed_path_verified=True,
+                    )
+                    return True, False
+                self._check_pause()
+                pressure_now, pressure_source = self._read_preseal_pressure_gauge()
+                if pressure_now is not None and pressure_source == "pressure_gauge":
+                    last_pressure_hpa = float(pressure_now)
+                    if precharge_peak_hpa is None or last_pressure_hpa > precharge_peak_hpa:
+                        precharge_peak_hpa = last_pressure_hpa
+                    if last_pressure_hpa >= overshoot_limit_hpa:
+                        self._reject_superambient_precharge(
+                            point,
+                            phase=phase_text,
+                            target_hpa=target_hpa,
+                            ambient_reference_hpa=ambient_reference_hpa,
+                            cfg=cfg,
+                            reject_reason="superambient_precharge_overshoot",
+                            note=(
+                                f"same-gas precharge overshoot: pressure_gauge_hpa={last_pressure_hpa:.3f} "
+                                f"overshoot_limit_hpa={overshoot_limit_hpa:.3f}"
+                            ),
+                            precharge_peak_hpa=precharge_peak_hpa,
+                            closed_path_verified=True,
+                        )
+                        return True, False
+                    if last_pressure_hpa >= precharge_target_hpa:
+                        end_ts = time.time()
+                        self._apply_valve_states([])
+                        if pressure_state is not None:
+                            stages = pressure_state.setdefault("timing_stages", {})
+                            stages["route_sealed"] = end_ts
+                            stages["superambient_precharge_end"] = end_ts
+                        self._record_preseal_pressure_control_ready_state(
+                            point,
+                            phase=phase_text,
+                            defer_live_check=True,
+                        )
+                        self._set_point_runtime_fields(
+                            point,
+                            phase=phase_text,
+                            superambient_precharge_peak_hpa=precharge_peak_hpa,
+                            superambient_precharge_result="pass",
+                            superambient_closed_path_verified=True,
+                        )
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase_text,
+                            point_phase=phase_text,
+                            trace_stage="superambient_precharge_end",
+                            pressure_target_hpa=target_hpa,
+                            handoff_mode="same_gas_superambient_precharge_handoff",
+                            atmosphere_reference_hpa=ambient_reference_hpa,
+                            superambient_target_hpa=target_hpa,
+                            superambient_precharge_margin_hpa=precharge_margin_hpa,
+                            superambient_precharge_peak_hpa=precharge_peak_hpa,
+                            superambient_precharge_result="pass",
+                            superambient_closed_path_verified=True,
+                            pressure_gauge_hpa=last_pressure_hpa,
+                            refresh_pace_state=False,
+                            event_ts=end_ts,
+                            note=(
+                                f"same-gas closed precharge reached target: "
+                                f"pressure_gauge_hpa={last_pressure_hpa:.3f} "
+                                f"precharge_target_hpa={precharge_target_hpa:.3f}"
+                            ),
+                        )
+                        fine_trim_begin_ts = time.time()
+                        if pressure_state is not None:
+                            pressure_state.setdefault("timing_stages", {})["superambient_fine_trim_begin"] = fine_trim_begin_ts
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase_text,
+                            point_phase=phase_text,
+                            trace_stage="superambient_fine_trim_begin",
+                            pressure_target_hpa=target_hpa,
+                            handoff_mode="same_gas_superambient_precharge_handoff",
+                            atmosphere_reference_hpa=ambient_reference_hpa,
+                            superambient_target_hpa=target_hpa,
+                            superambient_precharge_margin_hpa=precharge_margin_hpa,
+                            superambient_precharge_peak_hpa=precharge_peak_hpa,
+                            superambient_precharge_result="pass",
+                            superambient_closed_path_verified=True,
+                            pressure_gauge_hpa=last_pressure_hpa,
+                            refresh_pace_state=False,
+                            event_ts=fine_trim_begin_ts,
+                            note="same-gas precharge complete; hand control to PACE for fine trim",
+                        )
+                        return True, True
+
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase_text,
+                    point_phase=phase_text,
+                    trace_stage="superambient_precharge_wait",
+                    pressure_target_hpa=target_hpa,
+                    trigger_reason=pressure_source,
+                    handoff_mode="same_gas_superambient_precharge_handoff",
+                    atmosphere_reference_hpa=ambient_reference_hpa,
+                    superambient_target_hpa=target_hpa,
+                    superambient_precharge_margin_hpa=precharge_margin_hpa,
+                    superambient_precharge_peak_hpa=precharge_peak_hpa,
+                    superambient_precharge_result="running",
+                    superambient_closed_path_verified=True,
+                    pressure_gauge_hpa=last_pressure_hpa,
+                    refresh_pace_state=False,
+                    note=(
+                        f"precharge_target_hpa={precharge_target_hpa:.3f} "
+                        f"last_pressure_hpa={last_pressure_hpa if last_pressure_hpa is not None else 'NA'}"
+                    ),
+                )
+                time.sleep(poll_s)
+        finally:
+            self._apply_valve_states([])
+
+        self._reject_superambient_precharge(
+            point,
+            phase=phase_text,
+            target_hpa=target_hpa,
+            ambient_reference_hpa=ambient_reference_hpa,
+            cfg=cfg,
+            reject_reason="superambient_precharge_timeout",
+            note=(
+                f"same-gas closed precharge timeout after {timeout_s:.3f}s; "
+                f"precharge_target_hpa={precharge_target_hpa:.3f}"
+            ),
+            precharge_peak_hpa=precharge_peak_hpa,
+            closed_path_verified=True,
+        )
+        return True, False
+
+    def _prepare_sampling_handoff_mode(self, point: CalibrationPoint, *, phase: str) -> str:
+        runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
+        existing = str(runtime_state.get("handoff_mode") or "").strip()
+        if existing:
+            return existing
+        last_context = dict(self._last_sealed_pressure_route_context or {})
+        current_signature = self._route_signature_for_point(point, phase=phase)
+        same_route = (
+            bool(last_context)
+            and str(last_context.get("phase") or "") == str(phase or "")
+            and tuple(last_context.get("route_signature") or ()) == current_signature
+        )
+        handoff_mode = "same_gas_pressure_step_handoff" if same_route else "gas_change_route_handoff"
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            handoff_mode=handoff_mode,
+        )
+        if handoff_mode == "same_gas_pressure_step_handoff":
+            self._activate_sealed_no_vent_guard(
+                point=point,
+                phase=phase,
+                guard_phase="PressurePointSwitch",
+                reason="same_gas_pressure_step_handoff",
+            )
+            self._inherit_last_sealed_route_timing_stages(point, phase=phase, last_context=last_context)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="handoff_mode_selected",
+            pressure_target_hpa=point.target_pressure_hpa,
+            handoff_mode=handoff_mode,
+            refresh_pace_state=False,
+            note=(
+                "reuse sealed route without atmosphere-enter / route reopen / open-route preflush"
+                if handoff_mode == "same_gas_pressure_step_handoff"
+                else "gas-change route handoff path; route preflush/open-route allowed before reseal"
+            ),
+        )
+        return handoff_mode
+
+    def _set_root_cause_reject_reason(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str,
+    ) -> None:
+        reason_text = str(reason or "").strip()
+        if not reason_text:
+            return
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            root_cause_reject_reason=reason_text,
+        )
+
+    def _sampling_atmosphere_refresh_forbidden(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        handoff_mode: str,
+    ) -> bool:
+        if str(handoff_mode or "") in {
+            "same_gas_pressure_step_handoff",
+            "same_gas_superambient_precharge_handoff",
+        }:
+            return True
+        if str(phase or "").strip().lower() != "co2":
+            return False
+        target_hpa = self._as_float(getattr(point, "target_pressure_hpa", None))
+        atmosphere_hpa = self._as_float(self._atmosphere_reference_hpa)
+        if target_hpa is None or atmosphere_hpa is None:
+            return False
+        return target_hpa < atmosphere_hpa
+
+    def _pace_terminal_vent_status_ok_for_sampling(self, pace: Any, vent_status: Optional[int]) -> bool:
+        if vent_status is None:
+            return False
+        # Capture-hold only needs a control-ready terminal vent status so we can
+        # proceed into the post-isolation diagnostic chain. Fast 5 s capture keeps
+        # its stricter VENT=0 requirement in _evaluate_post_isolation_fast_capture.
+        return self._pace_vent_status_allows_control(pace, vent_status)
+
+    def _set_pressure_controller_sampling_isolation(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        context: Optional[Dict[str, Any]] = None,
+        handoff_mode: str,
+    ) -> bool:
+        hold_cfg = self._pressure_output_off_hold_cfg(point)
+        if not bool(hold_cfg.get("enabled")):
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                capture_hold_status="skipped",
+                capture_hold_reason="capture_then_hold_disabled",
+            )
+            return True
+        pace = self.devices.get("pace")
+        if pace is None:
+            self._set_root_cause_reject_reason(
+                point,
+                phase=phase,
+                reason="controller_hunting_suspect",
+            )
+            return False
+
+        active_context = context if isinstance(context, dict) else self._pressure_transition_fast_signal_context_active()
+        ready_values = self._cached_ready_check_trace_values(context=active_context, point=point)
+        runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
+        stages = dict(runtime_state.get("timing_stages") or {})
+        if self._as_float(stages.get("route_sealed")) is None:
+            reason = "route_sealed_missing_before_sampling_capture"
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                capture_hold_status="fail",
+                capture_hold_reason=reason,
+            )
+            self._set_root_cause_reject_reason(point, phase=phase, reason="ambient_ingress_suspect")
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="capture_hold_failed",
+                pressure_target_hpa=point.target_pressure_hpa,
+                pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+                pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+                dewpoint_c=ready_values.get("dewpoint_c"),
+                dew_temp_c=ready_values.get("dew_temp_c"),
+                dew_rh_pct=ready_values.get("dew_rh_pct"),
+                dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+                dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+                dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+                capture_hold_status="fail",
+                capture_hold_reason=reason,
+                root_cause_reject_reason="ambient_ingress_suspect",
+                refresh_pace_state=False,
+                note="sampling capture rejected because sealed route evidence is missing",
+            )
+            return False
+
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="capture_hold_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+            pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+            dewpoint_c=ready_values.get("dewpoint_c"),
+            dew_temp_c=ready_values.get("dew_temp_c"),
+            dew_rh_pct=ready_values.get("dew_rh_pct"),
+            dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+            dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+            dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+            handoff_mode=handoff_mode,
+            refresh_pace_state=False,
+            note="route sealed; preparing OUTP OFF + ISOL CLOSED pre-sample capture",
+        )
+
+        try:
+            set_output_verified = getattr(pace, "set_output_enabled_verified", None)
+            if callable(set_output_verified):
+                set_output_verified(False)
+            else:
+                set_output_enabled = getattr(pace, "set_output_enabled", None)
+                if callable(set_output_enabled):
+                    set_output_enabled(False)
+                else:
+                    set_output = getattr(pace, "set_output", None)
+                    if callable(set_output):
+                        set_output(False)
+                verify_output = getattr(pace, "verify_output_enabled", None)
+                if callable(verify_output):
+                    verify_output(False)
+                elif hasattr(pace, "get_output_state") and int(pace.get_output_state()) != 0:
+                    raise RuntimeError("OUTPUT_NOT_OFF")
+
+            set_isolated_verified = getattr(pace, "set_output_isolated_verified", None)
+            if callable(set_isolated_verified):
+                set_isolated_verified(True)
+            else:
+                set_isolated = getattr(pace, "set_output_isolated", None)
+                if callable(set_isolated):
+                    set_isolated(True)
+                else:
+                    set_isolation_open = getattr(pace, "set_isolation_open", None)
+                    if callable(set_isolation_open):
+                        set_isolation_open(False)
+                verify_isolated = getattr(pace, "verify_output_isolated", None)
+                if callable(verify_isolated):
+                    verify_isolated(True)
+                elif hasattr(pace, "get_isolation_state") and int(pace.get_isolation_state()) != 0:
+                    raise RuntimeError("ISOLATION_NOT_CLOSED")
+        except Exception as exc:
+            reason = str(exc) or "sampling_isolation_failed"
+            snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=True)
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                capture_hold_status="fail",
+                capture_hold_reason=reason,
+                **self._pace_snapshot_runtime_fields(snapshot),
+            )
+            root_reason = (
+                "pace_isolation_state_mismatch_suspect"
+                if self._as_int(snapshot.get("pace_isolation_state")) not in (None, 0)
+                else "ambient_ingress_suspect"
+            )
+            self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="capture_hold_failed",
+                pressure_target_hpa=point.target_pressure_hpa,
+                pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+                pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+                dewpoint_c=ready_values.get("dewpoint_c"),
+                dew_temp_c=ready_values.get("dew_temp_c"),
+                dew_rh_pct=ready_values.get("dew_rh_pct"),
+                dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+                dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+                dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+                pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+                pace_mode_query=snapshot.get("pace_mode_query"),
+                pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+                pace_vent_after_valve_state_query=snapshot.get("pace_vent_after_valve_state_query"),
+                pace_vent_popup_state_query=snapshot.get("pace_vent_popup_state_query"),
+                pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+                pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+                capture_hold_status="fail",
+                capture_hold_reason=reason,
+                root_cause_reject_reason=root_reason,
+                refresh_pace_state=False,
+                note="failed to enforce OUTP OFF + ISOL CLOSED before sampling",
+            )
+            self.log(f"{phase.upper()} sampling isolation failed: {reason}")
+            return False
+
+        snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=True)
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        pressure_in_limits_ts = self._as_float(stages.get("pressure_in_limits"))
+        unexpected_refresh = bool(
+            self._sampling_atmosphere_refresh_forbidden(point, phase=phase, handoff_mode=handoff_mode)
+            and (
+                bool(self._pressure_atmosphere_hold_enabled)
+                or (
+                    pressure_in_limits_ts is not None
+                    and self._last_pressure_atmosphere_refresh_ts > pressure_in_limits_ts
+                )
+            )
+        )
+        if unexpected_refresh or not self._pace_terminal_vent_status_ok_for_sampling(pace, vent_status):
+            reason = (
+                "unexpected_atmosphere_refresh_before_sampling"
+                if unexpected_refresh
+                else f"pace_vent_status_not_terminal:{vent_status}"
+            )
+            vent3_trace = self._record_legacy_vent3_runtime_fields(
+                point,
+                phase=phase,
+                pace=pace,
+                vent_status=vent_status,
+                accept_scope="none",
+                control_ready_used=False,
+                block_scope="sampling_capture",
+                hard_blocked=not unexpected_refresh,
+                watchlist_only=True,
+                control_ready_attempted=not unexpected_refresh,
+                control_ready_prevented=not unexpected_refresh,
+            )
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                capture_hold_status="fail",
+                capture_hold_reason=reason,
+                **self._pace_snapshot_runtime_fields(snapshot),
+            )
+            root_reason = "ambient_ingress_suspect"
+            if vent_status == 1:
+                root_reason = "pace_vent_in_progress_suspect"
+            elif bool(vent3_trace.get("pace_atmosphere_connected_latched_state_suspect")):
+                root_reason = "pace_atmosphere_connected_latched_state_suspect"
+            elif self._as_int(snapshot.get("pace_isolation_state")) not in (None, 0):
+                root_reason = "pace_isolation_state_mismatch_suspect"
+            self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="capture_hold_failed",
+                pressure_target_hpa=point.target_pressure_hpa,
+                pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+                pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+                dewpoint_c=ready_values.get("dewpoint_c"),
+                dew_temp_c=ready_values.get("dew_temp_c"),
+                dew_rh_pct=ready_values.get("dew_rh_pct"),
+                dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+                dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+                dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+                pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+                pace_mode_query=snapshot.get("pace_mode_query"),
+                pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+                **vent3_trace,
+                pace_vent_after_valve_state_query=snapshot.get("pace_vent_after_valve_state_query"),
+                pace_vent_popup_state_query=snapshot.get("pace_vent_popup_state_query"),
+                pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+                pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+                capture_hold_status="fail",
+                capture_hold_reason=reason,
+                root_cause_reject_reason=root_reason,
+                refresh_pace_state=False,
+                note="sampling capture rejected because PACE path was not fully isolated from atmosphere",
+            )
+            self.log(f"{phase.upper()} sampling rejected before capture: {reason}")
+            return False
+
+        hold_ok, hold_detail = self._observe_pressure_hold_after_output_off(point)
+        low_pressure_post_isolation = str(phase or "").strip().lower() == "co2" and self._is_co2_low_pressure_sealed_point(point)
+        hold_reason = (
+            f"source={hold_detail.get('source')} "
+            f"span_hpa={hold_detail.get('span_hpa')} "
+            f"max_abs_drift_hpa={hold_detail.get('max_abs_drift_hpa')} "
+            f"limit_hpa={hold_detail.get('limit_hpa')} "
+            f"samples={hold_detail.get('samples')}"
+        )
+        latest_values = self._cached_ready_check_trace_values(context=active_context, point=point)
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            capture_hold_status="pass" if (hold_ok or low_pressure_post_isolation) else "fail",
+            capture_hold_reason=(
+                hold_reason
+                if hold_ok or not low_pressure_post_isolation
+                else f"{hold_reason} initial_hold_limit_exceeded=True awaiting_post_isolation_diagnostic"
+            ),
+            **self._pace_snapshot_runtime_fields(snapshot),
+            pressure_gauge_hpa=latest_values.get("pressure_gauge_hpa"),
+            dewpoint_c=latest_values.get("dewpoint_c"),
+            temp_c=latest_values.get("dew_temp_c"),
+            rh_pct=latest_values.get("dew_rh_pct"),
+        )
+        if not hold_ok and not low_pressure_post_isolation:
+            self._set_root_cause_reject_reason(point, phase=phase, reason="controller_hunting_suspect")
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="capture_hold_failed",
+                pressure_target_hpa=point.target_pressure_hpa,
+                pace_pressure_hpa=latest_values.get("pace_pressure_hpa"),
+                pressure_gauge_hpa=latest_values.get("pressure_gauge_hpa"),
+                dewpoint_c=latest_values.get("dewpoint_c"),
+                dew_temp_c=latest_values.get("dew_temp_c"),
+                dew_rh_pct=latest_values.get("dew_rh_pct"),
+                dewpoint_live_c=latest_values.get("dewpoint_live_c"),
+                dew_temp_live_c=latest_values.get("dew_temp_live_c"),
+                dew_rh_live_pct=latest_values.get("dew_rh_live_pct"),
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+                pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+                pace_mode_query=snapshot.get("pace_mode_query"),
+                pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+                pace_vent_after_valve_state_query=snapshot.get("pace_vent_after_valve_state_query"),
+                pace_vent_popup_state_query=snapshot.get("pace_vent_popup_state_query"),
+                pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+                pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+                capture_hold_status="fail",
+                capture_hold_reason=hold_reason,
+                root_cause_reject_reason="controller_hunting_suspect",
+                refresh_pace_state=False,
+                note="sealed capture rejected because output-off hold drift exceeded limit",
+            )
+            self.log(f"{phase.upper()} capture-then-hold failed: {hold_reason}")
+            return False
+
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="capture_hold_engaged",
+            pressure_target_hpa=point.target_pressure_hpa,
+            pace_pressure_hpa=latest_values.get("pace_pressure_hpa"),
+            pressure_gauge_hpa=latest_values.get("pressure_gauge_hpa"),
+            dewpoint_c=latest_values.get("dewpoint_c"),
+            dew_temp_c=latest_values.get("dew_temp_c"),
+            dew_rh_pct=latest_values.get("dew_rh_pct"),
+            dewpoint_live_c=latest_values.get("dewpoint_live_c"),
+            dew_temp_live_c=latest_values.get("dew_temp_live_c"),
+            dew_rh_live_pct=latest_values.get("dew_rh_live_pct"),
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+            pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+            pace_mode_query=snapshot.get("pace_mode_query"),
+            pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+            pace_vent_after_valve_state_query=snapshot.get("pace_vent_after_valve_state_query"),
+            pace_vent_popup_state_query=snapshot.get("pace_vent_popup_state_query"),
+            pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+            pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+            capture_hold_status="pass",
+            capture_hold_reason=(
+                hold_reason
+                if hold_ok or not low_pressure_post_isolation
+                else f"{hold_reason} initial_hold_limit_exceeded=True awaiting_post_isolation_diagnostic"
+            ),
+            handoff_mode=handoff_mode,
+            refresh_pace_state=False,
+            note=(
+                "route sealed and PACE hard-isolated before sampling"
+                if hold_ok or not low_pressure_post_isolation
+                else "route sealed and PACE hard-isolated before sampling; low-pressure drift will be diagnosed in post_isolation_leak_test"
+            ),
+        )
+        return True
+
+    def _wait_sampling_pressure_gate(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        cfg = self._pressure_sampling_gate_cfg(point)
+        if not bool(cfg.get("enabled")):
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                pressure_gate_status="skipped",
+                pressure_gate_reason="adaptive_pressure_sampling_disabled",
+            )
+            return True
+
+        active_context = context if isinstance(context, dict) else self._pressure_transition_fast_signal_context_active()
+        if not isinstance(active_context, dict):
+            root_reason = self._presample_failure_root_cause(point, phase=phase, failure_stage="pressure_gate")
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                pressure_gate_status="fail",
+                pressure_gate_reason="fast_signal_context_missing",
+            )
+            self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+            return False
+
+        window_s = float(cfg["window_s"])
+        fill_s = float(cfg["pressure_fill_s"])
+        min_samples = int(cfg["min_samples"])
+        pressure_span_limit_hpa = float(cfg["pressure_span_hpa"])
+        poll_s = float(cfg["poll_s"])
+        timeout_s = max(10.0, window_s, fill_s, poll_s * float(min_samples))
+        pressure_rows: deque[Tuple[float, float]] = deque()
+        dew_rows: deque[Tuple[float, float]] = deque()
+        start_mono = time.monotonic()
+
+        ready_values = self._cached_ready_check_trace_values(context=active_context, point=point)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="pressure_gate_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+            pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+            dewpoint_c=ready_values.get("dewpoint_c"),
+            dew_temp_c=ready_values.get("dew_temp_c"),
+            dew_rh_pct=ready_values.get("dew_rh_pct"),
+            dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+            dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+            dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+            pressure_gate_status="running",
+            pressure_gate_reason="awaiting_window_fill",
+            pressure_gate_window_s=window_s,
+            pressure_gate_elapsed_s=0.0,
+            pressure_gate_count=0,
+            refresh_pace_state=False,
+            note=(
+                f"prefer_gauge={bool(cfg['prefer_gauge'])} fill_s={fill_s:.3f} "
+                f"span_limit_hpa={pressure_span_limit_hpa:.3f} min_samples={min_samples}"
+            ),
+        )
+
+        while True:
+            if self.stop_event.is_set():
+                root_reason = self._presample_failure_root_cause(point, phase=phase, failure_stage="pressure_gate")
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    pressure_gate_status="fail",
+                    pressure_gate_reason="interrupted",
+                )
+                self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+                return False
+            self._check_pause()
+
+            now_ts = time.time()
+            ready_values = self._cached_ready_check_trace_values(context=active_context, point=point)
+            pressure_now = self._as_float(
+                ready_values.get("pressure_gauge_hpa") if bool(cfg["prefer_gauge"]) else ready_values.get("pace_pressure_hpa")
+            )
+            if pressure_now is None:
+                pressure_now = self._as_float(
+                    ready_values.get("pace_pressure_hpa") if bool(cfg["prefer_gauge"]) else ready_values.get("pressure_gauge_hpa")
+                )
+            if pressure_now is None:
+                pressure_now, _ = self._read_best_pressure_for_sampling_gate(bool(cfg["prefer_gauge"]))
+            if pressure_now is not None:
+                pressure_rows.append((now_ts, float(pressure_now)))
+
+            live_dewpoint_c = self._as_float(ready_values.get("dewpoint_live_c"))
+            if live_dewpoint_c is not None:
+                dew_rows.append((now_ts, float(live_dewpoint_c)))
+
+            while pressure_rows and (now_ts - float(pressure_rows[0][0])) > window_s:
+                pressure_rows.popleft()
+            while dew_rows and (now_ts - float(dew_rows[0][0])) > window_s:
+                dew_rows.popleft()
+
+            elapsed_s = max(0.0, time.monotonic() - start_mono)
+            pressure_metrics = self._numeric_series_metrics(list(pressure_rows))
+            dew_metrics = self._numeric_series_metrics(list(dew_rows))
+            pressure_span_hpa = self._as_float(pressure_metrics.get("span"))
+            pressure_slope_hpa_per_s = self._as_float(pressure_metrics.get("slope_per_s"))
+            pressure_count = int(pressure_metrics.get("count") or len(pressure_rows))
+            dew_span_c = self._as_float(dew_metrics.get("span"))
+            pressure_delta = (
+                self._as_float(pressure_metrics.get("last_value")) - self._as_float(pressure_metrics.get("first_value"))
+                if pressure_metrics and pressure_metrics.get("last_value") is not None and pressure_metrics.get("first_value") is not None
+                else None
+            )
+            dew_delta = (
+                self._as_float(dew_metrics.get("last_value")) - self._as_float(dew_metrics.get("first_value"))
+                if dew_metrics and dew_metrics.get("last_value") is not None and dew_metrics.get("first_value") is not None
+                else None
+            )
+            synchronous = bool(
+                pressure_delta is not None
+                and dew_delta is not None
+                and pressure_span_hpa is not None
+                and dew_span_c is not None
+                and abs(pressure_delta) > max(pressure_span_limit_hpa, 0.05)
+                and abs(dew_delta) > 0.05
+                and ((pressure_delta > 0 and dew_delta > 0) or (pressure_delta < 0 and dew_delta < 0))
+            )
+            sync_status = "synchronous" if synchronous else "independent"
+            sync_reason = (
+                f"pressure_delta_hpa={pressure_delta:.4f} dew_delta_c={dew_delta:.4f}"
+                if pressure_delta is not None and dew_delta is not None
+                else "insufficient_joint_window"
+            )
+            passed = bool(
+                elapsed_s >= fill_s
+                and pressure_count >= min_samples
+                and pressure_span_hpa is not None
+                and pressure_slope_hpa_per_s is not None
+                and pressure_span_hpa <= pressure_span_limit_hpa
+            )
+            reason = (
+                "window_passed"
+                if passed
+                else f"elapsed_s={elapsed_s:.3f} count={pressure_count} "
+                f"pressure_span_hpa={pressure_span_hpa if pressure_span_hpa is not None else 'NA'} "
+                f"pressure_slope_hpa_per_s={pressure_slope_hpa_per_s if pressure_slope_hpa_per_s is not None else 'NA'}"
+            )
+            if passed:
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    pressure_gate_status="pass",
+                    pressure_gate_reason="",
+                    pressure_gate_window_s=window_s,
+                    pressure_gate_elapsed_s=round(elapsed_s, 6),
+                    pressure_gate_span_hpa=pressure_span_hpa,
+                    pressure_gate_slope_hpa_per_s=pressure_slope_hpa_per_s,
+                    pressure_gate_count=pressure_count,
+                    pressure_dew_sync_status=sync_status,
+                    pressure_dew_sync_reason=sync_reason,
+                    pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+                    dewpoint_c=ready_values.get("dewpoint_c"),
+                    temp_c=ready_values.get("dew_temp_c"),
+                    rh_pct=ready_values.get("dew_rh_pct"),
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="pressure_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+                    pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+                    dewpoint_c=ready_values.get("dewpoint_c"),
+                    dew_temp_c=ready_values.get("dew_temp_c"),
+                    dew_rh_pct=ready_values.get("dew_rh_pct"),
+                    dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+                    dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+                    dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+                    pressure_gate_status="pass",
+                    pressure_gate_reason="",
+                    pressure_gate_window_s=window_s,
+                    pressure_gate_elapsed_s=elapsed_s,
+                    pressure_gate_span_hpa=pressure_span_hpa,
+                    pressure_gate_slope_hpa_per_s=pressure_slope_hpa_per_s,
+                    pressure_gate_count=pressure_count,
+                    pressure_dew_sync_status=sync_status,
+                    pressure_dew_sync_reason=sync_reason,
+                    refresh_pace_state=False,
+                    note=f"adaptive pressure gate passed; {reason}",
+                )
+                return True
+
+            if elapsed_s >= timeout_s:
+                root_reason = self._presample_failure_root_cause(point, phase=phase, failure_stage="pressure_gate")
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    pressure_gate_status="fail",
+                    pressure_gate_reason=reason,
+                    pressure_gate_window_s=window_s,
+                    pressure_gate_elapsed_s=round(elapsed_s, 6),
+                    pressure_gate_span_hpa=pressure_span_hpa,
+                    pressure_gate_slope_hpa_per_s=pressure_slope_hpa_per_s,
+                    pressure_gate_count=pressure_count,
+                    pressure_dew_sync_status=sync_status,
+                    pressure_dew_sync_reason=sync_reason,
+                    pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+                    dewpoint_c=ready_values.get("dewpoint_c"),
+                    temp_c=ready_values.get("dew_temp_c"),
+                    rh_pct=ready_values.get("dew_rh_pct"),
+                )
+                self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="pressure_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+                    pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+                    dewpoint_c=ready_values.get("dewpoint_c"),
+                    dew_temp_c=ready_values.get("dew_temp_c"),
+                    dew_rh_pct=ready_values.get("dew_rh_pct"),
+                    dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+                    dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+                    dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+                    pressure_gate_status="fail",
+                    pressure_gate_reason=reason,
+                    pressure_gate_window_s=window_s,
+                    pressure_gate_elapsed_s=elapsed_s,
+                    pressure_gate_span_hpa=pressure_span_hpa,
+                    pressure_gate_slope_hpa_per_s=pressure_slope_hpa_per_s,
+                    pressure_gate_count=pressure_count,
+                    pressure_dew_sync_status=sync_status,
+                    pressure_dew_sync_reason=sync_reason,
+                    root_cause_reject_reason=root_reason,
+                    refresh_pace_state=False,
+                    note="adaptive pressure gate timed out",
+                )
+                self.log(
+                    f"{phase.upper()} adaptive pressure gate failed: {reason}; "
+                    f"pressure_dew_sync_status={sync_status}"
+                )
+                return False
+
+            if not self._sampling_window_wait(poll_s, stop_event=active_context.get("stop_event")):
+                root_reason = self._presample_failure_root_cause(point, phase=phase, failure_stage="pressure_gate")
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    pressure_gate_status="fail",
+                    pressure_gate_reason="interrupted",
+                    pressure_dew_sync_status=sync_status,
+                    pressure_dew_sync_reason=sync_reason,
+                )
+                self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+                return False
 
     def _read_preseal_pressure_gauge(self) -> Tuple[Optional[float], str]:
         cached_frame = self._latest_fast_signal_frame("pressure_gauge")
@@ -10490,6 +22538,985 @@ class CalibrationRunner:
             "samples": len(readings),
             "limit_hpa": limit_hpa,
         }
+
+    def _latest_fresh_analyzer_numeric_value(
+        self,
+        key: str,
+    ) -> Tuple[Optional[float], str]:
+        now_s = time.time()
+        for label, ga, _analyzer_cfg in self._all_gas_analyzers():
+            if label in self._disabled_analyzers:
+                continue
+            entry, fresh, _age_ms = self._analyzer_cache_snapshot(ga, label=label, now_s=now_s)
+            parsed = entry.get("parsed") if isinstance(entry, dict) else None
+            value = self._as_float(parsed.get(key)) if isinstance(parsed, dict) else None
+            if fresh and value is not None:
+                return float(value), str(label)
+        return None, "unavailable"
+
+    @staticmethod
+    def _paired_series_correlation(samples: List[Tuple[float, float, float]]) -> Optional[float]:
+        if len(samples) < 2:
+            return None
+        xs = [float(left) for _ts, left, _right in samples]
+        ys = [float(right) for _ts, _left, right in samples]
+        if len(xs) != len(ys) or len(xs) < 2:
+            return None
+        mean_x = sum(xs) / len(xs)
+        mean_y = sum(ys) / len(ys)
+        var_x = sum((value - mean_x) ** 2 for value in xs)
+        var_y = sum((value - mean_y) ** 2 for value in ys)
+        if var_x <= 0.0 or var_y <= 0.0:
+            return None
+        cov = sum((left - mean_x) * (right - mean_y) for left, right in zip(xs, ys))
+        return cov / math.sqrt(var_x * var_y)
+
+    def _post_isolation_same_gas_dead_volume_purge(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        handoff_mode: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        enabled = self._post_isolation_same_gas_dead_volume_purge_enabled()
+        if not enabled:
+            return {"status": "skipped", "reason": "feature_disabled"}
+        reason = "no_safe_closed_dead_volume_purge_path_exposed_in_v1_topology"
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            post_isolation_purge_status="unavailable",
+            post_isolation_purge_reason=reason,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="post_isolation_dead_volume_purge_skipped",
+            pressure_target_hpa=point.target_pressure_hpa,
+            handoff_mode=handoff_mode,
+            refresh_pace_state=False,
+            note=(
+                "TODO: current V1 abstraction has no verified closed-path cavity purge primitive beyond "
+                "route_sealed + OUTP OFF + ISOL CLOSED; keep feature-flagged until hardware-safe topology is exposed. "
+                f"reason={reason}"
+            ),
+        )
+        return {"status": "unavailable", "reason": reason}
+
+    def _pace_effort_nonzero_after_output_off(
+        self,
+        state: Mapping[str, Any],
+        *,
+        cfg: Mapping[str, Any],
+    ) -> bool:
+        pace_output_state = self._as_int(state.get("pace_output_state"))
+        pace_outp_query = self._as_int(state.get("pace_outp_state_query"))
+        if pace_output_state not in (None, 0) or pace_outp_query not in (None, 0):
+            return False
+        pace_effort_query = self._as_float(state.get("pace_effort_query"))
+        if pace_effort_query is None:
+            return False
+        return abs(float(pace_effort_query)) > float(cfg.get("effort_nonzero_abs_max") or 0.0)
+
+    def _pace_supply_vacuum_compensation_detected(
+        self,
+        state: Mapping[str, Any],
+        *,
+        cfg: Mapping[str, Any],
+    ) -> bool:
+        if not self._pace_effort_nonzero_after_output_off(state, cfg=cfg):
+            return False
+        pace_effort_query = self._as_float(state.get("pace_effort_query"))
+        pace_comp1_query = self._as_float(state.get("pace_comp1_query"))
+        pace_comp2_query = self._as_float(state.get("pace_comp2_query"))
+        comp_min_abs = float(cfg.get("supply_vacuum_comp_source_min_abs") or 0.0)
+        if pace_effort_query is None:
+            return False
+        if pace_effort_query > 0.0:
+            return pace_comp1_query is not None and abs(float(pace_comp1_query)) >= comp_min_abs
+        if pace_effort_query < 0.0:
+            return pace_comp2_query is not None and abs(float(pace_comp2_query)) >= comp_min_abs
+        return False
+
+    def _diagnose_post_isolation_result(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        cfg: Dict[str, Any],
+    ) -> str:
+        state = dict(self._point_runtime_state(point, phase=phase) or {})
+        pace_output_state = self._as_int(state.get("pace_output_state"))
+        pace_isolation_state = self._as_int(state.get("pace_isolation_state"))
+        pace_outp_query = self._as_int(state.get("pace_outp_state_query"))
+        pace_isol_query = self._as_int(state.get("pace_isol_state_query"))
+        pace_vent_query = self._as_int(state.get("pace_vent_status_query"))
+        pace_vent_after_state = str(state.get("pace_vent_after_valve_state_query") or "").strip().upper()
+        pace_vent_popup_state = str(state.get("pace_vent_popup_state_query") or "").strip().upper()
+        pace_vent_orpv_state = str(state.get("pace_vent_orpv_state_query") or "").strip().upper()
+        pace_vent_pupv_state = str(state.get("pace_vent_pupv_state_query") or "").strip().upper()
+        pace_vent_elapsed_s = self._as_float(state.get("pace_vent_elapsed_time_query"))
+        pace_effort_query = self._as_float(state.get("pace_effort_query"))
+        pace_comp1_query = self._as_float(state.get("pace_comp1_query"))
+        pace_comp2_query = self._as_float(state.get("pace_comp2_query"))
+        pace_oper_pres_cond_query = self._as_int(state.get("pace_oper_pres_cond_query"))
+        pace_oper_pres_even_query = self._as_int(state.get("pace_oper_pres_even_query"))
+        pace_oper_pres_vent_complete_bit = state.get("pace_oper_pres_vent_complete_bit")
+        if pace_oper_pres_vent_complete_bit in ("", None):
+            pace_oper_pres_vent_complete_bit = self._pace_oper_register_bit(pace_oper_pres_cond_query, 0)
+        pace_oper_pres_in_limits_bit = state.get("pace_oper_pres_in_limits_bit")
+        if pace_oper_pres_in_limits_bit in ("", None):
+            pace_oper_pres_in_limits_bit = self._pace_oper_register_bit(pace_oper_pres_cond_query, 2)
+        pace_legacy_vent_state_3_suspect = self._as_optional_bool(state.get("pace_legacy_vent_state_3_suspect"))
+        pace_atmosphere_connected_latched_state_suspect = self._as_optional_bool(
+            state.get("pace_atmosphere_connected_latched_state_suspect")
+        )
+        check_valve_installed = self._as_optional_bool(state.get("pace_upstream_check_valve_installed"))
+        if check_valve_installed is None:
+            check_valve_installed = self._pace_upstream_check_valve_installed(point, phase=phase)
+        if pace_legacy_vent_state_3_suspect is None:
+            pace_legacy_vent_state_3_suspect = bool(
+                self._pace_legacy_vent_state_3_suspect_from_snapshot(
+                    self.devices.get("pace"),
+                    {
+                        "pace_vent_status_query": pace_vent_query,
+                        "pace_vent_status": pace_vent_query,
+                    },
+                )
+            )
+        if pace_atmosphere_connected_latched_state_suspect is None:
+            pace_atmosphere_connected_latched_state_suspect = bool(pace_legacy_vent_state_3_suspect)
+        drift_hpa = self._as_float(state.get("post_isolation_pressure_drift_hpa"))
+        abs_drift_hpa = abs(drift_hpa) if drift_hpa is not None else None
+        span_hpa = self._as_float(state.get("post_isolation_pressure_peak_hpa"))
+        min_hpa = self._as_float(state.get("post_isolation_pressure_min_hpa"))
+        if span_hpa is not None and min_hpa is not None:
+            pressure_span_hpa = span_hpa - min_hpa
+        else:
+            pressure_span_hpa = None
+        dew_rise_c = self._as_float(state.get("post_isolation_dewpoint_rise_c"))
+        dew_slope_c_s = self._as_float(state.get("post_isolation_dewpoint_slope_c_s"))
+        pressure_dew_corr = self._as_float(state.get("post_isolation_pressure_dew_corr"))
+        recover_toward_ambient = bool(state.get("post_isolation_pressure_recovery_toward_ambient"))
+        rebound_evidence = bool(
+            (dew_rise_c is not None and dew_rise_c >= float(cfg["dewpoint_rise_limit_c"]))
+            or (
+                dew_slope_c_s is not None
+                and dew_slope_c_s > 0.0
+                and abs(dew_slope_c_s) >= float(cfg["dewpoint_slope_limit_c_per_s"])
+            )
+        )
+        synced_rebound = rebound_evidence and pressure_dew_corr is not None and pressure_dew_corr >= 0.5
+        drift_evidence = bool(
+            recover_toward_ambient
+            or (abs_drift_hpa is not None and abs_drift_hpa >= float(cfg["pressure_drift_limit_hpa"]))
+        )
+        protective_vent_enabled = pace_vent_orpv_state == "ENABLED" or pace_vent_pupv_state == "ENABLED"
+        vent_completed_latched = self._pace_vent_completed_latched_from_snapshot(
+            {
+                "pace_vent_status_query": pace_vent_query,
+                "pace_oper_pres_cond_query": pace_oper_pres_cond_query,
+                "pace_oper_pres_even_query": pace_oper_pres_even_query,
+            }
+        )
+        supply_vacuum_compensation = self._pace_supply_vacuum_compensation_detected(state, cfg=cfg)
+        effort_nonzero_after_output_off = self._pace_effort_nonzero_after_output_off(state, cfg=cfg)
+        popup_clean = (
+            pace_vent_query in (None, 0)
+            and pace_vent_after_state in {"", "CLOSED"}
+            and not protective_vent_enabled
+            and pace_vent_popup_state == "ENABLED"
+            and not recover_toward_ambient
+            and not rebound_evidence
+            and (abs_drift_hpa is None or abs_drift_hpa < float(cfg["ambient_recovery_min_hpa"]))
+        )
+        if pace_vent_query == 1:
+            return "pace_vent_in_progress_suspect"
+        if pace_atmosphere_connected_latched_state_suspect:
+            return "pace_atmosphere_connected_latched_state_suspect"
+        controller_side_only = bool(vent_completed_latched is True)
+        if (
+            check_valve_installed
+            and controller_side_only
+            and not drift_evidence
+            and not rebound_evidence
+            and not synced_rebound
+            and pace_isol_query in (None, 0)
+            and pace_isolation_state in (None, 0)
+            and pace_output_state in (None, 0)
+            and pace_outp_query in (None, 0)
+            and not supply_vacuum_compensation
+            and not effort_nonzero_after_output_off
+            and pace_vent_after_state != "OPEN"
+            and not protective_vent_enabled
+        ):
+            return "controller_side_state_only_without_analyzer_side_effect"
+        if vent_completed_latched is True:
+            return "pace_vent_completed_latched_suspect"
+        if pace_isol_query not in (None, 0) or pace_isolation_state not in (None, 0):
+            return "pace_isolation_state_mismatch_suspect"
+        if pace_output_state not in (None, 0) or pace_outp_query not in (None, 0):
+            return "controller_hunting_suspect"
+        if supply_vacuum_compensation:
+            return "pace_supply_vacuum_compensation_suspect"
+        if effort_nonzero_after_output_off:
+            return "pace_effort_nonzero_after_output_off_suspect"
+        if pace_vent_query in (None, 0) and pace_vent_after_state == "OPEN":
+            if recover_toward_ambient or rebound_evidence or synced_rebound:
+                return "pace_vent_valve_left_open_suspect"
+            return "pace_vent_after_valve_config_open_suspect"
+        if protective_vent_enabled and (drift_evidence or rebound_evidence or pace_vent_popup_state == "ENABLED"):
+            return "pace_protective_vent_suspect"
+        if popup_clean:
+            if pace_vent_elapsed_s is not None and pace_vent_elapsed_s > 0.0:
+                return "pace_vent_popup_stale_suspect"
+            return "pace_vent_popup_only"
+        if (
+            recover_toward_ambient
+            and abs_drift_hpa is not None
+            and abs_drift_hpa >= float(cfg["ambient_recovery_min_hpa"])
+        ):
+            return "post_isolation_ambient_ingress_suspect"
+        if synced_rebound and abs_drift_hpa is not None and abs_drift_hpa >= float(cfg["ambient_recovery_min_hpa"]):
+            return "sealed_path_leak_suspect"
+        if abs_drift_hpa is not None and abs_drift_hpa >= float(cfg["pressure_drift_limit_hpa"]):
+            return "sealed_path_leak_suspect"
+        if (
+            pressure_span_hpa is not None
+            and pressure_span_hpa <= float(cfg["pressure_stable_span_hpa"])
+            and (
+                (dew_rise_c is not None and dew_rise_c >= float(cfg["dewpoint_rise_limit_c"]))
+                or (
+                    dew_slope_c_s is not None
+                    and abs(dew_slope_c_s) >= float(cfg["dewpoint_slope_limit_c_per_s"])
+                    and dew_slope_c_s > 0.0
+                )
+            )
+        ):
+            return "dead_volume_wet_release_suspect"
+        if (
+            pace_output_state not in (None, 0)
+            or pace_outp_query not in (None, 0)
+            or (pace_effort_query is not None and abs(float(pace_effort_query)) > float(cfg["effort_nonzero_abs_max"]))
+            or pace_oper_pres_in_limits_bit is False
+        ):
+            return "controller_hunting_suspect"
+        return "pass"
+
+    def _wait_post_isolation_leak_test(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        context: Optional[Dict[str, Any]] = None,
+        handoff_mode: str,
+    ) -> bool:
+        cfg = self._post_isolation_leak_test_cfg(point)
+        if not bool(cfg.get("enabled")):
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                post_isolation_status="skipped",
+                post_isolation_reason="post_isolation_diagnostic_disabled_or_not_low_pressure",
+                post_isolation_diagnosis="skipped",
+            )
+            return True
+        active_context = context if isinstance(context, dict) else self._pressure_transition_fast_signal_context_active()
+        if not isinstance(active_context, dict):
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                post_isolation_status="fail",
+                post_isolation_reason="fast_signal_context_missing",
+                post_isolation_diagnosis="sealed_path_leak_suspect",
+            )
+            self._set_root_cause_reject_reason(point, phase=phase, reason="sealed_path_leak_suspect")
+            return False
+
+        fast_cfg = self._post_isolation_fast_capture_cfg(point)
+        fast_capture_enabled = bool(fast_cfg.get("enabled"))
+        fast_capture_min_s = float(fast_cfg.get("min_s") or 5.0)
+        check_valve_installed = bool(fast_cfg.get("check_valve_installed"))
+        pressure_truth_source = str(fast_cfg.get("pressure_truth_source") or self._post_isolation_pressure_truth_source())
+        extended_diag_window_s = float(
+            max(float(cfg.get("window_s") or 10.0), float(fast_cfg.get("extended_diag_window_s") or 20.0))
+        )
+        total_window_s = float(cfg["window_s"])
+        if fast_capture_enabled and bool(fast_cfg.get("fallback_to_extended_diag")):
+            total_window_s = max(total_window_s, extended_diag_window_s)
+        elif fast_capture_enabled:
+            total_window_s = max(total_window_s, fast_capture_min_s)
+
+        purge_result = self._post_isolation_same_gas_dead_volume_purge(
+            point,
+            phase=phase,
+            handoff_mode=handoff_mode,
+            context=active_context,
+        )
+        ambient_reference_hpa, ambient_source = self._resolve_pressure_sequence_ambient_reference_hpa()
+        if ambient_reference_hpa is not None:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                ambient_reference_hpa=float(ambient_reference_hpa),
+            )
+
+        self._ensure_pressure_transition_fast_signal_cache(
+            active_context,
+            reason="post-isolation leak test begin",
+        )
+        ready_values = self._cached_ready_check_trace_values(context=active_context, point=point)
+        pace_snapshot = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=True)
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            **self._pace_snapshot_runtime_fields(pace_snapshot),
+            pace_upstream_check_valve_installed=check_valve_installed,
+            post_isolation_pressure_truth_source=pressure_truth_source,
+            post_isolation_capture_mode="standard",
+            post_isolation_fast_capture_status="disabled" if not fast_capture_enabled else "running",
+            post_isolation_fast_capture_reason="" if fast_capture_enabled else "feature_disabled",
+            post_isolation_fast_capture_elapsed_s=None,
+            post_isolation_fast_capture_fallback=False,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="post_isolation_test_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+            pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+            dewpoint_c=ready_values.get("dewpoint_c"),
+            dew_temp_c=ready_values.get("dew_temp_c"),
+            dew_rh_pct=ready_values.get("dew_rh_pct"),
+            dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+            dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+            dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+            pace_output_state=pace_snapshot.get("pace_output_state"),
+            pace_isolation_state=pace_snapshot.get("pace_isolation_state"),
+            pace_vent_status=pace_snapshot.get("pace_vent_status"),
+            pace_outp_state_query=pace_snapshot.get("pace_outp_state_query"),
+            pace_isol_state_query=pace_snapshot.get("pace_isol_state_query"),
+            pace_mode_query=pace_snapshot.get("pace_mode_query"),
+            pace_vent_status_query=pace_snapshot.get("pace_vent_status_query"),
+            pace_vent_completed_latched=pace_snapshot.get("pace_vent_completed_latched"),
+            pace_vent_clear_attempted=pace_snapshot.get("pace_vent_clear_attempted"),
+            pace_vent_clear_result=pace_snapshot.get("pace_vent_clear_result"),
+            pace_vent_after_valve_state_query=pace_snapshot.get("pace_vent_after_valve_state_query"),
+            pace_vent_popup_state_query=pace_snapshot.get("pace_vent_popup_state_query"),
+            pace_vent_elapsed_time_query=pace_snapshot.get("pace_vent_elapsed_time_query"),
+            pace_vent_orpv_state_query=pace_snapshot.get("pace_vent_orpv_state_query"),
+            pace_vent_pupv_state_query=pace_snapshot.get("pace_vent_pupv_state_query"),
+            pace_oper_cond_query=pace_snapshot.get("pace_oper_cond_query"),
+            pace_oper_pres_cond_query=pace_snapshot.get("pace_oper_pres_cond_query"),
+            pace_effort_query=pace_snapshot.get("pace_effort_query"),
+            pace_comp1_query=pace_snapshot.get("pace_comp1_query"),
+            pace_comp2_query=pace_snapshot.get("pace_comp2_query"),
+            pace_sens_pres_cont_query=pace_snapshot.get("pace_sens_pres_cont_query"),
+            pace_sens_pres_bar_query=pace_snapshot.get("pace_sens_pres_bar_query"),
+            pace_sens_pres_inl_query=pace_snapshot.get("pace_sens_pres_inl_query"),
+            pace_sens_pres_inl_state_query=pace_snapshot.get("pace_sens_pres_inl_state_query"),
+            pace_sens_pres_inl_time_query=pace_snapshot.get("pace_sens_pres_inl_time_query"),
+            pace_oper_pres_even_query=pace_snapshot.get("pace_oper_pres_even_query"),
+            pace_oper_pres_vent_complete_bit=pace_snapshot.get("pace_oper_pres_vent_complete_bit"),
+            pace_oper_pres_in_limits_bit=pace_snapshot.get("pace_oper_pres_in_limits_bit"),
+            handoff_mode=handoff_mode,
+            atmosphere_reference_hpa=ambient_reference_hpa,
+            post_isolation_status="running",
+            post_isolation_reason=(
+                f"window_s={total_window_s:.3f} poll_s={float(cfg['poll_s']):.3f} "
+                f"ambient_source={ambient_source} purge_status={purge_result.get('status')} "
+                f"fast_capture_enabled={fast_capture_enabled} fast_capture_min_s={fast_capture_min_s:.3f} "
+                f"check_valve_installed={check_valve_installed} pressure_truth_source={pressure_truth_source}"
+            ),
+            post_isolation_capture_mode="fast5s_pending" if fast_capture_enabled else "standard",
+            post_isolation_fast_capture_status="running" if fast_capture_enabled else "disabled",
+            refresh_pace_state=False,
+            note="post-isolation sealed-side diagnostic running after OUTP OFF + ISOL CLOSED + hold/capture",
+        )
+
+        poll_s = float(cfg["poll_s"])
+        start_mono = time.monotonic()
+        pressure_samples: List[Tuple[float, float]] = []
+        dewpoint_samples: List[Tuple[float, float]] = []
+        paired_samples: List[Tuple[float, float, float]] = []
+        h2o_start: Optional[float] = None
+        h2o_end: Optional[float] = None
+        latest_pace_snapshot = pace_snapshot
+        ready_values_last = ready_values
+        fast_capture_evaluated = False
+        fast_capture_fallback = False
+
+        def _collect_metrics() -> Dict[str, Any]:
+            pressure_metrics = self._numeric_series_metrics(pressure_samples)
+            dewpoint_metrics = self._numeric_series_metrics(dewpoint_samples)
+            pressure_start_hpa = self._as_float(pressure_metrics.get("first_value"))
+            pressure_end_hpa = self._as_float(pressure_metrics.get("last_value"))
+            pressure_peak_hpa = self._as_float(pressure_metrics.get("max_value"))
+            pressure_min_hpa = self._as_float(pressure_metrics.get("min_value"))
+            pressure_drift_hpa = (
+                round(float(pressure_end_hpa) - float(pressure_start_hpa), 6)
+                if pressure_start_hpa is not None and pressure_end_hpa is not None
+                else None
+            )
+            pressure_slope_hpa_s = self._as_float(pressure_metrics.get("slope_per_s"))
+            dewpoint_start_c = self._as_float(dewpoint_metrics.get("first_value"))
+            dewpoint_end_c = self._as_float(dewpoint_metrics.get("last_value"))
+            dewpoint_rise_c = (
+                round(float(dewpoint_end_c) - float(dewpoint_start_c), 6)
+                if dewpoint_start_c is not None and dewpoint_end_c is not None
+                else None
+            )
+            dewpoint_slope_c_s = self._as_float(dewpoint_metrics.get("slope_per_s"))
+            recover_toward_ambient = False
+            if (
+                ambient_reference_hpa is not None
+                and point.target_pressure_hpa is not None
+                and self._as_float(point.target_pressure_hpa) is not None
+                and self._as_float(point.target_pressure_hpa) < float(ambient_reference_hpa)
+                and pressure_start_hpa is not None
+                and pressure_end_hpa is not None
+            ):
+                dist_start = abs(float(ambient_reference_hpa) - float(pressure_start_hpa))
+                dist_end = abs(float(ambient_reference_hpa) - float(pressure_end_hpa))
+                recover_toward_ambient = (dist_start - dist_end) >= float(cfg["ambient_recovery_min_hpa"])
+            pressure_dew_corr = self._paired_series_correlation(paired_samples)
+            return {
+                "post_isolation_pressure_start_hpa": pressure_start_hpa,
+                "post_isolation_pressure_end_hpa": pressure_end_hpa,
+                "post_isolation_pressure_peak_hpa": pressure_peak_hpa,
+                "post_isolation_pressure_min_hpa": pressure_min_hpa,
+                "post_isolation_pressure_drift_hpa": pressure_drift_hpa,
+                "post_isolation_pressure_slope_hpa_s": pressure_slope_hpa_s,
+                "post_isolation_pressure_recovery_toward_ambient": recover_toward_ambient,
+                "post_isolation_dewpoint_start_c": dewpoint_start_c,
+                "post_isolation_dewpoint_end_c": dewpoint_end_c,
+                "post_isolation_dewpoint_rise_c": dewpoint_rise_c,
+                "post_isolation_dewpoint_slope_c_s": dewpoint_slope_c_s,
+                "post_isolation_h2o_start": h2o_start,
+                "post_isolation_h2o_end": h2o_end,
+                "post_isolation_pressure_dew_corr": pressure_dew_corr,
+            }
+
+        def _finalize(
+            *,
+            status: str,
+            diagnosis: str,
+            reason: str,
+            metrics: Mapping[str, Any],
+            capture_mode: str,
+            fast_status: str,
+            fast_reason: str,
+            fast_elapsed_s: Optional[float],
+            fast_fallback: bool,
+            note: str,
+        ) -> bool:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                **self._pace_snapshot_runtime_fields(latest_pace_snapshot),
+                **dict(metrics),
+                post_isolation_status=status,
+                post_isolation_reason=reason,
+                post_isolation_diagnosis=diagnosis,
+                post_isolation_capture_mode=capture_mode,
+                post_isolation_fast_capture_status=fast_status,
+                post_isolation_fast_capture_reason=fast_reason,
+                post_isolation_fast_capture_elapsed_s=fast_elapsed_s,
+                post_isolation_fast_capture_fallback=fast_fallback,
+            )
+            if status != "pass":
+                self._set_root_cause_reject_reason(point, phase=phase, reason=diagnosis)
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="post_isolation_test_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                pace_pressure_hpa=ready_values_last.get("pace_pressure_hpa"),
+                pressure_gauge_hpa=ready_values_last.get("pressure_gauge_hpa"),
+                dewpoint_c=ready_values_last.get("dewpoint_c"),
+                dew_temp_c=ready_values_last.get("dew_temp_c"),
+                dew_rh_pct=ready_values_last.get("dew_rh_pct"),
+                dewpoint_live_c=ready_values_last.get("dewpoint_live_c"),
+                dew_temp_live_c=ready_values_last.get("dew_temp_live_c"),
+                dew_rh_live_pct=ready_values_last.get("dew_rh_live_pct"),
+                pace_output_state=latest_pace_snapshot.get("pace_output_state"),
+                pace_isolation_state=latest_pace_snapshot.get("pace_isolation_state"),
+                pace_vent_status=latest_pace_snapshot.get("pace_vent_status"),
+                pace_outp_state_query=latest_pace_snapshot.get("pace_outp_state_query"),
+                pace_isol_state_query=latest_pace_snapshot.get("pace_isol_state_query"),
+                pace_mode_query=latest_pace_snapshot.get("pace_mode_query"),
+                pace_vent_status_query=latest_pace_snapshot.get("pace_vent_status_query"),
+                pace_vent_completed_latched=latest_pace_snapshot.get("pace_vent_completed_latched"),
+                pace_vent_clear_attempted=latest_pace_snapshot.get("pace_vent_clear_attempted"),
+                pace_vent_clear_result=latest_pace_snapshot.get("pace_vent_clear_result"),
+                pace_vent_after_valve_state_query=latest_pace_snapshot.get("pace_vent_after_valve_state_query"),
+                pace_vent_popup_state_query=latest_pace_snapshot.get("pace_vent_popup_state_query"),
+                pace_vent_elapsed_time_query=latest_pace_snapshot.get("pace_vent_elapsed_time_query"),
+                pace_vent_orpv_state_query=latest_pace_snapshot.get("pace_vent_orpv_state_query"),
+                pace_vent_pupv_state_query=latest_pace_snapshot.get("pace_vent_pupv_state_query"),
+                pace_oper_cond_query=latest_pace_snapshot.get("pace_oper_cond_query"),
+                pace_oper_pres_cond_query=latest_pace_snapshot.get("pace_oper_pres_cond_query"),
+                pace_effort_query=latest_pace_snapshot.get("pace_effort_query"),
+                pace_comp1_query=latest_pace_snapshot.get("pace_comp1_query"),
+                pace_comp2_query=latest_pace_snapshot.get("pace_comp2_query"),
+                pace_sens_pres_cont_query=latest_pace_snapshot.get("pace_sens_pres_cont_query"),
+                pace_sens_pres_bar_query=latest_pace_snapshot.get("pace_sens_pres_bar_query"),
+                pace_sens_pres_inl_query=latest_pace_snapshot.get("pace_sens_pres_inl_query"),
+                pace_sens_pres_inl_state_query=latest_pace_snapshot.get("pace_sens_pres_inl_state_query"),
+                pace_sens_pres_inl_time_query=latest_pace_snapshot.get("pace_sens_pres_inl_time_query"),
+                pace_oper_pres_even_query=latest_pace_snapshot.get("pace_oper_pres_even_query"),
+                pace_oper_pres_vent_complete_bit=latest_pace_snapshot.get("pace_oper_pres_vent_complete_bit"),
+                pace_oper_pres_in_limits_bit=latest_pace_snapshot.get("pace_oper_pres_in_limits_bit"),
+                handoff_mode=handoff_mode,
+                atmosphere_reference_hpa=ambient_reference_hpa,
+                post_isolation_status=status,
+                post_isolation_reason=reason,
+                post_isolation_capture_mode=capture_mode,
+                post_isolation_fast_capture_status=fast_status,
+                post_isolation_fast_capture_reason=fast_reason,
+                post_isolation_fast_capture_elapsed_s=fast_elapsed_s,
+                post_isolation_fast_capture_fallback=fast_fallback,
+                post_isolation_pressure_start_hpa=metrics.get("post_isolation_pressure_start_hpa"),
+                post_isolation_pressure_end_hpa=metrics.get("post_isolation_pressure_end_hpa"),
+                post_isolation_pressure_peak_hpa=metrics.get("post_isolation_pressure_peak_hpa"),
+                post_isolation_pressure_min_hpa=metrics.get("post_isolation_pressure_min_hpa"),
+                post_isolation_pressure_drift_hpa=metrics.get("post_isolation_pressure_drift_hpa"),
+                post_isolation_pressure_slope_hpa_s=metrics.get("post_isolation_pressure_slope_hpa_s"),
+                post_isolation_pressure_recovery_toward_ambient=metrics.get(
+                    "post_isolation_pressure_recovery_toward_ambient"
+                ),
+                post_isolation_dewpoint_start_c=metrics.get("post_isolation_dewpoint_start_c"),
+                post_isolation_dewpoint_end_c=metrics.get("post_isolation_dewpoint_end_c"),
+                post_isolation_dewpoint_rise_c=metrics.get("post_isolation_dewpoint_rise_c"),
+                post_isolation_dewpoint_slope_c_s=metrics.get("post_isolation_dewpoint_slope_c_s"),
+                post_isolation_h2o_start=metrics.get("post_isolation_h2o_start"),
+                post_isolation_h2o_end=metrics.get("post_isolation_h2o_end"),
+                post_isolation_pressure_dew_corr=metrics.get("post_isolation_pressure_dew_corr"),
+                post_isolation_diagnosis=diagnosis,
+                root_cause_reject_reason="" if status == "pass" else diagnosis,
+                refresh_pace_state=False,
+                note=note,
+            )
+            if status != "pass":
+                self.log(
+                    f"{phase.upper()} post-isolation diagnostic fail: point={point.index} diagnosis={diagnosis} "
+                    f"pressure_drift_hpa={metrics.get('post_isolation_pressure_drift_hpa')} "
+                    f"dewpoint_rise_c={metrics.get('post_isolation_dewpoint_rise_c')} "
+                    f"capture_mode={capture_mode}"
+                )
+            return status == "pass"
+
+        while True:
+            now_wall = time.time()
+            ready_values = self._cached_ready_check_trace_values(context=active_context, point=point)
+            ready_values_last = ready_values
+            latest_pace_snapshot = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=True)
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                **self._pace_snapshot_runtime_fields(latest_pace_snapshot),
+                pace_upstream_check_valve_installed=check_valve_installed,
+                post_isolation_pressure_truth_source=pressure_truth_source,
+            )
+            pressure_now = self._post_isolation_pressure_truth_value(
+                ready_values,
+                truth_source=pressure_truth_source,
+            )
+            dewpoint_now = self._as_float(ready_values.get("dewpoint_live_c"))
+            h2o_now, _h2o_source = self._latest_fresh_analyzer_numeric_value("h2o_mmol")
+            if h2o_start is None and h2o_now is not None:
+                h2o_start = float(h2o_now)
+            if h2o_now is not None:
+                h2o_end = float(h2o_now)
+            if pressure_now is not None:
+                pressure_samples.append((now_wall, float(pressure_now)))
+            if dewpoint_now is not None:
+                dewpoint_samples.append((now_wall, float(dewpoint_now)))
+            if pressure_now is not None and dewpoint_now is not None:
+                paired_samples.append((now_wall, float(pressure_now), float(dewpoint_now)))
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="post_isolation_poll",
+                pressure_target_hpa=point.target_pressure_hpa,
+                pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+                pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+                dewpoint_c=ready_values.get("dewpoint_c"),
+                dew_temp_c=ready_values.get("dew_temp_c"),
+                dew_rh_pct=ready_values.get("dew_rh_pct"),
+                dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+                dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+                dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+                pace_output_state=latest_pace_snapshot.get("pace_output_state"),
+                pace_isolation_state=latest_pace_snapshot.get("pace_isolation_state"),
+                pace_vent_status=latest_pace_snapshot.get("pace_vent_status"),
+                pace_outp_state_query=latest_pace_snapshot.get("pace_outp_state_query"),
+                pace_isol_state_query=latest_pace_snapshot.get("pace_isol_state_query"),
+                pace_mode_query=latest_pace_snapshot.get("pace_mode_query"),
+                pace_vent_status_query=latest_pace_snapshot.get("pace_vent_status_query"),
+                pace_vent_completed_latched=latest_pace_snapshot.get("pace_vent_completed_latched"),
+                pace_vent_clear_attempted=latest_pace_snapshot.get("pace_vent_clear_attempted"),
+                pace_vent_clear_result=latest_pace_snapshot.get("pace_vent_clear_result"),
+                pace_vent_after_valve_state_query=latest_pace_snapshot.get("pace_vent_after_valve_state_query"),
+                pace_vent_popup_state_query=latest_pace_snapshot.get("pace_vent_popup_state_query"),
+                pace_vent_elapsed_time_query=latest_pace_snapshot.get("pace_vent_elapsed_time_query"),
+                pace_vent_orpv_state_query=latest_pace_snapshot.get("pace_vent_orpv_state_query"),
+                pace_vent_pupv_state_query=latest_pace_snapshot.get("pace_vent_pupv_state_query"),
+                pace_oper_cond_query=latest_pace_snapshot.get("pace_oper_cond_query"),
+                pace_oper_pres_cond_query=latest_pace_snapshot.get("pace_oper_pres_cond_query"),
+                pace_effort_query=latest_pace_snapshot.get("pace_effort_query"),
+                pace_comp1_query=latest_pace_snapshot.get("pace_comp1_query"),
+                pace_comp2_query=latest_pace_snapshot.get("pace_comp2_query"),
+                pace_sens_pres_cont_query=latest_pace_snapshot.get("pace_sens_pres_cont_query"),
+                pace_sens_pres_bar_query=latest_pace_snapshot.get("pace_sens_pres_bar_query"),
+                pace_sens_pres_inl_query=latest_pace_snapshot.get("pace_sens_pres_inl_query"),
+                pace_sens_pres_inl_state_query=latest_pace_snapshot.get("pace_sens_pres_inl_state_query"),
+                pace_sens_pres_inl_time_query=latest_pace_snapshot.get("pace_sens_pres_inl_time_query"),
+                pace_oper_pres_even_query=latest_pace_snapshot.get("pace_oper_pres_even_query"),
+                pace_oper_pres_vent_complete_bit=latest_pace_snapshot.get("pace_oper_pres_vent_complete_bit"),
+                pace_oper_pres_in_limits_bit=latest_pace_snapshot.get("pace_oper_pres_in_limits_bit"),
+                handoff_mode=handoff_mode,
+                atmosphere_reference_hpa=ambient_reference_hpa,
+                post_isolation_status="running",
+                post_isolation_capture_mode=(
+                    "extended20s" if fast_capture_evaluated and fast_capture_fallback else "fast5s_pending"
+                    if fast_capture_enabled
+                    else "standard"
+                ),
+                post_isolation_fast_capture_status=(
+                    "fallback" if fast_capture_evaluated and fast_capture_fallback else "running"
+                    if fast_capture_enabled
+                    else "disabled"
+                ),
+                refresh_pace_state=False,
+                note="post-isolation poll sample",
+            )
+            elapsed_s = max(0.0, time.monotonic() - start_mono)
+            if fast_capture_enabled and not fast_capture_evaluated and elapsed_s >= fast_capture_min_s:
+                fast_capture_evaluated = True
+                metrics = _collect_metrics()
+                fast_ok, fast_reason = self._evaluate_post_isolation_fast_capture(
+                    point,
+                    phase=phase,
+                    fast_cfg=fast_cfg,
+                    pace_snapshot=latest_pace_snapshot,
+                    pressure_drift_hpa=self._as_float(metrics.get("post_isolation_pressure_drift_hpa")),
+                    pressure_slope_hpa_s=self._as_float(metrics.get("post_isolation_pressure_slope_hpa_s")),
+                    dewpoint_rise_c=self._as_float(metrics.get("post_isolation_dewpoint_rise_c")),
+                    elapsed_s=elapsed_s,
+                )
+                fast_capture_fallback = bool((not fast_ok) and fast_cfg.get("fallback_to_extended_diag"))
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    **self._pace_snapshot_runtime_fields(latest_pace_snapshot),
+                    **metrics,
+                    pace_upstream_check_valve_installed=check_valve_installed,
+                    post_isolation_pressure_truth_source=pressure_truth_source,
+                    post_isolation_capture_mode="fast5s",
+                    post_isolation_fast_capture_status="pass" if fast_ok else "fail",
+                    post_isolation_fast_capture_reason=fast_reason,
+                    post_isolation_fast_capture_elapsed_s=round(float(elapsed_s), 6),
+                    post_isolation_fast_capture_fallback=fast_capture_fallback,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="post_isolation_fast_capture_eval",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+                    pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+                    dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+                    pace_outp_state_query=latest_pace_snapshot.get("pace_outp_state_query"),
+                    pace_isol_state_query=latest_pace_snapshot.get("pace_isol_state_query"),
+                    pace_mode_query=latest_pace_snapshot.get("pace_mode_query"),
+                    pace_vent_status_query=latest_pace_snapshot.get("pace_vent_status_query"),
+                    pace_vent_completed_latched=latest_pace_snapshot.get("pace_vent_completed_latched"),
+                    pace_vent_clear_attempted=latest_pace_snapshot.get("pace_vent_clear_attempted"),
+                    pace_vent_clear_result=latest_pace_snapshot.get("pace_vent_clear_result"),
+                    pace_vent_after_valve_state_query=latest_pace_snapshot.get("pace_vent_after_valve_state_query"),
+                    pace_vent_popup_state_query=latest_pace_snapshot.get("pace_vent_popup_state_query"),
+                    pace_vent_elapsed_time_query=latest_pace_snapshot.get("pace_vent_elapsed_time_query"),
+                    pace_vent_orpv_state_query=latest_pace_snapshot.get("pace_vent_orpv_state_query"),
+                    pace_vent_pupv_state_query=latest_pace_snapshot.get("pace_vent_pupv_state_query"),
+                    pace_effort_query=latest_pace_snapshot.get("pace_effort_query"),
+                    pace_comp1_query=latest_pace_snapshot.get("pace_comp1_query"),
+                    pace_comp2_query=latest_pace_snapshot.get("pace_comp2_query"),
+                    pace_sens_pres_cont_query=latest_pace_snapshot.get("pace_sens_pres_cont_query"),
+                    pace_sens_pres_bar_query=latest_pace_snapshot.get("pace_sens_pres_bar_query"),
+                    pace_sens_pres_inl_query=latest_pace_snapshot.get("pace_sens_pres_inl_query"),
+                    pace_sens_pres_inl_state_query=latest_pace_snapshot.get("pace_sens_pres_inl_state_query"),
+                    pace_sens_pres_inl_time_query=latest_pace_snapshot.get("pace_sens_pres_inl_time_query"),
+                    pace_oper_cond_query=latest_pace_snapshot.get("pace_oper_cond_query"),
+                    pace_oper_pres_cond_query=latest_pace_snapshot.get("pace_oper_pres_cond_query"),
+                    pace_oper_pres_even_query=latest_pace_snapshot.get("pace_oper_pres_even_query"),
+                    pace_oper_pres_vent_complete_bit=latest_pace_snapshot.get("pace_oper_pres_vent_complete_bit"),
+                    pace_oper_pres_in_limits_bit=latest_pace_snapshot.get("pace_oper_pres_in_limits_bit"),
+                    post_isolation_capture_mode="fast5s",
+                    post_isolation_fast_capture_status="pass" if fast_ok else "fail",
+                    post_isolation_fast_capture_reason=fast_reason,
+                    post_isolation_fast_capture_elapsed_s=round(float(elapsed_s), 6),
+                    post_isolation_fast_capture_fallback=fast_capture_fallback,
+                    post_isolation_pressure_drift_hpa=metrics.get("post_isolation_pressure_drift_hpa"),
+                    post_isolation_dewpoint_rise_c=metrics.get("post_isolation_dewpoint_rise_c"),
+                    refresh_pace_state=False,
+                    note="fast 5s post-isolation capture evaluation",
+                )
+                if fast_ok and bool(fast_cfg.get("allow_early_sample")):
+                    return _finalize(
+                        status="pass",
+                        diagnosis="pass",
+                        reason="fast_capture_clean",
+                        metrics=metrics,
+                        capture_mode="fast5s",
+                        fast_status="pass",
+                        fast_reason=fast_reason,
+                        fast_elapsed_s=round(float(elapsed_s), 6),
+                        fast_fallback=False,
+                        note=(
+                            f"ambient_source={ambient_source} purge_status={purge_result.get('status')} "
+                            "fast5s clean; eligible for immediate sampling"
+                        ),
+                    )
+                if fast_ok:
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=phase,
+                        post_isolation_capture_mode="standard",
+                        post_isolation_fast_capture_status="pass",
+                        post_isolation_fast_capture_reason="fast_capture_clean_wait_full_window",
+                        post_isolation_fast_capture_elapsed_s=round(float(elapsed_s), 6),
+                        post_isolation_fast_capture_fallback=False,
+                    )
+                if (not fast_ok) and not fast_capture_fallback:
+                    diagnosis = self._diagnose_post_isolation_result(point, phase=phase, cfg=cfg)
+                    informational_diagnoses = {
+                        "pass",
+                        "pace_vent_popup_only",
+                        "pace_vent_popup_stale_suspect",
+                        "controller_side_state_only_without_analyzer_side_effect",
+                    }
+                    status = "pass" if diagnosis in informational_diagnoses else "fail"
+                    return _finalize(
+                        status=status,
+                        diagnosis=diagnosis,
+                        reason=f"fast_capture_failed:{fast_reason}",
+                        metrics=metrics,
+                        capture_mode="fast5s",
+                        fast_status="fail",
+                        fast_reason=fast_reason,
+                        fast_elapsed_s=round(float(elapsed_s), 6),
+                        fast_fallback=False,
+                        note=f"ambient_source={ambient_source} purge_status={purge_result.get('status')}",
+                    )
+            if elapsed_s >= total_window_s:
+                break
+            self._ensure_pressure_transition_fast_signal_cache(
+                active_context,
+                reason="post-isolation leak test poll",
+            )
+            if not self._sampling_window_wait(poll_s, stop_event=active_context.get("stop_event")):
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    post_isolation_status="fail",
+                    post_isolation_reason="interrupted",
+                    post_isolation_diagnosis="sealed_path_leak_suspect",
+                    post_isolation_capture_mode="extended20s" if fast_capture_fallback else "standard",
+                )
+                self._set_root_cause_reject_reason(point, phase=phase, reason="sealed_path_leak_suspect")
+                return False
+
+        metrics = _collect_metrics()
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            **self._pace_snapshot_runtime_fields(latest_pace_snapshot),
+            **metrics,
+        )
+        diagnosis = self._diagnose_post_isolation_result(point, phase=phase, cfg=cfg)
+        if diagnosis == "pace_atmosphere_connected_latched_state_suspect":
+            self._record_legacy_vent3_runtime_fields(
+                point,
+                phase=phase,
+                pace=self.devices.get("pace"),
+                vent_status=latest_pace_snapshot.get("pace_vent_status_query", latest_pace_snapshot.get("pace_vent_status")),
+                accept_scope="none",
+                control_ready_used=False,
+                block_scope="post_isolation_diagnostic",
+                hard_blocked=True,
+                watchlist_only=True,
+                control_ready_attempted=True,
+                control_ready_prevented=True,
+            )
+        informational_diagnoses = {
+            "pass",
+            "pace_vent_popup_only",
+            "pace_vent_popup_stale_suspect",
+            "controller_side_state_only_without_analyzer_side_effect",
+        }
+        status = "pass" if diagnosis in informational_diagnoses else "fail"
+        pressure_drift_hpa = self._as_float(metrics.get("post_isolation_pressure_drift_hpa"))
+        dewpoint_rise_c = self._as_float(metrics.get("post_isolation_dewpoint_rise_c"))
+        recover_toward_ambient = bool(metrics.get("post_isolation_pressure_recovery_toward_ambient"))
+        reason = "window_passed" if status == "pass" else (
+            f"pressure_drift_hpa={pressure_drift_hpa if pressure_drift_hpa is not None else 'NA'} "
+            f"dewpoint_rise_c={dewpoint_rise_c if dewpoint_rise_c is not None else 'NA'} "
+            f"recover_toward_ambient={recover_toward_ambient}"
+        )
+        if diagnosis == "pace_vent_popup_only":
+            reason = "vent_popup_enabled_without_drift_or_rebound"
+        if diagnosis == "pace_vent_popup_stale_suspect":
+            reason = "vent_popup_enabled_without_drift_or_rebound_but_elapsed_time_nonzero"
+        return _finalize(
+            status=status,
+            diagnosis=diagnosis,
+            reason=reason,
+            metrics=metrics,
+            capture_mode="extended20s" if fast_capture_fallback else "standard",
+            fast_status=(
+                "fallback_complete" if fast_capture_fallback else "disabled" if not fast_capture_enabled else "not_used"
+            ),
+            fast_reason=(
+                str((self._point_runtime_state(point, phase=phase) or {}).get("post_isolation_fast_capture_reason") or "")
+            ),
+            fast_elapsed_s=self._as_float((self._point_runtime_state(point, phase=phase) or {}).get("post_isolation_fast_capture_elapsed_s")),
+            fast_fallback=fast_capture_fallback,
+            note=(
+                f"ambient_source={ambient_source} purge_status={purge_result.get('status')} "
+                f"purge_reason={purge_result.get('reason', '')}"
+            ),
+        )
+
+    def _presample_failure_root_cause(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        failure_stage: str,
+    ) -> str:
+        state = dict(self._point_runtime_state(point, phase=phase) or {})
+        current = str(state.get("root_cause_reject_reason") or "").strip()
+        if current in {
+            "ambient_ingress_suspect",
+            "controller_hunting_suspect",
+            "pace_vent_in_progress_suspect",
+            "pace_legacy_vent_state_3_suspect",
+            "pace_vent_completed_latched_suspect",
+            "pace_effort_nonzero_after_output_off_suspect",
+            "pace_supply_vacuum_compensation_suspect",
+            "pace_vent_after_valve_config_open_suspect",
+            "pace_vent_valve_left_open_suspect",
+            "pace_protective_vent_suspect",
+            "pace_isolation_state_mismatch_suspect",
+            "baseline_precondition_wrong_plateau_suspect",
+        }:
+            return current
+        if str(phase or "").strip().lower() != "co2" or not self._is_co2_low_pressure_sealed_point(point):
+            if failure_stage in {"dewpoint_gate", "presample_long_guard", "sampling_window_qc"}:
+                if str(state.get("pressure_dew_sync_status") or "").strip().lower() == "synchronous":
+                    return "controller_hunting_suspect"
+                return "adsorption_tail_suspect"
+            return "controller_hunting_suspect"
+        diagnosis = str(state.get("post_isolation_diagnosis") or "").strip()
+        if diagnosis in {
+            "pace_vent_in_progress_suspect",
+            "pace_legacy_vent_state_3_suspect",
+            "pace_vent_completed_latched_suspect",
+            "pace_effort_nonzero_after_output_off_suspect",
+            "pace_supply_vacuum_compensation_suspect",
+            "pace_vent_after_valve_config_open_suspect",
+            "pace_vent_valve_left_open_suspect",
+            "pace_protective_vent_suspect",
+            "pace_isolation_state_mismatch_suspect",
+            "post_isolation_ambient_ingress_suspect",
+            "sealed_path_leak_suspect",
+            "dead_volume_wet_release_suspect",
+        }:
+            return diagnosis
+        pace_output_state = self._as_int(state.get("pace_output_state"))
+        pace_isolation_state = self._as_int(state.get("pace_isolation_state"))
+        pace_outp_query = self._as_int(state.get("pace_outp_state_query"))
+        pace_isol_query = self._as_int(state.get("pace_isol_state_query"))
+        pace_vent_query = self._as_int(state.get("pace_vent_status_query"))
+        pace_oper_pres_cond_query = self._as_int(state.get("pace_oper_pres_cond_query"))
+        pace_oper_pres_even_query = self._as_int(state.get("pace_oper_pres_even_query"))
+        pace_vent_after_state = str(state.get("pace_vent_after_valve_state_query") or "").strip().upper()
+        pace_vent_orpv_state = str(state.get("pace_vent_orpv_state_query") or "").strip().upper()
+        pace_vent_pupv_state = str(state.get("pace_vent_pupv_state_query") or "").strip().upper()
+        vent_completed_latched = self._pace_vent_completed_latched_from_snapshot(
+            {
+                "pace_vent_status_query": pace_vent_query,
+                "pace_oper_pres_cond_query": pace_oper_pres_cond_query,
+                "pace_oper_pres_even_query": pace_oper_pres_even_query,
+            }
+        )
+        pace_legacy_vent_state_3_suspect = self._as_optional_bool(state.get("pace_legacy_vent_state_3_suspect"))
+        pace_atmosphere_connected_latched_state_suspect = self._as_optional_bool(
+            state.get("pace_atmosphere_connected_latched_state_suspect")
+        )
+        if pace_legacy_vent_state_3_suspect is None:
+            pace_legacy_vent_state_3_suspect = bool(
+                self._pace_legacy_vent_state_3_suspect_from_snapshot(
+                    self.devices.get("pace"),
+                    {
+                        "pace_vent_status_query": pace_vent_query,
+                        "pace_vent_status": pace_vent_query,
+                    },
+                )
+            )
+        if pace_atmosphere_connected_latched_state_suspect is None:
+            pace_atmosphere_connected_latched_state_suspect = bool(pace_legacy_vent_state_3_suspect)
+        if pace_vent_query == 1:
+            return "pace_vent_in_progress_suspect"
+        if pace_atmosphere_connected_latched_state_suspect:
+            return "pace_atmosphere_connected_latched_state_suspect"
+        if vent_completed_latched is True:
+            return "pace_vent_completed_latched_suspect"
+        if pace_isolation_state not in (None, 0) or pace_isol_query not in (None, 0):
+            return "pace_isolation_state_mismatch_suspect"
+        diag_cfg = self._post_isolation_leak_test_cfg(point)
+        if self._pace_supply_vacuum_compensation_detected(state, cfg=diag_cfg):
+            return "pace_supply_vacuum_compensation_suspect"
+        if self._pace_effort_nonzero_after_output_off(state, cfg=diag_cfg):
+            return "pace_effort_nonzero_after_output_off_suspect"
+        if pace_output_state not in (None, 0) or pace_outp_query not in (None, 0):
+            return "controller_hunting_suspect"
+        if pace_vent_orpv_state == "ENABLED" or pace_vent_pupv_state == "ENABLED":
+            return "pace_protective_vent_suspect"
+        pressure_recover = bool(state.get("post_isolation_pressure_recovery_toward_ambient"))
+        pressure_drift_hpa = self._as_float(state.get("post_isolation_pressure_drift_hpa"))
+        dewpoint_rise_c = self._as_float(state.get("post_isolation_dewpoint_rise_c"))
+        pressure_gate_status = str(state.get("pressure_gate_status") or "").strip().lower()
+        # AFT:VVAL==OPEN means the controller is configured to leave the vent
+        # valve open after vent completion. It is not direct proof of the
+        # physical valve state at this exact instant, so we keep a two-step
+        # classification: config-open suspicion first, then upgrade only if
+        # post-isolation drift / rebound evidence lines up.
+        if pace_vent_after_state == "OPEN":
+            if (
+                pressure_recover
+                or (pressure_drift_hpa is not None and abs(pressure_drift_hpa) >= 0.2)
+                or (dewpoint_rise_c is not None and dewpoint_rise_c >= 0.12)
+            ):
+                return "pace_vent_valve_left_open_suspect"
+            return "pace_vent_after_valve_config_open_suspect"
+        if pressure_recover and pressure_drift_hpa is not None and abs(pressure_drift_hpa) >= 0.2:
+            return "post_isolation_ambient_ingress_suspect"
+        if failure_stage in {"capture_hold", "pressure_gate"}:
+            return "sealed_path_leak_suspect"
+        if pressure_gate_status == "pass" and dewpoint_rise_c is not None and dewpoint_rise_c >= 0.12:
+            return "dead_volume_wet_release_suspect"
+        if str(state.get("pressure_dew_sync_status") or "").strip().lower() == "synchronous":
+            return "sealed_path_leak_suspect"
+        return "dead_volume_wet_release_suspect"
 
     def _resolve_valve_target(self, valve: int) -> Tuple[str, int]:
         valves_cfg = self.cfg.get("valves", {})
@@ -10611,15 +23638,27 @@ class CalibrationRunner:
             raise RuntimeError(f"Relay write failed on {relay_name}: {exc}") from exc
 
     def _apply_valve_states(self, open_valves: List[int]) -> None:
+        requested_open_set = set()
+        for valve in open_valves:
+            iv = self._as_int(valve)
+            if iv is not None:
+                requested_open_set.add(iv)
+        if self._presample_lock_matches() and requested_open_set:
+            self._raise_presample_sampling_lock_violation(
+                action="route_reopen",
+                root_cause_reject_reason="ambient_ingress_suspect",
+                note=(
+                    "forbidden route reopen after pressure_in_limits and before sampling_begin; "
+                    f"open_valves={sorted(requested_open_set)}"
+                ),
+            )
         managed = self._managed_valves()
         if not managed:
+            self._current_open_valves = tuple(sorted(requested_open_set))
             return
 
-        open_set = set()
-        for v in open_valves:
-            iv = self._as_int(v)
-            if iv is not None:
-                open_set.add(iv)
+        open_set = requested_open_set
+        self._current_open_valves = tuple(sorted(open_set))
 
         physical_states: Dict[Tuple[str, int], bool] = {}
         for valve in managed:
@@ -11039,6 +24078,7 @@ class CalibrationRunner:
         self._h2o_pressure_prepared_target = None
         route_context = self._route_entry_context_for_co2_source(point, pressure_points=pressure_points)
         route_point_tag = str(route_context.get("point_tag") or self._co2_point_tag(point))
+        self._apply_idle_route_isolation(reason="before CO2 chamber wait")
         self._emit_stage_event(
             current=f"{self._stage_label_for_point(point, phase='co2', include_pressure=False)} 温箱等待 {float(point.temp_chamber_c):g}°C",
             point=point,
@@ -11059,7 +24099,10 @@ class CalibrationRunner:
         pressure_refs = pressure_points or [point]
         ambient_open_refs, sealed_control_refs = self._split_pressure_execution_points(pressure_refs)
         self.log("Pressure controller kept at atmosphere for CO2 route conditioning")
-        self._open_co2_route_for_conditioning(point, point_tag=route_point_tag)
+        if not self._open_co2_route_for_conditioning(point, point_tag=route_point_tag):
+            self.log(f"CO2 row {point.index} skipped: route pressure guard failed before soak")
+            self._cleanup_co2_route(reason="after CO2 route-open pressure guard failure")
+            return
         if not self._wait_co2_route_soak_before_seal(point):
             self.log(f"CO2 row {point.index} skipped: route precondition failed before sealing")
             self._cleanup_co2_route(reason="after CO2 route soak interrupted")
@@ -11079,6 +24122,16 @@ class CalibrationRunner:
         if not self._wait_co2_preseal_primary_sensor_gate(point):
             self.log(f"CO2 row {point.index} skipped: analyzer precondition failed before downstream sampling/seal")
             self._cleanup_co2_route(reason="after CO2 preseal analyzer gate failure")
+            return
+        if not self._wait_co2_preseal_baseline_sanity_gate(point):
+            self.log(
+                f"CO2 row {point.index} skipped: near-ambient baseline sanity gate failed before downstream sampling/seal"
+            )
+            self._cleanup_co2_route(reason="after CO2 baseline sanity gate failure")
+            return
+        if not self._wait_cold_co2_quality_gate(point):
+            self.log(f"CO2 row {point.index} skipped: cold-group quality gate failed before downstream sampling/seal")
+            self._cleanup_co2_route(reason="after CO2 cold-group quality gate failure")
             return
 
         ambient_exports_deferred_until_seal = False
@@ -11241,16 +24294,33 @@ class CalibrationRunner:
         self._cleanup_co2_route(reason="after CO2 source complete")
 
     def _set_co2_route_baseline(self, *, reason: str = "") -> None:
-        self._set_pressure_controller_vent(True, reason=reason)
+        self._clear_sealed_no_vent_guard(phase="co2", reason=reason or "co2_route_baseline")
+        self._clear_last_sealed_pressure_route_context(reason="CO2 route baseline")
+        self._clear_pressure_sequence_context(reason="CO2 route baseline")
         self._apply_route_baseline_valves()
+        self._set_pressure_controller_vent(True, reason=reason)
         self.log("CO2 route baseline applied: gas_main=OFF flow_switch=OFF h2o_path=OFF hold=OFF")
 
     def _cleanup_co2_route(self, *, reason: str = "") -> None:
+        self.exit_continuous_atmosphere_flowthrough("co2", phase="co2", reason=reason or "cleanup CO2 route")
         self._set_co2_route_baseline(reason=reason)
 
-    def _cleanup_h2o_route(self, point: CalibrationPoint, *, reason: str = "") -> None:
-        self._set_pressure_controller_vent(True, reason=reason)
+    def _apply_idle_route_isolation(self, *, reason: str = "") -> None:
+        self._clear_sealed_no_vent_guard(phase="co2", reason=reason or "idle_route_isolation")
+        self._clear_last_sealed_pressure_route_context(reason="idle route isolation")
+        self._clear_pressure_sequence_context(reason="idle route isolation")
+        self.exit_continuous_atmosphere_flowthrough("idle", phase="co2", reason=reason or "idle route isolation")
+        self._set_pressure_controller_vent(False, reason=reason)
         self._apply_route_baseline_valves()
+        extra = f" ({reason})" if str(reason or "").strip() else ""
+        self.log(f"Idle route isolation applied{extra}: route valves closed and pressure controller disconnected from atmosphere")
+
+    def _cleanup_h2o_route(self, point: CalibrationPoint, *, reason: str = "") -> None:
+        self._clear_sealed_no_vent_guard(point=point, phase="h2o", reason=reason or "cleanup_h2o_route")
+        self._clear_pressure_sequence_context(reason="cleanup H2O route")
+        self.exit_continuous_atmosphere_flowthrough("h2o", point=point, phase="h2o", reason=reason or "cleanup H2O route")
+        self._apply_route_baseline_valves()
+        self._set_pressure_controller_vent(True, reason=reason)
 
     def _mark_post_h2o_co2_zero_flush_pending(self) -> None:
         if self._route_mode() == "h2o_then_co2":
@@ -11278,6 +24348,20 @@ class CalibrationRunner:
             zero_values = {0}
         return int(round(ppm_value)) in zero_values
 
+    def _cold_co2_zero_flush_temp_key(self, point: CalibrationPoint) -> Optional[float]:
+        temp_c = self._as_float(getattr(point, "temp_chamber_c", None))
+        if temp_c is None or temp_c > 0.0:
+            return None
+        return round(float(temp_c), 6)
+
+    def _should_apply_cold_co2_zero_flush(self, point: CalibrationPoint) -> bool:
+        if not self._is_zero_co2_point(point):
+            return False
+        temp_key = self._cold_co2_zero_flush_temp_key(point)
+        if temp_key is None:
+            return False
+        return self._last_cold_co2_zero_flush_temp_c != temp_key
+
     def _gas_route_dewpoint_gate_enabled(self) -> bool:
         return bool(self._wf("workflow.stability.gas_route_dewpoint_gate_enabled", False))
 
@@ -11290,6 +24374,13 @@ class CalibrationRunner:
 
     def _water_route_dewpoint_gate_enabled(self) -> bool:
         return bool(self._wf("workflow.stability.water_route_dewpoint_gate_enabled", False))
+
+    def _water_route_dewpoint_gate_policy(self) -> str:
+        raw = self._wf("workflow.stability.water_route_dewpoint_gate_policy", "warn")
+        normalized = str(raw or "warn").strip().lower()
+        if normalized not in {"reject", "warn", "pass"}:
+            return "warn"
+        return normalized
 
     def _gas_route_dewpoint_gate_cfg(self) -> Dict[str, Any]:
         return {
@@ -11323,6 +24414,92 @@ class CalibrationRunner:
             "log_interval_s": max(
                 1.0,
                 float(self._wf("workflow.stability.gas_route_dewpoint_gate_log_interval_s", 15.0) or 15.0),
+            ),
+        }
+
+    def _water_route_dewpoint_gate_cfg(self) -> Dict[str, Any]:
+        return {
+            "enabled": self._water_route_dewpoint_gate_enabled(),
+            "policy": self._water_route_dewpoint_gate_policy(),
+            "window_s": max(
+                5.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_window_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_window_s", 60.0),
+                    )
+                    or 60.0
+                ),
+            ),
+            "max_total_wait_s": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_max_total_wait_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_max_total_wait_s", 300.0),
+                    )
+                    or 300.0
+                ),
+            ),
+            "poll_s": max(
+                0.2,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_poll_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_poll_s", 2.0),
+                    )
+                    or 2.0
+                ),
+            ),
+            "tail_span_max_c": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_tail_span_max_c",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_tail_span_max_c", 0.45),
+                    )
+                    or 0.45
+                ),
+            ),
+            "tail_slope_abs_max_c_per_s": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_tail_slope_abs_max_c_per_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s", 0.005),
+                    )
+                    or 0.005
+                ),
+            ),
+            "rebound_window_s": max(
+                1.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_rebound_window_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_rebound_window_s", 180.0),
+                    )
+                    or 180.0
+                ),
+            ),
+            "rebound_min_rise_c": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_rebound_min_rise_c",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_rebound_min_rise_c", 1.3),
+                    )
+                    or 1.3
+                ),
+            ),
+            "log_interval_s": max(
+                1.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_log_interval_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_log_interval_s", 15.0),
+                    )
+                    or 15.0
+                ),
             ),
         }
 
@@ -11395,6 +24572,22 @@ class CalibrationRunner:
             "dewpoint_rh_percent": snapshot.get("rh_pct"),
         }
 
+    def _build_h2o_route_dewpoint_gate_row(
+        self,
+        *,
+        total_elapsed_s: float,
+        snapshot: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+            "phase_elapsed_s": max(0.0, float(total_elapsed_s)),
+            "phase": "h2o_route_precondition",
+            "controller_vent_state": "VENT_ON",
+            "dewpoint_c": snapshot.get("dewpoint_c"),
+            "dewpoint_temp_c": snapshot.get("temp_c"),
+            "dewpoint_rh_percent": snapshot.get("rh_pct"),
+        }
+
     def _wait_co2_route_dewpoint_gate_before_seal(
         self,
         point: CalibrationPoint,
@@ -11406,8 +24599,86 @@ class CalibrationRunner:
         if not bool(cfg.get("enabled")):
             return True
 
+        if self._block_co2_source_stage_operation(
+            point,
+            phase="co2",
+            operation="co2_precondition_dewpoint_gate_begin",
+            trace_stage="co2_precondition_dewpoint_gate_blocked",
+            note=f"context={log_context}",
+        ):
+            blocked_state = self._point_runtime_state(point, phase="co2") or {}
+            blocked_reason = str(blocked_state.get("abort_reason") or "SourceStageNotVerified")
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="co2_precondition_dewpoint_gate_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                flush_gate_status="fail",
+                flush_gate_reason=blocked_reason,
+                root_cause_reject_reason=blocked_reason,
+                note=f"context={log_context} result=fail abort_reason={blocked_reason}",
+            )
+            return False
+        if self._require_continuous_atmosphere_flow_active(
+            point,
+            phase="co2",
+            operation="co2_precondition_dewpoint_gate_begin",
+            trace_stage="co2_precondition_dewpoint_gate_blocked",
+            note=f"context={log_context}",
+        ):
+            blocked_state = self._point_runtime_state(point, phase="co2") or {}
+            blocked_reason = str(blocked_state.get("abort_reason") or "ContinuousAtmosphereFlowthroughNotActive")
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="co2_precondition_dewpoint_gate_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                flush_gate_status="fail",
+                flush_gate_reason=blocked_reason,
+                root_cause_reject_reason=blocked_reason,
+                note=f"context={log_context} result=fail abort_reason={blocked_reason}",
+            )
+            return False
+
+        atmosphere_ok, atmosphere_summary = self._require_atmosphere_gate_before_dewpoint(
+            point,
+            phase="co2",
+            log_context=log_context,
+        )
+        if not atmosphere_ok:
+            abort_reason = str(atmosphere_summary.get("abort_reason") or "AtmosphereGateFailed")
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="co2_precondition_dewpoint_gate_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                flush_gate_status="fail",
+                flush_gate_reason=abort_reason,
+                root_cause_reject_reason=abort_reason,
+                note=f"context={log_context} result=fail abort_reason={abort_reason}",
+            )
+            self.log(
+                "CO2 route precondition dewpoint gate aborted before seal: "
+                f"row={point.index} reason={abort_reason}"
+            )
+            return False
+
+        self._set_point_runtime_fields(
+            point,
+            phase="co2",
+            dewpoint_stabilization_started=True,
+            dewpoint_stabilization_timeout=False,
+            abort_reason="",
+        )
         gate_begin_ts = time.time()
         gate_rows: List[Dict[str, Any]] = []
+        pressure_rows: List[Tuple[float, float]] = []
         last_log_ts = 0.0
         consecutive_read_missing = 0
         max_transient_read_missing = 3
@@ -11429,6 +24700,44 @@ class CalibrationRunner:
             if self.stop_event.is_set():
                 return False
             self._check_pause()
+            pressure_ok, pressure_state = self._check_flush_pressure_guard(
+                point,
+                phase="co2",
+                pressure_rows=pressure_rows,
+                log_context=log_context,
+            )
+            if not pressure_ok:
+                abort_reason = str(pressure_state.get("abort_reason") or "PressureRisingDuringFlush")
+                total_elapsed_s = float(base_soak_s) + max(0.0, time.time() - gate_begin_ts)
+                self._set_point_runtime_fields(
+                    point,
+                    phase="co2",
+                    dewpoint_time_to_gate=round(total_elapsed_s, 3),
+                    dewpoint_tail_span_60s=None,
+                    dewpoint_tail_slope_60s=None,
+                    dewpoint_rebound_detected=None,
+                    flush_gate_status="fail",
+                    flush_gate_reason=abort_reason,
+                    abort_reason=abort_reason,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route="co2",
+                    point_phase="co2",
+                    trace_stage="co2_precondition_dewpoint_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    dewpoint_time_to_gate=round(total_elapsed_s, 3),
+                    flush_gate_status="fail",
+                    flush_gate_reason=abort_reason,
+                    root_cause_reject_reason=abort_reason,
+                    note=f"context={log_context} result=abort abort_reason={abort_reason}",
+                )
+                self.log(
+                    "CO2 route precondition dewpoint gate aborted during flush: "
+                    f"row={point.index} reason={abort_reason}"
+                )
+                return False
             try:
                 snapshot = self._read_precondition_dewpoint_gate_snapshot()
             except Exception as exc:
@@ -11457,6 +24766,7 @@ class CalibrationRunner:
                     dewpoint_rebound_detected=None,
                     flush_gate_status="fail",
                     flush_gate_reason=reason,
+                    abort_reason=reason,
                 )
                 self._append_pressure_trace_row(
                     point=point,
@@ -11550,6 +24860,8 @@ class CalibrationRunner:
                     dewpoint_rebound_detected=dewpoint_rebound_detected,
                     flush_gate_status="timeout",
                     flush_gate_reason=reason,
+                    dewpoint_stabilization_timeout=True,
+                    abort_reason=reason,
                 )
                 self._append_pressure_trace_row(
                     point=point,
@@ -11597,8 +24909,297 @@ class CalibrationRunner:
                 )
             time.sleep(float(cfg["poll_s"]))
 
+    def _wait_h2o_route_dewpoint_gate_before_sampling(
+        self,
+        point: CalibrationPoint,
+        *,
+        log_context: str,
+    ) -> bool:
+        cfg = self._water_route_dewpoint_gate_cfg()
+        if not bool(cfg.get("enabled")):
+            return True
+
+        if self._block_source_stage_operation(
+            point,
+            phase="h2o",
+            operation="h2o_precondition_dewpoint_gate_begin",
+            trace_stage="h2o_precondition_dewpoint_gate_blocked",
+            note=f"context={log_context}",
+        ):
+            return False
+        if self._require_continuous_atmosphere_flow_active(
+            point,
+            phase="h2o",
+            operation="h2o_precondition_dewpoint_gate_begin",
+            trace_stage="h2o_precondition_dewpoint_gate_blocked",
+            note=f"context={log_context}",
+        ):
+            return False
+
+        atmosphere_ok, atmosphere_summary = self._require_atmosphere_gate_before_dewpoint(
+            point,
+            phase="h2o",
+            log_context=log_context,
+        )
+        if not atmosphere_ok:
+            abort_reason = str(atmosphere_summary.get("abort_reason") or "AtmosphereGateFailed")
+            self._append_pressure_trace_row(
+                point=point,
+                route="h2o",
+                point_phase="h2o",
+                trace_stage="h2o_precondition_dewpoint_gate_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                flush_gate_status="fail",
+                flush_gate_reason=abort_reason,
+                root_cause_reject_reason=abort_reason,
+                note=f"context={log_context} result=fail abort_reason={abort_reason}",
+            )
+            self.log(
+                "H2O route precondition dewpoint gate aborted before sampling: "
+                f"row={point.index} reason={abort_reason}"
+            )
+            return False
+
+        self._set_point_runtime_fields(
+            point,
+            phase="h2o",
+            dewpoint_stabilization_started=True,
+            dewpoint_stabilization_timeout=False,
+            abort_reason="",
+        )
+        gate_begin_ts = time.time()
+        gate_rows: List[Dict[str, Any]] = []
+        pressure_rows: List[Tuple[float, float]] = []
+        last_log_ts = 0.0
+        consecutive_read_missing = 0
+        max_transient_read_missing = 3
+        self._append_pressure_trace_row(
+            point=point,
+            route="h2o",
+            point_phase="h2o",
+            trace_stage="h2o_precondition_dewpoint_gate_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"window_s={float(cfg['window_s']):.3f} "
+                f"max_gate_wait_s={float(cfg['max_total_wait_s']):.3f} "
+                f"policy={cfg['policy']}"
+            ),
+        )
+        while True:
+            if self.stop_event.is_set():
+                return False
+            self._check_pause()
+            pressure_ok, pressure_state = self._check_flush_pressure_guard(
+                point,
+                phase="h2o",
+                pressure_rows=pressure_rows,
+                log_context=log_context,
+            )
+            if not pressure_ok:
+                abort_reason = str(pressure_state.get("abort_reason") or "PressureRisingDuringFlush")
+                total_elapsed_s = max(0.0, time.time() - gate_begin_ts)
+                self._set_point_runtime_fields(
+                    point,
+                    phase="h2o",
+                    dewpoint_time_to_gate=round(total_elapsed_s, 3),
+                    dewpoint_tail_span_60s=None,
+                    dewpoint_tail_slope_60s=None,
+                    dewpoint_rebound_detected=None,
+                    flush_gate_status="fail",
+                    flush_gate_reason=abort_reason,
+                    abort_reason=abort_reason,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route="h2o",
+                    point_phase="h2o",
+                    trace_stage="h2o_precondition_dewpoint_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    dewpoint_time_to_gate=round(total_elapsed_s, 3),
+                    flush_gate_status="fail",
+                    flush_gate_reason=abort_reason,
+                    root_cause_reject_reason=abort_reason,
+                    note=f"context={log_context} result=abort abort_reason={abort_reason}",
+                )
+                self.log(
+                    "H2O route precondition dewpoint gate aborted during open-route alignment: "
+                    f"row={point.index} reason={abort_reason}"
+                )
+                return False
+            try:
+                snapshot = self._read_precondition_dewpoint_gate_snapshot()
+            except Exception as exc:
+                reason = str(exc) or "dewpoint_gate_read_failed"
+                total_elapsed_s = max(0.0, time.time() - gate_begin_ts)
+                if reason == "dewpoint_gate_read_missing":
+                    consecutive_read_missing += 1
+                    if consecutive_read_missing < max_transient_read_missing:
+                        now_ts = time.time()
+                        if (now_ts - last_log_ts) >= float(cfg["log_interval_s"]):
+                            last_log_ts = now_ts
+                            self.log(
+                                "H2O route precondition dewpoint gate waiting: "
+                                f"row={point.index} read missing; retry "
+                                f"{consecutive_read_missing}/{max_transient_read_missing - 1} "
+                                f"time_to_gate={total_elapsed_s:.1f}s"
+                            )
+                        time.sleep(float(cfg["poll_s"]))
+                        continue
+                self._set_point_runtime_fields(
+                    point,
+                    phase="h2o",
+                    dewpoint_time_to_gate=round(total_elapsed_s, 3),
+                    dewpoint_tail_span_60s=None,
+                    dewpoint_tail_slope_60s=None,
+                    dewpoint_rebound_detected=None,
+                    flush_gate_status="fail",
+                    flush_gate_reason=reason,
+                    abort_reason=reason,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route="h2o",
+                    point_phase="h2o",
+                    trace_stage="h2o_precondition_dewpoint_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    dewpoint_time_to_gate=round(total_elapsed_s, 3),
+                    flush_gate_status="fail",
+                    flush_gate_reason=reason,
+                    note="H2O route precondition dewpoint gate failed before sampling",
+                )
+                self.log(
+                    "H2O route precondition dewpoint gate failed before sampling: "
+                    f"row={point.index} reason={reason}"
+                )
+                return False
+
+            consecutive_read_missing = 0
+            gate_elapsed_s = max(0.0, time.time() - gate_begin_ts)
+            gate_rows.append(
+                self._build_h2o_route_dewpoint_gate_row(
+                    total_elapsed_s=gate_elapsed_s,
+                    snapshot=snapshot,
+                )
+            )
+            gate_eval = evaluate_dewpoint_flush_gate(
+                gate_rows,
+                min_flush_s=0.0,
+                gate_window_s=float(cfg["window_s"]),
+                max_tail_span_c=float(cfg["tail_span_max_c"]),
+                max_abs_tail_slope_c_per_s=float(cfg["tail_slope_abs_max_c_per_s"]),
+                rebound_window_s=float(cfg["rebound_window_s"]),
+                rebound_min_rise_c=float(cfg["rebound_min_rise_c"]),
+                include_rebound_in_gate=True,
+            )
+            dewpoint_tail_span_60s = self._as_float(gate_eval.get("dewpoint_tail_span_60s"))
+            dewpoint_tail_slope_60s = self._as_float(gate_eval.get("dewpoint_tail_slope_60s"))
+            dewpoint_rebound_detected = bool(gate_eval.get("dewpoint_rebound_detected"))
+            dewpoint_time_to_gate = self._as_float(gate_eval.get("dewpoint_time_to_gate"))
+            if bool(gate_eval.get("gate_pass")):
+                self._set_point_runtime_fields(
+                    point,
+                    phase="h2o",
+                    dewpoint_time_to_gate=dewpoint_time_to_gate,
+                    dewpoint_tail_span_60s=dewpoint_tail_span_60s,
+                    dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
+                    dewpoint_rebound_detected=dewpoint_rebound_detected,
+                    flush_gate_status="pass",
+                    flush_gate_reason="",
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route="h2o",
+                    point_phase="h2o",
+                    trace_stage="h2o_precondition_dewpoint_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    dewpoint_c=snapshot.get("dewpoint_c"),
+                    dew_temp_c=snapshot.get("temp_c"),
+                    dew_rh_pct=snapshot.get("rh_pct"),
+                    dewpoint_time_to_gate=dewpoint_time_to_gate,
+                    dewpoint_tail_span_60s=dewpoint_tail_span_60s,
+                    dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
+                    dewpoint_rebound_detected=dewpoint_rebound_detected,
+                    flush_gate_status="pass",
+                    flush_gate_reason="",
+                    note=f"context={log_context} result=pass",
+                )
+                self.log(
+                    "H2O route dewpoint gate passed after open-route alignment: "
+                    f"row={point.index} time_to_gate={dewpoint_time_to_gate} "
+                    f"tail_span_60s={dewpoint_tail_span_60s} "
+                    f"tail_slope_60s={dewpoint_tail_slope_60s} "
+                    f"rebound={dewpoint_rebound_detected}"
+                )
+                return True
+
+            if float(cfg["max_total_wait_s"]) > 0 and gate_elapsed_s >= float(cfg["max_total_wait_s"]):
+                reason = str(gate_eval.get("gate_reason") or "dewpoint_gate_timeout")
+                if "max_total_wait_exceeded" not in reason:
+                    reason = f"{reason};max_total_wait_exceeded" if reason else "max_total_wait_exceeded"
+                self._set_point_runtime_fields(
+                    point,
+                    phase="h2o",
+                    dewpoint_time_to_gate=round(gate_elapsed_s, 3),
+                    dewpoint_tail_span_60s=dewpoint_tail_span_60s,
+                    dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
+                    dewpoint_rebound_detected=dewpoint_rebound_detected,
+                    flush_gate_status="timeout",
+                    flush_gate_reason=reason,
+                    dewpoint_stabilization_timeout=True,
+                    abort_reason=reason,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route="h2o",
+                    point_phase="h2o",
+                    trace_stage="h2o_precondition_dewpoint_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    dewpoint_c=snapshot.get("dewpoint_c"),
+                    dew_temp_c=snapshot.get("temp_c"),
+                    dew_rh_pct=snapshot.get("rh_pct"),
+                    dewpoint_time_to_gate=round(gate_elapsed_s, 3),
+                    dewpoint_tail_span_60s=dewpoint_tail_span_60s,
+                    dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
+                    dewpoint_rebound_detected=dewpoint_rebound_detected,
+                    flush_gate_status="timeout",
+                    flush_gate_reason=reason,
+                    note=f"context={log_context} result=timeout policy={cfg['policy']}",
+                )
+                if str(cfg["policy"]) in {"warn", "pass"}:
+                    self.log(
+                        "H2O route precondition dewpoint gate timed out after open-route alignment; "
+                        f"continue due to policy={cfg['policy']} row={point.index} "
+                        f"gate_wait_s={gate_elapsed_s:.1f} reason={reason}"
+                    )
+                    return True
+                self.log(
+                    "H2O route precondition failed: dewpoint gate timeout after open-route alignment; "
+                    f"row={point.index} gate_wait_s={gate_elapsed_s:.1f} reason={reason}"
+                )
+                return False
+
+            now_ts = time.time()
+            if (now_ts - last_log_ts) >= float(cfg["log_interval_s"]):
+                last_log_ts = now_ts
+                self.log(
+                    "H2O route precondition dewpoint gate waiting: "
+                    f"row={point.index} dewpoint={snapshot.get('dewpoint_c')} "
+                    f"time_to_gate={gate_elapsed_s:.1f}s "
+                    f"tail_span_60s={dewpoint_tail_span_60s} "
+                    f"tail_slope_60s={dewpoint_tail_slope_60s} "
+                    f"reason={gate_eval.get('gate_reason') or 'waiting'}"
+                )
+            time.sleep(float(cfg["poll_s"]))
+
     def _wait_co2_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
         special_flush = self._has_special_co2_zero_flush_pending() and self._is_zero_co2_point(point)
+        cold_group_flush = False
         soak_key = "workflow.stability.co2_route.preseal_soak_s"
         soak_default = 180.0
         wait_reason = "开路预通气"
@@ -11618,6 +25219,12 @@ class CalibrationRunner:
             soak_default = 300.0
             wait_reason = "首个气点开路预通气"
             log_context = "CO2 route opened for first gas-point flush"
+        elif self._should_apply_cold_co2_zero_flush(point):
+            soak_key = "workflow.stability.co2_route.cold_group_zero_ppm_soak_s"
+            soak_default = float(self._wf("workflow.stability.co2_route.preseal_soak_s", 180.0))
+            wait_reason = "冷组0气吹干"
+            log_context = "CO2 cold-group dry flush"
+            cold_group_flush = True
         else:
             self._active_post_h2o_co2_zero_flush = False
 
@@ -11679,6 +25286,9 @@ class CalibrationRunner:
             self._post_h2o_co2_zero_flush_pending = False
             self._initial_co2_zero_flush_pending = False
         self._first_co2_route_soak_pending = False
+        cold_temp_key = self._cold_co2_zero_flush_temp_key(point)
+        if cold_temp_key is not None and self._is_zero_co2_point(point):
+            self._last_cold_co2_zero_flush_temp_c = cold_temp_key
         return self._wait_co2_route_dewpoint_gate_before_seal(
             point,
             base_soak_s=soak_s,
@@ -11745,6 +25355,227 @@ class CalibrationRunner:
         )
         return False
 
+    def _wait_cold_co2_quality_gate(self, point: CalibrationPoint) -> bool:
+        cfg = self._cold_co2_quality_gate_cfg()
+        result = {
+            "cold_co2_quality_gate_status": "skipped",
+            "cold_co2_quality_gate_reason": "",
+            "cold_co2_quality_gate_reference_temp_c": None,
+            "cold_co2_quality_gate_checked_count": 0,
+            "cold_co2_quality_gate_invalid_count": 0,
+            "cold_co2_quality_gate_invalid_labels": "",
+        }
+
+        def _finalize(status: str, reason: str, *, log_message: str = "") -> bool:
+            result["cold_co2_quality_gate_status"] = status
+            result["cold_co2_quality_gate_reason"] = reason
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            if log_message:
+                self.log(log_message)
+            self._update_point_quality_summary(point, phase="co2")
+            return status != "fail"
+
+        temp_value = self._as_float(getattr(point, "temp_chamber_c", None))
+        if point.is_h2o_point:
+            result["cold_co2_quality_gate_reason"] = "not_co2_point"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+        if not bool(cfg.get("enabled", True)):
+            result["cold_co2_quality_gate_reason"] = "gate_disabled"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+        if str(cfg.get("policy") or "warn").lower() == "off":
+            result["cold_co2_quality_gate_reason"] = "policy_off"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+        if temp_value is None or temp_value > float(cfg.get("apply_temp_max_c", 0.0)):
+            result["cold_co2_quality_gate_reason"] = "not_cold_group_point"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+
+        analyzers = self._active_gas_analyzers()
+        if not analyzers:
+            result["cold_co2_quality_gate_reason"] = "no_active_analyzers"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+
+        ref_temp_c = self._cold_co2_quality_reference_temp_c(point)
+        result["cold_co2_quality_gate_reference_temp_c"] = ref_temp_c
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="cold_co2_quality_gate_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"policy={cfg['policy']} apply_temp_max_c={float(cfg['apply_temp_max_c']):.3f} "
+                + (
+                    f"reference_temp_c={float(ref_temp_c):.3f}"
+                    if ref_temp_c is not None
+                    else "reference_temp_c=NA"
+                )
+            ),
+        )
+
+        invalid_details: List[str] = []
+        invalid_labels: List[str] = []
+        checked_count = 0
+        for label, ga, _ga_cfg in analyzers:
+            checked_count += 1
+            _line, parsed = self._read_sensor_parsed(ga, require_usable=False)
+            valid, reason, cell_temp_c, shell_temp_c = self._evaluate_cold_co2_analyzer_temp_state(
+                parsed,
+                ref_temp_c=ref_temp_c,
+                cfg=cfg,
+            )
+            if valid:
+                continue
+            invalid_labels.append(str(label))
+            detail = str(reason or "invalid")
+            if cell_temp_c is not None:
+                detail += f",cell={float(cell_temp_c):.3f}"
+            if shell_temp_c is not None:
+                detail += f",shell={float(shell_temp_c):.3f}"
+            invalid_details.append(f"{label}:{detail}")
+
+        result["cold_co2_quality_gate_checked_count"] = checked_count
+        result["cold_co2_quality_gate_invalid_count"] = len(invalid_labels)
+        result["cold_co2_quality_gate_invalid_labels"] = ",".join(invalid_labels)
+
+        if not invalid_details:
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="cold_co2_quality_gate_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                note=(
+                    f"result=pass checked={checked_count} "
+                    + (
+                        f"reference_temp_c={float(ref_temp_c):.3f}"
+                        if ref_temp_c is not None
+                        else "reference_temp_c=NA"
+                    )
+                ),
+            )
+            return _finalize(
+                "pass",
+                "",
+                log_message=(
+                    f"Cold CO2 quality gate pass: point={point.index} checked={checked_count} "
+                    + (
+                        f"reference_temp_c={float(ref_temp_c):.3f}"
+                        if ref_temp_c is not None
+                        else "reference_temp_c=NA"
+                    )
+                ),
+            )
+
+        status = "fail" if str(cfg.get("policy") or "warn").lower() == "reject" else "warn"
+        reason = ";".join(invalid_details)
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="cold_co2_quality_gate_end",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"result={status} checked={checked_count} invalid={len(invalid_labels)} "
+                f"{reason}"
+            ),
+        )
+        return _finalize(
+            status,
+            reason,
+            log_message=(
+                f"Cold CO2 quality gate {status}: point={point.index} "
+                f"invalid={len(invalid_labels)}/{checked_count} {reason}"
+            ),
+        )
+
+    def _wait_h2o_precondition_primary_sensor_gate(self, point: CalibrationPoint) -> bool:
+        sensor_cfg = self.cfg.get("workflow", {}).get("stability", {}).get("sensor", {})
+        if sensor_cfg and not sensor_cfg.get("enabled", True):
+            self.log("H2O precondition analyzer stability gate skipped: sensor stability disabled by configuration")
+            return True
+        if self._require_continuous_atmosphere_flow_active(
+            point,
+            phase="h2o",
+            operation="h2o_precondition_analyzer_gate_begin",
+            trace_stage="h2o_precondition_analyzer_gate_blocked",
+            note="primary sensor stability requires active atmosphere flowthrough",
+        ):
+            return False
+
+        tol = float(sensor_cfg.get("h2o_ratio_f_preseal_tol", sensor_cfg.get("h2o_ratio_f_tol", 0.001)))
+        window_s = float(sensor_cfg.get("h2o_ratio_f_preseal_window_s", sensor_cfg.get("window_s", 30)))
+        timeout_s = float(sensor_cfg.get("h2o_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300)))
+        min_samples = max(2, int(sensor_cfg.get("h2o_ratio_f_preseal_min_samples", 10)))
+        read_interval_s = float(
+            sensor_cfg.get("h2o_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0))
+        )
+        policy_raw = sensor_cfg.get("h2o_ratio_f_preseal_policy", "warn")
+        policy = str(policy_raw or "warn").strip().lower()
+        if policy not in {"reject", "warn", "pass"}:
+            policy = "warn"
+        self._append_pressure_trace_row(
+            point=point,
+            route="h2o",
+            point_phase="h2o",
+            trace_stage="h2o_precondition_analyzer_gate_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"key=h2o_ratio_f tol={tol:.6f} window_s={window_s:.3f} "
+                f"timeout_s={timeout_s:.3f} min_samples={min_samples} "
+                f"read_interval_s={read_interval_s:.3f} policy={policy}"
+            ),
+        )
+        stable = self._wait_primary_sensor_stable(
+            point,
+            value_key="h2o_ratio_f",
+            require_pressure_in_limits=False,
+            tol_override=tol,
+            window_override=window_s,
+            timeout_override=timeout_s,
+            min_samples_override=min_samples,
+            read_interval_override=read_interval_s,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route="h2o",
+            point_phase="h2o",
+            trace_stage="h2o_precondition_analyzer_gate_end",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"result={'pass' if stable else 'fail'} key=h2o_ratio_f tol={tol:.6f} "
+                f"window_s={window_s:.3f} timeout_s={timeout_s:.3f} min_samples={min_samples} "
+                f"policy={policy}"
+            ),
+        )
+        if stable:
+            self.log(
+                "H2O precondition analyzer stability gate passed: "
+                f"row={point.index} tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
+            )
+            return True
+        if policy in {"warn", "pass"}:
+            self.log(
+                "H2O precondition analyzer stability gate timed out before open-route sampling/seal; "
+                f"continue due to policy={policy} row={point.index} "
+                f"tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
+            )
+            return True
+        self.log(
+            "H2O precondition analyzer stability gate failed before open-route sampling/seal: "
+            f"row={point.index} tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
+        )
+        return False
+
     def _co2_pressure_timeout_reseal_retries(self) -> int:
         return max(0, int(self._wf("workflow.pressure.co2_reseal_retry_count", 1)))
 
@@ -11756,10 +25587,16 @@ class CalibrationRunner:
         attempt: int,
         total: int,
     ) -> bool:
-        self.log(
-            f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa timeout; "
-            f"retry within sealed route {attempt}/{total}"
-        )
+        if self._same_route_follow_on_pressure_switch_active(sample_point, phase="co2"):
+            self.log(
+                f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa timeout; "
+                f"retry within sealed route {attempt}/{total} with atmosphere-reset recovery disabled"
+            )
+        else:
+            self.log(
+                f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa timeout; "
+                f"retry pressure control {attempt}/{total}"
+            )
         return self._set_pressure_to_target(sample_point)
 
     def _run_h2o_group(
@@ -11782,7 +25619,7 @@ class CalibrationRunner:
             f"pressures=[{pressure_text}]"
         )
 
-        self._set_h2o_path(False, lead)
+        self._apply_idle_route_isolation(reason="before H2O group conditioning")
         self._prepare_pressure_for_h2o(lead)
         self._prepare_humidity_generator(lead)
         self._emit_stage_event(
@@ -11918,7 +25755,7 @@ class CalibrationRunner:
 
     def _run_h2o_point(self, point: CalibrationPoint, prepared: bool = False) -> None:
         self._preseal_dewpoint_snapshot = None
-        self._set_h2o_path(False, point)
+        self._apply_idle_route_isolation(reason="before H2O point conditioning")
         if not prepared:
             self._prepare_pressure_for_h2o(point)
             self._prepare_humidity_generator(point)
@@ -12022,6 +25859,7 @@ class CalibrationRunner:
             "duration_s": duration_s,
             "span": max(values_only) - min(values_only),
             "slope_per_s": slope_per_s,
+            "mean_value": mean(values_only),
             "first_value": values_only[0],
             "last_value": values_only[-1],
             "min_value": min(values_only),
@@ -12775,6 +26613,19 @@ class CalibrationRunner:
                 transition_context,
                 reason="pressure in-limits ready check",
             )
+        handoff_mode = self._prepare_sampling_handoff_mode(point, phase=phase)
+        ambient_reference_hpa, _ambient_reference_source = self._resolve_pressure_sequence_ambient_reference_hpa()
+        if ambient_reference_hpa is not None:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                ambient_reference_hpa=float(ambient_reference_hpa),
+            )
+        self._arm_presample_sampling_lock(
+            point,
+            phase=phase,
+            handoff_mode=handoff_mode,
+        )
 
         ready_check_values = self._cached_ready_check_trace_values(context=transition_context, point=point)
         dewpoint_obs = self._recent_fast_signal_numeric_observation(
@@ -12819,7 +26670,15 @@ class CalibrationRunner:
         )
 
         def _record_sampling_begin(trigger_reason: str, note: str) -> None:
+            self._clear_presample_sampling_lock(point=point, phase=phase, reason="sampling_begin")
+            self._activate_sealed_no_vent_guard(
+                point=point,
+                phase=phase,
+                guard_phase="SamplingUnderPressure",
+                reason=trigger_reason,
+            )
             sampling_begin_values = self._cached_ready_check_trace_values(context=transition_context, point=point)
+            runtime_snapshot = dict(self._point_runtime_state(point, phase=phase) or {})
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -12836,36 +26695,156 @@ class CalibrationRunner:
                 dewpoint_live_c=sampling_begin_values.get("dewpoint_live_c"),
                 dew_temp_live_c=sampling_begin_values.get("dew_temp_live_c"),
                 dew_rh_live_pct=sampling_begin_values.get("dew_rh_live_pct"),
+                handoff_mode=runtime_snapshot.get("handoff_mode"),
+                atmosphere_reference_hpa=runtime_snapshot.get("ambient_reference_hpa"),
+                pace_output_state=runtime_snapshot.get("pace_output_state"),
+                pace_isolation_state=runtime_snapshot.get("pace_isolation_state"),
+                pace_vent_status=runtime_snapshot.get("pace_vent_status"),
+                pace_outp_state_query=runtime_snapshot.get("pace_outp_state_query"),
+                pace_isol_state_query=runtime_snapshot.get("pace_isol_state_query"),
+                pace_mode_query=runtime_snapshot.get("pace_mode_query"),
+                pace_vent_status_query=runtime_snapshot.get("pace_vent_status_query"),
+                pace_vent_completed_latched=runtime_snapshot.get("pace_vent_completed_latched"),
+                pace_vent_clear_attempted=runtime_snapshot.get("pace_vent_clear_attempted"),
+                pace_vent_clear_result=runtime_snapshot.get("pace_vent_clear_result"),
+                pace_vent_after_valve_state_query=runtime_snapshot.get("pace_vent_after_valve_state_query"),
+                pace_vent_popup_state_query=runtime_snapshot.get("pace_vent_popup_state_query"),
+                pace_vent_elapsed_time_query=runtime_snapshot.get("pace_vent_elapsed_time_query"),
+                pace_vent_orpv_state_query=runtime_snapshot.get("pace_vent_orpv_state_query"),
+                pace_vent_pupv_state_query=runtime_snapshot.get("pace_vent_pupv_state_query"),
+                pace_oper_cond_query=runtime_snapshot.get("pace_oper_cond_query"),
+                pace_oper_pres_cond_query=runtime_snapshot.get("pace_oper_pres_cond_query"),
+                pace_effort_query=runtime_snapshot.get("pace_effort_query"),
+                pace_comp1_query=runtime_snapshot.get("pace_comp1_query"),
+                pace_comp2_query=runtime_snapshot.get("pace_comp2_query"),
+                pace_sens_pres_cont_query=runtime_snapshot.get("pace_sens_pres_cont_query"),
+                pace_sens_pres_bar_query=runtime_snapshot.get("pace_sens_pres_bar_query"),
+                pace_sens_pres_inl_query=runtime_snapshot.get("pace_sens_pres_inl_query"),
+                pace_sens_pres_inl_state_query=runtime_snapshot.get("pace_sens_pres_inl_state_query"),
+                pace_sens_pres_inl_time_query=runtime_snapshot.get("pace_sens_pres_inl_time_query"),
+                pace_oper_pres_even_query=runtime_snapshot.get("pace_oper_pres_even_query"),
+                pace_oper_pres_vent_complete_bit=runtime_snapshot.get("pace_oper_pres_vent_complete_bit"),
+                pace_oper_pres_in_limits_bit=runtime_snapshot.get("pace_oper_pres_in_limits_bit"),
+                superambient_target_hpa=runtime_snapshot.get("superambient_target_hpa"),
+                superambient_precharge_margin_hpa=runtime_snapshot.get("superambient_precharge_margin_hpa"),
+                superambient_precharge_peak_hpa=runtime_snapshot.get("superambient_precharge_peak_hpa"),
+                superambient_precharge_result=runtime_snapshot.get("superambient_precharge_result"),
+                superambient_closed_path_verified=runtime_snapshot.get("superambient_closed_path_verified"),
+                capture_hold_status=runtime_snapshot.get("capture_hold_status"),
+                post_isolation_status=runtime_snapshot.get("post_isolation_status"),
+                post_isolation_reason=runtime_snapshot.get("post_isolation_reason"),
+                post_isolation_pressure_start_hpa=runtime_snapshot.get("post_isolation_pressure_start_hpa"),
+                post_isolation_pressure_end_hpa=runtime_snapshot.get("post_isolation_pressure_end_hpa"),
+                post_isolation_pressure_peak_hpa=runtime_snapshot.get("post_isolation_pressure_peak_hpa"),
+                post_isolation_pressure_min_hpa=runtime_snapshot.get("post_isolation_pressure_min_hpa"),
+                post_isolation_pressure_drift_hpa=runtime_snapshot.get("post_isolation_pressure_drift_hpa"),
+                post_isolation_pressure_slope_hpa_s=runtime_snapshot.get("post_isolation_pressure_slope_hpa_s"),
+                post_isolation_pressure_recovery_toward_ambient=runtime_snapshot.get(
+                    "post_isolation_pressure_recovery_toward_ambient"
+                ),
+                post_isolation_dewpoint_start_c=runtime_snapshot.get("post_isolation_dewpoint_start_c"),
+                post_isolation_dewpoint_end_c=runtime_snapshot.get("post_isolation_dewpoint_end_c"),
+                post_isolation_dewpoint_rise_c=runtime_snapshot.get("post_isolation_dewpoint_rise_c"),
+                post_isolation_dewpoint_slope_c_s=runtime_snapshot.get("post_isolation_dewpoint_slope_c_s"),
+                post_isolation_h2o_start=runtime_snapshot.get("post_isolation_h2o_start"),
+                post_isolation_h2o_end=runtime_snapshot.get("post_isolation_h2o_end"),
+                post_isolation_pressure_dew_corr=runtime_snapshot.get("post_isolation_pressure_dew_corr"),
+                post_isolation_diagnosis=runtime_snapshot.get("post_isolation_diagnosis"),
+                pressure_gate_status=runtime_snapshot.get("pressure_gate_status"),
+                pressure_gate_reason=runtime_snapshot.get("pressure_gate_reason"),
+                pressure_dew_sync_status=runtime_snapshot.get("pressure_dew_sync_status"),
+                pressure_dew_sync_reason=runtime_snapshot.get("pressure_dew_sync_reason"),
+                root_cause_reject_reason=runtime_snapshot.get("root_cause_reject_reason"),
                 note=note,
             )
+        if not self._set_pressure_controller_sampling_isolation(
+            point,
+            phase=phase,
+            context=transition_context,
+            handoff_mode=handoff_mode,
+        ):
+            self._clear_presample_sampling_lock(point=point, phase=phase, reason="capture_hold_failed")
+            return False
+        if not self._wait_post_isolation_leak_test(
+            point,
+            phase=phase,
+            context=transition_context,
+            handoff_mode=handoff_mode,
+        ):
+            self._clear_presample_sampling_lock(point=point, phase=phase, reason="post_isolation_test_failed")
+            return False
+        post_isolation_state = dict(self._point_runtime_state(point, phase=phase) or {})
+        fast_capture_cfg = self._post_isolation_fast_capture_cfg(point)
+        if (
+            bool(fast_capture_cfg.get("enabled"))
+            and bool(fast_capture_cfg.get("allow_early_sample"))
+            and str(post_isolation_state.get("post_isolation_fast_capture_status") or "").strip().lower() == "pass"
+        ):
+            _record_sampling_begin(
+                "post_isolation_fast_capture",
+                "post-isolation fast 5s capture window passed; engineering override allows immediate sampling",
+            )
+            self._remember_last_sealed_pressure_route_context(
+                point,
+                phase=phase,
+                reason="post_isolation_fast_capture_sampling_begin",
+            )
+            return True
+        if not self._wait_sampling_pressure_gate(point, phase=phase, context=transition_context):
+            self._set_root_cause_reject_reason(
+                point,
+                phase=phase,
+                reason=self._presample_failure_root_cause(point, phase=phase, failure_stage="pressure_gate"),
+            )
+            self._clear_presample_sampling_lock(point=point, phase=phase, reason="pressure_gate_failed")
+            return False
         if not self._wait_postseal_dewpoint_gate(point, phase=phase, context=transition_context):
+            runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
+            gate_result = str(runtime_state.get("dewpoint_gate_result") or "").strip().lower()
+            physical_qc_status = str(runtime_state.get("postseal_physical_qc_status") or "").strip().lower()
+            root_reason = self._presample_failure_root_cause(point, phase=phase, failure_stage="dewpoint_gate")
+            if physical_qc_status == "fail":
+                root_reason = "dewpoint_conversion_dynamic"
+            elif gate_result == "rebound_veto" and root_reason == "dead_volume_wet_release_suspect":
+                root_reason = "dead_volume_wet_release_suspect"
+            self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+            self._clear_presample_sampling_lock(point=point, phase=phase, reason="dewpoint_gate_failed")
             return False
         if not self._wait_co2_presample_long_guard(
             point,
             phase=phase,
             context=transition_context,
         ):
+            root_reason = self._presample_failure_root_cause(
+                point,
+                phase=phase,
+                failure_stage="presample_long_guard",
+            )
+            self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+            self._clear_presample_sampling_lock(point=point, phase=phase, reason="presample_long_guard_failed")
+            return False
+        if not self._wait_pressure_and_primary_sensor_ready(point):
+            root_reason = self._presample_failure_root_cause(
+                point,
+                phase=phase,
+                failure_stage="sampling_window_qc",
+            )
+            self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+            self._clear_presample_sampling_lock(point=point, phase=phase, reason="primary_sensor_ready_failed")
             return False
 
         adaptive_cfg = self._pressure_sampling_gate_cfg(point)
-        if adaptive_cfg["enabled"]:
-            adaptive_ok = self._wait_pressure_and_primary_sensor_ready(point)
-            if not adaptive_ok:
-                return False
-            if bool(adaptive_cfg.get("skip_fixed_post_delay", True)):
-                _record_sampling_begin(
-                    "adaptive_pressure_sampling",
-                    "adaptive sampling gate ready after post-seal dewpoint gate",
-                )
-                return True
-
-        capture_then_hold_enabled = bool(self._wf("workflow.pressure.capture_then_hold_enabled", False))
-        if capture_then_hold_enabled and not self._pressure_capture_then_hold_cfg_logged:
-            self._pressure_capture_then_hold_cfg_logged = True
-            self.log(
-                "Pressure capture-then-hold is retired in V1 and will be ignored; "
-                "sampling starts immediately after pressure reaches in-limits"
+        if adaptive_cfg["enabled"] and bool(adaptive_cfg.get("skip_fixed_post_delay", True)):
+            _record_sampling_begin(
+                "adaptive_pressure_sampling",
+                "pressure gate + dewpoint gate + capture hold passed; skip fixed post-stable delay",
             )
+            self._remember_last_sealed_pressure_route_context(
+                point,
+                phase=phase,
+                reason="sampling_begin_ready_adaptive",
+            )
+            return True
 
         post_stable_delay_s = 0.0
         general_post_stable_delay_s = self._as_float(self._wf("workflow.pressure.post_stable_sample_delay_s", 0.0))
@@ -12904,10 +26883,11 @@ class CalibrationRunner:
                         f"min_delay_s={post_stable_delay_s:.1f})"
                     )
                 if not self._sampling_window_wait(remaining_post_stable_delay_s, stop_event=wait_stop_event):
+                    self._clear_presample_sampling_lock(point=point, phase=phase, reason="post_stable_delay_interrupted")
                     return False
                 _record_sampling_begin(
                     f"{phase}_post_stable_delay_elapsed",
-                    "post-seal dewpoint gate complete; minimum delay from pressure_in_limits satisfied; "
+                    "pressure gate + dewpoint gate complete; minimum delay from pressure_in_limits satisfied; "
                     f"configured_delay_s={post_stable_delay_s:.1f}; "
                     f"waited_remaining_s={remaining_post_stable_delay_s:.3f}; "
                     + (
@@ -12917,6 +26897,11 @@ class CalibrationRunner:
                     )
                     + f"pressure_target={pressure_label}",
                 )
+                self._remember_last_sealed_pressure_route_context(
+                    point,
+                    phase=phase,
+                    reason=f"{phase}_sampling_begin_ready_delay_elapsed",
+                )
                 return True
 
             self.log(
@@ -12925,29 +26910,48 @@ class CalibrationRunner:
             )
             _record_sampling_begin(
                 f"{phase}_post_stable_delay_satisfied",
-                "post-seal dewpoint gate complete; minimum delay from pressure_in_limits already satisfied; "
+                "pressure gate + dewpoint gate complete; minimum delay from pressure_in_limits already satisfied; "
                 f"configured_delay_s={post_stable_delay_s:.1f}; "
                 f"elapsed_since_pressure_in_limits_s={elapsed_since_pressure_in_limits_s:.3f}; "
                 f"pressure_target={pressure_label}",
             )
-            return True
-
-        if point.is_h2o_point:
-            self.log("H2O pressure stable; post-seal dewpoint gate complete; start sampling immediately")
-            _record_sampling_begin(
-                "h2o_post_stable_immediate",
-                "post-seal dewpoint gate complete; fixed post-stable delay disabled",
+            self._remember_last_sealed_pressure_route_context(
+                point,
+                phase=phase,
+                reason=f"{phase}_sampling_begin_ready_delay_already_satisfied",
             )
             return True
 
-        self.log("CO2 pressure stable; post-seal dewpoint gate complete; start sampling immediately")
+        if point.is_h2o_point:
+            self.log("H2O pressure stable; pressure gate + post-seal dewpoint gate complete; start sampling immediately")
+            _record_sampling_begin(
+                "h2o_post_stable_immediate",
+                "pressure gate + post-seal dewpoint gate complete; fixed post-stable delay disabled",
+            )
+            self._remember_last_sealed_pressure_route_context(
+                point,
+                phase=phase,
+                reason="h2o_sampling_begin_ready_immediate",
+            )
+            return True
+
+        self.log("CO2 pressure stable; pressure gate + post-seal dewpoint gate complete; start sampling immediately")
         _record_sampling_begin(
             "co2_post_stable_immediate",
-            "post-seal dewpoint gate complete; fixed post-stable delay disabled",
+            "pressure gate + post-seal dewpoint gate complete; fixed post-stable delay disabled",
+        )
+        self._remember_last_sealed_pressure_route_context(
+            point,
+            phase=phase,
+            reason="co2_sampling_begin_ready_immediate",
         )
         return True
 
     def _open_h2o_route_and_wait_ready(self, point: CalibrationPoint, *, point_tag: str = "") -> bool:
+        self._clear_last_sealed_pressure_route_context(reason="opening H2O route for conditioning")
+        self._clear_pressure_sequence_context(reason="opening H2O route for conditioning")
+        self._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
+        self._set_point_runtime_fields(point, phase="h2o", handoff_route_open_failed=False)
         open_valves = self._h2o_open_valves(point)
         fast_handoff_used = self._complete_pending_route_handoff(
             point,
@@ -12955,26 +26959,34 @@ class CalibrationRunner:
             point_tag=point_tag or self._h2o_point_tag(point),
             open_valves=open_valves,
         )
+        handoff_failed = bool((self._point_runtime_state(point, phase="h2o") or {}).get("handoff_route_open_failed"))
+        if handoff_failed:
+            return False
         if not fast_handoff_used:
+            self._clear_sealed_no_vent_guard(point=point, phase="h2o", reason="during H2O route pre-seal preparation")
             self._set_pressure_controller_vent(True, reason="during H2O route pre-seal preparation")
-            self._set_h2o_path(True, point)
-            self._append_pressure_trace_row(
-                point=point,
-                route="h2o",
-                point_phase="h2o",
+            if not self._open_route_with_pressure_guard(
+                point,
+                phase="h2o",
                 point_tag=point_tag,
-                trace_stage="route_open",
-                pressure_target_hpa=point.target_pressure_hpa,
-                refresh_pace_state=False,
-                note=f"open_valves={open_valves}",
-            )
+                open_valves=open_valves,
+                log_context="H2O route opened",
+            ):
+                return False
         if not self._ensure_dewpoint_meter_ready():
             return False
         if not self._wait_dewpoint_alignment_stable(point):
             return False
+        if not self._wait_h2o_route_dewpoint_gate_before_sampling(point, log_context="H2O route opened"):
+            return False
+        if not self._wait_h2o_precondition_primary_sensor_gate(point):
+            return False
         return True
 
-    def _open_co2_route_for_conditioning(self, point: CalibrationPoint, *, point_tag: str = "") -> None:
+    def _open_co2_route_for_conditioning(self, point: CalibrationPoint, *, point_tag: str = "") -> bool:
+        self._clear_last_sealed_pressure_route_context(reason="opening CO2 route for conditioning")
+        self._sync_co2_source_stage_runtime_fields(point, phase="co2")
+        self._set_point_runtime_fields(point, phase="co2", handoff_route_open_failed=False)
         open_valves = self._co2_open_valves(point, include_total_valve=True)
         if self._complete_pending_route_handoff(
             point,
@@ -12982,18 +26994,26 @@ class CalibrationRunner:
             point_tag=point_tag or self._co2_point_tag(point),
             open_valves=open_valves,
         ):
-            return
+            self._record_pressure_sequence_context(
+                point,
+                phase="co2",
+                reason="fast handoff route already opened for same-gas pressure sequence",
+            )
+            return True
+        if bool((self._point_runtime_state(point, phase="co2") or {}).get("handoff_route_open_failed")):
+            return False
         self._set_co2_route_baseline(reason="before CO2 route conditioning")
-        self._set_valves_for_co2(point)
-        self._append_pressure_trace_row(
-            point=point,
-            route="co2",
-            point_phase="co2",
+        self._record_pressure_sequence_context(
+            point,
+            phase="co2",
+            reason="before CO2 route conditioning",
+        )
+        return self._open_route_with_pressure_guard(
+            point,
+            phase="co2",
             point_tag=point_tag,
-            trace_stage="route_open",
-            pressure_target_hpa=point.target_pressure_hpa,
-            refresh_pace_state=False,
-            note=f"open_valves={open_valves}",
+            open_valves=open_valves,
+            log_context="CO2 route opened",
         )
 
     def _wait_h2o_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
@@ -13031,6 +27051,20 @@ class CalibrationRunner:
             if self.stop_event.is_set():
                 return False
             self._check_pause()
+            keepalive_ok, keepalive_state = self.maintain_continuous_atmosphere_flowthrough(
+                self._source_stage_key_for_point(point, phase="h2o") or "h2o",
+                point=point,
+                phase="h2o",
+                phase_name="ContinuousAtmosphereFlowThrough",
+                reason="h2o_route_preseal_soak",
+            )
+            if not keepalive_ok:
+                self._set_point_runtime_fields(
+                    point,
+                    phase="h2o",
+                    abort_reason=str(keepalive_state.get("abort_reason") or "AtmospherePathInsufficientUnderFlow"),
+                )
+                return False
             remain = soak_s - (time.time() - start)
             if int(remain) in {0, int(soak_s), 30, 60, 120, 180, 240, 300}:
                 self._emit_stage_event(
@@ -13183,12 +27217,273 @@ class CalibrationRunner:
         return self._as_int(valves_cfg.get("co2_path"))
 
     def _set_valves_for_co2(self, point: CalibrationPoint) -> None:
-        self._apply_valve_states(self._co2_open_valves(point, include_total_valve=True))
+        self._apply_valve_states(self._co2_open_valves(point, include_total_valve=True, include_source_valve=True))
 
     def _set_valves_for_h2o(self, point: CalibrationPoint) -> None:
         self._set_h2o_path(True, point)
 
-    def _co2_open_valves(self, point: CalibrationPoint, include_total_valve: bool) -> List[int]:
+    def _open_route_with_pressure_guard(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        point_tag: str,
+        open_valves: Sequence[int],
+        log_context: str,
+    ) -> bool:
+        ordered_open_valves = [int(valve) for valve in list(open_valves or [])]
+        if not ordered_open_valves:
+            return True
+        self._clear_sealed_no_vent_guard(point=point, phase=phase, reason=f"{log_context} route open")
+        self._sync_source_stage_runtime_fields(point, phase=phase)
+        stage_groups, unknown_valves = self._route_stage_groups_for_open_valves(ordered_open_valves)
+        if unknown_valves:
+            unknown_text = "|".join(str(int(valve)) for valve in sorted(set(unknown_valves)))
+            abort_reason = "UnknownValveRole"
+            self._last_route_pressure_guard_summary = {
+                "route_pressure_guard_status": "fail",
+                "route_pressure_guard_reason": abort_reason,
+                "offending_route": self._current_valve_route_state_text(),
+                "offending_valve_or_group": unknown_text,
+                "abort_reason": abort_reason,
+            }
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                route_pressure_guard_status="fail",
+                route_pressure_guard_reason=abort_reason,
+                offending_route=self._current_valve_route_state_text(),
+                offending_valve_or_group=unknown_text,
+                abort_reason=abort_reason,
+            )
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                point_tag=point_tag,
+                trace_stage="route_open_pressure_guard_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                route_pressure_guard_status="fail",
+                route_pressure_guard_reason=abort_reason,
+                offending_route=self._current_valve_route_state_text(),
+                offending_valve_or_group=unknown_text,
+                refresh_pace_state=False,
+                note=f"context={log_context} unknown_valves={unknown_text}",
+            )
+            self._route_open_guard_abort(
+                point,
+                phase=phase,
+                abort_reason=abort_reason,
+                log_context=log_context,
+                state_payload={
+                    "offending_route": self._current_valve_route_state_text(),
+                    "offending_valve_or_group": unknown_text,
+                },
+            )
+            return False
+
+        route_key = self._source_stage_key_for_point(point, phase=phase) or str(phase or "").strip().lower()
+        final_stage_valve = self._route_final_stage_valve_for_point(point, phase=phase)
+        self.enter_continuous_atmosphere_flowthrough(
+            route_key,
+            point=point,
+            phase=phase,
+            point_tag=point_tag,
+            phase_name="SynchronizedAtmosphereFlush",
+            reason=f"{log_context} route flowthrough begin",
+            stage_label="baseline",
+        )
+        cumulative: List[int] = []
+        for stage_index, stage_additions in enumerate(stage_groups, start=1):
+            cumulative = [valve for valve in ordered_open_valves if valve in set(cumulative + list(stage_additions))]
+            stage_label = "|".join(str(int(valve)) for valve in cumulative)
+            source_final_opening = bool(
+                final_stage_valve is not None
+                and int(final_stage_valve) in {int(value) for value in list(stage_additions or [])}
+            )
+            self._drain_pace_system_errors(
+                reason=f"{log_context} stage={stage_label} pre-route drain",
+                classification="pre_route_drain",
+                action="pre_route_drain",
+                command=f"relay_stage:{stage_label}",
+                response=stage_label,
+            )
+            if source_final_opening:
+                pre_burst_ok, pre_burst_summary = self._run_continuous_atmosphere_vent_burst(
+                    point,
+                    phase=phase,
+                    point_tag=point_tag,
+                    route_key=route_key,
+                    phase_name="FinalStageAtmosphereSafetyGate",
+                    stage_label=stage_label,
+                    log_context=log_context,
+                    trace_prefix="pre_source_final_vent_burst",
+                    count=self._pre_source_final_vent_burst_count(),
+                    window_s=0.0,
+                    interval_s=self._pre_source_final_vent_burst_interval_s(),
+                )
+                if not pre_burst_ok:
+                    abort_reason = str(pre_burst_summary.get("burst_reason") or "PreSourceFinalVentBurstFailed")
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=phase,
+                        route_pressure_guard_status="fail",
+                        route_pressure_guard_reason=abort_reason,
+                        abort_reason=abort_reason,
+                    )
+                    return False
+            self._apply_valve_states(cumulative)
+            post_stage_syst_err = str(self._read_pace_system_error_text() or "").strip()
+            if not self._pace_system_error_is_clear(post_stage_syst_err):
+                drained_unclassified = self._drain_pace_system_errors(
+                    reason=f"{log_context} stage={stage_label} post-route-stage drain",
+                    classification="unclassified_route_stage_error",
+                    action="abort_route_stage",
+                    command=f"relay_stage:{stage_label}",
+                    response=stage_label,
+                    unclassified_syst_err=True,
+                )
+                if not drained_unclassified:
+                    self._record_pace_error_attribution(
+                        classification="unclassified_route_stage_error",
+                        action="abort_route_stage",
+                        syst_err=post_stage_syst_err,
+                        command=f"relay_stage:{stage_label}",
+                        response=stage_label,
+                        reason=f"{log_context} stage={stage_label} post-route-stage query",
+                        unclassified_syst_err=True,
+                    )
+                abort_reason = "UnclassifiedPaceSystErrDuringRouteStage"
+                diag_counts = self._pace_error_attribution_counts()
+                summary = {
+                    "route_pressure_guard_status": "fail",
+                    "route_pressure_guard_reason": abort_reason,
+                    "offending_route": self._current_valve_route_state_text(),
+                    "offending_valve_or_group": stage_label,
+                    "pace_syst_err_query": post_stage_syst_err,
+                    "abort_reason": abort_reason,
+                    **diag_counts,
+                }
+                self._last_route_pressure_guard_summary = dict(summary)
+                self._set_point_runtime_fields(point, phase=phase, **summary)
+                self._mark_source_stage_guard_result(
+                    point,
+                    phase=phase,
+                    stage_open_valves=cumulative,
+                    guard_ok=False,
+                    guard_summary=summary,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    point_tag=point_tag,
+                    trace_stage="route_open_pressure_guard_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    route_pressure_guard_status="fail",
+                    route_pressure_guard_reason=abort_reason,
+                    offending_route=self._current_valve_route_state_text(),
+                    offending_valve_or_group=stage_label,
+                    refresh_pace_state=False,
+                    note=f"context={log_context} result=abort abort_reason={abort_reason}",
+                )
+                self._route_open_guard_abort(
+                    point,
+                    phase=phase,
+                    abort_reason=abort_reason,
+                    log_context=log_context,
+                    state_payload=summary,
+                )
+                return False
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                point_tag=point_tag,
+                trace_stage="route_open_stage",
+                pressure_target_hpa=point.target_pressure_hpa,
+                offending_route=self._current_valve_route_state_text(),
+                offending_valve_or_group=stage_label,
+                refresh_pace_state=False,
+                note=(
+                    f"context={log_context} stage={stage_index}/{len(stage_groups)} "
+                    f"stage_additions={list(stage_additions)} cumulative_open={cumulative} "
+                    f"pressure_mode={self._route_flush_pressure_mode(phase)}"
+                ),
+            )
+            if source_final_opening:
+                post_burst_ok, post_burst_summary = self._run_continuous_atmosphere_vent_burst(
+                    point,
+                    phase=phase,
+                    point_tag=point_tag,
+                    route_key=route_key,
+                    phase_name="FinalStageAtmosphereSafetyGate",
+                    stage_label=stage_label,
+                    log_context=log_context,
+                    trace_prefix="post_source_final_vent_burst",
+                    count=0,
+                    window_s=self._post_source_final_vent_burst_window_s(),
+                    interval_s=self._post_source_final_vent_burst_interval_s(),
+                )
+                if not post_burst_ok:
+                    abort_reason = str(post_burst_summary.get("burst_reason") or "PostSourceFinalVentBurstFailed")
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=phase,
+                        route_pressure_guard_status="fail",
+                        route_pressure_guard_reason=abort_reason,
+                        abort_reason=abort_reason,
+                    )
+                    return False
+            guard_ok, _guard_summary = self._run_route_open_pressure_guard(
+                point,
+                phase=phase,
+                log_context=log_context,
+                point_tag=point_tag,
+                stage_label=stage_label,
+            )
+            self._mark_source_stage_guard_result(
+                point,
+                phase=phase,
+                stage_open_valves=cumulative,
+                guard_ok=guard_ok,
+                guard_summary=_guard_summary,
+            )
+            if not guard_ok:
+                if point is not None:
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=str(phase or "").strip().lower(),
+                        source_stage_guard_status="fail",
+                        source_stage_guard_reason=str(
+                            _guard_summary.get("route_pressure_guard_reason")
+                            or _guard_summary.get("abort_reason")
+                            or "SourceStageGuardFailed"
+                        ),
+                    )
+                return False
+
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            point_tag=point_tag,
+            trace_stage="route_open",
+            pressure_target_hpa=point.target_pressure_hpa,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group="|".join(str(int(valve)) for valve in ordered_open_valves),
+            refresh_pace_state=False,
+            note=f"open_valves={ordered_open_valves}",
+        )
+        return True
+
+    def _co2_open_valves(
+        self,
+        point: CalibrationPoint,
+        include_total_valve: bool,
+        *,
+        include_source_valve: bool = True,
+    ) -> List[int]:
         valves_cfg = self.cfg.get("valves", {})
         open_list: List[int] = []
 
@@ -13204,7 +27499,7 @@ class CalibrationRunner:
         if co2_path is not None:
             open_list.append(co2_path)
 
-        source = self._source_valve_for_point(point)
+        source = self._source_valve_for_point(point) if include_source_valve else None
         if source is not None:
             open_list.append(source)
 
@@ -13242,6 +27537,32 @@ class CalibrationRunner:
         self._preseal_dewpoint_snapshot = None
         route_name = str(route or "co2").strip().lower()
         phase = "h2o" if route_name == "h2o" or point.is_h2o_point else "co2"
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            preseal_final_atmosphere_exit_required=True,
+            preseal_final_atmosphere_exit_started=False,
+            preseal_final_atmosphere_exit_verified=False,
+            preseal_final_atmosphere_exit_phase="preseal_before_full_seal",
+            preseal_final_atmosphere_exit_reason="pending_before_full_seal",
+            preseal_final_exit_watchlist_status_seen=False,
+            preseal_final_exit_watchlist_status_accepted=False,
+            preseal_final_exit_watchlist_status_reason="",
+            legacy_v1_preseal_watchlist_evidence_found=False,
+            legacy_v1_preseal_watchlist_evidence_source="",
+            control_ready_check_vent_status=None,
+            control_ready_check_phase="",
+            control_ready_failure_reason_detail="",
+            control_ready_failed_after_full_seal=False,
+            control_ready_failed_with_watchlist_status_3=False,
+            control_ready_watchlist_status_accepted=False,
+        )
+        self.exit_continuous_atmosphere_flowthrough(
+            self._source_stage_key_for_point(point, phase=phase) or phase,
+            point=point,
+            phase=phase,
+            reason=f"before {route.upper()} pressure seal",
+        )
         self._start_pressure_transition_fast_signal_context(
             point=point,
             phase=phase,
@@ -13255,6 +27576,13 @@ class CalibrationRunner:
                 nonlocal route_sealed
                 if route_sealed:
                     return
+                self._record_seal_transition_state(
+                    point,
+                    phase=phase,
+                    trace_stage="seal_transition_started",
+                    reason=f"before {route.upper()} valve seal",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                )
                 if route_name == "h2o":
                     self._set_h2o_path(False, point)
                 else:
@@ -13262,6 +27590,36 @@ class CalibrationRunner:
                     # and current source valve so the downstream volume is actually sealed
                     # before pressure control starts.
                     self._apply_valve_states([])
+                seal_state = self._record_seal_transition_state(
+                    point,
+                    phase=phase,
+                    trace_stage="seal_total_route_valve_closed",
+                    reason=f"after {route.upper()} total route valve close",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                )
+                seal_state = self._record_seal_transition_state(
+                    point,
+                    phase=phase,
+                    trace_stage="seal_all_required_solenoids_closed",
+                    reason=f"after {route.upper()} all required solenoid close",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                )
+                if not bool(seal_state.get("seal_transition_completed")):
+                    self._record_seal_transition_state(
+                        point,
+                        phase=phase,
+                        trace_stage="seal_transition_blocked",
+                        reason="SealTransitionIncomplete",
+                        pressure_target_hpa=point.target_pressure_hpa,
+                    )
+                    raise RuntimeError("SealTransitionIncomplete")
+                self._record_seal_transition_state(
+                    point,
+                    phase=phase,
+                    trace_stage="seal_transition_completed",
+                    reason=f"{route.upper()} full seal verified",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                )
                 route_sealed = True
 
             self._emit_stage_event(
@@ -13274,16 +27632,24 @@ class CalibrationRunner:
                 self._capture_preseal_dewpoint_snapshot(prefer_cached_pressure=True)
             else:
                 self._capture_preseal_dewpoint_snapshot()
-            self._append_pressure_trace_row(
-                point=point,
-                route=phase,
-                point_phase=phase,
-                trace_stage="preseal_vent_off_begin",
-                pressure_target_hpa=point.target_pressure_hpa,
-                refresh_pace_state=False,
-                note="before vent off command",
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                preseal_final_atmosphere_exit_started=True,
+                preseal_final_atmosphere_exit_reason="ensure_vent_closed_before_seal",
             )
-            self._set_pressure_controller_vent(False, reason=f"before {route.upper()} pressure seal")
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="preseal_final_atmosphere_exit_started",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                note=(
+                    "final atmosphere exit before full seal; "
+                    f"pressure_mode={self._seal_transition_pressure_mode()}"
+                ),
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -13291,7 +27657,32 @@ class CalibrationRunner:
                 trace_stage="preseal_vent_off_begin",
                 pressure_target_hpa=point.target_pressure_hpa,
                 refresh_pace_state=False,
-                note="vent off command issued; immediate pre-seal threshold monitoring begins",
+                note=f"before vent off command; pressure_mode={self._seal_transition_pressure_mode()}",
+            )
+            final_vent0_command_sent = bool(self._set_pressure_controller_vent(
+                False,
+                reason=f"before {route.upper()} pressure seal",
+                point=point,
+                phase=phase,
+                helper_name="_pressurize_and_hold",
+                vent_phase_label="ExitAtmosphereBoundary",
+                before_seal_transition_start=True,
+                before_pressure_hold_start=True,
+                before_sour_pres_command=True,
+                before_outp_stat_1_command=True,
+                vent_command_reason="ensure_vent_closed_before_seal",
+            ))
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="preseal_vent_off_begin",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                note=(
+                    "vent off command issued; immediate pre-seal threshold monitoring begins; "
+                    f"pressure_mode={self._seal_transition_pressure_mode()}"
+                ),
             )
 
             pcfg = self.cfg.get("workflow", {}).get("pressure", {})
@@ -13413,7 +27804,6 @@ class CalibrationRunner:
                             f"fixed open-route wait after vent off completed after {wait_after_vent_off_s:.3f}s"
                         )
                         self.log(f"{route.upper()} preseal {timeout_note}")
-                        _seal_route_now()
                         trace_values = self._cached_ready_check_trace_values(point=point)
                         pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
                         if pace_pressure_now is None:
@@ -13522,7 +27912,6 @@ class CalibrationRunner:
                             f"{route.upper()} preseal pressure_gauge_threshold reached: "
                             f"{pressure_now:.3f} hPa >= {float(preseal_trigger_threshold_hpa or 0.0):.3f} hPa"
                         )
-                        _seal_route_now()
                         trace_values = self._cached_ready_check_trace_values(point=point)
                         pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
                         if pace_pressure_now is None:
@@ -13623,7 +28012,6 @@ class CalibrationRunner:
                             self.log(
                                 f"{route.upper()} preseal {timeout_note}"
                             )
-                            _seal_route_now()
                             trace_values = self._cached_ready_check_trace_values(point=point)
                             pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
                             if pace_pressure_now is None:
@@ -13673,7 +28061,6 @@ class CalibrationRunner:
                     time.sleep(max(0.02, sleep_s))
             else:
                 preseal_trigger_source = "no_wait"
-                _seal_route_now()
                 trace_values = self._cached_ready_check_trace_values(point=point)
                 dewpoint_kwargs: Dict[str, Any] = {}
                 if any(
@@ -13758,6 +28145,20 @@ class CalibrationRunner:
                     else:
                         self.log(f"{route_title} route vent OFF settle complete; seal route directly before pressure control")
 
+            if not self._verify_preseal_final_atmosphere_exit(
+                point,
+                phase=phase,
+                reason="ensure_vent_closed_before_seal",
+                pressure_target_hpa=point.target_pressure_hpa,
+                final_vent0_command_sent=final_vent0_command_sent,
+            ):
+                return False
+            self._activate_sealed_no_vent_guard(
+                point=point,
+                phase=phase,
+                guard_phase="SealTransition",
+                reason=f"before {route.upper()} pressure seal",
+            )
             _seal_route_now()
 
             trace_values = self._cached_ready_check_trace_values(point=point)
@@ -13804,6 +28205,18 @@ class CalibrationRunner:
                         else f"preseal_ready_failures={','.join(ready_failures)}"
                     )
                 ),
+            )
+            self._record_seal_transition_state(
+                point,
+                phase=phase,
+                trace_stage="sealed_control_entry_verified",
+                reason="route sealed before pressure control",
+                pressure_target_hpa=point.target_pressure_hpa,
+            )
+            self._remember_last_sealed_pressure_route_context(
+                point,
+                phase=phase,
+                reason="route_sealed_for_pressure_control",
             )
             return True
         finally:
@@ -13890,11 +28303,186 @@ class CalibrationRunner:
             "dewpoint_gate_count": runtime_state.get("dewpoint_gate_count"),
             "dewpoint_gate_span_c": runtime_state.get("dewpoint_gate_span_c"),
             "dewpoint_gate_slope_c_per_s": runtime_state.get("dewpoint_gate_slope_c_per_s"),
+            "handoff_mode": runtime_state.get("handoff_mode"),
+            "pace_upstream_check_valve_installed": runtime_state.get("pace_upstream_check_valve_installed"),
+            "post_isolation_pressure_truth_source": runtime_state.get("post_isolation_pressure_truth_source"),
+            "ambient_reference_hpa": runtime_state.get("ambient_reference_hpa"),
+            "superambient_target_hpa": runtime_state.get("superambient_target_hpa"),
+            "superambient_precharge_margin_hpa": runtime_state.get("superambient_precharge_margin_hpa"),
+            "superambient_precharge_peak_hpa": runtime_state.get("superambient_precharge_peak_hpa"),
+            "superambient_precharge_result": runtime_state.get("superambient_precharge_result"),
+            "superambient_closed_path_verified": runtime_state.get("superambient_closed_path_verified"),
+            "capture_hold_status": runtime_state.get("capture_hold_status"),
+            "capture_hold_reason": runtime_state.get("capture_hold_reason"),
+            "post_isolation_status": runtime_state.get("post_isolation_status"),
+            "post_isolation_reason": runtime_state.get("post_isolation_reason"),
+            "post_isolation_capture_mode": runtime_state.get("post_isolation_capture_mode"),
+            "post_isolation_fast_capture_status": runtime_state.get("post_isolation_fast_capture_status"),
+            "post_isolation_fast_capture_reason": runtime_state.get("post_isolation_fast_capture_reason"),
+            "post_isolation_fast_capture_elapsed_s": runtime_state.get("post_isolation_fast_capture_elapsed_s"),
+            "post_isolation_fast_capture_fallback": runtime_state.get("post_isolation_fast_capture_fallback"),
+            "post_isolation_pressure_start_hpa": runtime_state.get("post_isolation_pressure_start_hpa"),
+            "post_isolation_pressure_end_hpa": runtime_state.get("post_isolation_pressure_end_hpa"),
+            "post_isolation_pressure_peak_hpa": runtime_state.get("post_isolation_pressure_peak_hpa"),
+            "post_isolation_pressure_min_hpa": runtime_state.get("post_isolation_pressure_min_hpa"),
+            "post_isolation_pressure_drift_hpa": runtime_state.get("post_isolation_pressure_drift_hpa"),
+            "post_isolation_pressure_slope_hpa_s": runtime_state.get("post_isolation_pressure_slope_hpa_s"),
+            "post_isolation_pressure_recovery_toward_ambient": runtime_state.get(
+                "post_isolation_pressure_recovery_toward_ambient"
+            ),
+            "post_isolation_dewpoint_start_c": runtime_state.get("post_isolation_dewpoint_start_c"),
+            "post_isolation_dewpoint_end_c": runtime_state.get("post_isolation_dewpoint_end_c"),
+            "post_isolation_dewpoint_rise_c": runtime_state.get("post_isolation_dewpoint_rise_c"),
+            "post_isolation_dewpoint_slope_c_s": runtime_state.get("post_isolation_dewpoint_slope_c_s"),
+            "post_isolation_h2o_start": runtime_state.get("post_isolation_h2o_start"),
+            "post_isolation_h2o_end": runtime_state.get("post_isolation_h2o_end"),
+            "post_isolation_pressure_dew_corr": runtime_state.get("post_isolation_pressure_dew_corr"),
+            "post_isolation_diagnosis": runtime_state.get("post_isolation_diagnosis"),
+            "pressure_gate_status": runtime_state.get("pressure_gate_status"),
+            "pressure_gate_reason": runtime_state.get("pressure_gate_reason"),
+            "pressure_gate_window_s": runtime_state.get("pressure_gate_window_s"),
+            "pressure_gate_elapsed_s": runtime_state.get("pressure_gate_elapsed_s"),
+            "pressure_gate_span_hpa": runtime_state.get("pressure_gate_span_hpa"),
+            "pressure_gate_slope_hpa_per_s": runtime_state.get("pressure_gate_slope_hpa_per_s"),
+            "pressure_gate_count": runtime_state.get("pressure_gate_count"),
+            "pressure_dew_sync_status": runtime_state.get("pressure_dew_sync_status"),
+            "pressure_dew_sync_reason": runtime_state.get("pressure_dew_sync_reason"),
+            "root_cause_reject_reason": runtime_state.get("root_cause_reject_reason"),
+            "pace_output_state": runtime_state.get("pace_output_state"),
+            "pace_isolation_state": runtime_state.get("pace_isolation_state"),
+            "pace_vent_status": runtime_state.get("pace_vent_status"),
+            "pace_outp_state_query": runtime_state.get("pace_outp_state_query"),
+            "pace_isol_state_query": runtime_state.get("pace_isol_state_query"),
+            "pace_mode_query": runtime_state.get("pace_mode_query"),
+            "pace_vent_status_query": runtime_state.get("pace_vent_status_query"),
+            "pace_legacy_vent_state_3_suspect": runtime_state.get("pace_legacy_vent_state_3_suspect"),
+            "pace_atmosphere_connected_latched_state_suspect": runtime_state.get(
+                "pace_atmosphere_connected_latched_state_suspect"
+            ),
+            "legacy_vent3_control_ready_used": runtime_state.get("legacy_vent3_control_ready_used"),
+            "legacy_vent3_accept_scope": runtime_state.get("legacy_vent3_accept_scope"),
+            "vent_status_3_count": runtime_state.get("vent_status_3_count"),
+            "vent3_hard_blocked": runtime_state.get("vent3_hard_blocked"),
+            "vent3_watchlist_only": runtime_state.get("vent3_watchlist_only"),
+            "vent3_control_ready_attempted": runtime_state.get("vent3_control_ready_attempted"),
+            "vent3_control_ready_prevented": runtime_state.get("vent3_control_ready_prevented"),
+            "vent3_block_scope": runtime_state.get("vent3_block_scope"),
+            "ack_callback_invoked": runtime_state.get("ack_callback_invoked"),
+            "vent3_post_window_status": runtime_state.get("vent3_post_window_status"),
+            "pace_vent_after_valve_state_query": runtime_state.get("pace_vent_after_valve_state_query"),
+            "pace_vent_popup_state_query": runtime_state.get("pace_vent_popup_state_query"),
+            "pace_vent_elapsed_time_query": runtime_state.get("pace_vent_elapsed_time_query"),
+            "pace_vent_orpv_state_query": runtime_state.get("pace_vent_orpv_state_query"),
+            "pace_vent_pupv_state_query": runtime_state.get("pace_vent_pupv_state_query"),
+            "pace_oper_cond_query": runtime_state.get("pace_oper_cond_query"),
+            "pace_oper_pres_cond_query": runtime_state.get("pace_oper_pres_cond_query"),
+            "baseline_sanity_gate_status": runtime_state.get("baseline_sanity_gate_status"),
+            "baseline_sanity_gate_reason": runtime_state.get("baseline_sanity_gate_reason"),
+            "baseline_sanity_target_co2_ppm": runtime_state.get("baseline_sanity_target_co2_ppm"),
+            "baseline_sanity_plateau_mean_ppm": runtime_state.get("baseline_sanity_plateau_mean_ppm"),
+            "baseline_sanity_plateau_span_ppm": runtime_state.get("baseline_sanity_plateau_span_ppm"),
+            "baseline_sanity_plateau_count": runtime_state.get("baseline_sanity_plateau_count"),
+            "pressure_gauge_hpa_snapshot": runtime_state.get("pressure_gauge_hpa"),
+            "dewpoint_c_snapshot": runtime_state.get("dewpoint_c"),
+            "temp_c_snapshot": runtime_state.get("temp_c"),
+            "rh_pct_snapshot": runtime_state.get("rh_pct"),
             "preseal_dewpoint_c": runtime_state.get("preseal_dewpoint_c"),
             "preseal_temp_c": runtime_state.get("preseal_temp_c"),
             "preseal_rh_pct": runtime_state.get("preseal_rh_pct"),
             "preseal_pressure_hpa": runtime_state.get("preseal_pressure_hpa"),
             "preseal_trigger_overshoot_hpa": runtime_state.get("preseal_trigger_overshoot_hpa"),
+            "preseal_final_atmosphere_exit_required": runtime_state.get(
+                "preseal_final_atmosphere_exit_required"
+            ),
+            "preseal_final_atmosphere_exit_started": runtime_state.get(
+                "preseal_final_atmosphere_exit_started"
+            ),
+            "preseal_final_atmosphere_exit_verified": runtime_state.get(
+                "preseal_final_atmosphere_exit_verified"
+            ),
+            "preseal_final_atmosphere_exit_phase": runtime_state.get(
+                "preseal_final_atmosphere_exit_phase"
+            ),
+            "preseal_final_atmosphere_exit_reason": runtime_state.get(
+                "preseal_final_atmosphere_exit_reason"
+            ),
+            "preseal_final_exit_watchlist_status_seen": runtime_state.get(
+                "preseal_final_exit_watchlist_status_seen"
+            ),
+            "preseal_final_exit_watchlist_status_accepted": runtime_state.get(
+                "preseal_final_exit_watchlist_status_accepted"
+            ),
+            "preseal_final_exit_watchlist_status_reason": runtime_state.get(
+                "preseal_final_exit_watchlist_status_reason"
+            ),
+            "legacy_v1_preseal_watchlist_evidence_found": runtime_state.get(
+                "legacy_v1_preseal_watchlist_evidence_found"
+            ),
+            "legacy_v1_preseal_watchlist_evidence_source": runtime_state.get(
+                "legacy_v1_preseal_watchlist_evidence_source"
+            ),
+            "after_full_seal_watchlist_status_seen": runtime_state.get(
+                "after_full_seal_watchlist_status_seen"
+            ),
+            "after_full_seal_watchlist_status_accepted": runtime_state.get(
+                "after_full_seal_watchlist_status_accepted"
+            ),
+            "after_full_seal_watchlist_status_reason": runtime_state.get(
+                "after_full_seal_watchlist_status_reason"
+            ),
+            "legacy_v1_after_full_seal_watchlist_evidence_found": runtime_state.get(
+                "legacy_v1_after_full_seal_watchlist_evidence_found"
+            ),
+            "legacy_v1_after_full_seal_watchlist_evidence_source": runtime_state.get(
+                "legacy_v1_after_full_seal_watchlist_evidence_source"
+            ),
+            "after_full_seal_output_enable_watchlist_status_seen": runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_seen"
+            ),
+            "after_full_seal_output_enable_watchlist_status_accepted": runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_accepted"
+            ),
+            "after_full_seal_output_enable_watchlist_status_reason": runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_reason"
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found": runtime_state.get(
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found"
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source": runtime_state.get(
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source"
+            ),
+            "control_ready_check_vent_status": runtime_state.get("control_ready_check_vent_status"),
+            "control_ready_check_phase": runtime_state.get("control_ready_check_phase"),
+            "control_ready_failure_reason_detail": runtime_state.get(
+                "control_ready_failure_reason_detail"
+            ),
+            "control_ready_failed_after_full_seal": runtime_state.get(
+                "control_ready_failed_after_full_seal"
+            ),
+            "control_ready_failed_with_watchlist_status_3": runtime_state.get(
+                "control_ready_failed_with_watchlist_status_3"
+            ),
+            "control_ready_watchlist_status_accepted": runtime_state.get(
+                "control_ready_watchlist_status_accepted"
+            ),
+            "control_ready_watchlist_status_phase": runtime_state.get(
+                "control_ready_watchlist_status_phase"
+            ),
+            "control_ready_check_watchlist_status_seen": runtime_state.get(
+                "control_ready_check_watchlist_status_seen"
+            ),
+            "control_ready_check_watchlist_status_accepted": runtime_state.get(
+                "control_ready_check_watchlist_status_accepted"
+            ),
+            "output_enable_watchlist_status_accepted": runtime_state.get(
+                "output_enable_watchlist_status_accepted"
+            ),
+            "output_enable_watchlist_status_phase": runtime_state.get(
+                "output_enable_watchlist_status_phase"
+            ),
+            "output_enable_failed_with_watchlist_status_3": runtime_state.get(
+                "output_enable_failed_with_watchlist_status_3"
+            ),
             "postseal_expected_dewpoint_c": runtime_state.get("postseal_expected_dewpoint_c"),
             "postseal_actual_dewpoint_c": runtime_state.get("postseal_actual_dewpoint_c"),
             "postseal_physical_delta_c": runtime_state.get("postseal_physical_delta_c"),
@@ -13904,6 +28492,12 @@ class CalibrationRunner:
             "postseal_timeout_blocked": runtime_state.get("postseal_timeout_blocked"),
             "point_quality_timeout_flag": runtime_state.get("point_quality_timeout_flag"),
             "dewpoint_gate_pass_live_c": runtime_state.get("dewpoint_gate_pass_live_c"),
+            "cold_co2_quality_gate_status": runtime_state.get("cold_co2_quality_gate_status"),
+            "cold_co2_quality_gate_reason": runtime_state.get("cold_co2_quality_gate_reason"),
+            "cold_co2_quality_gate_reference_temp_c": runtime_state.get("cold_co2_quality_gate_reference_temp_c"),
+            "cold_co2_quality_gate_checked_count": runtime_state.get("cold_co2_quality_gate_checked_count"),
+            "cold_co2_quality_gate_invalid_count": runtime_state.get("cold_co2_quality_gate_invalid_count"),
+            "cold_co2_quality_gate_invalid_labels": runtime_state.get("cold_co2_quality_gate_invalid_labels"),
             "presample_long_guard_status": runtime_state.get("presample_long_guard_status"),
             "presample_long_guard_reason": runtime_state.get("presample_long_guard_reason"),
             "presample_long_guard_elapsed_s": runtime_state.get("presample_long_guard_elapsed_s"),
@@ -14391,13 +28985,14 @@ class CalibrationRunner:
         self._pending_route_handoff = None
         self._stop_pressure_transition_fast_signal_context(reason="discard pending route handoff")
         try:
-            self._set_pressure_controller_vent(True, reason="discard pending route handoff")
-        except Exception as exc:
-            self.log(f"Pending route handoff vent restore failed: {exc}")
-        try:
             self._apply_route_baseline_valves()
         except Exception as exc:
             self.log(f"Pending route handoff baseline restore failed: {exc}")
+        try:
+            self._clear_sealed_no_vent_guard(phase=phase, reason="discard pending route handoff")
+            self._set_pressure_controller_vent(True, reason="discard pending route handoff")
+        except Exception as exc:
+            self.log(f"Pending route handoff vent restore failed: {exc}")
 
     def _begin_pending_route_handoff(
         self,
@@ -14465,6 +29060,7 @@ class CalibrationRunner:
             pace_vent_status=cached_pace_state.get("pace_vent_status"),
             refresh_pace_state=False,
             handoff_sample_to_vent_ms=sample_to_vent_ms,
+            handoff_mode="gas_change_route_handoff",
             atmosphere_reference_hpa=self._atmosphere_reference_hpa,
             handoff_safe_open_delta_hpa=self._handoff_safe_open_delta_hpa(),
             deferred_export_queue_len=len(self._deferred_point_exports),
@@ -14605,6 +29201,7 @@ class CalibrationRunner:
         point_tag: str,
         open_valves: List[int],
     ) -> bool:
+        pace = self.devices.get("pace")
         handoff_state = dict(self._pending_route_handoff or {})
         if not handoff_state:
             return False
@@ -14646,6 +29243,7 @@ class CalibrationRunner:
             handoff_sample_to_vent_ms=sample_to_vent_ms,
             handoff_vent_to_safe_open_ms=vent_to_safe_open_ms,
             handoff_total_ms=round((safe_open_ts - sample_done_ts) * 1000.0, 3),
+            handoff_mode="gas_change_route_handoff",
             atmosphere_reference_hpa=safe_state.get("atmosphere_reference_hpa"),
             handoff_safe_open_delta_hpa=safe_state.get("safe_open_delta_hpa"),
             deferred_export_queue_len=len(self._deferred_point_exports),
@@ -14672,13 +29270,66 @@ class CalibrationRunner:
             refresh_pace_state=False,
             handoff_sample_to_vent_ms=sample_to_vent_ms,
             handoff_vent_to_safe_open_ms=vent_to_safe_open_ms,
+            handoff_mode="gas_change_route_handoff",
             atmosphere_reference_hpa=safe_state.get("atmosphere_reference_hpa"),
             handoff_safe_open_delta_hpa=safe_state.get("safe_open_delta_hpa"),
             deferred_export_queue_len=len(self._deferred_point_exports),
             event_ts=open_begin_ts,
             note=f"open_valves={open_valves}",
         )
-        self._apply_valve_states(open_valves)
+        guard_enabled = bool(self._route_open_pressure_guard_cfg().get("enabled"))
+        final_stage_valve = self._route_final_stage_valve_for_point(point, phase=str(phase or ""))
+        source_stage_verified = self._source_stage_safe_for_point(point, phase=str(phase or ""))
+        if (
+            guard_enabled
+            and final_stage_valve is not None
+            and int(final_stage_valve) in {int(value) for value in list(open_valves or [])}
+            and not source_stage_verified
+        ):
+            self.log("HandoffSourceStageBlockedUntilVerified")
+            self._set_point_runtime_fields(
+                point,
+                phase=str(phase or "").strip().lower(),
+                handoff_source_stage_blocked=True,
+                handoff_source_stage_block_reason="HandoffSourceStageBlockedUntilVerified",
+            )
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                point_tag=point_tag,
+                trace_stage="handoff_next_route_open_blocked",
+                pressure_target_hpa=point.target_pressure_hpa,
+                pressure_gauge_hpa=safe_state.get("pressure_gauge_hpa"),
+                refresh_pace_state=False,
+                handoff_sample_to_vent_ms=sample_to_vent_ms,
+                handoff_vent_to_safe_open_ms=vent_to_safe_open_ms,
+                handoff_mode="gas_change_route_handoff",
+                atmosphere_reference_hpa=safe_state.get("atmosphere_reference_hpa"),
+                handoff_safe_open_delta_hpa=safe_state.get("safe_open_delta_hpa"),
+                deferred_export_queue_len=len(self._deferred_point_exports),
+                event_ts=time.time(),
+                note="HandoffSourceStageBlockedUntilVerified",
+            )
+            self._pending_route_handoff = None
+            self._stop_pressure_transition_fast_signal_context(reason="handoff source stage blocked")
+            return False
+
+        self._pending_route_handoff = None
+        if guard_enabled:
+            if not self._open_route_with_pressure_guard(
+                point,
+                phase=phase,
+                point_tag=point_tag,
+                open_valves=open_valves,
+                log_context="handoff staged route open",
+            ):
+                self._set_point_runtime_fields(point, phase=phase, handoff_route_open_failed=True)
+                self._stop_pressure_transition_fast_signal_context(reason="handoff staged route open failed")
+                return False
+        else:
+            self._apply_valve_states(open_valves)
+        self._set_point_runtime_fields(point, phase=phase, handoff_route_open_failed=False)
         open_done_ts = time.time()
         safe_open_to_route_open_ms = round((open_done_ts - open_begin_ts) * 1000.0, 3)
         handoff_total_ms = round((open_done_ts - sample_done_ts) * 1000.0, 3)
@@ -14698,6 +29349,7 @@ class CalibrationRunner:
             handoff_vent_to_safe_open_ms=vent_to_safe_open_ms,
             handoff_safe_open_to_route_open_ms=safe_open_to_route_open_ms,
             handoff_total_ms=handoff_total_ms,
+            handoff_mode="gas_change_route_handoff",
             atmosphere_reference_hpa=safe_state.get("atmosphere_reference_hpa"),
             handoff_safe_open_delta_hpa=safe_state.get("safe_open_delta_hpa"),
             deferred_export_queue_len=len(self._deferred_point_exports),
@@ -14712,10 +29364,19 @@ class CalibrationRunner:
             f"handoff_total_ms={handoff_total_ms:.3f}"
         )
 
-        try:
-            self._set_pressure_controller_vent(True, reason="maintain atmosphere during next route soak")
-        except Exception as exc:
-            self.log(f"Route handoff post-open atmosphere-hold restore failed: {exc}")
+        begin_handoff = getattr(pace, "begin_atmosphere_handoff", None)
+        vent_command = getattr(pace, "vent", None)
+        if callable(begin_handoff) and not callable(vent_command):
+            self.log(
+                "Route handoff post-open atmosphere-hold restore skipped: "
+                "dedicated handoff helper already engaged and low-level vent() is unavailable"
+            )
+        else:
+            try:
+                self._clear_sealed_no_vent_guard(point=point, phase=phase, reason="maintain atmosphere during next route soak")
+                self._set_pressure_controller_vent(True, reason="maintain atmosphere during next route soak")
+            except Exception as exc:
+                self.log(f"Route handoff post-open atmosphere-hold restore failed: {exc}")
 
         if self._flush_deferred_exports_on_next_route_soak_enabled() and (
             self._deferred_sample_exports or self._deferred_point_exports
@@ -14750,7 +29411,6 @@ class CalibrationRunner:
                 note="deferred sample/heavy exports flush complete",
             )
 
-        self._pending_route_handoff = None
         self._stop_pressure_transition_fast_signal_context(reason="handoff complete")
         return True
 
@@ -15531,6 +30191,14 @@ class CalibrationRunner:
         retries = int(qcfg.get("retries", 0) or 0) if qcfg.get("enabled", False) else 0
 
         phase_text = str(phase or ("h2o" if point.is_h2o_point else "co2")).strip().lower()
+        if self._block_co2_source_stage_operation(
+            point,
+            phase=phase_text,
+            operation="sampling",
+            trace_stage="sampling_blocked",
+            note=f"point_tag={point_tag}",
+        ):
+            return
         self._emit_stage_event(
             current=self._stage_label_for_point(point, phase=phase_text),
             point=point,
@@ -15912,6 +30580,21 @@ class CalibrationRunner:
                 return False
             self._check_pause()
             self._refresh_live_analyzer_snapshots(reason="dewpoint alignment wait")
+            if point is not None:
+                keepalive_ok, keepalive_state = self.maintain_continuous_atmosphere_flowthrough(
+                    self._source_stage_key_for_point(point, phase="h2o") or "h2o",
+                    point=point,
+                    phase="h2o",
+                    phase_name="ContinuousAtmosphereFlowThrough",
+                    reason="dewpoint alignment wait",
+                )
+                if not keepalive_ok:
+                    self._set_point_runtime_fields(
+                        point,
+                        phase="h2o",
+                        abort_reason=str(keepalive_state.get("abort_reason") or "AtmospherePathInsufficientUnderFlow"),
+                    )
+                    return False
 
             if timeout_s is not None and (time.time() - start) >= timeout_s:
                 break
@@ -16347,6 +31030,10 @@ class CalibrationRunner:
         robust_huber_delta = float(cfg.get("robust_huber_delta", 1.5))
         robust_min_weight = float(cfg.get("robust_min_weight", 0.05))
         candidate_methods = cfg.get("candidate_simplification_methods")
+        active_model_features, model_feature_reason = resolve_ratio_poly_model_features(
+            cfg,
+            self.cfg.get("workflow", {}).get("selected_pressure_points"),
+        )
 
         fit_fn = fit_ratio_poly_rt_p
         if model in {"ratio_poly_rt_p_evolved", "poly_rt_p_evolved"}:
@@ -16387,6 +31074,10 @@ class CalibrationRunner:
                     "pressure_selection_mode=batch_unified "
                     f"pressure_scale={pressure_scale:g}"
                 )
+                self.log(
+                    f"Ratio-poly model features [{gas_lower.upper()}][{analyzer_label}]: "
+                    f"reason={model_feature_reason} features={active_model_features}"
+                )
                 if fit_fn is fit_ratio_poly_rt_p_evolved:
                     result = fit_fn(
                         analyzer_rows,
@@ -16399,6 +31090,7 @@ class CalibrationRunner:
                         ratio_degree=ratio_degree,
                         temperature_offset_c=temperature_offset_c,
                         add_intercept=add_intercept,
+                        model_features=active_model_features,
                         simplify_coefficients=simplify_coefficients,
                         simplification_method=simplification_method,
                         target_digits=target_digits,
@@ -16426,6 +31118,7 @@ class CalibrationRunner:
                         ratio_degree=ratio_degree,
                         temperature_offset_c=temperature_offset_c,
                         add_intercept=add_intercept,
+                        model_features=active_model_features,
                         simplify_coefficients=simplify_coefficients,
                         simplification_method=simplification_method,
                         target_digits=target_digits,

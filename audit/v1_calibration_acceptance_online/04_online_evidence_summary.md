@@ -1,7 +1,7 @@
 # Online Evidence Summary
 
-- generated_at: 2026-04-13T12:47:29+08:00
-- head: `f41b7b20c35a5051943fecd35bdaf62c05ae8d34`
+- generated_at: 2026-04-13T15:00:25+08:00
+- head: `367a1089ebaca1388dbb9d11648f74513316e502`
 - offline_fault_injection = PASS
 - real_device_abnormal_recovery = ONLINE_EVIDENCE_REQUIRED
 - latest_status: ONLINE_EVIDENCE_REQUIRED

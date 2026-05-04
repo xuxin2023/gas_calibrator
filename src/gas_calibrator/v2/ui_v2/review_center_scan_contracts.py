@@ -19,11 +19,20 @@ from ..core.phase_evidence_display_contracts import (
     PHASE_TERMS as _PHASE_TERMS,
     PHASE_TERMS_EN as _PHASE_TERMS_EN,
 )
+from ..core.reviewer_summary_builders import (
+    build_v12_alignment_compact_summary as _build_v12_compact,
+    build_parity_resilience_compact_summary as _build_parity_resilience_compact,
+    REVIEWER_SUMMARY_BUILDERS_VERSION as _BUILDERS_VERSION,
+)
+from ..core.reviewer_summary_packs import (
+    build_v12_alignment_pack as _build_v12_alignment_pack,
+    REVIEWER_SUMMARY_PACKS_VERSION as _PACKS_VERSION,
+)
 
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
-REVIEW_CENTER_SCAN_CONTRACTS_VERSION: str = "2.7.0"
+REVIEW_CENTER_SCAN_CONTRACTS_VERSION: str = "2.13.0"
 
 # ---------------------------------------------------------------------------
 # Artifact family definitions
@@ -246,6 +255,24 @@ def build_v12_alignment_summary(
     # Build budget-limited families list
     _budget_limited = [k for k, v in _family_budget.items() if isinstance(v, dict) and v.get("status") == "budget_limited"]
 
+    # Consume shared compact builders for summary_line
+    _v12_compact_payload = {
+        "point_taxonomy_summary": _taxonomy,
+        "measurement_phase_coverage_report": _phase_coverage,
+        "parity_resilience_summary": {
+            "parity_status": parity_status or "--",
+            "resilience_status": resilience_status or "--",
+        },
+        "governance_handoff_summary": {
+            "blockers": _blockers,
+        },
+    }
+    _v12_compact = _build_v12_compact(_v12_compact_payload)
+    _summary_line = " | ".join(_v12_compact.get("summary_lines", []))
+
+    # Build compact summary pack for stable downstream consumption
+    _v12_pack = _build_v12_alignment_pack(_v12_compact_payload)
+
     return {
         "v12_alignment_summary": {
             "alignment_status": _alignment_status,
@@ -256,13 +283,15 @@ def build_v12_alignment_summary(
             "phase_summary": _phase_summary,
             "taxonomy_dimensions": _taxonomy_dims,
             "budget_limited_families": _budget_limited,
-            "summary_line": (
-                f"V1.2 对齐状态：{_alignment_status} | "
-                f"一致性：{parity_status or '--'} | "
-                f"韧性：{resilience_status or '--'} | "
-                f"阻塞项：{len(_blockers)} | "
-                f"阶段健康：{_phase_health}"
-            ),
+            "summary_line": _summary_line,
+            "compact_summary_lines": list(_v12_compact.get("summary_lines", [])),
+            "builders_version": _BUILDERS_VERSION,
+            "compact_summary_pack": _v12_pack,
+            "compact_summary_sections": [_v12_pack],
+            "compact_summary_budget": {
+                "total_lines": len(_v12_pack.get("summary_lines", [])),
+                "pack_count": 1,
+            },
         },
         # Step 2 boundary markers — this is simulation-only evidence
         "evidence_source": "simulated",

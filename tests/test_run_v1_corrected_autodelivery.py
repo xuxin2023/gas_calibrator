@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -46,6 +47,25 @@ def test_build_corrected_download_plan_rows_maps_groups_by_gas() -> None:
     assert co2["SecondaryCommand"].startswith("SENCO3,YGAS,FFF,5.00000e00,6.00000e00,7.00000e00,8.00000e00,9.00000e00")
     assert h2o["PrimarySENCO"] == "2"
     assert h2o["SecondarySENCO"] == "4"
+
+
+def test_build_corrected_download_plan_rows_fills_missing_a7_a8_with_zero() -> None:
+    simplified = pd.DataFrame(
+        [
+            {"分析仪": "GA01", "气体": "CO2", **{f"a{i}": float(i + 1) for i in range(7)}},
+        ]
+    )
+
+    rows = module.build_corrected_download_plan_rows(simplified, actual_device_ids={"GA01": "086"})
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["a7"] == 0.0
+    assert row["a8"] == 0.0
+    assert row["SecondaryC3"] == "0.00000e00"
+    assert row["SecondaryC4"] == "0.00000e00"
+    assert row["PrimaryCommand"].startswith("SENCO1,YGAS,FFF,1.00000e00,2.00000e00,3.00000e00,4.00000e00")
+    assert row["SecondaryCommand"].endswith("5.00000e00,6.00000e00,7.00000e00,0.00000e00,0.00000e00,0.00000e00")
 
 
 def test_compute_pressure_offset_rows_uses_ambient_pressure_gauge_samples(tmp_path: Path) -> None:
@@ -264,7 +284,9 @@ def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, 
 
     assert compute_calls["count"] == 0
     assert result["pressure_rows"] == [{"Analyzer": "GA01", "DeviceId": "005", "OffsetA_kPa": -2.5, "Command": "SENCO9,YGAS,FFF,-2.50000e00,1.00000e00,0.00000e00,0.00000e00"}]
-    assert report_kwargs["coeff_cfg"] == {"h2o_summary_selection": {"include_co2_temp_groups_c": [], "include_co2_zero_ppm_temp_groups_c": [-20.0, -10.0, 0.0]}}
+    assert report_kwargs["coeff_cfg"]["h2o_summary_selection"] == {"include_co2_temp_groups_c": [], "include_co2_zero_ppm_temp_groups_c": [-20.0, -10.0, 0.0]}
+    assert report_kwargs["coeff_cfg"]["original_selected_pressure_points"] is None
+    assert report_kwargs["coeff_cfg"]["selected_pressure_points_source"] == "runtime_snapshot"
     assert "H2O锚点入选" in appended_sheets
     assert "H2O锚点门禁" in appended_sheets
     assert "推荐运行结构提示" in appended_sheets
@@ -273,6 +295,54 @@ def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, 
     assert result["h2o_anchor_gate_hits"] == [{"Analyzer": "GA01", "PointRow": 12, "PointTag": "co2_0_0", "GateReason": "anchor_h2o_dew_above_limit", "ActualDeviceId": "005"}]
     assert result["temperature_gate_hits"][0]["analyzer_id"] == "GA01"
     assert any(item["CheckCode"] == "pressure_structure" for item in result["run_structure_hints"])
+
+
+def test_build_corrected_delivery_passes_selected_pressure_points_to_report(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "run_ambient_only"
+    out_dir = tmp_path / "out_ambient_only"
+    run_dir.mkdir()
+    out_dir.mkdir()
+    (run_dir / "runtime_config_snapshot.json").write_text(
+        json.dumps({"workflow": {"selected_pressure_points": ["ambient"]}}),
+        encoding="utf-8",
+    )
+    report_kwargs: dict[str, object] = {}
+
+    monkeypatch.setattr(module, "_filter_no_500_summary_paths", lambda *_args, **_kwargs: ([run_dir / "summary.xlsx"], []))
+
+    def _fake_report(*_args, **kwargs):
+        report_kwargs.update(kwargs)
+        return {
+            "summary": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "simplified": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2", **{f'a{i}': float(i + 1) for i in range(9)}}]),
+            "original": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "points": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "ranges": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "topn": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "h2o_selected_rows": pd.DataFrame(),
+            "h2o_anchor_gate_hits": pd.DataFrame(),
+        }
+
+    monkeypatch.setattr(module, "build_corrected_water_points_report", _fake_report)
+    monkeypatch.setattr(module, "extract_run_device_ids", lambda *_args, **_kwargs: {"GA01": "005"})
+    monkeypatch.setattr(module, "load_temperature_coefficient_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(module, "load_startup_pressure_calibration_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "_annotate_workbook_with_actual_device_ids", lambda *_args, **_kwargs: None)
+
+    result = module.build_corrected_delivery(
+        run_dir=run_dir,
+        output_dir=out_dir,
+        coeff_cfg={"target_digits": 6},
+        pressure_row_source="startup_calibration",
+    )
+
+    assert report_kwargs["coeff_cfg"]["target_digits"] == 6
+    assert report_kwargs["coeff_cfg"]["selected_pressure_points"] == ["ambient"]
+    assert report_kwargs["coeff_cfg"]["original_selected_pressure_points"] == ["ambient"]
+    assert report_kwargs["coeff_cfg"]["selected_pressure_points_source"] == "runtime_snapshot"
+    assert report_kwargs["gas_temperature_keys"] == {}
+    assert result["pressure_rows"] == []
 
 
 def test_write_coefficients_to_live_devices_can_skip_pressure_rows(tmp_path: Path, monkeypatch) -> None:
@@ -549,6 +619,7 @@ def test_run_from_cli_runs_short_verify_after_successful_write(tmp_path: Path, m
         "run_short_verification",
         lambda **kwargs: captured.update(kwargs) or {"ok": True, "run_dir": str(tmp_path / "short_verify_run")},
     )
+    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
 
     result = module.run_from_cli(
         run_dir=str(run_dir),
@@ -602,6 +673,7 @@ def test_run_from_cli_skips_short_verify_when_writeback_incomplete(tmp_path: Pat
             "detail_rows": [],
         },
     )
+    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
 
     result = module.run_from_cli(
         run_dir=str(run_dir),
@@ -613,3 +685,270 @@ def test_run_from_cli_skips_short_verify_when_writeback_incomplete(tmp_path: Pat
 
     assert result["short_verify_outputs"]["skipped"] is True
     assert result["short_verify_outputs"]["reason"] == "writeback_incomplete"
+
+
+def test_build_corrected_delivery_applies_postrun_pressure_points_override_and_temperature_keys(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_override"
+    out_dir = tmp_path / "out_override"
+    run_dir.mkdir()
+    out_dir.mkdir()
+    (run_dir / "runtime_config_snapshot.json").write_text(
+        json.dumps({"workflow": {"selected_pressure_points": ["ambient", 500]}}),
+        encoding="utf-8",
+    )
+    report_kwargs: dict[str, object] = {}
+
+    monkeypatch.setattr(module, "_filter_no_500_summary_paths", lambda *_args, **_kwargs: ([run_dir / "summary.xlsx"], []))
+
+    def _fake_report(*_args, **kwargs):
+        report_kwargs.update(kwargs)
+        return {
+            "summary": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2"}]),
+            "simplified": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2", **{f"a{i}": float(i + 1) for i in range(9)}}]),
+            "original": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2", **{f"a{i}": float(i + 101) for i in range(9)}}]),
+            "points": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2"}]),
+            "ranges": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2"}]),
+            "topn": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2"}]),
+            "h2o_selected_rows": pd.DataFrame(),
+            "h2o_anchor_gate_hits": pd.DataFrame(),
+        }
+
+    monkeypatch.setattr(module, "build_corrected_water_points_report", _fake_report)
+    monkeypatch.setattr(module, "extract_run_device_ids", lambda *_args, **_kwargs: {"GA01": "005"})
+    monkeypatch.setattr(module, "load_temperature_coefficient_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(module, "load_startup_pressure_calibration_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "_annotate_workbook_with_actual_device_ids", lambda *_args, **_kwargs: None)
+
+    result = module.build_corrected_delivery(
+        run_dir=run_dir,
+        output_dir=out_dir,
+        coeff_cfg={
+            "postrun_selected_pressure_points_override": ["ambient"],
+            "summary_columns": {
+                "co2": {"temperature": "thermometer_temp_c"},
+                "h2o": {"temperature": "dew_temp_c"},
+            },
+        },
+        pressure_row_source="startup_calibration",
+    )
+
+    assert report_kwargs["coeff_cfg"]["selected_pressure_points"] == ["ambient"]
+    assert report_kwargs["coeff_cfg"]["original_selected_pressure_points"] == ["ambient", 500]
+    assert report_kwargs["coeff_cfg"]["selected_pressure_points_source"] == "postrun_override"
+    assert report_kwargs["gas_temperature_keys"] == {"co2": "thermometer_temp_c", "h2o": "dew_temp_c"}
+    assert result["pressure_points_summary"] == {
+        "original": ["ambient", 500],
+        "effective": ["ambient"],
+        "source": "postrun_override",
+    }
+
+
+def test_build_corrected_delivery_without_override_keeps_runtime_snapshot_pressure_points(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_mixed"
+    out_dir = tmp_path / "out_mixed"
+    run_dir.mkdir()
+    out_dir.mkdir()
+    (run_dir / "runtime_config_snapshot.json").write_text(
+        json.dumps({"workflow": {"selected_pressure_points": ["ambient", 500]}}),
+        encoding="utf-8",
+    )
+    report_kwargs: dict[str, object] = {}
+
+    monkeypatch.setattr(module, "_filter_no_500_summary_paths", lambda *_args, **_kwargs: ([run_dir / "summary.xlsx"], []))
+    monkeypatch.setattr(
+        module,
+        "build_corrected_water_points_report",
+        lambda *_args, **kwargs: report_kwargs.update(kwargs)
+        or {
+            "summary": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2"}]),
+            "simplified": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2", **{f"a{i}": float(i + 1) for i in range(9)}}]),
+            "original": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2"}]),
+            "points": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2"}]),
+            "ranges": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2"}]),
+            "topn": pd.DataFrame([{"Analyzer": "GA01", "Gas": "CO2"}]),
+            "h2o_selected_rows": pd.DataFrame(),
+            "h2o_anchor_gate_hits": pd.DataFrame(),
+        },
+    )
+    monkeypatch.setattr(module, "extract_run_device_ids", lambda *_args, **_kwargs: {"GA01": "005"})
+    monkeypatch.setattr(module, "load_temperature_coefficient_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(module, "load_startup_pressure_calibration_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "_annotate_workbook_with_actual_device_ids", lambda *_args, **_kwargs: None)
+
+    result = module.build_corrected_delivery(
+        run_dir=run_dir,
+        output_dir=out_dir,
+        coeff_cfg={},
+        pressure_row_source="startup_calibration",
+    )
+
+    assert report_kwargs["coeff_cfg"]["selected_pressure_points"] == ["ambient", 500]
+    assert report_kwargs["coeff_cfg"]["original_selected_pressure_points"] == ["ambient", 500]
+    assert report_kwargs["coeff_cfg"]["selected_pressure_points_source"] == "runtime_snapshot"
+    assert result["pressure_points_summary"] == {
+        "original": ["ambient", 500],
+        "effective": ["ambient", 500],
+        "source": "runtime_snapshot",
+    }
+
+
+def test_build_corrected_download_plan_rows_falls_back_to_original_when_simplified_degrades() -> None:
+    simplified = pd.DataFrame(
+        [
+            {"Analyzer": "GA01", "Gas": "CO2", **{f"a{i}": float(i + 1) for i in range(9)}},
+        ]
+    )
+    original = pd.DataFrame(
+        [
+            {"Analyzer": "GA01", "Gas": "CO2", **{f"a{i}": float(i + 101) for i in range(9)}},
+        ]
+    )
+    summary = pd.DataFrame(
+        [
+            {
+                "Analyzer": "GA01",
+                "Gas": "CO2",
+                "original_rmse": 10.0,
+                "simplified_rmse": 15.0,
+                "max_prediction_diff_between_original_and_simplified": 6.0,
+            }
+        ]
+    )
+
+    rows = module.build_corrected_download_plan_rows(
+        simplified,
+        actual_device_ids={"GA01": "086"},
+        original_frame=original,
+        summary_frame=summary,
+        corrected_cfg={},
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["CoefficientSource"] == "original_fallback"
+    assert row["FallbackReason"] == "simplified_rmse_ratio_exceeded;simplified_prediction_diff_exceeded"
+    assert row["a0"] == 101.0
+    assert row["ActualDeviceId"] == "086"
+
+
+def test_build_corrected_download_plan_rows_keeps_simplified_when_guard_not_triggered() -> None:
+    simplified = pd.DataFrame(
+        [
+            {"Analyzer": "GA01", "Gas": "H2O", **{f"a{i}": float(i + 1) for i in range(7)}},
+        ]
+    )
+    original = pd.DataFrame(
+        [
+            {"Analyzer": "GA01", "Gas": "H2O", **{f"a{i}": float(i + 101) for i in range(7)}},
+        ]
+    )
+    summary = pd.DataFrame(
+        [
+            {
+                "Analyzer": "GA01",
+                "Gas": "H2O",
+                "original_rmse": 1.0,
+                "simplified_rmse": 1.1,
+                "max_prediction_diff_between_original_and_simplified": 0.1,
+            }
+        ]
+    )
+
+    rows = module.build_corrected_download_plan_rows(
+        simplified,
+        actual_device_ids={"GA01": "086"},
+        original_frame=original,
+        summary_frame=summary,
+        corrected_cfg={},
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["CoefficientSource"] == "simplified"
+    assert row["FallbackReason"] == ""
+    assert row["a0"] == 1.0
+    assert row["a7"] == 0.0
+    assert row["a8"] == 0.0
+
+
+def test_run_from_cli_writes_separated_fit_and_writeback_summaries(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "run_summary"
+    run_dir.mkdir()
+    cfg_path = run_dir / "runtime_config_snapshot.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+    out_dir = tmp_path / "out_summary"
+
+    monkeypatch.setattr(
+        module,
+        "build_corrected_delivery",
+        lambda **_kwargs: {
+            "report_path": str(run_dir / "calibration_coefficients.xlsx"),
+            "output_dir": str(out_dir),
+            "filtered_summary_paths": [],
+            "filter_stats": [{"source": "summary.xlsx", "original_rows": 10, "removed_rows": 2, "kept_rows": 8}],
+            "actual_device_ids": {"GA01": "086"},
+            "download_plan_rows": [{"Analyzer": "GA01", "Gas": "CO2", "CoefficientSource": "original_fallback", "FallbackReason": "simplified_rmse_ratio_exceeded"}],
+            "temperature_rows": [],
+            "pressure_rows": [],
+            "pressure_row_source": "startup_calibration",
+            "pressure_points_summary": {"original": ["ambient", 500], "effective": ["ambient"], "source": "postrun_override"},
+            "fit_quality_summary": [
+                {
+                    "Analyzer": "GA01",
+                    "Gas": "CO2",
+                    "TemperatureColumnUsed": "thermometer_temp_c",
+                    "ModelFeaturePolicy": "ambient_only_fallback",
+                    "FitInputQuality": "fail",
+                    "FitInputWarning": "ratio_span_too_small",
+                    "OverallSuggestion": "暂不建议",
+                }
+            ],
+            "coefficient_source_summary": [
+                {
+                    "Analyzer": "GA01",
+                    "ActualDeviceId": "086",
+                    "Gas": "CO2",
+                    "CoefficientSource": "original_fallback",
+                    "FallbackReason": "simplified_rmse_ratio_exceeded",
+                }
+            ],
+            "run_structure_hints": [],
+        },
+    )
+    monkeypatch.setattr(module, "load_config", lambda _path: {"_base_dir": str(tmp_path)})
+    monkeypatch.setattr(
+        module,
+        "write_coefficients_to_live_devices",
+        lambda **_kwargs: {
+            "scan_rows": [],
+            "summary_rows": [{"Analyzer": "GA01", "TargetDeviceId": "086", "LiveDeviceId": "086", "Status": "partial", "MatchedGroups": 1, "ExpectedGroups": 2}],
+            "detail_rows": [{"Analyzer": "GA01", "Group": "1", "ReadbackOk": False, "Error": "READBACK_MISMATCH"}],
+        },
+    )
+    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
+
+    result = module.run_from_cli(
+        run_dir=str(run_dir),
+        config_path=str(cfg_path),
+        output_dir=str(out_dir),
+        write_devices=True,
+    )
+
+    summary_json = json.loads((out_dir / "autodelivery_summary.json").read_text(encoding="utf-8"))
+    summary_md = (out_dir / "summary.md").read_text(encoding="utf-8")
+
+    assert summary_json["fit_quality_summary"][0]["FitInputQuality"] == "fail"
+    assert summary_json["coefficient_source_summary"][0]["CoefficientSource"] == "original_fallback"
+    assert summary_json["device_write_verify_summary"][0]["Status"] == "partial"
+    assert "## fit_quality_summary" in summary_md
+    assert "## coefficient_source_summary" in summary_md
+    assert "## device_write_verify_summary" in summary_md
+    assert result["device_write_verify_summary"][0]["FailureReasons"] == "READBACK_MISMATCH"

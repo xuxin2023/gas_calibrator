@@ -1,0 +1,11 @@
+[
+  {
+    "index": 1,
+    "temperature_c": 20.0,
+    "pressure_hpa": 1100.0,
+    "route": "co2",
+    "co2_ppm": 100.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 100.0
+  }
+]

@@ -1,0 +1,125 @@
+{
+  "generated_at": "2026-04-20T12:36:10",
+  "config_path": "D:\\gas_calibrator\\configs\\default_config.json",
+  "run_dir": "audit\\real_pace_controller_acceptance\\pace_identity_probe_20260420_123551",
+  "io_path": "audit\\real_pace_controller_acceptance\\pace_identity_probe_20260420_123551\\io_20260420_123551.csv",
+  "csv_path": "audit\\real_pace_controller_acceptance\\pace_identity_probe_20260420_123551\\pace_identity_probe_20260420_123610.csv",
+  "json_path": "audit\\real_pace_controller_acceptance\\pace_identity_probe_20260420_123551\\pace_identity_probe_20260420_123610.json",
+  "profile": "OLD_PACE5000",
+  "commands": [
+    "*CLS",
+    "*IDN?",
+    ":SYST:VERS?",
+    ":INST:MOD?",
+    ":SYST:ECHO?",
+    ":INST:SN?",
+    ":INST:VERS?",
+    ":INST:SENS?",
+    ":INST:CAT:ALL?",
+    ":UNIT:PRES?",
+    ":OUTP:STAT?",
+    ":SOUR:PRES?",
+    ":SOUR:PRES:RANG?",
+    ":SENS:PRES:CONT?",
+    ":SENS:PRES:INL?",
+    ":SYST:ERR?"
+  ],
+  "rows": [
+    {
+      "command": "*CLS",
+      "response": "",
+      "duration_ms": 0.191,
+      "error": ""
+    },
+    {
+      "command": "*IDN?",
+      "response": "*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07",
+      "duration_ms": 1088.723,
+      "error": ""
+    },
+    {
+      "command": ":SYST:VERS?",
+      "response": ":SYST:VERS 1995.0",
+      "duration_ms": 1062.421,
+      "error": ""
+    },
+    {
+      "command": ":INST:MOD?",
+      "response": "",
+      "duration_ms": 2077.048,
+      "error": ""
+    },
+    {
+      "command": ":SYST:ECHO?",
+      "response": "",
+      "duration_ms": 2066.48,
+      "error": ""
+    },
+    {
+      "command": ":INST:SN?",
+      "response": ":INST:SN 3213201",
+      "duration_ms": 1059.218,
+      "error": ""
+    },
+    {
+      "command": ":INST:VERS?",
+      "response": ":INST:VERS \"02.00.07\"",
+      "duration_ms": 1065.503,
+      "error": ""
+    },
+    {
+      "command": ":INST:SENS?",
+      "response": ":INST:SENS \"1.00barg\"",
+      "duration_ms": 1079.337,
+      "error": ""
+    },
+    {
+      "command": ":INST:CAT:ALL?",
+      "response": ":INST:CAT:ALL \"1.00barg\",\"BAROMETER\",\"2.00bara\"",
+      "duration_ms": 1112.27,
+      "error": ""
+    },
+    {
+      "command": ":UNIT:PRES?",
+      "response": ":UNIT:PRES HPA",
+      "duration_ms": 1053.866,
+      "error": ""
+    },
+    {
+      "command": ":OUTP:STAT?",
+      "response": ":OUTP:STAT 0",
+      "duration_ms": 1051.967,
+      "error": ""
+    },
+    {
+      "command": ":SOUR:PRES?",
+      "response": ":SOUR:PRES:LEV:IMM:AMPL 1017.6595329",
+      "duration_ms": 1074.591,
+      "error": ""
+    },
+    {
+      "command": ":SOUR:PRES:RANG?",
+      "response": ":SOUR:PRES:RANG \"2.00bara\"",
+      "duration_ms": 1078.148,
+      "error": ""
+    },
+    {
+      "command": ":SENS:PRES:CONT?",
+      "response": "",
+      "duration_ms": 2062.443,
+      "error": ""
+    },
+    {
+      "command": ":SENS:PRES:INL?",
+      "response": ":SENS:PRES:INL 1015.8275757, 0",
+      "duration_ms": 1077.091,
+      "error": ""
+    },
+    {
+      "command": ":SYST:ERR?",
+      "response": ":SYST:ERR -102,\"Syntax error\"",
+      "duration_ms": 1076.035,
+      "error": ""
+    }
+  ]
+}

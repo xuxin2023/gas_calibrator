@@ -104,6 +104,20 @@ class FileBackedMethodConfirmationRepository:
         ).load_snapshot()
         scope_payload = dict(recognition_snapshot.get("scope_definition_pack") or {})
         current_coverage = dict(scope_payload.get("current_coverage") or {})
+        sample_digest = dict(
+            scope_payload.get("sample_digest")
+            or dict(scope_payload.get("scope_export_pack") or {}).get("sample_digest")
+            or {}
+        )
+        point_rows = [
+            dict(item)
+            for item in list(dict(self.summary.get("stats") or {}).get("point_summaries") or [])
+            if isinstance(item, dict)
+        ]
+        measurement_phase_coverage_report = dict(recognition_snapshot.get("measurement_phase_coverage_report") or {})
+        simulation_evidence_sidecar_bundle = dict(
+            recognition_snapshot.get("simulation_evidence_sidecar_bundle") or {}
+        )
         fallback_artifacts = recognition_readiness.build_method_confirmation_wp4_artifacts(
             run_id=str(self.summary.get("run_id") or scope_payload.get("run_id") or self.run_dir.name),
             scope_definition_pack=self._as_bundle(recognition_snapshot.get("scope_definition_pack")),
@@ -122,6 +136,11 @@ class FileBackedMethodConfirmationRepository:
             trace_only_phases=list(current_coverage.get("trace_only_phases") or []),
             gap_phases=list(current_coverage.get("gap_phases") or []),
             path_map=self._artifact_paths(),
+            point_rows=point_rows,
+            sample_digest=sample_digest,
+            measurement_phase_coverage_report=measurement_phase_coverage_report,
+            simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
+            run_dir=self.run_dir,
         )
         snapshot: dict[str, Any] = {}
         missing_artifacts: list[str] = []
@@ -134,11 +153,37 @@ class FileBackedMethodConfirmationRepository:
             if not bool(payload.get("artifact_present_on_disk", False)):
                 missing_artifacts.append(artifact_key)
             snapshot[artifact_key] = payload
+        route_profiles = list(
+            snapshot.get("method_confirmation_protocol", {}).get("route_specific_protocols")
+            or snapshot.get("route_specific_validation_matrix", {}).get("route_specific_protocols")
+            or []
+        )
+        linkages = recognition_readiness.derive_method_confirmation_step2_linkages(
+            run_id=str(self.summary.get("run_id") or scope_payload.get("run_id") or self.run_dir.name),
+            run_dir=self.run_dir,
+            path_map=self._artifact_paths(),
+            route_profiles=[dict(item) for item in route_profiles if isinstance(item, dict)],
+            point_rows=point_rows,
+            sample_digest=sample_digest,
+            measurement_phase_coverage_report=measurement_phase_coverage_report,
+            simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
+        )
+        for artifact_key in _ARTIFACT_KEYS:
+            snapshot[artifact_key] = self._hydrate_method_confirmation_payload(
+                artifact_key=artifact_key,
+                payload=dict(snapshot.get(artifact_key) or {}),
+                linkages=linkages,
+            )
         snapshot["verification_rollup"] = self._build_rollup(
             rollup_payload=dict(snapshot.get("verification_rollup") or {}),
             verification_digest=dict(snapshot.get("verification_digest") or {}),
             route_specific_validation_matrix=dict(snapshot.get("route_specific_validation_matrix") or {}),
             missing_artifacts=missing_artifacts,
+        )
+        snapshot["verification_rollup"] = self._hydrate_method_confirmation_payload(
+            artifact_key="verification_rollup",
+            payload=dict(snapshot.get("verification_rollup") or {}),
+            linkages=linkages,
         )
         return snapshot
 
@@ -172,6 +217,139 @@ class FileBackedMethodConfirmationRepository:
         payload["digest"] = {**dict(fallback_bundle.get("digest") or {}), **dict(fallback_raw.get("digest") or {}), **dict(payload.get("digest") or {})}
         payload["review_surface"] = {**dict(fallback_raw.get("review_surface") or {}), **dict(payload.get("review_surface") or {})}
         return payload
+
+    def _hydrate_method_confirmation_payload(
+        self,
+        *,
+        artifact_key: str,
+        payload: dict[str, Any],
+        linkages: dict[str, Any],
+    ) -> dict[str, Any]:
+        data = dict(payload or {})
+        digest = dict(data.get("digest") or {})
+        coverage_items = [dict(item) for item in list(linkages.get("coverage_items") or []) if isinstance(item, dict)]
+        validated_items = [str(item) for item in list(linkages.get("validated_items") or []) if str(item).strip()]
+        unverified_items = [str(item) for item in list(linkages.get("unverified_items") or []) if str(item).strip()]
+        validation_run_refs = [
+            dict(item) for item in list(linkages.get("validation_run_refs") or []) if isinstance(item, dict)
+        ]
+        source_artifact_refs = [
+            dict(item) for item in list(linkages.get("source_artifact_refs") or []) if isinstance(item, dict)
+        ]
+        if coverage_items:
+            data["coverage_items"] = coverage_items
+        if validated_items or "validated_items" not in data:
+            data["validated_items"] = validated_items
+        if unverified_items or "unverified_items" not in data:
+            data["unverified_items"] = unverified_items
+        if validation_run_refs:
+            data["validation_run_refs"] = validation_run_refs
+        if source_artifact_refs:
+            data["source_artifact_refs"] = source_artifact_refs
+        data["source_artifact_ref_ids"] = [
+            str(item.get("ref_id") or "").strip()
+            for item in source_artifact_refs
+            if str(item.get("ref_id") or "").strip()
+        ]
+        data["linked_uncertainty_case_ids"] = [
+            str(item) for item in list(linkages.get("linked_uncertainty_case_ids") or []) if str(item).strip()
+        ]
+        data["linked_scope_id"] = str(
+            data.get("linked_scope_id") or linkages.get("linked_scope_id") or data.get("scope_id") or ""
+        ).strip()
+        data["linked_decision_rule_id"] = str(
+            data.get("linked_decision_rule_id")
+            or linkages.get("linked_decision_rule_id")
+            or data.get("decision_rule_id")
+            or ""
+        ).strip()
+        for key in (
+            "coverage_items_summary",
+            "validated_items_summary",
+            "unverified_items_summary",
+            "validation_run_binding_summary",
+            "source_artifact_refs_summary",
+            "linked_uncertainty_case_ids_summary",
+            "linked_scope_decision_summary",
+            "matrix_completeness_summary",
+            "current_evidence_coverage_summary",
+            "top_gaps_summary",
+            "reviewer_action_summary",
+            "readiness_status_summary",
+        ):
+            value = str(linkages.get(key) or "").strip()
+            if value and not str(data.get(key) or "").strip():
+                data[key] = value
+            if value and not str(digest.get(key) or "").strip():
+                digest[key] = value
+        if artifact_key == "validation_run_set":
+            validation_runs: list[dict[str, Any]] = []
+            for item in list(data.get("validation_run_set") or []):
+                if not isinstance(item, dict):
+                    continue
+                validation_run = dict(item)
+                route_type = str(validation_run.get("route_type") or "").strip()
+                coverage_item_id = {
+                    "gas": "co2_route",
+                    "water": "h2o_route",
+                    "ambient": "ambient_open_diagnostic",
+                }.get(route_type, "")
+                coverage_item_ids = [
+                    item_id
+                    for item_id in (
+                        coverage_item_id,
+                        "temperature_points",
+                        "pressure_points",
+                        "analyzer_population",
+                        "analyzer_chain_length",
+                    )
+                    if item_id
+                ]
+                validation_run["coverage_item_ids"] = coverage_item_ids
+                validation_run["bound_run_refs"] = validation_run_refs
+                validation_run["bound_run_ref_ids"] = [
+                    str(ref.get("ref_id") or "").strip()
+                    for ref in validation_run_refs
+                    if str(ref.get("ref_id") or "").strip()
+                ]
+                validation_run["validation_run_refs"] = validation_run_refs
+                validation_run["validation_binding_status"] = (
+                    "bound_offline_reviewer_refs"
+                    if validation_run["bound_run_ref_ids"]
+                    else "missing_offline_reviewer_refs"
+                )
+                validation_run["source_artifact_refs"] = source_artifact_refs
+                validation_run["linked_uncertainty_case_ids"] = [
+                    str(item)
+                    for item in list(
+                        {
+                            str(validation_run.get("uncertainty_case_id") or "").strip(),
+                            *list(linkages.get("linked_uncertainty_case_ids") or []),
+                        }
+                    )
+                    if str(item).strip()
+                ]
+                validation_run["linked_scope_id"] = data["linked_scope_id"]
+                validation_run["linked_decision_rule_id"] = data["linked_decision_rule_id"]
+                validation_run["coverage_items_summary"] = str(linkages.get("coverage_items_summary") or "")
+                validation_run["validated_items_summary"] = str(linkages.get("validated_items_summary") or "")
+                validation_run["unverified_items_summary"] = str(linkages.get("unverified_items_summary") or "")
+                validation_run["validation_run_binding_summary"] = str(
+                    linkages.get("validation_run_binding_summary") or ""
+                )
+                validation_run["source_artifact_refs_summary"] = str(
+                    linkages.get("source_artifact_refs_summary") or ""
+                )
+                validation_run["linked_uncertainty_case_ids_summary"] = str(
+                    linkages.get("linked_uncertainty_case_ids_summary") or ""
+                )
+                validation_run["linked_scope_decision_summary"] = str(
+                    linkages.get("linked_scope_decision_summary") or ""
+                )
+                validation_runs.append(validation_run)
+            data["validation_run_set"] = validation_runs
+        data["digest"] = digest
+        return data
 
     def _build_rollup(
         self,
@@ -299,4 +477,6 @@ class FileBackedMethodConfirmationRepository:
             "uncertainty_report_pack": recognition_readiness.UNCERTAINTY_REPORT_PACK_FILENAME,
             "uncertainty_digest": recognition_readiness.UNCERTAINTY_DIGEST_FILENAME,
             "uncertainty_rollup": recognition_readiness.UNCERTAINTY_ROLLUP_FILENAME,
+            "measurement_phase_coverage_report": "measurement_phase_coverage_report.json",
+            "simulation_evidence_sidecar_bundle": "simulation_evidence_sidecar_bundle.json",
         }

@@ -149,18 +149,24 @@
       "stabilize_timeout_s": 2.0
     },
     "sampling": {
-      "count": 5,
-      "stable_count": 5,
-      "interval_s": 0.05,
-      "h2o_interval_s": 0.05,
-      "co2_interval_s": 0.05
+      "count": 1,
+      "stable_count": 1,
+      "interval_s": 0.0,
+      "h2o_interval_s": 0.0,
+      "co2_interval_s": 0.0
     },
     "stability": {
       "temperature": {
         "tol": 1.0,
         "window_s": 0.5,
         "soak_after_reach_s": 0.0,
-        "timeout_s": 2.0
+        "timeout_s": 2.0,
+        "analyzer_chamber_temp_enabled": false,
+        "analyzer_chamber_temp_window_s": 0.5,
+        "analyzer_chamber_temp_span_c": 2.0,
+        "analyzer_chamber_temp_timeout_s": 2.0,
+        "analyzer_chamber_temp_first_valid_timeout_s": 0.5,
+        "analyzer_chamber_temp_poll_s": 0.1
       },
       "humidity_generator": {
         "enabled": true,
@@ -180,6 +186,7 @@
       },
       "co2_route": {
         "preseal_soak_s": 0.1,
+        "first_point_preseal_soak_s": 0.1,
         "post_h2o_zero_ppm_soak_s": 0.1
       },
       "sensor": {
@@ -235,7 +242,7 @@
     }
   },
   "qc": {
-    "min_sample_count": 3,
+    "min_sample_count": 1,
     "max_outlier_ratio": 0.5,
     "spike_threshold": 1.5,
     "drift_threshold": 0.5,

@@ -30,6 +30,7 @@ def test_recognition_scope_repository_keeps_file_backed_default_path(tmp_path: P
 
     scope_payload = dict(snapshot.get("scope_definition_pack") or {})
     decision_payload = dict(snapshot.get("decision_rule_profile") or {})
+    conformity_statement_profile = dict(snapshot.get("conformity_statement_profile") or {})
     reference_asset_registry = dict(snapshot.get("reference_asset_registry") or {})
     certificate_lifecycle_summary = dict(snapshot.get("certificate_lifecycle_summary") or {})
     pre_run_readiness_gate = dict(snapshot.get("pre_run_readiness_gate") or {})
@@ -43,6 +44,9 @@ def test_recognition_scope_repository_keeps_file_backed_default_path(tmp_path: P
     assert decision_payload["artifact_type"] == "decision_rule_profile"
     assert decision_payload["decision_rule_id"]
     assert decision_payload["not_real_acceptance_evidence"] is True
+    assert conformity_statement_profile["reviewer_only"] is True
+    assert conformity_statement_profile["readiness_mapping_only"] is True
+    assert conformity_statement_profile["not_ready_for_formal_claim"] is True
     assert reference_asset_registry["artifact_type"] == "reference_asset_registry"
     assert certificate_lifecycle_summary["artifact_type"] == "certificate_lifecycle_summary"
     assert pre_run_readiness_gate["artifact_type"] == "pre_run_readiness_gate"
@@ -61,17 +65,31 @@ def test_recognition_scope_repository_keeps_file_backed_default_path(tmp_path: P
     assert rollup["db_ready_stub"]["enabled"] is False
     assert rollup["db_ready_stub"]["not_in_default_chain"] is True
     assert rollup["asset_readiness_overview"]
+    assert rollup["asset_count_summary"]
+    assert rollup["certificate_validity_summary"]
+    assert rollup["lot_binding_summary"]
+    assert rollup["intermediate_check_summary"]
     assert rollup["certificate_lifecycle_overview"]
-    assert rollup["pre_run_gate_status"] in {
+    assert rollup["pre_run_gate_status"] in {"pass", "warning", "block", "diagnostic_only"}
+    assert rollup["pre_run_gate_legacy_status"] in {
         "ok_for_reviewer_mapping",
         "warning_reviewer_attention",
         "blocked_for_formal_claim",
+        "diagnostic_only",
     }
     assert rollup["blocking_digest"]
     assert rollup["warning_digest"]
     assert rollup["scope_reference_assets_summary"]
     assert rollup["decision_rule_dependency_summary"]
+    assert rollup["scope_id"] == scope_payload["scope_id"]
+    assert rollup["decision_rule_id"] == decision_payload["decision_rule_id"]
+    assert rollup["applicability_scope_display"]
+    assert rollup["limitation_note"]
+    assert rollup["recognition_binding"]["scope_id"] == scope_payload["scope_id"]
+    assert rollup["recognition_binding"]["decision_rule_id"] == decision_payload["decision_rule_id"]
     assert gateway_rollup["repository_mode"] == RECOGNITION_SCOPE_REPOSITORY_MODE
     assert gateway_rollup["gateway_mode"] == RECOGNITION_SCOPE_GATEWAY_MODE
+    assert gateway_payload["recognition_binding"]["scope_id"] == scope_payload["scope_id"]
+    assert gateway_payload["conformity_statement_profile"]["reviewer_only"] is True
     assert stub_rollup["db_ready_stub"]["requires_explicit_injection"] is True
     assert stub_rollup["db_ready_stub"]["not_in_default_chain"] is True

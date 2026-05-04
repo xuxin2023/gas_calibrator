@@ -1,0 +1,5 @@
+timestamp,point_index,point_tag,temperature_c,co2_ppm,co2_group,cylinder_nominal_ppm,humidity_pct,pressure_hpa,route,status,stability_time_s,total_time_s
+2026-04-30T15:08:49.402,1,h2o_20c_30rh_1000hpa,20.0,,,,30.0,1000.0,h2o,completed,,
+2026-04-30T15:08:49.404,2,h2o_20c_30rh_800hpa,20.0,,,,30.0,800.0,h2o,completed,,
+2026-04-30T15:08:52.904,1,h2o_20c_60rh_1000hpa,20.0,,,,60.0,1000.0,h2o,completed,,
+2026-04-30T15:08:52.904,2,h2o_20c_60rh_800hpa,20.0,,,,60.0,800.0,h2o,completed,,

@@ -1,0 +1,3 @@
+﻿Analyzer,Port,Baudrate,Timeout,ConfiguredDeviceId,ActiveSend,FtdHz,AverageFilter,LiveDeviceId,Raw,Error
+SCAN01,COM38,115200,0.6,000,False,1,49,073,"YGAS,073,0727.599,15.428,0.94,0.94,025.57,101.08,0001,2785",
+SCAN02,COM42,115200,0.6,000,False,1,49,021,"YGAS,021,0504.495,18.455,0.99,0.99,028.30,099.66,0001,2793",

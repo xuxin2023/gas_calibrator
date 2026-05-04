@@ -1,0 +1,2 @@
+timestamp,port,device,direction,command,response,error
+2026-04-17T18:16:00.064,RUN,runner,EVENT,stage,"{""current"":""CO2 400ppm 1013hPa"",""route_group"":""第一组气路"",""wait_reason"":""控压中"",""point_row"":1,""point_phase"":""co2"",""pressure_hpa"":1013,""co2_ppm"":400,""temp_c"":20.0}",

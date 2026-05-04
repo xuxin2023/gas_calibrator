@@ -1,0 +1,3 @@
+analyzer_id,fit_type,senco_channel,ref_temp_source,n_points,fit_ok,availability,polynomial_degree_used,rmse,max_abs_error,A,B,C,D,command_string
+GA01,cell,SENCO7,none,0,False,unavailable,0,,,0.0,1.0,0.0,0.0,
+GA01,shell,SENCO8,none,0,False,unavailable,0,,,0.0,1.0,0.0,0.0,

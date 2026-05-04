@@ -30,6 +30,16 @@ REQUIRED_DIMENSIONS = {
     "writeback_verification",
 }
 
+REQUIRED_COVERAGE_ITEMS = {
+    "co2_route",
+    "h2o_route",
+    "ambient_open_diagnostic",
+    "temperature_points",
+    "pressure_points",
+    "analyzer_population",
+    "analyzer_chain_length",
+}
+
 REQUIRED_TOP_LEVEL_FIELDS = {
     "protocol_id",
     "protocol_version",
@@ -60,6 +70,30 @@ def _write_legacy_run(run_dir: Path) -> None:
             json.dumps({"run_id": run_dir.name, "stats": {"point_summaries": []}}, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+
+def _write_compare_report(
+    run_dir: Path,
+    folder_name: str,
+    *,
+    evidence_state: str,
+    compare_status: str,
+    target_route: str,
+) -> None:
+    report_dir = run_dir / folder_name
+    report_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "compare_status": compare_status,
+        "evidence_source": "simulated",
+        "evidence_state": evidence_state,
+        "bench_context": {"target_route": target_route},
+        "not_real_acceptance_evidence": True,
+    }
+    (report_dir / "control_flow_compare_report.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (report_dir / "control_flow_compare_report.md").write_text("# compare\n", encoding="utf-8")
 
 
 def test_method_confirmation_wp4_object_model_and_results_contract(tmp_path: Path) -> None:
@@ -153,6 +187,87 @@ def test_method_confirmation_wp4_object_model_and_results_contract(tmp_path: Pat
     assert "主要缺口" in results_payload["result_summary_text"] or "Top gaps" in results_payload["result_summary_text"]
     assert "审阅动作" in results_payload["result_summary_text"] or "Reviewer actions" in results_payload["result_summary_text"]
     assert "验证就绪状态" in results_payload["result_summary_text"] or "Verification readiness status" in results_payload["result_summary_text"]
+
+
+def test_method_confirmation_wp4_links_coverage_items_and_digest_fields(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    payload = MethodConfirmationGateway(run_dir).read_payload()
+    route_matrix = payload["route_specific_validation_matrix"]
+    validation_run_set = payload["validation_run_set"]
+    verification_digest = payload["verification_digest"]
+    verification_rollup = payload["verification_rollup"]
+
+    coverage_items = list(route_matrix.get("coverage_items") or [])
+    coverage_item_ids = {str(item.get("item_id") or "") for item in coverage_items}
+    assert REQUIRED_COVERAGE_ITEMS <= coverage_item_ids
+    assert set(validation_run_set.get("validated_items") or []) | set(validation_run_set.get("unverified_items") or []) >= REQUIRED_COVERAGE_ITEMS
+    assert route_matrix["linked_scope_id"] == verification_rollup["linked_scope_id"]
+    assert route_matrix["linked_decision_rule_id"] == verification_rollup["linked_decision_rule_id"]
+    assert verification_rollup["linked_uncertainty_case_ids"]
+    assert verification_rollup["source_artifact_refs"]
+    assert verification_rollup["validation_run_refs"]
+
+    digest = dict(verification_digest.get("digest") or {})
+    for field in (
+        "coverage_items_summary",
+        "validated_items_summary",
+        "unverified_items_summary",
+        "validation_run_binding_summary",
+        "source_artifact_refs_summary",
+        "linked_uncertainty_case_ids_summary",
+        "linked_scope_decision_summary",
+    ):
+        assert str(digest.get(field) or "").strip()
+        assert str(verification_rollup.get(field) or "").strip()
+
+
+def test_method_confirmation_wp4_validation_run_set_binds_replay_sim_smoke_and_sidecar(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    _write_compare_report(
+        run_dir,
+        "validation_replay",
+        evidence_state="replay",
+        compare_status="MISMATCH",
+        target_route="co2",
+    )
+    _write_compare_report(
+        run_dir,
+        "simulated_compare",
+        evidence_state="simulated_protocol",
+        compare_status="MATCH",
+        target_route="h2o",
+    )
+
+    payload = MethodConfirmationGateway(run_dir).read_payload()
+    validation_run_set = payload["validation_run_set"]
+    ref_types = {
+        str(item.get("ref_type") or "")
+        for item in list(validation_run_set.get("validation_run_refs") or [])
+        if isinstance(item, dict)
+    }
+    assert {"replay_run", "simulated_compare_run", "smoke_run", "sidecar_evidence"} <= ref_types
+
+    for item in list(validation_run_set.get("validation_run_set") or []):
+        assert set(item.get("coverage_item_ids") or []) >= {
+            "temperature_points",
+            "pressure_points",
+            "analyzer_population",
+            "analyzer_chain_length",
+        }
+        assert {"replay_run", "simulated_compare_run", "smoke_run", "sidecar_evidence"} <= {
+            str(ref.get("ref_type") or "")
+            for ref in list(item.get("bound_run_refs") or [])
+            if isinstance(ref, dict)
+        }
+        assert item["validation_binding_status"] == "bound_offline_reviewer_refs"
+        assert item["linked_uncertainty_case_ids"]
+        assert item["linked_scope_id"] == validation_run_set["linked_scope_id"]
+        assert item["linked_decision_rule_id"] == validation_run_set["linked_decision_rule_id"]
 
 
 def test_method_confirmation_wp4_db_stub_and_placeholder_fallback(tmp_path: Path) -> None:

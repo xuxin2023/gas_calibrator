@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
+import time
 from typing import Any, Dict, Optional
 
 
@@ -248,7 +249,41 @@ class SimulatedPressureController(SimulatedBaseDevice):
 
 
 class SimulatedPressureMeter(SimulatedPressureController):
-    pass
+    def __init__(self, port: str = "SIM-PM", pressure_hpa: float = 1000.0, **kwargs: Any) -> None:
+        super().__init__(port=port, pressure_hpa=pressure_hpa, **kwargs)
+        self._continuous_pressure_active = False
+        self._continuous_pressure_mode = ""
+        self._continuous_pressure_sequence_id = 0
+
+    def pressure_continuous_active(self) -> bool:
+        return bool(self._continuous_pressure_active)
+
+    def start_pressure_continuous(self, mode: str = "P4", clear_buffer: bool = True) -> bool:
+        self._continuous_pressure_active = True
+        self._continuous_pressure_mode = str(mode or "P4").strip().upper() or "P4"
+        if clear_buffer:
+            self._continuous_pressure_sequence_id = 0
+        return True
+
+    def stop_pressure_continuous(self) -> bool:
+        self._continuous_pressure_active = False
+        return True
+
+    def read_pressure_continuous_latest(
+        self,
+        drain_s: float = 0.0,
+        read_timeout_s: float = 0.0,
+    ) -> Dict[str, Any]:
+        self.plant_state.sync()
+        self._continuous_pressure_sequence_id += 1
+        pressure = float(self.plant_state.pressure_hpa)
+        return {
+            "pressure_hpa": pressure,
+            "source": "digital_pressure_gauge_continuous",
+            "monotonic_timestamp": time.monotonic(),
+            "raw_line": f"{self._continuous_pressure_mode or 'P4'} {pressure:.3f}",
+            "sequence_id": self._continuous_pressure_sequence_id,
+        }
 
 
 class SimulatedDewpointMeter(SimulatedBaseDevice):

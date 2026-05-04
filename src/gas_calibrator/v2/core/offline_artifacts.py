@@ -47,6 +47,10 @@ from .artifact_compatibility import (
 )
 from .models import CalibrationPoint, SamplingResult
 from . import recognition_readiness_artifacts as recognition_readiness
+from .step2_closeout_bundle_builder import (
+    STEP2_CLOSEOUT_BOUNDARY_SUMMARY,
+    build_step2_closeout_bundle,
+)
 from .reviewer_surface_contracts import (
     WP6_CLOSEOUT_ARTIFACT_ROLES as _SHARED_WP6_CLOSEOUT_ROLES,
 )
@@ -65,6 +69,9 @@ SUITE_ACCEPTANCE_PLAN_FILENAME = "suite_acceptance_plan.json"
 SUITE_EVIDENCE_REGISTRY_FILENAME = "suite_evidence_registry.json"
 ROOM_TEMP_DIAGNOSTIC_SUMMARY_FILENAME = "diagnostic_summary.json"
 ANALYZER_CHAIN_ISOLATION_SUMMARY_FILENAME = "isolation_comparison_summary.json"
+CONTROL_FLOW_COMPARE_REPORT_FILENAME = "control_flow_compare_report.json"
+CONTROL_FLOW_COMPARE_REPORT_MARKDOWN_FILENAME = "control_flow_compare_report.md"
+CONTROL_FLOW_COMPARE_ARTIFACT_INVENTORY_FILENAME = "artifact_inventory.json"
 
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
@@ -656,8 +663,9 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
 
     room_temp_bundles = _discover_room_temp_diagnostic_bundles(root)
     analyzer_chain_bundles = _discover_analyzer_chain_isolation_bundles(root)
+    control_flow_compare_bundles = _discover_control_flow_compare_bundles(root)
     bundles = sorted(
-        [*room_temp_bundles, *analyzer_chain_bundles],
+        [*room_temp_bundles, *analyzer_chain_bundles, *control_flow_compare_bundles],
         key=lambda item: str(item.get("generated_at") or ""),
         reverse=True,
     )
@@ -691,25 +699,32 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
     latest_bundle = dict(bundles[0] or {})
     latest_room_temp = dict(room_temp_bundles[0] or {}) if room_temp_bundles else {}
     latest_analyzer_chain = dict(analyzer_chain_bundles[0] or {}) if analyzer_chain_bundles else {}
+    latest_control_flow_compare = dict(control_flow_compare_bundles[0] or {}) if control_flow_compare_bundles else {}
     detail_items = _build_offline_diagnostic_detail_items(
         latest_room_temp=latest_room_temp,
         latest_analyzer_chain=latest_analyzer_chain,
+        latest_control_flow_compare=latest_control_flow_compare,
     )
     detail_lines = [
         str(item.get("detail_line") or "").strip()
         for item in detail_items
         if str(item.get("detail_line") or "").strip()
     ]
-    summary = (
-        f"room-temp {len(room_temp_bundles)} | "
-        f"analyzer-chain {len(analyzer_chain_bundles)} | "
-        f"latest {str(latest_bundle.get('summary_text') or '--')}"
-    )
+    summary_parts = [
+        f"room-temp {len(room_temp_bundles)}",
+        f"analyzer-chain {len(analyzer_chain_bundles)}",
+    ]
+    if control_flow_compare_bundles:
+        summary_parts.append(f"alignment {len(control_flow_compare_bundles)}")
+    summary_parts.append(f"latest {str(latest_bundle.get('summary_text') or '--')}")
+    summary = " | ".join(summary_parts)
     coverage_parts = [
         f"room-temp {len(room_temp_bundles)}",
         f"analyzer-chain {len(analyzer_chain_bundles)}",
         f"artifacts {artifact_count}",
     ]
+    if control_flow_compare_bundles:
+        coverage_parts.insert(2, f"alignment {len(control_flow_compare_bundles)}")
     if plot_count:
         coverage_parts.append(f"plots {plot_count}")
     coverage_summary = " | ".join(coverage_parts)
@@ -750,18 +765,19 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         ),
         "",
     )
-    review_highlight_lines = [
-        line
-        for line in detail_lines[:2]
-        if str(line or "").strip()
-    ]
-    if str(boundary_line).strip() and boundary_line not in review_highlight_lines:
+    review_highlight_lines = [line for line in detail_lines[:3] if str(line or "").strip()]
+    if (
+        str(boundary_line).strip()
+        and boundary_line not in review_highlight_lines
+        and len(review_highlight_lines) < 3
+    ):
         review_highlight_lines.append(boundary_line)
     return {
         "found": True,
         "bundle_count": len(bundles),
         "room_temp_count": len(room_temp_bundles),
         "analyzer_chain_count": len(analyzer_chain_bundles),
+        "control_flow_compare_count": len(control_flow_compare_bundles),
         "summary": summary,
         "detail_lines": detail_lines,
         "detail_items": detail_items,
@@ -780,6 +796,7 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         "bundles": bundles,
         "latest_room_temp": latest_room_temp,
         "latest_analyzer_chain": latest_analyzer_chain,
+        "latest_control_flow_compare": latest_control_flow_compare,
         "evidence_source": "diagnostic",
         "evidence_state": "collected",
         "acceptance_level": "diagnostic",
@@ -968,6 +985,30 @@ def _unique_existing_paths(values: Iterable[Any]) -> list[str]:
     return normalized
 
 
+def _path_is_within_root(root: Path, value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    try:
+        candidate = Path(text).expanduser().resolve()
+        root_resolved = Path(root).expanduser().resolve()
+    except Exception:
+        return False
+    try:
+        candidate.relative_to(root_resolved)
+    except ValueError:
+        return False
+    return True
+
+
+def _unique_existing_paths_within_root(root: Path, values: Iterable[Any]) -> list[str]:
+    return [
+        path
+        for path in _unique_existing_paths(values)
+        if _path_is_within_root(root, path)
+    ]
+
+
 def _flatten_plot_files(values: Any) -> list[str]:
     flattened: list[str] = []
 
@@ -1050,6 +1091,74 @@ def _analyzer_chain_summary_text(payload: dict[str, Any]) -> str:
         f"Analyzer-chain isolation | continue_s1 {continue_text} | "
         f"conclusion {dominant_conclusion} | next {recommendation}"
     )
+
+
+def _control_flow_compare_summary_text(payload: dict[str, Any]) -> str:
+    compare_status = str(payload.get("compare_status") or "MISMATCH").strip() or "MISMATCH"
+    metadata = dict(payload.get("metadata") or {})
+    route_execution_summary = dict(payload.get("route_execution_summary") or {})
+    validation_profile = str(
+        metadata.get("validation_profile") or payload.get("validation_profile") or "--"
+    ).strip() or "--"
+    target_route = str(
+        route_execution_summary.get("target_route")
+        or dict(payload.get("validation_scope") or {}).get("target_route")
+        or "--"
+    ).strip() or "--"
+    first_failure_phase = str(
+        payload.get("first_failure_phase") or route_execution_summary.get("first_failure_phase") or ""
+    ).strip()
+    summary = (
+        f"V1/V2 alignment | status {compare_status} | "
+        f"profile {validation_profile} | target {target_route}"
+    )
+    if first_failure_phase:
+        summary += f" | first_failure {first_failure_phase}"
+    return summary
+
+
+def _control_flow_compare_next_check(payload: dict[str, Any]) -> str:
+    presence = dict(payload.get("presence") or {})
+    sample_count = dict(payload.get("sample_count") or {})
+    route_sequence = dict(payload.get("route_sequence") or {})
+    route_execution_summary = dict(payload.get("route_execution_summary") or {})
+    key_actions = dict(payload.get("key_actions") or {})
+    if not bool(presence.get("matches", True)):
+        return "inspect point presence diff"
+    if not bool(sample_count.get("matches", True)):
+        return "inspect sample count diff"
+    if not bool(route_sequence.get("matches", True)):
+        return "inspect route trace diff"
+    if any(not bool(dict(item or {}).get("matches", True)) for item in key_actions.values()):
+        return "inspect key action mismatches"
+    if bool(route_execution_summary.get("has_physical_route_mismatches", False)):
+        return "inspect route physical mismatch"
+    first_failure_phase = str(
+        payload.get("first_failure_phase") or route_execution_summary.get("first_failure_phase") or ""
+    ).strip()
+    if first_failure_phase:
+        return f"review {first_failure_phase} failure"
+    if str(payload.get("compare_status") or "").strip().upper() == "MATCH":
+        return "review compare report and keep simulated-only gate"
+    return "review compare report"
+
+
+def _control_flow_compare_diff_state(matches: Any) -> str:
+    return "diff_present" if matches is False else "no_diff"
+
+
+def _control_flow_compare_key_action_mismatches(payload: dict[str, Any]) -> list[str]:
+    explicit = payload.get("key_action_mismatches")
+    if isinstance(explicit, str):
+        return [item.strip() for item in explicit.split(",") if item.strip() and item.strip().lower() != "none"]
+    if isinstance(explicit, list):
+        return [str(item).strip() for item in explicit if str(item).strip() and str(item).strip().lower() != "none"]
+    key_actions = dict(payload.get("key_actions") or {})
+    return [
+        str(name).strip()
+        for name, item in key_actions.items()
+        if str(name).strip() and not bool(dict(item or {}).get("matches", True))
+    ]
 
 
 def _discover_room_temp_diagnostic_bundles(root: Path) -> list[dict[str, Any]]:
@@ -1166,6 +1275,78 @@ def _discover_analyzer_chain_isolation_bundles(root: Path) -> list[dict[str, Any
     return bundles
 
 
+def _discover_control_flow_compare_bundles(root: Path) -> list[dict[str, Any]]:
+    bundles: list[dict[str, Any]] = []
+    try:
+        report_paths = sorted(
+            root.rglob(CONTROL_FLOW_COMPARE_REPORT_FILENAME),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        report_paths = []
+    for report_path in report_paths:
+        payload = _load_json_dict(report_path)
+        source_dir = report_path.parent
+        metadata = dict(payload.get("metadata") or {})
+        route_execution_summary = dict(payload.get("route_execution_summary") or {})
+        presence = dict(payload.get("presence") or {})
+        sample_count = dict(payload.get("sample_count") or {})
+        route_sequence = dict(payload.get("route_sequence") or {})
+        key_action_mismatches = _control_flow_compare_key_action_mismatches(payload)
+        artifact_map = dict(payload.get("artifacts") or {})
+        artifact_paths = _unique_existing_paths_within_root(
+            root,
+            [
+                report_path,
+                source_dir / CONTROL_FLOW_COMPARE_REPORT_MARKDOWN_FILENAME,
+                *(
+                    _resolve_bundle_path(source_dir, path)
+                    for path in artifact_map.values()
+                    if str(path or "").strip()
+                ),
+            ],
+        )
+        bundles.append(
+            {
+                "kind": "control_flow_compare",
+                "primary_artifact_path": str(report_path.resolve()),
+                "source_dir": str(source_dir.resolve()),
+                "generated_at": _generated_at_or_mtime(report_path, payload),
+                "summary_text": _control_flow_compare_summary_text(payload),
+                "artifact_paths": artifact_paths,
+                "plot_artifact_paths": [],
+                "compare_status": str(payload.get("compare_status") or "").strip(),
+                "validation_profile": str(
+                    metadata.get("validation_profile") or payload.get("validation_profile") or ""
+                ).strip(),
+                "target_route": str(
+                    route_execution_summary.get("target_route")
+                    or dict(payload.get("validation_scope") or {}).get("target_route")
+                    or ""
+                ).strip(),
+                "first_failure_phase": str(
+                    payload.get("first_failure_phase") or route_execution_summary.get("first_failure_phase") or ""
+                ).strip(),
+                "next_check": _control_flow_compare_next_check(payload),
+                "point_presence_diff": str(
+                    payload.get("point_presence_diff") or _control_flow_compare_diff_state(presence.get("matches", True))
+                ).strip(),
+                "sample_count_diff": str(
+                    payload.get("sample_count_diff") or _control_flow_compare_diff_state(sample_count.get("matches", True))
+                ).strip(),
+                "route_trace_diff": str(
+                    payload.get("route_trace_diff") or _control_flow_compare_diff_state(route_sequence.get("matches", True))
+                ).strip(),
+                "key_action_mismatches": key_action_mismatches,
+                "physical_route_mismatch": "yes"
+                if bool(payload.get("physical_route_mismatch") or route_execution_summary.get("has_physical_route_mismatches", False))
+                else "no",
+            }
+        )
+    return bundles
+
+
 def _normalize_review_evidence_source(value: Any, *, default: str = "--") -> str:
     text = str(value or "").strip()
     if not text:
@@ -1195,10 +1376,12 @@ def _build_offline_diagnostic_detail_items(
     *,
     latest_room_temp: dict[str, Any],
     latest_analyzer_chain: dict[str, Any],
+    latest_control_flow_compare: dict[str, Any],
 ) -> list[dict[str, Any]]:
     detail_items = [
         _build_room_temp_detail_item(latest_room_temp),
         _build_analyzer_chain_detail_item(latest_analyzer_chain),
+        _build_control_flow_compare_detail_item(latest_control_flow_compare),
     ]
     return [item for item in detail_items if item]
 
@@ -1262,6 +1445,54 @@ def _build_analyzer_chain_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
         "continue_s1": continue_text,
         "dominant_conclusion": dominant_conclusion,
         "recommendation": recommendation,
+        "artifact_scope_summary": artifact_scope_summary,
+        "artifact_count": len(list(payload.get("artifact_paths") or [])),
+        "plot_count": len(list(payload.get("plot_artifact_paths") or [])),
+    }
+
+
+def _build_control_flow_compare_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(bundle or {})
+    if not payload:
+        return {}
+    compare_status = str(payload.get("compare_status") or "--").strip() or "--"
+    validation_profile = str(payload.get("validation_profile") or "--").strip() or "--"
+    first_failure_phase = str(payload.get("first_failure_phase") or "--").strip() or "--"
+    next_check = str(payload.get("next_check") or "--").strip() or "--"
+    point_presence_diff = str(payload.get("point_presence_diff") or "no_diff").strip() or "no_diff"
+    sample_count_diff = str(payload.get("sample_count_diff") or "no_diff").strip() or "no_diff"
+    route_trace_diff = str(payload.get("route_trace_diff") or "no_diff").strip() or "no_diff"
+    key_action_mismatches = [
+        str(item).strip()
+        for item in list(payload.get("key_action_mismatches") or [])
+        if str(item).strip()
+    ]
+    physical_route_mismatch = str(payload.get("physical_route_mismatch") or "no").strip() or "no"
+    artifact_scope_summary = _offline_diagnostic_scope_summary(payload)
+    return {
+        "kind": "control_flow_compare",
+        "summary": str(payload.get("summary_text") or "").strip(),
+        "detail_line": (
+            "v1-v2 alignment latest | "
+            f"compare_status {compare_status} | "
+            f"profile {validation_profile} | "
+            f"first_failure {first_failure_phase} | "
+            f"next {next_check}"
+            + (f" | scope {artifact_scope_summary}" if artifact_scope_summary else "")
+        ),
+        "generated_at": str(payload.get("generated_at") or ""),
+        "primary_artifact_path": str(payload.get("primary_artifact_path") or ""),
+        "source_dir": str(payload.get("source_dir") or ""),
+        "compare_status": compare_status,
+        "validation_profile": validation_profile,
+        "first_failure_phase": first_failure_phase,
+        "target_route": str(payload.get("target_route") or "--").strip() or "--",
+        "next_check": next_check,
+        "point_presence_diff": point_presence_diff,
+        "sample_count_diff": sample_count_diff,
+        "route_trace_diff": route_trace_diff,
+        "key_action_mismatches": key_action_mismatches,
+        "physical_route_mismatch": physical_route_mismatch,
         "artifact_scope_summary": artifact_scope_summary,
         "artifact_count": len(list(payload.get("artifact_paths") or [])),
         "plot_count": len(list(payload.get("plot_artifact_paths") or [])),
@@ -1641,6 +1872,9 @@ def export_run_offline_artifacts(
         "comparison_rollup_markdown": str(run_dir / recognition_readiness.COMPARISON_ROLLUP_MARKDOWN_FILENAME),
         "step2_closeout_digest": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_DIGEST_FILENAME),
         "step2_closeout_digest_markdown": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME),
+        "step2_closeout_bundle": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_BUNDLE_FILENAME),
+        "step2_closeout_evidence_index": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME),
+        "step2_closeout_summary_markdown": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_SUMMARY_FILENAME),
     }
     recognition_readiness_artifacts = recognition_readiness.build_recognition_readiness_artifacts(
         run_id=run_id,
@@ -1667,6 +1901,95 @@ def export_run_offline_artifacts(
         markdown_path = run_dir / str(bundle.get("markdown_filename") or f"{artifact_key}.md")
         markdown_path.write_text(str(bundle.get("markdown") or ""), encoding="utf-8")
         recognition_readiness_written_paths[str(artifact_key)] = (json_path, markdown_path)
+    step2_closeout_snapshot = build_step2_closeout_bundle(
+        run_id=run_id,
+        run_dir=run_dir,
+        scope_definition_pack=dict(
+            recognition_readiness_artifacts.get("scope_definition_pack", {}).get("raw") or {}
+        ),
+        decision_rule_profile=dict(
+            recognition_readiness_artifacts.get("decision_rule_profile", {}).get("raw") or {}
+        ),
+        conformity_statement_profile=dict(
+            dict(recognition_readiness_artifacts.get("decision_rule_profile", {}).get("raw") or {}).get(
+                "conformity_statement_profile"
+            )
+            or {}
+        ),
+        reference_asset_registry=dict(
+            recognition_readiness_artifacts.get("reference_asset_registry", {}).get("raw") or {}
+        ),
+        certificate_lifecycle_summary=dict(
+            recognition_readiness_artifacts.get("certificate_lifecycle_summary", {}).get("raw") or {}
+        ),
+        pre_run_readiness_gate=dict(
+            recognition_readiness_artifacts.get("pre_run_readiness_gate", {}).get("raw") or {}
+        ),
+        uncertainty_report_pack=dict(
+            recognition_readiness_artifacts.get("uncertainty_report_pack", {}).get("raw") or {}
+        ),
+        uncertainty_rollup=dict(recognition_readiness_artifacts.get("uncertainty_rollup", {}).get("raw") or {}),
+        method_confirmation_protocol=dict(
+            recognition_readiness_artifacts.get("method_confirmation_protocol", {}).get("raw") or {}
+        ),
+        verification_rollup=dict(recognition_readiness_artifacts.get("verification_rollup", {}).get("raw") or {}),
+        software_validation_traceability_matrix=dict(
+            recognition_readiness_artifacts.get("software_validation_traceability_matrix", {}).get("raw") or {}
+        ),
+        requirement_design_code_test_links=dict(
+            recognition_readiness_artifacts.get("requirement_design_code_test_links", {}).get("raw") or {}
+        ),
+        validation_evidence_index=dict(
+            recognition_readiness_artifacts.get("validation_evidence_index", {}).get("raw") or {}
+        ),
+        change_impact_summary=dict(
+            recognition_readiness_artifacts.get("change_impact_summary", {}).get("raw") or {}
+        ),
+        rollback_readiness_summary=dict(
+            recognition_readiness_artifacts.get("rollback_readiness_summary", {}).get("raw") or {}
+        ),
+        release_manifest=dict(recognition_readiness_artifacts.get("release_manifest", {}).get("raw") or {}),
+        release_scope_summary=dict(
+            recognition_readiness_artifacts.get("release_scope_summary", {}).get("raw") or {}
+        ),
+        release_boundary_digest=dict(
+            recognition_readiness_artifacts.get("release_boundary_digest", {}).get("raw") or {}
+        ),
+        release_evidence_pack_index=dict(
+            recognition_readiness_artifacts.get("release_evidence_pack_index", {}).get("raw") or {}
+        ),
+        release_validation_manifest=dict(
+            recognition_readiness_artifacts.get("release_validation_manifest", {}).get("raw") or {}
+        ),
+        software_validation_rollup={},
+        audit_readiness_digest=dict(
+            recognition_readiness_artifacts.get("audit_readiness_digest", {}).get("raw") or {}
+        ),
+        comparison_evidence_pack=dict(
+            recognition_readiness_artifacts.get("comparison_evidence_pack", {}).get("raw") or {}
+        ),
+        scope_comparison_view=dict(
+            recognition_readiness_artifacts.get("scope_comparison_view", {}).get("raw") or {}
+        ),
+        comparison_digest=dict(recognition_readiness_artifacts.get("comparison_digest", {}).get("raw") or {}),
+        comparison_rollup=dict(recognition_readiness_artifacts.get("comparison_rollup", {}).get("raw") or {}),
+        step2_closeout_digest=dict(
+            recognition_readiness_artifacts.get("step2_closeout_digest", {}).get("raw") or {}
+        ),
+    )
+    step2_closeout_bundle_path = write_json(
+        run_dir / recognition_readiness.STEP2_CLOSEOUT_BUNDLE_FILENAME,
+        dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}),
+    )
+    step2_closeout_evidence_index_path = write_json(
+        run_dir / recognition_readiness.STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME,
+        dict(step2_closeout_snapshot.get("step2_closeout_evidence_index") or {}),
+    )
+    step2_closeout_summary_path = run_dir / recognition_readiness.STEP2_CLOSEOUT_SUMMARY_FILENAME
+    step2_closeout_summary_path.write_text(
+        str(step2_closeout_snapshot.get("step2_closeout_summary_markdown") or ""),
+        encoding="utf-8",
+    )
     compatibility_output_files = [
         str(acceptance_path),
         str(analytics_path),
@@ -1681,6 +2004,9 @@ def export_run_offline_artifacts(
         str(simulation_evidence_sidecar_bundle_path),
         str(measurement_phase_coverage_path),
         str(measurement_phase_coverage_markdown_path),
+        str(step2_closeout_bundle_path),
+        str(step2_closeout_evidence_index_path),
+        str(step2_closeout_summary_path),
         *[
             str(path)
             for paths in recognition_readiness_written_paths.values()
@@ -1778,6 +2104,9 @@ def export_run_offline_artifacts(
         "software_validation_traceability_matrix": "execution_summary",
         "release_validation_manifest": "execution_summary",
         "audit_readiness_digest": "diagnostic_analysis",
+        "step2_closeout_bundle": "diagnostic_analysis",
+        "step2_closeout_evidence_index": "diagnostic_analysis",
+        "step2_closeout_summary_markdown": "formal_analysis",
     }
     # Merge shared WP6+closeout roles
     recognition_readiness_roles.update(_SHARED_WP6_CLOSEOUT_ROLES)
@@ -1818,6 +2147,9 @@ def export_run_offline_artifacts(
             "overall_status": str(dict(multi_source_stability_evidence.get("raw") or {}).get("overall_status") or ""),
             "coverage_status": str(dict(multi_source_stability_evidence.get("raw") or {}).get("coverage_status") or ""),
             "review_surface": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("review_surface") or {}),
+            "stability_policy_profile": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("stability_policy_profile") or {}),
+            "stability_decision_rollup": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("stability_decision_rollup") or {}),
+            "shadow_stability_diff": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("shadow_stability_diff") or {}),
         },
         "multi_source_stability_evidence_digest": dict(multi_source_stability_evidence.get("digest") or {}),
         "state_transition_evidence": {
@@ -1826,6 +2158,7 @@ def export_run_offline_artifacts(
             "overall_status": str(dict(state_transition_evidence.get("raw") or {}).get("overall_status") or ""),
             "review_surface": dict(dict(state_transition_evidence.get("raw") or {}).get("review_surface") or {}),
             "illegal_transition_count": len(list(dict(state_transition_evidence.get("raw") or {}).get("illegal_transitions") or [])),
+            "transition_policy_profile": dict(dict(state_transition_evidence.get("raw") or {}).get("transition_policy_profile") or {}),
         },
         "state_transition_evidence_digest": dict(state_transition_evidence.get("digest") or {}),
         "simulation_evidence_sidecar_bundle": {
@@ -1859,6 +2192,39 @@ def export_run_offline_artifacts(
             "digest": bundle_digest,
         }
         summary_stats[f"{artifact_key}_digest"] = bundle_digest
+    summary_stats["step2_closeout_bundle"] = {
+        "path": str(step2_closeout_bundle_path),
+        "artifact_type": "step2_closeout_bundle",
+        "overall_status": (
+            "blocker"
+            if list(dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("blocker_items") or [])
+            else "ok"
+        ),
+        "review_surface": {
+            "summary_lines": list(
+                dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_lines") or []
+            ),
+        },
+        "digest": dict(step2_closeout_snapshot.get("step2_closeout_compact_section") or {}),
+    }
+    summary_stats["step2_closeout_bundle_digest"] = dict(
+        step2_closeout_snapshot.get("step2_closeout_compact_section") or {}
+    )
+    summary_stats["step2_closeout_evidence_index"] = {
+        "path": str(step2_closeout_evidence_index_path),
+        "artifact_type": "step2_closeout_evidence_index",
+        "missing_evidence_categories": list(
+            dict(step2_closeout_snapshot.get("step2_closeout_evidence_index") or {}).get(
+                "missing_evidence_categories"
+            )
+            or []
+        ),
+    }
+    summary_stats["step2_closeout_summary_markdown"] = {
+        "path": str(step2_closeout_summary_path),
+        "artifact_type": "step2_closeout_summary",
+        "summary": str(dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_line") or ""),
+    }
     for artifact_key, bundle in compatibility_bundle.items():
         json_path, markdown_path = compatibility_written_paths[str(artifact_key)]
         bundle_raw = dict(bundle.get("raw") or {})
@@ -1908,6 +2274,9 @@ def export_run_offline_artifacts(
             "decision_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("decision_summary") or ""),
             "gap_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("gap_summary") or ""),
             "boundary_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("boundary_summary") or ""),
+            "stability_policy_profile": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("stability_policy_profile") or {}),
+            "stability_decision_rollup": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("stability_decision_rollup") or {}),
+            "shadow_stability_diff": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("shadow_stability_diff") or {}),
         },
         "state_transition_evidence": {
             "path": str(state_transition_evidence_path),
@@ -1916,6 +2285,7 @@ def export_run_offline_artifacts(
             "transition_summary": str(dict(state_transition_evidence.get("digest") or {}).get("transition_summary") or ""),
             "recovery_summary": str(dict(state_transition_evidence.get("digest") or {}).get("recovery_summary") or ""),
             "boundary_summary": str(dict(state_transition_evidence.get("digest") or {}).get("boundary_summary") or ""),
+            "transition_policy_profile": dict(dict(state_transition_evidence.get("raw") or {}).get("transition_policy_profile") or {}),
         },
         "simulation_evidence_sidecar_bundle": {
             "path": str(simulation_evidence_sidecar_bundle_path),
@@ -1950,6 +2320,31 @@ def export_run_offline_artifacts(
             "boundary_summary": " | ".join(list(bundle_raw.get("boundary_statements") or [])),
             "review_surface": dict(bundle_raw.get("review_surface") or {}),
         }
+    manifest_sections["step2_closeout_bundle"] = {
+        "path": str(step2_closeout_bundle_path),
+        "artifact_type": "step2_closeout_bundle",
+        "summary": str(dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_line") or ""),
+        "boundary_summary": STEP2_CLOSEOUT_BOUNDARY_SUMMARY,
+        "review_surface": {
+            "summary_lines": list(
+                dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_lines") or []
+            ),
+        },
+    }
+    manifest_sections["step2_closeout_evidence_index"] = {
+        "path": str(step2_closeout_evidence_index_path),
+        "artifact_type": "step2_closeout_evidence_index",
+        "summary": str(
+            dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_line") or ""
+        ),
+        "boundary_summary": STEP2_CLOSEOUT_BOUNDARY_SUMMARY,
+    }
+    manifest_sections["step2_closeout_summary_markdown"] = {
+        "path": str(step2_closeout_summary_path),
+        "artifact_type": "step2_closeout_summary",
+        "summary": str(dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_line") or ""),
+        "boundary_summary": STEP2_CLOSEOUT_BOUNDARY_SUMMARY,
+    }
     for artifact_key, bundle in compatibility_bundle.items():
         json_path, markdown_path = compatibility_written_paths[str(artifact_key)]
         bundle_raw = dict(bundle.get("raw") or {})
@@ -1995,6 +2390,9 @@ def export_run_offline_artifacts(
                 for paths in recognition_readiness_written_paths.values()
                 for path in paths
             ],
+            str(step2_closeout_bundle_path),
+            str(step2_closeout_evidence_index_path),
+            str(step2_closeout_summary_path),
             *[
                 str(path)
                 for paths in compatibility_written_paths.values()

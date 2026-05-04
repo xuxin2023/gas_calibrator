@@ -1,0 +1,187 @@
+=== Table 0 ===
+  Row 0: ['文档属性', '内容']
+  Row 1: ['文档名称', '气体分析仪自动校准标定平台详细设计方案']
+  Row 2: ['文档版本', 'V1.3']
+  Row 3: ['适用范围', 'V2 架构、治理工件、仿真验证、第三阶段准入准备、数据库旁路规划、AI 增强与高级分析、认可就绪运行体系，以及面向国家级/国际级计量校准平台的补齐设计与后续路线']
+  Row 4: ['长期边界', 'V1 生产流程必须持续可用；V2 独立推进、独立验证、逐步替代']
+  Row 5: ['当前阶段定位', '第二阶段收尾 / 第三阶段准入桥；simulation / offline / headless 为主，认可对象先建模，真实计量闭环与外部比对仍待第三阶段及后续阶段完成']
+  Row 6: ['本次修订重点', '在 V1.2 基础上新增：国家级/国际级计量平台目标分级、差距补齐清单、章节级调整建议、后续工作包与阶段性闸控路线']
+
+=== Table 1 ===
+  Row 0: ['本版方案新增的五个平台级设计原则 • 判稳必须从“单一参考表判稳”升级为“工况 + 分析仪原始响应 + 输出结果 + 数据质量”的多源判稳。 • 状态机必须从“写死时序”升级为“可配置、可编译、可审计的受控自由度状态机”，自由度只允许通过策略和配方表达。 • 数据库纳入中长期路线，但当前阶段只作为 V2 的旁路索引与追溯增强层，不得成为 V1 或默认 V2 主链的单点依赖。 • AI 必须遵守“先旁路、先 shadow、先 advisory、后 limited approval”的非主链边界，第三阶段前不得直接进入设备控制、采样放行、系数写入或正式计量结论。 • 平台必须同步建设 Analytics Center、异常标签体系、Review Copilot 与模型治理对象，使后续智能能力具备可审计、可复核、可回滚基础。']
+
+=== Table 2 ===
+  Row 0: ['约束项', '约束说明', '设计含义']
+  Row 1: ['V1 保护', 'V1 现有生产校准流程必须长期可用', 'V2 不得改坏 V1；任何高风险试验只允许在 V2 独立链完成']
+  Row 2: ['V2 独立推进', 'V2 只能独立推进、独立验证、逐步替代', '新能力先在仿真 / 离线 / reviewer 工件中闭环，再考虑真机']
+  Row 3: ['阶段边界', '第三阶段前不得把仿真结果写成 real acceptance evidence', 'readiness mapping 与真实认可结论必须严格分开']
+  Row 4: ['数据库策略', '数据库纳入路线但不应先绑死主链', '先做旁路索引和追溯层，后做正式数据底座']
+  Row 5: ['标准映射', '无证据时不得虚构条款级合规结论', '先做 family/topic/control-object 级映射，保持保守表述']
+
+=== Table 3 ===
+  Row 0: ['阶段', '核心目标', '允许能力', '禁止事项', '阶段产物']
+  Row 1: ['第一阶段', '离线 / 仿真 / headless 闭环', '治理工件、仿真 smoke、回归、结果审阅', '真机默认链、real acceptance', 'summary / manifest / reports / QC / parity']
+  Row 2: ['第二阶段', 'engineering-isolation 准入与 reviewer 能力', '双闸控制、admission checklist、review center、Stage 3 plan', '直接切主流程、真机默认运行', '准入清单、review pack、stage3 plan、standards mapping']
+  Row 3: ['第三阶段', '真实台架验证与计量闭环', '真机时序验证、方法确认、不确定度、外部一致性准备', '把仿真证据冒充真实证据', '真实验证报告、方法确认、不确定度、evidence pack']
+
+=== Table 4 ===
+  Row 0: ['标准家族', '平台关注点', '当前适用方式', '本方案中的定位']
+  Row 1: ['ISO/IEC 17025 / CNAS-CL01', '能力、公正性、一致运行、有效结果', '作为实验室与校准活动总框架', '平台总体设计与阶段验收的顶层约束']
+  Row 2: ['CNAS-CL01-G002', '计量溯源性', '用于设计结果—标准器—证书—算法的追溯树', '第三阶段溯源链设计的基准']
+  Row 3: ['CNAS-CL01-G003 / JCGM 100', '测量不确定度', '用于不确定度框架与模型设计', '方法确认与报告可信性的核心输入']
+  Row 4: ['ISO 6142 / 6143 / 6145', '校准气体制备、比较与动态配气', '用于标准气体与参考链方法学设计', '气体校准方法部分的技术底座']
+  Row 5: ['WMO/GAW QA', '数据质量、元数据、可比性、校准网络', '用于 reviewer、证据包和数据治理设计', '平台外部一致性与国际可比性方向']
+  Row 6: ['QX/T 118—2020 等气象行业质控规范', '质量控制码、状态信息、资料完整性', '用于 QC 与观测资料结构设计', '与国内业务化接口保持一致']
+
+=== Table 5 ===
+  Row 0: ['标准映射的非声明边界 • 本方案允许做 readiness mapping，不允许在缺乏正式证据时写成“已符合标准”“已获得认可”“已完成 real acceptance”。 • 当前标准映射建议优先做到 family-level / topic-level / control-object-level；在缺少正式条文解释时不虚构 clause 级结论。 • review_center 中的 standards matrix 只应表达“覆盖情况、缺口、下一步补证需求”，不应输出假合规结论。']
+
+=== Table 6 ===
+  Row 0: ['层级', '主要职责', '禁止越界事项']
+  Row 1: ['设备与协议层', '串口/网口通信、协议解析、健康状态读取', '不得直接承载工艺决策']
+  Row 2: ['设备适配层', '统一 connect/read/write/status/safe_stop 接口', '不得直接持有 UI 状态']
+  Row 3: ['流程编排层', '温箱、水路、气路、判稳、封路、控压、采样、恢复', '不得内嵌大段设备协议细节']
+  Row 4: ['采样与 QC 层', '新鲜度、窗口统计、帧质量、状态字、QC 标记', '不得直接输出正式审阅结论']
+  Row 5: ['算法层', '修正、拟合、回代、系数、方法确认、不确定度', '不得绕过原始证据链直接生成报告']
+  Row 6: ['治理与审阅层', 'summary / manifest / artifacts / review_center / reviewer pack', '不得直接控制设备']
+  Row 7: ['数据库旁路层', '索引、追溯、检索、跨 run 查询与统计', '当前阶段不得成为主链单点依赖']
+  Row 8: ['Analytics Center', '承担跨 run 对比、特征聚合、异常分析、长期漂移与健康画像', '不得绕过确定性算法链直接形成正式计量结论']
+  Row 9: ['AI/知识辅助层', '承担 reviewer 摘要、证据导航、异常提示、知识检索与 advisory 建议', '第三阶段前不得直接进入设备控制与正式放行主链']
+
+=== Table 7 ===
+  Row 0: ['状态', '功能说明', '典型退出条件']
+  Row 1: ['INIT / DEVICE_READY', '系统初始化、设备联通性与健康检查', '设备状态满足计划要求']
+  Row 2: ['PLAN_COMPILED', '将 run plan 编译为受控执行图', '执行图与策略版本锁定']
+  Row 3: ['TEMP_SOAK', '目标温度点浸泡与温度稳定', '温度硬门槛通过']
+  Row 4: ['ROUTE_FLUSH', '水路/气路建立与预冲洗', '路线状态与预通路时长满足要求']
+  Row 5: ['PRESEAL_STABILITY', '封路前工况、ratio 与质量预检查', '封路条件满足']
+  Row 6: ['SEAL / PRESSURE_HANDOFF', '封路并立即切入控压链', '进入目标压力控制阶段']
+  Row 7: ['PRESSURE_STABLE', '压力进入目标范围并维持', '压力稳定判据满足']
+  Row 8: ['RAW_SIGNAL_STABLE', '分析仪 ratio/raw/density 等原始响应稳定', '原始响应硬门槛与评分通过']
+  Row 9: ['OUTPUT_STABLE', '最终输出值复核稳定', '可进入正式采样']
+  Row 10: ['SAMPLE_WINDOW / POINT_COMPLETE', '采样、统计与点结果固化', '点结果落盘并进入下一工步']
+  Row 11: ['FAULT_CAPTURE / SAFE_RECOVERY / ABORT', '异常捕获、恢复或安全中止', '恢复完成或终止 run']
+
+=== Table 8 ===
+  Row 0: ['判稳层', '代表信号', '主要问题', '在流程中的作用']
+  Row 1: ['工况判稳层', '温箱温度、参考温度、露点、数字压力计、阀位状态', '外部工况是否进入允许采样区域', '决定是否允许继续等待/封路/控压']
+  Row 2: ['原始响应判稳层', 'CO2/H2O ratio、raw/base/ref、density、内部 pressure_kpa', '分析仪本体是否真正稳定', '决定是否进入正式采样前最后一层审查']
+  Row 3: ['输出结果判稳层', 'CO2 ppm、H2O 输出、补偿后结果', '最终报告值是否平稳', '对采样窗口做复核']
+  Row 4: ['数据质量判稳层', '帧新鲜度、有效帧占比、状态字、丢帧/跳变', '数据本身是否值得采样', '防止拿不可信窗口入模和入报告']
+
+=== Table 9 ===
+  Row 0: ['判稳记录的最小留痕字段 • 所属状态、判稳策略版本、窗口起止时间、参与信号列表。 • 各信号的 span / slope / std / valid ratio / jump count。 • 硬门槛结果、综合评分、是否通过、失败原因、后续动作。 • 与采样窗口、状态迁移、异常记录和 reviewer artifact 的关联标识。']
+
+=== Table 10 ===
+  Row 0: ['数据层', '关键对象', '设计重点']
+  Row 1: ['原始层', 'analyzer frames、dew point traces、pressure traces、control events', '保留不可逆原始证据，避免先处理后留痕']
+  Row 2: ['过程层', 'stability windows、sample windows、QC flags、state transitions', '支撑判稳解释、流程回放与对照分析']
+  Row 3: ['结果层', 'point result、fit result、coefficients、uncertainty summary、review digest', '面向报告、审阅和长期对比']
+
+=== Table 11 ===
+  Row 0: ['阶段', '建议对象', '主要用途', '当前边界']
+  Row 1: ['一期：元数据与证据库', 'runs、artifacts、manifests、reviews、standards_mappings、audit_events、coefficients', '检索、追溯、跨 run 比较、reviewer 导航', '不改主工件落盘链，作为旁路增强层']
+  Row 2: ['二期：时序与原始数据仓', 'analyzer_frames、dewpoint_traces、pressure_traces、state_transition_logs、stability_decisions', '深入分析、长周期趋势、算法调优、异常追根', '建议采用数据库 + Parquet/对象文件混合模式']
+  Row 3: ['三期：业务化数据底座', '标准器台账、证书台账、方法确认、外部比对结果、最终报告库', '支持第三阶段和更长期业务运行', '仅在 V2 足够成熟后逐步承接']
+
+=== Table 12 ===
+  Row 0: ['门槛', '关注点', '典型证据', '是否允许切换阶段']
+  Row 1: ['G0', '总体架构、边界、模块职责清晰', '详细设计方案、模块边界表', '进入系统性开发']
+  Row 2: ['G1', '仿真 / 离线 / headless 工件闭环', 'summary、manifest、review_center、smoke simulation', '进入第二阶段收尾']
+  Row 3: ['G2', 'engineering-isolation 双闸有效', 'unsafe 配置双解锁测试、admission checklist', '允许 reviewer 准入，不允许真机默认链']
+  Row 4: ['G3', '真实台架动作链稳定', '温箱/水路/气路/封路/控压/采样时序验证', '进入第三阶段方法学验证']
+  Row 5: ['G4', '方法确认与不确定度完成', '线性、重复性、漂移、影响量与不确定度报告', '允许形成计量级内部结论']
+  Row 6: ['G5', '外部一致性/能力验证准备充分', '对比试验、外部比对结果接入', '具备对外说明基础']
+  Row 7: ['G6', '有限范围替代 V1 的条件成熟', 'V1/V2 对照结果、reviewer 结论与风险收口', '允许局部替代']
+
+=== Table 13 ===
+  Row 0: ['优先级', '建议事项', '完成标准']
+  Row 1: ['P0', '固定详细设计方案、模块边界、判稳原则与状态机策略对象', '形成统一设计基线并供 Codex 提示词复用']
+  Row 2: ['P1', '补齐 stage3_standards_alignment_matrix、evidence coverage 与 review_center 筛选/锚点导航', 'reviewer 工件体系完整且不越界']
+  Row 3: ['P1', '设计数据库一期 schema 与 repository/gateway 抽象', '不改默认主链，仅增强索引和追溯']
+  Row 4: ['P2', '为多源判稳建立 shadow evaluation 与跨 run 对比分析', '仿真下可比较新旧策略效果']
+  Row 5: ['P2', '准备第三阶段前置材料：标准器台账、证书台账、方法确认模板、不确定度对象模型', '具备 engineering-isolation 前的材料基础']
+
+=== Table 14 ===
+  Row 0: ['AI 非主链边界 • 不得直接控阀、控压或改写时序状态机。 • 不得直接放行封路、正式采样或系数写回。 • 不得直接生成最终合格/不合格计量结论。 • 不得在第三阶段前替代 V1 生产链或 V2 的确定性主算法链。']
+
+=== Table 15 ===
+  Row 0: ['建议优先纳入的异常标签 • PRESEAL_NOT_STABLE：封路前工况或 raw 响应未满足硬门槛。 • PRESSURE_HANDOFF_DELAY：封路后未及时进入控压链。 • PRESSURE_REBOUND_RISK：控压阶段存在回补或过冲风险。 • DEWPOINT_REBOUND / POSSIBLE_AIR_INGRESS：露点反弹或混气嫌疑。 • RAW_SIGNAL_NOT_SETTLED / STALE_SAMPLE_WINDOW：原始响应未稳或采样窗口不新鲜。 • ANALYZER_SLOW_RESPONSE / MODE2_QUALITY_FAIL：分析仪慢响应或帧质量不足。']
+
+=== Table 16 ===
+  Row 0: ['方向', '当前基础', '仍缺闭环', '设计判断']
+  Row 1: ['系统阶段与证据属性', '仍处于第二阶段平台化，主边界仍是 simulation / replay / suite regression / parity / resilience / offline review；任何 simulated / offline 结果都不是真实 acceptance evidence。', '尚未形成真实台架、真实标准器、真实流程、真实审批的正式证据闭环。', '应把当前所有 readiness 工件视为“准入准备层”，不能提前写成正式认可或正式替代结论。']
+  Row 2: ['平台与治理骨架', '已形成分析、质量控制、存储、智能辅助、治理工件、评审中心、证据索引、趋势与谱系摘要等平台骨架。', '仍缺与正式计量流程绑定的受控报告链、正式签发链和长期运行规则。', '平台底盘已基本正确，后续重点应从“有没有”转向“能不能用于正式声明”。']
+  Row 3: ['认可就绪对象', '已出现 scope package、decision rule、uncertainty / method readiness、PT/ILC registry 等 reviewer-facing 对象。', '当前多为 stub、summary 或 readiness mapping，对真实 external comparison、真实 uncertainty budget 和正式 statement 仍不够。', '对象建模方向正确，但必须补齐真实数据、真实流程、真实审批和真实输出。']
+  Row 4: ['数据库与长期追溯', '已具备 storage 模块和旁路对象，适合做索引、检索、聚合、历史趋势与案例治理。', '仍缺正式归档策略、保留周期、不可篡改机制、电子签名、双轨备份和证书级检索。', '数据库应从“可用”升级为“可审计、可追溯、可恢复”的运行底座。']
+  Row 5: ['智能辅助与高级分析', 'AI / Analytics 已具备异常提示、摘要、知识检索、Review Copilot、shadow 评估等良好基础。', '仍缺模型治理、人工复核、禁控边界、正式 advisory 审批链，以及与正式计量结论的隔离机制。', 'AI 适合继续做旁路增强，但不应在真实 acceptance 前进入控制主链。']
+  Row 6: ['真机验收与切换准备', 'V1 保护边界明确，cutover checklist 已形成，V2 可继续做仿真硬化、对照、回放与 reviewer 工件收敛。', '真机单路线、单温组、数值一致性、回滚演练、默认切换和 real primary latest 仍未闭合。', 'V2 现阶段应继续按“先准入、后真机、再有限替代”推进，而不是直接追求主流程切换。']
+
+=== Table 17 ===
+  Row 0: ['目标层级', '主要对齐体系', '程序侧必须新增', '非程序侧必须同步']
+  Row 1: ['国内高水平 / 认可就绪层', 'ISO/IEC 17025、CNAS-CL01、CL01-G001/G002/G003/G004、CL06、JJF 1059.1、ISO 10012', '认可范围包、决策规则、标准器/证书治理、预运行准入闸、不确定度引擎、方法确认矩阵、软件验证追踪、正式报告与证书模板', '标准器能力、环境控制、SOP、人员授权、内部审核、期间核查和记录制度同步建立']
+  Row 2: ['国际可接受 / 外部可比层', 'ILAC G8/G18/G24、ILAC P9/P10/P14、ISO/IEC 17043、ISO 17034', 'PT/ILC 与 external comparison 数据模型、comparison evidence pack、双语化 scope / statement 输出、统一元数据字典和对外摘要接口', '参加外部比对、建立可接受的溯源链、取得或依托认可实验室/参考物质生产者资源']
+  Row 3: ['行业领先 / 网络化治理层', 'ISO 6142-1、ISO 6143:2025、ISO 6145-1、ISO 12963、WMO/GAW QA、行业质控规范', '动态配气方法库、DQO 管理、网络比对看板、中央校准样式治理、长期健康画像、跨 run / 跨设备 / 跨站点一致性分析', '形成 transfer standard、审计/巡检机制、统一质量目标、培训体系和网络级运维机制']
+  Row 4: ['国际最高互认协同层', 'BIPM CIPM MRA / KCDB / CMC、必要时叠加 OIML 体系', '程序侧以接口、证据模型、比较报告归档和 CMC 支撑字段为主，不建议在当前阶段承诺到位', '需依赖 NMI 级比较、国际同行评审和正式质量管理体系，不属于单一企业平台短期可独立完成的范围']
+
+=== Table 18 ===
+  Row 0: ['补齐对象', '现有基础', '本次建议强化方向', '关键交付物']
+  Row 1: ['认可范围包 2.0', '已有 scope package 雏形', '把被测量、路线、工况范围、分析仪型号、适用限制、non-claim 语句、scope 绑定规则全部固定化', 'scope_definition、scope_export_pack、scope_binding_report']
+  Row 2: ['决策规则与符合性声明', '已有 decision rule profile 雏形', '把 acceptance limit、guard band、inconclusive 条件、statement template 和 reviewer gate 固定下来', 'decision_rule_profile、conformity_statement_profile、statement_template_version']
+  Row 3: ['标准器/证书/期间核查治理', '已有 reference asset / certificate readiness 对象', '补齐 lot 绑定、送校状态、期间核查、停用锁定、替代标准链审批', 'reference_asset_registry、certificate_lifecycle、intermediate_check_record、pre_run_readiness_gate']
+  Row 4: ['不确定度预算引擎', '已有 stub / readiness 摘要', '从对象预留升级为可执行预算，支持输入量、分布、灵敏系数、合成标准不确定度和扩展不确定度', 'uncertainty_model、budget_case、golden_cases、uncertainty_report_pack']
+  Row 5: ['方法确认矩阵', '已有 protocol / matrix 雏形', '按路线、温度、压力、分析仪链路长度、参考链组合建立受控验证矩阵并绑定 acceptance contract', 'method_confirmation_protocol、validation_matrix、verification_digest']
+  Row 6: ['正式报告与证书链', '目前以 summary / manifest / review pack 为主', '补齐正式校准报告、校准证书、声明页、引用证书页、签发页和版本页', 'formal_report_pack、calibration_certificate_pack、statement_page']
+  Row 7: ['软件验证与审计留痕', '已有测试与部分 artifact hash 能力', '建立需求—设计—实现—测试追踪、环境指纹、发布清单、审计事件和不可抵赖机制', 'software_validation_traceability_matrix、release_manifest、audit_event_store、artifact_hash_registry']
+  Row 8: ['PT/ILC 与外部比对闭环', '当前多为 reviewer-only / readiness-mapping', '补齐真实导入、真实结果、z-score / En 判定、scope 关联、不确定度关联和整改闭环', 'pt_ilc_registry、comparison_evidence_pack、external_comparison_importer、scope_comparison_view']
+  Row 9: ['数据库二/三期底座', '已有旁路索引和 AI-ready 对象方向', '扩展到时序原始数据、正式报告库、证书库、审计库、权限库和保留策略', 'timeseries_store、report_store、certificate_store、retention_policy']
+  Row 10: ['AI 治理与 human-in-the-loop', '已有 Review Copilot、shadow、advisory 方向', '补齐模型注册、评估、人工复核、禁控边界、发布与回滚、受限 advisory 审批链', 'model_registry、model_evaluations、human_review_log、rollback_target']
+
+=== Table 19 ===
+  Row 0: ['原章节', '保留内容', '建议新增/调整', '预期结果']
+  Row 1: ['第 1 章 项目定位与建设目标', '整体定位和三步走目标继续保留', '新增“目标分级”与“非声明边界”，明确国内高水平、国际可接受、行业领先、国际最高互认协同四层表述差异', '避免过度承诺，便于后续评审和对外说明']
+  Row 2: ['第 3 章 标准体系与对标策略', 'family-level / topic-level mapping 思路正确', '增加 BIPM / JCGM / ISO 10012 / ISO 17043 / ISO 17034 / WMO/GAW / ILAC MRA / CIPM MRA 的分层定位', '从“列标准”升级为“按目标层级承接标准”']
+  Row 3: ['第 4 章 总体架构设计', '分层架构基本合理', '增加正式报告与证书层、审计与签名层、权限与 SOP 层、长期归档层，形成更完整的计量运行架构', '让平台不仅能跑流程，还能支撑正式签发']
+  Row 4: ['第 6 章 多源判稳与数据质量设计', '多源判稳方向正确', '增加 DQO、过程能力、期间核查、环境条件、参考仪器状态与释放条件的强约束对象', '把判稳从“工艺判断”提升为“计量判定输入”']
+  Row 5: ['第 7 章 数据模型与算法框架', '原始层/过程层/结果层划分合理', '增加 measurand、traceability node、uncertainty input、method item、statement binding 等计量字段', '为不确定度、方法确认和正式声明提供数据支撑']
+  Row 6: ['第 8 章 数据库与工件治理设计', '文件主链 + 数据库旁路路线正确', '增加证书库、标准器台账、正式报告库、审计库、签发记录、保留与恢复策略', '让数据库从索引层升级为受控运行底座']
+  Row 7: ['第 9 章 计量实现与标准映射路径', '范围包、溯源树、不确定度对象预留正确', '从 reviewer artifact 进一步升级为运行对象，补齐真实输入、真实审批与正式输出接口', '把 readiness 设计拉向真实计量闭环']
+  Row 8: ['第 10 章 测试体系与验收门槛', 'G0–G6 门槛结构正确', '在 G3–G5 间增加标准器准入、方法确认通过、不确定度签审、PT/ILC 结果接入和正式报告 dry run 关口', '避免只凭 smoke / parity / replay 误判为可切换']
+  Row 9: ['第 14 章 认可就绪运行体系与工程化落地', '已是本方案最接近计量平台的章节', '进一步增加电子签名、防篡改、双人复核、权限分级、培训资质与 SOP 绑定', '使“认可就绪”从设计对象变成运行制度']
+  Row 10: ['附录 B / H', '已有标准来源和工作包建议', '更新为当前有效版本，并把首批工作包扩展为面向国家级 / 国际级平台的分阶段工作包', '便于直接作为后续工程化实施蓝图']
+
+=== Table 20 ===
+  Row 0: ['工作包', '建议时间窗', '核心内容', '闸控输出']
+  Row 1: ['WP0', '0–2 周', '标准体系与声明边界固化', '更新设计基线、标准分层矩阵、non-claim 语句、目标层级口径']
+  Row 2: ['WP1', '0–4 周', 'scope package 2.0 + decision rule 2.0', '范围包、决策规则、符合性语句模板、scope 绑定检查通过']
+  Row 3: ['WP2', '1–6 周', '标准器 / 证书 / 期间核查治理', 'reference asset registry、certificate lifecycle、pre-run readiness gate 可执行']
+  Row 4: ['WP3', '2–8 周', '不确定度预算引擎骨架', 'uncertainty model、input set、golden cases、report pack 首版跑通']
+  Row 5: ['WP4', '2–8 周', '方法确认矩阵与验证摘要', 'validation matrix、verification digest、路线分层 acceptance contract 固化']
+  Row 6: ['WP5', '3–8 周', '软件验证与审计留痕', 'traceability matrix、release manifest、artifact hash、audit event store 可审阅']
+  Row 7: ['WP6', '4–10 周', '正式报告 / 校准证书 / 签发链', 'formal report pack、certificate pack、双人复核与签发流程 dry run']
+  Row 8: ['WP7', '4–10 周', 'PT/ILC / external comparison 闭环', '真实 comparison import、comparison evidence pack、scope comparison view 联通']
+  Row 9: ['WP8', '6–12 周', '数据库二期 + 原始时序与归档策略', '原始时序入库、审计/报告/证书库建立、保留与恢复策略确认']
+  Row 10: ['WP9', '并行旁路', 'AI 治理与 Review Copilot 受控试点', '模型注册、人工复核、shadow / advisory 审批链、禁控边界验证']
+  Row 11: ['WP10', '第三阶段前置', 'engineering-isolation 真机桥与受限真机验证', '单路线、单温组、数值一致性、回滚 SOP 和默认切换预案具备证据']
+  Row 12: ['WP11', '第三阶段后段', '有限范围替代与对外说明准备', '局部替代包、正式报告样例、外部评审资料包、风险收口摘要']
+
+=== Table 21 ===
+  Row 0: ['术语', '说明']
+  Row 1: ['engineering-isolation', 'V2 在显式闸控下进入的独立验证环境，允许更接近真实链路，但不等于默认真机主流程。']
+  Row 2: ['readiness mapping', '对标准、证据、阶段条件的准备度映射，不代表正式合规或认可结论。']
+  Row 3: ['real acceptance evidence', '由真实台架、真实标准器、真实流程和正式评审产生的证据，不包含纯仿真结果。']
+  Row 4: ['shadow evaluation', '主策略不变的前提下，平行运行候选策略并记录差异的评估机制。']
+  Row 5: ['reviewer artifact', '面向评审者而非执行者的结构化工件，用于说明阶段边界、覆盖情况、证据缺口与审阅摘要。']
+
+=== Table 22 ===
+  Row 0: ['术语建议 • analytics center：承担跨 run 分析、异常聚合与健康画像的分析中枢。 • review copilot：面向 reviewer 的智能摘要、证据导航与复验建议助手。 • anomaly taxonomy：异常分类与标签体系。 • feature snapshot：某窗口或事件的特征快照与版本留痕。 • model registry：模型版本、状态、评估与回滚元数据集合。 • advisory output：仅供提示和决策参考的旁路输出，不直接触发控制动作。 • human-in-the-loop：人工复核、确认与回滚参与机制。']
+
+=== Table 23 ===
+  Row 0: ['建议字段 • 标签名：统一英文 key + 中文说明。 • 严重度：info / warn / high / block 建议分级。 • 关联状态：如 PRESEAL_STABILITY、PRESSURE_STABLE、SAMPLE_WINDOW。 • 关联设备：分析仪、露点仪、压力控制器、温箱、阀组等。 • 根因候选：记录可疑原因，不提前写成确定性结论。 • 复验结论：记录人工复核、复跑与关闭条件。']
+
+=== Table 24 ===
+  Row 0: ['最小字段建议 • model_id / model_name / model_version • feature_version / label_version / train_data_scope • evaluation_date / evaluation_metrics / approval_status • shadow_scope / advisory_scope / release_status • owner / reviewer / rollback_target / retirement_rule']
+
+=== Table 25 ===
+  Row 0: ['后续扩写建议 • 将本方案拆成 7 份专题文档：总体设计、控制流程与状态机、数据模型与算法、标准映射与计量、数据库与工件治理、AI 与高级分析、Review Copilot 与模型治理。 • 把本方案作为 Codex 提示词的母版：每轮开发必须说明对应章节、边界、测试与验收门槛。 • 进入第三阶段前，先完成标准器台账、证书台账、判稳策略版本库、异常标签体系、模型治理最小字段与数据库一期 schema 的正式评审。']
+

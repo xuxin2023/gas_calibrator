@@ -13,6 +13,7 @@ from gas_calibrator.v2.core.phase_taxonomy_contract import (
     METHOD_CONFIRMATION_FAMILY,
     UNCERTAINTY_INPUT_FAMILY,
 )
+from gas_calibrator.v2.core import recognition_readiness_artifacts as recognition_readiness
 from gas_calibrator.v2.core.reviewer_fragments_contract import (
     BOUNDARY_FRAGMENT_FAMILY,
     NON_CLAIM_FRAGMENT_FAMILY,
@@ -123,8 +124,20 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert report_payload["measurement_core_evidence"]["multi_source_stability_evidence"]["artifact_type"] == (
         "multi_source_stability_evidence"
     )
+    assert report_payload["measurement_core_evidence"]["stability_policy_profile"]["artifact_type"] == (
+        "stability_policy_profile"
+    )
+    assert report_payload["measurement_core_evidence"]["stability_decision_rollup"]["artifact_type"] == (
+        "stability_decision_rollup"
+    )
+    assert report_payload["measurement_core_evidence"]["shadow_stability_diff"]["artifact_type"] == (
+        "shadow_stability_diff"
+    )
     assert report_payload["measurement_core_evidence"]["state_transition_evidence"]["artifact_type"] == (
         "state_transition_evidence"
+    )
+    assert report_payload["measurement_core_evidence"]["transition_policy_profile"]["artifact_type"] == (
+        "transition_policy_profile"
     )
     assert report_payload["measurement_core_evidence"]["simulation_evidence_sidecar_bundle"]["artifact_type"] == (
         "simulation_evidence_sidecar_bundle"
@@ -193,10 +206,55 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         report_payload["recognition_readiness_evidence"]["audit_readiness_digest"]["artifact_type"]
         == "audit_readiness_digest"
     )
+    expected_software_validation_keys = {
+        "requirement_design_code_test_links": recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME,
+        "validation_evidence_index": recognition_readiness.VALIDATION_EVIDENCE_INDEX_FILENAME,
+        "change_impact_summary": recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME,
+        "rollback_readiness_summary": recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME,
+        "software_validation_traceability_matrix": recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
+        "artifact_hash_registry": recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME,
+        "audit_event_store": recognition_readiness.AUDIT_EVENT_STORE_FILENAME,
+        "environment_fingerprint": recognition_readiness.ENVIRONMENT_FINGERPRINT_FILENAME,
+        "config_fingerprint": recognition_readiness.CONFIG_FINGERPRINT_FILENAME,
+        "release_input_digest": recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME,
+        "release_manifest": recognition_readiness.RELEASE_MANIFEST_FILENAME,
+        "release_scope_summary": recognition_readiness.RELEASE_SCOPE_SUMMARY_FILENAME,
+        "release_boundary_digest": recognition_readiness.RELEASE_BOUNDARY_DIGEST_FILENAME,
+        "release_evidence_pack_index": recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_FILENAME,
+        "release_validation_manifest": recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME,
+        "audit_readiness_digest": recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
+    }
+    for artifact_key, filename in expected_software_validation_keys.items():
+        artifact_payload = dict(report_payload["recognition_readiness_evidence"][artifact_key])
+        assert artifact_payload["artifact_type"] == artifact_key
+        assert artifact_payload["not_real_acceptance_evidence"] is True
+        assert artifact_payload["not_ready_for_formal_claim"] is True
+        assert artifact_payload["primary_evidence_rewritten"] is False
+        assert report_payload["recognition_readiness_evidence"]["artifact_paths"][artifact_key].endswith(filename)
+    assert any(
+        "Asset count:" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "Certificate validity:" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "Lot binding:" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "Intermediate checks:" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
     assert display_fragment_value(BOUNDARY_FRAGMENT_FAMILY, "shadow_evaluation_only") in report_payload["measurement_core_evidence"]["boundary_lines"]
     assert display_fragment_value(NON_CLAIM_FRAGMENT_FAMILY, "not_accreditation_claim") in report_payload["recognition_readiness_evidence"]["boundary_lines"]
     assert any(
         "payload" in str(line).lower()
+        for line in list(report_payload["measurement_core_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "candidate" in str(line).lower() or "routes" in str(line).lower()
         for line in list(report_payload["measurement_core_evidence"]["summary_lines"] or [])
     )
     assert any(
@@ -223,6 +281,20 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         "下一步补证工件" in str(line)
         for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
     )
+    assert (
+        report_payload["recognition_readiness_evidence"]["change_impact_summary"]["changed_modules_summary"]
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["change_impact_summary"]["impacts_main_execution_chain"] is False
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["rollback_readiness_summary"]["rollback_mode"]
+        == "file_artifact_first"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["rollback_readiness_summary"]["touches_primary_evidence"]
+        is False
+    )
     assert any(
         "关联方法确认条目" in str(line)
         and display_taxonomy_value(METHOD_CONFIRMATION_FAMILY, "water_preseal_window_definition") in str(line)
@@ -232,6 +304,14 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         "关联不确定度输入" in str(line)
         and display_taxonomy_value(UNCERTAINTY_INPUT_FAMILY, "preseal_pressure_term") in str(line)
         for line in list(report_payload["measurement_core_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "scope_id:" in str(line).lower() or "simulation_offline_headless" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "limitation" in str(line).lower() or "formal compliance" in str(line).lower()
+        for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
     )
     assert report_payload["publish_primary_latest_allowed"] is False
     assert report_payload["artifact_role"] == "diagnostic_analysis"
@@ -270,6 +350,13 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         "run_artifact_index.json"
     )
     assert snapshot_payload["recognition_readiness_evidence"]["available"] is True
+    assert any(
+        "Asset count:" in str(line)
+        for line in list(snapshot_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    for artifact_key, filename in expected_software_validation_keys.items():
+        assert snapshot_payload["recognition_readiness_evidence"][artifact_key]["artifact_type"] == artifact_key
+        assert snapshot_payload["recognition_readiness_evidence"]["artifact_paths"][artifact_key].endswith(filename)
     assert (
         "scope_readiness_summary"
         in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
@@ -312,6 +399,10 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     )
     assert any(
         "工件兼容" in str(line)
+        for line in list(snapshot_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "scope_id:" in str(line).lower() or "simulation_offline_headless" in str(line)
         for line in list(snapshot_payload["recognition_readiness_evidence"]["summary_lines"] or [])
     )
     assert report_payload["reference_quality"]["thermometer_reference_status"] == "stale"

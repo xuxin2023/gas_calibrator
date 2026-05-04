@@ -1,0 +1,31 @@
+{
+  "review_type": "co2_a_pressure_protection_review",
+  "source_blocked_artifact_id": "20260422_183409",
+  "worktree_head": "5b5cc207f8b7aeb6cd70273d5a90026d2edd7eb3",
+  "route": "CO2_A",
+  "source_final_valve_under_test": 4,
+  "blocked_reason": "PressureProtectionPrecheckNotSatisfied",
+  "retry_allowed": false,
+  "analyzer_pressure_protection_active": false,
+  "mechanical_pressure_protection_confirmed": false,
+  "pressure_protection_precheck_satisfied": false,
+  "same_source_analyzer_protection_evidence_found": false,
+  "same_source_mechanical_protection_evidence_found": false,
+  "same_source_protection_evidence_missing": true,
+  "reviewed_config_path": "configs/headless_real_smoke_co2_fasttrace_short_noanalyzers.json",
+  "reviewed_config_gas_analyzer_enabled": false,
+  "reviewed_config_enabled_gas_analyzers": [],
+  "reviewed_config_mechanical_pressure_protection_confirmed_field_present": false,
+  "reviewed_config_pace_upstream_check_valve_installed_field_present": false,
+  "required_next_evidence": [
+    "same-source analyzer pressure protection evidence",
+    "or same-source approved mechanical pressure protection evidence"
+  ],
+  "must_not_retry_valve_4_until_protection_confirmed": true,
+  "must_not_open_4_24_10": true,
+  "must_not_release_seal_pressure_stage": true,
+  "route_final_stage_seal_safety_updated": false,
+  "real_sealed_pressure_transition_verified": false,
+  "not_real_device_sealed_pressure_acceptance": true,
+  "note": "No same-source approved analyzer or mechanical pressure-protection evidence was found in the reviewed config and artifact chain. Runtime config and release path are not changed by this PR."
+}

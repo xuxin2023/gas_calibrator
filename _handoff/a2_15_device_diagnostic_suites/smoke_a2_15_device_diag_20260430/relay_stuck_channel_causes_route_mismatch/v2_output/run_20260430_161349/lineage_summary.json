@@ -1,0 +1,160 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "lineage_summary",
+  "run_id": "run_20260430_161349",
+  "generated_at": "2026-04-30T16:13:57",
+  "parent_run_id": null,
+  "source_artifact_ids": [
+    "run_20260430_161349:source_points"
+  ],
+  "config_version": "cfg-5295ecb1899d",
+  "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+  "profile_version": null,
+  "software_build_id": "0.1.0",
+  "artifacts": [
+    {
+      "artifact_id": "run_20260430_161349:coefficient_report",
+      "artifact_name": "coefficient_report",
+      "role": "formal_analysis",
+      "path": "",
+      "present": false,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:io_log",
+      "artifact_name": "io_log",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\io_log.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:manifest",
+      "artifact_name": "manifest",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\manifest.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:points_readable",
+      "artifact_name": "points_readable",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\points_readable.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:qc_report",
+      "artifact_name": "qc_report",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\qc_report.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:results_json",
+      "artifact_name": "results_json",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\results.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:run_summary",
+      "artifact_name": "run_summary",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\summary.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:runtime_points",
+      "artifact_name": "runtime_points",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\points.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:samples_csv",
+      "artifact_name": "samples_csv",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\samples.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:samples_excel",
+      "artifact_name": "samples_excel",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\samples.xlsx",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_161349:temperature_snapshots",
+      "artifact_name": "temperature_snapshots",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\temperature_snapshots.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_161349:source_points"
+      ]
+    }
+  ],
+  "known_output_files": [
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\manifest.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\points_readable.csv",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\qc_manifest.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\qc_report.csv",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\qc_report.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\qc_reviewer_digest.md",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\qc_summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\results.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\route_trace.jsonl",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\samples.csv",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\samples.xlsx",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\temperature_snapshots.json"
+  ],
+  "expected_artifacts": [
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\acceptance_plan.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\analytics_summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\trend_registry.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\lineage_summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\evidence_registry.json",
+    "D:\\gas_calibrator\\_handoff\\a2_15_device_diagnostic_suites\\smoke_a2_15_device_diag_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_161349\\coefficient_registry.json"
+  ]
+}

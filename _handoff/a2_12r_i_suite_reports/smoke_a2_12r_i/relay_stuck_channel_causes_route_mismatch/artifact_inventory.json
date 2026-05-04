@@ -1,0 +1,42 @@
+{
+  "required_keys": [
+    "v1_route_trace",
+    "v2_route_trace",
+    "route_trace_diff",
+    "point_presence_diff",
+    "sample_count_diff",
+    "control_flow_compare_report_json",
+    "control_flow_compare_report_markdown"
+  ],
+  "required": {
+    "v1_route_trace": {
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v1_route_trace.jsonl",
+      "exists": true
+    },
+    "v2_route_trace": {
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_route_trace.jsonl",
+      "exists": true
+    },
+    "route_trace_diff": {
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\route_trace_diff.txt",
+      "exists": true
+    },
+    "point_presence_diff": {
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\point_presence_diff.json",
+      "exists": true
+    },
+    "sample_count_diff": {
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\sample_count_diff.json",
+      "exists": true
+    },
+    "control_flow_compare_report_json": {
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\control_flow_compare_report.json",
+      "exists": true
+    },
+    "control_flow_compare_report_markdown": {
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\control_flow_compare_report.md",
+      "exists": true
+    }
+  },
+  "complete": true
+}

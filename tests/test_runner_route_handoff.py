@@ -3,6 +3,8 @@ import threading
 import types
 from pathlib import Path
 
+import pytest
+
 from gas_calibrator.data.points import CalibrationPoint
 from gas_calibrator.logging_utils import RunLogger
 from gas_calibrator.workflow import runner as runner_module
@@ -286,6 +288,7 @@ def test_route_handoff_fast_path_uses_safe_open_threshold_and_flushes_deferred_e
             "workflow": {
                 "pressure": {
                     "handoff_fast_enabled": True,
+                    "route_open_guard_enabled": False,
                     "handoff_safe_open_delta_hpa": 3.0,
                     "handoff_use_pressure_gauge": True,
                     "handoff_require_vent_completed": False,
@@ -372,7 +375,7 @@ def test_route_handoff_fast_path_uses_safe_open_threshold_and_flushes_deferred_e
     logger.close()
 
     assert "begin_handoff" in pace.calls
-    assert any(call[0] == "vent_on" for call in pace.calls if isinstance(call, tuple))
+    assert not any(call[0] == "vent_on" for call in pace.calls if isinstance(call, tuple))
     assert opened_routes == [[7, 8]]
     assert flushed == ["sample:1:co2", "heavy:1:co2"]
     assert runner._deferred_sample_exports == []
@@ -426,6 +429,60 @@ def test_begin_pending_route_handoff_starts_transition_worker_without_sync_prime
     assert start_calls[0]["prime_immediately"] is False
 
 
+def test_begin_pending_route_handoff_falls_back_to_manual_vent_start_without_helper(tmp_path: Path) -> None:
+    class _FakePace:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def stop_atmosphere_hold(self):
+            self.calls.append("stop_hold")
+            return True
+
+        def set_output(self, on):
+            self.calls.append(("output", bool(on)))
+
+        def set_isolation_open(self, is_open):
+            self.calls.append(("isol", bool(is_open)))
+
+        def vent(self, on=True):
+            self.calls.append(("vent", bool(on)))
+
+    logger = RunLogger(tmp_path)
+    point_from = _co2_point(1, 400.0, 1100.0)
+    point_next = _co2_point(2, 800.0, 900.0)
+    pace = _FakePace()
+    runner = CalibrationRunner(
+        {"workflow": {"pressure": {"handoff_fast_enabled": True}}},
+        {"pace": pace, "pressure_gauge": object()},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._last_sample_completion = {"sample_done_ts": 10.0}
+    runner._start_pressure_transition_fast_signal_context = types.MethodType(
+        lambda self, **_kwargs: {},
+        runner,
+    )
+
+    assert runner._begin_pending_route_handoff(
+        current_point=point_from,
+        current_phase="h2o",
+        current_point_tag="from",
+        next_point=point_next,
+        next_phase="co2",
+        next_point_tag="to",
+        next_open_valves=[7, 8],
+    ) is True
+    logger.close()
+
+    assert pace.calls == [
+        "stop_hold",
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
+    ]
+
+
 def test_route_handoff_fast_path_uses_transition_gauge_cache_without_blocking_reads(
     monkeypatch,
     tmp_path: Path,
@@ -470,6 +527,7 @@ def test_route_handoff_fast_path_uses_transition_gauge_cache_without_blocking_re
             "workflow": {
                 "pressure": {
                     "handoff_fast_enabled": True,
+                    "route_open_guard_enabled": False,
                     "handoff_safe_open_delta_hpa": 3.0,
                     "handoff_use_pressure_gauge": True,
                     "handoff_require_vent_completed": False,
@@ -528,7 +586,7 @@ def test_route_handoff_fast_path_uses_transition_gauge_cache_without_blocking_re
     logger.close()
 
     assert "begin_handoff" in pace.calls
-    assert any(call[0] == "vent_on" for call in pace.calls if isinstance(call, tuple))
+    assert not any(call[0] == "vent_on" for call in pace.calls if isinstance(call, tuple))
     assert opened_routes == [[7, 8]]
     trace_rows = _load_pressure_trace_rows(logger)
     safe_rows = [row for row in trace_rows if row["trace_stage"] == "handoff_safe_to_open_reached"]
@@ -583,6 +641,7 @@ def test_route_handoff_fast_path_uses_pressure_gauge_delta_from_last_sample_not_
             "workflow": {
                 "pressure": {
                     "handoff_fast_enabled": True,
+                    "route_open_guard_enabled": False,
                     "handoff_safe_open_delta_hpa": 3.0,
                     "handoff_use_pressure_gauge": True,
                     "handoff_require_vent_completed": False,
@@ -642,6 +701,139 @@ def test_route_handoff_fast_path_uses_pressure_gauge_delta_from_last_sample_not_
     safe_rows = [row for row in trace_rows if row["trace_stage"] == "handoff_safe_to_open_reached"]
     assert len(safe_rows) == 1
     assert float(safe_rows[0]["pressure_gauge_hpa"]) == 1097.0
+
+
+def test_fast_handoff_does_not_apply_full_source_route_without_guard(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    point_next = _co2_point(2, 600.0, 900.0)
+    runner = CalibrationRunner(
+        {
+            "valves": {
+                "h2o_path": 8,
+                "gas_main": 11,
+                "co2_path": 7,
+                "co2_map": {"600": 4},
+            },
+            "workflow": {"pressure": {"route_open_guard_enabled": True}},
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._source_stage_safety["co2_a"] = True
+    runner._pending_route_handoff = {
+        "next_phase": "co2",
+        "next_point": point_next,
+        "next_point_tag": "to",
+        "sample_done_ts": 1.0,
+        "vent_command_ts": 2.0,
+        "sample_completion": {"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 1},
+    }
+    runner._wait_until_safe_to_open_next_route = lambda _state: {  # type: ignore[method-assign]
+        "safe_open_ts": 3.0,
+        "pressure_gauge_hpa": 1002.0,
+        "atmosphere_reference_hpa": 1000.0,
+        "safe_open_delta_hpa": 2.0,
+    }
+    direct_apply_calls: list[list[int]] = []
+    guard_calls: list[list[int]] = []
+    runner._apply_valve_states = lambda open_valves: direct_apply_calls.append(list(open_valves))  # type: ignore[method-assign]
+    runner._open_route_with_pressure_guard = lambda *args, **kwargs: guard_calls.append(list(kwargs.get("open_valves") or [])) or True  # type: ignore[method-assign]
+
+    assert runner._complete_pending_route_handoff(point_next, phase="co2", point_tag="to", open_valves=[8, 11, 7, 4]) is True
+    logger.close()
+
+    assert direct_apply_calls == []
+    assert guard_calls == [[8, 11, 7, 4]]
+
+
+def test_fast_handoff_uses_staged_route_guard_when_guard_enabled(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    point_next = _co2_point(2, 600.0, 900.0)
+    runner = CalibrationRunner(
+        {
+            "valves": {
+                "h2o_path": 8,
+                "gas_main": 11,
+                "co2_path": 7,
+                "co2_map": {"600": 4},
+            },
+            "workflow": {"pressure": {"route_open_guard_enabled": True}},
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._source_stage_safety["co2_a"] = True
+    runner._pending_route_handoff = {
+        "next_phase": "co2",
+        "next_point": point_next,
+        "next_point_tag": "to",
+        "sample_done_ts": 1.0,
+        "vent_command_ts": 2.0,
+        "sample_completion": {"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 1},
+    }
+    runner._wait_until_safe_to_open_next_route = lambda _state: {  # type: ignore[method-assign]
+        "safe_open_ts": 3.0,
+        "pressure_gauge_hpa": 1002.0,
+        "atmosphere_reference_hpa": 1000.0,
+        "safe_open_delta_hpa": 2.0,
+    }
+    staged_calls: list[str] = []
+    runner._open_route_with_pressure_guard = lambda *args, **kwargs: staged_calls.append(str(kwargs.get("log_context") or "")) or True  # type: ignore[method-assign]
+
+    assert runner._complete_pending_route_handoff(point_next, phase="co2", point_tag="to", open_valves=[8, 11, 7, 4]) is True
+    logger.close()
+
+    assert staged_calls == ["handoff staged route open"]
+
+
+def test_fast_handoff_blocks_source_stage_when_source_stage_not_verified(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    point_next = _co2_point(2, 600.0, 900.0)
+    runner = CalibrationRunner(
+        {
+            "valves": {
+                "h2o_path": 8,
+                "gas_main": 11,
+                "co2_path": 7,
+                "co2_map": {"600": 4},
+            },
+            "workflow": {"pressure": {"route_open_guard_enabled": True}},
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._pending_route_handoff = {
+        "next_phase": "co2",
+        "next_point": point_next,
+        "next_point_tag": "to",
+        "sample_done_ts": 1.0,
+        "vent_command_ts": 2.0,
+        "sample_completion": {"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 1},
+    }
+    runner._wait_until_safe_to_open_next_route = lambda _state: {  # type: ignore[method-assign]
+        "safe_open_ts": 3.0,
+        "pressure_gauge_hpa": 1002.0,
+        "atmosphere_reference_hpa": 1000.0,
+        "safe_open_delta_hpa": 2.0,
+    }
+    direct_apply_calls: list[list[int]] = []
+    guard_calls: list[list[int]] = []
+    runner._apply_valve_states = lambda open_valves: direct_apply_calls.append(list(open_valves))  # type: ignore[method-assign]
+    runner._open_route_with_pressure_guard = lambda *args, **kwargs: guard_calls.append(list(kwargs.get("open_valves") or [])) or True  # type: ignore[method-assign]
+
+    assert runner._complete_pending_route_handoff(point_next, phase="co2", point_tag="to", open_valves=[8, 11, 7, 4]) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point_next, phase="co2") or {}
+    assert direct_apply_calls == []
+    assert guard_calls == []
+    assert state["handoff_source_stage_block_reason"] == "HandoffSourceStageBlockedUntilVerified"
 
 
 def test_write_physical_valve_states_parallelizes_multi_relay_bulk_writes(tmp_path: Path) -> None:
@@ -750,3 +942,103 @@ def test_run_flushes_deferred_exports_before_coefficients(monkeypatch, tmp_path:
         ("heavy_flush", "before coefficient fitting"),
     ]
     assert order[2] == ("coeff", "")
+
+
+def test_same_gas_pressure_step_handoff_does_not_emit_atmosphere_enter_or_route_reopen(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    current_point = _co2_point(1, 400.0, 1000.0)
+    next_point = _co2_point(2, 400.0, 800.0)
+    runner._last_sealed_pressure_route_context = {
+        "phase": "co2",
+        "route_signature": runner._route_signature_for_point(current_point, phase="co2"),
+        "point_row": current_point.index,
+    }
+
+    mode = runner._prepare_sampling_handoff_mode(next_point, phase="co2")
+    logger.close()
+
+    assert mode == "same_gas_pressure_step_handoff"
+    trace_rows = _load_pressure_trace_rows(logger)
+    selected_rows = [row for row in trace_rows if row["trace_stage"] == "handoff_mode_selected"]
+    assert len(selected_rows) == 1
+    assert selected_rows[0]["handoff_mode"] == "same_gas_pressure_step_handoff"
+    assert not any(row["trace_stage"] == "atmosphere_enter_begin" for row in trace_rows)
+    assert not any(row["trace_stage"] == "route_open" for row in trace_rows)
+
+
+def test_same_gas_pressure_step_handoff_blocks_vent_during_pressure_point_switch(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    current_point = _co2_point(1, 400.0, 1000.0)
+    next_point = _co2_point(2, 400.0, 800.0)
+    runner._last_sealed_pressure_route_context = {
+        "phase": "co2",
+        "route_signature": runner._route_signature_for_point(current_point, phase="co2"),
+        "point_row": current_point.index,
+    }
+
+    mode = runner._prepare_sampling_handoff_mode(next_point, phase="co2")
+
+    with pytest.raises(RuntimeError, match="sealed_no_vent_guard_violation:vent_on"):
+        runner._set_pressure_controller_vent(True, reason="forbidden during pressure point switch")
+    logger.close()
+
+    state = runner._point_runtime_state(next_point, phase="co2") or {}
+    assert mode == "same_gas_pressure_step_handoff"
+    assert state["sealed_no_vent_guard_active"] is True
+    assert state["sealed_no_vent_guard_phase"] == "PressurePointSwitch"
+
+
+def test_route_seal_context_is_remembered_before_sampling_for_follow_on_same_gas_point(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    sealed_point = _co2_point(1, 800.0, 1000.0)
+    follow_on_point = _co2_point(2, 800.0, 800.0)
+    runner._set_point_runtime_fields(
+        sealed_point,
+        phase="co2",
+        timing_stages={
+            "route_open": 100.0,
+            "soak_begin": 101.0,
+            "soak_end": 104.0,
+            "preseal_vent_off_begin": 105.0,
+            "preseal_trigger_reached": 106.0,
+            "route_sealed": 107.0,
+        },
+    )
+
+    remembered = runner._remember_last_sealed_pressure_route_context(
+        sealed_point,
+        phase="co2",
+        reason="route_sealed_for_pressure_control",
+    )
+    mode = runner._prepare_sampling_handoff_mode(follow_on_point, phase="co2")
+    logger.close()
+
+    assert remembered["phase"] == "co2"
+    assert remembered["point_row"] == sealed_point.index
+    assert remembered["timing_stages"]["route_sealed"] == 107.0
+    assert mode == "same_gas_pressure_step_handoff"
+    follow_on_state = runner._point_runtime_state(follow_on_point, phase="co2") or {}
+    inherited_stages = dict(follow_on_state.get("timing_stages") or {})
+    assert inherited_stages["route_open"] == 100.0
+    assert inherited_stages["route_sealed"] == 107.0

@@ -32,6 +32,12 @@ from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.engineering_isolation_gate_evaluator import (
+    ENGINEERING_ISOLATION_BLOCKERS_FILENAME,
+    ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME,
+    ENGINEERING_ISOLATION_GATE_RESULT_FILENAME,
+    ENGINEERING_ISOLATION_WARNINGS_FILENAME,
+)
 from gas_calibrator.v2.core import recognition_readiness_artifacts as recognition_readiness
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
 
@@ -90,6 +96,75 @@ def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
             ensure_ascii=False,
             indent=2,
         ),
+        encoding="utf-8",
+    )
+
+    compare_root = run_dir / "v1_v2_compare"
+    compare_dir = compare_root / "compare_fixed"
+    compare_dir.mkdir(parents=True, exist_ok=True)
+    (compare_dir / "v1_route_trace.jsonl").write_text("{}\n", encoding="utf-8")
+    (compare_dir / "v2_route_trace.jsonl").write_text("{}\n", encoding="utf-8")
+    (compare_dir / "route_trace_diff.txt").write_text("sample_end mismatch\n", encoding="utf-8")
+    (compare_dir / "point_presence_diff.json").write_text("{}", encoding="utf-8")
+    (compare_dir / "sample_count_diff.json").write_text("{}", encoding="utf-8")
+    (compare_dir / "artifact_inventory.json").write_text(
+        json.dumps({"complete": True}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (compare_dir / "control_flow_compare_report.md").write_text("# compare\n", encoding="utf-8")
+    compare_bundle = {
+        "generated_at": "2026-04-04T12:00:00",
+        "compare_status": "MISMATCH",
+        "overall_match": False,
+        "evidence_source": "simulated_protocol",
+        "evidence_state": "simulated_compare",
+        "diagnostic_only": True,
+        "acceptance_evidence": False,
+        "not_real_acceptance_evidence": True,
+        "first_failure_phase": "sample_end",
+        "metadata": {
+            "validation_profile": "replacement_skip0_co2_only_simulated",
+            "run_name": "compare_fixed",
+        },
+        "validation_scope": {
+            "summary": "Current main replacement-validation route secondary review aid.",
+        },
+        "route_execution_summary": {
+            "target_route": "co2",
+            "first_failure_phase": "sample_end",
+            "has_physical_route_mismatches": True,
+        },
+        "presence": {"matches": True},
+        "sample_count": {"matches": False},
+        "route_sequence": {"matches": False},
+        "key_actions": {
+            "pressure": {"matches": True},
+            "vent": {"matches": False},
+        },
+        "artifact_inventory": {"complete": True},
+        "artifacts": {
+            "v1_route_trace": "v1_route_trace.jsonl",
+            "v2_route_trace": "v2_route_trace.jsonl",
+            "route_trace_diff": "route_trace_diff.txt",
+            "point_presence_diff": "point_presence_diff.json",
+            "sample_count_diff": "sample_count_diff.json",
+            "control_flow_compare_report_json": "control_flow_compare_report.json",
+            "control_flow_compare_report_markdown": "control_flow_compare_report.md",
+            "artifact_inventory": "artifact_inventory.json",
+            "replacement_skip0_co2_only_simulated_bundle": "replacement_skip0_co2_only_simulated_bundle.json",
+            "replacement_skip0_co2_only_simulated_latest": "../replacement_skip0_co2_only_simulated_latest.json",
+        },
+    }
+    (compare_dir / "control_flow_compare_report.json").write_text(
+        json.dumps(compare_bundle, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (compare_dir / "replacement_skip0_co2_only_simulated_bundle.json").write_text(
+        json.dumps(compare_bundle, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (compare_root / "replacement_skip0_co2_only_simulated_latest.json").write_text(
+        json.dumps(compare_bundle, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -208,6 +283,7 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
         run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
     ).read_text(encoding="utf-8")
     evidence_registry = json.loads((run_dir / "evidence_registry.json").read_text(encoding="utf-8"))
+    results_after_rebuild = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
     assert analytics_summary["evidence_source"] == "simulated_protocol"
     assert analytics_summary["not_real_acceptance_evidence"] is True
     assert analytics_summary["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
@@ -215,18 +291,72 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["config_safety_review"]["warnings"] == ["top-level warning"]
     assert analytics_summary["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
     assert analytics_summary["offline_diagnostic_adapter_summary"]["found"] is True
-    assert analytics_summary["offline_diagnostic_adapter_summary"]["bundle_count"] == 2
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["bundle_count"] == 3
     assert analytics_summary["offline_diagnostic_adapter_summary"]["coverage_summary"] == (
-        "room-temp 1 | analyzer-chain 1 | artifacts 12 | plots 2"
+        "room-temp 1 | analyzer-chain 1 | alignment 1 | artifacts 22 | plots 2"
     )
     assert analytics_summary["offline_diagnostic_adapter_summary"]["review_scope_summary"] == (
-        "primary 2 | supporting 8 | plots 2"
+        "primary 3 | supporting 17 | plots 2"
     )
     assert analytics_summary["offline_diagnostic_adapter_summary"]["next_check_summary"] == (
-        "verify ambient chain | inspect analyzer chain"
+        "verify ambient chain | inspect analyzer chain | inspect sample count diff"
+    )
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["control_flow_compare_count"] == 1
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["compare_status"] == (
+        "MISMATCH"
+    )
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["sample_count_diff"] == (
+        "diff_present"
+    )
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["route_trace_diff"] == (
+        "diff_present"
+    )
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["key_action_mismatches"] == [
+        "vent"
+    ]
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["physical_route_mismatch"] == (
+        "yes"
     )
     assert analytics_summary["qc_evidence_section"]["cards"]
     assert analytics_summary["qc_review_cards"]
+    assert summary_after_rebuild["recognition_binding"]["scope_id"]
+    assert summary_after_rebuild["recognition_binding"]["decision_rule_id"]
+    assert summary_after_rebuild["stats"]["recognition_binding"]["scope_id"] == (
+        summary_after_rebuild["recognition_binding"]["scope_id"]
+    )
+    assert summary_after_rebuild["limitation_note"] == summary_after_rebuild["recognition_binding"]["limitation_note"]
+    assert summary_after_rebuild["non_claim_note"] == summary_after_rebuild["recognition_binding"]["non_claim_note"]
+    assert summary_after_rebuild["uncertainty_binding"]["uncertainty_case_id"]
+    assert summary_after_rebuild["method_confirmation_protocol_id"] == summary_after_rebuild["uncertainty_binding"][
+        "method_confirmation_protocol_id"
+    ]
+    assert summary_after_rebuild["verification_rollup_id"] == summary_after_rebuild["uncertainty_binding"][
+        "verification_rollup_id"
+    ]
+    assert results_after_rebuild["recognition_binding"]["scope_id"] == summary_after_rebuild["recognition_binding"][
+        "scope_id"
+    ]
+    assert results_after_rebuild["decision_rule_id"] == results_after_rebuild["recognition_binding"][
+        "decision_rule_id"
+    ]
+    assert results_after_rebuild["uncertainty_binding"]["uncertainty_case_id"]
+    assert results_after_rebuild["method_confirmation_protocol_id"] == results_after_rebuild["uncertainty_binding"][
+        "method_confirmation_protocol_id"
+    ]
+    assert results_after_rebuild["step2_closeout_digest"]["summary_line"]
+    assert results_after_rebuild["evidence_coverage_matrix"]["rows"]
+    assert results_after_rebuild["result_traceability_tree"]["nodes"]
+    assert results_after_rebuild["reviewer_anchor_navigation"]["anchors"]
+    assert results_after_rebuild["ai_run_summary_payload"]["summary_line"]
+    assert "run_metadata_profile" in summary_after_rebuild["stats"]["artifact_exports"]
+    assert "step2_closeout_bundle" in summary_after_rebuild["stats"]["artifact_exports"]
+    assert "ai_run_summary" in summary_after_rebuild["stats"]["artifact_exports"]
+    assert manifest_after_rebuild["run_metadata_profile"]["summary_text"]
+    assert manifest_after_rebuild["step2_closeout_digest"]["summary_text"]
+    assert manifest_after_rebuild["evidence_coverage_matrix"]["summary_lines"]
+    assert manifest_after_rebuild["result_traceability_tree"]["summary_text"]
+    assert manifest_after_rebuild["reviewer_anchor_navigation"]["summary_text"]
+    assert manifest_after_rebuild["ai_run_summary"]["summary_text"]
     assert analytics_summary["run_kpis"]["point_count"] == 1
     assert analytics_summary["point_kpis"]["point_count"] == 1
     assert analytics_summary["qc_overview"]["run_gate"]["status"] == "pass"
@@ -817,8 +947,90 @@ def test_rebuild_run_generates_stage3_standards_alignment_matrix_artifacts(tmp_p
     assert "cannot replace real metrology validation" in matrix_markdown
     assert "simulation / offline / headless only" in matrix_markdown
     assert "stage3_real_validation_plan.json" in matrix_markdown
+    assert "scope_definition_pack.json" in matrix_markdown
+    assert "decision_rule_profile.json" in matrix_markdown
+    assert matrix_json["recognition_scope_linkage"]["scope_id"]
+    assert matrix_json["recognition_scope_linkage"]["decision_rule_id"]
+    assert matrix_json["recognition_scope_linkage"]["reviewer_only"] is True
+    assert matrix_json["recognition_scope_linkage"]["readiness_mapping_only"] is True
+    assert matrix_json["recognition_scope_linkage"]["not_ready_for_formal_claim"] is True
+    assert matrix_json["recognition_scope_linkage"]["artifact_refs"]["scope_definition_pack"]["path"].endswith(
+        recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME
+    )
+    assert matrix_json["recognition_scope_linkage"]["artifact_refs"]["decision_rule_profile"]["path"].endswith(
+        recognition_readiness.DECISION_RULE_PROFILE_FILENAME
+    )
     assert "ready_for_engineering_isolation" not in matrix_markdown
     assert "real_acceptance_ready" not in matrix_markdown
+    assert "compliant" not in matrix_markdown.lower()
+    assert "accredited" not in matrix_markdown.lower()
+
+
+def test_rebuild_run_generates_engineering_isolation_gate_artifacts(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+
+    payload = rebuild_run(run_dir)
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    gate_json = json.loads((run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME).read_text(encoding="utf-8"))
+    blockers_json = json.loads((run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME).read_text(encoding="utf-8"))
+    warnings_json = json.loads((run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME).read_text(encoding="utf-8"))
+    gate_markdown = (run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME).read_text(encoding="utf-8")
+
+    assert (run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME).exists()
+    assert (run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME).exists()
+    assert (run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME).exists()
+    assert (run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME).exists()
+    assert payload["summary_stats"]["engineering_isolation_gate_result"]["artifact_type"] == (
+        "engineering_isolation_gate_result"
+    )
+    assert payload["summary_stats"]["engineering_isolation_gate_digest"]["artifact_paths"][
+        "engineering_isolation_gate_digest"
+    ] == str(run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME)
+    assert payload["artifact_statuses"]["engineering_isolation_gate_result"]["role"] == "execution_summary"
+    assert payload["artifact_statuses"]["engineering_isolation_gate_digest"]["role"] == "formal_analysis"
+    assert payload["artifact_statuses"]["engineering_isolation_blockers"]["role"] == "diagnostic_analysis"
+    assert payload["artifact_statuses"]["engineering_isolation_warnings"]["role"] == "diagnostic_analysis"
+    assert payload["manifest_sections"]["engineering_isolation_gate_result"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME
+    )
+    assert payload["manifest_sections"]["engineering_isolation_gate_digest"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME
+    )
+    assert payload["manifest_sections"]["engineering_isolation_blockers"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME
+    )
+    assert payload["manifest_sections"]["engineering_isolation_warnings"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME
+    )
+    assert str(run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME) in payload["remembered_files"]
+    assert summary["stats"]["artifact_exports"]["engineering_isolation_gate_result"]["role"] == "execution_summary"
+    assert summary["stats"]["artifact_exports"]["engineering_isolation_gate_digest"]["role"] == "formal_analysis"
+    assert summary["stats"]["artifact_exports"]["engineering_isolation_blockers"]["role"] == "diagnostic_analysis"
+    assert summary["stats"]["artifact_exports"]["engineering_isolation_warnings"]["role"] == "diagnostic_analysis"
+    assert str(run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME) in summary["stats"]["output_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME) in summary["stats"]["output_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME) in summary["stats"]["output_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME) in summary["stats"]["output_files"]
+    assert manifest["engineering_isolation_gate_result"]["path"] == str(run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME)
+    assert manifest["engineering_isolation_gate_digest"]["path"] == str(run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME)
+    assert manifest["engineering_isolation_blockers"]["path"] == str(run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME)
+    assert manifest["engineering_isolation_warnings"]["path"] == str(run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME)
+    assert gate_json["reviewer_bridge_only"] is True
+    assert gate_json["not_formal_admission_approval"] is True
+    assert gate_json["not_real_acceptance_evidence"] is True
+    assert gate_json["default_execution_chain_unchanged"] is True
+    assert gate_json["real_device_touched"] is False
+    assert blockers_json["not_real_acceptance_evidence"] is True
+    assert warnings_json["not_real_acceptance_evidence"] is True
+    assert "not formal admission approval" in gate_markdown
+    assert "not real acceptance" in gate_markdown
+    assert "formal admission approved" not in gate_markdown
+    assert "real acceptance approved" not in gate_markdown
 
 
 def test_rebuild_run_generates_scope_package_and_decision_rule_contracts(tmp_path: Path) -> None:
@@ -839,22 +1051,57 @@ def test_rebuild_run_generates_scope_package_and_decision_rule_contracts(tmp_pat
     assert scope_payload["scope_version"]
     assert scope_payload["scope_export_pack"]["ready_for_readiness_mapping"] is True
     assert scope_payload["scope_export_pack"]["not_ready_for_formal_claim"] is True
+    assert scope_payload["measurand"]
+    assert scope_payload["route_type"]
+    assert scope_payload["environment_mode"] == "simulation_offline_headless"
+    assert scope_payload["analyzer_model"]
+    assert scope_payload["temperature_range"]
+    assert scope_payload["pressure_range"]
+    assert scope_payload["gas_or_humidity_range"]
+    assert scope_payload["reference_chain"]
+    assert scope_payload["certificate_set"]
+    assert scope_payload["method_version"]
+    assert "algorithm_version" in scope_payload
+    assert scope_payload["uncertainty_profile"]["status"] == "reviewer_stub_only"
+    assert scope_payload["decision_rule_profile"]["decision_rule_id"] == decision_payload["decision_rule_id"]
+    assert scope_payload["linked_evidence_categories"]
+    assert scope_payload["readiness_status"] == "ready_for_readiness_mapping"
+    assert scope_payload["limitation_note"]
     assert scope_payload["standard_family"]
     assert scope_payload["required_evidence_categories"]
     assert scope_payload["evidence_source"] == "simulated_protocol"
     assert scope_payload["not_real_acceptance_evidence"] is True
     assert scope_payload["non_claim_note"]
+    assert scope_payload["recognition_binding"]["scope_id"] == scope_payload["scope_id"]
+    assert scope_payload["recognition_binding"]["decision_rule_id"] == decision_payload["decision_rule_id"]
+    assert scope_payload["recognition_binding"]["readiness_status"] == scope_payload["readiness_status"]
 
     assert decision_payload["decision_rule_id"]
     assert decision_payload["source_standard_or_method"]
     assert decision_payload["acceptance_limit"]["mode"] == "readiness_mapping_only"
+    assert decision_payload["guard_band_policy"]["status"] == "placeholder_only"
+    assert decision_payload["uncertainty_source_scope"]["scope"] == "reviewer_stub_only"
+    assert decision_payload["pass_rule"] == "ready_for_readiness_mapping"
+    assert decision_payload["fail_rule"] == "reviewer_gap_blocks_mapping"
+    assert decision_payload["inconclusive_rule"] == "reviewer_follow_up_required"
+    assert decision_payload["statement_template_metadata"]["reviewer_only"] is True
+    assert decision_payload["applicability_scope"]["environment_mode"] == "simulation_offline_headless"
+    assert decision_payload["applicability_scope_display"]
     assert decision_payload["reviewer_gate"]["mode"] == "reviewer_digest_only"
     assert "formal_compliance_claim" in decision_payload["reviewer_gate"]["deny_outputs"]
     assert decision_payload["acceptance_contract"]["repository_mode"] == "file_artifact_first"
     assert decision_payload["acceptance_contract"]["non_primary_evidence_chain"] is True
     assert decision_payload["statement_template"]
     assert decision_payload["not_real_acceptance_evidence"] is True
+    assert decision_payload["limitation_note"]
     assert decision_payload["non_claim_note"]
+    assert decision_payload["conformity_statement_profile"]["reviewer_only"] is True
+    assert decision_payload["conformity_statement_profile"]["readiness_mapping_only"] is True
+    assert decision_payload["conformity_statement_profile"]["not_real_acceptance_evidence"] is True
+    assert decision_payload["conformity_statement_profile"]["not_ready_for_formal_claim"] is True
+    assert decision_payload["conformity_statement_profile"]["statement_template_metadata"]["template_id"]
+    assert decision_payload["recognition_binding"]["scope_id"] == scope_payload["scope_id"]
+    assert decision_payload["recognition_binding"]["decision_rule_id"] == decision_payload["decision_rule_id"]
 
 
 def test_rebuild_suite_generates_governance_artifacts(tmp_path: Path) -> None:
@@ -993,6 +1240,9 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
         recognition_readiness.RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME,
         recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
         recognition_readiness.AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME,
+        recognition_readiness.STEP2_CLOSEOUT_BUNDLE_FILENAME,
+        recognition_readiness.STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME,
+        recognition_readiness.STEP2_CLOSEOUT_SUMMARY_FILENAME,
     )
 
     for filename in expected_filenames:
@@ -1107,6 +1357,12 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
         (run_dir / recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME).read_text(encoding="utf-8")
     )
     audit_digest = json.loads((run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME).read_text(encoding="utf-8"))
+    step2_closeout_bundle = json.loads(
+        (run_dir / recognition_readiness.STEP2_CLOSEOUT_BUNDLE_FILENAME).read_text(encoding="utf-8")
+    )
+    step2_closeout_evidence_index = json.loads(
+        (run_dir / recognition_readiness.STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME).read_text(encoding="utf-8")
+    )
 
     assert scope_pack["artifact_type"] == "scope_definition_pack"
     assert scope_pack["not_real_acceptance_evidence"] is True
@@ -1121,6 +1377,13 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert scope_pack["linked_artifact_refs"]
     assert scope_pack["next_required_artifacts"]
     assert scope_pack["boundary_digest"]
+    assert step2_closeout_bundle["reviewer_only"] is True
+    assert step2_closeout_bundle["readiness_mapping_only"] is True
+    assert step2_closeout_bundle["not_real_acceptance_evidence"] is True
+    assert step2_closeout_bundle["not_ready_for_formal_claim"] is True
+    assert step2_closeout_bundle["file_artifact_first_preserved"] is True
+    assert step2_closeout_bundle["main_chain_dependency"] is False
+    assert step2_closeout_evidence_index["reviewer_only"] is True
     assert any(
         str(item.get("certificate_status") or "").startswith("missing")
         for item in list(reference_registry.get("assets") or [])
@@ -1185,12 +1448,21 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert certificate_lifecycle["intermediate_check_records"]
     assert certificate_lifecycle["out_of_tolerance_events"]
     assert pre_run_gate["artifact_type"] == "pre_run_readiness_gate"
-    assert pre_run_gate["gate_status"] in {
+    assert pre_run_gate["gate_status"] in {"pass", "warning", "block", "diagnostic_only"}
+    assert pre_run_gate["legacy_gate_status"] in {
         "ok_for_reviewer_mapping",
         "warning_reviewer_attention",
         "blocked_for_formal_claim",
+        "diagnostic_only",
     }
     assert pre_run_gate["blocking_items"]
+    assert pre_run_gate["asset_count_summary"]
+    assert pre_run_gate["certificate_validity_summary"]
+    assert pre_run_gate["lot_binding_summary"]
+    assert pre_run_gate["intermediate_check_summary"]
+    assert pre_run_gate["advisory_only"] is True
+    assert pre_run_gate["device_control_allowed"] is False
+    assert pre_run_gate["real_control_permitted"] is False
     assert route_validation_matrix["artifact_type"] == "route_specific_validation_matrix"
     assert route_validation_matrix["reviewer_only"] is True
     assert route_validation_matrix["readiness_mapping_only"] is True
@@ -1392,3 +1664,6 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     remembered = {str(item) for item in list(payload.get("remembered_files") or [])}
     assert str(run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME) in remembered
     assert str(run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME) in remembered
+    assert str(run_dir / recognition_readiness.STEP2_CLOSEOUT_BUNDLE_FILENAME) in remembered
+    assert str(run_dir / recognition_readiness.STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME) in remembered
+    assert str(run_dir / recognition_readiness.STEP2_CLOSEOUT_SUMMARY_FILENAME) in remembered

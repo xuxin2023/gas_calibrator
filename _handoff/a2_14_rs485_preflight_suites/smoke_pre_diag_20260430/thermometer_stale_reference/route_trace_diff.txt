@@ -1,0 +1,36 @@
+Route Trace Diff
+V1 trace: D:\gas_calibrator\_handoff\a2_14_rs485_preflight_suites\smoke_pre_diag_20260430\thermometer_stale_reference\simulated_v1_route_trace.jsonl
+V2 trace: D:\gas_calibrator\_handoff\a2_14_rs485_preflight_suites\smoke_pre_diag_20260430\thermometer_stale_reference\v2_output\run_20260430_150856\route_trace.jsonl
+Overall status: MATCH
+
+[CO2]
+  V1 events: 204
+  V2 events: 204
+  Review stages:
+    - baseline_restore: MATCH v1=14 v2=14 missing=0 extra=0 order=0
+    - source_valve_selection: MATCH v1=8 v2=8 missing=0 extra=0 order=0
+    - route_soak: MATCH v1=6 v2=6 missing=0 extra=0 order=0
+    - seal: MATCH v1=18 v2=18 missing=0 extra=0 order=0
+    - setpoint_control: MATCH v1=48 v2=48 missing=0 extra=0 order=0
+    - post_pressure_hold: MATCH v1=24 v2=24 missing=0 extra=0 order=0
+    - sample: MATCH v1=48 v2=48 missing=0 extra=0 order=0
+    - cleanup: MATCH v1=6 v2=6 missing=0 extra=0 order=0
+  Missing in V2: 0
+  Extra in V2: 0
+  Order mismatches: 0
+
+[H2O]
+  V1 events: 140
+  V2 events: 140
+  Review stages:
+    - baseline_restore: MATCH v1=0 v2=0 missing=0 extra=0 order=0
+    - source_valve_selection: MATCH v1=12 v2=12 missing=0 extra=0 order=0
+    - route_soak: MATCH v1=12 v2=12 missing=0 extra=0 order=0
+    - seal: MATCH v1=12 v2=12 missing=0 extra=0 order=0
+    - setpoint_control: MATCH v1=32 v2=32 missing=0 extra=0 order=0
+    - post_pressure_hold: MATCH v1=16 v2=16 missing=0 extra=0 order=0
+    - sample: MATCH v1=32 v2=32 missing=0 extra=0 order=0
+    - cleanup: MATCH v1=4 v2=4 missing=0 extra=0 order=0
+  Missing in V2: 0
+  Extra in V2: 0
+  Order mismatches: 0

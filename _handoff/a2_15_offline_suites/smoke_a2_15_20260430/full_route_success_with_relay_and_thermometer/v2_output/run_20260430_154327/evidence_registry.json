@@ -1,0 +1,1215 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "evidence_registry",
+  "run_id": "run_20260430_154327",
+  "generated_at": "2026-04-30T15:43:58",
+  "evidence_source": "simulated_protocol",
+  "not_real_acceptance_evidence": true,
+  "acceptance_level": "offline_regression",
+  "promotion_state": "dry_run_only",
+  "acceptance_scope": "run",
+  "review_state": "pending",
+  "approval_state": "blocked",
+  "ready_for_promotion": false,
+  "entries": [
+    {
+      "artifact_id": "run_20260430_154327:coefficient_report",
+      "artifact_name": "coefficient_report",
+      "role": "formal_analysis",
+      "path": "",
+      "present": false,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:io_log",
+      "artifact_name": "io_log",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\io_log.csv",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:manifest",
+      "artifact_name": "manifest",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\manifest.json",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:points_readable",
+      "artifact_name": "points_readable",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\points_readable.csv",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:qc_report",
+      "artifact_name": "qc_report",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\qc_report.json",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:results_json",
+      "artifact_name": "results_json",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\results.json",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:run_summary",
+      "artifact_name": "run_summary",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\summary.json",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:runtime_points",
+      "artifact_name": "runtime_points",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\points.csv",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:samples_csv",
+      "artifact_name": "samples_csv",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\samples.csv",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:samples_excel",
+      "artifact_name": "samples_excel",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\samples.xlsx",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:temperature_snapshots",
+      "artifact_name": "temperature_snapshots",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\temperature_snapshots.json",
+      "present": true,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:source_points"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:acceptance_plan",
+      "artifact_name": "acceptance_plan",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\acceptance_plan.json",
+      "present": false,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:manifest"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:analytics_summary",
+      "artifact_name": "analytics_summary",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\analytics_summary.json",
+      "present": false,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:points_readable"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [
+          "GA01",
+          "GA02",
+          "GA03",
+          "GA04",
+          "GA05",
+          "GA06",
+          "GA07",
+          "GA08"
+        ],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:trend_registry",
+      "artifact_name": "trend_registry",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\trend_registry.json",
+      "present": false,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:analytics_summary"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [
+          "GA01",
+          "GA02",
+          "GA03",
+          "GA04",
+          "GA05",
+          "GA06",
+          "GA07",
+          "GA08"
+        ],
+        "route": [
+          "co2",
+          "co2",
+          "co2",
+          "co2",
+          "co2",
+          "co2",
+          "h2o",
+          "h2o",
+          "h2o",
+          "h2o"
+        ],
+        "temp": [
+          10.0,
+          10.0,
+          10.0,
+          20.0,
+          20.0,
+          20.0,
+          10.0,
+          10.0,
+          20.0,
+          20.0
+        ]
+      }
+    },
+    {
+      "artifact_id": "run_20260430_154327:coefficient_registry",
+      "artifact_name": "coefficient_registry",
+      "role": "formal_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_154327\\coefficient_registry.json",
+      "present": false,
+      "run_id": "run_20260430_154327",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "run",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "cfg-8a3fd66b2234",
+      "points_version": "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "source_artifact_ids": [
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:run_summary"
+      ],
+      "dimensions": {
+        "suite": "",
+        "scenario": "",
+        "analyzer": [
+          "GA01",
+          "GA02",
+          "GA03",
+          "GA04",
+          "GA05",
+          "GA06",
+          "GA07",
+          "GA08"
+        ],
+        "route": [
+          "co2",
+          "h2o"
+        ],
+        "temp": []
+      }
+    }
+  ],
+  "indexes": {
+    "by_evidence_source": {
+      "simulated_protocol": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_evidence_state": {
+      "collected": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_suite": {
+      "--": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_scenario": {
+      "--": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_analyzer": {
+      "--": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots"
+      ],
+      "GA01": [
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:trend_registry"
+      ],
+      "GA02": [
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:trend_registry"
+      ],
+      "GA03": [
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:trend_registry"
+      ],
+      "GA04": [
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:trend_registry"
+      ],
+      "GA05": [
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:trend_registry"
+      ],
+      "GA06": [
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:trend_registry"
+      ],
+      "GA07": [
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:trend_registry"
+      ],
+      "GA08": [
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_route": {
+      "co2": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ],
+      "h2o": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_temp": {
+      "--": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots"
+      ],
+      "10.0": [
+        "run_20260430_154327:trend_registry"
+      ],
+      "20.0": [
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_config_version": {
+      "cfg-8a3fd66b2234": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_points_version": {
+      "pts-full_route_points_simulated.json-2059-1774434050306605800-456997ea8af9": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_profile_version": {
+      "--": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ]
+    },
+    "by_software_build_id": {
+      "0.1.0": [
+        "run_20260430_154327:acceptance_plan",
+        "run_20260430_154327:analytics_summary",
+        "run_20260430_154327:coefficient_registry",
+        "run_20260430_154327:coefficient_report",
+        "run_20260430_154327:io_log",
+        "run_20260430_154327:manifest",
+        "run_20260430_154327:points_readable",
+        "run_20260430_154327:qc_report",
+        "run_20260430_154327:results_json",
+        "run_20260430_154327:run_summary",
+        "run_20260430_154327:runtime_points",
+        "run_20260430_154327:samples_csv",
+        "run_20260430_154327:samples_excel",
+        "run_20260430_154327:temperature_snapshots",
+        "run_20260430_154327:trend_registry"
+      ]
+    }
+  },
+  "config_safety": {
+    "status": "ok",
+    "summary": "当前配置为 simulation-only，未发现真实串口风险。",
+    "simulation_only": true,
+    "operator_safe": true,
+    "risk_markers": [],
+    "real_port_device_count": 0,
+    "devices_with_real_ports": [],
+    "engineering_only_flag_count": 0,
+    "enabled_engineering_flags": [],
+    "warnings": [],
+    "requires_explicit_unlock": false,
+    "step2_default_workflow_allowed": true,
+    "inventory": {
+      "enabled_device_count": 16,
+      "simulated_device_count": 16,
+      "real_port_device_count": 0,
+      "engineering_only_flag_count": 0,
+      "device_ports": [
+        {
+          "device": "pressure_controller",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "pressure_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "dewpoint_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "humidity_generator",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "temperature_chamber",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "thermometer",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_a",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_b",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga01",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga02",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga03",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga04",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga05",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga06",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga07",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga08",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        }
+      ],
+      "engineering_only_flags": [],
+      "shared_pressure_flag_count": 3,
+      "shared_pressure_flags_enabled_count": 0,
+      "shared_pressure_flags": [
+        {
+          "flag": "capture_then_hold_enabled",
+          "config_path": "workflow.pressure.capture_then_hold_enabled",
+          "label": "capture_then_hold",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "adaptive_pressure_sampling_enabled",
+          "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+          "label": "adaptive_pressure_sampling",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "soft_control_enabled",
+          "config_path": "workflow.pressure.soft_control_enabled",
+          "label": "soft_control",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        }
+      ],
+      "summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。"
+    },
+    "execution_gate": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "requires_dual_unlock": false,
+      "allow_unsafe_step2_config_flag": false,
+      "allow_unsafe_step2_config_env": false,
+      "unlock_cli_flag": "--allow-unsafe-step2-config",
+      "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+      "blocked_reasons": [],
+      "blocked_reason_details": []
+    },
+    "review_lines": [
+      "当前配置为 simulation-only，未发现真实串口风险。",
+      "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "?????默认安全仿真库存",
+      "?????库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "simulation_mode=enabled???????? simulation/offline/headless?",
+      "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+      "?????仿真边界 / 默认安全",
+      "?????? Step 2 simulation-only operator-safe ???"
+    ],
+    "classification": "operator_safe_simulation_only",
+    "classification_display": "默认安全仿真库存",
+    "badge_ids": [
+      "simulation_only",
+      "operator_safe"
+    ],
+    "badges": [
+      {
+        "id": "simulation_only",
+        "label": "仿真边界",
+        "tone": "info"
+      },
+      {
+        "id": "operator_safe",
+        "label": "默认安全",
+        "tone": "ok"
+      }
+    ],
+    "inventory_summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+    "blocked_reason_details": []
+  },
+  "config_safety_review": {
+    "status": "open",
+    "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+    "review_lines": [
+      "当前配置为 simulation-only，未发现真实串口风险。",
+      "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "?????默认安全仿真库存",
+      "?????库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "simulation_mode=enabled???????? simulation/offline/headless?",
+      "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+      "?????仿真边界 / 默认安全",
+      "?????? Step 2 simulation-only operator-safe ???"
+    ],
+    "classification": "operator_safe_simulation_only",
+    "classification_display": "默认安全仿真库存",
+    "badge_ids": [
+      "simulation_only",
+      "operator_safe"
+    ],
+    "badges": [
+      {
+        "id": "simulation_only",
+        "label": "仿真边界",
+        "tone": "info"
+      },
+      {
+        "id": "operator_safe",
+        "label": "默认安全",
+        "tone": "ok"
+      }
+    ],
+    "inventory_summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+    "inventory": {
+      "enabled_device_count": 16,
+      "simulated_device_count": 16,
+      "real_port_device_count": 0,
+      "engineering_only_flag_count": 0,
+      "device_ports": [
+        {
+          "device": "pressure_controller",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "pressure_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "dewpoint_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "humidity_generator",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "temperature_chamber",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "thermometer",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_a",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_b",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga01",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga02",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga03",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga04",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga05",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga06",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga07",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga08",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        }
+      ],
+      "engineering_only_flags": [],
+      "shared_pressure_flag_count": 3,
+      "shared_pressure_flags_enabled_count": 0,
+      "shared_pressure_flags": [
+        {
+          "flag": "capture_then_hold_enabled",
+          "config_path": "workflow.pressure.capture_then_hold_enabled",
+          "label": "capture_then_hold",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "adaptive_pressure_sampling_enabled",
+          "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+          "label": "adaptive_pressure_sampling",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "soft_control_enabled",
+          "config_path": "workflow.pressure.soft_control_enabled",
+          "label": "soft_control",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        }
+      ],
+      "summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。"
+    },
+    "blocked_reasons": [],
+    "blocked_reason_details": [],
+    "operator_safe": true,
+    "simulation_only": true,
+    "risk_markers": [],
+    "warnings": [],
+    "real_port_device_count": 0,
+    "devices_with_real_ports": [],
+    "engineering_only_flag_count": 0,
+    "enabled_engineering_flags": [],
+    "execution_gate": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "requires_dual_unlock": false,
+      "allow_unsafe_step2_config_flag": false,
+      "allow_unsafe_step2_config_env": false,
+      "unlock_cli_flag": "--allow-unsafe-step2-config",
+      "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+      "blocked_reasons": [],
+      "blocked_reason_details": []
+    },
+    "requires_explicit_unlock": false,
+    "step2_default_workflow_allowed": true
+  }
+}

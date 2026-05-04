@@ -1,3 +1,9 @@
+"""V1 corrected-delivery/report helper kept on the V1 runtime side.
+
+This entrypoint is reused by the V1 runner and the guarded online acceptance
+tool, so it should not depend on V2 runtime or offline bridge modules.
+"""
+
 from __future__ import annotations
 
 import csv
@@ -24,7 +30,7 @@ from ..devices.gas_analyzer import GasAnalyzer
 from ..export import build_corrected_water_points_report
 from ..h2o_summary_selection import normalize_h2o_summary_selection
 from ..senco_format import format_senco_values, senco_readback_matches
-from .run_v1_no500_postprocess import _filter_no_500_frame
+from ._no500_filter import filter_no_500_frame
 
 _PRESSURE_WRITE_MIN_GAUGE_CONTROLLER_OVERLAP = 5
 _PRESSURE_WRITE_MAX_GAUGE_CONTROLLER_MEAN_ABS_HPA = 3.0
@@ -241,7 +247,7 @@ def _filter_no_500_summary_paths(run_dir: Path, output_dir: Path) -> tuple[List[
     for source_path in _resolve_summary_paths(run_dir):
         if source_path.suffix.lower() == ".csv":
             frame = pd.read_csv(source_path, encoding="utf-8-sig")
-            filtered_frame, stats = _filter_no_500_frame(frame)
+            filtered_frame, stats = filter_no_500_frame(frame)
             out_path = output_dir / f"{source_path.stem}_no_500hpa.csv"
             filtered_frame.to_csv(out_path, index=False, encoding="utf-8-sig")
         else:
@@ -251,7 +257,7 @@ def _filter_no_500_summary_paths(run_dir: Path, output_dir: Path) -> tuple[List[
             removed_rows = 0
             kept_rows = 0
             for ws_name, frame in workbook.items():
-                filtered_frame, one_stats = _filter_no_500_frame(frame)
+                filtered_frame, one_stats = filter_no_500_frame(frame)
                 sheets[str(ws_name)] = filtered_frame
                 original_rows += int(one_stats["original_rows"])
                 removed_rows += int(one_stats["removed_rows"])
@@ -294,10 +300,102 @@ def _coeff_value(row: Mapping[str, Any], index: int) -> float:
     return 0.0 if numeric is None else float(numeric)
 
 
+def _row_identity(row: Mapping[str, Any]) -> tuple[str, str]:
+    analyzer = _normalize_analyzer(row.get("Analyzer") or row.get("分析仪") or row.get("鍒嗘瀽浠?"))
+    gas = str(row.get("Gas") or row.get("气体") or row.get("姘斾綋") or "").strip().upper()
+    return analyzer, gas
+
+
+def _summary_row_by_identity(summary_frame: pd.DataFrame) -> Dict[tuple[str, str], Dict[str, Any]]:
+    mapping: Dict[tuple[str, str], Dict[str, Any]] = {}
+    if summary_frame.empty:
+        return mapping
+    for row in summary_frame.to_dict(orient="records"):
+        identity = _row_identity(row)
+        if identity[0] and identity[1]:
+            mapping[identity] = dict(row)
+    return mapping
+
+
+def _frame_row_by_identity(frame: pd.DataFrame) -> Dict[tuple[str, str], Dict[str, Any]]:
+    mapping: Dict[tuple[str, str], Dict[str, Any]] = {}
+    if frame.empty:
+        return mapping
+    for row in frame.to_dict(orient="records"):
+        identity = _row_identity(row)
+        if identity[0] and identity[1]:
+            mapping[identity] = dict(row)
+    return mapping
+
+
+def _corrected_delivery_guard_cfg(corrected_cfg: Mapping[str, Any] | None) -> Dict[str, Any]:
+    cfg = dict(corrected_cfg or {})
+    return {
+        "enabled": bool(cfg.get("simplification_guard_enabled", True)),
+        "rmse_ratio_threshold": float(cfg.get("simplification_guard_rmse_ratio_threshold", 1.2) or 1.2),
+        "prediction_diff_threshold_by_gas": dict(
+            cfg.get(
+                "simplification_guard_max_prediction_diff_threshold_by_gas",
+                {"CO2": 5.0, "H2O": 0.5},
+            )
+            or {}
+        ),
+    }
+
+
+def _select_download_source_rows(
+    simplified_frame: pd.DataFrame,
+    *,
+    original_frame: pd.DataFrame | None = None,
+    summary_frame: pd.DataFrame | None = None,
+    corrected_cfg: Mapping[str, Any] | None = None,
+) -> List[Dict[str, Any]]:
+    if simplified_frame.empty:
+        return []
+
+    guard_cfg = _corrected_delivery_guard_cfg(corrected_cfg)
+    summary_by_identity = _summary_row_by_identity(summary_frame if summary_frame is not None else pd.DataFrame())
+    original_by_identity = _frame_row_by_identity(original_frame if original_frame is not None else pd.DataFrame())
+    selected_rows: List[Dict[str, Any]] = []
+    for simplified_row in simplified_frame.to_dict(orient="records"):
+        identity = _row_identity(simplified_row)
+        analyzer, gas = identity
+        payload = dict(simplified_row)
+        payload["coefficient_source"] = "simplified"
+        payload["fallback_reason"] = ""
+        summary_row = summary_by_identity.get(identity, {})
+        if guard_cfg["enabled"]:
+            original_row = original_by_identity.get(identity)
+            simplified_rmse = _safe_float(summary_row.get("simplified_rmse"))
+            original_rmse = _safe_float(summary_row.get("original_rmse"))
+            prediction_diff = _safe_float(summary_row.get("max_prediction_diff_between_original_and_simplified"))
+            reasons: List[str] = []
+            if (
+                simplified_rmse is not None
+                and original_rmse is not None
+                and original_rmse > 0.0
+                and simplified_rmse > original_rmse * float(guard_cfg["rmse_ratio_threshold"])
+            ):
+                reasons.append("simplified_rmse_ratio_exceeded")
+            diff_threshold = _safe_float(guard_cfg["prediction_diff_threshold_by_gas"].get(gas))
+            if prediction_diff is not None and diff_threshold is not None and prediction_diff > diff_threshold:
+                reasons.append("simplified_prediction_diff_exceeded")
+            if reasons and original_row:
+                payload = dict(original_row)
+                payload["coefficient_source"] = "original_fallback"
+                payload["fallback_reason"] = ";".join(reasons)
+        if analyzer and gas:
+            selected_rows.append(payload)
+    return selected_rows
+
+
 def build_corrected_download_plan_rows(
     simplified_frame: pd.DataFrame,
     *,
     actual_device_ids: Optional[Mapping[str, str]] = None,
+    original_frame: pd.DataFrame | None = None,
+    summary_frame: pd.DataFrame | None = None,
+    corrected_cfg: Mapping[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     normalized_ids = {
@@ -307,9 +405,13 @@ def build_corrected_download_plan_rows(
     }
     if simplified_frame.empty:
         return rows
-    for row in simplified_frame.to_dict(orient="records"):
-        analyzer = _normalize_analyzer(row.get("分析仪"))
-        gas = str(row.get("气体") or "").strip().upper()
+    for row in _select_download_source_rows(
+        simplified_frame,
+        original_frame=original_frame,
+        summary_frame=summary_frame,
+        corrected_cfg=corrected_cfg,
+    ):
+        analyzer, gas = _row_identity(row)
         if not analyzer or gas not in {"CO2", "H2O"}:
             continue
         primary_group = 1 if gas == "CO2" else 2
@@ -328,6 +430,8 @@ def build_corrected_download_plan_rows(
             "SecondarySENCO": str(secondary_group),
             "SecondaryValues": ",".join(format_senco_values(secondary_values)),
             "SecondaryCommand": f"SENCO{secondary_group},YGAS,FFF," + ",".join(format_senco_values(secondary_values)),
+            "CoefficientSource": str(row.get("coefficient_source") or "simplified"),
+            "FallbackReason": str(row.get("fallback_reason") or ""),
         }
         for idx, value in enumerate(primary_values):
             payload[f"PrimaryC{idx}"] = format_senco_values([value])[0]
@@ -1220,6 +1324,171 @@ def _load_runtime_snapshot_cfg(run_dir: Path) -> Dict[str, Any]:
             return {}
 
 
+def _resolve_corrected_selected_pressure_points(
+    runtime_cfg: Mapping[str, Any] | None,
+    coeff_cfg: Mapping[str, Any] | None,
+) -> tuple[Any, Any, str]:
+    workflow_cfg = dict(runtime_cfg.get("workflow") or {}) if isinstance(runtime_cfg, Mapping) else {}
+    original_points = workflow_cfg.get("selected_pressure_points")
+    coeff_payload = dict(coeff_cfg or {})
+    has_override = (
+        "postrun_selected_pressure_points_override" in coeff_payload
+        or "selected_pressure_points_override" in coeff_payload
+    )
+    override_points = coeff_payload.get("postrun_selected_pressure_points_override")
+    if override_points is None and "selected_pressure_points_override" in coeff_payload:
+        override_points = coeff_payload.get("selected_pressure_points_override")
+    if has_override:
+        return original_points, override_points, "postrun_override"
+    return original_points, original_points, "runtime_snapshot"
+
+
+def _resolve_corrected_temperature_keys(coeff_cfg: Mapping[str, Any] | None) -> Dict[str, str]:
+    summary_columns = dict((coeff_cfg or {}).get("summary_columns") or {})
+    resolved: Dict[str, str] = {}
+    for gas in ("co2", "h2o"):
+        gas_cfg = summary_columns.get(gas) or summary_columns.get(gas.upper()) or {}
+        if isinstance(gas_cfg, Mapping):
+            temperature_key = str(gas_cfg.get("temperature") or "").strip()
+            if temperature_key:
+                resolved[gas] = temperature_key
+    return resolved
+
+
+def _build_fit_quality_summary(summary: pd.DataFrame) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for row in summary.to_dict(orient="records"):
+        analyzer, gas = _row_identity(row)
+        if not analyzer or not gas:
+            continue
+        rows.append(
+            {
+                "Analyzer": analyzer,
+                "ActualDeviceId": row.get("ActualDeviceId", ""),
+                "Gas": gas,
+                "TemperatureColumnUsed": row.get("temperature_column_used") or row.get("温度源列", ""),
+                "ModelFeaturePolicy": row.get("model_feature_policy") or row.get("模型特征策略", ""),
+                "FitInputQuality": row.get("fit_input_quality") or row.get("拟合输入质量", ""),
+                "FitInputWarning": row.get("fit_input_warning") or row.get("拟合输入告警", ""),
+                "DeliveryRecommendation": row.get("delivery_recommendation_label") or row.get("下发建议", ""),
+                "OriginalRmse": row.get("original_rmse"),
+                "SimplifiedRmse": row.get("simplified_rmse"),
+                "MaxPredictionDiff": row.get("max_prediction_diff_between_original_and_simplified"),
+                "OverallSuggestion": row.get("综合建议", ""),
+            }
+        )
+    return rows
+
+
+def _build_coefficient_source_summary(download_plan_rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for row in download_plan_rows:
+        rows.append(
+            {
+                "Analyzer": _normalize_analyzer(row.get("Analyzer")),
+                "ActualDeviceId": _normalize_device_id(row.get("ActualDeviceId")),
+                "Gas": str(row.get("Gas") or "").strip().upper(),
+                "CoefficientSource": str(row.get("CoefficientSource") or "simplified"),
+                "FallbackReason": str(row.get("FallbackReason") or ""),
+            }
+        )
+    return rows
+
+
+def _build_device_write_verify_summary(write_result: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    summary_rows = list(write_result.get("summary_rows") or [])
+    detail_rows = list(write_result.get("detail_rows") or [])
+    if not summary_rows:
+        return [{"Status": "not_requested", "MatchedGroups": 0, "ExpectedGroups": 0, "FailureReasons": ""}]
+
+    rows: List[Dict[str, Any]] = []
+    for row in summary_rows:
+        analyzer = _normalize_analyzer(row.get("Analyzer"))
+        detail_subset = [item for item in detail_rows if _normalize_analyzer(item.get("Analyzer")) == analyzer]
+        failure_reasons = sorted({str(item.get("Error") or "").strip() for item in detail_subset if str(item.get("Error") or "").strip()})
+        failed_groups = [str(item.get("Group")) for item in detail_subset if not _safe_bool(item.get("ReadbackOk"))]
+        rows.append(
+            {
+                "Analyzer": analyzer,
+                "TargetDeviceId": _normalize_device_id(row.get("TargetDeviceId")),
+                "LiveDeviceId": _normalize_device_id(row.get("LiveDeviceId")),
+                "Status": str(row.get("Status") or "").strip(),
+                "MatchedGroups": int(_safe_float(row.get("MatchedGroups")) or 0),
+                "ExpectedGroups": int(_safe_float(row.get("ExpectedGroups")) or 0),
+                "FailedGroups": ",".join(failed_groups),
+                "FailureReasons": ";".join(failure_reasons),
+            }
+        )
+    return rows
+
+
+def _write_corrected_summary_markdown(
+    output_dir: Path,
+    *,
+    run_dir: Path,
+    pressure_mode: str,
+    capability: Mapping[str, Any],
+    filter_stats: Sequence[Mapping[str, Any]],
+    pressure_points_summary: Mapping[str, Any],
+    fit_quality_summary: Sequence[Mapping[str, Any]],
+    coefficient_source_summary: Sequence[Mapping[str, Any]],
+    device_write_verify_summary: Sequence[Mapping[str, Any]],
+    run_structure_hints: Sequence[Mapping[str, Any]],
+) -> None:
+    summary_lines = [
+        "# corrected-entry no-500 summary",
+        "",
+        f"- run_dir: {run_dir}",
+        f"- output_dir: {output_dir}",
+        f"- pressure_row_source: {pressure_mode}",
+        f"- h2o_zero_span_status: {capability.get('status')}",
+        f"- h2o_zero_span_note: {capability.get('note')}",
+        f"- original_pressure_points: {pressure_points_summary.get('original')}",
+        f"- corrected_pressure_points: {pressure_points_summary.get('effective')}",
+        f"- pressure_points_source: {pressure_points_summary.get('source')}",
+        "",
+        "## filter summary",
+    ]
+    for row in filter_stats:
+        summary_lines.append(
+            f"- {Path(str(row.get('source') or '')).name}: original={row.get('original_rows')} removed={row.get('removed_rows')} kept={row.get('kept_rows')}"
+        )
+
+    summary_lines.extend(["", "## fit_quality_summary"])
+    if fit_quality_summary:
+        for row in fit_quality_summary:
+            summary_lines.append(
+                f"- {row.get('Analyzer')}/{row.get('Gas')}: input={row.get('FitInputQuality')} warning={row.get('FitInputWarning')} temp_col={row.get('TemperatureColumnUsed')} model_policy={row.get('ModelFeaturePolicy')} suggestion={row.get('OverallSuggestion')}"
+            )
+    else:
+        summary_lines.append("- none")
+
+    summary_lines.extend(["", "## coefficient_source_summary"])
+    if coefficient_source_summary:
+        for row in coefficient_source_summary:
+            summary_lines.append(
+                f"- {row.get('Analyzer')}/{row.get('Gas')}: source={row.get('CoefficientSource')} fallback_reason={row.get('FallbackReason')}"
+            )
+    else:
+        summary_lines.append("- none")
+
+    summary_lines.extend(["", "## device_write_verify_summary"])
+    if device_write_verify_summary:
+        for row in device_write_verify_summary:
+            summary_lines.append(
+                f"- {row.get('Analyzer', '') or 'n/a'}: status={row.get('Status')} matched={row.get('MatchedGroups')} expected={row.get('ExpectedGroups')} reasons={row.get('FailureReasons', '')}"
+            )
+    else:
+        summary_lines.append("- none")
+
+    if run_structure_hints:
+        summary_lines.extend(["", "## run structure hints"])
+        for row in run_structure_hints:
+            summary_lines.append(f"- [{row.get('Status')}] {row.get('Summary')}: {row.get('Detail')}")
+
+    (output_dir / "summary.md").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+
+
 def _match_anchor_temp_groups(
     values: Sequence[float],
     expected: Sequence[float],
@@ -1382,12 +1651,23 @@ def build_corrected_delivery(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     filtered_paths, filter_stats = _filter_no_500_summary_paths(run_dir, output_dir)
+    runtime_cfg = _load_runtime_snapshot_cfg(run_dir)
+    report_coeff_cfg = dict(coeff_cfg or {})
+    original_pressure_points, corrected_pressure_points, pressure_points_source = _resolve_corrected_selected_pressure_points(
+        runtime_cfg,
+        report_coeff_cfg,
+    )
+    if corrected_pressure_points is not None:
+        report_coeff_cfg["selected_pressure_points"] = corrected_pressure_points
+    report_coeff_cfg["original_selected_pressure_points"] = original_pressure_points
+    report_coeff_cfg["selected_pressure_points_source"] = pressure_points_source
+    gas_temperature_keys = _resolve_corrected_temperature_keys(report_coeff_cfg)
     report_path = output_dir / "calibration_coefficients.xlsx"
     report = build_corrected_water_points_report(
         filtered_paths,
         output_path=report_path,
-        coeff_cfg=coeff_cfg,
-        temperature_key="Temp",
+        coeff_cfg=report_coeff_cfg,
+        gas_temperature_keys=gas_temperature_keys,
     )
     simplified = pd.DataFrame(report.get("simplified", pd.DataFrame())).copy()
     summary = pd.DataFrame(report.get("summary", pd.DataFrame())).copy()
@@ -1424,7 +1704,13 @@ def build_corrected_delivery(
     for analyzer in sorted(analyzers):
         analyzer_summary_rows.append({"Analyzer": analyzer, "ActualDeviceId": actual_device_ids.get(analyzer, "")})
 
-    download_plan_rows = build_corrected_download_plan_rows(simplified, actual_device_ids=actual_device_ids)
+    download_plan_rows = build_corrected_download_plan_rows(
+        simplified,
+        actual_device_ids=actual_device_ids,
+        original_frame=original,
+        summary_frame=summary,
+        corrected_cfg=report_coeff_cfg,
+    )
     temperature_rows = load_temperature_coefficient_rows(run_dir)
     pressure_mode = str(pressure_row_source or "startup_calibration").strip().lower()
     if pressure_mode == "current_ambient":
@@ -1436,7 +1722,6 @@ def build_corrected_delivery(
         if not pressure_rows and fallback_pressure_to_controller:
             pressure_rows = compute_pressure_offset_rows(run_dir, fallback_to_controller=True)
 
-    runtime_cfg = _load_runtime_snapshot_cfg(run_dir)
     run_structure_hint_cfg = (
         dict(runtime_cfg.get("workflow", {}).get("postrun_corrected_delivery", {}).get("run_structure_hints", {}))
         if isinstance(runtime_cfg, Mapping)
@@ -1458,6 +1743,10 @@ def build_corrected_delivery(
     _append_dataframe_sheet(report_path, "分析仪汇总", pd.DataFrame(analyzer_summary_rows))
     _append_dataframe_sheet(report_path, "temperature_plan", pd.DataFrame(temperature_rows))
     _append_dataframe_sheet(report_path, "pressure_plan", pd.DataFrame(pressure_rows))
+    fit_quality_summary = _build_fit_quality_summary(summary)
+    coefficient_source_summary = _build_coefficient_source_summary(download_plan_rows)
+    _append_dataframe_sheet(report_path, "fit_quality_summary", pd.DataFrame(fit_quality_summary))
+    _append_dataframe_sheet(report_path, "coefficient_source_summary", pd.DataFrame(coefficient_source_summary))
     if not h2o_selected.empty:
         _append_dataframe_sheet(report_path, "H2O锚点入选", h2o_selected)
     if not h2o_anchor_gate_hits.empty:
@@ -1482,29 +1771,26 @@ def build_corrected_delivery(
     _write_csv(output_dir / "pressure_offset_current_ambient_summary.csv", pressure_rows)
     _write_csv(output_dir / "run_structure_hints.csv", run_structure_hints.to_dict(orient="records"))
     _write_csv(output_dir / "filter_summary.csv", filter_stats)
+    _write_csv(output_dir / "fit_quality_summary.csv", fit_quality_summary)
+    _write_csv(output_dir / "coefficient_source_summary.csv", coefficient_source_summary)
     capability = v1_h2o_zero_span_capability(coeff_cfg if isinstance(coeff_cfg, Mapping) else {})
-    summary_lines = [
-        "# corrected-entry no-500 summary",
-        "",
-        f"- run_dir: {run_dir}",
-        f"- output_dir: {output_dir}",
-        f"- pressure_row_source: {pressure_mode}",
-        f"- h2o_zero_span_status: {capability['status']}",
-        f"- h2o_zero_span_note: {capability['note']}",
-        "",
-        "## filter summary",
-    ]
-    for row in filter_stats:
-        summary_lines.append(
-            f"- {Path(str(row.get('source') or '')).name}: original={row.get('original_rows')} removed={row.get('removed_rows')} kept={row.get('kept_rows')}"
-        )
-    if not run_structure_hints.empty:
-        summary_lines.extend(["", "## run structure hints"])
-        for row in run_structure_hints.to_dict(orient="records"):
-            summary_lines.append(
-                f"- [{row.get('Status')}] {row.get('Summary')}: {row.get('Detail')}"
-            )
-    (output_dir / "summary.md").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+    pressure_points_summary = {
+        "original": original_pressure_points,
+        "effective": corrected_pressure_points,
+        "source": pressure_points_source,
+    }
+    _write_corrected_summary_markdown(
+        output_dir,
+        run_dir=run_dir,
+        pressure_mode=pressure_mode,
+        capability=capability,
+        filter_stats=filter_stats,
+        pressure_points_summary=pressure_points_summary,
+        fit_quality_summary=fit_quality_summary,
+        coefficient_source_summary=coefficient_source_summary,
+        device_write_verify_summary=_build_device_write_verify_summary({}),
+        run_structure_hints=run_structure_hints.to_dict(orient="records"),
+    )
     return {
         "report_path": str(report_path),
         "output_dir": str(output_dir),
@@ -1515,6 +1801,9 @@ def build_corrected_delivery(
         "temperature_rows": temperature_rows,
         "pressure_rows": pressure_rows,
         "pressure_row_source": pressure_mode,
+        "pressure_points_summary": pressure_points_summary,
+        "fit_quality_summary": fit_quality_summary,
+        "coefficient_source_summary": coefficient_source_summary,
         "h2o_selected_rows": h2o_selected.to_dict(orient="records"),
         "h2o_anchor_gate_hits": h2o_anchor_gate_hits.to_dict(orient="records"),
         "temperature_gate_hits": temperature_gate_hits.to_dict(orient="records"),
@@ -1620,12 +1909,28 @@ def run_from_cli(
                 actual_device_ids=delivery["actual_device_ids"],
             )
 
+    device_write_verify_summary = _build_device_write_verify_summary(write_result)
+    _append_dataframe_sheet(Path(delivery["report_path"]), "device_write_verify_summary", pd.DataFrame(device_write_verify_summary))
+    _write_corrected_summary_markdown(
+        target_dir,
+        run_dir=run_dir_path,
+        pressure_mode=str(delivery.get("pressure_row_source") or pressure_row_source),
+        capability=capability,
+        filter_stats=list(delivery.get("filter_stats") or []),
+        pressure_points_summary=dict(delivery.get("pressure_points_summary") or {}),
+        fit_quality_summary=list(delivery.get("fit_quality_summary") or []),
+        coefficient_source_summary=list(delivery.get("coefficient_source_summary") or []),
+        device_write_verify_summary=device_write_verify_summary,
+        run_structure_hints=list(delivery.get("run_structure_hints") or []),
+    )
+
     payload = {
         **delivery,
         "h2o_zero_span_capability": {
             **capability,
             "note": capability.get("note") or V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
         },
+        "device_write_verify_summary": device_write_verify_summary,
         "write_result": write_result,
         "verify_outputs": verify_outputs,
         "short_verify_outputs": short_verify_outputs,

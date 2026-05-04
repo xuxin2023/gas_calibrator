@@ -7,6 +7,7 @@ _LAZY_EXPORTS = {
     "ANALYTICS_FEATURE_SCHEMA_VERSION": (".feature_builder", "ANALYTICS_FEATURE_SCHEMA_VERSION"),
     "ANALYTICS_REPORT_SCHEMA_VERSION": (".service", "ANALYTICS_REPORT_SCHEMA_VERSION"),
     "AnalyticsService": (".service", "AnalyticsService"),
+    "build_sidecar_analytics_summary": (".sidecar_views", "build_sidecar_analytics_summary"),
     "FeatureBuilder": (".feature_builder", "FeatureBuilder"),
     "export_csv": (".exporters", "export_csv"),
     "export_json": (".exporters", "export_json"),

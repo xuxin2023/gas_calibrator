@@ -1,0 +1,1331 @@
+﻿diff --git a/src/gas_calibrator/v2/core/run001_a2_co2_only_7_pressure_no_write_probe.py b/src/gas_calibrator/v2/core/run001_a2_co2_only_7_pressure_no_write_probe.py
+index c01ef423..da7840be 100644
+--- a/src/gas_calibrator/v2/core/run001_a2_co2_only_7_pressure_no_write_probe.py
++++ b/src/gas_calibrator/v2/core/run001_a2_co2_only_7_pressure_no_write_probe.py
+@@ -28,9 +28,17 @@ A2_ENV_VAR = "GAS_CAL_V2_A2_CO2_7_PRESSURE_NO_WRITE_REAL_COM"
+ A2_ENV_VALUE = "1"
+ A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
+ A2_ALLOWED_PRESSURE_POINTS_HPA = (1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
++A2_CURRENT_EVIDENCE_SOURCE = "real_probe_a2_12r_co2_7_pressure_no_write"
++A2_LEGACY_EVIDENCE_SOURCES = [
++    "real_probe_a2_12_co2_7_pressure_no_write",
++    "real_probe_a2_10_co2_7_pressure_no_write",
++]
+ A2_EVIDENCE_MARKERS = {
+-    "evidence_source": "real_probe_a2_12_co2_7_pressure_no_write",
+-    "legacy_evidence_source": "real_probe_a2_10_co2_7_pressure_no_write",
++    "probe_identity": "A2.12R CO2-only seven-pressure no-write engineering probe",
++    "probe_version": "A2.12R",
++    "evidence_source": A2_CURRENT_EVIDENCE_SOURCE,
++    "legacy_evidence_source": A2_LEGACY_EVIDENCE_SOURCES[0],
++    "legacy_evidence_sources": A2_LEGACY_EVIDENCE_SOURCES,
+     "acceptance_level": "engineering_probe_only",
+     "not_real_acceptance_evidence": True,
+     "promotion_state": "blocked",
+@@ -94,6 +102,22 @@ A2_SAFETY_ASSERTION_DEFAULTS = {
+     "v1_fallback_required": True,
+     "run_app_py_untouched": True,
+ }
++A2_INTERRUPTED_FAIL_CLOSED_REASON = "probe_execution_interrupted_required_artifacts_incomplete"
++A2_REQUIRED_ARTIFACT_KEYS = (
++    "probe_admission_record",
++    "operator_confirmation_record",
++    "summary",
++    "safety_assertions",
++    "process_exit_record",
++    "a2_pressure_sweep_trace",
++    "route_trace",
++    "pressure_trace",
++    "pressure_ready_trace",
++    "heartbeat_trace",
++    "analyzer_sampling_rows",
++    "point_results",
++    "point_results_csv",
++)
+ 
+ 
+ @dataclass(frozen=True)
+@@ -114,6 +138,270 @@ def _now() -> str:
+     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+ 
+ 
++def _artifact_completeness(
++    artifact_paths: Mapping[str, str],
++    *,
++    assume_present_keys: Optional[set[str]] = None,
++) -> dict[str, Any]:
++    assumed = assume_present_keys or set()
++    expected: list[str] = []
++    present: list[str] = []
++    missing: list[str] = []
++    present_keys: list[str] = []
++    missing_keys: list[str] = []
++    for key in A2_REQUIRED_ARTIFACT_KEYS:
++        path_text = artifact_paths.get(key, "")
++        if not path_text:
++            continue
++        filename = Path(path_text).name
++        expected.append(filename)
++        if key in assumed or Path(path_text).exists():
++            present.append(filename)
++            present_keys.append(key)
++        else:
++            missing.append(filename)
++            missing_keys.append(key)
++    return {
++        "required_artifacts_expected": expected,
++        "required_artifacts_present": present,
++        "required_artifacts_missing": missing,
++        "required_artifact_keys_present": present_keys,
++        "required_artifact_keys_missing": missing_keys,
++        "artifact_completeness_pass": not missing,
++        "artifact_completeness_fail_reason": "" if not missing else "required_artifacts_missing",
++    }
++
++
++def _build_operator_record(
++    admission: A2Admission,
++    *,
++    operator_confirmation_path: Optional[str | Path],
++) -> dict[str, Any]:
++    return {
++        "schema_version": A2_SCHEMA_VERSION,
++        "record_type": "a2_operator_confirmation_record",
++        "operator_confirmation_path": (
++            str(Path(operator_confirmation_path).expanduser().resolve())
++            if operator_confirmation_path
++            else ""
++        ),
++        "validation": admission.operator_validation,
++        "payload": admission.operator_confirmation,
++        **A2_EVIDENCE_MARKERS,
++    }
++
++
++def _build_probe_admission_record(
++    admission: A2Admission,
++    *,
++    artifact_paths: Mapping[str, str],
++    config_path: str | Path,
++    branch: str,
++    head: str,
++    cli_allow: bool,
++    execute_probe: bool,
++    run_app_py_untouched: bool,
++) -> dict[str, Any]:
++    return {
++        "schema_version": A2_SCHEMA_VERSION,
++        "record_type": "a2_probe_admission_record",
++        "created_at": _now(),
++        "admission_approved": bool(admission.approved),
++        "admission_reasons": list(admission.reasons),
++        "operator_confirmation_valid": bool(admission.operator_validation.get("valid")),
++        "operator_validation": admission.operator_validation,
++        "operator_confirmation": admission.operator_confirmation,
++        "prereq_summaries": admission.prereq_summaries,
++        "evidence": admission.evidence,
++        "config_path": str(config_path or ""),
++        "current_branch": branch,
++        "current_head": head,
++        "cli_allow": bool(cli_allow),
++        "execute_probe_requested": bool(execute_probe),
++        "run_app_py_untouched": bool(run_app_py_untouched),
++        "artifact_paths": dict(artifact_paths),
++        **A2_EVIDENCE_MARKERS,
++    }
++
++
++def _partial_safety_assertions(
++    *,
++    real_probe_executed: bool,
++    real_com_opened: Any,
++    any_device_command_sent: Any,
++    any_write_command_sent: Any,
++    no_write_assertion_status: str,
++    device_command_audit_complete: bool,
++    must_not_claim_no_write_pass: bool,
++    safe_stop_triggered: Any,
++) -> dict[str, Any]:
++    no_write_pass_like = str(no_write_assertion_status).startswith("pass")
++    safety = {
++        **A2_EVIDENCE_MARKERS,
++        **A2_SAFETY_ASSERTION_DEFAULTS,
++        "record_type": "a2_safety_assertions_partial",
++        "safety_assertions_complete": False,
++        "real_probe_executed": bool(real_probe_executed),
++        "real_com_opened": real_com_opened,
++        "any_device_command_sent": any_device_command_sent,
++        "any_write_command_sent": any_write_command_sent,
++        "no_write": bool(no_write_pass_like and not must_not_claim_no_write_pass),
++        "no_write_assertion_status": no_write_assertion_status,
++        "device_command_audit_complete": bool(device_command_audit_complete),
++        "must_not_claim_no_write_pass": bool(must_not_claim_no_write_pass),
++        "safe_stop_triggered": safe_stop_triggered,
++    }
++    if any_write_command_sent == "unknown":
++        safety["attempted_write_count_status"] = "unknown"
++    return safety
++
++
++def _write_process_exit_record(
++    run_dir: Path,
++    *,
++    artifact_paths: Mapping[str, str],
++    process_state: str,
++    final_decision: str,
++    interrupted_execution: bool,
++    interruption_source: str,
++    interruption_stage: str,
++    fail_closed_reason: str,
++    execution_error: str,
++    real_probe_executed: bool,
++    real_com_opened: Any,
++    any_device_command_sent: Any,
++    any_write_command_sent: Any,
++    safe_stop_triggered: Any,
++    no_write_assertion_status: str,
++) -> None:
++    completeness = _artifact_completeness(
++        artifact_paths,
++        assume_present_keys={"process_exit_record", "summary"},
++    )
++    payload = {
++        "schema_version": A2_SCHEMA_VERSION,
++        "record_type": "a2_process_exit_record",
++        "updated_at": _now(),
++        "process_state": process_state,
++        "final_decision": final_decision,
++        "fail_closed_reason": fail_closed_reason,
++        "interrupted_execution": bool(interrupted_execution),
++        "interruption_source": interruption_source,
++        "interruption_stage": interruption_stage,
++        "execution_error": execution_error,
++        "real_probe_executed": bool(real_probe_executed),
++        "real_com_opened": real_com_opened,
++        "any_device_command_sent": any_device_command_sent,
++        "any_write_command_sent": any_write_command_sent,
++        "safe_stop_triggered": safe_stop_triggered,
++        "no_write_assertion_status": no_write_assertion_status,
++        "artifact_paths": dict(artifact_paths),
++        **completeness,
++        **A2_EVIDENCE_MARKERS,
++    }
++    _json_dump(run_dir / "process_exit_record.json", payload)
++
++
++def _write_interrupted_guard_artifacts(
++    run_dir: Path,
++    *,
++    admission: A2Admission,
++    artifact_paths: Mapping[str, str],
++    operator_confirmation_path: Optional[str | Path],
++    config_path: str | Path,
++    branch: str,
++    head: str,
++    cli_allow: bool,
++    execute_probe: bool,
++    run_app_py_untouched: bool,
++    interruption_source: str,
++    interruption_stage: str,
++    real_probe_executed: bool,
++    real_com_opened: Any,
++    any_device_command_sent: Any,
++    any_write_command_sent: Any,
++    no_write_assertion_status: str,
++    safe_stop_triggered: Any,
++    device_command_audit_complete: bool,
++    must_not_claim_no_write_pass: bool,
++    execution_error: str = "",
++) -> dict[str, Any]:
++    operator_record = _build_operator_record(
++        admission,
++        operator_confirmation_path=operator_confirmation_path,
++    )
++    admission_record = _build_probe_admission_record(
++        admission,
++        artifact_paths=artifact_paths,
++        config_path=config_path,
++        branch=branch,
++        head=head,
++        cli_allow=cli_allow,
++        execute_probe=execute_probe,
++        run_app_py_untouched=run_app_py_untouched,
++    )
++    partial_safety = _partial_safety_assertions(
++        real_probe_executed=real_probe_executed,
++        real_com_opened=real_com_opened,
++        any_device_command_sent=any_device_command_sent,
++        any_write_command_sent=any_write_command_sent,
++        no_write_assertion_status=no_write_assertion_status,
++        device_command_audit_complete=device_command_audit_complete,
++        must_not_claim_no_write_pass=must_not_claim_no_write_pass,
++        safe_stop_triggered=safe_stop_triggered,
++    )
++    _json_dump(run_dir / "probe_admission_record.json", admission_record)
++    _json_dump(run_dir / "operator_confirmation_record.json", operator_record)
++    _json_dump(run_dir / "safety_assertions.json", partial_safety)
++    _write_process_exit_record(
++        run_dir,
++        artifact_paths=artifact_paths,
++        process_state="interrupted_guard_active",
++        final_decision="FAIL_CLOSED",
++        interrupted_execution=True,
++        interruption_source=interruption_source,
++        interruption_stage=interruption_stage,
++        fail_closed_reason=A2_INTERRUPTED_FAIL_CLOSED_REASON,
++        execution_error=execution_error,
++        real_probe_executed=real_probe_executed,
++        real_com_opened=real_com_opened,
++        any_device_command_sent=any_device_command_sent,
++        any_write_command_sent=any_write_command_sent,
++        safe_stop_triggered=safe_stop_triggered,
++        no_write_assertion_status=no_write_assertion_status,
++    )
++    completeness = _artifact_completeness(artifact_paths, assume_present_keys={"summary"})
++    summary = {
++        "schema_version": A2_SCHEMA_VERSION,
++        **A2_EVIDENCE_MARKERS,
++        "final_decision": "FAIL_CLOSED",
++        "fail_closed_reason": A2_INTERRUPTED_FAIL_CLOSED_REASON,
++        "interrupted_execution": True,
++        "interrupted_at": _now(),
++        "interruption_source": interruption_source,
++        "interruption_stage": interruption_stage,
++        "rejection_reasons": [A2_INTERRUPTED_FAIL_CLOSED_REASON],
++        "admission_approved": bool(admission.approved),
++        "operator_confirmation_valid": bool(admission.operator_validation.get("valid")),
++        "real_probe_executed": bool(real_probe_executed),
++        "real_com_opened": real_com_opened,
++        "any_device_command_sent": any_device_command_sent,
++        "any_write_command_sent": any_write_command_sent,
++        "safe_stop_triggered": safe_stop_triggered,
++        "no_write_assertion_status": no_write_assertion_status,
++        "safety_assertions_complete": False,
++        "device_command_audit_complete": bool(device_command_audit_complete),
++        "must_not_claim_no_write_pass": bool(must_not_claim_no_write_pass),
++        "a3_allowed": False,
++        "real_primary_latest_refresh": False,
++        "execution_error": execution_error,
++        "artifact_paths": dict(artifact_paths),
++        **completeness,
++    }
++    _json_dump(run_dir / "summary.json", summary)
++    return summary
++
++
+ def _path_value(raw_cfg: Mapping[str, Any], dotted_path: str) -> Any:
+     current: Any = raw_cfg
+     for part in dotted_path.split("."):
+@@ -195,6 +483,195 @@ def _same_pressure_points(value: Any) -> bool:
+     return all(abs(float(a) - float(b)) <= 1e-6 for a, b in zip(points, A2_ALLOWED_PRESSURE_POINTS_HPA))
+ 
+ 
++def _mapping(value: Any) -> dict[str, Any]:
++    return dict(value) if isinstance(value, Mapping) else {}
++
++
++def _device_cfg(raw_cfg: Mapping[str, Any], *names: str) -> dict[str, Any]:
++    devices = _mapping(raw_cfg.get("devices"))
++    for name in names:
++        value = devices.get(name)
++        if isinstance(value, Mapping):
++            return dict(value)
++    return {}
++
++
++def _serial_settings(device: Mapping[str, Any], *, default_baud: int = 9600) -> dict[str, Any]:
++    return {
++        "baud": int(device.get("baud") or device.get("baudrate") or default_baud),
++        "parity": str(device.get("parity") or "N"),
++        "stopbits": device.get("stopbits", 1),
++        "bytesize": device.get("bytesize", 8),
++        "timeout_s": float(device.get("timeout") or device.get("timeout_s") or 1.0),
++    }
++
++
++def _line_ending_label(value: Any) -> str:
++    text = str(value or "").strip()
++    if text in {"\n", "LF", "lf"}:
++        return "LF"
++    if text in {"\r\n", "CRLF", "crlf"}:
++        return "CRLF"
++    if text in {"\r", "CR", "cr"}:
++        return "CR"
++    return text or "LF"
++
++
++def _route_action_row(route_rows: list[dict[str, Any]], action: str) -> dict[str, Any]:
++    for row in reversed(route_rows):
++        if str(row.get("action") or "") == action:
++            return dict(row)
++    return {}
++
++
++def _route_action_result(route_rows: list[dict[str, Any]], action: str) -> tuple[str, str]:
++    row = _route_action_row(route_rows, action)
++    if not row:
++        return "not_attempted", ""
++    return str(row.get("result") or ""), str(row.get("message") or "")
++
++
++def _extract_pace_command_error(text: Any) -> str:
++    message = str(text or "").strip()
++    return message if "PACE_COMMAND_ERROR" in message else ""
++
++
++def _pressure_controller_command_diagnostics(
++    raw_cfg: Mapping[str, Any],
++    route_rows: list[dict[str, Any]],
++) -> dict[str, Any]:
++    cfg = _device_cfg(raw_cfg, "pressure_controller")
++    output_result, output_error = _route_action_result(route_rows, "set_output")
++    vent_result, vent_error = _route_action_result(route_rows, "set_vent")
++    pace_error = _extract_pace_command_error(output_error) or _extract_pace_command_error(vent_error)
++    identity_command = str(cfg.get("identity_query_command") or "*IDN?").strip() or "*IDN?"
++    identity_result = str(cfg.get("identity_query_result") or "").strip()
++    if not identity_result:
++        identity_result = "unsupported_identity_query_not_offline_decision"
++    protocol_profile = str(cfg.get("protocol_profile") or "pace5000_scpi_v1_aligned").strip()
++    profile_aligned = protocol_profile in {"pace5000_scpi_v1_aligned", "pace5000_scpi", "k0472_pace_v1"}
++    return {
++        "pressure_controller_driver_profile": str(
++            cfg.get("driver_profile") or "gas_calibrator.devices.pace5000.Pace5000"
++        ),
++        "pressure_controller_configured_port": str(cfg.get("port") or ""),
++        "pressure_controller_serial_settings": _serial_settings(cfg, default_baud=9600),
++        "pressure_controller_protocol_profile": protocol_profile,
++        "pressure_controller_command_terminator": _line_ending_label(cfg.get("line_ending")),
++        "pressure_controller_identity_query_command": identity_command,
++        "pressure_controller_identity_query_result": identity_result,
++        "pressure_controller_identity_query_raw_response": str(cfg.get("identity_query_raw_response") or ""),
++        "pressure_controller_identity_query_error": str(
++            cfg.get("identity_query_error")
++            or ("unsupported_identity_query" if identity_command.upper() == "*IDN?" else "")
++        ),
++        "pressure_controller_output_command": ":OUTP:STAT 0",
++        "pressure_controller_output_command_result": output_result,
++        "pressure_controller_output_command_error": output_error,
++        "pressure_controller_vent_command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
++        "pressure_controller_vent_command_result": vent_result,
++        "pressure_controller_vent_command_error": vent_error,
++        "pressure_controller_pace_command_error_raw": pace_error,
++        "pressure_controller_v1_protocol_profile": (
++            "Pace5000 LF terminator; read-only profile/status queries; "
++            "output=:OUTP:STAT; vent=:SOUR:PRES:LEV:IMM:AMPL:VENT"
++        ),
++        "v1_v2_pressure_controller_command_alignment": (
++            "control_commands_aligned_identity_query_not_online_gate"
++            if profile_aligned
++            else f"profile_mismatch:{protocol_profile}"
++        ),
++    }
++
++
++def _pressure_meter_diagnostics(
++    raw_cfg: Mapping[str, Any],
++    point_results: list[dict[str, Any]],
++) -> dict[str, Any]:
++    devices = _mapping(raw_cfg.get("devices"))
++    candidates = ["pressure_meter", "pressure_gauge", "digital_pressure_gauge_p3"]
++    selected = next((name for name in candidates if isinstance(devices.get(name), Mapping)), "")
++    cfg = _device_cfg(raw_cfg, selected) if selected else {}
++    first_point = dict(point_results[0]) if point_results else {}
++    selected_source = str(
++        first_point.get("selected_pressure_source")
++        or first_point.get("pressure_source_selected")
++        or ""
++    )
++    read_result = str(first_point.get("pressure_ready_gate_result") or "not_attempted")
++    raw_response = str(first_point.get("pressure_meter_raw_response") or first_point.get("raw_response") or "")
++    timeout_value = cfg.get("response_timeout_s") or cfg.get("timeout") or cfg.get("timeout_s") or 1.0
++    mode = str(
++        _first_value(
++            raw_cfg,
++            (
++                "workflow.pressure.digital_gauge_continuous_mode",
++                "workflow.pressure.pressure_gauge_continuous_mode",
++                "workflow.sampling.pressure_gauge_continuous_mode",
++            ),
++        )
++        or "P4"
++    )
++    drain_value = _first_value(
++        raw_cfg,
++        (
++            "workflow.pressure.digital_gauge_continuous_drain_s",
++            "workflow.pressure.pressure_gauge_continuous_drain_s",
++            "workflow.sampling.pressure_gauge_continuous_drain_s",
++        ),
++    )
++    return {
++        "pressure_meter_name_mapping": "pressure_meter<-pressure_gauge|digital_pressure_gauge_p3",
++        "pressure_meter_alias_resolved": bool(selected),
++        "pressure_meter_alias_candidates": candidates,
++        "pressure_meter_selected_device_key": selected,
++        "pressure_meter_port": str(cfg.get("port") or ""),
++        "pressure_meter_dest_id": str(cfg.get("dest_id") or "01"),
++        "pressure_meter_protocol_profile": "paroscientific_p3_readonly",
++        "pressure_meter_mode": mode,
++        "digital_pressure_gauge_p3_available": selected_source in {
++            "digital_pressure_gauge_p3",
++            "pressure_gauge",
++            "pressure_meter",
++        }
++        and _as_bool(first_point.get("selected_pressure_parse_ok")) is True,
++        "pressure_meter_first_read_attempted": bool(point_results),
++        "pressure_meter_first_read_result": read_result,
++        "pressure_meter_raw_response": raw_response,
++        "pressure_meter_parse_ok": _as_bool(first_point.get("selected_pressure_parse_ok")) is True,
++        "pressure_meter_continuous_mode_detected": bool(str(mode or "").strip()),
++        "pressure_meter_drain_attempted": drain_value is not None,
++        "pressure_meter_read_timeout_s": float(timeout_value),
++        "v1_v2_pressure_meter_read_alignment": (
++            "aligned_paroscientific_p3_with_pressure_gauge_alias"
++            if selected in {"pressure_meter", "pressure_gauge", "digital_pressure_gauge_p3"}
++            else "missing_pressure_meter_alias"
++        ),
++    }
++
++
++def _relay_diagnostics(raw_cfg: Mapping[str, Any], route_rows: list[dict[str, Any]]) -> dict[str, Any]:
++    relay_a = _device_cfg(raw_cfg, "relay_a", "relay")
++    relay_b = _device_cfg(raw_cfg, "relay_b", "relay_8")
++    valves = _mapping(raw_cfg.get("valves"))
++    relay_map = _mapping(valves.get("relay_map"))
++    relay_output_sent = any(
++        str(row.get("action") or "") in {"set_valve", "set_valves_bulk", "open_route", "route_open"}
++        for row in route_rows
++    )
++    return {
++        "relay_a_configured_port": str(relay_a.get("port") or ""),
++        "relay_b_configured_port": str(relay_b.get("port") or ""),
++        "relay_driver_profile": "gas_calibrator.devices.relay.RelayController",
++        "relay_channel_mapping": relay_map,
++        "relay_init_open_result": "not_observed_by_a2_wrapper",
++        "relay_readonly_identity_supported": False,
++        "relay_control_available": bool(relay_a or relay_b),
++        "relay_output_command_allowed_in_probe": False,
++        "relay_output_command_sent": bool(relay_output_sent),
++    }
++
++
+ def _pressure_points(raw_cfg: Mapping[str, Any]) -> list[float]:
+     value = _first_value(
+         raw_cfg,
+@@ -1270,6 +1747,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+     run_dir = Path(output_dir).expanduser().resolve() if output_dir else _default_output_dir()
+     run_dir.mkdir(parents=True, exist_ok=True)
+     artifact_paths = {
++        "probe_admission_record": str(run_dir / "probe_admission_record.json"),
+         "summary": str(run_dir / "summary.json"),
+         "a2_pressure_sweep_trace": str(run_dir / "a2_pressure_sweep_trace.jsonl"),
+         "route_trace": str(run_dir / "route_trace.jsonl"),
+@@ -1281,10 +1759,16 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         "point_results_csv": str(run_dir / "point_results.csv"),
+         "safety_assertions": str(run_dir / "safety_assertions.json"),
+         "operator_confirmation_record": str(run_dir / "operator_confirmation_record.json"),
++        "process_exit_record": str(run_dir / "process_exit_record.json"),
+     }
+ 
+     rejection_reasons = list(admission.reasons)
+     executed = bool(admission.approved and execute_probe)
++    execution_started = False
++    execution_interrupted = False
++    interrupted_at = ""
++    interruption_source = ""
++    interruption_stage = ""
+     execution_error = ""
+     execution: Mapping[str, Any] = {}
+     points_alignment: dict[str, Any] = {
+@@ -1301,6 +1785,29 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         "downstream_points_generated": False,
+     }
+     execution_config_path = str(config_path)
++    if admission.approved:
++        _write_interrupted_guard_artifacts(
++            run_dir,
++            admission=admission,
++            artifact_paths=artifact_paths,
++            operator_confirmation_path=operator_confirmation_path,
++            config_path=config_path,
++            branch=branch,
++            head=head,
++            cli_allow=cli_allow,
++            execute_probe=execute_probe,
++            run_app_py_untouched=run_app_py_untouched,
++            interruption_source="pre_com_guard",
++            interruption_stage="admission_output_dir_created",
++            real_probe_executed=False,
++            real_com_opened=False,
++            any_device_command_sent=False,
++            any_write_command_sent=False,
++            no_write_assertion_status="pass_pre_com",
++            safe_stop_triggered=False,
++            device_command_audit_complete=True,
++            must_not_claim_no_write_pass=False,
++        )
+     if not execute_probe:
+         rejection_reasons.append("execute_probe_not_requested")
+     elif not admission.approved:
+@@ -1313,15 +1820,69 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+                 output_dir=run_dir,
+             )
+             execution_config_path = str(aligned_config_path)
+-            execution = (executor or execute_existing_v2_a2_pressure_sweep)(execution_config_path)
++        except Exception as exc:
++            execution_error = str(exc)
++            rejection_reasons.append(f"points_config_alignment_error:{exc}")
++        else:
++            _write_interrupted_guard_artifacts(
++                run_dir,
++                admission=admission,
++                artifact_paths=artifact_paths,
++                operator_confirmation_path=operator_confirmation_path,
++                config_path=config_path,
++                branch=branch,
++                head=head,
++                cli_allow=cli_allow,
++                execute_probe=execute_probe,
++                run_app_py_untouched=run_app_py_untouched,
++                interruption_source="downstream_executor_started",
++                interruption_stage="downstream_executor_started_real_com_status_unknown",
++                real_probe_executed=True,
++                real_com_opened="unknown",
++                any_device_command_sent="unknown",
++                any_write_command_sent="unknown",
++                no_write_assertion_status="unknown",
++                safe_stop_triggered="unknown",
++                device_command_audit_complete=False,
++                must_not_claim_no_write_pass=True,
++            )
++            execution_started = True
++            try:
++                execution = (executor or execute_existing_v2_a2_pressure_sweep)(execution_config_path)
++            except KeyboardInterrupt as exc:
++                interrupted_at = _now()
++                interruption_source = "KeyboardInterrupt"
++                interruption_stage = "downstream_executor_keyboard_interrupt"
++                execution_interrupted = True
++                execution_error = "KeyboardInterrupt"
++                partial = getattr(exc, "partial_execution", None)
++                execution = dict(partial) if isinstance(partial, Mapping) else {}
++                rejection_reasons.append(A2_INTERRUPTED_FAIL_CLOSED_REASON)
++            except TimeoutError as exc:
++                interrupted_at = _now()
++                interruption_source = "TimeoutError"
++                interruption_stage = "downstream_executor_timeout"
++                execution_interrupted = True
++                execution_error = str(exc)
++                partial = getattr(exc, "partial_execution", None)
++                execution = dict(partial) if isinstance(partial, Mapping) else {}
++                rejection_reasons.append(A2_INTERRUPTED_FAIL_CLOSED_REASON)
++            except Exception as exc:
++                interrupted_at = _now()
++                interruption_source = exc.__class__.__name__
++                interruption_stage = "downstream_executor_exception"
++                execution_interrupted = True
++                execution_error = str(exc)
++                partial = getattr(exc, "partial_execution", None)
++                execution = dict(partial) if isinstance(partial, Mapping) else {}
++                rejection_reasons.append(A2_INTERRUPTED_FAIL_CLOSED_REASON)
++                rejection_reasons.append(f"execution_error:{exc}")
+             if isinstance(execution, Mapping) and isinstance(execution.get("points_alignment"), Mapping):
+                 points_alignment.update(dict(execution.get("points_alignment") or {}))
+-            else:
++            elif isinstance(execution, Mapping):
+                 execution = {**dict(execution), "points_alignment": points_alignment}
+-        except Exception as exc:
+-            execution_error = str(exc)
+-            prefix = "points_config_alignment_error" if isinstance(exc, A2PointsConfigAlignmentError) else "execution_error"
+-            rejection_reasons.append(f"{prefix}:{exc}")
++            else:
++                execution = {"points_alignment": points_alignment}
+ 
+     point_results, route_rows, pressure_rows, sample_rows = _point_results_from_execution(execution, raw_cfg)
+     if not point_results:
+@@ -1375,6 +1936,84 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         rejection_reasons.append("downstream_point_executed_after_fail_closed_point")
+ 
+     service_summary = dict(execution.get("service_summary") or {}) if isinstance(execution, Mapping) else {}
++
++    def service_summary_value(*keys: str) -> Any:
++        stats = service_summary.get("stats")
++        for key in keys:
++            if key in service_summary:
++                return service_summary.get(key)
++        if isinstance(stats, Mapping):
++            for key in keys:
++                if key in stats:
++                    return stats.get(key)
++        return None
++
++    execution_audit: dict[str, Any] = {}
++    if isinstance(execution, Mapping):
++        for audit_key in ("interruption_audit", "command_audit", "safety_audit"):
++            audit_payload = execution.get(audit_key)
++            if isinstance(audit_payload, Mapping):
++                execution_audit.update(dict(audit_payload))
++        for audit_key in (
++            "real_com_opened",
++            "any_device_command_sent",
++            "any_write_command_sent",
++            "device_command_audit_complete",
++            "safe_stop_triggered",
++        ):
++            if audit_key in execution:
++                execution_audit[audit_key] = execution.get(audit_key)
++
++    def audit_value(*keys: str) -> Any:
++        for key in keys:
++            if key in execution_audit:
++                return execution_audit.get(key)
++        return service_summary_value(*keys)
++
++    real_com_opened_value: Any = audit_value("real_com_opened")
++    parsed_real_com_opened = _as_bool(real_com_opened_value)
++    if parsed_real_com_opened is not None:
++        real_com_opened_value = parsed_real_com_opened
++    elif not execution_started:
++        real_com_opened_value = False
++    elif execution_interrupted:
++        real_com_opened_value = "unknown"
++    else:
++        real_com_opened_value = bool(route_rows or pressure_rows or sample_rows)
++
++    any_device_command_sent_value: Any = audit_value("any_device_command_sent")
++    parsed_device_command_sent = _as_bool(any_device_command_sent_value)
++    if parsed_device_command_sent is not None:
++        any_device_command_sent_value = parsed_device_command_sent
++    elif not execution_started:
++        any_device_command_sent_value = False
++    elif execution_interrupted:
++        any_device_command_sent_value = "unknown"
++    else:
++        any_device_command_sent_value = bool(
++            route_rows
++            or any(_as_bool(point.get("pressure_setpoint_command_sent")) is True for point in point_results)
++        )
++
++    safe_stop_triggered_value: Any = audit_value(
++        "safe_stop_triggered",
++        "final_safe_stop_triggered",
++        "final_safe_stop_chamber_stop_attempted",
++    )
++    parsed_safe_stop_triggered = _as_bool(safe_stop_triggered_value)
++    if parsed_safe_stop_triggered is not None:
++        safe_stop_triggered_value = parsed_safe_stop_triggered
++    elif not execution_started:
++        safe_stop_triggered_value = False
++    elif execution_interrupted:
++        safe_stop_triggered_value = "unknown"
++    else:
++        safe_stop_triggered_value = False
++
++    device_command_audit_complete_value = _as_bool(audit_value("device_command_audit_complete"))
++    if device_command_audit_complete_value is None:
++        device_command_audit_complete_value = not execution_interrupted
++
+     no_write_ok = True
+     safety_assertions = {
+         **A2_EVIDENCE_MARKERS,
+@@ -1389,30 +2028,30 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         "seal_command_sent": any(str(row.get("action") or "") in {"seal_route", "seal_transition"} for row in route_rows),
+         "seal_command_scope": "authorized_a2_pressure_control_scope",
+         "chamber_stop_command_sent": _as_bool(
+-            service_summary.get("chamber_stop_command_sent")
+-            or service_summary.get("final_safe_stop_chamber_stop_command_sent")
++            service_summary_value("chamber_stop_command_sent")
++            or service_summary_value("final_safe_stop_chamber_stop_command_sent")
+         )
+         is True,
+-        "final_safe_stop_warning_count": int(service_summary.get("final_safe_stop_warning_count") or 0),
+-        "final_safe_stop_warnings": list(service_summary.get("final_safe_stop_warnings") or []),
+-        "final_safe_stop_chamber_stop_warning": service_summary.get(
++        "final_safe_stop_warning_count": int(service_summary_value("final_safe_stop_warning_count") or 0),
++        "final_safe_stop_warnings": list(service_summary_value("final_safe_stop_warnings") or []),
++        "final_safe_stop_chamber_stop_warning": service_summary_value(
+             "final_safe_stop_chamber_stop_warning",
+-            "",
+-        ),
++        )
++        or "",
+         "final_safe_stop_chamber_stop_attempted": _as_bool(
+-            service_summary.get("final_safe_stop_chamber_stop_attempted")
++            service_summary_value("final_safe_stop_chamber_stop_attempted")
+         )
+         is True,
+         "final_safe_stop_chamber_stop_command_sent": _as_bool(
+-            service_summary.get("final_safe_stop_chamber_stop_command_sent")
++            service_summary_value("final_safe_stop_chamber_stop_command_sent")
+         )
+         is True,
+-        "final_safe_stop_chamber_stop_result": service_summary.get(
++        "final_safe_stop_chamber_stop_result": service_summary_value(
+             "final_safe_stop_chamber_stop_result",
+-            "not_observed",
+-        ),
++        )
++        or "not_observed",
+         "final_safe_stop_chamber_stop_blocked_by_no_write": _as_bool(
+-            service_summary.get("final_safe_stop_chamber_stop_blocked_by_no_write")
++            service_summary_value("final_safe_stop_chamber_stop_blocked_by_no_write")
+         )
+         is True,
+         "high_pressure_1100_hpa_prearm_recorded": any(
+@@ -1422,9 +2061,45 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         "pressure_points_completed": int(pressure_points_completed),
+         "no_write": no_write_ok,
+     }
++    restricted_write_command_sent = bool(
++        _as_bool(safety_assertions.get("any_write_command_sent")) is True
++        or _as_bool(safety_assertions.get("identity_write_command_sent")) is True
++        or _as_bool(safety_assertions.get("mode_switch_command_sent")) is True
++        or _as_bool(safety_assertions.get("senco_write_command_sent")) is True
++        or _as_bool(safety_assertions.get("calibration_write_command_sent")) is True
++        or _as_bool(safety_assertions.get("chamber_write_register_command_sent")) is True
++        or _as_bool(safety_assertions.get("chamber_set_temperature_command_sent")) is True
++        or _as_bool(safety_assertions.get("chamber_start_command_sent")) is True
++        or _as_bool(safety_assertions.get("chamber_stop_command_sent")) is True
++    )
++    audited_any_write = audit_value("any_write_command_sent")
++    parsed_audited_any_write = _as_bool(audited_any_write)
++    if parsed_audited_any_write is not None:
++        any_write_command_sent_value: Any = parsed_audited_any_write
++        restricted_write_command_sent = bool(parsed_audited_any_write)
++    elif execution_interrupted and not device_command_audit_complete_value:
++        any_write_command_sent_value = "unknown"
++    else:
++        any_write_command_sent_value = restricted_write_command_sent
++
++    if restricted_write_command_sent:
++        no_write_assertion_status = "fail"
++        must_not_claim_no_write_pass = False
++    elif real_com_opened_value is False and any_device_command_sent_value is False:
++        no_write_assertion_status = "pass_pre_com"
++        must_not_claim_no_write_pass = False
++    elif execution_interrupted and not device_command_audit_complete_value:
++        no_write_assertion_status = "unknown"
++        must_not_claim_no_write_pass = True
++    elif execution_interrupted:
++        no_write_assertion_status = "pass_partial_audited"
++        must_not_claim_no_write_pass = False
++    else:
++        no_write_assertion_status = "pass"
++        must_not_claim_no_write_pass = False
+     no_write_ok = bool(
+         int(safety_assertions.get("attempted_write_count") or 0) == 0
+-        and _as_bool(safety_assertions.get("any_write_command_sent")) is not True
++        and any_write_command_sent_value is not True
+         and _as_bool(safety_assertions.get("identity_write_command_sent")) is not True
+         and _as_bool(safety_assertions.get("mode_switch_command_sent")) is not True
+         and _as_bool(safety_assertions.get("senco_write_command_sent")) is not True
+@@ -1433,8 +2108,22 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         and _as_bool(safety_assertions.get("chamber_set_temperature_command_sent")) is not True
+         and _as_bool(safety_assertions.get("chamber_start_command_sent")) is not True
+         and _as_bool(safety_assertions.get("chamber_stop_command_sent")) is not True
++        and no_write_assertion_status != "unknown"
++    )
++    safety_assertions.update(
++        {
++            "record_type": "a2_safety_assertions",
++            "safety_assertions_complete": bool(device_command_audit_complete_value and not execution_interrupted),
++            "real_com_opened": real_com_opened_value,
++            "any_device_command_sent": any_device_command_sent_value,
++            "any_write_command_sent": any_write_command_sent_value,
++            "no_write": no_write_ok,
++            "no_write_assertion_status": no_write_assertion_status,
++            "device_command_audit_complete": bool(device_command_audit_complete_value),
++            "must_not_claim_no_write_pass": bool(must_not_claim_no_write_pass),
++            "safe_stop_triggered": safe_stop_triggered_value,
++        }
+     )
+-    safety_assertions["no_write"] = no_write_ok
+ 
+     evidence_metric_rows = route_rows + pressure_rows + sample_rows
+ 
+@@ -1443,8 +2132,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         if value is not None:
+             return value
+         for key in keys:
+-            if key in service_summary:
+-                return service_summary.get(key)
++            value = service_summary_value(key)
++            if value is not None:
++                return value
+         return None
+ 
+     raw_config_pressure_source_strategy = _a2_3_pressure_source_strategy(raw_cfg)
+@@ -1465,8 +2155,8 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         else ""
+     )
+     service_summary_pressure_source_strategy = str(
+-        service_summary.get("a2_conditioning_pressure_source_strategy")
+-        or service_summary.get("a2_conditioning_pressure_source")
++        service_summary_value("a2_conditioning_pressure_source_strategy")
++        or service_summary_value("a2_conditioning_pressure_source")
+         or ""
+     ).strip().lower()
+     if runtime_pressure_source_strategy_observed:
+@@ -1535,7 +2225,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+     route_open_transient_rejection_reason = str(
+         metric_or_summary("route_open_transient_rejection_reason") or ""
+     ).strip()
+-    route_conditioning_vent_gap_exceeded = _as_bool(
++    raw_route_conditioning_vent_gap_exceeded = _as_bool(
+         metric_or_summary(
+             "route_conditioning_vent_gap_exceeded",
+             "vent_heartbeat_gap_exceeded",
+@@ -1547,24 +2237,113 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         metric_or_summary("max_vent_pulse_write_gap_ms_including_terminal_gap")
+     )
+     max_vent_pulse_gap_limit_ms = _as_float(metric_or_summary("max_vent_pulse_gap_limit_ms"))
++    terminal_vent_write_age_ms_at_gap_gate = _as_float(
++        metric_or_summary("terminal_vent_write_age_ms_at_gap_gate")
++    )
++    defer_reschedule_latency_ms = _as_float(
++        metric_or_summary("defer_reschedule_latency_ms", "defer_to_next_vent_loop_ms")
++    )
++    defer_reschedule_latency_budget_ms = _as_float(
++        metric_or_summary("defer_reschedule_latency_budget_ms")
++    )
++    if defer_reschedule_latency_budget_ms is None:
++        defer_reschedule_latency_budget_ms = 200.0
++    defer_reschedule_latency_exceeded = bool(
++        _as_bool(metric_or_summary("defer_reschedule_latency_exceeded")) is True
++        or (
++            defer_reschedule_latency_ms is not None
++            and float(defer_reschedule_latency_ms) > float(defer_reschedule_latency_budget_ms)
++        )
++    )
++    defer_reschedule_latency_warning = bool(
++        _as_bool(metric_or_summary("defer_reschedule_latency_warning")) is True
++        or defer_reschedule_latency_exceeded
++    )
++    vent_gap_after_defer_ms = _as_float(metric_or_summary("vent_gap_after_defer_ms"))
++    vent_gap_after_defer_threshold_ms = _as_float(metric_or_summary("vent_gap_after_defer_threshold_ms"))
++    if vent_gap_after_defer_threshold_ms is None:
++        vent_gap_after_defer_threshold_ms = max_vent_pulse_gap_limit_ms
++    actual_vent_gap_candidates = [
++        item
++        for item in (
++            max_vent_pulse_gap_ms,
++            max_vent_pulse_write_gap_ms,
++            max_vent_pulse_write_gap_ms_including_terminal_gap,
++            terminal_vent_write_age_ms_at_gap_gate,
++            vent_gap_after_defer_ms,
++        )
++        if item is not None
++    ]
++    actual_vent_gap_exceeded = bool(
++        max_vent_pulse_gap_limit_ms is not None
++        and any(float(item) > float(max_vent_pulse_gap_limit_ms) for item in actual_vent_gap_candidates)
++    )
+     if (
+         max_vent_pulse_gap_ms is not None
+         and max_vent_pulse_gap_limit_ms is not None
+         and float(max_vent_pulse_gap_ms) > float(max_vent_pulse_gap_limit_ms)
+     ):
+-        route_conditioning_vent_gap_exceeded = True
++        actual_vent_gap_exceeded = True
+     if (
+         max_vent_pulse_write_gap_ms is not None
+         and max_vent_pulse_gap_limit_ms is not None
+         and float(max_vent_pulse_write_gap_ms) > float(max_vent_pulse_gap_limit_ms)
+     ):
+-        route_conditioning_vent_gap_exceeded = True
++        actual_vent_gap_exceeded = True
+     if (
+         max_vent_pulse_write_gap_ms_including_terminal_gap is not None
+         and max_vent_pulse_gap_limit_ms is not None
+         and float(max_vent_pulse_write_gap_ms_including_terminal_gap) > float(max_vent_pulse_gap_limit_ms)
+     ):
+-        route_conditioning_vent_gap_exceeded = True
++        actual_vent_gap_exceeded = True
++    raw_vent_gap_source = str(
++        metric_or_summary("route_conditioning_vent_gap_exceeded_source", "terminal_gap_source") or ""
++    ).strip()
++    fast_vent_after_defer_sent_value = _as_bool(metric_or_summary("fast_vent_after_defer_sent")) is True
++    false_defer_latency_gap = bool(
++        raw_route_conditioning_vent_gap_exceeded
++        and raw_vent_gap_source == "defer_path_no_reschedule"
++        and max_vent_pulse_gap_limit_ms is not None
++        and actual_vent_gap_candidates
++        and not actual_vent_gap_exceeded
++    )
++    route_conditioning_vent_gap_exceeded = bool(
++        actual_vent_gap_exceeded
++        or (raw_route_conditioning_vent_gap_exceeded and not false_defer_latency_gap)
++    )
++    defer_reschedule_caused_vent_gap_exceeded = bool(
++        _as_bool(metric_or_summary("defer_reschedule_caused_vent_gap_exceeded")) is True
++        or (raw_vent_gap_source == "defer_path_no_reschedule" and actual_vent_gap_exceeded)
++    )
++    vent_gap_exceeded_after_defer = bool(
++        _as_bool(metric_or_summary("vent_gap_exceeded_after_defer")) is True
++        or defer_reschedule_caused_vent_gap_exceeded
++    )
++    terminal_gap_after_defer_value = bool(
++        (_as_bool(metric_or_summary("terminal_gap_after_defer")) is True and actual_vent_gap_exceeded)
++        or vent_gap_exceeded_after_defer
++    )
++    terminal_gap_after_defer_ms_value = (
++        metric_or_summary("terminal_gap_after_defer_ms") if terminal_gap_after_defer_value else None
++    )
++    if terminal_gap_after_defer_ms_value is None and terminal_gap_after_defer_value:
++        terminal_gap_after_defer_ms_value = vent_gap_after_defer_ms
++    defer_returned_to_vent_loop_value = bool(
++        _as_bool(metric_or_summary("defer_returned_to_vent_loop")) is True
++        or (
++            false_defer_latency_gap
++            and defer_reschedule_latency_ms is not None
++            and fast_vent_after_defer_sent_value
++        )
++    )
++    defer_reschedule_completed_value = bool(
++        _as_bool(metric_or_summary("defer_reschedule_completed")) is True
++        or (
++            false_defer_latency_gap
++            and defer_reschedule_latency_ms is not None
++            and not defer_reschedule_caused_vent_gap_exceeded
++        )
++    )
+     route_conditioning_fast_vent_timeout = _as_bool(
+         metric_or_summary("route_conditioning_fast_vent_command_timeout", "pre_route_fast_vent_timeout")
+     ) is True
+@@ -1612,6 +2391,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+     route_open_transient_interrupted_by_vent_gap = _as_bool(
+         metric_or_summary("route_open_transient_interrupted_by_vent_gap")
+     ) is True
++    if false_defer_latency_gap:
++        route_open_transient_interrupted_by_vent_gap = False
++        if route_open_transient_rejection_reason == "vent_gap_exceeded_before_recovery_evaluation":
++            route_open_transient_rejection_reason = ""
+     if (
+         route_conditioning_vent_gap_exceeded
+         and not route_open_transient_accepted
+@@ -1623,6 +2406,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+     route_open_transient_interrupted_reason = str(
+         metric_or_summary("route_open_transient_interrupted_reason") or ""
+     ).strip()
++    if false_defer_latency_gap and route_open_transient_interrupted_reason == (
++        "vent_gap_exceeded_before_recovery_evaluation"
++    ):
++        route_open_transient_interrupted_reason = ""
+     if route_open_transient_interrupted_by_vent_gap and not route_open_transient_interrupted_reason:
+         route_open_transient_interrupted_reason = route_open_transient_rejection_reason
+     route_open_transient_evaluation_state = str(
+@@ -1634,6 +2421,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         "accepted",
+         "rejected",
+         "interrupted_by_vent_gap",
++        "continuing_after_defer_warning",
+         "hard_abort",
+     }:
+         if route_conditioning_hard_abort_exceeded:
+@@ -1642,6 +2430,8 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+             route_open_transient_evaluation_state = "accepted"
+         elif route_open_transient_interrupted_by_vent_gap:
+             route_open_transient_evaluation_state = "interrupted_by_vent_gap"
++        elif defer_reschedule_latency_warning and not route_conditioning_vent_gap_exceeded:
++            route_open_transient_evaluation_state = "continuing_after_defer_warning"
+         elif route_open_transient_rejection_reason or (
+             route_open_transient_recovery_required and not route_open_transient_accepted
+         ):
+@@ -1650,9 +2440,13 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+             route_open_transient_evaluation_state = "evaluating"
+         else:
+             route_open_transient_evaluation_state = "not_started"
++    elif false_defer_latency_gap and route_open_transient_evaluation_state == "interrupted_by_vent_gap":
++        route_open_transient_evaluation_state = "continuing_after_defer_warning"
+     route_open_transient_summary_source = str(
+         metric_or_summary("route_open_transient_summary_source") or ""
+     ).strip()
++    if false_defer_latency_gap and route_open_transient_summary_source == "route_conditioning_vent_gap":
++        route_open_transient_summary_source = "route_conditioning_defer_latency_warning"
+     if not route_open_transient_summary_source:
+         route_open_transient_summary_source = (
+             "route_conditioning_vent_gap"
+@@ -1705,6 +2499,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+                 "workflow.stability.temperature.skip_temperature_stabilization_wait",
+             ),
+         )
++    ) is True or _as_bool(
++        _mapping(admission.operator_confirmation.get("explicit_acknowledgement")).get(
++            "skip_temperature_stabilization_wait"
++        )
+     ) is True
+     temperature_stabilization_wait_skipped = (
+         _as_bool(metric_or_summary("temperature_stabilization_wait_skipped", "wait_skipped")) is True
+@@ -1734,7 +2532,86 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+             )
+         )
+         is True
++        or a2_4_temperature_skip_requested
++    )
++
++    def summary_bool(*keys: str, default: Optional[bool] = None) -> Optional[bool]:
++        parsed = _as_bool(metric_or_summary(*keys))
++        return default if parsed is None else parsed
++
++    def summary_list(key: str) -> list[Any]:
++        value = metric_or_summary(key)
++        if isinstance(value, list):
++            return list(value)
++        if value in (None, ""):
++            return []
++        return [value]
++
++    temperature_chamber_optional_in_skip_temp_wait = bool(
++        bool(
++            a2_4_temperature_skip_requested
++            and temperature_stabilization_wait_skipped
++            and temperature_gate_mode == "current_pv_engineering_probe"
++            and temperature_not_part_of_acceptance
++        )
++        or summary_bool("temperature_chamber_optional_in_skip_temp_wait", default=False) is True
++    )
++    temperature_chamber_required_for_a2 = bool(
++        False
++        if temperature_chamber_optional_in_skip_temp_wait
++        else summary_bool("temperature_chamber_required_for_a2", default=True)
+     )
++    temperature_chamber_init_attempted = summary_bool("temperature_chamber_init_attempted", default=None)
++    temperature_chamber_init_ok = summary_bool("temperature_chamber_init_ok", default=None)
++    temperature_chamber_init_failed = bool(summary_bool("temperature_chamber_init_failed", default=False))
++    temperature_chamber_init_failure_blocks_a2 = bool(
++        summary_bool(
++            "temperature_chamber_init_failure_blocks_a2",
++            default=bool(temperature_chamber_init_failed and temperature_chamber_required_for_a2),
++        )
++    )
++    temperature_context_available = summary_bool(
++        "temperature_context_available",
++        default=False if temperature_chamber_init_failed and temperature_chamber_optional_in_skip_temp_wait else None,
++    )
++    temperature_context_source = str(metric_or_summary("temperature_context_source") or "").strip()
++    temperature_context_unavailable_reason = str(
++        metric_or_summary("temperature_context_unavailable_reason") or ""
++    ).strip()
++    temperature_chamber_readonly_probe_attempted = summary_bool(
++        "temperature_chamber_readonly_probe_attempted",
++        default=temperature_chamber_optional_in_skip_temp_wait
++        and (temperature_chamber_init_attempted is not False),
++    )
++    temperature_chamber_readonly_probe_result = str(
++        metric_or_summary("temperature_chamber_readonly_probe_result")
++        or (
++            "unavailable"
++            if temperature_context_available is False and temperature_chamber_optional_in_skip_temp_wait
++            else (
++                "available_pending_current_pv_read"
++                if temperature_context_available is True and temperature_chamber_optional_in_skip_temp_wait
++                else "not_applicable"
++            )
++        )
++    ).strip()
++    critical_devices_required = summary_list("critical_devices_required")
++    if not critical_devices_required:
++        critical_devices_required = ["pressure_controller", "pressure_meter", "relay_a", "relay_b"]
++        if temperature_chamber_required_for_a2:
++            critical_devices_required.append("temperature_chamber")
++    critical_devices_failed = summary_list("critical_devices_failed")
++    optional_context_devices = summary_list("optional_context_devices")
++    if not optional_context_devices and temperature_chamber_optional_in_skip_temp_wait:
++        optional_context_devices = ["temperature_chamber"]
++    optional_context_devices_failed = summary_list("optional_context_devices_failed")
++    critical_device_init_failure_blocks_probe = bool(
++        summary_bool("critical_device_init_failure_blocks_probe", default=bool(critical_devices_failed))
++    )
++    optional_context_failure_blocks_probe = bool(
++        summary_bool("optional_context_failure_blocks_probe", default=False)
++    )
++
+     a2_4_probe_required = bool(
+         a2_4_temperature_skip_requested
+         or str(admission.operator_confirmation.get("pressure_source") or "").strip().lower() == "v1_aligned"
+@@ -1844,6 +2721,13 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+     if final_decision != "PASS" and not rejection_reasons:
+         rejection_reasons.append("a2_pass_conditions_not_met")
+     rejection_reasons = list(dict.fromkeys(rejection_reasons))
++    fail_closed_reason = ""
++    if final_decision != "PASS":
++        fail_closed_reason = (
++            A2_INTERRUPTED_FAIL_CLOSED_REASON
++            if execution_interrupted
++            else (rejection_reasons[0] if rejection_reasons else "a2_pass_conditions_not_met")
++        )
+ 
+     pressure_ready_rows = [
+         {
+@@ -1895,12 +2779,20 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         }
+         for point in point_results
+     ]
++    pressure_controller_diagnostics = _pressure_controller_command_diagnostics(raw_cfg, route_rows)
++    pressure_meter_diagnostic_fields = _pressure_meter_diagnostics(raw_cfg, point_results)
++    relay_diagnostic_fields = _relay_diagnostics(raw_cfg, route_rows)
+ 
+     summary = {
+         "schema_version": A2_SCHEMA_VERSION,
+         **A2_EVIDENCE_MARKERS,
+         "final_decision": final_decision,
++        "fail_closed_reason": fail_closed_reason,
+         "rejection_reasons": rejection_reasons,
++        "interrupted_execution": bool(execution_interrupted),
++        "interrupted_at": interrupted_at,
++        "interruption_source": interruption_source,
++        "interruption_stage": interruption_stage,
+         "admission_approved": admission.approved,
+         "operator_confirmation_valid": bool(admission.operator_validation.get("valid")),
+         "r0_1_reference_readonly_prereq_pass": bool(admission.evidence["r0_1_reference_readonly_prereq_pass"]),
+@@ -1929,6 +2821,26 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         "temperature_stabilization_wait_skipped": temperature_stabilization_wait_skipped,
+         "temperature_gate_mode": temperature_gate_mode,
+         "temperature_not_part_of_acceptance": temperature_not_part_of_acceptance,
++        "temperature_chamber_required_for_a2": temperature_chamber_required_for_a2,
++        "temperature_chamber_init_attempted": temperature_chamber_init_attempted,
++        "temperature_chamber_init_ok": temperature_chamber_init_ok,
++        "temperature_chamber_init_failed": temperature_chamber_init_failed,
++        "temperature_chamber_init_failure_blocks_a2": temperature_chamber_init_failure_blocks_a2,
++        "temperature_chamber_optional_in_skip_temp_wait": temperature_chamber_optional_in_skip_temp_wait,
++        "temperature_context_available": temperature_context_available,
++        "temperature_context_source": temperature_context_source,
++        "temperature_context_unavailable_reason": temperature_context_unavailable_reason,
++        "temperature_chamber_readonly_probe_attempted": temperature_chamber_readonly_probe_attempted,
++        "temperature_chamber_readonly_probe_result": temperature_chamber_readonly_probe_result,
++        "critical_devices_required": critical_devices_required,
++        "critical_devices_failed": critical_devices_failed,
++        "optional_context_devices": optional_context_devices,
++        "optional_context_devices_failed": optional_context_devices_failed,
++        "critical_device_init_failure_blocks_probe": critical_device_init_failure_blocks_probe,
++        "optional_context_failure_blocks_probe": optional_context_failure_blocks_probe,
++        **pressure_controller_diagnostics,
++        **pressure_meter_diagnostic_fields,
++        **relay_diagnostic_fields,
+         "pressure_source_selected": _first_metric_from_rows(evidence_metric_rows, "pressure_source_selected"),
+         "pressure_source_selection_reason": _first_metric_from_rows(
+             evidence_metric_rows,
+@@ -2195,24 +3107,36 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         "defer_source": metric_or_summary("defer_source") or "",
+         "defer_operation": metric_or_summary("defer_operation") or "",
+         "defer_started_at": metric_or_summary("defer_started_at") or "",
+-        "defer_returned_to_vent_loop": _as_bool(metric_or_summary("defer_returned_to_vent_loop")) is True,
++        "defer_returned_to_vent_loop": defer_returned_to_vent_loop_value,
+         "defer_to_next_vent_loop_ms": metric_or_summary("defer_to_next_vent_loop_ms"),
++        "defer_reschedule_latency_ms": defer_reschedule_latency_ms,
++        "defer_reschedule_latency_budget_ms": defer_reschedule_latency_budget_ms,
++        "defer_reschedule_latency_exceeded": defer_reschedule_latency_exceeded,
++        "defer_reschedule_latency_warning": defer_reschedule_latency_warning,
++        "defer_reschedule_caused_vent_gap_exceeded": defer_reschedule_caused_vent_gap_exceeded,
+         "defer_reschedule_requested": _as_bool(
+             metric_or_summary("defer_reschedule_requested")
+         )
+         is True,
+-        "defer_reschedule_completed": _as_bool(
+-            metric_or_summary("defer_reschedule_completed")
+-        )
+-        is True,
++        "defer_reschedule_completed": defer_reschedule_completed_value,
+         "defer_reschedule_reason": metric_or_summary("defer_reschedule_reason") or "",
+         "vent_tick_after_defer_ms": metric_or_summary("vent_tick_after_defer_ms"),
+-        "fast_vent_after_defer_sent": _as_bool(metric_or_summary("fast_vent_after_defer_sent")) is True,
++        "fast_vent_after_defer_sent": fast_vent_after_defer_sent_value,
+         "fast_vent_after_defer_write_ms": metric_or_summary("fast_vent_after_defer_write_ms"),
+-        "terminal_gap_after_defer": _as_bool(metric_or_summary("terminal_gap_after_defer")) is True,
+-        "terminal_gap_after_defer_ms": metric_or_summary("terminal_gap_after_defer_ms"),
+-        "defer_path_no_reschedule": _as_bool(metric_or_summary("defer_path_no_reschedule")) is True,
+-        "defer_path_no_reschedule_reason": metric_or_summary("defer_path_no_reschedule_reason") or "",
++        "terminal_gap_after_defer": terminal_gap_after_defer_value,
++        "terminal_gap_after_defer_ms": terminal_gap_after_defer_ms_value,
++        "vent_gap_exceeded_after_defer": vent_gap_exceeded_after_defer,
++        "vent_gap_after_defer_ms": vent_gap_after_defer_ms,
++        "vent_gap_after_defer_threshold_ms": vent_gap_after_defer_threshold_ms,
++        "defer_path_no_reschedule": bool(
++            (_as_bool(metric_or_summary("defer_path_no_reschedule")) is True)
++            and defer_reschedule_caused_vent_gap_exceeded
++        ),
++        "defer_path_no_reschedule_reason": (
++            metric_or_summary("defer_path_no_reschedule_reason") or ""
++        )
++        if defer_reschedule_caused_vent_gap_exceeded
++        else "",
+         "fail_closed_path_started": _as_bool(metric_or_summary("fail_closed_path_started")) is True,
+         "fail_closed_path_started_while_route_open": _as_bool(
+             metric_or_summary("fail_closed_path_started_while_route_open")
+@@ -2417,7 +3341,8 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+             or _as_bool(metric_or_summary("sample_blocked_during_flush")) is True
+         ),
+         "a2_pressure_sweep_executed": bool(executed),
+-        "real_probe_executed": bool(executed),
++        "a2_pressure_sweep_execution_started": bool(execution_started),
++        "real_probe_executed": bool(execution_started),
+         "underlying_execution_dir": str(execution.get("execution_run_dir") or ""),
+         "execution_error": execution_error,
+         "execution_config_path": execution_config_path,
+@@ -2448,16 +3373,22 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         **points_alignment,
+         **safety_assertions,
+     }
+-    operator_record = {
+-        "schema_version": A2_SCHEMA_VERSION,
+-        "record_type": "a2_operator_confirmation_record",
+-        "operator_confirmation_path": str(Path(operator_confirmation_path).expanduser().resolve()) if operator_confirmation_path else "",
+-        "validation": admission.operator_validation,
+-        "payload": admission.operator_confirmation,
+-        **A2_EVIDENCE_MARKERS,
+-    }
++    operator_record = _build_operator_record(
++        admission,
++        operator_confirmation_path=operator_confirmation_path,
++    )
++    admission_record = _build_probe_admission_record(
++        admission,
++        artifact_paths=artifact_paths,
++        config_path=config_path,
++        branch=branch,
++        head=head,
++        cli_allow=cli_allow,
++        execute_probe=execute_probe,
++        run_app_py_untouched=run_app_py_untouched,
++    )
+ 
+-    _json_dump(run_dir / "summary.json", summary)
++    _json_dump(run_dir / "probe_admission_record.json", admission_record)
+     _jsonl_dump(run_dir / "a2_pressure_sweep_trace.jsonl", sweep_rows)
+     _jsonl_dump(run_dir / "route_trace.jsonl", route_rows)
+     _jsonl_dump(run_dir / "pressure_trace.jsonl", pressure_rows)
+@@ -2468,4 +3399,34 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+     _write_point_results_csv(run_dir / "point_results.csv", point_results)
+     _json_dump(run_dir / "safety_assertions.json", safety_assertions)
+     _json_dump(run_dir / "operator_confirmation_record.json", operator_record)
++    completeness = _artifact_completeness(
++        artifact_paths,
++        assume_present_keys={"summary", "process_exit_record"},
++    )
++    summary.update(completeness)
++    if not completeness["artifact_completeness_pass"]:
++        summary["final_decision"] = "FAIL_CLOSED"
++        summary["a3_allowed"] = False
++        summary["fail_closed_reason"] = "required_artifacts_missing"
++        summary["rejection_reasons"] = list(
++            dict.fromkeys([*summary["rejection_reasons"], "required_artifacts_missing"])
++        )
++    _json_dump(run_dir / "summary.json", summary)
++    _write_process_exit_record(
++        run_dir,
++        artifact_paths=artifact_paths,
++        process_state="interrupted" if execution_interrupted else "completed",
++        final_decision=str(summary.get("final_decision") or final_decision),
++        interrupted_execution=execution_interrupted,
++        interruption_source=interruption_source,
++        interruption_stage=interruption_stage,
++        fail_closed_reason=str(summary.get("fail_closed_reason") or ""),
++        execution_error=execution_error,
++        real_probe_executed=bool(execution_started),
++        real_com_opened=real_com_opened_value,
++        any_device_command_sent=any_device_command_sent_value,
++        any_write_command_sent=any_write_command_sent_value,
++        safe_stop_triggered=safe_stop_triggered_value,
++        no_write_assertion_status=no_write_assertion_status,
++    )
+     return summary

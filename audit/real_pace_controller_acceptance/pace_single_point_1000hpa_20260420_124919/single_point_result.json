@@ -1,0 +1,71 @@
+{
+  "profile": "OLD_PACE5000",
+  "available_ranges": [
+    "1.00barg",
+    "BAROMETER",
+    "2.00bara"
+  ],
+  "selected_range": "2.00bara",
+  "unit": "HPA",
+  "setpoint_result": {
+    "ok": true,
+    "target_hpa": 1000.0,
+    "control_range": "2.00bara",
+    "setpoint_readback_hpa": 1000.0,
+    "control_pressure_hpa": 1000.0010376,
+    "in_limit_pressure_hpa": 1000.0010986,
+    "stable_count": 2,
+    "stable_hold_s": 4.81129789352417,
+    "recent_states": [
+      {
+        "ts": 1776660592.4314265,
+        "current_pressure_hpa": 999.9898071,
+        "in_limit_flag": 0,
+        "output_state": 1,
+        "vent_status": 2,
+        "setpoint_hpa": 1000.0
+      },
+      {
+        "ts": 1776660597.262059,
+        "current_pressure_hpa": 999.9978638,
+        "in_limit_flag": 0,
+        "output_state": 1,
+        "vent_status": 2,
+        "setpoint_hpa": 1000.0
+      },
+      {
+        "ts": 1776660602.0912473,
+        "current_pressure_hpa": 1000.0030518,
+        "in_limit_flag": 1,
+        "output_state": 1,
+        "vent_status": 2,
+        "setpoint_hpa": 1000.0
+      },
+      {
+        "ts": 1776660606.902544,
+        "current_pressure_hpa": 1000.0010986,
+        "in_limit_flag": 1,
+        "output_state": 1,
+        "vent_status": 2,
+        "setpoint_hpa": 1000.0
+      }
+    ]
+  },
+  "post_outp_stat": 1,
+  "post_source_pres": 1000.0,
+  "post_inl": [
+    999.9995728,
+    1
+  ],
+  "post_cont": "",
+  "post_syst_err": ":SYST:ERR -113,\"Undefined header\"",
+  "safe_stop": {
+    "profile": "OLD_PACE5000",
+    "output_state": 0,
+    "isolation_state": 1,
+    "vent_status": 2,
+    "system_error": ":SYST:ERR 0, No error"
+  },
+  "run_dir": "audit\\real_pace_controller_acceptance\\pace_single_point_1000hpa_20260420_124919",
+  "io_path": "audit\\real_pace_controller_acceptance\\pace_single_point_1000hpa_20260420_124919\\io_20260420_124919.csv"
+}

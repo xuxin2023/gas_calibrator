@@ -49,6 +49,17 @@ def build_stage3_standards_alignment_matrix_artifact_entry(
             for category in list(item.get("required_evidence_categories") or [])
         ]
     )
+    readiness_status_filters = _dedupe(item.get("readiness_status") for item in rows)
+    missing_coverage_filters = _dedupe(
+        item.get("missing_coverage_filter")
+        or ("missing_coverage" if bool(item.get("missing_coverage")) else "coverage_present")
+        for item in rows
+    )
+    gap_filters = _dedupe(
+        item.get("gap_filter")
+        or ("has_gap" if str(item.get("gap_note") or "").strip() else "no_gap")
+        for item in rows
+    )
     boundary_lines = _dedupe(
         list(manifest_payload.get("boundary_statements") or [])
         + _section_lines(markdown_sections, "非声明边界")
@@ -116,6 +127,18 @@ def build_stage3_standards_alignment_matrix_artifact_entry(
     )
 
     anchor_id = "stage3-standards-alignment-matrix"
+    anchor_rows = [
+        {
+            "anchor_id": str(item.get("anchor_id") or f"{anchor_id}:{index}"),
+            "anchor_label": str(
+                item.get("anchor_label")
+                or item.get("topic_or_control_object")
+                or item.get("standard_family")
+                or title_text
+            ).strip(),
+        }
+        for index, item in enumerate(rows, start=1)
+    ]
     phase_filters = ["step2_tail_stage3_bridge", "stage3_standards_alignment"]
     artifact_role_filters = ["execution_summary", "formal_analysis"]
     boundary_filters = _dedupe(
@@ -211,7 +234,12 @@ def build_stage3_standards_alignment_matrix_artifact_entry(
         "artifact_role_filters": artifact_role_filters,
         "standard_family_filters": list(standard_families),
         "evidence_category_filters": list(required_evidence_categories),
+        "readiness_status_filters": list(readiness_status_filters),
+        "missing_coverage_filters": list(missing_coverage_filters),
+        "gap_filters": list(gap_filters),
         "boundary_filters": boundary_filters,
+        "anchor_rows": anchor_rows,
+        "anchor_filters": _dedupe([anchor_id] + [row.get("anchor_id") for row in anchor_rows]),
         "card_text": "\n".join(line for line in card_lines if str(line).strip()),
         "entry_text": "\n".join(line for line in entry_lines if str(line).strip()),
         "role_status_display": role_status_display,

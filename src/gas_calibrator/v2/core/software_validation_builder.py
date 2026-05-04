@@ -14,6 +14,12 @@ SCHEMA_VERSION = "step2-software-validation-wp5-v1"
 WORKSPACE_MODE = "step2_simulation_only_file_artifact_first"
 GENERATED_BY_TOOL = "gas_calibrator.v2.core.software_validation_builder"
 HASH_ALGORITHM = "sha256"
+LINKED_REVIEW_SURFACES = [
+    "results_payload",
+    "reports",
+    "review_center",
+    "workbench_recognition_readiness",
+]
 
 
 def _now_iso() -> str:
@@ -157,6 +163,8 @@ def _bundle(
         "primary_evidence_rewritten": False,
         "anchor_id": anchor_id,
         "anchor_label": title_text,
+        "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
+        "surface_visibility_summary": " | ".join(LINKED_REVIEW_SURFACES),
         "boundary_statements": list(boundary_statements),
         "digest": dict(digest),
         "review_surface": {
@@ -179,6 +187,8 @@ def _bundle(
             "non_claim_filters": [],
             "evidence_source_filters": [evidence_source, "reviewer_readiness_only"],
             "artifact_paths": dict(artifact_paths),
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
+            "surface_visibility_summary": " | ".join(LINKED_REVIEW_SURFACES),
         },
         "artifact_paths": dict(artifact_paths),
         "evidence_categories": list(evidence_categories),
@@ -452,6 +462,138 @@ def build_software_validation_wp5_artifacts(
         "offline_sidecars",
         "artifact_catalog_compatibility",
     ]
+    changed_modules = [
+        {
+            "module_name": "software_validation_builder",
+            "module_path": "src/gas_calibrator/v2/core/software_validation_builder.py",
+            "change_scope": "Build Step 2 software validation, audit trace, fingerprint, and release sidecars.",
+            "impacted_surfaces": list(LINKED_REVIEW_SURFACES),
+        },
+        {
+            "module_name": "software_validation_repository",
+            "module_path": "src/gas_calibrator/v2/core/software_validation_repository.py",
+            "change_scope": "Load file-backed reviewer artifacts and summarize rollup visibility without enabling DB by default.",
+            "impacted_surfaces": ["results_payload", "review_center", "workbench_recognition_readiness"],
+        },
+        {
+            "module_name": "results_gateway",
+            "module_path": "src/gas_calibrator/v2/adapters/results_gateway.py",
+            "change_scope": "Expose software validation sidecars to results payloads and reports rows.",
+            "impacted_surfaces": ["results_payload", "reports"],
+        },
+        {
+            "module_name": "app_facade",
+            "module_path": "src/gas_calibrator/v2/ui_v2/controllers/app_facade.py",
+            "change_scope": "Keep review_center aware of software validation / audit readiness artifacts.",
+            "impacted_surfaces": ["review_center"],
+        },
+        {
+            "module_name": "device_workbench",
+            "module_path": "src/gas_calibrator/v2/ui_v2/controllers/device_workbench.py",
+            "change_scope": "Reference software validation / audit readiness artifacts from workbench recognition readiness.",
+            "impacted_surfaces": ["workbench_recognition_readiness"],
+        },
+    ]
+    changed_module_paths = [str(item.get("module_path") or "").strip() for item in changed_modules]
+    changed_modules_summary = " | ".join(
+        _dedupe(str(item.get("module_name") or "").strip() for item in changed_modules)
+    )
+    linked_surface_summary = " | ".join(LINKED_REVIEW_SURFACES)
+    main_execution_chain_impact_summary = (
+        "No; the main execution chain stays unchanged and Step 2 remains simulation-only."
+    )
+    artifact_schema_impact_summary = (
+        "Yes; reviewer-sidecar schema expands, but primary evidence schema remains unchanged."
+    )
+    results_surface_impact_summary = "Yes; results payloads and reports rows now expose the reviewer-sidecar chain."
+    review_center_impact_summary = "Yes; review_center can scan and show the full software validation / audit sidechain."
+    workbench_surface_impact_summary = "Yes; the workbench recognition readiness section can reference the full sidechain."
+    file_artifact_first_summary = "file-artifact-first rollback over reviewer sidecars and derived indexes only"
+    rollback_steps = [
+        "Delete or replace the new reviewer-sidecar JSON/Markdown artifacts first.",
+        "Rebuild results/reports/review_center/workbench indexes from surviving file artifacts only.",
+        "Keep primary evidence, summary exports, and default DB path untouched.",
+    ]
+    traceability_rows = [
+        {
+            "requirement_id": "wp5-traceability-chain",
+            "design_refs": design_refs[:2],
+            "code_refs": code_refs[:3],
+            "test_refs": [
+                "tests/v2/test_software_validation_wp5_contracts.py",
+                "tests/v2/test_results_gateway.py",
+            ],
+            "artifact_refs": [
+                _artifact_ref("scope_definition_pack", str(path_map.get("scope_definition_pack") or "")),
+                _artifact_ref("decision_rule_profile", str(path_map.get("decision_rule_profile") or "")),
+                _artifact_ref(
+                    "software_validation_traceability_matrix",
+                    str(path_map.get("software_validation_traceability_matrix") or ""),
+                ),
+            ],
+        },
+        {
+            "requirement_id": "wp5-audit-hash-registry",
+            "design_refs": [design_refs[3], design_refs[4]],
+            "code_refs": [
+                "src/gas_calibrator/v2/core/software_validation_builder.py",
+                "src/gas_calibrator/v2/core/software_validation_repository.py",
+                "src/gas_calibrator/v2/adapters/results_gateway.py",
+            ],
+            "test_refs": [
+                "tests/v2/test_results_gateway.py",
+                "tests/v2/test_software_validation_wp5_contracts.py",
+            ],
+            "artifact_refs": [
+                _artifact_ref("artifact_hash_registry", str(path_map.get("artifact_hash_registry") or "")),
+                _artifact_ref("environment_fingerprint", str(path_map.get("environment_fingerprint") or "")),
+                _artifact_ref("config_fingerprint", str(path_map.get("config_fingerprint") or "")),
+            ],
+        },
+        {
+            "requirement_id": "wp5-release-manifest",
+            "design_refs": [design_refs[4]],
+            "code_refs": [
+                "src/gas_calibrator/v2/core/software_validation_builder.py",
+                "src/gas_calibrator/v2/adapters/results_gateway.py",
+                "src/gas_calibrator/v2/ui_v2/controllers/app_facade.py",
+                "src/gas_calibrator/v2/ui_v2/controllers/device_workbench.py",
+            ],
+            "test_refs": [
+                "tests/v2/test_ui_v2_review_center.py",
+                "tests/v2/test_ui_v2_workbench_evidence.py",
+                "tests/v2/test_software_validation_wp5_contracts.py",
+            ],
+            "artifact_refs": [
+                _artifact_ref("release_manifest", str(path_map.get("release_manifest") or "")),
+                _artifact_ref("release_scope_summary", str(path_map.get("release_scope_summary") or "")),
+                _artifact_ref(
+                    "release_evidence_pack_index",
+                    str(path_map.get("release_evidence_pack_index") or ""),
+                ),
+            ],
+        },
+        {
+            "requirement_id": "wp5-impact-and-rollback",
+            "design_refs": [design_refs[3], design_refs[4]],
+            "code_refs": [
+                "src/gas_calibrator/v2/core/software_validation_builder.py",
+                "src/gas_calibrator/v2/core/software_validation_repository.py",
+                "src/gas_calibrator/v2/adapters/results_gateway.py",
+            ],
+            "test_refs": [
+                "tests/v2/test_software_validation_wp5_contracts.py",
+                "tests/v2/test_ui_v2_workbench_evidence.py",
+            ],
+            "artifact_refs": [
+                _artifact_ref("change_impact_summary", str(path_map.get("change_impact_summary") or "")),
+                _artifact_ref(
+                    "rollback_readiness_summary",
+                    str(path_map.get("rollback_readiness_summary") or ""),
+                ),
+            ],
+        },
+    ]
     traceability_artifact_refs = [
         _artifact_ref("scope_definition_pack", str(path_map.get("scope_definition_pack") or "")),
         _artifact_ref("decision_rule_profile", str(path_map.get("decision_rule_profile") or "")),
@@ -463,6 +605,29 @@ def build_software_validation_wp5_artifacts(
         _artifact_ref("verification_rollup", str(path_map.get("verification_rollup") or "")),
     ]
     traceability_artifact_refs = [row for row in traceability_artifact_refs if row.get("path")]
+    reviewer_sidecar_artifact_keys = [
+        "software_validation_traceability_matrix",
+        "requirement_design_code_test_links",
+        "validation_evidence_index",
+        "change_impact_summary",
+        "rollback_readiness_summary",
+        "artifact_hash_registry",
+        "audit_event_store",
+        "environment_fingerprint",
+        "config_fingerprint",
+        "release_input_digest",
+        "release_manifest",
+        "release_scope_summary",
+        "release_boundary_digest",
+        "release_evidence_pack_index",
+        "release_validation_manifest",
+        "audit_readiness_digest",
+    ]
+    reviewer_sidecar_artifact_refs = [
+        _artifact_ref(artifact_key, str(path_map.get(artifact_key) or ""))
+        for artifact_key in reviewer_sidecar_artifact_keys
+        if str(path_map.get(artifact_key) or "").strip()
+    ]
     traceability_completeness = "4/4 linked"
 
     traceability_bundle = _bundle(
@@ -496,13 +661,19 @@ def build_software_validation_wp5_artifacts(
             "decision_rule_id": decision_rule_id,
             "uncertainty_case_id": uncertainty_case_id,
             "method_confirmation_protocol_id": method_confirmation_protocol_id,
+            "traceability_completeness": traceability_completeness,
             "requirement_refs": list(requirement_refs),
+            "traceability_rows": list(traceability_rows),
             "design_refs": list(design_refs),
             "code_refs": list(code_refs),
             "test_refs": list(test_refs),
             "artifact_refs": list(traceability_artifact_refs),
             "change_set_refs": list(change_set_refs),
             "impact_scope": list(impact_scope),
+            "changed_modules": list(changed_modules),
+            "changed_module_paths": list(changed_module_paths),
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
+            "linked_surface_summary": linked_surface_summary,
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
@@ -512,7 +683,7 @@ def build_software_validation_wp5_artifacts(
             scope_overview_summary=str(scope_digest.get("scope_overview_summary") or scope_raw.get("scope_name") or scope_id),
             decision_rule_summary=str(decision_digest.get("decision_rule_summary") or decision_rule_id),
             conformity_boundary_summary=non_claim_note,
-            current_coverage_summary=f"scope {scope_id} | uncertainty {uncertainty_case_id} | method {method_confirmation_protocol_id}",
+            current_coverage_summary=traceability_completeness,
             missing_evidence_summary=limitation_note,
             reviewer_next_step_digest="Review the chain, keep it reviewer-only, and use release_manifest for pack-level linkage.",
             non_claim_digest=non_claim_note,
@@ -533,7 +704,12 @@ def build_software_validation_wp5_artifacts(
         reviewer_note=reviewer_note,
         summary_text="Requirement/design/code/test links stay reviewer-facing only.",
         summary_lines=[f"scope_id: {scope_id}", f"decision_rule_id: {decision_rule_id}", f"test refs: {len(test_refs)}"],
-        detail_lines=[f"code refs: {' | '.join(code_refs)}", f"non-claim: {non_claim_note}"],
+        detail_lines=[
+            f"code refs: {' | '.join(code_refs)}",
+            f"changed modules: {changed_modules_summary}",
+            f"visible surfaces: {linked_surface_summary}",
+            f"non-claim: {non_claim_note}",
+        ],
         artifact_paths=_bundle_path_map(path_map, "requirement_design_code_test_links", "requirement_design_code_test_links_markdown"),
         body={
             "traceability_id": traceability_id,
@@ -543,12 +719,18 @@ def build_software_validation_wp5_artifacts(
             "uncertainty_case_id": uncertainty_case_id,
             "method_confirmation_protocol_id": method_confirmation_protocol_id,
             "requirement_refs": list(requirement_refs),
+            "traceability_rows": list(traceability_rows),
             "design_refs": list(design_refs),
             "code_refs": list(code_refs),
             "test_refs": list(test_refs),
             "artifact_refs": list(traceability_artifact_refs),
             "change_set_refs": list(change_set_refs),
             "impact_scope": list(impact_scope),
+            "changed_modules": list(changed_modules),
+            "changed_module_paths": list(changed_module_paths),
+            "changed_modules_summary": changed_modules_summary,
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
+            "linked_surface_summary": linked_surface_summary,
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
@@ -581,7 +763,12 @@ def build_software_validation_wp5_artifacts(
             f"test refs: {len(test_refs)}",
             f"parity / resilience / smoke: {parity_status} | {resilience_status} | {smoke_status}",
         ],
-        detail_lines=[f"uncertainty digest: {str(uncertainty_digest.get('summary') or '--')}", f"verification digest: {str(method_digest.get('summary') or '--')}"],
+        detail_lines=[
+            f"uncertainty digest: {str(uncertainty_digest.get('summary') or '--')}",
+            f"verification digest: {str(method_digest.get('summary') or '--')}",
+            f"release sidecars: {len(reviewer_sidecar_artifact_refs)}",
+            f"visible surfaces: {linked_surface_summary}",
+        ],
         artifact_paths=_bundle_path_map(path_map, "validation_evidence_index", "validation_evidence_index_markdown"),
         body={
             "traceability_id": traceability_id,
@@ -602,6 +789,30 @@ def build_software_validation_wp5_artifacts(
             "parity_status": parity_status,
             "resilience_status": resilience_status,
             "smoke_status": smoke_status,
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
+            "linked_surface_summary": linked_surface_summary,
+            "input_artifact_refs": list(traceability_artifact_refs),
+            "reviewer_sidecar_artifact_refs": list(reviewer_sidecar_artifact_refs),
+            "evidence_rows": [
+                {
+                    "row_type": "upstream_input_artifact",
+                    "artifact_type": str(item.get("artifact_type") or ""),
+                    "path": str(item.get("path") or ""),
+                }
+                for item in traceability_artifact_refs
+            ]
+            + [
+                {
+                    "row_type": "linked_test_suite",
+                    "suite_id": suite_id,
+                    "status": suite_status,
+                }
+                for suite_id, suite_status in (
+                    ("parity", parity_status),
+                    ("resilience", resilience_status),
+                    ("smoke", smoke_status),
+                )
+            ],
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
@@ -627,9 +838,21 @@ def build_software_validation_wp5_artifacts(
         artifact_role="diagnostic_analysis",
         title_text="Change Impact Summary",
         reviewer_note=reviewer_note,
-        summary_text=f"Change impact stays within {' | '.join(impact_scope)}.",
-        summary_lines=[f"impact scope: {' | '.join(impact_scope)}", "primary evidence rewritten: false", "default DB path: disabled"],
-        detail_lines=[f"change refs: {' | '.join(change_set_refs)}", f"limitation: {limitation_note}"],
+        summary_text="Change impact stays within reviewer sidecars and linked read-only surfaces.",
+        summary_lines=[
+            f"changed modules: {changed_modules_summary}",
+            "main execution chain impacted: no",
+            "artifact schema impacted: reviewer-sidecar only",
+            "results / review_center / workbench: yes | yes | yes",
+        ],
+        detail_lines=[
+            f"impact scope: {' | '.join(impact_scope)}",
+            f"change refs: {' | '.join(change_set_refs)}",
+            f"visible surfaces: {linked_surface_summary}",
+            "primary evidence rewritten: false",
+            "default DB path: disabled",
+            f"limitation: {limitation_note}",
+        ],
         artifact_paths=_bundle_path_map(path_map, "change_impact_summary", "change_impact_summary_markdown"),
         body={
             "traceability_id": traceability_id,
@@ -640,17 +863,35 @@ def build_software_validation_wp5_artifacts(
             "method_confirmation_protocol_id": method_confirmation_protocol_id,
             "change_set_refs": list(change_set_refs),
             "impact_scope": list(impact_scope),
+            "changed_modules": list(changed_modules),
+            "changed_module_paths": list(changed_module_paths),
+            "changed_modules_summary": changed_modules_summary,
+            "impacts_main_execution_chain": False,
+            "main_execution_chain_impact_summary": main_execution_chain_impact_summary,
+            "impacts_artifact_schema": True,
+            "artifact_schema_impact_summary": artifact_schema_impact_summary,
+            "impacts_results_surface": True,
+            "results_surface_impact_summary": results_surface_impact_summary,
+            "impacts_review_center_surface": True,
+            "review_center_surface_impact_summary": review_center_impact_summary,
+            "impacts_workbench_surface": True,
+            "workbench_surface_impact_summary": workbench_surface_impact_summary,
+            "impacts_reports_surface": True,
+            "reports_surface_impact_summary": "Yes; report rows expose each sidecar with reviewer-facing notes.",
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
+            "linked_surface_summary": linked_surface_summary,
+            "db_ready_stub_only": True,
             "primary_evidence_rewritten": False,
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
         },
         digest=_digest(
-            summary=f"Change impact stays within {' | '.join(impact_scope)}.",
+            summary="Change impact stays within reviewer sidecars and linked read-only surfaces.",
             scope_overview_summary=scope_id,
             decision_rule_summary=decision_rule_id,
             conformity_boundary_summary=non_claim_note,
-            current_coverage_summary=" | ".join(impact_scope),
+            current_coverage_summary=changed_modules_summary,
             missing_evidence_summary="No primary evidence rewrite or default DB path is introduced.",
             reviewer_next_step_digest="Keep impact limited to reviewer-facing sidecars and linked read-only surfaces.",
             non_claim_digest=non_claim_note,
@@ -668,11 +909,16 @@ def build_software_validation_wp5_artifacts(
         title_text="Rollback Readiness Summary",
         reviewer_note=reviewer_note,
         summary_text="Rollback readiness remains sidecar-first and non-destructive.",
-        summary_lines=["rollback mode: sidecar-first", "primary evidence rewritten: false", "default DB path: disabled"],
+        summary_lines=[
+            "rollback mode: file-artifact-first",
+            "sidecar revocable: true",
+            "touch primary evidence: false",
+            "default DB path: disabled",
+        ],
         detail_lines=[
-            "Remove WP5 reviewer sidecars if the pack must be rolled back.",
-            "Rebuild reviewer indexes and summaries without rewriting primary evidence.",
-            "Keep default DB path disabled; the DB-ready stub remains opt-in only.",
+            *rollback_steps,
+            f"rollback scope: {len(reviewer_sidecar_artifact_refs)} reviewer-sidecar artifacts",
+            f"visible surfaces after rebuild: {linked_surface_summary}",
         ],
         artifact_paths=_bundle_path_map(path_map, "rollback_readiness_summary", "rollback_readiness_summary_markdown"),
         body={
@@ -684,6 +930,17 @@ def build_software_validation_wp5_artifacts(
             "method_confirmation_protocol_id": method_confirmation_protocol_id,
             "change_set_refs": list(change_set_refs),
             "impact_scope": list(impact_scope),
+            "rollback_mode": "file_artifact_first",
+            "rollback_scope_summary": file_artifact_first_summary,
+            "file_artifact_first": True,
+            "sidecar_revocable": True,
+            "primary_evidence_preserved": True,
+            "touches_primary_evidence": False,
+            "rollback_steps": list(rollback_steps),
+            "rollback_scope_artifacts": list(reviewer_sidecar_artifact_refs),
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
+            "linked_surface_summary": linked_surface_summary,
+            "db_ready_stub_only": True,
             "rollback_ready": True,
             "primary_evidence_rewritten": False,
             "reviewer_note": reviewer_note,
@@ -695,7 +952,7 @@ def build_software_validation_wp5_artifacts(
             scope_overview_summary=scope_id,
             decision_rule_summary=decision_rule_id,
             conformity_boundary_summary=non_claim_note,
-            current_coverage_summary="sidecar-first cleanup only",
+            current_coverage_summary=file_artifact_first_summary,
             missing_evidence_summary="Rollback does not provide real release approval or formal compliance closure.",
             reviewer_next_step_digest="If rollback is needed, remove new sidecars and regenerate reviewer indexes only.",
             non_claim_digest=non_claim_note,
@@ -715,7 +972,13 @@ def build_software_validation_wp5_artifacts(
         reviewer_note=reviewer_note,
         summary_text="Environment fingerprint recorded for reviewer linkage.",
         summary_lines=[environment_summary, f"repo / branch: {repo_ref} | {branch_or_head}"],
-        detail_lines=[f"generated_by_tool: {GENERATED_BY_TOOL}", "primary_evidence_rewritten: false", "reviewer_only: true"],
+        detail_lines=[
+            f"generated_by_tool: {GENERATED_BY_TOOL}",
+            "fingerprint scope: file-backed reviewer trace",
+            "formal anti-tamper claim: false",
+            "primary_evidence_rewritten: false",
+            "reviewer_only: true",
+        ],
         artifact_paths=_bundle_path_map(path_map, "environment_fingerprint", "environment_fingerprint_markdown"),
         body={
             "environment_summary": environment_summary,
@@ -728,6 +991,18 @@ def build_software_validation_wp5_artifacts(
             "linked_run_id": run_id,
             "linked_scope_id": scope_id,
             "linked_release_manifest_id": release_id,
+            "fingerprint_kind": "environment_fingerprint",
+            "fingerprint_scope": "file_backed_reviewer_trace",
+            "reviewer_trace_only": True,
+            "formal_anti_tamper_claim": False,
+            "tamper_evidence_claimed": False,
+            "fingerprint_inputs": {
+                "python_version": sys.version.split()[0],
+                "platform": platform.platform(),
+                "repo_ref": repo_ref,
+                "branch_or_head": branch_or_head,
+                "workspace_mode": WORKSPACE_MODE,
+            },
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
@@ -764,13 +1039,18 @@ def build_software_validation_wp5_artifacts(
         artifact_role="diagnostic_analysis",
         title_text="Config Fingerprint",
         reviewer_note=reviewer_note,
-        summary_text="Config fingerprint linked to the Step 2 release inputs.",
+        summary_text="Config fingerprint linked to the Step 2 release inputs for reviewer trace only.",
         summary_lines=[
             f"config_version: {str(lineage_payload.get('config_version') or version_payload.get('config_version') or '--')}",
             f"profile_version: {str(lineage_payload.get('profile_version') or version_payload.get('profile_version') or '--')}",
             f"points_version: {str(lineage_payload.get('points_version') or version_payload.get('points_version') or '--')}",
         ],
-        detail_lines=[f"algorithm_version: {str(version_payload.get('algorithm_version') or '--')}", f"config_fingerprint: {config_fingerprint}"],
+        detail_lines=[
+            f"algorithm_version: {str(version_payload.get('algorithm_version') or '--')}",
+            f"config_fingerprint: {config_fingerprint}",
+            "fingerprint scope: file-backed reviewer trace",
+            "formal anti-tamper claim: false",
+        ],
         artifact_paths=_bundle_path_map(path_map, "config_fingerprint", "config_fingerprint_markdown"),
         body={
             "linked_run_id": run_id,
@@ -784,12 +1064,23 @@ def build_software_validation_wp5_artifacts(
             "generated_by_tool": GENERATED_BY_TOOL,
             "workspace_mode": WORKSPACE_MODE,
             "repo_ref": repo_ref,
+            "fingerprint_kind": "config_fingerprint",
+            "fingerprint_scope": "file_backed_reviewer_trace",
+            "reviewer_trace_only": True,
+            "formal_anti_tamper_claim": False,
+            "tamper_evidence_claimed": False,
+            "fingerprint_inputs": {
+                "config_version": str(lineage_payload.get("config_version") or version_payload.get("config_version") or ""),
+                "profile_version": str(lineage_payload.get("profile_version") or version_payload.get("profile_version") or ""),
+                "points_version": str(lineage_payload.get("points_version") or version_payload.get("points_version") or ""),
+                "algorithm_version": str(version_payload.get("algorithm_version") or ""),
+            },
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
         },
         digest=_digest(
-            summary="Config fingerprint linked to the Step 2 release inputs.",
+            summary="Config fingerprint linked to the Step 2 release inputs for reviewer trace only.",
             scope_overview_summary=scope_id,
             decision_rule_summary=decision_rule_id,
             conformity_boundary_summary=non_claim_note,
@@ -825,9 +1116,14 @@ def build_software_validation_wp5_artifacts(
         artifact_role="diagnostic_analysis",
         title_text="Release Input Digest",
         reviewer_note=reviewer_note,
-        summary_text="Release input digest linked all Step 2 reviewer inputs.",
+        summary_text="Release input digest linked all Step 2 reviewer inputs as file-backed reviewer trace.",
         summary_lines=[f"release_input_digest: {release_input_digest_value}", f"parity / resilience / smoke: {parity_status} | {resilience_status} | {smoke_status}"],
-        detail_lines=[f"scope / decision rule: {scope_id} | {decision_rule_id}", f"uncertainty / method: {uncertainty_case_id} | {method_confirmation_protocol_id}"],
+        detail_lines=[
+            f"scope / decision rule: {scope_id} | {decision_rule_id}",
+            f"uncertainty / method: {uncertainty_case_id} | {method_confirmation_protocol_id}",
+            f"config fingerprint: {config_fingerprint}",
+            "formal anti-tamper claim: false",
+        ],
         artifact_paths=_bundle_path_map(path_map, "release_input_digest", "release_input_digest_markdown"),
         body={
             "linked_run_id": run_id,
@@ -849,12 +1145,19 @@ def build_software_validation_wp5_artifacts(
             },
             "release_input_digest": release_input_digest_value,
             "generated_by_tool": GENERATED_BY_TOOL,
+            "digest_kind": "release_input_digest",
+            "digest_scope": "file_backed_reviewer_trace",
+            "reviewer_trace_only": True,
+            "formal_anti_tamper_claim": False,
+            "tamper_evidence_claimed": False,
+            "linked_config_fingerprint": _artifact_ref("config_fingerprint", str(path_map.get("config_fingerprint") or "")),
+            "linked_environment_fingerprint": _artifact_ref("environment_fingerprint", str(path_map.get("environment_fingerprint") or "")),
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
         },
         digest=_digest(
-            summary="Release input digest linked all Step 2 reviewer inputs.",
+            summary="Release input digest linked all Step 2 reviewer inputs as file-backed reviewer trace.",
             scope_overview_summary=scope_id,
             decision_rule_summary=decision_rule_id,
             conformity_boundary_summary=non_claim_note,
@@ -908,6 +1211,11 @@ def build_software_validation_wp5_artifacts(
                 "primary_evidence_rewritten": False,
                 "reviewer_only": True,
                 "not_real_acceptance_evidence": True,
+                "reviewer_trace_only": True,
+                "file_backed_only": True,
+                "formal_anti_tamper_claim": False,
+                "tamper_evidence_claimed": False,
+                "trace_purpose": "file_backed_reviewer_trace",
             }
         )
 
@@ -921,7 +1229,13 @@ def build_software_validation_wp5_artifacts(
         reviewer_note=reviewer_note,
         summary_text=f"Artifact hash registry captured {len(hash_registry_entries)} reviewer-facing hashes.",
         summary_lines=[f"hash_registry_id: {hash_registry_id}", f"entries: {len(hash_registry_entries)}", f"hash_algorithm: {HASH_ALGORITHM}"],
-        detail_lines=[environment_summary, "primary_evidence_rewritten: false", "reviewer_only: true"],
+        detail_lines=[
+            environment_summary,
+            "trace purpose: file-backed reviewer trace",
+            "formal anti-tamper claim: false",
+            "primary_evidence_rewritten: false",
+            "reviewer_only: true",
+        ],
         artifact_paths=_bundle_path_map(path_map, "artifact_hash_registry", "artifact_hash_registry_markdown"),
         body={
             "hash_registry_id": hash_registry_id,
@@ -937,6 +1251,11 @@ def build_software_validation_wp5_artifacts(
             "workspace_mode": WORKSPACE_MODE,
             "hash_algorithm": HASH_ALGORITHM,
             "entries": hash_registry_entries,
+            "trace_purpose": "file_backed_reviewer_trace",
+            "reviewer_trace_only": True,
+            "file_backed_only": True,
+            "formal_anti_tamper_claim": False,
+            "tamper_evidence_claimed": False,
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
@@ -987,6 +1306,8 @@ def build_software_validation_wp5_artifacts(
             "repo_ref": repo_ref,
             "workspace_mode": WORKSPACE_MODE,
             "generated_by_tool": GENERATED_BY_TOOL,
+            "event_store_mode": "file_backed_reviewer_trace",
+            "reviewer_trace_only": True,
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
@@ -1015,7 +1336,11 @@ def build_software_validation_wp5_artifacts(
         reviewer_note=reviewer_note,
         summary_text=f"Release scope summary linked scope {scope_id}.",
         summary_lines=[f"scope_id: {scope_id}", f"decision_rule_id: {decision_rule_id}", f"assets / certificates: {linked_assets_certificates_summary['summary']}"],
-        detail_lines=[f"uncertainty_case_id: {uncertainty_case_id}", f"method_confirmation_protocol_id: {method_confirmation_protocol_id}"],
+        detail_lines=[
+            f"uncertainty_case_id: {uncertainty_case_id}",
+            f"method_confirmation_protocol_id: {method_confirmation_protocol_id}",
+            f"visible surfaces: {linked_surface_summary}",
+        ],
         artifact_paths=_bundle_path_map(path_map, "release_scope_summary", "release_scope_summary_markdown"),
         body={
             "release_id": release_id,
@@ -1027,6 +1352,7 @@ def build_software_validation_wp5_artifacts(
             "linked_assets_certificates_summary": dict(linked_assets_certificates_summary),
             "linked_uncertainty_cases": [uncertainty_case_id],
             "linked_method_confirmation_protocols": [method_confirmation_protocol_id],
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
@@ -1092,8 +1418,15 @@ def build_software_validation_wp5_artifacts(
         title_text="Release Evidence Pack Index",
         reviewer_note=reviewer_note,
         summary_text="Release evidence pack index linked reviewer-facing artifacts.",
-        summary_lines=[f"artifact pack rows: {len(traceability_artifact_refs) + 7}", f"suite linkage: parity {parity_status} | resilience {resilience_status} | smoke {smoke_status}"],
-        detail_lines=[f"scope / decision rule: {scope_id} | {decision_rule_id}", f"uncertainty / method: {uncertainty_case_id} | {method_confirmation_protocol_id}"],
+        summary_lines=[
+            f"artifact pack rows: {len(reviewer_sidecar_artifact_refs)} sidecars | {len(traceability_artifact_refs)} upstream inputs",
+            f"suite linkage: parity {parity_status} | resilience {resilience_status} | smoke {smoke_status}",
+        ],
+        detail_lines=[
+            f"scope / decision rule: {scope_id} | {decision_rule_id}",
+            f"uncertainty / method: {uncertainty_case_id} | {method_confirmation_protocol_id}",
+            f"visible surfaces: {linked_surface_summary}",
+        ],
         artifact_paths=_bundle_path_map(path_map, "release_evidence_pack_index", "release_evidence_pack_index_markdown"),
         body={
             "release_id": release_id,
@@ -1102,7 +1435,8 @@ def build_software_validation_wp5_artifacts(
             "decision_rule_id": decision_rule_id,
             "uncertainty_case_id": uncertainty_case_id,
             "method_confirmation_protocol_id": method_confirmation_protocol_id,
-            "artifact_refs": list(traceability_artifact_refs),
+            "artifact_refs": list(reviewer_sidecar_artifact_refs),
+            "upstream_artifact_refs": list(traceability_artifact_refs),
             "linked_test_suites": [
                 {"suite_id": "parity", "status": parity_status},
                 {"suite_id": "resilience", "status": resilience_status},
@@ -1111,6 +1445,16 @@ def build_software_validation_wp5_artifacts(
             "parity_status": parity_status,
             "resilience_status": resilience_status,
             "smoke_status": smoke_status,
+            "linked_change_impact_summary": _artifact_ref("change_impact_summary", str(path_map.get("change_impact_summary") or "")),
+            "linked_rollback_readiness_summary": _artifact_ref(
+                "rollback_readiness_summary",
+                str(path_map.get("rollback_readiness_summary") or ""),
+            ),
+            "linked_release_validation_manifest": _artifact_ref(
+                "release_validation_manifest",
+                str(path_map.get("release_validation_manifest") or ""),
+            ),
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
             "reviewer_note": reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
@@ -1148,6 +1492,8 @@ def build_software_validation_wp5_artifacts(
             f"scope / decision rule: {scope_id} | {decision_rule_id}",
             f"uncertainty / method: {uncertainty_case_id} | {method_confirmation_protocol_id}",
             f"hash registry: {hash_registry_id}",
+            f"change impact modules: {changed_modules_summary}",
+            "rollback mode: file-artifact-first / primary evidence untouched",
             f"assets / certificates: {linked_assets_certificates_summary['summary']}",
             f"limitation: {limitation_note}",
         ],
@@ -1166,6 +1512,37 @@ def build_software_validation_wp5_artifacts(
             "linked_method_confirmation_protocols": [method_confirmation_protocol_id],
             "linked_traceability_matrix": _artifact_ref("software_validation_traceability_matrix", str(path_map.get("software_validation_traceability_matrix") or "")),
             "linked_hash_registry": _artifact_ref("artifact_hash_registry", str(path_map.get("artifact_hash_registry") or "")),
+            "linked_change_impact_summary": _artifact_ref("change_impact_summary", str(path_map.get("change_impact_summary") or "")),
+            "linked_rollback_readiness_summary": _artifact_ref(
+                "rollback_readiness_summary",
+                str(path_map.get("rollback_readiness_summary") or ""),
+            ),
+            "linked_audit_event_store": _artifact_ref("audit_event_store", str(path_map.get("audit_event_store") or "")),
+            "linked_environment_fingerprint": _artifact_ref(
+                "environment_fingerprint",
+                str(path_map.get("environment_fingerprint") or ""),
+            ),
+            "linked_config_fingerprint": _artifact_ref("config_fingerprint", str(path_map.get("config_fingerprint") or "")),
+            "linked_release_input_digest": _artifact_ref(
+                "release_input_digest",
+                str(path_map.get("release_input_digest") or ""),
+            ),
+            "linked_release_scope_summary": _artifact_ref(
+                "release_scope_summary",
+                str(path_map.get("release_scope_summary") or ""),
+            ),
+            "linked_release_boundary_digest": _artifact_ref(
+                "release_boundary_digest",
+                str(path_map.get("release_boundary_digest") or ""),
+            ),
+            "linked_release_evidence_pack_index": _artifact_ref(
+                "release_evidence_pack_index",
+                str(path_map.get("release_evidence_pack_index") or ""),
+            ),
+            "linked_release_validation_manifest": _artifact_ref(
+                "release_validation_manifest",
+                str(path_map.get("release_validation_manifest") or ""),
+            ),
             "linked_test_suites": [
                 {"suite_id": "parity", "status": parity_status},
                 {"suite_id": "resilience", "status": resilience_status},
@@ -1174,6 +1551,8 @@ def build_software_validation_wp5_artifacts(
             "parity_status": parity_status,
             "resilience_status": resilience_status,
             "smoke_status": smoke_status,
+            "changed_modules_summary": changed_modules_summary,
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
             "simulation_only": True,
             "reviewer_only": True,
             "not_real_acceptance_evidence": True,
@@ -1204,6 +1583,15 @@ def build_software_validation_wp5_artifacts(
         source_bundle=release_manifest_bundle,
         title_text="Release Validation Manifest",
     )
+    release_validation_raw = dict(release_validation_bundle.get("raw") or {})
+    release_validation_raw["artifact_paths"] = {
+        **dict(release_validation_raw.get("artifact_paths") or {}),
+        **_bundle_path_map(path_map, "release_validation_manifest", "release_validation_manifest_markdown"),
+    }
+    release_validation_bundle["raw"] = release_validation_raw
+    release_validation_bundle["digest"] = dict(
+        release_validation_raw.get("digest") or release_validation_bundle.get("digest") or {}
+    )
 
     audit_readiness_bundle = _bundle(
         run_id=run_id,
@@ -1222,6 +1610,9 @@ def build_software_validation_wp5_artifacts(
         ],
         detail_lines=[
             f"parity / resilience / smoke: {parity_status} | {resilience_status} | {smoke_status}",
+            f"change impact modules: {changed_modules_summary}",
+            "rollback mode: file-artifact-first / sidecar revocable / primary evidence untouched",
+            f"config fingerprint: {config_fingerprint}",
             f"non-claim: {non_claim_note}",
             f"limitation: {limitation_note}",
         ],
@@ -1240,6 +1631,28 @@ def build_software_validation_wp5_artifacts(
             "parity_status": parity_status,
             "resilience_status": resilience_status,
             "smoke_status": smoke_status,
+            "changed_modules_summary": changed_modules_summary,
+            "linked_change_impact_summary": _artifact_ref("change_impact_summary", str(path_map.get("change_impact_summary") or "")),
+            "linked_rollback_readiness_summary": _artifact_ref(
+                "rollback_readiness_summary",
+                str(path_map.get("rollback_readiness_summary") or ""),
+            ),
+            "linked_audit_event_store": _artifact_ref("audit_event_store", str(path_map.get("audit_event_store") or "")),
+            "linked_environment_fingerprint": _artifact_ref(
+                "environment_fingerprint",
+                str(path_map.get("environment_fingerprint") or ""),
+            ),
+            "linked_config_fingerprint": _artifact_ref("config_fingerprint", str(path_map.get("config_fingerprint") or "")),
+            "linked_release_input_digest": _artifact_ref(
+                "release_input_digest",
+                str(path_map.get("release_input_digest") or ""),
+            ),
+            "linked_release_manifest": _artifact_ref("release_manifest", str(path_map.get("release_manifest") or "")),
+            "linked_release_validation_manifest": _artifact_ref(
+                "release_validation_manifest",
+                str(path_map.get("release_validation_manifest") or ""),
+            ),
+            "linked_surface_visibility": list(LINKED_REVIEW_SURFACES),
             "reviewer_note": audit_readiness_reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,

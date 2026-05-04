@@ -6,6 +6,7 @@ from typing import Any
 from .engineering_isolation_admission_checklist import (
     build_engineering_isolation_admission_checklist,
 )
+from . import recognition_readiness_artifacts as recognition_readiness
 from .stage_admission_review_pack import build_stage_admission_review_pack
 from .stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_FILENAME,
@@ -39,6 +40,10 @@ def build_stage3_standards_alignment_matrix(
     stage_admission_review_pack: dict[str, Any] | None = None,
     engineering_isolation_admission_checklist: dict[str, Any] | None = None,
     stage3_real_validation_plan: dict[str, Any] | None = None,
+    scope_definition_pack: dict[str, Any] | None = None,
+    decision_rule_profile: dict[str, Any] | None = None,
+    conformity_statement_profile: dict[str, Any] | None = None,
+    recognition_scope_rollup: dict[str, Any] | None = None,
     artifact_paths: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     readiness = dict(step2_readiness_summary or {})
@@ -84,6 +89,14 @@ def build_stage3_standards_alignment_matrix(
     checklist_display = dict(checklist.get("display") or {})
     plan_raw = dict(stage3_plan.get("raw") or {})
     plan_display = dict(stage3_plan.get("display") or {})
+    scope_payload = dict(scope_definition_pack or {})
+    decision_payload = dict(decision_rule_profile or {})
+    statement_payload = dict(
+        conformity_statement_profile
+        or dict(decision_payload.get("conformity_statement_profile") or {})
+        or {}
+    )
+    scope_rollup_payload = dict(recognition_scope_rollup or {})
     bridge_display = dict(bridge.get("reviewer_display") or {})
     readiness_display = dict(readiness.get("reviewer_display") or {})
     metrology_display = dict(metrology.get("reviewer_display") or {})
@@ -100,6 +113,14 @@ def build_stage3_standards_alignment_matrix(
     artifact_path_map["stage3_real_validation_plan_reviewer_artifact"] = str(
         direct_artifact_paths.get("stage3_real_validation_plan_reviewer_artifact")
         or STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+    )
+    artifact_path_map["scope_definition_pack"] = str(
+        direct_artifact_paths.get("scope_definition_pack")
+        or recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME
+    )
+    artifact_path_map["decision_rule_profile"] = str(
+        direct_artifact_paths.get("decision_rule_profile")
+        or recognition_readiness.DECISION_RULE_PROFILE_FILENAME
     )
 
     artifact_refs = {
@@ -160,6 +181,76 @@ def build_stage3_standards_alignment_matrix(
             "overall_status": str(plan_raw.get("overall_status") or ""),
             "path": artifact_path_map["stage3_real_validation_plan_reviewer_artifact"],
             "summary_text": str(plan_display.get("summary_text") or "").strip(),
+        },
+    }
+    recognition_scope_linkage = {
+        "scope_id": str(
+            scope_rollup_payload.get("scope_id")
+            or scope_payload.get("scope_id")
+            or dict(scope_payload.get("scope_export_pack") or {}).get("scope_id")
+            or ""
+        ).strip(),
+        "scope_name": str(
+            scope_rollup_payload.get("scope_name")
+            or scope_payload.get("scope_name")
+            or dict(scope_payload.get("scope_export_pack") or {}).get("scope_name")
+            or ""
+        ).strip(),
+        "scope_version": str(
+            scope_rollup_payload.get("scope_version")
+            or scope_payload.get("scope_version")
+            or dict(scope_payload.get("scope_export_pack") or {}).get("scope_version")
+            or ""
+        ).strip(),
+        "decision_rule_id": str(
+            scope_rollup_payload.get("decision_rule_id")
+            or decision_payload.get("decision_rule_id")
+            or ""
+        ).strip(),
+        "applicability_scope_display": str(
+            scope_rollup_payload.get("applicability_scope_display")
+            or decision_payload.get("applicability_scope_display")
+            or scope_payload.get("applicability_scope_display")
+            or statement_payload.get("applicability_scope_display")
+            or ""
+        ).strip(),
+        "limitation_note": str(
+            scope_rollup_payload.get("limitation_note")
+            or decision_payload.get("limitation_note")
+            or scope_payload.get("limitation_note")
+            or statement_payload.get("limitation_note")
+            or ""
+        ).strip(),
+        "non_claim_note": str(
+            scope_rollup_payload.get("non_claim_note")
+            or decision_payload.get("non_claim_note")
+            or scope_payload.get("non_claim_note")
+            or statement_payload.get("non_claim_note")
+            or ""
+        ).strip(),
+        "reviewer_only": bool(statement_payload.get("reviewer_only", True)),
+        "readiness_mapping_only": bool(statement_payload.get("readiness_mapping_only", True)),
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": bool(statement_payload.get("not_ready_for_formal_claim", True)),
+        "artifact_refs": {
+            "scope_definition_pack": _artifact_ref(
+                scope_payload,
+                artifact_path_map["scope_definition_pack"],
+                str(
+                    dict(scope_payload.get("digest") or {}).get("scope_overview_summary")
+                    or scope_payload.get("scope_name")
+                    or ""
+                ).strip(),
+            ),
+            "decision_rule_profile": _artifact_ref(
+                decision_payload,
+                artifact_path_map["decision_rule_profile"],
+                str(
+                    dict(decision_payload.get("digest") or {}).get("decision_rule_summary")
+                    or decision_payload.get("decision_rule_id")
+                    or ""
+                ).strip(),
+            ),
         },
     }
 
@@ -224,7 +315,8 @@ def build_stage3_standards_alignment_matrix(
         "required_evidence_lines": [f"required evidence categories：{item}" for item in required_evidence_categories],
         "matrix_lines": [_build_matrix_line(row) for row in rows],
         "boundary_lines": [f"边界：{line}" for line in _BOUNDARY_STATEMENTS],
-        "artifact_lines": _build_artifact_lines(artifact_refs),
+        "artifact_lines": _build_artifact_lines(artifact_refs)
+        + _build_recognition_scope_linkage_lines(recognition_scope_linkage),
     }
     markdown = _render_stage3_standards_alignment_matrix_markdown(display)
 
@@ -252,6 +344,7 @@ def build_stage3_standards_alignment_matrix(
         "not_real_acceptance_evidence": True,
         "boundary_statements": list(_BOUNDARY_STATEMENTS),
         "artifact_refs": artifact_refs,
+        "recognition_scope_linkage": recognition_scope_linkage,
         "artifact_paths": artifact_path_map,
         "standard_families": standard_families,
         "required_evidence_categories": required_evidence_categories,
@@ -547,6 +640,43 @@ def _mapping_row(
             "readiness mapping only"
         ),
     }
+
+
+def _build_recognition_scope_linkage_lines(linkage: dict[str, Any]) -> list[str]:
+    payload = dict(linkage or {})
+    artifact_refs = dict(payload.get("artifact_refs") or {})
+    rows: list[str] = []
+    scope_ref = dict(artifact_refs.get("scope_definition_pack") or {})
+    decision_ref = dict(artifact_refs.get("decision_rule_profile") or {})
+    if str(scope_ref.get("path") or "").strip():
+        rows.append(
+            "scope_definition_pack.json"
+            + f" | {str(payload.get('scope_id') or '--')}"
+            + f" | {str(scope_ref.get('summary_text') or '--')}"
+            + f" | {str(scope_ref.get('path') or '--')}"
+        )
+    if str(decision_ref.get("path") or "").strip():
+        rows.append(
+            "decision_rule_profile.json"
+            + f" | {str(payload.get('decision_rule_id') or '--')}"
+            + f" | {str(decision_ref.get('summary_text') or '--')}"
+            + f" | {str(decision_ref.get('path') or '--')}"
+        )
+    if any(
+        str(payload.get(key) or "").strip()
+        for key in ("applicability_scope_display", "limitation_note", "non_claim_note")
+    ):
+        rows.append(
+            "conformity_statement_profile skeleton"
+            + f" | reviewer_only={str(bool(payload.get('reviewer_only', True))).lower()}"
+            + f" | readiness_mapping_only={str(bool(payload.get('readiness_mapping_only', True))).lower()}"
+            + f" | not_real_acceptance_evidence={str(bool(payload.get('not_real_acceptance_evidence', True))).lower()}"
+            + f" | not_ready_for_formal_claim={str(bool(payload.get('not_ready_for_formal_claim', True))).lower()}"
+            + f" | applicability={str(payload.get('applicability_scope_display') or '--')}"
+            + f" | limitation={str(payload.get('limitation_note') or '--')}"
+            + f" | non_claim={str(payload.get('non_claim_note') or '--')}"
+        )
+    return rows
 
 
 def _build_artifact_lines(artifact_refs: dict[str, dict[str, Any]]) -> list[str]:

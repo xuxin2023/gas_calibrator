@@ -1,5 +1,35 @@
 # 气体分析仪自动校准 V2 项目长期总控规则
 
+## Step 3A: V2 受控真实 COM 工程探针例外
+Step 3A 只是在默认禁止真实 COM 的规则上增加一个极窄、双重解锁、no-write 的工程探针例外；它不放开 V2 全部真机测试。
+
+1. V1 仍是生产 fallback，不能禁用 V1 fallback。
+2. `run_app.py` 仍不得修改，默认入口不得切换到 V2。
+3. 默认仍禁止 V2 打开真实 COM。
+4. 仅允许在 Step 3A 工程探针例外下，V2 打开真实 COM。
+5. Step 3A 不是 real acceptance，不得刷新 `real_primary_latest`，不得宣称 V2 替代 V1，不得切默认入口。
+
+Step 3A 允许的逐级范围：
+- R0: query-only real-COM device inventory probe
+- R1: conditioning-only real-COM probe
+- R2: A1R CO2-only + skip0 + single route + single temperature + one non-zero point + no-write minimal sampling closure
+- R3: A2 CO2-only + skip0 + single route + single temperature + 7 pressure points + no-write
+- R4: V1/V2 real comparison audit
+
+Step 3A 继续禁止：
+- H2O full route
+- 0 ppm formal acceptance
+- full group
+- multi-temperature
+- ID write
+- SENCO write
+- calibration coefficient write
+- `real_primary_latest` refresh
+- default entry switch
+- disabling V1 fallback
+
+任何 Step 3A 真实 COM 工程探针都必须具备双重解锁、operator confirmation record、no-write 证据，并标记为 `engineering_probe_only` / `promotion_state=blocked` / `not_real_acceptance_evidence=true`。
+
 ## 一、项目总目标
 本项目目标是：在**绝不破坏 V1 已经可用的生产校准流程**前提下，稳步推进 V2，最终建设为**全球行业领先的气体分析仪自动校准与数据分析系统**。
 

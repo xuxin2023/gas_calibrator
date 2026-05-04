@@ -9,6 +9,7 @@ from ...config.models import (
     _normalize_sensor_precheck_config,
 )
 from ...exceptions import WorkflowValidationError
+from ..no_write_guard import NoWriteViolation
 from ..orchestration_context import OrchestrationContext
 from ..run_state import RunState
 from ..device_factory import DeviceType
@@ -217,6 +218,11 @@ class AnalyzerFleetService:
             getattr(self.context.config.workflow, "analyzer_setup", {}) or {}
         )
 
+    def _no_write_guard_active(self) -> bool:
+        service = getattr(self.host, "service", None)
+        guard = getattr(service, "no_write_guard", None)
+        return bool(getattr(guard, "enabled", False))
+
     @staticmethod
     def _device_id_to_int(device_id: Any) -> Optional[int]:
         text = str(device_id or "").strip()
@@ -227,6 +233,23 @@ class AnalyzerFleetService:
     @staticmethod
     def _format_device_id(value: int) -> str:
         return f"{int(value):03d}"
+
+    @staticmethod
+    def _normalize_device_id_text(value: Any) -> str:
+        text = str(value or "").strip()
+        if text.isdigit():
+            return text.zfill(3)
+        return text
+
+    def _expected_device_id_for_cfg(self, cfg: Any) -> str:
+        return self._normalize_device_id_text(getattr(cfg, "device_id", ""))
+
+    def _observed_device_id_from_snapshot(self, snapshot: dict[str, Any]) -> str:
+        for key in ("id", "device_id", "analyzer_id"):
+            text = self._normalize_device_id_text(snapshot.get(key))
+            if text:
+                return text
+        return ""
 
     def _planned_device_ids(self, analyzer_count: int) -> list[str]:
         setup = self.analyzer_setup_config()
@@ -268,6 +291,8 @@ class AnalyzerFleetService:
             return "skipped", "no supported device-id method"
         try:
             self._call_with_optional_ack(method, device_id)
+        except NoWriteViolation:
+            raise
         except Exception as exc:
             return "warn", f"device-id apply failed: {exc}"
 
@@ -297,11 +322,23 @@ class AnalyzerFleetService:
 
         setup = self.analyzer_setup_config()
         planned_ids = self._planned_device_ids(len(analyzers))
+        raw_apply_device_id = setup.get("apply_device_id", True)
+        apply_device_id = (
+            bool(raw_apply_device_id)
+            if isinstance(raw_apply_device_id, bool)
+            else str(raw_apply_device_id).strip().lower() not in {"0", "false", "no", "off"}
+        )
+        configured_apply_device_id = bool(apply_device_id)
+        no_write_guard_active = self._no_write_guard_active()
+        if no_write_guard_active:
+            apply_device_id = False
         self.host._log(
             "Analyzer setup "
             f"software_version={setup.get('software_version')} "
             f"device_id_assignment_mode={setup.get('device_id_assignment_mode')} "
-            f"start_device_id={setup.get('start_device_id')} analyzers={len(analyzers)}"
+            f"start_device_id={setup.get('start_device_id')} "
+            f"apply_device_id={apply_device_id} "
+            f"no_write_guard_active={no_write_guard_active} analyzers={len(analyzers)}"
         )
         self._record_route_trace(
             action="analyzer_setup_profile",
@@ -309,6 +346,9 @@ class AnalyzerFleetService:
             actual={
                 "analyzers": [label for label, _, _ in analyzers],
                 "planned_device_ids": planned_ids,
+                "configured_apply_device_id": configured_apply_device_id,
+                "effective_apply_device_id": bool(apply_device_id),
+                "no_write_guard_active": no_write_guard_active,
             },
             result="ok",
             message="Analyzer setup resolved",
@@ -316,6 +356,25 @@ class AnalyzerFleetService:
 
         for index, (label, analyzer, _cfg) in enumerate(analyzers):
             desired_id = planned_ids[index]
+            if not apply_device_id:
+                detail = (
+                    "device-id apply skipped by no-write guard; existing id retained"
+                    if no_write_guard_active
+                    else "device-id apply skipped by configuration; existing id retained"
+                )
+                self.host._log(f"Analyzer setup device-id keep ({label}): id={desired_id} result=ok detail={detail}")
+                self._record_route_trace(
+                    action="analyzer_device_id_keep",
+                    target={
+                        "analyzer": label,
+                        "device_id": desired_id,
+                        "software_version": setup.get("software_version"),
+                    },
+                    actual={"detail": detail},
+                    result="ok",
+                    message="Analyzer device-id apply skipped",
+                )
+                continue
             result, detail = self._apply_device_id_to_analyzer(
                 analyzer,
                 label=label,
@@ -650,6 +709,7 @@ class AnalyzerFleetService:
 
         for label, analyzer, cfg in analyzers:
             settings = self.sensor_precheck_settings(cfg)
+            expected_device_id = self._expected_device_id_for_cfg(cfg)
             self.host._log(
                 f"Sensor precheck start ({label}): profile={profile['profile']} mode={settings['mode']} "
                 f"active_send={settings['active_send']} ftd={settings['ftd_hz']}Hz "
@@ -682,6 +742,47 @@ class AnalyzerFleetService:
                     last_error = str(exc)
                     snapshot = {}
                 if self._has_valid_sensor_frame(snapshot, validation_mode=validation_mode):
+                    observed_device_id = self._observed_device_id_from_snapshot(snapshot)
+                    if expected_device_id and observed_device_id and observed_device_id != expected_device_id:
+                        last_valid = str(snapshot.get("raw") or self._snapshot_summary(snapshot))
+                        message = (
+                            f"Sensor precheck device_id_mismatch ({label}): "
+                            f"expected={expected_device_id} observed={observed_device_id}"
+                        )
+                        self._record_route_trace(
+                            action="sensor_precheck_analyzer",
+                            target={
+                                "analyzer": label,
+                                "profile": profile["profile"],
+                                "scope": scope,
+                                "validation_mode": validation_mode,
+                                "expected_device_id": expected_device_id,
+                                "min_valid_frames": int(settings["min_valid_frames"]),
+                                "strict": bool(settings["strict"]),
+                            },
+                            actual={
+                                "valid_frames": valid_frames + 1,
+                                "observed_device_id": observed_device_id,
+                                "expected_device_id": expected_device_id,
+                                "last_valid": last_valid,
+                                "source": source,
+                            },
+                            result="fail" if bool(settings["strict"]) else "warn",
+                            message=message,
+                        )
+                        if bool(settings["strict"]):
+                            raise WorkflowValidationError(
+                                "Sensor precheck device_id_mismatch",
+                                details={
+                                    "analyzer": label,
+                                    "expected_device_id": expected_device_id,
+                                    "observed_device_id": observed_device_id,
+                                    "last_valid": last_valid,
+                                    "source": source,
+                                },
+                            )
+                        self.host._log(message)
+                        continue
                     valid_frames += 1
                     last_valid = str(snapshot.get("raw") or self._snapshot_summary(snapshot))
                     fallback_reason = ""

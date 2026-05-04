@@ -1,0 +1,1248 @@
+From 61c8bd714e2c4a5d51d39dc2782cdb76aaf91f4f Mon Sep 17 00:00:00 2001
+From: xuxin2023 <262766750+xuxin2023@users.noreply.github.com>
+Date: Tue, 28 Apr 2026 13:39:08 +0800
+Subject: [PATCH] Use selected pressure freshness for A2 v1-aligned gate
+
+---
+ src/gas_calibrator/v2/core/orchestrator.py    | 209 +++++++++++----
+ ...1_a2_co2_only_7_pressure_no_write_probe.py | 126 +++++++++
+ .../v2/core/run001_a2_no_write.py             | 153 ++++++++++-
+ .../v2/core/services/valve_routing_service.py |  28 +-
+ ...t_a2_co2_only_7_pressure_no_write_probe.py |  20 +-
+ .../tests/test_a2_no_write_pressure_sweep.py  | 244 +++++++++++++++++-
+ 6 files changed, 724 insertions(+), 56 deletions(-)
+
+diff --git a/src/gas_calibrator/v2/core/orchestrator.py b/src/gas_calibrator/v2/core/orchestrator.py
+index 9ddd66b2..2d4766a0 100644
+--- a/src/gas_calibrator/v2/core/orchestrator.py
++++ b/src/gas_calibrator/v2/core/orchestrator.py
+@@ -2050,6 +2050,27 @@ class WorkflowOrchestrator:
+         latest = dict(latest) if isinstance(latest, Mapping) else {}
+         digital_sample = sample.get("digital_gauge_pressure_sample")
+         digital_sample = dict(digital_sample) if isinstance(digital_sample, Mapping) else {}
++
++        def truthy(value: Any) -> bool:
++            if isinstance(value, bool):
++                return value
++            if isinstance(value, str):
++                return value.strip().lower() in {"1", "true", "yes", "y", "on"}
++            return bool(value)
++
++        def parse_bool(value: Any) -> Optional[bool]:
++            if value is None or value == "":
++                return None
++            if isinstance(value, bool):
++                return value
++            if isinstance(value, str):
++                lowered = value.strip().lower()
++                if lowered in {"1", "true", "yes", "y", "on"}:
++                    return True
++                if lowered in {"0", "false", "no", "n", "off"}:
++                    return False
++            return bool(value)
++
+         source_text = str(
+             digital_sample.get("pressure_sample_source")
+             or digital_sample.get("source")
+@@ -2057,23 +2078,34 @@ class WorkflowOrchestrator:
+             or sample.get("source")
+             or ""
+         )
++        selected_source = (
++            sample.get("pressure_source_selected")
++            or sample.get("pressure_source_used_for_decision")
++            or source_text
++            or "digital_pressure_gauge_continuous"
++        )
++        selected_source_text = str(selected_source or source_text or "")
+         pressure_hpa = self._a2_conditioning_first_float(
+             digital_sample.get("pressure_hpa"),
+             sample.get("digital_gauge_pressure_hpa"),
+             sample.get("pressure_hpa"),
+             latest.get("pressure_hpa"),
+         )
+-        age_s = self._a2_conditioning_first_float(
++        continuous_age_s = self._a2_conditioning_first_float(
+             sample.get("latest_frame_age_s"),
+             sample.get("digital_gauge_age_s"),
+             digital_sample.get("latest_frame_age_s"),
+-            digital_sample.get("pressure_sample_age_s"),
+-            digital_sample.get("sample_age_s"),
+             snapshot.get("latest_frame_age_s"),
+             latest.get("latest_frame_age_s"),
+-            latest.get("pressure_sample_age_s"),
+             latest.get("sample_age_s"),
+         )
++        selected_age_s = self._a2_conditioning_first_float(
++            sample.get("pressure_sample_age_s"),
++            sample.get("sample_age_s"),
++            digital_sample.get("pressure_sample_age_s"),
++            digital_sample.get("sample_age_s"),
++            latest.get("pressure_sample_age_s"),
++        )
+         sequence_raw = (
+             sample.get("latest_frame_sequence_id")
+             or sample.get("digital_gauge_latest_sequence_id")
+@@ -2128,37 +2160,83 @@ class WorkflowOrchestrator:
+             and pressure_source_mode != "v1_aligned"
+             and restart_result != "recovered"
+         )
+-        p3_direct_source = bool("p3" in source_text or "p3" in str(sample.get("pressure_source_selected") or ""))
++        p3_direct_source = bool(
++            "p3" in source_text
++            or "p3" in selected_source_text
++            or "p3" in pressure_source_mode
++        )
++        if selected_age_s is None and not p3_direct_source:
++            selected_age_s = continuous_age_s
+         continuous_source = bool(
+             "continuous" in source_text
++            or "continuous" in selected_source_text
+             or (
+                 not p3_direct_source
+                 and str(context.get("a2_conditioning_pressure_source") or self._a2_conditioning_pressure_source_mode())
+                 in {"continuous", "auto", "v1_aligned"}
+             )
+         )
+-        if p3_direct_source:
+-            stream_stale = bool(
+-                pressure_hpa is None
+-                or age_s is None
+-                or float(age_s) > max_age_s
+-                or bool(sample.get("is_stale", sample.get("pressure_sample_is_stale", False)))
+-                or bool(str(sample.get("error") or digital_sample.get("error") or ""))
+-            )
+-        else:
+-            stream_stale = bool(
+-                (digital_expected or continuous_source)
+-                and (
+-                    age_s is None
+-                    or float(age_s) > max_age_s
+-                    or (sequence_value is None and digital_expected)
+-                    or sequence_progress is False
+-                    or (pressure_hpa is None and str(sample.get("error") or digital_sample.get("error") or ""))
+-                    or continuous_interruption_unrecovered
++        continuous_stream_stale = bool(
++            (digital_expected or continuous_source)
++            and (
++                continuous_age_s is None
++                or float(continuous_age_s) > max_age_s
++                or truthy(sample.get("digital_gauge_stale"))
++                or truthy(snapshot.get("latest_frame_stale"))
++                or truthy(latest.get("is_stale"))
++                or (sequence_value is None and digital_expected and not p3_direct_source)
++                or sequence_progress is False
++                or (
++                    pressure_hpa is None
++                    and not p3_direct_source
++                    and str(sample.get("error") or digital_sample.get("error") or "")
+                 )
++                or continuous_interruption_unrecovered
+             )
++        )
++        selected_parse_ok = parse_bool(sample.get("parse_ok"))
++        if selected_parse_ok is None:
++            selected_parse_ok = parse_bool(digital_sample.get("parse_ok"))
++        if selected_parse_ok is None:
++            selected_parse_ok = parse_bool(latest.get("parse_ok"))
++        selected_error_text = str(sample.get("error") or digital_sample.get("error") or "")
++        if (
++            not p3_direct_source
++            and pressure_hpa is not None
++            and not continuous_stream_stale
++            and selected_error_text in {"", "conditioning_pressure_sample_unavailable"}
++        ):
++            selected_error_text = ""
++            selected_parse_ok = True
++        if selected_parse_ok is None:
++            selected_parse_ok = bool(pressure_hpa is not None and not selected_error_text)
++        selected_pressure_controller_primary = bool(
++            "pressure_controller" in selected_source_text
++            or "pace" in selected_source_text.lower()
++        )
++        selected_pressure_sample_is_stale = bool(
++            selected_age_s is None
++            or float(selected_age_s) > max_age_s
++            or truthy(sample.get("is_stale"))
++            or truthy(sample.get("pressure_sample_is_stale"))
++            or truthy(digital_sample.get("is_stale"))
++            or truthy(digital_sample.get("pressure_sample_is_stale"))
++            or (not p3_direct_source and continuous_stream_stale)
++        )
++        selected_pressure_fail_closed_reason = ""
++        if selected_pressure_controller_primary:
++            selected_pressure_fail_closed_reason = "selected_pressure_unavailable"
++        elif pressure_hpa is None or not bool(selected_parse_ok) or selected_error_text:
++            selected_pressure_fail_closed_reason = "selected_pressure_unavailable"
++        elif selected_pressure_sample_is_stale:
++            selected_pressure_fail_closed_reason = "selected_pressure_sample_stale"
++        selected_pressure_freshness_ok = not bool(selected_pressure_fail_closed_reason)
++        pressure_freshness_decision_source = str(selected_source or source_for_decision or source_text or "")
++        stream_stale = bool(selected_pressure_sample_is_stale)
++        if selected_pressure_freshness_ok:
++            stream_stale = False
+         abort_hpa = self._a2_conditioning_pressure_abort_hpa()
+-        fresh_for_abort = bool(pressure_hpa is not None and not stream_stale)
++        fresh_for_abort = bool(pressure_hpa is not None and selected_pressure_freshness_ok)
+         pressure_overlimit = bool(fresh_for_abort and float(pressure_hpa) > float(abort_hpa))
+         first_frame_at = (
+             sample.get("digital_gauge_stream_first_frame_at")
+@@ -2186,11 +2264,6 @@ class WorkflowOrchestrator:
+             if sample.get("digital_gauge_drain_nonempty_count") is not None
+             else snapshot.get("digital_gauge_drain_nonempty_count")
+         )
+-        selected_source = (
+-            sample.get("pressure_source_selected")
+-            or sample.get("pressure_source_used_for_decision")
+-            or source_for_decision
+-        )
+         selection_reason = (
+             sample.get("pressure_source_selection_reason")
+             or sample.get("source_selection_reason")
+@@ -2198,16 +2271,23 @@ class WorkflowOrchestrator:
+             or digital_sample.get("source_selection_reason")
+             or ""
+         )
++        fail_closed_reason = str(sample.get("fail_closed_reason") or "")
++        if selected_pressure_fail_closed_reason and "fallback_not_allowed" not in str(selection_reason):
++            fail_closed_reason = selected_pressure_fail_closed_reason
+         return {
+             "sample": dict(sample),
+             "digital_sample": digital_sample,
+             "pressure_hpa": pressure_hpa,
+             "pressure_sample_source": source_for_decision,
+-            "digital_gauge_latest_age_s": None if age_s is None else round(float(age_s), 3),
++            "pressure_sample_age_s": None if selected_age_s is None else round(float(selected_age_s), 3),
++            "pressure_sample_is_stale": selected_pressure_sample_is_stale,
++            "digital_gauge_latest_age_s": None if continuous_age_s is None else round(float(continuous_age_s), 3),
++            "continuous_stream_age_s": None if continuous_age_s is None else round(float(continuous_age_s), 3),
+             "latest_frame_sequence_id": None if sequence_value is None else int(sequence_value),
+             "digital_gauge_latest_sequence_id": None if sequence_value is None else int(sequence_value),
+             "digital_gauge_sequence_progress": sequence_progress,
+-            "digital_gauge_stream_stale": stream_stale,
++            "continuous_stream_stale": continuous_stream_stale,
++            "digital_gauge_stream_stale": continuous_stream_stale,
+             "stream_stale": stream_stale,
+             "digital_gauge_stream_stale_threshold_s": max_age_s,
+             "digital_gauge_max_age_s": max_age_s,
+@@ -2260,6 +2340,13 @@ class WorkflowOrchestrator:
+             "continuous_restart_result": restart_result,
+             "pressure_source_selected": selected_source,
+             "pressure_source_selection_reason": selection_reason,
++            "selected_pressure_source": selected_source,
++            "selected_pressure_sample_age_s": None if selected_age_s is None else round(float(selected_age_s), 3),
++            "selected_pressure_sample_is_stale": selected_pressure_sample_is_stale,
++            "selected_pressure_parse_ok": bool(selected_parse_ok),
++            "selected_pressure_freshness_ok": selected_pressure_freshness_ok,
++            "pressure_freshness_decision_source": pressure_freshness_decision_source,
++            "selected_pressure_fail_closed_reason": selected_pressure_fail_closed_reason,
+             "a2_3_pressure_source_strategy": sample.get("a2_3_pressure_source_strategy")
+             or context.get("a2_3_pressure_source_strategy")
+             or self._a2_conditioning_pressure_source_mode(),
+@@ -2269,7 +2356,7 @@ class WorkflowOrchestrator:
+             "p3_fast_fallback_result": sample.get("p3_fast_fallback_result") or "",
+             "normal_p3_fallback_attempted": bool(sample.get("normal_p3_fallback_attempted")),
+             "normal_p3_fallback_result": sample.get("normal_p3_fallback_result") or "",
+-            "fail_closed_reason": sample.get("fail_closed_reason") or "",
++            "fail_closed_reason": fail_closed_reason,
+             "conditioning_pressure_abort_hpa": abort_hpa,
+             "pressure_overlimit_seen": pressure_overlimit,
+             "pressure_overlimit_source": source_for_decision if pressure_overlimit else "",
+@@ -2284,6 +2371,8 @@ class WorkflowOrchestrator:
+             "digital_gauge_stream_first_frame_at",
+             "digital_gauge_stream_last_frame_at",
+             "digital_gauge_latest_sequence_id",
++            "continuous_stream_stale",
++            "continuous_stream_age_s",
+             "digital_gauge_stream_stale",
+             "digital_gauge_stream_stale_threshold_s",
+             "digital_gauge_drain_empty_count",
+@@ -2296,6 +2385,13 @@ class WorkflowOrchestrator:
+             "continuous_restart_result",
+             "pressure_source_selected",
+             "pressure_source_selection_reason",
++            "selected_pressure_source",
++            "selected_pressure_sample_age_s",
++            "selected_pressure_sample_is_stale",
++            "selected_pressure_parse_ok",
++            "selected_pressure_freshness_ok",
++            "pressure_freshness_decision_source",
++            "selected_pressure_fail_closed_reason",
+             "a2_3_pressure_source_strategy",
+             "critical_window_uses_latest_frame",
+             "critical_window_uses_query",
+@@ -2375,7 +2471,7 @@ class WorkflowOrchestrator:
+         context["last_blocking_operation_completed_monotonic_s"] = monitor_completed_monotonic_s
+         context["last_blocking_operation_duration_s"] = monitor_duration_s
+         context["last_blocking_operation_safe_to_continue"] = bool(
+-            not details.get("digital_gauge_stream_stale") and not details.get("pressure_overlimit_seen")
++            details.get("selected_pressure_freshness_ok") and not details.get("pressure_overlimit_seen")
+         )
+         context = self._a2_conditioning_context_with_counts(context)
+         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+@@ -2398,12 +2494,20 @@ class WorkflowOrchestrator:
+             error_code="conditioning_pressure_abort_hpa_exceeded" if details.get("pressure_overlimit_seen") else None,
+             route_state=monitor_state,
+         )
+-        if details.get("digital_gauge_stream_stale"):
+-            reason = str(details.get("fail_closed_reason") or "digital_gauge_stream_stale")
++        if not bool(details.get("selected_pressure_freshness_ok")):
++            reason = str(
++                details.get("fail_closed_reason")
++                or details.get("selected_pressure_fail_closed_reason")
++                or "selected_pressure_sample_stale"
++            )
+             self._fail_a2_co2_route_conditioning_closed(
+                 point,
+                 reason=reason,
+-                details={**monitor_state, "stream_stale": True},
++                details={
++                    **monitor_state,
++                    "stream_stale": bool(details.get("selected_pressure_sample_is_stale")),
++                    "continuous_stream_stale": bool(details.get("continuous_stream_stale")),
++                },
+                 event_name="co2_route_conditioning_stream_stale",
+                 route_trace_action="co2_route_conditioning_stream_stale",
+                 pressure_hpa=details.get("pressure_hpa"),
+@@ -2491,10 +2595,12 @@ class WorkflowOrchestrator:
+         tick_completed_monotonic_s = time.monotonic()
+         blocking_duration_s = max(0.0, tick_completed_monotonic_s - tick_started_monotonic_s)
+         pressure_hpa = details.get("pressure_hpa")
+-        latest_age_s = details.get("digital_gauge_latest_age_s")
++        latest_age_s = details.get("selected_pressure_sample_age_s")
++        continuous_age_s = details.get("digital_gauge_latest_age_s")
+         abort_hpa = details.get("conditioning_pressure_abort_hpa")
+         pressure_abnormal = bool(details.get("pressure_overlimit_seen"))
+-        sample_stale = bool(details.get("digital_gauge_stream_stale"))
++        selected_freshness_ok = bool(details.get("selected_pressure_freshness_ok"))
++        sample_stale = bool(details.get("selected_pressure_sample_is_stale"))
+         elapsed_s = max(0.0, time.monotonic() - float(context.get("conditioning_started_monotonic_s") or tick_started_monotonic_s))
+         tick = {
+             "timestamp": datetime.now(timezone.utc).isoformat(),
+@@ -2510,8 +2616,9 @@ class WorkflowOrchestrator:
+             "pressure_hpa": pressure_hpa,
+             "pressure_sample_source": details.get("pressure_sample_source"),
+             "pressure_sample_age_s": latest_age_s,
+-            "digital_gauge_latest_age_s": latest_age_s,
++            "digital_gauge_latest_age_s": continuous_age_s,
+             "pressure_sample_stale": sample_stale,
++            "pressure_freshness_ok": selected_freshness_ok,
+             "pressure_abnormal": pressure_abnormal,
+             "abort_pressure_hpa": abort_hpa,
+             "conditioning_pressure_abort_hpa": abort_hpa,
+@@ -2535,7 +2642,7 @@ class WorkflowOrchestrator:
+             ),
+             "blocking_operation_name": "a2_conditioning_vent_tick",
+             "blocking_operation_duration_ms": round(blocking_duration_s * 1000.0, 3),
+-            "whether_safe_to_continue": bool(command_result == "ok" and not pressure_abnormal and not sample_stale),
++            "whether_safe_to_continue": bool(command_result == "ok" and not pressure_abnormal and selected_freshness_ok),
+             "route_open_to_first_vent_s": (
+                 None if route_open_to_first_vent_s is None else round(float(route_open_to_first_vent_s), 3)
+             ),
+@@ -2557,7 +2664,7 @@ class WorkflowOrchestrator:
+         context["last_blocking_operation_completed_monotonic_s"] = tick_completed_monotonic_s
+         context["last_blocking_operation_duration_s"] = blocking_duration_s
+         context["last_blocking_operation_safe_to_continue"] = bool(
+-            command_result == "ok" and not pressure_abnormal and not sample_stale
++            command_result == "ok" and not pressure_abnormal and selected_freshness_ok
+         )
+         context["vent_heartbeat_interval_s"] = self._a2_conditioning_vent_heartbeat_interval_s()
+         context["atmosphere_vent_max_gap_s"] = max_gap_s
+@@ -2576,11 +2683,11 @@ class WorkflowOrchestrator:
+         if pressure_values:
+             context["pressure_max_during_conditioning_hpa"] = max(float(value) for value in pressure_values if value is not None)
+             context["pressure_min_during_conditioning_hpa"] = min(float(value) for value in pressure_values if value is not None)
+-        if latest_age_s is not None:
+-            context["digital_gauge_latest_age_s"] = latest_age_s
++        if continuous_age_s is not None:
++            context["digital_gauge_latest_age_s"] = continuous_age_s
+             previous_max = self._as_float(context.get("latest_frame_age_max_s"))
+             context["latest_frame_age_max_s"] = (
+-                latest_age_s if previous_max is None else max(float(previous_max), float(latest_age_s))
++                continuous_age_s if previous_max is None else max(float(previous_max), float(continuous_age_s))
+             )
+         if details.get("latest_frame_sequence_id") is not None:
+             context["last_digital_gauge_sequence_id"] = details.get("latest_frame_sequence_id")
+@@ -2636,12 +2743,20 @@ class WorkflowOrchestrator:
+                 route_trace_action="co2_route_conditioning_vent_command_failed",
+                 pressure_hpa=pressure_hpa,
+             )
+-        if sample_stale:
+-            reason = str(details.get("fail_closed_reason") or "digital_gauge_stream_stale")
++        if not selected_freshness_ok:
++            reason = str(
++                details.get("fail_closed_reason")
++                or details.get("selected_pressure_fail_closed_reason")
++                or "selected_pressure_sample_stale"
++            )
+             self._fail_a2_co2_route_conditioning_closed(
+                 point,
+                 reason=reason,
+-                details={**tick, "stream_stale": True},
++                details={
++                    **tick,
++                    "stream_stale": sample_stale,
++                    "continuous_stream_stale": bool(details.get("continuous_stream_stale")),
++                },
+                 event_name="co2_route_conditioning_stream_stale",
+                 route_trace_action="co2_route_conditioning_stream_stale",
+                 pressure_hpa=pressure_hpa,
+diff --git a/src/gas_calibrator/v2/core/run001_a2_co2_only_7_pressure_no_write_probe.py b/src/gas_calibrator/v2/core/run001_a2_co2_only_7_pressure_no_write_probe.py
+index e348da17..cae5d065 100644
+--- a/src/gas_calibrator/v2/core/run001_a2_co2_only_7_pressure_no_write_probe.py
++++ b/src/gas_calibrator/v2/core/run001_a2_co2_only_7_pressure_no_write_probe.py
+@@ -927,6 +927,16 @@ def _coerce_point_result(row: Mapping[str, Any], raw_cfg: Mapping[str, Any]) ->
+         "heartbeat_emission_gap_ms": row.get("heartbeat_emission_gap_ms"),
+         "blocking_operation_duration_ms": row.get("blocking_operation_duration_ms"),
+         "route_conditioning_ready_before_sample": _as_bool(row.get("route_conditioning_ready_before_sample")) is True,
++        "pressure_source_selected": row.get("pressure_source_selected"),
++        "pressure_source_selection_reason": row.get("pressure_source_selection_reason"),
++        "selected_pressure_source": row.get("selected_pressure_source"),
++        "selected_pressure_sample_age_s": row.get("selected_pressure_sample_age_s"),
++        "selected_pressure_sample_is_stale": _as_bool(row.get("selected_pressure_sample_is_stale")) is True,
++        "selected_pressure_parse_ok": _as_bool(row.get("selected_pressure_parse_ok")) is True,
++        "selected_pressure_freshness_ok": _as_bool(row.get("selected_pressure_freshness_ok")) is True,
++        "pressure_freshness_decision_source": row.get("pressure_freshness_decision_source"),
++        "selected_pressure_fail_closed_reason": row.get("selected_pressure_fail_closed_reason") or "",
++        "continuous_stream_stale": _as_bool(row.get("continuous_stream_stale")) is True,
+         "sample_count": sample_count,
+         "valid_frame_count": valid_count,
+         "frame_has_data": _as_bool(row.get("frame_has_data")) is True,
+@@ -1018,6 +1028,42 @@ def _point_results_from_execution(
+                 "blocking_operation_duration_ms",
+             ),
+             "route_conditioning_ready_before_sample": route_ready,
++            "pressure_source_selected": _first_metric_from_rows(metric_rows, "pressure_source_selected"),
++            "pressure_source_selection_reason": _first_metric_from_rows(
++                metric_rows,
++                "pressure_source_selection_reason",
++                "source_selection_reason",
++            ),
++            "selected_pressure_source": _first_metric_from_rows(metric_rows, "selected_pressure_source"),
++            "selected_pressure_sample_age_s": _first_metric_from_rows(
++                metric_rows,
++                "selected_pressure_sample_age_s",
++            ),
++            "selected_pressure_sample_is_stale": _as_bool(
++                _first_metric_from_rows(metric_rows, "selected_pressure_sample_is_stale")
++            )
++            is True,
++            "selected_pressure_parse_ok": _as_bool(
++                _first_metric_from_rows(metric_rows, "selected_pressure_parse_ok")
++            )
++            is True,
++            "selected_pressure_freshness_ok": _as_bool(
++                _first_metric_from_rows(metric_rows, "selected_pressure_freshness_ok")
++            )
++            is True,
++            "pressure_freshness_decision_source": _first_metric_from_rows(
++                metric_rows,
++                "pressure_freshness_decision_source",
++            ),
++            "selected_pressure_fail_closed_reason": _first_metric_from_rows(
++                metric_rows,
++                "selected_pressure_fail_closed_reason",
++            )
++            or "",
++            "continuous_stream_stale": _as_bool(
++                _first_metric_from_rows(metric_rows, "continuous_stream_stale")
++            )
++            is True,
+             "sample_count": int(sample_count),
+             "valid_frame_count": int(sample_count),
+             "frame_has_data": sample_count > 0,
+@@ -1057,6 +1103,16 @@ def _write_point_results_csv(path: Path, point_results: list[Mapping[str, Any]])
+         "heartbeat_gap_observed_ms",
+         "heartbeat_emission_gap_ms",
+         "blocking_operation_duration_ms",
++        "pressure_source_selected",
++        "pressure_source_selection_reason",
++        "selected_pressure_source",
++        "selected_pressure_sample_age_s",
++        "selected_pressure_sample_is_stale",
++        "selected_pressure_parse_ok",
++        "selected_pressure_freshness_ok",
++        "pressure_freshness_decision_source",
++        "selected_pressure_fail_closed_reason",
++        "continuous_stream_stale",
+         "sample_count",
+         "valid_frame_count",
+         "point_completed",
+@@ -1200,6 +1256,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+     if downstream_after_failure:
+         rejection_reasons.append("downstream_point_executed_after_fail_closed_point")
+ 
++    service_summary = dict(execution.get("service_summary") or {}) if isinstance(execution, Mapping) else {}
+     no_write_ok = True
+     safety_assertions = {
+         **A2_EVIDENCE_MARKERS,
+@@ -1213,6 +1270,29 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         "vent_off_command_scope": "authorized_a2_pressure_control_scope",
+         "seal_command_sent": any(str(row.get("action") or "") in {"seal_route", "seal_transition"} for row in route_rows),
+         "seal_command_scope": "authorized_a2_pressure_control_scope",
++        "chamber_stop_command_sent": _as_bool(
++            service_summary.get("chamber_stop_command_sent")
++            or service_summary.get("final_safe_stop_chamber_stop_command_sent")
++        )
++        is True,
++        "final_safe_stop_warning_count": int(service_summary.get("final_safe_stop_warning_count") or 0),
++        "final_safe_stop_warnings": list(service_summary.get("final_safe_stop_warnings") or []),
++        "final_safe_stop_chamber_stop_warning": service_summary.get(
++            "final_safe_stop_chamber_stop_warning",
++            "",
++        ),
++        "final_safe_stop_chamber_stop_attempted": _as_bool(
++            service_summary.get("final_safe_stop_chamber_stop_attempted")
++        )
++        is True,
++        "final_safe_stop_chamber_stop_command_sent": _as_bool(
++            service_summary.get("final_safe_stop_chamber_stop_command_sent")
++        )
++        is True,
++        "final_safe_stop_chamber_stop_result": service_summary.get(
++            "final_safe_stop_chamber_stop_result",
++            "not_observed",
++        ),
+         "high_pressure_1100_hpa_prearm_recorded": any(
+             str(row.get("action") or "") == "high_pressure_first_point_mode_enabled" for row in route_rows
+         ),
+@@ -1220,6 +1300,19 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+         "pressure_points_completed": int(pressure_points_completed),
+         "no_write": no_write_ok,
+     }
++    no_write_ok = bool(
++        int(safety_assertions.get("attempted_write_count") or 0) == 0
++        and _as_bool(safety_assertions.get("any_write_command_sent")) is not True
++        and _as_bool(safety_assertions.get("identity_write_command_sent")) is not True
++        and _as_bool(safety_assertions.get("mode_switch_command_sent")) is not True
++        and _as_bool(safety_assertions.get("senco_write_command_sent")) is not True
++        and _as_bool(safety_assertions.get("calibration_write_command_sent")) is not True
++        and _as_bool(safety_assertions.get("chamber_write_register_command_sent")) is not True
++        and _as_bool(safety_assertions.get("chamber_set_temperature_command_sent")) is not True
++        and _as_bool(safety_assertions.get("chamber_start_command_sent")) is not True
++        and _as_bool(safety_assertions.get("chamber_stop_command_sent")) is not True
++    )
++    safety_assertions["no_write"] = no_write_ok
+ 
+     pass_conditions = [
+         admission.approved,
+@@ -1241,6 +1334,15 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+     evidence_metric_rows = route_rows + pressure_rows + sample_rows
+     a2_3_strategy = _a2_3_pressure_source_strategy(raw_cfg)
+ 
++    def metric_or_summary(*keys: str) -> Any:
++        value = _first_metric_from_rows(evidence_metric_rows, *keys)
++        if value is not None:
++            return value
++        for key in keys:
++            if key in service_summary:
++                return service_summary.get(key)
++        return None
++
+     pressure_ready_rows = [
+         {
+             "timestamp": _now(),
+@@ -1256,6 +1358,16 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+             "heartbeat_gap_observed_ms": point.get("heartbeat_gap_observed_ms"),
+             "heartbeat_emission_gap_ms": point.get("heartbeat_emission_gap_ms"),
+             "blocking_operation_duration_ms": point.get("blocking_operation_duration_ms"),
++            "pressure_source_selected": point.get("pressure_source_selected"),
++            "pressure_source_selection_reason": point.get("pressure_source_selection_reason"),
++            "selected_pressure_source": point.get("selected_pressure_source"),
++            "selected_pressure_sample_age_s": point.get("selected_pressure_sample_age_s"),
++            "selected_pressure_sample_is_stale": point.get("selected_pressure_sample_is_stale"),
++            "selected_pressure_parse_ok": point.get("selected_pressure_parse_ok"),
++            "selected_pressure_freshness_ok": point.get("selected_pressure_freshness_ok"),
++            "pressure_freshness_decision_source": point.get("pressure_freshness_decision_source"),
++            "selected_pressure_fail_closed_reason": point.get("selected_pressure_fail_closed_reason"),
++            "continuous_stream_stale": point.get("continuous_stream_stale"),
+         }
+         for point in point_results
+     ]
+@@ -1308,6 +1420,20 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
+             "pressure_source_selection_reason",
+             "source_selection_reason",
+         ),
++        "continuous_stream_stale": _as_bool(metric_or_summary("continuous_stream_stale")) is True,
++        "selected_pressure_source": metric_or_summary("selected_pressure_source"),
++        "selected_pressure_sample_age_s": metric_or_summary("selected_pressure_sample_age_s"),
++        "selected_pressure_sample_is_stale": _as_bool(
++            metric_or_summary("selected_pressure_sample_is_stale")
++        )
++        is True,
++        "selected_pressure_parse_ok": _as_bool(metric_or_summary("selected_pressure_parse_ok")) is True,
++        "selected_pressure_freshness_ok": _as_bool(
++            metric_or_summary("selected_pressure_freshness_ok")
++        )
++        is True,
++        "pressure_freshness_decision_source": metric_or_summary("pressure_freshness_decision_source"),
++        "selected_pressure_fail_closed_reason": metric_or_summary("selected_pressure_fail_closed_reason") or "",
+         "critical_window_uses_latest_frame": _as_bool(
+             _first_metric_from_rows(evidence_metric_rows, "critical_window_uses_latest_frame")
+         )
+diff --git a/src/gas_calibrator/v2/core/run001_a2_no_write.py b/src/gas_calibrator/v2/core/run001_a2_no_write.py
+index 271a14a3..84233cf6 100644
+--- a/src/gas_calibrator/v2/core/run001_a2_no_write.py
++++ b/src/gas_calibrator/v2/core/run001_a2_no_write.py
+@@ -133,6 +133,8 @@ PRESSURE_READ_LATENCY_SAMPLE_FIELDS = [
+     "digital_gauge_continuous_active",
+     "digital_gauge_stream_first_frame_at",
+     "digital_gauge_stream_last_frame_at",
++    "continuous_stream_stale",
++    "continuous_stream_age_s",
+     "digital_gauge_stream_stale",
+     "digital_gauge_stream_stale_threshold_s",
+     "digital_gauge_drain_empty_count",
+@@ -148,6 +150,13 @@ PRESSURE_READ_LATENCY_SAMPLE_FIELDS = [
+     "continuous_restart_result",
+     "pressure_source_selected",
+     "pressure_source_selection_reason",
++    "selected_pressure_source",
++    "selected_pressure_sample_age_s",
++    "selected_pressure_sample_is_stale",
++    "selected_pressure_parse_ok",
++    "selected_pressure_freshness_ok",
++    "pressure_freshness_decision_source",
++    "selected_pressure_fail_closed_reason",
+     "critical_window_blocking_query_count",
+     "critical_window_blocking_query_total_s",
+     "critical_window_uses_latest_frame",
+@@ -513,6 +522,49 @@ def _load_route_trace_rows(run_dir: str | Path) -> list[dict[str, Any]]:
+     return rows
+ 
+ 
++def _final_safe_stop_evidence(run_dir: str | Path) -> dict[str, Any]:
++    defaults: dict[str, Any] = {
++        "final_safe_stop_warning_count": 0,
++        "final_safe_stop_warnings": [],
++        "final_safe_stop_chamber_stop_warning": "",
++        "final_safe_stop_chamber_stop_attempted": False,
++        "final_safe_stop_chamber_stop_command_sent": False,
++        "final_safe_stop_chamber_stop_result": "not_observed",
++    }
++    for row in reversed(_load_route_trace_rows(run_dir)):
++        if str(row.get("action") or "") != "final_safe_stop_routes":
++            continue
++        actual = row.get("actual")
++        actual = actual if isinstance(actual, Mapping) else {}
++        warnings = actual.get("final_safe_stop_warnings")
++        warnings = list(warnings) if isinstance(warnings, list) else []
++        payload = dict(defaults)
++        payload.update(
++            {
++                "final_safe_stop_warning_count": int(
++                    actual.get("final_safe_stop_warning_count")
++                    if actual.get("final_safe_stop_warning_count") is not None
++                    else len(warnings)
++                ),
++                "final_safe_stop_warnings": warnings,
++                "final_safe_stop_chamber_stop_warning": str(
++                    actual.get("final_safe_stop_chamber_stop_warning") or ""
++                ),
++                "final_safe_stop_chamber_stop_attempted": bool(
++                    actual.get("final_safe_stop_chamber_stop_attempted", False)
++                ),
++                "final_safe_stop_chamber_stop_command_sent": bool(
++                    actual.get("final_safe_stop_chamber_stop_command_sent", False)
++                ),
++                "final_safe_stop_chamber_stop_result": str(
++                    actual.get("final_safe_stop_chamber_stop_result") or "not_observed"
++                ),
++            }
++        )
++        return payload
++    return defaults
++
++
+ def _status_to_mapping(status: Any) -> dict[str, Any]:
+     if status is None:
+         return {}
+@@ -1919,11 +1971,30 @@ def _build_co2_route_conditioning_evidence(
+         or _as_float(state.get("pressure_overlimit_hpa")) is not None
+     ]
+     first_pressure_overlimit = pressure_overlimit_states[0] if pressure_overlimit_states else {}
+-    stream_stale_seen = any(
+-        bool(state.get("stream_stale") or state.get("digital_gauge_stream_stale"))
++    continuous_stream_stale_seen = any(
++        bool(state.get("continuous_stream_stale") or state.get("digital_gauge_stream_stale"))
++        for state in all_conditioning_states
++    )
++    selected_pressure_freshness_values = [
++        state.get("selected_pressure_freshness_ok")
++        for state in all_conditioning_states
++        if state.get("selected_pressure_freshness_ok") is not None
++    ]
++    selected_pressure_sample_stale_seen = any(
++        bool(
++            state.get("selected_pressure_sample_is_stale")
++            or state.get("pressure_sample_stale")
++            or state.get("stream_stale")
++        )
+         or str(event.get("event_name") or "") == "co2_route_conditioning_stream_stale"
+         for event, state in zip(all_conditioning_events, all_conditioning_states)
+     )
++    selected_pressure_freshness_ok = (
++        None
++        if not selected_pressure_freshness_values
++        else all(bool(value) for value in selected_pressure_freshness_values)
++    )
++    stream_stale_seen = bool(selected_pressure_sample_stale_seen)
+     sequence_progress_values = [
+         state.get("digital_gauge_sequence_progress")
+         for state in all_conditioning_states
+@@ -2018,7 +2089,14 @@ def _build_co2_route_conditioning_evidence(
+             "digital_gauge_stream_last_frame_at",
+             stream_state_at_start.get("stream_last_frame_at"),
+         ),
+-        "digital_gauge_stream_stale": bool(latest_state_value("digital_gauge_stream_stale", stream_stale_seen)),
++        "continuous_stream_stale": bool(latest_state_value("continuous_stream_stale", continuous_stream_stale_seen)),
++        "continuous_stream_age_s": latest_state_value(
++            "continuous_stream_age_s",
++            latest_state_value("digital_gauge_latest_age_s"),
++        ),
++        "digital_gauge_stream_stale": bool(
++            latest_state_value("digital_gauge_stream_stale", continuous_stream_stale_seen)
++        ),
+         "digital_gauge_stream_stale_threshold_s": latest_state_value(
+             "digital_gauge_stream_stale_threshold_s",
+             latest_state_value("digital_gauge_max_age_s"),
+@@ -2059,6 +2137,20 @@ def _build_co2_route_conditioning_evidence(
+             "pressure_source_selection_reason",
+             start_state.get("pressure_source_selection_reason"),
+         ),
++        "selected_pressure_source": latest_state_value(
++            "selected_pressure_source",
++            latest_state_value("pressure_source_selected", start_state.get("pressure_source_selected")),
++        ),
++        "selected_pressure_sample_age_s": latest_state_value("selected_pressure_sample_age_s"),
++        "selected_pressure_sample_is_stale": bool(
++            latest_state_value("selected_pressure_sample_is_stale", selected_pressure_sample_stale_seen)
++        ),
++        "selected_pressure_parse_ok": latest_state_value("selected_pressure_parse_ok"),
++        "selected_pressure_freshness_ok": selected_pressure_freshness_ok
++        if selected_pressure_freshness_ok is not None
++        else latest_state_value("selected_pressure_freshness_ok"),
++        "pressure_freshness_decision_source": latest_state_value("pressure_freshness_decision_source"),
++        "selected_pressure_fail_closed_reason": latest_state_value("selected_pressure_fail_closed_reason", ""),
+         "conditioning_pressure_abort_hpa": (
+             terminal_state.get("conditioning_pressure_abort_hpa")
+             or end_state.get("conditioning_pressure_abort_hpa")
+@@ -3656,6 +3748,9 @@ def _finalize_artifact_decision(payload: dict[str, Any], run_dir: str | Path) ->
+             reasons.append("a2_co2_route_conditioning_vent_heartbeat_gap_exceeded")
+         if conditioning and bool(conditioning.get("pressure_overlimit_seen")):
+             reasons.append("a2_co2_route_conditioning_pressure_overlimit")
++        if conditioning and conditioning.get("selected_pressure_freshness_ok") is False:
++            reason = str(conditioning.get("selected_pressure_fail_closed_reason") or "").strip()
++            reasons.append(reason or "a2_co2_route_conditioning_selected_pressure_not_fresh")
+         if conditioning and bool(conditioning.get("stream_stale")):
+             reasons.append("a2_co2_route_conditioning_digital_gauge_stream_stale")
+         if conditioning and conditioning.get("digital_gauge_sequence_progress") is False:
+@@ -3815,6 +3910,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
+         json.dumps(co2_route_conditioning_payload, ensure_ascii=False, indent=2) + "\n",
+         encoding="utf-8",
+     )
++    final_safe_stop_payload = _final_safe_stop_evidence(directory)
+     high_pressure_first_point_payload = _build_high_pressure_first_point_evidence(
+         directory,
+         enriched,
+@@ -3854,6 +3950,11 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
+             "positive_preseal_timing_diagnostics": positive_preseal_timing_payload,
+             "co2_route_conditioning_evidence_artifact": str(co2_route_conditioning_path),
+             "co2_route_conditioning_evidence": co2_route_conditioning_payload,
++            **final_safe_stop_payload,
++            "chamber_stop_command_sent": bool(
++                enriched.get("chamber_stop_command_sent")
++                or final_safe_stop_payload.get("final_safe_stop_chamber_stop_command_sent")
++            ),
+             "route_open_pressure_surge_evidence_artifact": str(route_open_surge_path),
+             "route_open_pressure_surge_evidence": route_open_surge_payload,
+             "pressure_read_latency_diagnostics_artifact": str(pressure_latency_path),
+@@ -3936,6 +4037,26 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
+             "vent_heartbeat_gap_exceeded": co2_route_conditioning_payload.get("vent_heartbeat_gap_exceeded"),
+             "pressure_monitor_interval_s": co2_route_conditioning_payload.get("pressure_monitor_interval_s"),
+             "digital_gauge_latest_age_s": co2_route_conditioning_payload.get("digital_gauge_latest_age_s"),
++            "continuous_stream_stale": co2_route_conditioning_payload.get("continuous_stream_stale"),
++            "continuous_stream_age_s": co2_route_conditioning_payload.get("continuous_stream_age_s"),
++            "digital_gauge_stream_stale": co2_route_conditioning_payload.get("digital_gauge_stream_stale"),
++            "selected_pressure_source": co2_route_conditioning_payload.get("selected_pressure_source"),
++            "selected_pressure_sample_age_s": co2_route_conditioning_payload.get(
++                "selected_pressure_sample_age_s"
++            ),
++            "selected_pressure_sample_is_stale": co2_route_conditioning_payload.get(
++                "selected_pressure_sample_is_stale"
++            ),
++            "selected_pressure_parse_ok": co2_route_conditioning_payload.get("selected_pressure_parse_ok"),
++            "selected_pressure_freshness_ok": co2_route_conditioning_payload.get(
++                "selected_pressure_freshness_ok"
++            ),
++            "pressure_freshness_decision_source": co2_route_conditioning_payload.get(
++                "pressure_freshness_decision_source"
++            ),
++            "selected_pressure_fail_closed_reason": co2_route_conditioning_payload.get(
++                "selected_pressure_fail_closed_reason"
++            ),
+             "digital_gauge_sequence_progress": co2_route_conditioning_payload.get("digital_gauge_sequence_progress"),
+             "conditioning_pressure_abort_hpa": co2_route_conditioning_payload.get("conditioning_pressure_abort_hpa"),
+             "pressure_overlimit_seen": co2_route_conditioning_payload.get("pressure_overlimit_seen"),
+@@ -3950,6 +4071,10 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
+             "sealed_during_conditioning": co2_route_conditioning_payload.get("sealed_during_conditioning"),
+         }
+     )
++    if bool(final_safe_stop_payload.get("final_safe_stop_chamber_stop_command_sent")):
++        reasons = list(enriched.get("a2_decision_reasons") or [])
++        reasons.append("chamber_stop_command_sent")
++        enriched["a2_decision_reasons"] = list(dict.fromkeys(reasons))
+     enriched = _finalize_artifact_decision(enriched, directory)
+ 
+     (directory / "summary.json").write_text(json.dumps(enriched, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+@@ -3962,6 +4087,17 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
+                 "blocked_write_events": enriched.get("blocked_write_events"),
+                 "identity_write_command_sent": enriched.get("identity_write_command_sent"),
+                 "persistent_write_command_sent": enriched.get("persistent_write_command_sent"),
++                "chamber_stop_command_sent": enriched.get("chamber_stop_command_sent"),
++                "final_safe_stop_warning_count": enriched.get("final_safe_stop_warning_count"),
++                "final_safe_stop_warnings": enriched.get("final_safe_stop_warnings"),
++                "final_safe_stop_chamber_stop_warning": enriched.get("final_safe_stop_chamber_stop_warning"),
++                "final_safe_stop_chamber_stop_attempted": enriched.get(
++                    "final_safe_stop_chamber_stop_attempted"
++                ),
++                "final_safe_stop_chamber_stop_command_sent": enriched.get(
++                    "final_safe_stop_chamber_stop_command_sent"
++                ),
++                "final_safe_stop_chamber_stop_result": enriched.get("final_safe_stop_chamber_stop_result"),
+                 "readiness_result": enriched.get("readiness_result"),
+                 "a2_final_decision": enriched.get("a2_final_decision"),
+                 "a2_execution_result": enriched.get("a2_execution_result"),
+@@ -3990,6 +4126,17 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
+                 "attempted_write_count": enriched.get("attempted_write_count"),
+                 "identity_write_command_sent": enriched.get("identity_write_command_sent"),
+                 "persistent_write_command_sent": enriched.get("persistent_write_command_sent"),
++                "chamber_stop_command_sent": enriched.get("chamber_stop_command_sent"),
++                "final_safe_stop_warning_count": enriched.get("final_safe_stop_warning_count"),
++                "final_safe_stop_warnings": enriched.get("final_safe_stop_warnings"),
++                "final_safe_stop_chamber_stop_warning": enriched.get("final_safe_stop_chamber_stop_warning"),
++                "final_safe_stop_chamber_stop_attempted": enriched.get(
++                    "final_safe_stop_chamber_stop_attempted"
++                ),
++                "final_safe_stop_chamber_stop_command_sent": enriched.get(
++                    "final_safe_stop_chamber_stop_command_sent"
++                ),
++                "final_safe_stop_chamber_stop_result": enriched.get("final_safe_stop_chamber_stop_result"),
+                 "effective_analyzer_mapping_status": enriched.get("effective_analyzer_mapping_status"),
+                 "all_enabled_analyzers_mode2_ready": enriched.get("all_enabled_analyzers_mode2_ready"),
+                 "preseal_atmosphere_hold_decision": enriched.get("preseal_atmosphere_hold_decision"),
+diff --git a/src/gas_calibrator/v2/core/services/valve_routing_service.py b/src/gas_calibrator/v2/core/services/valve_routing_service.py
+index a7eaa802..8cb5d92c 100644
+--- a/src/gas_calibrator/v2/core/services/valve_routing_service.py
++++ b/src/gas_calibrator/v2/core/services/valve_routing_service.py
+@@ -346,7 +346,15 @@ class ValveRoutingService:
+         return summary
+ 
+     def safe_stop_after_run(self, *, baseline_already_restored: bool = False, reason: str = "") -> dict[str, Any]:
+-        summary: dict[str, Any] = {}
++        summary: dict[str, Any] = {
++            "final_safe_stop_warning_count": 0,
++            "final_safe_stop_warnings": [],
++            "final_safe_stop_chamber_stop_warning": "",
++            "final_safe_stop_chamber_stop_attempted": False,
++            "final_safe_stop_chamber_stop_command_sent": False,
++            "final_safe_stop_chamber_stop_result": "not_attempted",
++        }
++        safe_stop_warnings: list[str] = []
+         relay_state = {} if baseline_already_restored else self.apply_valve_states([])
+         physical = self._physical_route_evidence([], relay_state) if relay_state else None
+         if relay_state:
+@@ -359,10 +367,17 @@ class ValveRoutingService:
+ 
+         chamber = self.host._device("temperature_chamber")
+         if chamber is not None:
++            summary["final_safe_stop_chamber_stop_attempted"] = True
+             try:
++                summary["final_safe_stop_chamber_stop_command_sent"] = True
+                 self.host._call_first(chamber, ("stop",))
++                summary["final_safe_stop_chamber_stop_result"] = "success"
+             except Exception as exc:
+-                self.host._log(f"Final safe stop warning: chamber stop failed: {exc}")
++                warning = f"chamber stop failed: {exc}"
++                summary["final_safe_stop_chamber_stop_warning"] = warning
++                summary["final_safe_stop_chamber_stop_result"] = "failed"
++                safe_stop_warnings.append(warning)
++                self.host._log(f"Final safe stop warning: {warning}")
+             chamber_state = self._chamber_state(chamber)
+             if chamber_state:
+                 summary["chamber"] = chamber_state
+@@ -380,10 +395,17 @@ class ValveRoutingService:
+                     else:
+                         self.host._call_first(generator, ("disable_control",), False)
+             except Exception as exc:
+-                self.host._log(f"Final safe stop warning: humidity generator stop failed: {exc}")
++                warning = f"humidity generator stop failed: {exc}"
++                safe_stop_warnings.append(warning)
++                self.host._log(f"Final safe stop warning: {warning}")
+             stop_check = self._humidity_generator_stop_check(generator)
+             if stop_check:
+                 summary["hgen_stop_check"] = stop_check
++                if not bool(stop_check.get("ok", True)) and stop_check.get("error"):
++                    safe_stop_warnings.append(f"humidity generator verify failed: {stop_check.get('error')}")
++
++        summary["final_safe_stop_warnings"] = list(dict.fromkeys(safe_stop_warnings))
++        summary["final_safe_stop_warning_count"] = len(summary["final_safe_stop_warnings"])
+ 
+         self._record_route_trace(
+             action="final_safe_stop_routes",
+diff --git a/src/gas_calibrator/v2/tests/test_a2_co2_only_7_pressure_no_write_probe.py b/src/gas_calibrator/v2/tests/test_a2_co2_only_7_pressure_no_write_probe.py
+index f9eadd48..3029917e 100644
+--- a/src/gas_calibrator/v2/tests/test_a2_co2_only_7_pressure_no_write_probe.py
++++ b/src/gas_calibrator/v2/tests/test_a2_co2_only_7_pressure_no_write_probe.py
+@@ -568,7 +568,15 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
+                     "p3_fast_fallback_result": "success",
+                     "normal_p3_fallback_attempted": False,
+                     "normal_p3_fallback_result": "",
+-                    "digital_gauge_stream_stale": False,
++                    "continuous_stream_stale": True,
++                    "digital_gauge_stream_stale": True,
++                    "selected_pressure_source": "digital_pressure_gauge_p3",
++                    "selected_pressure_sample_age_s": 0.05,
++                    "selected_pressure_sample_is_stale": False,
++                    "selected_pressure_parse_ok": True,
++                    "selected_pressure_freshness_ok": True,
++                    "pressure_freshness_decision_source": "digital_pressure_gauge_p3",
++                    "selected_pressure_fail_closed_reason": "",
+                     "continuous_restart_attempted": True,
+                     "continuous_restart_result": "recovered",
+                 },
+@@ -599,7 +607,15 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
+     assert summary["p3_fast_fallback_attempted"] is True
+     assert summary["p3_fast_fallback_result"] == "success"
+     assert summary["normal_p3_fallback_attempted"] is False
+-    assert summary["digital_gauge_stream_stale"] is False
++    assert summary["continuous_stream_stale"] is True
++    assert summary["digital_gauge_stream_stale"] is True
++    assert summary["selected_pressure_source"] == "digital_pressure_gauge_p3"
++    assert summary["selected_pressure_sample_age_s"] == 0.05
++    assert summary["selected_pressure_sample_is_stale"] is False
++    assert summary["selected_pressure_parse_ok"] is True
++    assert summary["selected_pressure_freshness_ok"] is True
++    assert summary["pressure_freshness_decision_source"] == "digital_pressure_gauge_p3"
++    assert summary["selected_pressure_fail_closed_reason"] == ""
+     assert summary["continuous_restart_attempted"] is True
+     assert summary["continuous_restart_result"] == "recovered"
+     assert summary["a3_allowed"] is False
+diff --git a/src/gas_calibrator/v2/tests/test_a2_no_write_pressure_sweep.py b/src/gas_calibrator/v2/tests/test_a2_no_write_pressure_sweep.py
+index 5d4f3ea5..7bdfec1e 100644
+--- a/src/gas_calibrator/v2/tests/test_a2_no_write_pressure_sweep.py
++++ b/src/gas_calibrator/v2/tests/test_a2_no_write_pressure_sweep.py
+@@ -18,6 +18,7 @@ from gas_calibrator.v2.core.run001_a2_no_write import (
+     RUN001_NOT_EXECUTED,
+     RUN001_PASS,
+     _build_co2_route_conditioning_evidence,
++    _final_safe_stop_evidence,
+     _build_pressure_read_latency_diagnostics,
+     build_run001_a2_evidence_payload,
+     evaluate_run001_a2_readiness,
+@@ -25,6 +26,7 @@ from gas_calibrator.v2.core.run001_a2_no_write import (
+ )
+ from gas_calibrator.v2.core.runners.co2_route_runner import Co2RouteRunner
+ from gas_calibrator.v2.core.services.pressure_control_service import PressureControlService
++from gas_calibrator.v2.core.services.valve_routing_service import ValveRoutingService
+ 
+ 
+ def _truth_row(port: str, device_id: str) -> dict:
+@@ -1084,6 +1086,44 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
+     return orchestrator, point, clock, timing_events, route_traces, vent_calls
+ 
+ 
++def _install_v1_aligned_selected_p3_reader(orchestrator, **overrides) -> None:
++    def selected_p3_reader(**kwargs) -> dict:
++        payload = {
++            **kwargs,
++            "pressure_hpa": 1009.4,
++            "source": "digital_pressure_gauge_p3",
++            "pressure_sample_source": "digital_pressure_gauge_p3",
++            "pressure_sample_age_s": 0.02,
++            "sample_age_s": 0.02,
++            "pressure_sample_is_stale": False,
++            "is_stale": False,
++            "parse_ok": True,
++            "error": "",
++            "read_latency_s": 0.05,
++            "raw_response": "1009.400",
++            "digital_gauge_mode": "v1_aligned_p3_normal",
++            "a2_3_pressure_source_strategy": "v1_aligned",
++            "pressure_source_selected": "digital_pressure_gauge_p3",
++            "pressure_source_selection_reason": "p3_fast_failed_fallback_normal_p3",
++            "source_selection_reason": "p3_fast_failed_fallback_normal_p3",
++            "critical_window_uses_latest_frame": False,
++            "critical_window_uses_query": True,
++            "p3_fast_fallback_attempted": True,
++            "p3_fast_fallback_result": "failed",
++            "normal_p3_fallback_attempted": True,
++            "normal_p3_fallback_result": "success",
++            "last_pressure_command": "read_pressure",
++            "last_pressure_command_may_cancel_continuous": True,
++            "continuous_interrupted_by_command": True,
++            "continuous_restart_required_before_return_to_continuous": True,
++            "fail_closed_reason": "",
++        }
++        payload.update(overrides)
++        return payload
++
++    orchestrator.pressure_control_service._a2_v1_aligned_pressure_gauge_sample = selected_p3_reader
++
++
+ def test_co2_conditioning_vent_gap_exceeding_max_fails_closed(monkeypatch) -> None:
+     orchestrator, point, clock, timing_events, route_traces, vent_calls = _conditioning_guard_orchestrator(
+         monkeypatch,
+@@ -1206,6 +1246,8 @@ def test_co2_conditioning_p3_fast_poll_fresh_read_passes_freshness_gate(monkeypa
+     assert tick["pressure_source_selected"] == "digital_pressure_gauge_p3_fast_poll"
+     assert tick["pressure_source_selection_reason"] == "a2_conditioning_p3_fast_poll_config"
+     assert tick["digital_gauge_stream_stale"] is False
++    assert tick["selected_pressure_freshness_ok"] is True
++    assert tick["selected_pressure_sample_is_stale"] is False
+     assert tick["whether_safe_to_continue"] is True
+     assert route_traces == []
+     assert any(event["event_name"] == "co2_route_conditioning_pressure_sample" for event in timing_events)
+@@ -1231,6 +1273,7 @@ def test_co2_conditioning_p3_fast_poll_unfresh_read_fails_closed(monkeypatch) ->
+ 
+     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+     assert context["pressure_source_selected"] == "digital_pressure_gauge_p3_fast_poll"
++    assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_unavailable"
+     assert context["fail_closed_before_vent_off"] is True
+     assert context["vent_off_sent_at"] == ""
+     assert context["seal_command_sent"] is False
+@@ -1253,6 +1296,9 @@ def test_co2_conditioning_v1_aligned_continuous_fresh_does_not_trigger_p3(monkey
+ 
+     assert tick["pressure_source_selected"] == "digital_pressure_gauge_continuous"
+     assert tick["pressure_source_selection_reason"] == "digital_gauge_continuous_latest_fresh"
++    assert tick["selected_pressure_source"] == "digital_pressure_gauge_continuous"
++    assert tick["selected_pressure_freshness_ok"] is True
++    assert tick["continuous_stream_stale"] is False
+     assert tick["critical_window_uses_latest_frame"] is True
+     assert tick["critical_window_uses_query"] is False
+     assert tick["p3_fast_fallback_attempted"] is False
+@@ -1278,11 +1324,134 @@ def test_co2_conditioning_v1_aligned_continuous_stale_uses_p3_fast(monkeypatch)
+     assert tick["critical_window_uses_query"] is True
+     assert tick["p3_fast_fallback_attempted"] is True
+     assert tick["p3_fast_fallback_result"] == "success"
+-    assert tick["digital_gauge_stream_stale"] is False
++    assert tick["selected_pressure_source"] == "digital_pressure_gauge_p3"
++    assert tick["selected_pressure_freshness_ok"] is True
++    assert tick["selected_pressure_sample_is_stale"] is False
++    assert tick["whether_safe_to_continue"] is True
++    assert route_traces == []
++
++
++def test_co2_conditioning_v1_aligned_continuous_stale_normal_p3_fresh_passes(monkeypatch) -> None:
++    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
++        monkeypatch,
++        [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
++        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
++    )
++    _install_v1_aligned_selected_p3_reader(orchestrator)
++
++    tick = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
++
++    assert tick["pressure_source_selected"] == "digital_pressure_gauge_p3"
++    assert tick["pressure_source_selection_reason"] == "p3_fast_failed_fallback_normal_p3"
++    assert tick["continuous_stream_stale"] is True
++    assert tick["digital_gauge_stream_stale"] is True
++    assert tick["selected_pressure_sample_age_s"] == 0.02
++    assert tick["selected_pressure_sample_is_stale"] is False
++    assert tick["selected_pressure_freshness_ok"] is True
++    assert tick["pressure_sample_stale"] is False
++    assert tick["whether_safe_to_continue"] is True
++    assert route_traces == []
++
++
++def test_co2_conditioning_v1_aligned_continuous_stale_fast_p3_fresh_passes(monkeypatch) -> None:
++    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
++        monkeypatch,
++        [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
++        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
++    )
++    _install_v1_aligned_selected_p3_reader(
++        orchestrator,
++        digital_gauge_mode="v1_aligned_p3_fast",
++        pressure_source_selection_reason="continuous_stale_fallback_to_p3_fast",
++        source_selection_reason="continuous_stale_fallback_to_p3_fast",
++        p3_fast_fallback_result="success",
++        normal_p3_fallback_attempted=False,
++        normal_p3_fallback_result="",
++        last_pressure_command="read_pressure_fast",
++    )
++
++    tick = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
++
++    assert tick["pressure_source_selection_reason"] == "continuous_stale_fallback_to_p3_fast"
++    assert tick["continuous_stream_stale"] is True
++    assert tick["selected_pressure_freshness_ok"] is True
+     assert tick["whether_safe_to_continue"] is True
+     assert route_traces == []
+ 
+ 
++def test_co2_conditioning_v1_aligned_p3_sample_stale_fails_selected_pressure_stale(monkeypatch) -> None:
++    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
++        monkeypatch,
++        [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
++        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
++    )
++    _install_v1_aligned_selected_p3_reader(
++        orchestrator,
++        pressure_sample_age_s=3.5,
++        sample_age_s=3.5,
++        pressure_sample_is_stale=True,
++        is_stale=True,
++    )
++
++    with pytest.raises(WorkflowValidationError):
++        orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
++
++    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
++    assert context["selected_pressure_freshness_ok"] is False
++    assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_sample_stale"
++    assert context["fail_closed_reason"] == "selected_pressure_sample_stale"
++    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
++
++
++def test_co2_conditioning_v1_aligned_p3_parse_failed_fails_selected_pressure_unavailable(monkeypatch) -> None:
++    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
++        monkeypatch,
++        [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
++        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
++    )
++    _install_v1_aligned_selected_p3_reader(
++        orchestrator,
++        pressure_hpa=None,
++        parse_ok=False,
++        error="bad p3 response",
++        pressure_sample_age_s=0.02,
++        sample_age_s=0.02,
++    )
++
++    with pytest.raises(WorkflowValidationError):
++        orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
++
++    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
++    assert context["selected_pressure_freshness_ok"] is False
++    assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_unavailable"
++    assert context["fail_closed_reason"] == "selected_pressure_unavailable"
++    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
++
++
++def test_co2_conditioning_pressure_controller_cannot_be_selected_primary_reference(monkeypatch) -> None:
++    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
++        monkeypatch,
++        [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
++        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
++    )
++    _install_v1_aligned_selected_p3_reader(
++        orchestrator,
++        source="pressure_controller",
++        pressure_sample_source="pressure_controller",
++        pressure_source_selected="pressure_controller",
++        pressure_source_selection_reason="controller_substitution_attempt",
++        source_selection_reason="controller_substitution_attempt",
++    )
++
++    with pytest.raises(WorkflowValidationError):
++        orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
++
++    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
++    assert context["selected_pressure_source"] == "pressure_controller"
++    assert context["selected_pressure_fail_closed_reason"] == "selected_pressure_unavailable"
++    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
++
++
+ def test_co2_conditioning_v1_aligned_blocks_fallback_after_seal(monkeypatch) -> None:
+     orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+         monkeypatch,
+@@ -1307,6 +1476,35 @@ def test_co2_conditioning_v1_aligned_blocks_fallback_after_seal(monkeypatch) ->
+     assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
+ 
+ 
++@pytest.mark.parametrize(
++    "context_update",
++    [
++        {"vent_off_sent_at": "2026-04-28T00:00:00+00:00"},
++        {"pressure_setpoint_command_sent": True},
++    ],
++)
++def test_co2_conditioning_v1_aligned_blocks_fallback_after_safe_window(monkeypatch, context_update) -> None:
++    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
++        monkeypatch,
++        [{"pressure_hpa": 1009.0, "age_s": 10.0, "sequence_id": 8, "is_stale": True}],
++        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
++    )
++    orchestrator._a2_co2_route_conditioning_at_atmosphere_context.update(context_update)
++
++    def fail_if_called(**_kwargs):
++        raise AssertionError("P3 fallback must stay inside A2 atmosphere conditioning safe window")
++
++    orchestrator.pressure_control_service._a2_v1_aligned_pressure_gauge_sample = fail_if_called
++
++    with pytest.raises(WorkflowValidationError):
++        orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
++
++    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
++    assert context["pressure_source_selection_reason"] == "v1_aligned_fallback_not_allowed_outside_atmosphere_conditioning"
++    assert context["fail_closed_before_vent_off"] is True
++    assert route_traces[-1]["action"] == "co2_route_conditioning_stream_stale"
++
++
+ def test_a2_v1_aligned_service_fast_p3_success_marks_continuous_interruption() -> None:
+     service, host, _controller, _status = _positive_preseal_service([1010.2])
+     _seed_digital_stream_latest(service, 1009.0, age_s=2.0, sequence=1)
+@@ -1380,6 +1578,50 @@ def test_a2_v1_aligned_service_all_p3_reads_fail_closed_payload() -> None:
+     assert gauge.normal_read_count == 1
+ 
+ 
++def test_final_safe_stop_warning_records_stop_state_mismatch(tmp_path) -> None:
++    route_traces: list[dict] = []
++    logs: list[str] = []
++
++    class Chamber:
++        def read_run_state(self) -> str:
++            return "RUN"
++
++    chamber = Chamber()
++
++    def device(name: str):
++        return chamber if name == "temperature_chamber" else None
++
++    def call_first(_device, _methods, *args):
++        raise RuntimeError("STOP_STATE_MISMATCH")
++
++    host = SimpleNamespace(
++        _device=device,
++        _call_first=call_first,
++        _log=logs.append,
++        _cfg_get=lambda _path, default=None: default,
++        _as_int=lambda value: None if value in (None, "") else int(value),
++        status_service=SimpleNamespace(record_route_trace=lambda **kwargs: route_traces.append(kwargs)),
++    )
++    service = ValveRoutingService(SimpleNamespace(), RunState(), host=host)
++
++    summary = service.safe_stop_after_run(baseline_already_restored=True, reason="test")
++
++    assert summary["final_safe_stop_warning_count"] == 1
++    assert summary["final_safe_stop_chamber_stop_warning"] == "chamber stop failed: STOP_STATE_MISMATCH"
++    assert summary["final_safe_stop_chamber_stop_attempted"] is True
++    assert summary["final_safe_stop_chamber_stop_command_sent"] is True
++    assert summary["final_safe_stop_chamber_stop_result"] == "failed"
++    assert "Final safe stop warning: chamber stop failed: STOP_STATE_MISMATCH" in logs
++    assert route_traces[-1]["actual"]["final_safe_stop_chamber_stop_result"] == "failed"
++
++    trace_path = tmp_path / "route_trace.jsonl"
++    trace_path.write_text(json.dumps(route_traces[-1]) + "\n", encoding="utf-8")
++    evidence = _final_safe_stop_evidence(tmp_path)
++    assert evidence["final_safe_stop_warning_count"] == 1
++    assert evidence["final_safe_stop_chamber_stop_warning"] == "chamber stop failed: STOP_STATE_MISMATCH"
++    assert evidence["final_safe_stop_chamber_stop_command_sent"] is True
++
++
+ def test_co2_runner_conditioning_fail_closed_does_not_vent_off_seal_or_sample() -> None:
+     point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+     order: list[str] = []
+-- 
+2.47.1.windows.1
+

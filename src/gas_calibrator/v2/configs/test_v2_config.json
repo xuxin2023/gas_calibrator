@@ -18,7 +18,7 @@
         ":MEAS:PRES?"
       ],
       "in_limits_pct": 0.02,
-      "in_limits_time_s": 10
+      "in_limits_time_s": 3
     },
     "pressure_gauge": {
       "enabled": true,

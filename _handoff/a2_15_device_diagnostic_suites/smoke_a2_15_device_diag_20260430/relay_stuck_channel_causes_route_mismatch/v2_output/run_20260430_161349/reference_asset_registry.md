@@ -1,0 +1,37 @@
+# Reference Asset Registry
+
+- asset_count: asset count 8 | reference chain 7 | analyzer groups 1
+- certificate_validity_summary: valid_certificate 1 | reviewer_stub_only 4 | expired_certificate 1 | missing_certificate 1
+- lot_binding_summary: missing_binding_approval 1 | not_required 7
+- lot_usage_linkage_summary: lot_usage_sidecar_pending 1 | not_required 7
+- intermediate_check_summary: pass 3 | due_soon 2 | overdue 1 | missing_intermediate_check 1
+- calibration_source_summary: external_calibration 4 | internal_calibration 3 | not_applicable 1
+- certificate_file_link_summary: linked assets 5/6 | files 5
+- asset: Standard Gas Lot SG-2026-CO2-01 | certificate_status=reviewer_stub_only | lot_binding_status=missing_binding_approval | intermediate_check_status=due_soon
+- asset: Humidity Generator HG-STEP2-01 | certificate_status=expired_certificate | lot_binding_status=not_required | intermediate_check_status=pass
+- asset: Dewpoint Meter DP-STEP2-01 | certificate_status=missing_certificate | lot_binding_status=not_required | intermediate_check_status=missing_intermediate_check
+- asset: Digital Pressure Gauge PG-STEP2-01 | certificate_status=reviewer_stub_only | lot_binding_status=not_required | intermediate_check_status=overdue
+- asset: Temperature Chamber TC-STEP2-01 | certificate_status=reviewer_stub_only | lot_binding_status=not_required | intermediate_check_status=pass
+- asset: Digital Thermometer TH-STEP2-01 | certificate_status=valid_certificate | lot_binding_status=not_required | intermediate_check_status=pass
+- asset: Pressure Controller PC-STEP2-01 | certificate_status=reviewer_stub_only | lot_binding_status=not_required | intermediate_check_status=due_soon
+- asset: Analyzer Under Test Bundle | certificate_status=not_applicable_for_reference_chain | lot_binding_status=not_required | intermediate_check_status=not_applicable_for_reference_chain
+- non_claim_note: Reference asset registry rows are reviewer-only simulation artifacts and cannot support real acceptance.
+
+## Readiness Linkage
+
+- anchor_id: reference-asset-registry
+- readiness_status: reference_asset_registry_readiness_stub
+- linked_artifact_refs: scope_definition_pack | decision_rule_profile | scope_readiness_summary
+- linked_measurement_phases: water/pressure_stable=trace_only | gas/pressure_stable=model_only
+- linked_measurement_gaps: water/pressure_stable: Missing-layer reason: reference: phase currently has trace bucket only; no simulated sample payload captured for this layer | analyzer_raw: phase currently has trace bucket only; no simulated sample payload captured for this layer | output: phase currently has trace bucket only; no simulated sample payload captured for this layer | data_quality: phase currently has trace bucket only; no simulated sample payload captured for this layer | gas/pressure_stable: Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence
+- linked_method_confirmation_items: Water pressure stabilization hold confirmation | Gas pressure stabilization hold confirmation
+- linked_uncertainty_inputs: Humidity reference | Pressure reference | Temperature reference | Reference gas value
+- linked_traceability_nodes: Humidity reference chain | Dew-point reference link | Pressure reference link | Standard gas chain | Temperature reference link
+- preseal_partial_gap: --
+- gap_reason: water/pressure_stable: Missing-layer reason: reference: phase currently has trace bucket only; no simulated sample payload captured for this layer | analyzer_raw: phase currently has trace bucket only; no simulated sample payload captured for this layer | output: phase currently has trace bucket only; no simulated sample payload captured for this layer | data_quality: phase currently has trace bucket only; no simulated sample payload captured for this layer | gas/pressure_stable: Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence
+- missing_evidence: certificate validity attention remains in local registry fixtures | intermediate check attention remains in local registry fixtures | lot binding or lot usage linkage remains open in local registry fixtures
+- blockers: reference asset registry stays reviewer-only and advisory-only in Step 2 | local registry fixtures cannot become real acceptance or formal compliance evidence | water/pressure_stable: Phase is still trace-only; simulated payload layers have not been promoted yet | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Water pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link | gas/pressure_stable: Phase remains model_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Gas pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link
+- next_required_artifacts: certificate_lifecycle_summary | pre_run_readiness_gate | certificate_readiness_summary | reference_asset_registry | uncertainty_model | uncertainty_input_set | sensitivity_coefficient_set | budget_case | uncertainty_golden_cases | uncertainty_report_pack | uncertainty_digest | uncertainty_rollup | metrology_traceability_stub | uncertainty_budget_stub | method_confirmation_matrix | route_specific_validation_matrix | validation_run_set | verification_digest | verification_rollup | uncertainty_method_readiness_summary
+- reviewer_next_step: Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists. | Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.
+- boundary_digest: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation
+- non_claim_digest: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation

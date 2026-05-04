@@ -1,0 +1,114 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "suite_evidence_registry",
+  "suite": "parity",
+  "generated_at": "2026-04-30T15:43:19",
+  "evidence_source": "diagnostic",
+  "not_real_acceptance_evidence": true,
+  "acceptance_level": "offline_regression",
+  "promotion_state": "dry_run_only",
+  "acceptance_scope": "suite",
+  "review_state": "pending",
+  "approval_state": "blocked",
+  "ready_for_promotion": false,
+  "entries": [
+    {
+      "artifact_id": "parity:summary_parity",
+      "artifact_name": "summary_parity",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\parity_a2_15_20260430\\summary_parity",
+      "present": true,
+      "run_id": "summary_parity",
+      "parent_run_id": "summary_parity",
+      "evidence_source": "diagnostic",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "suite_case",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "",
+      "points_version": "",
+      "profile_version": "",
+      "software_build_id": "",
+      "source_artifact_ids": [
+        "summary_parity:report_json",
+        "summary_parity:report_markdown"
+      ],
+      "dimensions": {
+        "suite": "parity",
+        "scenario": "summary_parity",
+        "analyzer": [],
+        "route": [],
+        "temp": []
+      },
+      "details": {
+        "status": "MATCH",
+        "risk_level": "low",
+        "failure_type": "summary_parity"
+      }
+    }
+  ],
+  "indexes": {
+    "by_evidence_source": {
+      "diagnostic": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_evidence_state": {
+      "collected": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_suite": {
+      "parity": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_scenario": {
+      "summary_parity": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_analyzer": {
+      "--": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_route": {
+      "--": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_temp": {
+      "--": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_config_version": {
+      "--": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_points_version": {
+      "--": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_profile_version": {
+      "--": [
+        "parity:summary_parity"
+      ]
+    },
+    "by_software_build_id": {
+      "--": [
+        "parity:summary_parity"
+      ]
+    }
+  },
+  "digest": {
+    "summary": "1/1 passed | top failures none",
+    "health": "healthy"
+  }
+}

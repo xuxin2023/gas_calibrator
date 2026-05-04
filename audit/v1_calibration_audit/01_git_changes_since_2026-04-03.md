@@ -1,11 +1,59 @@
 # 2026-04-03 以来可能影响 V1 校准的改动
 
-- 当前分支: `main`
-- 当前 HEAD: `f41b7b20c35a5051943fecd35bdaf62c05ae8d34`
+- 当前分支: `codex/v1-v2-decouple-367a108`
+- 当前 HEAD: `367a1089ebaca1388dbb9d11648f74513316e502`
 - 筛选起点: `2026-04-03 00:00:00`
-- 纳入 commit 数: `371`
+- 纳入 commit 数: `375`
 
 ## Commit 列表
+
+### `367a1089ebaca1388dbb9d11648f74513316e502`
+- 时间: 2026-04-13 13:38:31 +0800
+- 标题: chore: sync 2026-04-13 13:38:30
+- 涉及文件: `src/gas_calibrator/config.py`, `tests/test_config_runtime_defaults.py`, `tests/test_corrected_water_points_report.py`, `tests/test_run_v1_corrected_autodelivery.py`
+- 判定原因: 改动文件命中校准相关路径/关键词；diff 内容命中关键词: CO2, H2O, Point, cali, co2, coefficient, db, delivery
+- 关键 diff hunk 摘要:
+  - src/gas_calibrator/config.py @@ -221 +221 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = { -            "enabled": False,
+  - src/gas_calibrator/config.py @@ -221 +221 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = { +            "enabled": True,
+  - src/gas_calibrator/config.py @@ -223 +223 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = { -            "write_devices": False,
+  - src/gas_calibrator/config.py @@ -223 +223 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = { +            "write_devices": True,
+  - tests/test_config_runtime_defaults.py @@ -140,0 +141 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P +    assert cfg["workflow"]["postrun_corrected_delivery"]["run_structure_hints"]["enabled"] is True
+
+### `063c23014469baa43cbe1a058caf7ea85dbf2e14`
+- 时间: 2026-04-13 13:33:32 +0800
+- 标题: chore: sync 2026-04-13 13:33:31
+- 涉及文件: `src/gas_calibrator/export/corrected_water_points_report.py`, `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py`
+- 判定原因: 改动文件命中校准相关路径/关键词；diff 内容命中关键词: CO2, H2O, Point, cali, calibration, co2, db, delivery
+- 关键 diff hunk 摘要:
+  - src/gas_calibrator/export/corrected_water_points_report.py @@ -67,0 +68,122 @@ def _resolve_h2o_selection(selection: Mapping[str, Any] | None) -> Dict[str, Any +def _anchor_threshold_for_row(
+  - src/gas_calibrator/export/corrected_water_points_report.py @@ -67,0 +68,122 @@ def _resolve_h2o_selection(selection: Mapping[str, Any] | None) -> Dict[str, Any +    row: Mapping[str, Any],
+  - src/gas_calibrator/export/corrected_water_points_report.py @@ -67,0 +68,122 @@ def _resolve_h2o_selection(selection: Mapping[str, Any] | None) -> Dict[str, Any +    selection_cfg: Mapping[str, Any],
+  - src/gas_calibrator/export/corrected_water_points_report.py @@ -67,0 +68,122 @@ def _resolve_h2o_selection(selection: Mapping[str, Any] | None) -> Dict[str, Any +) -> tuple[float | None, float | None]:
+  - src/gas_calibrator/export/corrected_water_points_report.py @@ -67,0 +68,122 @@ def _resolve_h2o_selection(selection: Mapping[str, Any] | None) -> Dict[str, Any +    env_temp = _safe_float(row.get("EnvTempC"))
+
+### `7036ca7439863859ec96107bd5addcd74aa019c4`
+- 时间: 2026-04-13 13:28:36 +0800
+- 标题: chore: sync 2026-04-13 13:28:33
+- 涉及文件: `src/gas_calibrator/config.py`, `src/gas_calibrator/h2o_summary_selection.py`, `src/gas_calibrator/v2/config/models.py`
+- 判定原因: 改动文件命中校准相关路径/关键词；diff 内容命中关键词: CO2, H2O, ZERO, cali, co2, h2o, mode, zero
+- 关键 diff hunk 摘要:
+  - src/gas_calibrator/config.py @@ -228,0 +229,3 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = { +            "run_structure_hints": {
+  - src/gas_calibrator/config.py @@ -228,0 +229,3 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = { +                "enabled": True,
+  - src/gas_calibrator/config.py @@ -228,0 +229,3 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = { +            },
+  - src/gas_calibrator/h2o_summary_selection.py @@ -13,0 +14,8 @@ DEFAULT_H2O_TEMP_TOLERANCE_C: float = 0.6 +DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_QUALITY_GATE_ENABLED: bool = True
+  - src/gas_calibrator/h2o_summary_selection.py @@ -13,0 +14,8 @@ DEFAULT_H2O_TEMP_TOLERANCE_C: float = 0.6 +DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_REQUIRE_H2O_DEW: bool = True
+
+### `2ae4bfba168dc9e4ce7be24e74215b9aa2f14e42`
+- 时间: 2026-04-13 13:13:44 +0800
+- 标题: chore: sync 2026-04-13 13:13:37
+- 涉及文件: `audit/v1_calibration_acceptance/01_capability_matrix.md`, `audit/v1_calibration_acceptance/02_sample_points.csv`, `audit/v1_calibration_acceptance/03_sample_samples.csv`, `audit/v1_calibration_acceptance/04_sample_coefficient_writeback.csv`, `audit/v1_calibration_acceptance/05_fault_injection_matrix.md`, `audit/v1_calibration_acceptance/06_acceptance_summary.md`, `audit/v1_calibration_acceptance_online/01_online_acceptance_checklist.md`, `audit/v1_calibration_acceptance_online/02_online_run_template.json`, `audit/v1_calibration_acceptance_online/03_online_protocol_log_schema.md`, `audit/v1_calibration_acceptance_online/04_online_evidence_summary.md`, `audit/v1_calibration_audit/01_git_changes_since_2026-04-03.md`, `audit/v1_calibration_audit/02_v1_flow_map.md`, `audit/v1_calibration_audit/03_point_storage_map.md`, `audit/v1_calibration_audit/04_risk_checklist.md`, `audit/v1_calibration_audit/05_evidence.json`, `audit/v1_calibration_audit/06_trace_check.md`, `audit/v1_calibration_audit/README.md`, `audit/v1_calibration_audit/raw/git_log_since_2026-04-03.txt`, `audit/v1_calibration_audit/raw/git_status.txt`, `audit/v1_calibration_audit/raw/rg_hits.txt`, `src/gas_calibrator/config.py`, `src/gas_calibrator/devices/gas_analyzer.py`, `src/gas_calibrator/logging_utils.py`, `src/gas_calibrator/tools/audit_run.py`, `src/gas_calibrator/tools/run_headless.py`, `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py`, `src/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py`, `src/gas_calibrator/tools/run_v1_online_acceptance.py`, `src/gas_calibrator/v2/adapters/results_gateway.py`, `src/gas_calibrator/v2/core/phase_evidence_display_contracts.py`, `src/gas_calibrator/v2/core/phase_transition_bridge.py`, `src/gas_calibrator/v2/ui_v2/controllers/app_facade.py`, `src/gas_calibrator/v2/ui_v2/locales/en_US.json`, `src/gas_calibrator/v2/ui_v2/locales/zh_CN.json`, `src/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py`, `src/gas_calibrator/workflow/runner.py`, `tests/test_audit_run_tool.py`, `tests/test_runner_collect_only.py`, `tests/test_runner_v1_writeback_safety.py`, `tests/test_v1_merged_calibration_sidecar.py`, `tests/test_v1_online_acceptance_tool.py`, `tests/test_v1_writeback_fault_injection.py`, `tests/v2/test_phase_evidence_display_contracts.py`, `tests/v2/test_review_center_scan_contracts.py`, `tests/v2/test_ui_v2_review_center_index.py`, `tools/audit_v1_calibration.py`, `tools/run_v1_online_acceptance.py`
+- 判定原因: 改动文件命中校准相关路径/关键词；diff 内容命中关键词: CALI, CALIBRATION, CO2, COEFFICIENT, Cali, Calibration, Co2, Coefficient
+- 关键 diff hunk 摘要:
+  - audit/v1_calibration_acceptance/01_capability_matrix.md @@ -0,0 +1,18 @@ +# Capability Matrix
+  - audit/v1_calibration_acceptance/01_capability_matrix.md @@ -0,0 +1,18 @@ +
+  - audit/v1_calibration_acceptance/01_capability_matrix.md @@ -0,0 +1,18 @@ +- generated_at: 2026-04-13T12:47:29+08:00
+  - audit/v1_calibration_acceptance/01_capability_matrix.md @@ -0,0 +1,18 @@ +- head: `f41b7b20c35a5051943fecd35bdaf62c05ae8d34`
+  - audit/v1_calibration_acceptance/01_capability_matrix.md @@ -0,0 +1,18 @@ +| capability | status | evidence |
 
 ### `f41b7b20c35a5051943fecd35bdaf62c05ae8d34`
 - 时间: 2026-04-12 23:38:39 +0800
@@ -4357,6 +4405,16 @@
 
 ## 未提交改动中与 V1 校准相关的文件
 
+- `udit/v1_calibration_acceptance/01_capability_matrix.md`
+- `udit/v1_calibration_acceptance/02_sample_points.csv`
+- `udit/v1_calibration_acceptance/03_sample_samples.csv`
+- `udit/v1_calibration_acceptance/04_sample_coefficient_writeback.csv`
+- `udit/v1_calibration_acceptance/05_fault_injection_matrix.md`
+- `udit/v1_calibration_acceptance/06_acceptance_summary.md`
+- `udit/v1_calibration_acceptance_online/01_online_acceptance_checklist.md`
+- `udit/v1_calibration_acceptance_online/02_online_run_template.json`
+- `udit/v1_calibration_acceptance_online/03_online_protocol_log_schema.md`
+- `udit/v1_calibration_acceptance_online/04_online_evidence_summary.md`
 - `udit/v1_calibration_audit/01_git_changes_since_2026-04-03.md`
 - `udit/v1_calibration_audit/02_v1_flow_map.md`
 - `udit/v1_calibration_audit/03_point_storage_map.md`
@@ -4368,29 +4426,32 @@
 - `udit/v1_calibration_audit/raw/git_status.txt`
 - `udit/v1_calibration_audit/raw/rg_hits.txt`
 - `rc/gas_calibrator/config.py`
-- `rc/gas_calibrator/devices/gas_analyzer.py`
-- `rc/gas_calibrator/logging_utils.py`
-- `rc/gas_calibrator/tools/audit_run.py`
 - `rc/gas_calibrator/tools/run_headless.py`
 - `rc/gas_calibrator/tools/run_v1_corrected_autodelivery.py`
-- `rc/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py`
-- `rc/gas_calibrator/v2/adapters/results_gateway.py`
-- `rc/gas_calibrator/v2/core/phase_transition_bridge.py`
-- `rc/gas_calibrator/v2/ui_v2/controllers/app_facade.py`
-- `rc/gas_calibrator/v2/ui_v2/locales/en_US.json`
-- `rc/gas_calibrator/v2/ui_v2/locales/zh_CN.json`
-- `rc/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py`
+- `rc/gas_calibrator/tools/run_v1_no500_postprocess.py`
+- `rc/gas_calibrator/tools/run_v1_online_acceptance.py`
+- `rc/gas_calibrator/v2/adapters/legacy_runner.py`
+- `rc/gas_calibrator/v2/adapters/v1_route_trace.py`
+- `rc/gas_calibrator/v2/core/phase_evidence_display_contracts.py`
+- `rc/gas_calibrator/v2/review_surface_formatter.py`
+- `rc/gas_calibrator/v2/ui_v2/i18n.py`
 - `rc/gas_calibrator/workflow/runner.py`
-- `ests/test_v1_merged_calibration_sidecar.py`
-- `ools/audit_v1_calibration.py`
-- `audit/v1_calibration_acceptance/`
-- `audit/v1_calibration_acceptance_online/`
-- `src/gas_calibrator/tools/run_v1_online_acceptance.py`
-- `src/gas_calibrator/v2/core/phase_evidence_display_contracts.py`
-- `tests/test_runner_v1_writeback_safety.py`
-- `tests/test_v1_online_acceptance_tool.py`
-- `tests/test_v1_writeback_fault_injection.py`
-- `tools/run_v1_online_acceptance.py`
+- `ests/test_runner_h2o_sequence.py`
+- `audit/v1_v2_decouple/`
+- `src/gas_calibrator/tools/_no500_filter.py`
+- `tests/test_v1_has_no_v2_runtime_imports.py`
+- `tests/test_v1_v2_bridge_allowlist.py`
+- `tests/test_v2_has_no_v1_runtime_imports.py`
+- `udit/v1_calibration_acceptance/01_capability_matrix.md`
+- `udit/v1_calibration_acceptance/02_sample_points.csv`
+- `udit/v1_calibration_acceptance/03_sample_samples.csv`
+- `udit/v1_calibration_acceptance/04_sample_coefficient_writeback.csv`
+- `udit/v1_calibration_acceptance/05_fault_injection_matrix.md`
+- `udit/v1_calibration_acceptance/06_acceptance_summary.md`
+- `udit/v1_calibration_acceptance_online/01_online_acceptance_checklist.md`
+- `udit/v1_calibration_acceptance_online/02_online_run_template.json`
+- `udit/v1_calibration_acceptance_online/03_online_protocol_log_schema.md`
+- `udit/v1_calibration_acceptance_online/04_online_evidence_summary.md`
 - `udit/v1_calibration_audit/01_git_changes_since_2026-04-03.md`
 - `udit/v1_calibration_audit/02_v1_flow_map.md`
 - `udit/v1_calibration_audit/03_point_storage_map.md`
@@ -4402,34 +4463,28 @@
 - `udit/v1_calibration_audit/raw/git_status.txt`
 - `udit/v1_calibration_audit/raw/rg_hits.txt`
 - `rc/gas_calibrator/config.py`
-- `rc/gas_calibrator/devices/gas_analyzer.py`
-- `rc/gas_calibrator/logging_utils.py`
-- `rc/gas_calibrator/tools/audit_run.py`
 - `rc/gas_calibrator/tools/run_headless.py`
 - `rc/gas_calibrator/tools/run_v1_corrected_autodelivery.py`
-- `rc/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py`
-- `rc/gas_calibrator/v2/adapters/results_gateway.py`
-- `rc/gas_calibrator/v2/core/phase_transition_bridge.py`
-- `rc/gas_calibrator/v2/ui_v2/controllers/app_facade.py`
-- `rc/gas_calibrator/v2/ui_v2/locales/en_US.json`
-- `rc/gas_calibrator/v2/ui_v2/locales/zh_CN.json`
-- `rc/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py`
+- `rc/gas_calibrator/tools/run_v1_no500_postprocess.py`
+- `rc/gas_calibrator/tools/run_v1_online_acceptance.py`
+- `rc/gas_calibrator/v2/adapters/legacy_runner.py`
+- `rc/gas_calibrator/v2/adapters/v1_route_trace.py`
+- `rc/gas_calibrator/v2/core/phase_evidence_display_contracts.py`
+- `rc/gas_calibrator/v2/review_surface_formatter.py`
+- `rc/gas_calibrator/v2/ui_v2/i18n.py`
 - `rc/gas_calibrator/workflow/runner.py`
-- `ests/test_v1_merged_calibration_sidecar.py`
-- `ools/audit_v1_calibration.py`
-- `audit/v1_calibration_acceptance/01_capability_matrix.md`
-- `audit/v1_calibration_acceptance/02_sample_points.csv`
-- `audit/v1_calibration_acceptance/03_sample_samples.csv`
-- `audit/v1_calibration_acceptance/04_sample_coefficient_writeback.csv`
-- `audit/v1_calibration_acceptance/05_fault_injection_matrix.md`
-- `audit/v1_calibration_acceptance/06_acceptance_summary.md`
-- `audit/v1_calibration_acceptance_online/01_online_acceptance_checklist.md`
-- `audit/v1_calibration_acceptance_online/02_online_run_template.json`
-- `audit/v1_calibration_acceptance_online/03_online_protocol_log_schema.md`
-- `audit/v1_calibration_acceptance_online/04_online_evidence_summary.md`
-- `src/gas_calibrator/tools/run_v1_online_acceptance.py`
-- `src/gas_calibrator/v2/core/phase_evidence_display_contracts.py`
-- `tests/test_runner_v1_writeback_safety.py`
-- `tests/test_v1_online_acceptance_tool.py`
-- `tests/test_v1_writeback_fault_injection.py`
-- `tools/run_v1_online_acceptance.py`
+- `ests/test_runner_h2o_sequence.py`
+- `audit/v1_v2_decouple/01_dependency_matrix.md`
+- `audit/v1_v2_decouple/02_split_plan.md`
+- `audit/v1_v2_decouple/03_breaking_surface_check.md`
+- `audit/v1_v2_decouple/04_v1_no_v2_import_report.md`
+- `audit/v1_v2_decouple/05_v2_no_v1_import_report.md`
+- `audit/v1_v2_decouple/06_final_decouple_summary.md`
+- `audit/v1_v2_decouple/07_runtime_boundary_freeze.md`
+- `audit/v1_v2_decouple/08_bridge_allowlist.md`
+- `audit/v1_v2_decouple/09_boundary_regression_check.md`
+- `audit/v1_v2_decouple/10_entrypoint_ownership.md`
+- `src/gas_calibrator/tools/_no500_filter.py`
+- `tests/test_v1_has_no_v2_runtime_imports.py`
+- `tests/test_v1_v2_bridge_allowlist.py`
+- `tests/test_v2_has_no_v1_runtime_imports.py`

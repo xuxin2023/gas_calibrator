@@ -1,0 +1,40 @@
+{
+  "artifact_id": "20260422_150047",
+  "evidence_source": "live_safe_preflight",
+  "worktree_head": "0b46901274695f0812f7c93f5b6daecefe72c7e9",
+  "not_real_acceptance_evidence": true,
+  "real_sealed_pressure_transition_verified": false,
+  "source_final_stage_opened": false,
+  "co2_4_24_opened": false,
+  "h2o_10_opened": false,
+  "seal_pressure_stage_released": false,
+  "route_final_stage_seal_safety_updated": false,
+  "pace_communication_ok": true,
+  "detected_profile": "OLD_PACE5000",
+  "final_syst_err": "0, No error",
+  "hidden_syst_err_count": 0,
+  "unclassified_syst_err_count": 0,
+  "pre_route_drain_syst_err_count": 0,
+  "vent2_tx_observed": false,
+  "co2_a_no_source_valves": [
+    8,
+    11,
+    7
+  ],
+  "co2_b_no_source_valves": [
+    8,
+    11,
+    16
+  ],
+  "h2o_no_final_valves": [
+    8,
+    9
+  ],
+  "blocked_valves_confirmed": [
+    4,
+    24,
+    10
+  ],
+  "no_vent_guard_passed": true,
+  "preflight_passed": true
+}

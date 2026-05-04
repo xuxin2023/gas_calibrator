@@ -129,6 +129,37 @@ def build_short_verification_config(
         60.0,
     )
 
+    co2_route_cfg = stability_cfg.setdefault("co2_route", {})
+    if not isinstance(co2_route_cfg, dict):
+        co2_route_cfg = {}
+        stability_cfg["co2_route"] = co2_route_cfg
+    co2_route_cfg["preseal_soak_s"] = min(float(co2_route_cfg.get("preseal_soak_s", 0.0) or 0.0), 0.0)
+    co2_route_cfg["post_h2o_zero_ppm_soak_s"] = min(
+        float(co2_route_cfg.get("post_h2o_zero_ppm_soak_s", 0.0) or 0.0),
+        0.0,
+    )
+
+    stability_cfg["gas_route_dewpoint_gate_enabled"] = False
+
+    sensor_cfg = stability_cfg.setdefault("sensor", {})
+    if not isinstance(sensor_cfg, dict):
+        sensor_cfg = {}
+        stability_cfg["sensor"] = sensor_cfg
+    sensor_cfg["enabled"] = False
+    baseline_sanity_cfg = sensor_cfg.setdefault("baseline_sanity_gate", {})
+    if not isinstance(baseline_sanity_cfg, dict):
+        baseline_sanity_cfg = {}
+        sensor_cfg["baseline_sanity_gate"] = baseline_sanity_cfg
+    baseline_sanity_cfg["enabled"] = False
+    baseline_sanity_cfg["policy"] = "off"
+
+    cold_quality_cfg = stability_cfg.setdefault("co2_cold_quality_gate", {})
+    if not isinstance(cold_quality_cfg, dict):
+        cold_quality_cfg = {}
+        stability_cfg["co2_cold_quality_gate"] = cold_quality_cfg
+    cold_quality_cfg["enabled"] = False
+    cold_quality_cfg["policy"] = "off"
+
     if actual_device_ids:
         _apply_actual_device_ids(runtime_cfg, actual_device_ids)
 

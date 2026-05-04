@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "v1_freeze_check_summary",
+  "status": "green",
+  "evidence_source": "git_diff",
+  "not_real_acceptance_evidence": true,
+  "checked_rules": [
+    "run_app.py unchanged",
+    "src/gas_calibrator/workflow/** unchanged",
+    "src/gas_calibrator/ui/** unchanged",
+    "src/gas_calibrator/devices/** unchanged",
+    "no /v1/ or /legacy/ path changed"
+  ],
+  "changed_paths": [
+    "docs/architecture/v2_cutover_candidate/v1_freeze_check_summary.json",
+    "docs/architecture/v2_cutover_candidate/v2_cutover_candidate_worksheet.json",
+    "docs/architecture/v2_cutover_candidate/v2_cutover_candidate_worksheet.md",
+    "docs/architecture/v2_cutover_candidate/v2_cutover_rollback_guard.md",
+    "src/gas_calibrator/v2/core/cutover_candidate_worksheet.py",
+    "src/gas_calibrator/v2/scripts/build_cutover_candidate_worksheet.py",
+    "tests/v2/test_cutover_candidate_worksheet.py"
+  ],
+  "ignored_paths": [
+    "_handoff/fb182ac7_v2_seal_transition_files.zip",
+    "_handoff/fb182ac7_v2_seal_transition_files/src/gas_calibrator/v2/core/orchestrator.py",
+    "_handoff/fb182ac7_v2_seal_transition_files/src/gas_calibrator/v2/core/run_state.py",
+    "_handoff/fb182ac7_v2_seal_transition_files/src/gas_calibrator/v2/core/services/pressure_control_service.py",
+    "_handoff/fb182ac7_v2_seal_transition_files/tests/v2/test_calibration_service.py",
+    "_handoff/fb182ac7_v2_seal_transition_files/tests/v2/test_pressure_control_service.py",
+    "_handoff/v2_mainline_smoke_semantics_67f3ed46.zip",
+    "_handoff/v2_pressure_seal_control_gate_967dc6ed.zip"
+  ],
+  "forbidden_changed_paths": [],
+  "reason": "No V1 production/default-entry paths changed.",
+  "remaining_blocker": "none",
+  "v1_remains_frozen": true
+}

@@ -32,6 +32,9 @@ class ArtifactService:
         extra_stats: Optional[dict[str, Any]] = None,
     ) -> Path:
         path = Path(self.context.result_store.data_writer.summary_path)
+        summary_extra_stats = self._host_summary_extra_stats()
+        if extra_stats:
+            summary_extra_stats.update(dict(extra_stats))
         self._set_export_status(
             "run_summary",
             role="execution_summary",
@@ -44,7 +47,7 @@ class ArtifactService:
             output_files=self.run_state.artifacts.output_files,
             startup_pressure_precheck=startup_pressure_precheck,
             export_statuses=self.run_state.artifacts.export_statuses,
-            extra_stats=extra_stats,
+            extra_stats=summary_extra_stats,
         )
         if remember:
             self.host._remember_output_file(str(path))
@@ -229,6 +232,8 @@ class ArtifactService:
                     startup_pressure_precheck=startup_pressure_precheck,
                     extra_stats=dict(offline_payload.get("summary_stats") or {}),
                 )
+            self._export_run001_a1_artifacts()
+            self._export_run001_a2_artifacts()
             self.host._remember_output_file(str(self.context.data_writer.log_path))
             self.host._remember_output_file(str(self.context.run_logger.points_path))
             self.host._remember_output_file(str(self.context.run_logger.io_log_path))
@@ -243,6 +248,18 @@ class ArtifactService:
             except Exception:
                 return None
         return None
+
+    def _host_summary_extra_stats(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        device_policy = getattr(self.host, "_device_init_policy_summary", None)
+        if callable(device_policy):
+            try:
+                policy_payload = device_policy()
+            except Exception:
+                policy_payload = {}
+            if isinstance(policy_payload, dict):
+                payload.update(policy_payload)
+        return payload
 
     def _run_mode(self) -> str:
         workflow = getattr(self.context.config, "workflow", None)
@@ -337,6 +354,60 @@ class ArtifactService:
             "path": str(path or ""),
             "error": str(error or ""),
         }
+
+    def _export_run001_a1_artifacts(self) -> None:
+        service = getattr(self.host, "service", None)
+        raw_cfg = getattr(service, "_raw_cfg", None)
+        if isinstance(raw_cfg, dict) and raw_cfg.get("run001_a2") and not raw_cfg.get("run001_a1"):
+            return
+        try:
+            from ..run001_a1_dry_run import export_runtime_run001_a1_artifacts
+
+            written = export_runtime_run001_a1_artifacts(self.host, self.context.result_store.run_dir)
+        except Exception as exc:
+            self._set_export_status(
+                "run001_a1_evidence",
+                role="diagnostic_analysis",
+                status=self.STATUS_ERROR,
+                error=str(exc),
+            )
+            self.host._log(f"Run-001/A1 evidence export failed: {exc}")
+            return
+        if not written:
+            return
+        for key, path in written.items():
+            self.host._remember_output_file(str(path))
+            self._set_export_status(
+                f"run001_a1_{key}",
+                role="diagnostic_analysis",
+                status=self.STATUS_OK if Path(path).exists() else self.STATUS_MISSING,
+                path=str(path),
+            )
+
+    def _export_run001_a2_artifacts(self) -> None:
+        try:
+            from ..run001_a2_no_write import export_runtime_run001_a2_artifacts
+
+            written = export_runtime_run001_a2_artifacts(self.host, self.context.result_store.run_dir)
+        except Exception as exc:
+            self._set_export_status(
+                "run001_a2_evidence",
+                role="diagnostic_analysis",
+                status=self.STATUS_ERROR,
+                error=str(exc),
+            )
+            self.host._log(f"Run-001/A2 evidence export failed: {exc}")
+            return
+        if not written:
+            return
+        for key, path in written.items():
+            self.host._remember_output_file(str(path))
+            self._set_export_status(
+                f"run001_a2_{key}",
+                role="diagnostic_analysis",
+                status=self.STATUS_OK if Path(path).exists() else self.STATUS_MISSING,
+                path=str(path),
+            )
 
     def sync_results_to_storage(self) -> None:
         storage = getattr(self.context.config, "storage", None)

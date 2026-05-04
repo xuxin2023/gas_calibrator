@@ -4,6 +4,8 @@ This keeps the "2026-04-03 no-500" workflow explicit and reproducible:
 1. filter completed summary rows to exclude 500 hPa points
 2. export the standard calibration workbook from filtered summaries
 3. skip refit/QC/AI by default so the report stays summary-driven
+
+This is an offline bridge/sidecar entrypoint, not the V1 production runtime.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 import pandas as pd
 
+from ._no500_filter import filter_no_500_frame
 from ..v2.adapters import v1_postprocess_runner
 from ..v2.export import load_summary_workbook_rows
 
@@ -124,7 +127,7 @@ def run_from_cli(
     filter_summary: dict[str, dict[str, Any]] = {}
     for source_path in resolved_summary_paths:
         frame = load_summary_workbook_rows([source_path])
-        filtered_frame, stats = _filter_no_500_frame(frame)
+        filtered_frame, stats = filter_no_500_frame(frame)
         filtered_name = f"{source_path.stem}_no_500hpa.csv"
         filtered_path = target_dir / filtered_name
         _write_filtered_summary(filtered_path, filtered_frame)

@@ -36,10 +36,26 @@ KEY_ACTION_GROUPS: dict[str, tuple[str, ...]] = {
     "sample": ("sample_start", "sample_end"),
 }
 
+REVIEW_STAGE_GROUPS: dict[str, tuple[str, ...]] = {
+    "baseline_restore": ("route_baseline", "restore_baseline"),
+    "source_valve_selection": ("set_h2o_path", "set_co2_valves"),
+    "route_soak": ("wait_route_soak", "wait_route_ready", "wait_humidity", "wait_dewpoint"),
+    "seal": ("seal_route", "preseal_final_atmosphere_exit", "seal_transition"),
+    "setpoint_control": ("set_output", "set_pressure", "pressure_control_ready_gate"),
+    "post_pressure_hold": ("wait_post_pressure", "startup_pressure_hold"),
+    "sample": ("sample_start", "sample_end"),
+    "cleanup": ("cleanup", "restore_baseline", "final_safe_stop_routes", "final_safe_stop_pressure"),
+}
+
 
 def key_action_groups() -> dict[str, tuple[str, ...]]:
     """Central maintenance point for grouped route-trace actions."""
     return {name: tuple(actions) for name, actions in KEY_ACTION_GROUPS.items()}
+
+
+def review_stage_groups() -> dict[str, tuple[str, ...]]:
+    """Action groups used to make route-trace diffs reviewable by workflow stage."""
+    return {name: tuple(actions) for name, actions in REVIEW_STAGE_GROUPS.items()}
 
 
 @dataclass(frozen=True)
@@ -546,12 +562,41 @@ def compare_route_traces(
     return summaries
 
 
+def summarize_review_stages(events: list[RouteTraceEvent], route: str) -> dict[str, list[str]]:
+    route_events = [event for event in events if event.route == route]
+    summary: dict[str, list[str]] = {}
+    for stage, actions in review_stage_groups().items():
+        action_set = set(actions)
+        summary[stage] = [event.token for event in route_events if event.action in action_set]
+    return summary
+
+
+def _format_stage_status(v1_tokens: list[str], v2_tokens: list[str]) -> str:
+    v1_counter = Counter(v1_tokens)
+    v2_counter = Counter(v2_tokens)
+    missing = sum(max(0, count - v2_counter.get(token, 0)) for token, count in v1_counter.items())
+    extra = sum(max(0, count - v1_counter.get(token, 0)) for token, count in v2_counter.items())
+    order = sum(1 for left, right in zip(v1_tokens, v2_tokens) if left != right)
+    if not missing and not extra and not order and len(v1_tokens) == len(v2_tokens):
+        status = "MATCH"
+    elif missing or extra:
+        status = "MISSING_ACTION"
+    else:
+        status = "ORDERING_DIFFERENCE"
+    return (
+        f"{status} v1={len(v1_tokens)} v2={len(v2_tokens)} "
+        f"missing={missing} extra={extra} order={order}"
+    )
+
+
 def format_route_diff_report(
     v1_path: str | Path,
     v2_path: str | Path,
     summaries: list[RouteDiffSummary],
 ) -> str:
     matches = all(summary.matches for summary in summaries)
+    v1_events = load_route_trace(v1_path) if Path(v1_path).exists() else []
+    v2_events = load_route_trace(v2_path) if Path(v2_path).exists() else []
     lines = [
         "Route Trace Diff",
         f"V1 trace: {Path(v1_path)}",
@@ -563,6 +608,14 @@ def format_route_diff_report(
         lines.append(f"[{summary.route.upper()}]")
         lines.append(f"  V1 events: {summary.v1_count}")
         lines.append(f"  V2 events: {summary.v2_count}")
+        v1_stage_summary = summarize_review_stages(v1_events, summary.route)
+        v2_stage_summary = summarize_review_stages(v2_events, summary.route)
+        lines.append("  Review stages:")
+        for stage in review_stage_groups():
+            lines.append(
+                f"    - {stage}: "
+                f"{_format_stage_status(v1_stage_summary.get(stage, []), v2_stage_summary.get(stage, []))}"
+            )
         lines.append(f"  Missing in V2: {len(summary.missing_in_v2)}")
         for token in summary.missing_in_v2[:5]:
             lines.append(f"    - {token}")

@@ -1,0 +1,3 @@
+point_index,route,temperature_c,co2_ppm,quality_score,valid,result_level,recommendation,reason,reason_codes,reject_categories,failed_checks,ai_explanation
+1,h2o,20.0,,0.6000000000000001,False,warn,review,time_not_continuous,"[""time_not_continuous""]","[""timing""]","[{""rule_name"": ""time_continuity"", ""actual"": 0, ""threshold"": 1, ""message"": ""Timestamps are not continuous""}]",
+2,h2o,20.0,,0.6000000000000001,False,warn,review,time_not_continuous,"[""time_not_continuous""]","[""timing""]","[{""rule_name"": ""time_continuity"", ""actual"": 0, ""threshold"": 1, ""message"": ""Timestamps are not continuous""}]",

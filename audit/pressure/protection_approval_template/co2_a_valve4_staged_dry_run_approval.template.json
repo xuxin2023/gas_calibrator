@@ -1,0 +1,19 @@
+{
+  "approval_type": "co2_a_staged_dry_run_pressure_protection_approval",
+  "route": "CO2_A",
+  "source_final_valve_under_test": 4,
+  "approval_scope": "CO2_A_VALVE_4_STAGED_DRY_RUN_ONLY",
+  "retry_scope": "staged_source_final_release_dry_run",
+  "retry_allowed_for_scope": false,
+  "analyzer_pressure_protection_active": false,
+  "mechanical_pressure_protection_confirmed": false,
+  "not_full_v1_production_approval": true,
+  "not_full_formal_approval": true,
+  "does_not_open_4_24_10": true,
+  "does_not_run_real_sealed_pressure_transition": true,
+  "required_before_retry": [
+    "set retry_allowed_for_scope=true only after same-source approval",
+    "set either mechanical_pressure_protection_confirmed=true or analyzer_pressure_protection_active=true",
+    "fill approver/date/description"
+  ]
+}

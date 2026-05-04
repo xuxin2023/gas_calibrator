@@ -15,6 +15,7 @@ UNCERTAINTY_REPOSITORY_MODE = "file_artifact_first"
 UNCERTAINTY_GATEWAY_MODE = "file_backed_default"
 UNCERTAINTY_DB_READY_MODE = "db_ready_stub"
 UNCERTAINTY_REPOSITORY_TOOL = "gas_calibrator.v2.adapters.uncertainty_gateway"
+UNCERTAINTY_INPUT_FIXTURE_FILENAME = "uncertainty_budget_inputs.json"
 
 _LINKED_SURFACES = ["results", "review_center", "workbench", "historical_artifacts"]
 _ARTIFACT_KEYS = (
@@ -95,6 +96,7 @@ class FileBackedUncertaintyRepository:
             scope_readiness_summary=self.scope_readiness_summary,
             compatibility_scan_summary=self.compatibility_scan_summary,
         ).load_snapshot()
+        uncertainty_fixture, fixture_artifact_paths = self._load_uncertainty_fixture_bundle()
         fallback_artifacts = build_uncertainty_wp3_artifacts(
             run_id=str(
                 self.summary.get("run_id")
@@ -107,6 +109,8 @@ class FileBackedUncertaintyRepository:
             certificate_lifecycle_summary=self._as_bundle(recognition_snapshot.get("certificate_lifecycle_summary")),
             pre_run_readiness_gate=self._as_bundle(recognition_snapshot.get("pre_run_readiness_gate")),
             path_map=self._artifact_paths(),
+            uncertainty_fixture=uncertainty_fixture,
+            fixture_artifact_paths=fixture_artifact_paths,
             filenames=self._artifact_filenames(),
             boundary_statements=[
                 "readiness mapping only",
@@ -142,6 +146,25 @@ class FileBackedUncertaintyRepository:
             "digest": dict(raw.get("digest") or {}),
             "review_surface": dict(raw.get("review_surface") or {}),
         }
+
+    def _load_uncertainty_fixture_bundle(self) -> tuple[dict[str, Any], dict[str, str]]:
+        run_fixture_path = self.run_dir / UNCERTAINTY_INPUT_FIXTURE_FILENAME
+        run_fixture_payload = self._load_json(UNCERTAINTY_INPUT_FIXTURE_FILENAME)
+        if run_fixture_payload:
+            return (
+                dict(run_fixture_payload),
+                {
+                    "uncertainty_fixture_file": str(run_fixture_path),
+                    "uncertainty_fixture_source": "run_dir_override",
+                },
+            )
+        metrology_fixtures = recognition_readiness.load_metrology_registry_fixtures()
+        fixture_paths = dict(recognition_readiness._fixture_artifact_paths(metrology_fixtures))
+        fixture_paths["uncertainty_fixture_source"] = "readiness_fixture_root"
+        return (
+            dict(metrology_fixtures.get("uncertainty_budget_inputs") or {}),
+            fixture_paths,
+        )
 
     def _load_payload(self, artifact_key: str, filename: str, *, fallback_bundle: dict[str, Any]) -> dict[str, Any]:
         payload = self._load_json(filename) or self._read_summary_section(artifact_key)

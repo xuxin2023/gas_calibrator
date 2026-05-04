@@ -65,6 +65,7 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "suite_evidence_registry",
         "stage_admission_review_pack",
         "engineering_isolation_admission_checklist",
+        "engineering_isolation_gate_result",
         "stage3_real_validation_plan",
         "stage3_standards_alignment_matrix",
     ],
@@ -74,6 +75,9 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "qc_manifest",
         "qc_reviewer_digest",
         "temperature_snapshots",
+        "workflow_timing_trace",
+        "workflow_timing_summary",
+        "high_pressure_first_point_evidence",
         "analytics_summary",
         "spectral_quality_summary",
         "trend_registry",
@@ -137,6 +141,23 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "comparison_rollup_markdown",
         "step2_closeout_digest",
         "step2_closeout_digest_markdown",
+        "step2_closeout_bundle",
+        "step2_closeout_evidence_index",
+        "step2_closeout_summary_markdown",
+        "evidence_coverage_matrix",
+        "result_traceability_tree",
+        "evidence_lineage_index",
+        "reviewer_anchor_navigation",
+        "ai_run_summary_markdown",
+        "run_metadata_profile",
+        "operator_authorization_profile",
+        "training_record",
+        "sop_version_binding",
+        "qc_flag_catalog",
+        "recovery_action_log",
+        "reviewer_dual_check_placeholder",
+        "engineering_isolation_blockers",
+        "engineering_isolation_warnings",
         "suite_analytics_summary",
         "summary_parity_report",
         "summary_parity_report_markdown",
@@ -157,6 +178,28 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "analyzer_chain_compare_vs_8ch_report",
         "analyzer_chain_compare_vs_baseline_report",
         "analyzer_chain_operator_checklist",
+        "v1_v2_control_flow_compare_report",
+        "v1_v2_control_flow_compare_markdown",
+        "v1_v2_route_trace_diff",
+        "v1_v2_point_presence_diff",
+        "v1_v2_sample_count_diff",
+        "v1_v2_control_flow_compare_artifact_inventory",
+        "replacement_full_route_simulated_bundle",
+        "replacement_full_route_simulated_latest",
+        "replacement_full_route_simulated_diagnostic_bundle",
+        "replacement_full_route_simulated_diagnostic_latest",
+        "replacement_skip0_co2_only_simulated_bundle",
+        "replacement_skip0_co2_only_simulated_latest",
+        "replacement_h2o_only_simulated_bundle",
+        "replacement_h2o_only_simulated_latest",
+        "skip0_co2_only_replacement_bundle",
+        "skip0_co2_only_replacement_latest",
+        "skip0_co2_only_diagnostic_relaxed_bundle",
+        "skip0_co2_only_diagnostic_relaxed_latest",
+        "skip0_replacement_bundle",
+        "skip0_replacement_latest",
+        "h2o_only_replacement_bundle",
+        "h2o_only_replacement_latest",
     ],
     "formal_analysis": [
         "coefficient_report",
@@ -164,6 +207,7 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "phase_transition_bridge_reviewer_artifact",
         "stage_admission_review_pack_reviewer_artifact",
         "engineering_isolation_admission_checklist_reviewer_artifact",
+        "engineering_isolation_gate_digest",
         "stage3_real_validation_plan_reviewer_artifact",
         "stage3_standards_alignment_matrix_reviewer_artifact",
         "scope_definition_pack_markdown",
@@ -196,6 +240,7 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "comparison_digest_markdown",
         "comparison_rollup_markdown",
         "step2_closeout_digest_markdown",
+        "step2_closeout_summary_markdown",
     ],
 }
 
@@ -231,12 +276,19 @@ KNOWN_ARTIFACT_KEYS_BY_FILENAME: dict[str, str] = {
     "qc_manifest.json": "qc_manifest",
     "qc_reviewer_digest.md": "qc_reviewer_digest",
     "temperature_snapshots.json": "temperature_snapshots",
+    "workflow_timing_trace.jsonl": "workflow_timing_trace",
+    "workflow_timing_summary.json": "workflow_timing_summary",
+    "high_pressure_first_point_evidence.json": "high_pressure_first_point_evidence",
     "calibration_coefficients.xlsx": "coefficient_report",
     "phase_transition_bridge_reviewer.md": "phase_transition_bridge_reviewer_artifact",
     "stage_admission_review_pack.json": "stage_admission_review_pack",
     "stage_admission_review_pack.md": "stage_admission_review_pack_reviewer_artifact",
     "engineering_isolation_admission_checklist.json": "engineering_isolation_admission_checklist",
     "engineering_isolation_admission_checklist.md": "engineering_isolation_admission_checklist_reviewer_artifact",
+    "engineering_isolation_gate_result.json": "engineering_isolation_gate_result",
+    "engineering_isolation_gate_digest.md": "engineering_isolation_gate_digest",
+    "engineering_isolation_blockers.json": "engineering_isolation_blockers",
+    "engineering_isolation_warnings.json": "engineering_isolation_warnings",
     "stage3_real_validation_plan.json": "stage3_real_validation_plan",
     "stage3_real_validation_plan.md": "stage3_real_validation_plan_reviewer_artifact",
     "stage3_standards_alignment_matrix.json": "stage3_standards_alignment_matrix",
@@ -350,9 +402,44 @@ KNOWN_ARTIFACT_KEYS_BY_FILENAME: dict[str, str] = {
     "comparison_rollup.md": "comparison_rollup_markdown",
     "step2_closeout_digest.json": "step2_closeout_digest",
     "step2_closeout_digest.md": "step2_closeout_digest_markdown",
+    "step2_closeout_bundle.json": "step2_closeout_bundle",
+    "step2_closeout_evidence_index.json": "step2_closeout_evidence_index",
+    "step2_closeout_summary.md": "step2_closeout_summary_markdown",
+    "evidence_coverage_matrix.json": "evidence_coverage_matrix",
+    "result_traceability_tree.json": "result_traceability_tree",
+    "evidence_lineage_index.json": "evidence_lineage_index",
+    "reviewer_anchor_navigation.json": "reviewer_anchor_navigation",
+    "run_metadata_profile.json": "run_metadata_profile",
+    "operator_authorization_profile.json": "operator_authorization_profile",
+    "training_record.json": "training_record",
+    "sop_version_binding.json": "sop_version_binding",
+    "qc_flag_catalog.json": "qc_flag_catalog",
+    "recovery_action_log.json": "recovery_action_log",
+    "reviewer_dual_check_placeholder.json": "reviewer_dual_check_placeholder",
     "workbench_action_report.json": "workbench_action_report_json",
     "workbench_action_report.md": "workbench_action_report_markdown",
     "workbench_action_snapshot.json": "workbench_action_snapshot",
+    "control_flow_compare_report.json": "v1_v2_control_flow_compare_report",
+    "control_flow_compare_report.md": "v1_v2_control_flow_compare_markdown",
+    "route_trace_diff.txt": "v1_v2_route_trace_diff",
+    "point_presence_diff.json": "v1_v2_point_presence_diff",
+    "sample_count_diff.json": "v1_v2_sample_count_diff",
+    "replacement_full_route_simulated_bundle.json": "replacement_full_route_simulated_bundle",
+    "replacement_full_route_simulated_latest.json": "replacement_full_route_simulated_latest",
+    "replacement_full_route_simulated_diagnostic_bundle.json": "replacement_full_route_simulated_diagnostic_bundle",
+    "replacement_full_route_simulated_diagnostic_latest.json": "replacement_full_route_simulated_diagnostic_latest",
+    "replacement_skip0_co2_only_simulated_bundle.json": "replacement_skip0_co2_only_simulated_bundle",
+    "replacement_skip0_co2_only_simulated_latest.json": "replacement_skip0_co2_only_simulated_latest",
+    "replacement_h2o_only_simulated_bundle.json": "replacement_h2o_only_simulated_bundle",
+    "replacement_h2o_only_simulated_latest.json": "replacement_h2o_only_simulated_latest",
+    "skip0_co2_only_replacement_bundle.json": "skip0_co2_only_replacement_bundle",
+    "skip0_co2_only_replacement_latest.json": "skip0_co2_only_replacement_latest",
+    "skip0_co2_only_diagnostic_relaxed_bundle.json": "skip0_co2_only_diagnostic_relaxed_bundle",
+    "skip0_co2_only_diagnostic_relaxed_latest.json": "skip0_co2_only_diagnostic_relaxed_latest",
+    "skip0_replacement_bundle.json": "skip0_replacement_bundle",
+    "skip0_replacement_latest.json": "skip0_replacement_latest",
+    "h2o_only_replacement_bundle.json": "h2o_only_replacement_bundle",
+    "h2o_only_replacement_latest.json": "h2o_only_replacement_latest",
     "ai_run_summary.md": "ai_run_summary_markdown",
     "run_summary.txt": "run_summary_text",
     "route_trace.jsonl": "route_trace",
@@ -391,6 +478,8 @@ KNOWN_REPORT_ARTIFACTS = [
     "qc_manifest.json",
     "qc_reviewer_digest.md",
     "temperature_snapshots.json",
+    "workflow_timing_trace.jsonl",
+    "workflow_timing_summary.json",
     "ai_run_summary.md",
     "run_summary.txt",
     "calibration_coefficients.xlsx",
@@ -399,6 +488,10 @@ KNOWN_REPORT_ARTIFACTS = [
     "stage_admission_review_pack.md",
     "engineering_isolation_admission_checklist.json",
     "engineering_isolation_admission_checklist.md",
+    "engineering_isolation_gate_result.json",
+    "engineering_isolation_gate_digest.md",
+    "engineering_isolation_blockers.json",
+    "engineering_isolation_warnings.json",
     "stage3_real_validation_plan.json",
     "stage3_real_validation_plan.md",
     "stage3_standards_alignment_matrix.json",
@@ -512,6 +605,20 @@ KNOWN_REPORT_ARTIFACTS = [
     "comparison_rollup.md",
     "step2_closeout_digest.json",
     "step2_closeout_digest.md",
+    "step2_closeout_bundle.json",
+    "step2_closeout_evidence_index.json",
+    "step2_closeout_summary.md",
+    "evidence_coverage_matrix.json",
+    "result_traceability_tree.json",
+    "evidence_lineage_index.json",
+    "reviewer_anchor_navigation.json",
+    "run_metadata_profile.json",
+    "operator_authorization_profile.json",
+    "training_record.json",
+    "sop_version_binding.json",
+    "qc_flag_catalog.json",
+    "recovery_action_log.json",
+    "reviewer_dual_check_placeholder.json",
     "workbench_action_report.json",
     "workbench_action_report.md",
     "workbench_action_snapshot.json",
@@ -608,6 +715,19 @@ def _infer_diagnostic_artifact_key(path: Path, *, text: str) -> str:
             return "analyzer_chain_operator_checklist"
         if filename.endswith(".png"):
             return "analyzer_chain_diagnostic_plot"
+    if bundle_kind == "control_flow_compare":
+        if filename == "control_flow_compare_report.json":
+            return "v1_v2_control_flow_compare_report"
+        if filename == "control_flow_compare_report.md":
+            return "v1_v2_control_flow_compare_markdown"
+        if filename == "route_trace_diff.txt":
+            return "v1_v2_route_trace_diff"
+        if filename == "point_presence_diff.json":
+            return "v1_v2_point_presence_diff"
+        if filename == "sample_count_diff.json":
+            return "v1_v2_sample_count_diff"
+        if filename == "artifact_inventory.json":
+            return "v1_v2_control_flow_compare_artifact_inventory"
     if filename == "diagnostic_summary.json":
         return "room_temp_diagnostic_summary"
     if filename == "isolation_comparison_summary.json":
@@ -630,8 +750,12 @@ def _diagnostic_bundle_kind(path: Path, *, text: str) -> str:
             return "room_temp"
         if parent and (parent / "isolation_comparison_summary.json").exists():
             return "analyzer_chain"
+        if parent and (parent / "control_flow_compare_report.json").exists():
+            return "control_flow_compare"
     except Exception:
         pass
+    if "control_flow_compare" in normalized or "v1_v2_compare" in normalized:
+        return "control_flow_compare"
     if "analyzer_chain" in normalized or "chain_isolation" in normalized:
         return "analyzer_chain"
     if "room_temp" in normalized or "pressure_diagnostic" in normalized:
@@ -640,4 +764,6 @@ def _diagnostic_bundle_kind(path: Path, *, text: str) -> str:
         return "room_temp"
     if filename == "isolation_comparison_summary.json":
         return "analyzer_chain"
+    if filename == "control_flow_compare_report.json":
+        return "control_flow_compare"
     return ""

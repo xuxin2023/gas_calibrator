@@ -1,0 +1,9 @@
+{
+  "profile": "OLD_PACE5000",
+  ":OUTP:STAT?": ":OUTP:STAT 0",
+  ":SENS:PRES?": ":SENS:PRES -0.0306539",
+  ":SENS:PRES:INL?": ":SENS:PRES:INL 1014.2962646, 0",
+  ":SYST:ERR?": ":SYST:ERR 0, No error",
+  "read_pressure": -0.0305774,
+  "control_pressure": -0.0307179
+}

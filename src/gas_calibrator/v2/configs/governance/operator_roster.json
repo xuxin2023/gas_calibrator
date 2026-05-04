@@ -1,0 +1,32 @@
+{
+  "schema_version": "step2-human-governance-fixtures-v1",
+  "people": [
+    {
+      "person_id": "OP-SIM-LI",
+      "display_name": "李敏",
+      "role": "operator",
+      "active_state": "active",
+      "environment_scope": ["simulation", "offline", "headless"],
+      "route_scope": ["gas", "water"],
+      "reviewer_only_note": "Step 2 simulation roster only; not real operator authorization."
+    },
+    {
+      "person_id": "RVW-STEP2-CHEN",
+      "display_name": "陈工",
+      "role": "reviewer",
+      "active_state": "active",
+      "environment_scope": ["simulation", "offline", "headless", "reviewer_only"],
+      "route_scope": ["gas", "water"],
+      "reviewer_only_note": "Reviewer-facing placeholder only; not electronic approval."
+    },
+    {
+      "person_id": "QA-STEP2-ZHAO",
+      "display_name": "赵工",
+      "role": "qa_observer",
+      "active_state": "active",
+      "environment_scope": ["simulation", "offline", "headless"],
+      "route_scope": ["gas", "water"],
+      "reviewer_only_note": "Observer row retained for reviewer metadata context."
+    }
+  ]
+}

@@ -653,7 +653,14 @@ def test_wait_after_pressure_stable_before_sampling_uses_cached_transition_frame
         maxlen=runner._sampling_fast_signal_ring_buffer_size(),
     )
     runner._pressure_transition_fast_signal_context = context
+    runner._set_pressure_controller_sampling_isolation = types.MethodType(
+        lambda self, point, phase="", context=None, handoff_mode="": True,
+        runner,
+    )
+    runner._wait_post_isolation_leak_test = types.MethodType(lambda self, point, phase="", context=None, handoff_mode="": True, runner)
+    runner._wait_sampling_pressure_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
     runner._wait_postseal_dewpoint_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
+    runner._wait_co2_presample_long_guard = types.MethodType(lambda self, point, phase="", context=None: True, runner)
     runner._refresh_pressure_transition_fast_signal_once = types.MethodType(
         lambda self, *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected sync refresh")),
         runner,
@@ -731,7 +738,14 @@ def test_wait_after_pressure_stable_warns_when_sampling_gate_prefers_gauge_witho
         lambda *_: None,
     )
     point = _point_co2()
+    runner._set_pressure_controller_sampling_isolation = types.MethodType(
+        lambda self, point, phase="", context=None, handoff_mode="": True,
+        runner,
+    )
+    runner._wait_post_isolation_leak_test = types.MethodType(lambda self, point, phase="", context=None, handoff_mode="": True, runner)
+    runner._wait_sampling_pressure_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
     runner._wait_postseal_dewpoint_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
+    runner._wait_co2_presample_long_guard = types.MethodType(lambda self, point, phase="", context=None: True, runner)
 
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()

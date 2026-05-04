@@ -1,0 +1,1198 @@
+{
+  "schema_version": "step2-software-validation-wp5-v1",
+  "artifact_type": "validation_evidence_index",
+  "generated_at": "2026-04-30T04:10:45+00:00",
+  "run_id": "run_20260430_121013",
+  "artifact_role": "diagnostic_analysis",
+  "evidence_source": "simulated",
+  "evidence_state": "reviewer_readiness_only",
+  "reviewer_only": true,
+  "readiness_mapping_only": true,
+  "simulation_only": true,
+  "ready_for_readiness_mapping": true,
+  "not_real_acceptance_evidence": true,
+  "not_ready_for_formal_claim": true,
+  "primary_evidence_rewritten": false,
+  "anchor_id": "validation-evidence-index",
+  "anchor_label": "Validation Evidence Index",
+  "linked_surface_visibility": [
+    "results_payload",
+    "reports",
+    "review_center",
+    "workbench_recognition_readiness"
+  ],
+  "surface_visibility_summary": "results_payload | reports | review_center | workbench_recognition_readiness",
+  "boundary_statements": [
+    "Step 2 reviewer readiness only",
+    "simulation / offline / headless only",
+    "file-artifact-first reviewer evidence",
+    "not real acceptance",
+    "not compliance claim",
+    "not accreditation claim",
+    "cannot replace real metrology validation"
+  ],
+  "digest": {
+    "summary": "Validation evidence index links artifacts, tests, and suite linkage.",
+    "scope_overview_summary": "run_20260430_121013-step2-scope-package",
+    "decision_rule_summary": "step2_readiness_reviewer_rule_v1",
+    "conformity_boundary_summary": "Current artifacts support readiness mapping and reviewer review only; they are not real acceptance evidence, formal release approval, or formal compliance claims.",
+    "current_coverage_summary": "parity not_linked | resilience ok | smoke simulation_run_present",
+    "missing_evidence_summary": "evidence index cannot be used as formal release approval or acceptance evidence",
+    "reviewer_next_step_digest": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+    "non_claim_digest": "Current artifacts support readiness mapping and reviewer review only; they are not real acceptance evidence, formal release approval, or formal compliance claims.",
+    "readiness_status": "validation_evidence_index_readiness_stub",
+    "blocker_summary": "evidence index remains file-backed and cannot be interpreted as formal approval evidence | system/recovery_retry: Phase remains test_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation | Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window | Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub",
+    "next_required_artifacts_summary": "artifact_hash_registry | release_manifest | verification_digest | verification_rollup | software_validation_traceability_matrix | requirement_design_code_test_links | validation_evidence_index | change_impact_summary | rollback_readiness_summary | audit_event_store | environment_fingerprint | config_fingerprint | release_input_digest | release_scope_summary | release_boundary_digest | release_evidence_pack_index | release_validation_manifest | audit_readiness_digest",
+    "linked_measurement_phase_summary": "system/recovery_retry=test_only",
+    "linked_measurement_gap_summary": "system/recovery_retry: Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+    "linked_readiness_impact_summary": "system/recovery_retry: software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+    "linked_method_confirmation_items_summary": "system/recovery_retry: Recovery retry scenario confirmation, Safe recovery procedure confirmation",
+    "linked_uncertainty_inputs_summary": "system/recovery_retry: Retry timing tolerance, Fault capture debounce window",
+    "linked_traceability_nodes_summary": "system/recovery_retry: Software event log chain, Recovery audit trail stub",
+    "linked_gap_classification_summary": "system/recovery_retry: recovery_retry_test_only_gap",
+    "linked_gap_severity_summary": "system/recovery_retry: medium",
+    "gap_reason": "system/recovery_retry: Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+    "boundary_digest": "Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation",
+    "limitation_note_summary": "Step 2 builds reviewer-facing software validation, audit hash, and release sidecars only; real release approval, formal compliance claims, and accreditation claims remain out of scope."
+  },
+  "review_surface": {
+    "title_text": "Validation Evidence Index",
+    "role_text": "diagnostic_analysis",
+    "reviewer_note": "This chain expresses requirement -> design -> code -> test -> artifact linkage in file-backed sidecars. No real signature, approval, anti-tamper, database default path, or primary-evidence rewrite is introduced.",
+    "summary_text": "Validation evidence index links reviewer-facing artifacts, tests, and suite statuses.",
+    "summary_lines": [
+      "artifact refs: 8",
+      "test refs: 8",
+      "parity / resilience / smoke: not_linked | ok | simulation_run_present",
+      "readiness status: validation_evidence_index_readiness_stub",
+      "linked measurement phases: system/recovery_retry=test_only",
+      "linked measurement gaps: system/recovery_retry: Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "readiness impact: system/recovery_retry: software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+      "reviewer next step: Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+      "next required artifacts: artifact_hash_registry | release_manifest | verification_digest | verification_rollup | software_validation_traceability_matrix | requirement_design_code_test_links | validation_evidence_index | change_impact_summary | rollback_readiness_summary | audit_event_store | environment_fingerprint | config_fingerprint | release_input_digest | release_scope_summary | release_boundary_digest | release_evidence_pack_index | release_validation_manifest | audit_readiness_digest",
+      "boundary: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation"
+    ],
+    "detail_lines": [
+      "uncertainty digest: uncertainty rollup | cases 6 | reviewer-only / file-artifact-first / not ready for formal claim",
+      "verification digest: verification rollup / reviewer-only / simulated",
+      "release sidecars: 16",
+      "visible surfaces: results_payload | reports | review_center | workbench_recognition_readiness",
+      "linked measurement phases: system/recovery_retry=test_only",
+      "linked measurement gaps: system/recovery_retry: Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "readiness impact: system/recovery_retry: software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+      "linked method confirmation items: system/recovery_retry: Recovery retry scenario confirmation, Safe recovery procedure confirmation",
+      "linked uncertainty inputs: system/recovery_retry: Retry timing tolerance, Fault capture debounce window",
+      "linked traceability nodes: system/recovery_retry: Software event log chain, Recovery audit trail stub",
+      "gap reason: system/recovery_retry: Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "missing evidence: evidence index cannot be used as formal release approval or acceptance evidence",
+      "blockers: evidence index remains file-backed and cannot be interpreted as formal approval evidence | system/recovery_retry: Phase remains test_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation | Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window | Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub",
+      "next required artifacts: artifact_hash_registry | release_manifest | verification_digest | verification_rollup | software_validation_traceability_matrix | requirement_design_code_test_links | validation_evidence_index | change_impact_summary | rollback_readiness_summary | audit_event_store | environment_fingerprint | config_fingerprint | release_input_digest | release_scope_summary | release_boundary_digest | release_evidence_pack_index | release_validation_manifest | audit_readiness_digest",
+      "reviewer next step: Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+      "limitation: Step 2 builds reviewer-facing software validation, audit hash, and release sidecars only; real release approval, formal compliance claims, and accreditation claims remain out of scope.",
+      "boundary: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation"
+    ],
+    "anchor_id": "validation-evidence-index",
+    "anchor_label": "Validation Evidence Index",
+    "phase_filters": [
+      "step2_tail_recognition_ready",
+      "recovery_retry"
+    ],
+    "route_filters": [
+      "system"
+    ],
+    "signal_family_filters": [],
+    "decision_result_filters": [],
+    "policy_version_filters": [],
+    "boundary_filter_rows": [
+      {
+        "id": "boundary:step2_reviewer_readiness_only",
+        "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+        "fragment_family": "boundary",
+        "fragment_key": "step2_reviewer_readiness_only",
+        "canonical_key": "step2_reviewer_readiness_only",
+        "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+        "params": {},
+        "label": "Step 2 reviewer readiness only",
+        "display_text": "Step 2 reviewer readiness only",
+        "text": "Step 2 reviewer readiness only",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:simulation_offline_headless_only",
+        "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+        "fragment_family": "boundary",
+        "fragment_key": "simulation_offline_headless_only",
+        "canonical_key": "simulation_offline_headless_only",
+        "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+        "params": {},
+        "label": "simulation / offline / headless only",
+        "display_text": "simulation / offline / headless only",
+        "text": "simulation / offline / headless only",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:file_artifact_first_reviewer_evidence",
+        "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+        "fragment_family": "boundary",
+        "fragment_key": "file_artifact_first_reviewer_evidence",
+        "canonical_key": "file_artifact_first_reviewer_evidence",
+        "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+        "params": {},
+        "label": "file-artifact-first reviewer evidence",
+        "display_text": "file-artifact-first reviewer evidence",
+        "text": "file-artifact-first reviewer evidence",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:not_real_acceptance_boundary",
+        "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+        "fragment_family": "boundary",
+        "fragment_key": "not_real_acceptance_boundary",
+        "canonical_key": "not_real_acceptance_boundary",
+        "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+        "params": {},
+        "label": "not real acceptance",
+        "display_text": "not real acceptance",
+        "text": "not real acceptance",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:cannot_replace_real_metrology_validation",
+        "canonical_fragment_id": "boundary:cannot_replace_real_metrology_validation",
+        "fragment_family": "boundary",
+        "fragment_key": "cannot_replace_real_metrology_validation",
+        "canonical_key": "cannot_replace_real_metrology_validation",
+        "i18n_key": "reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+        "params": {},
+        "label": "cannot replace real metrology validation",
+        "display_text": "cannot replace real metrology validation",
+        "text": "cannot replace real metrology validation",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      }
+    ],
+    "boundary_filters": [
+      "boundary:step2_reviewer_readiness_only",
+      "boundary:simulation_offline_headless_only",
+      "boundary:file_artifact_first_reviewer_evidence",
+      "boundary:not_real_acceptance_boundary",
+      "boundary:cannot_replace_real_metrology_validation"
+    ],
+    "non_claim_filter_rows": [],
+    "non_claim_filters": [],
+    "evidence_source_filters": [
+      "simulated",
+      "reviewer_readiness_only"
+    ],
+    "artifact_paths": {
+      "validation_evidence_index": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\validation_evidence_index.json",
+      "validation_evidence_index_markdown": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\validation_evidence_index.md"
+    },
+    "linked_surface_visibility": [
+      "results_payload",
+      "reports",
+      "review_center",
+      "workbench_recognition_readiness"
+    ],
+    "surface_visibility_summary": "results_payload | reports | review_center | workbench_recognition_readiness",
+    "anchor_refs": [
+      "measurement-phase-system-recovery-retry"
+    ]
+  },
+  "artifact_paths": {
+    "validation_evidence_index": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\validation_evidence_index.json",
+    "validation_evidence_index_markdown": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\validation_evidence_index.md"
+  },
+  "evidence_categories": [
+    "recognition_readiness",
+    "software_validation",
+    "validation_evidence"
+  ],
+  "traceability_id": "run_20260430_121013-software-validation-traceability",
+  "traceability_version": "v1.2-step2-reviewer",
+  "scope_id": "run_20260430_121013-step2-scope-package",
+  "decision_rule_id": "step2_readiness_reviewer_rule_v1",
+  "uncertainty_case_id": "run_20260430_121013-offline-result-rollup",
+  "method_confirmation_protocol_id": "run_20260430_121013-method-confirmation-protocol",
+  "artifact_refs": [
+    {
+      "artifact_type": "scope_definition_pack",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\scope_definition_pack.json"
+    },
+    {
+      "artifact_type": "decision_rule_profile",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\decision_rule_profile.json"
+    },
+    {
+      "artifact_type": "reference_asset_registry",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\reference_asset_registry.json"
+    },
+    {
+      "artifact_type": "certificate_lifecycle_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\certificate_lifecycle_summary.json"
+    },
+    {
+      "artifact_type": "pre_run_readiness_gate",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\pre_run_readiness_gate.json"
+    },
+    {
+      "artifact_type": "uncertainty_rollup",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\uncertainty_rollup.json"
+    },
+    {
+      "artifact_type": "method_confirmation_protocol",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\method_confirmation_protocol.json"
+    },
+    {
+      "artifact_type": "verification_rollup",
+      "path": "verification_rollup.json"
+    }
+  ],
+  "test_refs": [
+    "tests/v2/test_results_gateway.py",
+    "tests/v2/test_build_offline_governance_artifacts.py",
+    "tests/v2/test_ui_v2_review_center.py",
+    "tests/v2/test_ui_v2_workbench_evidence.py",
+    "tests/v2/test_historical_artifacts_cli.py",
+    "tests/v2/test_export_resilience.py",
+    "tests/v2/test_summary_parity.py",
+    "tests/v2/test_software_validation_wp5_contracts.py"
+  ],
+  "linked_test_suites": [
+    {
+      "suite_id": "parity",
+      "status": "not_linked"
+    },
+    {
+      "suite_id": "resilience",
+      "status": "ok"
+    },
+    {
+      "suite_id": "smoke",
+      "status": "simulation_run_present"
+    }
+  ],
+  "change_set_refs": [
+    "git:codex/run001-a1-no-write-dry-run@cb9a29de"
+  ],
+  "impact_scope": [
+    "results_summary",
+    "review_center",
+    "device_workbench",
+    "historical_artifacts",
+    "offline_sidecars",
+    "artifact_catalog_compatibility"
+  ],
+  "parity_status": "not_linked",
+  "resilience_status": "ok",
+  "smoke_status": "simulation_run_present",
+  "linked_surface_summary": "results_payload | reports | review_center | workbench_recognition_readiness",
+  "input_artifact_refs": [
+    {
+      "artifact_type": "scope_definition_pack",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\scope_definition_pack.json"
+    },
+    {
+      "artifact_type": "decision_rule_profile",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\decision_rule_profile.json"
+    },
+    {
+      "artifact_type": "reference_asset_registry",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\reference_asset_registry.json"
+    },
+    {
+      "artifact_type": "certificate_lifecycle_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\certificate_lifecycle_summary.json"
+    },
+    {
+      "artifact_type": "pre_run_readiness_gate",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\pre_run_readiness_gate.json"
+    },
+    {
+      "artifact_type": "uncertainty_rollup",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\uncertainty_rollup.json"
+    },
+    {
+      "artifact_type": "method_confirmation_protocol",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\method_confirmation_protocol.json"
+    },
+    {
+      "artifact_type": "verification_rollup",
+      "path": "verification_rollup.json"
+    }
+  ],
+  "reviewer_sidecar_artifact_refs": [
+    {
+      "artifact_type": "software_validation_traceability_matrix",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\software_validation_traceability_matrix.json"
+    },
+    {
+      "artifact_type": "requirement_design_code_test_links",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\requirement_design_code_test_links.json"
+    },
+    {
+      "artifact_type": "validation_evidence_index",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\validation_evidence_index.json"
+    },
+    {
+      "artifact_type": "change_impact_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\change_impact_summary.json"
+    },
+    {
+      "artifact_type": "rollback_readiness_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\rollback_readiness_summary.json"
+    },
+    {
+      "artifact_type": "artifact_hash_registry",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\artifact_hash_registry.json"
+    },
+    {
+      "artifact_type": "audit_event_store",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\audit_event_store.json"
+    },
+    {
+      "artifact_type": "environment_fingerprint",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\environment_fingerprint.json"
+    },
+    {
+      "artifact_type": "config_fingerprint",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\config_fingerprint.json"
+    },
+    {
+      "artifact_type": "release_input_digest",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\release_input_digest.json"
+    },
+    {
+      "artifact_type": "release_manifest",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\release_manifest.json"
+    },
+    {
+      "artifact_type": "release_scope_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\release_scope_summary.json"
+    },
+    {
+      "artifact_type": "release_boundary_digest",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\release_boundary_digest.json"
+    },
+    {
+      "artifact_type": "release_evidence_pack_index",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\release_evidence_pack_index.json"
+    },
+    {
+      "artifact_type": "release_validation_manifest",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\release_validation_manifest.json"
+    },
+    {
+      "artifact_type": "audit_readiness_digest",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\audit_readiness_digest.json"
+    }
+  ],
+  "evidence_rows": [
+    {
+      "row_type": "upstream_input_artifact",
+      "artifact_type": "scope_definition_pack",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\scope_definition_pack.json"
+    },
+    {
+      "row_type": "upstream_input_artifact",
+      "artifact_type": "decision_rule_profile",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\decision_rule_profile.json"
+    },
+    {
+      "row_type": "upstream_input_artifact",
+      "artifact_type": "reference_asset_registry",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\reference_asset_registry.json"
+    },
+    {
+      "row_type": "upstream_input_artifact",
+      "artifact_type": "certificate_lifecycle_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\certificate_lifecycle_summary.json"
+    },
+    {
+      "row_type": "upstream_input_artifact",
+      "artifact_type": "pre_run_readiness_gate",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\pre_run_readiness_gate.json"
+    },
+    {
+      "row_type": "upstream_input_artifact",
+      "artifact_type": "uncertainty_rollup",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\uncertainty_rollup.json"
+    },
+    {
+      "row_type": "upstream_input_artifact",
+      "artifact_type": "method_confirmation_protocol",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer\\v2_output\\run_20260430_121013\\method_confirmation_protocol.json"
+    },
+    {
+      "row_type": "upstream_input_artifact",
+      "artifact_type": "verification_rollup",
+      "path": "verification_rollup.json"
+    },
+    {
+      "row_type": "linked_test_suite",
+      "suite_id": "parity",
+      "status": "not_linked"
+    },
+    {
+      "row_type": "linked_test_suite",
+      "suite_id": "resilience",
+      "status": "ok"
+    },
+    {
+      "row_type": "linked_test_suite",
+      "suite_id": "smoke",
+      "status": "simulation_run_present"
+    }
+  ],
+  "reviewer_note": "This chain expresses requirement -> design -> code -> test -> artifact linkage in file-backed sidecars. No real signature, approval, anti-tamper, database default path, or primary-evidence rewrite is introduced.",
+  "limitation_note": "Step 2 builds reviewer-facing software validation, audit hash, and release sidecars only; real release approval, formal compliance claims, and accreditation claims remain out of scope.",
+  "non_claim_note": "Current artifacts support readiness mapping and reviewer review only; they are not real acceptance evidence, formal release approval, or formal compliance claims.",
+  "taxonomy_contract_version": "step2-taxonomy-contract-v1",
+  "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1",
+  "linked_artifact_refs": [],
+  "linked_measurement_phase_artifacts": [
+    {
+      "artifact_type": "measurement_phase_coverage_report",
+      "phase_route_key": "system:recovery_retry",
+      "route_family": "system",
+      "phase_name": "recovery_retry",
+      "route_phase": "system/recovery_retry",
+      "anchor_id": "measurement-phase-system-recovery-retry",
+      "anchor_label": "system/recovery_retry phase coverage",
+      "coverage_bucket": "test_only",
+      "coverage_bucket_display": "test_only",
+      "payload_completeness": "not_available",
+      "available_signal_layers": [],
+      "missing_signal_layers": [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality"
+      ],
+      "missing_reason_digest": "Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "gap_reason_fragments": [
+        {
+          "fragment_family": "gap_reason",
+          "fragment_key": "missing_layer_reason_explicit",
+          "canonical_key": "missing_layer_reason_explicit",
+          "canonical_fragment_id": "gap_reason:missing_layer_reason_explicit",
+          "i18n_key": "reviewer_fragments.gap_reason.missing_layer_reason_explicit",
+          "params": {
+            "details": "reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence"
+          },
+          "text": "Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+          "display_text": "Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "gap_reason_fragment_keys": [
+        "missing_layer_reason_explicit"
+      ],
+      "evidence_provenance": "test_only",
+      "readiness_impact_digest": "software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+      "readiness_impact_fragments": [
+        {
+          "fragment_family": "readiness_impact",
+          "fragment_key": "reviewer_coverage_only_linkage_open",
+          "canonical_key": "reviewer_coverage_only_linkage_open",
+          "canonical_fragment_id": "readiness_impact:reviewer_coverage_only_linkage_open",
+          "i18n_key": "reviewer_fragments.readiness_impact.reviewer_coverage_only_linkage_open",
+          "params": {
+            "dimensions": "software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub",
+            "coverage_bucket_label": "test_only"
+          },
+          "text": "software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+          "display_text": "software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "readiness_impact_fragment_keys": [
+        "reviewer_coverage_only_linkage_open"
+      ],
+      "gap_classification": "recovery_retry_test_only_gap",
+      "gap_severity": "medium",
+      "linked_method_confirmation_items": [
+        "Recovery retry scenario confirmation",
+        "Safe recovery procedure confirmation"
+      ],
+      "linked_method_confirmation_item_keys": [
+        "recovery_retry_scenario_confirmation",
+        "safe_recovery_procedure_confirmation"
+      ],
+      "linked_uncertainty_inputs": [
+        "Retry timing tolerance",
+        "Fault capture debounce window"
+      ],
+      "linked_uncertainty_input_keys": [
+        "retry_timing_tolerance",
+        "fault_capture_debounce_window"
+      ],
+      "linked_traceability_nodes": [
+        "Software event log chain",
+        "Recovery audit trail stub"
+      ],
+      "linked_traceability_node_keys": [
+        "software_event_log_chain",
+        "recovery_audit_trail_stub"
+      ],
+      "linked_traceability_stub_nodes": [
+        "Software event log chain",
+        "Recovery audit trail stub"
+      ],
+      "linked_readiness_summary": "Verification digest | Verification rollup | Software validation traceability matrix | Requirement / design / code / test links | Validation evidence index | Change impact summary | Rollback readiness summary | Artifact hash registry | Audit event store | Environment fingerprint | Config fingerprint | Release input digest | Release manifest | Release scope summary | Release boundary digest | Release evidence pack index | Release validation manifest | Audit readiness digest",
+      "blockers": [
+        "Phase remains test_only; richer simulated payload evidence is still missing",
+        "Missing signal layers: reference, analyzer_raw, output, data_quality",
+        "Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation",
+        "Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window",
+        "Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub"
+      ],
+      "blocker_fragments": [
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "coverage_bucket_richer_payload_missing",
+          "canonical_key": "coverage_bucket_richer_payload_missing",
+          "canonical_fragment_id": "blocker:coverage_bucket_richer_payload_missing",
+          "i18n_key": "reviewer_fragments.blocker.coverage_bucket_richer_payload_missing",
+          "params": {
+            "coverage_bucket_label": "test_only"
+          },
+          "text": "Phase remains test_only; richer simulated payload evidence is still missing",
+          "display_text": "Phase remains test_only; richer simulated payload evidence is still missing",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "missing_signal_layers_explicit",
+          "canonical_key": "missing_signal_layers_explicit",
+          "canonical_fragment_id": "blocker:missing_signal_layers_explicit",
+          "i18n_key": "reviewer_fragments.blocker.missing_signal_layers_explicit",
+          "params": {
+            "missing_layers": [
+              "reference",
+              "analyzer_raw",
+              "output",
+              "data_quality"
+            ]
+          },
+          "text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "display_text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_method_items_open",
+          "canonical_key": "linked_method_items_open",
+          "canonical_fragment_id": "blocker:linked_method_items_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_method_items_open",
+          "params": {
+            "items": [
+              "Recovery retry scenario confirmation",
+              "Safe recovery procedure confirmation"
+            ]
+          },
+          "text": "Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation",
+          "display_text": "Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_uncertainty_inputs_open",
+          "canonical_key": "linked_uncertainty_inputs_open",
+          "canonical_fragment_id": "blocker:linked_uncertainty_inputs_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_uncertainty_inputs_open",
+          "params": {
+            "items": [
+              "Retry timing tolerance",
+              "Fault capture debounce window"
+            ]
+          },
+          "text": "Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window",
+          "display_text": "Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_traceability_nodes_stub_only",
+          "canonical_key": "linked_traceability_nodes_stub_only",
+          "canonical_fragment_id": "blocker:linked_traceability_nodes_stub_only",
+          "i18n_key": "reviewer_fragments.blocker.linked_traceability_nodes_stub_only",
+          "params": {
+            "items": [
+              "Software event log chain",
+              "Recovery audit trail stub"
+            ]
+          },
+          "text": "Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub",
+          "display_text": "Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "blocker_fragment_keys": [
+        "coverage_bucket_richer_payload_missing",
+        "missing_signal_layers_explicit",
+        "linked_method_items_open",
+        "linked_uncertainty_inputs_open",
+        "linked_traceability_nodes_stub_only"
+      ],
+      "next_required_artifacts": [
+        "verification_digest",
+        "verification_rollup",
+        "software_validation_traceability_matrix",
+        "requirement_design_code_test_links",
+        "validation_evidence_index",
+        "change_impact_summary",
+        "rollback_readiness_summary",
+        "artifact_hash_registry",
+        "audit_event_store",
+        "environment_fingerprint",
+        "config_fingerprint",
+        "release_input_digest",
+        "release_manifest",
+        "release_scope_summary",
+        "release_boundary_digest",
+        "release_evidence_pack_index",
+        "release_validation_manifest",
+        "audit_readiness_digest"
+      ],
+      "gap_reason": "Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "reviewer_next_step_digest": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+      "reviewer_next_step_fragments": [
+        {
+          "fragment_family": "reviewer_next_step",
+          "fragment_key": "recovery_retry_test_only_hold",
+          "canonical_key": "recovery_retry_test_only_hold",
+          "canonical_fragment_id": "reviewer_next_step:recovery_retry_test_only_hold",
+          "i18n_key": "taxonomy.reviewer_next_step.recovery_retry_test_only_hold",
+          "params": {},
+          "text": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+          "display_text": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "reviewer_next_step_fragment_keys": [
+        "recovery_retry_test_only_hold"
+      ],
+      "reviewer_next_step_template_key": "recovery_retry_test_only_hold",
+      "reviewer_guidance_digest": "system/recovery_retry=test_only | available -- | missing reference, analyzer_raw, output, data_quality | reason Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence | impact software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage | method Recovery retry scenario confirmation, Safe recovery procedure confirmation | uncertainty Retry timing tolerance, Fault capture debounce window | traceability Software event log chain, Recovery audit trail stub | blockers Phase remains test_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation | Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window | Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub | next verification_digest | verification_rollup | software_validation_traceability_matrix | requirement_design_code_test_links | validation_evidence_index | change_impact_summary | rollback_readiness_summary | artifact_hash_registry | audit_event_store | environment_fingerprint | config_fingerprint | release_input_digest | release_manifest | release_scope_summary | release_boundary_digest | release_evidence_pack_index | release_validation_manifest | audit_readiness_digest | reviewer next step Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage. | boundary measurement-core reviewer evidence stays within Step 2 simulation-only boundaries",
+      "comparison_digest": "",
+      "taxonomy_contract_version": "step2-taxonomy-contract-v1",
+      "gap_classification_label": "Recovery/retry test-only gap",
+      "gap_severity_label": "Medium"
+    }
+  ],
+  "linked_measurement_phases": [
+    "system/recovery_retry"
+  ],
+  "linked_measurement_gaps": [
+    {
+      "route_phase": "system/recovery_retry",
+      "coverage_bucket": "test_only",
+      "coverage_bucket_display": "test_only",
+      "gap_classification": "recovery_retry_test_only_gap",
+      "gap_classification_label": "Recovery/retry test-only gap",
+      "gap_severity": "medium",
+      "gap_severity_label": "Medium",
+      "missing_signal_layers": [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality"
+      ],
+      "gap_reason": "Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "gap_reason_fragments": [
+        {
+          "fragment_family": "gap_reason",
+          "fragment_key": "missing_layer_reason_explicit",
+          "canonical_key": "missing_layer_reason_explicit",
+          "canonical_fragment_id": "gap_reason:missing_layer_reason_explicit",
+          "i18n_key": "reviewer_fragments.gap_reason.missing_layer_reason_explicit",
+          "params": {
+            "details": "reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence"
+          },
+          "text": "Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+          "display_text": "Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "gap_reason_fragment_keys": [
+        "missing_layer_reason_explicit"
+      ],
+      "readiness_impact_digest": "software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+      "readiness_impact_fragments": [
+        {
+          "fragment_family": "readiness_impact",
+          "fragment_key": "reviewer_coverage_only_linkage_open",
+          "canonical_key": "reviewer_coverage_only_linkage_open",
+          "canonical_fragment_id": "readiness_impact:reviewer_coverage_only_linkage_open",
+          "i18n_key": "reviewer_fragments.readiness_impact.reviewer_coverage_only_linkage_open",
+          "params": {
+            "dimensions": "software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub",
+            "coverage_bucket_label": "test_only"
+          },
+          "text": "software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+          "display_text": "software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "readiness_impact_fragment_keys": [
+        "reviewer_coverage_only_linkage_open"
+      ],
+      "linked_method_confirmation_item_keys": [
+        "recovery_retry_scenario_confirmation",
+        "safe_recovery_procedure_confirmation"
+      ],
+      "linked_method_confirmation_items": [
+        "Recovery retry scenario confirmation",
+        "Safe recovery procedure confirmation"
+      ],
+      "linked_uncertainty_input_keys": [
+        "retry_timing_tolerance",
+        "fault_capture_debounce_window"
+      ],
+      "linked_uncertainty_inputs": [
+        "Retry timing tolerance",
+        "Fault capture debounce window"
+      ],
+      "linked_traceability_node_keys": [
+        "software_event_log_chain",
+        "recovery_audit_trail_stub"
+      ],
+      "linked_traceability_nodes": [
+        "Software event log chain",
+        "Recovery audit trail stub"
+      ],
+      "blockers": [
+        "Phase remains test_only; richer simulated payload evidence is still missing",
+        "Missing signal layers: reference, analyzer_raw, output, data_quality",
+        "Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation",
+        "Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window",
+        "Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub"
+      ],
+      "blocker_fragments": [
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "coverage_bucket_richer_payload_missing",
+          "canonical_key": "coverage_bucket_richer_payload_missing",
+          "canonical_fragment_id": "blocker:coverage_bucket_richer_payload_missing",
+          "i18n_key": "reviewer_fragments.blocker.coverage_bucket_richer_payload_missing",
+          "params": {
+            "coverage_bucket_label": "test_only"
+          },
+          "text": "Phase remains test_only; richer simulated payload evidence is still missing",
+          "display_text": "Phase remains test_only; richer simulated payload evidence is still missing",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "missing_signal_layers_explicit",
+          "canonical_key": "missing_signal_layers_explicit",
+          "canonical_fragment_id": "blocker:missing_signal_layers_explicit",
+          "i18n_key": "reviewer_fragments.blocker.missing_signal_layers_explicit",
+          "params": {
+            "missing_layers": [
+              "reference",
+              "analyzer_raw",
+              "output",
+              "data_quality"
+            ]
+          },
+          "text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "display_text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_method_items_open",
+          "canonical_key": "linked_method_items_open",
+          "canonical_fragment_id": "blocker:linked_method_items_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_method_items_open",
+          "params": {
+            "items": [
+              "Recovery retry scenario confirmation",
+              "Safe recovery procedure confirmation"
+            ]
+          },
+          "text": "Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation",
+          "display_text": "Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_uncertainty_inputs_open",
+          "canonical_key": "linked_uncertainty_inputs_open",
+          "canonical_fragment_id": "blocker:linked_uncertainty_inputs_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_uncertainty_inputs_open",
+          "params": {
+            "items": [
+              "Retry timing tolerance",
+              "Fault capture debounce window"
+            ]
+          },
+          "text": "Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window",
+          "display_text": "Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_traceability_nodes_stub_only",
+          "canonical_key": "linked_traceability_nodes_stub_only",
+          "canonical_fragment_id": "blocker:linked_traceability_nodes_stub_only",
+          "i18n_key": "reviewer_fragments.blocker.linked_traceability_nodes_stub_only",
+          "params": {
+            "items": [
+              "Software event log chain",
+              "Recovery audit trail stub"
+            ]
+          },
+          "text": "Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub",
+          "display_text": "Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "blocker_fragment_keys": [
+        "coverage_bucket_richer_payload_missing",
+        "missing_signal_layers_explicit",
+        "linked_method_items_open",
+        "linked_uncertainty_inputs_open",
+        "linked_traceability_nodes_stub_only"
+      ],
+      "next_required_artifacts": [
+        "verification_digest",
+        "verification_rollup",
+        "software_validation_traceability_matrix",
+        "requirement_design_code_test_links",
+        "validation_evidence_index",
+        "change_impact_summary",
+        "rollback_readiness_summary",
+        "artifact_hash_registry",
+        "audit_event_store",
+        "environment_fingerprint",
+        "config_fingerprint",
+        "release_input_digest",
+        "release_manifest",
+        "release_scope_summary",
+        "release_boundary_digest",
+        "release_evidence_pack_index",
+        "release_validation_manifest",
+        "audit_readiness_digest"
+      ],
+      "reviewer_next_step_digest": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+      "reviewer_next_step_fragments": [
+        {
+          "fragment_family": "reviewer_next_step",
+          "fragment_key": "recovery_retry_test_only_hold",
+          "canonical_key": "recovery_retry_test_only_hold",
+          "canonical_fragment_id": "reviewer_next_step:recovery_retry_test_only_hold",
+          "i18n_key": "taxonomy.reviewer_next_step.recovery_retry_test_only_hold",
+          "params": {},
+          "text": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+          "display_text": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "reviewer_next_step_fragment_keys": [
+        "recovery_retry_test_only_hold"
+      ],
+      "reviewer_next_step_template_key": "recovery_retry_test_only_hold"
+    }
+  ],
+  "linked_method_confirmation_items": [
+    "Recovery retry scenario confirmation",
+    "Safe recovery procedure confirmation"
+  ],
+  "linked_uncertainty_inputs": [
+    "Retry timing tolerance",
+    "Fault capture debounce window"
+  ],
+  "linked_traceability_nodes": [
+    "Software event log chain",
+    "Recovery audit trail stub"
+  ],
+  "linked_gap_classification_keys": [
+    "recovery_retry_test_only_gap"
+  ],
+  "linked_gap_severity_keys": [
+    "medium"
+  ],
+  "linked_gap_reason_fragment_keys": [
+    "missing_layer_reason_explicit"
+  ],
+  "linked_blocker_fragment_keys": [
+    "coverage_bucket_richer_payload_missing",
+    "missing_signal_layers_explicit",
+    "linked_method_items_open",
+    "linked_uncertainty_inputs_open",
+    "linked_traceability_nodes_stub_only"
+  ],
+  "linked_reviewer_next_step_fragment_keys": [
+    "recovery_retry_test_only_hold"
+  ],
+  "linked_measurement_gap_summary": "system/recovery_retry: Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+  "linked_readiness_impact_summary": "system/recovery_retry: software validation, verification digest, audit, method confirmation, uncertainty inputs, traceability stub remains open because this phase has only test_only reviewer coverage",
+  "preseal_partial_gap_summary": "",
+  "gap_reason": "system/recovery_retry: Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+  "gap_reason_fragments": [
+    {
+      "fragment_family": "gap_reason",
+      "fragment_key": "missing_layer_reason_explicit",
+      "canonical_key": "missing_layer_reason_explicit",
+      "canonical_fragment_id": "gap_reason:missing_layer_reason_explicit",
+      "i18n_key": "reviewer_fragments.gap_reason.missing_layer_reason_explicit",
+      "params": {
+        "details": "reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence"
+      },
+      "text": "Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "display_text": "Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "gap_reason_fragment_keys": [
+    "missing_layer_reason_explicit"
+  ],
+  "missing_evidence": [
+    "evidence index cannot be used as formal release approval or acceptance evidence"
+  ],
+  "blockers": [
+    "evidence index remains file-backed and cannot be interpreted as formal approval evidence",
+    "system/recovery_retry: Phase remains test_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation | Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window | Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub"
+  ],
+  "blocker_fragments": [
+    {
+      "fragment_family": "blocker",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "evidence index remains file-backed and cannot be interpreted as formal approval evidence",
+      "display_text": "evidence index remains file-backed and cannot be interpreted as formal approval evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "blocker_fragment_keys": [
+    "coverage_bucket_richer_payload_missing",
+    "missing_signal_layers_explicit",
+    "linked_method_items_open",
+    "linked_uncertainty_inputs_open",
+    "linked_traceability_nodes_stub_only"
+  ],
+  "next_required_artifacts": [
+    "artifact_hash_registry",
+    "release_manifest",
+    "verification_digest",
+    "verification_rollup",
+    "software_validation_traceability_matrix",
+    "requirement_design_code_test_links",
+    "validation_evidence_index",
+    "change_impact_summary",
+    "rollback_readiness_summary",
+    "audit_event_store",
+    "environment_fingerprint",
+    "config_fingerprint",
+    "release_input_digest",
+    "release_scope_summary",
+    "release_boundary_digest",
+    "release_evidence_pack_index",
+    "release_validation_manifest",
+    "audit_readiness_digest"
+  ],
+  "readiness_status": "validation_evidence_index_readiness_stub",
+  "boundary_fragments": [
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "text": "Step 2 reviewer readiness only",
+      "display_text": "Step 2 reviewer readiness only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "text": "simulation / offline / headless only",
+      "display_text": "simulation / offline / headless only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "text": "file-artifact-first reviewer evidence",
+      "display_text": "file-artifact-first reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "text": "not real acceptance",
+      "display_text": "not real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "not compliance claim",
+      "display_text": "not compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "not accreditation claim",
+      "display_text": "not accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "cannot_replace_real_metrology_validation",
+      "canonical_key": "cannot_replace_real_metrology_validation",
+      "canonical_fragment_id": "boundary:cannot_replace_real_metrology_validation",
+      "i18n_key": "reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+      "params": {},
+      "text": "cannot replace real metrology validation",
+      "display_text": "cannot replace real metrology validation",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_fragment_keys": [
+    "step2_reviewer_readiness_only",
+    "simulation_offline_headless_only",
+    "file_artifact_first_reviewer_evidence",
+    "not_real_acceptance_boundary",
+    "cannot_replace_real_metrology_validation"
+  ],
+  "boundary_digest": "Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation",
+  "boundary_filter_rows": [
+    {
+      "id": "boundary:step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "label": "Step 2 reviewer readiness only",
+      "display_text": "Step 2 reviewer readiness only",
+      "text": "Step 2 reviewer readiness only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "label": "simulation / offline / headless only",
+      "display_text": "simulation / offline / headless only",
+      "text": "simulation / offline / headless only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "label": "file-artifact-first reviewer evidence",
+      "display_text": "file-artifact-first reviewer evidence",
+      "text": "file-artifact-first reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "label": "not real acceptance",
+      "display_text": "not real acceptance",
+      "text": "not real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:cannot_replace_real_metrology_validation",
+      "canonical_fragment_id": "boundary:cannot_replace_real_metrology_validation",
+      "fragment_family": "boundary",
+      "fragment_key": "cannot_replace_real_metrology_validation",
+      "canonical_key": "cannot_replace_real_metrology_validation",
+      "i18n_key": "reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+      "params": {},
+      "label": "cannot replace real metrology validation",
+      "display_text": "cannot replace real metrology validation",
+      "text": "cannot replace real metrology validation",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_filters": [
+    "boundary:step2_reviewer_readiness_only",
+    "boundary:simulation_offline_headless_only",
+    "boundary:file_artifact_first_reviewer_evidence",
+    "boundary:not_real_acceptance_boundary",
+    "boundary:cannot_replace_real_metrology_validation"
+  ],
+  "non_claim_fragments": [],
+  "non_claim_fragment_keys": [],
+  "non_claim_digest": "",
+  "non_claim_filter_rows": [],
+  "non_claim_filters": [],
+  "reviewer_next_step_digest": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+  "reviewer_next_step_fragments": [
+    {
+      "fragment_family": "reviewer_next_step",
+      "fragment_key": "recovery_retry_test_only_hold",
+      "canonical_key": "recovery_retry_test_only_hold",
+      "canonical_fragment_id": "reviewer_next_step:recovery_retry_test_only_hold",
+      "i18n_key": "taxonomy.reviewer_next_step.recovery_retry_test_only_hold",
+      "params": {},
+      "text": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+      "display_text": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "reviewer_next_step_fragment_keys": [
+    "recovery_retry_test_only_hold"
+  ],
+  "recognition_binding": {
+    "scope_id": "run_20260430_121013-step2-scope-package",
+    "scope_name": "",
+    "scope_version": "",
+    "decision_rule_id": "step2_readiness_reviewer_rule_v1",
+    "applicability_scope": {},
+    "applicability_scope_display": "",
+    "limitation_note": "Step 2 builds reviewer-facing software validation, audit hash, and release sidecars only; real release approval, formal compliance claims, and accreditation claims remain out of scope.",
+    "non_claim_note": "Current artifacts support readiness mapping and reviewer review only; they are not real acceptance evidence, formal release approval, or formal compliance claims.",
+    "readiness_status": "validation_evidence_index_readiness_stub",
+    "reviewer_only": true,
+    "readiness_mapping_only": true,
+    "not_real_acceptance_evidence": true,
+    "not_ready_for_formal_claim": true
+  }
+}

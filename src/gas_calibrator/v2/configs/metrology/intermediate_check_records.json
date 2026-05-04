@@ -1,0 +1,47 @@
+{
+  "schema_version": "step2-local-metrology-fixtures-v1",
+  "records": [
+    {
+      "record_id": "ICR-SG-2026-001",
+      "asset_id": "asset-standard-gas-sg-001",
+      "status": "pass",
+      "performed_at": "2026-03-15",
+      "record_kind": "intermediate_check"
+    },
+    {
+      "record_id": "ICR-HG-2026-001",
+      "asset_id": "asset-humidity-generator-hg-001",
+      "status": "pass",
+      "performed_at": "2026-03-10",
+      "record_kind": "intermediate_check"
+    },
+    {
+      "record_id": "ICR-PG-2025-001",
+      "asset_id": "asset-pressure-gauge-pg-001",
+      "status": "pass",
+      "performed_at": "2025-12-10",
+      "record_kind": "intermediate_check"
+    },
+    {
+      "record_id": "ICR-TC-2026-001",
+      "asset_id": "asset-temp-chamber-tc-001",
+      "status": "pass",
+      "performed_at": "2026-03-22",
+      "record_kind": "intermediate_check"
+    },
+    {
+      "record_id": "ICR-TH-2026-001",
+      "asset_id": "asset-thermometer-th-001",
+      "status": "pass",
+      "performed_at": "2026-03-30",
+      "record_kind": "intermediate_check"
+    },
+    {
+      "record_id": "ICR-PC-2026-001",
+      "asset_id": "asset-pressure-controller-pc-001",
+      "status": "pass",
+      "performed_at": "2026-03-05",
+      "record_kind": "intermediate_check"
+    }
+  ]
+}

@@ -226,6 +226,19 @@ def test_reports_page_displays_snapshot() -> None:
                 "result_summary_text": "运行与治理摘要：离线诊断 room-temp 1 | analyzer-chain 1\n配置安全：blocked",
                 "qc_summary_text": "质控摘要：运行门禁 warn | 点级门禁 warn\n证据边界：仅供 simulation/offline 审阅，不代表 real acceptance evidence。",
                 "ai_summary_text": "# AI Run Summary\nStable",
+                "step2_closeout_bundle": {
+                    "summary_line": "Step 2 收尾总包 ready for internal review",
+                    "summary_lines": [
+                        "Step 2 收尾总包 ready for internal review",
+                        "blocker/warning/info: 0/1/1",
+                    ],
+                    "warning_items": ["comparison bundle requires reviewer attention"],
+                },
+                "step2_closeout_compact_section": {
+                    "summary_key": "step2_closeout",
+                    "summary_line": "Step 2 收尾总包 ready for internal review",
+                },
+                "step2_closeout_summary_markdown": "# Step 2 收尾总包\n\nStep 2 收尾总包 ready for internal review\n",
                 "export": {"available_formats": ["json", "csv", "all"], "last_export_message": "Ready"},
             }
         )
@@ -240,6 +253,7 @@ def test_reports_page_displays_snapshot() -> None:
         assert "离线诊断 room-temp 1" in page.result_summary.get("1.0", "end")
         assert "质控摘要" in page.qc_summary.get("1.0", "end")
         assert "Stable" in page.ai_summary.text.get("1.0", "end")
+        assert "Step 2 收尾总包 ready for internal review" in page.closeout_bundle.get("1.0", "end")
 
         page.export_bar.export_all()
         page.export_bar.export_review_manifest()
@@ -457,7 +471,7 @@ def test_reports_page_prefers_artifact_scope_reviewer_display_payload(monkeypatc
     try:
         page = ReportsPage(root)
 
-        def _fake_scope_view(_files, *, selection=None):
+        def _fake_scope_view(_files, *, selection=None, compact_summary_packs=None):
             return {
                 "rows": [],
                 "summary_text": "top-level summary",
@@ -978,5 +992,460 @@ def test_reports_page_artifact_list_surfaces_stage3_standards_alignment_matrix_f
         assert "simulation / offline / headless only" in matrix_markdown
         assert "ready_for_engineering_isolation" not in matrix_markdown
         assert "real_acceptance_ready" not in matrix_markdown
+    finally:
+        root.destroy()
+
+
+def test_reports_page_result_summary_includes_external_comparison_closeout(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    rebuild_run(Path(facade.result_store.run_dir))
+    reports = facade.get_reports_snapshot()
+
+    compact_summary_packs = list(reports.get("compact_summary_packs") or [])
+    assert any(pack["summary_key"] == "external_comparison" for pack in compact_summary_packs)
+    comparison_pack = next(pack for pack in compact_summary_packs if pack["summary_key"] == "external_comparison")
+    assert any("external comparison rows" in str(line).lower() for line in list(comparison_pack.get("summary_lines") or []))
+    assert any("local-file-only" in str(line) for line in list(comparison_pack.get("compact_summary_lines") or []))
+
+
+def test_reports_page_displays_closeout_readiness() -> None:
+    """Reports page should display Step 2 closeout readiness panel."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        readiness = build_step2_readiness_summary(
+            run_id="test-closeout",
+            simulation_mode=True,
+            config_governance_handoff={
+                "simulation_only": True,
+                "operator_safe": True,
+                "real_port_device_count": 0,
+                "engineering_only_flag_count": 0,
+                "enabled_engineering_flags": [],
+                "execution_gate": {"status": "open"},
+                "step2_default_workflow_allowed": True,
+                "requires_explicit_unlock": False,
+            },
+        )
+        closeout = build_step2_closeout_readiness(
+            run_id="test-closeout",
+            step2_readiness_summary=readiness,
+        )
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_closeout",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "step2_closeout_readiness": closeout,
+            }
+        )
+        # Closeout readiness panel should have content
+        text_content = page.closeout_readiness.get("1.0", "end")
+        assert "Step 2" in text_content
+        assert "real acceptance" in text_content.lower() or "real acceptance" in text_content
+        # Boundary notice should be visible
+        boundary_text = page.closeout_readiness_boundary_var.get()
+        assert boundary_text  # non-empty
+        assert "real acceptance" in boundary_text.lower() or "real acceptance" in boundary_text
+    finally:
+        root.destroy()
+
+
+def test_reports_page_closeout_readiness_without_prebuilt_payload() -> None:
+    """Reports page should build closeout readiness on-the-fly if not in snapshot."""
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_closeout_auto",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+            }
+        )
+        # Even without pre-built closeout payload, the panel should have content
+        text_content = page.closeout_readiness.get("1.0", "end").strip()
+        assert text_content  # non-empty
+        assert "Step 2" in text_content
+    finally:
+        root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Step 2.20: Gate field rendering tests
+# ---------------------------------------------------------------------------
+
+def test_reports_page_displays_gate_status_in_closeout_readiness() -> None:
+    """Reports page closeout readiness panel should display gate_status line."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        readiness = build_step2_readiness_summary(
+            run_id="test-gate-status",
+            simulation_mode=True,
+            config_governance_handoff={
+                "simulation_only": True,
+                "operator_safe": True,
+                "real_port_device_count": 0,
+                "engineering_only_flag_count": 0,
+                "enabled_engineering_flags": [],
+                "execution_gate": {"status": "open"},
+                "step2_default_workflow_allowed": True,
+                "requires_explicit_unlock": False,
+            },
+        )
+        closeout = build_step2_closeout_readiness(
+            run_id="test-gate-status",
+            step2_readiness_summary=readiness,
+        )
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_gate_status",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "step2_closeout_readiness": closeout,
+            }
+        )
+        text_content = page.closeout_readiness.get("1.0", "end")
+        assert "门禁状态" in text_content
+    finally:
+        root.destroy()
+
+
+def test_reports_page_displays_gate_summary_in_closeout_readiness() -> None:
+    """Reports page closeout readiness panel should display gate_summary line."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        readiness = build_step2_readiness_summary(
+            run_id="test-gate-summary",
+            simulation_mode=True,
+            config_governance_handoff={
+                "simulation_only": True,
+                "operator_safe": True,
+                "real_port_device_count": 0,
+                "engineering_only_flag_count": 0,
+                "enabled_engineering_flags": [],
+                "execution_gate": {"status": "open"},
+                "step2_default_workflow_allowed": True,
+                "requires_explicit_unlock": False,
+            },
+        )
+        closeout = build_step2_closeout_readiness(
+            run_id="test-gate-summary",
+            step2_readiness_summary=readiness,
+        )
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_gate_summary",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "step2_closeout_readiness": closeout,
+            }
+        )
+        text_content = page.closeout_readiness.get("1.0", "end")
+        assert "门禁摘要" in text_content
+    finally:
+        root.destroy()
+
+
+def test_reports_page_displays_gate_alignment_in_closeout_readiness() -> None:
+    """Reports page closeout readiness panel should display closeout_gate_alignment line."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        readiness = build_step2_readiness_summary(
+            run_id="test-gate-alignment",
+            simulation_mode=True,
+            config_governance_handoff={
+                "simulation_only": True,
+                "operator_safe": True,
+                "real_port_device_count": 0,
+                "engineering_only_flag_count": 0,
+                "enabled_engineering_flags": [],
+                "execution_gate": {"status": "open"},
+                "step2_default_workflow_allowed": True,
+                "requires_explicit_unlock": False,
+            },
+        )
+        closeout = build_step2_closeout_readiness(
+            run_id="test-gate-alignment",
+            step2_readiness_summary=readiness,
+        )
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_gate_alignment",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "step2_closeout_readiness": closeout,
+            }
+        )
+        text_content = page.closeout_readiness.get("1.0", "end")
+        assert "收官-门禁对齐" in text_content
+    finally:
+        root.destroy()
+
+
+def test_reports_page_gate_fields_missing_shows_fallback() -> None:
+    """When gate fields are missing from closeout readiness, reports page should show fallback text."""
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        # Closeout readiness with reviewer_summary_lines but no gate fields
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_gate_missing",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "step2_closeout_readiness": {
+                    "reviewer_summary_lines": ["test summary line"],
+                    "simulation_only_boundary": "test boundary",
+                },
+            }
+        )
+        text_content = page.closeout_readiness.get("1.0", "end")
+        assert "暂无门禁数据" in text_content
+    finally:
+        root.destroy()
+
+
+def test_reports_page_misaligned_shows_warning_marker() -> None:
+    """When aligned=False, reports page should show warning marker."""
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        closeout = {
+            "reviewer_summary_lines": ["test line"],
+            "gate_status": "not_ready",
+            "gate_summary": {"pass_count": 0, "total_count": 1, "blocked_count": 1},
+            "closeout_gate_alignment": {"closeout_status": "ok", "gate_status": "not_ready", "aligned": False},
+            "simulation_only_boundary": "test boundary",
+        }
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_misaligned",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "step2_closeout_readiness": closeout,
+            }
+        )
+        text_content = page.closeout_readiness.get("1.0", "end")
+        assert "⚠" in text_content
+    finally:
+        root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Freeze audit display tests (Step 2.22)
+# ---------------------------------------------------------------------------
+
+def test_reports_page_has_freeze_audit_panel() -> None:
+    """ReportsPage should have a freeze_audit text panel attribute."""
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        assert hasattr(page, "freeze_audit"), "ReportsPage missing freeze_audit panel"
+        assert hasattr(page, "freeze_audit_boundary_var"), "ReportsPage missing freeze_audit_boundary_var"
+    finally:
+        root.destroy()
+
+
+def test_reports_page_renders_freeze_audit() -> None:
+    """ReportsPage should render freeze audit data when present in snapshot."""
+    from gas_calibrator.v2.core.step2_freeze_audit_builder import build_step2_freeze_audit
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        audit = build_step2_freeze_audit(run_id="test-run")
+        page.render({
+            "run_dir": "D:/tmp/run_freeze",
+            "files": [],
+            "review_center": _build_review_center_payload(),
+            "step2_freeze_audit": audit,
+        })
+        text_content = page.freeze_audit.get("1.0", "end")
+        assert text_content.strip(), "Freeze audit panel should not be empty"
+    finally:
+        root.destroy()
+
+
+def test_reports_page_renders_freeze_audit_from_closeout_package() -> None:
+    """ReportsPage should build freeze audit from closeout package when no pre-built freeze audit."""
+    from gas_calibrator.v2.core.step2_closeout_package_builder import build_step2_closeout_package
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        pkg = build_step2_closeout_package(run_id="test-run")
+        page.render({
+            "run_dir": "D:/tmp/run_no_freeze",
+            "files": [],
+            "review_center": _build_review_center_payload(),
+            "step2_closeout_package": pkg,
+        })
+        text_content = page.freeze_audit.get("1.0", "end")
+        assert text_content.strip(), "Freeze audit panel should be built from closeout package"
+    finally:
+        root.destroy()
+
+
+def test_reports_page_surfaces_uncertainty_summary_from_rebuilt_run(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(reports_snapshot)
+
+        summary_text = page.result_summary.get("1.0", "end")
+
+        assert "budget levels" in summary_text.lower()
+        assert "uncertainty binding" in summary_text.lower()
+        assert "calculation chain" in summary_text.lower()
+        assert "fixture" in summary_text.lower()
+    finally:
+        root.destroy()
+
+
+def test_reports_page_displays_final_closure_matrix() -> None:
+    from gas_calibrator.v2.core.step2_closeout_package_builder import build_step2_closeout_package
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_final_closure_matrix import build_step2_final_closure_matrix
+    from gas_calibrator.v2.core.step2_freeze_audit_builder import build_step2_freeze_audit
+    from gas_calibrator.v2.core.step2_freeze_seal_builder import build_step2_freeze_seal
+    from gas_calibrator.v2.core.step2_closeout_verification import build_step2_closeout_verification
+    from gas_calibrator.v2.core.step3_admission_dossier_builder import build_step3_admission_dossier
+
+    root = make_root()
+    try:
+        readiness = build_step2_closeout_readiness(run_id="reports-matrix")
+        package = build_step2_closeout_package(run_id="reports-matrix", step2_closeout_readiness=readiness)
+        audit = build_step2_freeze_audit(
+            run_id="reports-matrix",
+            step2_closeout_package=package,
+            step2_closeout_readiness=readiness,
+        )
+        dossier = build_step3_admission_dossier(
+            run_id="reports-matrix",
+            step2_freeze_audit=audit,
+            step2_closeout_package=package,
+            step2_closeout_readiness=readiness,
+        )
+        verification = build_step2_closeout_verification(
+            run_id="reports-matrix",
+            step2_closeout_readiness=readiness,
+            step2_closeout_package=package,
+            step2_freeze_audit=audit,
+            step3_admission_dossier=dossier,
+        )
+        seal = build_step2_freeze_seal(
+            run_id="reports-matrix",
+            step2_closeout_readiness=readiness,
+            step2_closeout_package=package,
+            step2_freeze_audit=audit,
+            step3_admission_dossier=dossier,
+            step2_closeout_verification=verification,
+        )
+        matrix = build_step2_final_closure_matrix(
+            run_id="reports-matrix",
+            step2_closeout_readiness=readiness,
+            step2_closeout_package=package,
+            step2_freeze_audit=audit,
+            step3_admission_dossier=dossier,
+            step2_freeze_seal=seal,
+        )
+
+        page = ReportsPage(root)
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_matrix",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "step2_final_closure_matrix": matrix,
+            }
+        )
+
+        text_content = page.final_closure_matrix.get("1.0", "end")
+        assert matrix["closure_matrix_status_label"] in text_content
+        assert "Step 2" in text_content
+        boundary_text = page.final_closure_matrix_boundary_var.get()
+        assert boundary_text
+        assert "real acceptance" in boundary_text.lower()
+    finally:
+        root.destroy()
+
+
+def test_reports_page_builds_final_closure_matrix_when_missing() -> None:
+    from gas_calibrator.v2.core.step2_closeout_package_builder import build_step2_closeout_package
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_freeze_audit_builder import build_step2_freeze_audit
+    from gas_calibrator.v2.core.step2_freeze_seal_builder import build_step2_freeze_seal
+    from gas_calibrator.v2.core.step2_closeout_verification import build_step2_closeout_verification
+    from gas_calibrator.v2.core.step3_admission_dossier_builder import build_step3_admission_dossier
+
+    root = make_root()
+    try:
+        readiness = build_step2_closeout_readiness(run_id="reports-matrix-auto")
+        package = build_step2_closeout_package(run_id="reports-matrix-auto", step2_closeout_readiness=readiness)
+        audit = build_step2_freeze_audit(
+            run_id="reports-matrix-auto",
+            step2_closeout_package=package,
+            step2_closeout_readiness=readiness,
+        )
+        dossier = build_step3_admission_dossier(
+            run_id="reports-matrix-auto",
+            step2_freeze_audit=audit,
+            step2_closeout_package=package,
+            step2_closeout_readiness=readiness,
+        )
+        verification = build_step2_closeout_verification(
+            run_id="reports-matrix-auto",
+            step2_closeout_readiness=readiness,
+            step2_closeout_package=package,
+            step2_freeze_audit=audit,
+            step3_admission_dossier=dossier,
+        )
+        seal = build_step2_freeze_seal(
+            run_id="reports-matrix-auto",
+            step2_closeout_readiness=readiness,
+            step2_closeout_package=package,
+            step2_freeze_audit=audit,
+            step3_admission_dossier=dossier,
+            step2_closeout_verification=verification,
+        )
+
+        page = ReportsPage(root)
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_matrix_auto",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "step2_closeout_readiness": readiness,
+                "step2_closeout_package": package,
+                "step2_freeze_audit": audit,
+                "step3_admission_dossier": dossier,
+                "step2_freeze_seal": seal,
+            }
+        )
+
+        text_content = page.final_closure_matrix.get("1.0", "end")
+        assert text_content.strip()
+        assert "Step 2" in text_content
+        assert page.final_closure_matrix_boundary_var.get()
     finally:
         root.destroy()

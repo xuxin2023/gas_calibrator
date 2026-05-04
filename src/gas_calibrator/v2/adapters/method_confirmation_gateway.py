@@ -8,6 +8,15 @@ from ..core.method_confirmation_repository import (
     MethodConfirmationRepository,
 )
 
+_PAYLOAD_KEYS = (
+    "method_confirmation_protocol",
+    "method_confirmation_matrix",
+    "route_specific_validation_matrix",
+    "validation_run_set",
+    "verification_digest",
+    "verification_rollup",
+)
+
 
 class MethodConfirmationGateway:
     """Read-only gateway for Step 2 method confirmation / verification reviewer payloads."""
@@ -27,11 +36,4 @@ class MethodConfirmationGateway:
 
     def read_payload(self) -> dict[str, Any]:
         snapshot = self.repository.load_snapshot()
-        return {
-            "method_confirmation_protocol": dict(snapshot.get("method_confirmation_protocol") or {}),
-            "method_confirmation_matrix": dict(snapshot.get("method_confirmation_matrix") or {}),
-            "route_specific_validation_matrix": dict(snapshot.get("route_specific_validation_matrix") or {}),
-            "validation_run_set": dict(snapshot.get("validation_run_set") or {}),
-            "verification_digest": dict(snapshot.get("verification_digest") or {}),
-            "verification_rollup": dict(snapshot.get("verification_rollup") or {}),
-        }
+        return {key: dict(snapshot.get(key) or {}) for key in _PAYLOAD_KEYS}

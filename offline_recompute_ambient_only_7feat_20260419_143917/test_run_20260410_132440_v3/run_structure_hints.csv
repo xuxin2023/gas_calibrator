@@ -1,0 +1,5 @@
+﻿CheckCode,Status,Summary,Detail
+single_run_scope,info,当前自动后处理只覆盖本轮 run,如果一次校准分成多轮完成，建议改用 merged calibration sidecar，并按 ActualDeviceId 合并后再计算最终系数。
+pressure_structure,warn,当前 run 仅包含 ambient 压力工况,不修改本轮结果，但若想更接近 2026-04-03 的约束力，建议后续至少保留 1 个 sealed 压力点。
+h2o_anchor_coverage,warn,H2O 0ppm 气路锚点覆盖不完整,期望温组 [10.0]°C，当前仅匹配到 []°C，缺少 [10.0]°C。
+h2o_anchor_quality_gate,warn,本轮有 4 个 H2O 气路锚点被质量门禁剔除,"命中 PointRow=14, 14, 14, 14。这不会改变原始点位记录，但会从 H2O 拟合中排除这些锚点。"

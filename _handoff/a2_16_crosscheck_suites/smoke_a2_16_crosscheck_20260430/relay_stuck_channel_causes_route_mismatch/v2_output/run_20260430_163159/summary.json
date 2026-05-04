@@ -1,0 +1,2772 @@
+{
+  "schema_version": "2.2",
+  "run_id": "run_20260430_163159",
+  "software_version": "0.1.0",
+  "software_build_id": "0.1.0",
+  "generated_at": "2026-04-30T16:32:19",
+  "started_at": "2026-04-30T16:31:59",
+  "ended_at": "2026-04-30T16:32:19",
+  "points_total": 4,
+  "points_completed": 4,
+  "total_points": 4,
+  "completed_points": 4,
+  "warnings": 5,
+  "errors": 0,
+  "progress": 1.0,
+  "status": {
+    "phase": "completed",
+    "total_points": 4,
+    "completed_points": 4,
+    "progress": 1.0,
+    "message": "Calibration completed",
+    "elapsed_s": 20.540158600000723,
+    "error": null
+  },
+  "stats": {
+    "run_id": "run_20260430_163159",
+    "sample_count": 64,
+    "warning_count": 5,
+    "error_count": 0,
+    "enabled_devices": [
+      "dewpoint_meter",
+      "gas_analyzer_0",
+      "gas_analyzer_1",
+      "gas_analyzer_2",
+      "gas_analyzer_3",
+      "gas_analyzer_4",
+      "gas_analyzer_5",
+      "gas_analyzer_6",
+      "gas_analyzer_7",
+      "humidity_generator",
+      "pressure_controller",
+      "pressure_meter",
+      "relay_a",
+      "relay_b",
+      "temperature_chamber"
+    ],
+    "point_summaries": [
+      {
+        "point": {
+          "index": 1,
+          "temperature_c": 20.0,
+          "co2_ppm": null,
+          "humidity_pct": 30.0,
+          "pressure_hpa": 1000.0,
+          "route": "h2o",
+          "humidity_generator_temp_c": 20.0,
+          "dewpoint_c": 1.0,
+          "h2o_mmol": 5.8,
+          "raw_h2o": "simulated h2o 20c 30%",
+          "co2_group": null,
+          "cylinder_nominal_ppm": null,
+          "pressure_mode": "sealed_controlled",
+          "pressure_target_label": "1000hPa",
+          "pressure_selection_token": ""
+        },
+        "stats": {
+          "point_phase": "h2o",
+          "point_tag": "h2o_20c_30rh_1000hpa",
+          "usable_sample_count": 16,
+          "outlier_ratio": 0.0,
+          "quality_score": 0.6000000000000001,
+          "point_quality_score": 0.6000000000000001,
+          "valid": false,
+          "recommendation": "review",
+          "reason": "time_not_continuous",
+          "failed_checks": [
+            {
+              "rule_name": "time_continuity",
+              "actual": 0,
+              "threshold": 1,
+              "message": "Timestamps are not continuous"
+            }
+          ],
+          "ai_explanation": "",
+          "raw_sample_count": 16,
+          "cleaned_sample_count": 16,
+          "removed_sample_count": 0,
+          "stability_time_s": 0.035311300000103074,
+          "total_time_s": 0.0995145999986562,
+          "co2_postseal_quality_guards_enabled": false,
+          "postseal_guard_scope": "simulation_offline_review",
+          "postseal_guard_status": "skipped",
+          "postseal_guard_flags": "",
+          "postseal_guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "preseal_dewpoint_c": null,
+          "preseal_pressure_hpa": null,
+          "postseal_expected_dewpoint_c": null,
+          "postseal_actual_dewpoint_c": 6.0,
+          "postseal_physical_delta_c": null,
+          "postseal_physical_qc_status": "skipped",
+          "postseal_physical_qc_reason": "",
+          "dewpoint_gate_pass_live_c": null,
+          "first_effective_sample_dewpoint_c": 6.0,
+          "postgate_to_first_effective_dewpoint_rise_c": null,
+          "postsample_late_rebound_status": "skipped",
+          "postsample_late_rebound_reason": "",
+          "pressure_gauge_stale_count": 0,
+          "pressure_gauge_total_count": 16,
+          "pressure_gauge_stale_ratio": 0.0
+        }
+      },
+      {
+        "point": {
+          "index": 2,
+          "temperature_c": 20.0,
+          "co2_ppm": null,
+          "humidity_pct": 30.0,
+          "pressure_hpa": 800.0,
+          "route": "h2o",
+          "humidity_generator_temp_c": 20.0,
+          "dewpoint_c": 1.0,
+          "h2o_mmol": 5.8,
+          "raw_h2o": "simulated h2o 20c 30%",
+          "co2_group": null,
+          "cylinder_nominal_ppm": null,
+          "pressure_mode": "sealed_controlled",
+          "pressure_target_label": "800hPa",
+          "pressure_selection_token": ""
+        },
+        "stats": {
+          "point_phase": "h2o",
+          "point_tag": "h2o_20c_30rh_800hpa",
+          "usable_sample_count": 16,
+          "outlier_ratio": 0.0,
+          "quality_score": 0.6000000000000001,
+          "point_quality_score": 0.6000000000000001,
+          "valid": false,
+          "recommendation": "review",
+          "reason": "time_not_continuous",
+          "failed_checks": [
+            {
+              "rule_name": "time_continuity",
+              "actual": 0,
+              "threshold": 1,
+              "message": "Timestamps are not continuous"
+            }
+          ],
+          "ai_explanation": "",
+          "raw_sample_count": 16,
+          "cleaned_sample_count": 16,
+          "removed_sample_count": 0,
+          "stability_time_s": 0.046356000000741915,
+          "total_time_s": 0.1098656000012852,
+          "co2_postseal_quality_guards_enabled": false,
+          "postseal_guard_scope": "simulation_offline_review",
+          "postseal_guard_status": "skipped",
+          "postseal_guard_flags": "",
+          "postseal_guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "preseal_dewpoint_c": null,
+          "preseal_pressure_hpa": null,
+          "postseal_expected_dewpoint_c": null,
+          "postseal_actual_dewpoint_c": 6.0,
+          "postseal_physical_delta_c": null,
+          "postseal_physical_qc_status": "skipped",
+          "postseal_physical_qc_reason": "",
+          "dewpoint_gate_pass_live_c": null,
+          "first_effective_sample_dewpoint_c": 6.0,
+          "postgate_to_first_effective_dewpoint_rise_c": null,
+          "postsample_late_rebound_status": "skipped",
+          "postsample_late_rebound_reason": "",
+          "pressure_gauge_stale_count": 0,
+          "pressure_gauge_total_count": 16,
+          "pressure_gauge_stale_ratio": 0.0
+        }
+      },
+      {
+        "point": {
+          "index": 1,
+          "temperature_c": 20.0,
+          "co2_ppm": null,
+          "humidity_pct": 60.0,
+          "pressure_hpa": 1000.0,
+          "route": "h2o",
+          "humidity_generator_temp_c": 20.0,
+          "dewpoint_c": 11.0,
+          "h2o_mmol": 12.8,
+          "raw_h2o": "simulated h2o 20c 60%",
+          "co2_group": null,
+          "cylinder_nominal_ppm": null,
+          "pressure_mode": "sealed_controlled",
+          "pressure_target_label": "1000hPa",
+          "pressure_selection_token": ""
+        },
+        "stats": {
+          "point_phase": "h2o",
+          "point_tag": "h2o_20c_60rh_1000hpa",
+          "usable_sample_count": 16,
+          "outlier_ratio": 0.0,
+          "quality_score": 0.6000000000000001,
+          "point_quality_score": 0.6000000000000001,
+          "valid": false,
+          "recommendation": "review",
+          "reason": "time_not_continuous",
+          "failed_checks": [
+            {
+              "rule_name": "time_continuity",
+              "actual": 0,
+              "threshold": 1,
+              "message": "Timestamps are not continuous"
+            }
+          ],
+          "ai_explanation": "",
+          "raw_sample_count": 16,
+          "cleaned_sample_count": 16,
+          "removed_sample_count": 0,
+          "stability_time_s": 0.05173280000053637,
+          "total_time_s": 0.1174979000006715,
+          "co2_postseal_quality_guards_enabled": false,
+          "postseal_guard_scope": "simulation_offline_review",
+          "postseal_guard_status": "skipped",
+          "postseal_guard_flags": "",
+          "postseal_guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "preseal_dewpoint_c": null,
+          "preseal_pressure_hpa": null,
+          "postseal_expected_dewpoint_c": null,
+          "postseal_actual_dewpoint_c": 12.0,
+          "postseal_physical_delta_c": null,
+          "postseal_physical_qc_status": "skipped",
+          "postseal_physical_qc_reason": "",
+          "dewpoint_gate_pass_live_c": null,
+          "first_effective_sample_dewpoint_c": 12.0,
+          "postgate_to_first_effective_dewpoint_rise_c": null,
+          "postsample_late_rebound_status": "skipped",
+          "postsample_late_rebound_reason": "",
+          "pressure_gauge_stale_count": 0,
+          "pressure_gauge_total_count": 16,
+          "pressure_gauge_stale_ratio": 0.0
+        }
+      },
+      {
+        "point": {
+          "index": 2,
+          "temperature_c": 20.0,
+          "co2_ppm": null,
+          "humidity_pct": 60.0,
+          "pressure_hpa": 800.0,
+          "route": "h2o",
+          "humidity_generator_temp_c": 20.0,
+          "dewpoint_c": 11.0,
+          "h2o_mmol": 12.8,
+          "raw_h2o": "simulated h2o 20c 60%",
+          "co2_group": null,
+          "cylinder_nominal_ppm": null,
+          "pressure_mode": "sealed_controlled",
+          "pressure_target_label": "800hPa",
+          "pressure_selection_token": ""
+        },
+        "stats": {
+          "point_phase": "h2o",
+          "point_tag": "h2o_20c_60rh_800hpa",
+          "usable_sample_count": 16,
+          "outlier_ratio": 0.0,
+          "quality_score": 0.6000000000000001,
+          "point_quality_score": 0.6000000000000001,
+          "valid": false,
+          "recommendation": "review",
+          "reason": "time_not_continuous",
+          "failed_checks": [
+            {
+              "rule_name": "time_continuity",
+              "actual": 0,
+              "threshold": 1,
+              "message": "Timestamps are not continuous"
+            }
+          ],
+          "ai_explanation": "",
+          "raw_sample_count": 16,
+          "cleaned_sample_count": 16,
+          "removed_sample_count": 0,
+          "stability_time_s": 0.05449349999980768,
+          "total_time_s": 0.12256890000026033,
+          "co2_postseal_quality_guards_enabled": false,
+          "postseal_guard_scope": "simulation_offline_review",
+          "postseal_guard_status": "skipped",
+          "postseal_guard_flags": "",
+          "postseal_guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "preseal_dewpoint_c": null,
+          "preseal_pressure_hpa": null,
+          "postseal_expected_dewpoint_c": null,
+          "postseal_actual_dewpoint_c": 12.0,
+          "postseal_physical_delta_c": null,
+          "postseal_physical_qc_status": "skipped",
+          "postseal_physical_qc_reason": "",
+          "dewpoint_gate_pass_live_c": null,
+          "first_effective_sample_dewpoint_c": 12.0,
+          "postgate_to_first_effective_dewpoint_rise_c": null,
+          "postsample_late_rebound_status": "skipped",
+          "postsample_late_rebound_reason": "",
+          "pressure_gauge_stale_count": 0,
+          "pressure_gauge_total_count": 16,
+          "pressure_gauge_stale_ratio": 0.0
+        }
+      }
+    ],
+    "output_files": [
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\route_trace.jsonl",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\points_readable.csv",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\samples.csv",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\samples.xlsx",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\results.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\qc_report.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\qc_report.csv",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\qc_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\qc_manifest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\qc_reviewer_digest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\temperature_snapshots.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\manifest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\acceptance_plan.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\analytics_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\lineage_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\trend_registry.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\evidence_registry.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\coefficient_registry.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\multi_source_stability_evidence.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\multi_source_stability_evidence.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\state_transition_evidence.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\state_transition_evidence.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\simulation_evidence_sidecar_bundle.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\measurement_phase_coverage_report.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\measurement_phase_coverage_report.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_definition_pack.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_definition_pack.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\decision_rule_profile.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\decision_rule_profile.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_readiness_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_readiness_summary.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\reference_asset_registry.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\reference_asset_registry.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\certificate_lifecycle_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\certificate_lifecycle_summary.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\certificate_readiness_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\certificate_readiness_summary.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\pre_run_readiness_gate.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\pre_run_readiness_gate.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\metrology_traceability_stub.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\metrology_traceability_stub.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_model.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_model.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_input_set.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_input_set.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\sensitivity_coefficient_set.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\sensitivity_coefficient_set.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\budget_case.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\budget_case.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_golden_cases.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_golden_cases.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_report_pack.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_report_pack.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_digest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_digest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_rollup.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_rollup.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_budget_stub.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_budget_stub.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\method_confirmation_protocol.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\method_confirmation_protocol.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\method_confirmation_matrix.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\method_confirmation_matrix.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\route_specific_validation_matrix.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\route_specific_validation_matrix.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\validation_run_set.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\validation_run_set.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\verification_digest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\verification_digest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\verification_rollup.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\verification_rollup.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_method_readiness_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_method_readiness_summary.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\software_validation_traceability_matrix.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\software_validation_traceability_matrix.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\requirement_design_code_test_links.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\requirement_design_code_test_links.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\validation_evidence_index.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\validation_evidence_index.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\change_impact_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\change_impact_summary.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\rollback_readiness_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\rollback_readiness_summary.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\artifact_hash_registry.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\artifact_hash_registry.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\audit_event_store.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\audit_event_store.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\environment_fingerprint.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\environment_fingerprint.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\config_fingerprint.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\config_fingerprint.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_input_digest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_input_digest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_manifest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_manifest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_scope_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_scope_summary.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_boundary_digest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_boundary_digest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_evidence_pack_index.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_evidence_pack_index.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_validation_manifest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_validation_manifest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\audit_readiness_digest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\audit_readiness_digest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\pt_ilc_registry.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\pt_ilc_registry.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\external_comparison_importer.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\external_comparison_importer.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_evidence_pack.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_evidence_pack.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_comparison_view.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_comparison_view.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_digest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_digest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_rollup.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_rollup.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\step2_closeout_digest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\step2_closeout_digest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\step2_closeout_bundle.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\step2_closeout_evidence_index.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\step2_closeout_summary.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\run_artifact_index.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\run_artifact_index.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\artifact_contract_catalog.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\artifact_contract_catalog.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\compatibility_scan_summary.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\compatibility_scan_summary.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\reindex_manifest.json",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\reindex_manifest.md",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\run.log",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\points.csv",
+      "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\io_log.csv"
+    ],
+    "artifact_exports": {
+      "runtime_points": {
+        "role": "execution_rows",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\points.csv",
+        "error": ""
+      },
+      "io_log": {
+        "role": "execution_rows",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\io_log.csv",
+        "error": ""
+      },
+      "points_readable": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\points_readable.csv",
+        "error": ""
+      },
+      "samples_csv": {
+        "role": "execution_rows",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\samples.csv",
+        "error": ""
+      },
+      "samples_excel": {
+        "role": "execution_rows",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\samples.xlsx",
+        "error": ""
+      },
+      "results_json": {
+        "role": "execution_rows",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\results.json",
+        "error": ""
+      },
+      "coefficient_report": {
+        "role": "formal_analysis",
+        "status": "skipped",
+        "path": "",
+        "error": "coefficients disabled"
+      },
+      "qc_report": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\qc_report.json",
+        "error": ""
+      },
+      "temperature_snapshots": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\temperature_snapshots.json",
+        "error": ""
+      },
+      "manifest": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\manifest.json",
+        "error": ""
+      },
+      "run_summary": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\summary.json",
+        "error": ""
+      },
+      "acceptance_plan": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\acceptance_plan.json",
+        "error": ""
+      },
+      "analytics_summary": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\analytics_summary.json",
+        "error": ""
+      },
+      "lineage_summary": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\lineage_summary.json",
+        "error": ""
+      },
+      "trend_registry": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\trend_registry.json",
+        "error": ""
+      },
+      "evidence_registry": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\evidence_registry.json",
+        "error": ""
+      },
+      "coefficient_registry": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\coefficient_registry.json",
+        "error": ""
+      },
+      "multi_source_stability_evidence": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\multi_source_stability_evidence.json",
+        "error": ""
+      },
+      "multi_source_stability_evidence_markdown": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\multi_source_stability_evidence.md",
+        "error": ""
+      },
+      "state_transition_evidence": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\state_transition_evidence.json",
+        "error": ""
+      },
+      "state_transition_evidence_markdown": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\state_transition_evidence.md",
+        "error": ""
+      },
+      "simulation_evidence_sidecar_bundle": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\simulation_evidence_sidecar_bundle.json",
+        "error": ""
+      },
+      "measurement_phase_coverage_report": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\measurement_phase_coverage_report.json",
+        "error": ""
+      },
+      "measurement_phase_coverage_report_markdown": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\measurement_phase_coverage_report.md",
+        "error": ""
+      },
+      "scope_definition_pack": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_definition_pack.json",
+        "error": ""
+      },
+      "scope_definition_pack_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_definition_pack.md",
+        "error": ""
+      },
+      "decision_rule_profile": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\decision_rule_profile.json",
+        "error": ""
+      },
+      "decision_rule_profile_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\decision_rule_profile.md",
+        "error": ""
+      },
+      "scope_readiness_summary": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_readiness_summary.json",
+        "error": ""
+      },
+      "scope_readiness_summary_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_readiness_summary.md",
+        "error": ""
+      },
+      "reference_asset_registry": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\reference_asset_registry.json",
+        "error": ""
+      },
+      "reference_asset_registry_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\reference_asset_registry.md",
+        "error": ""
+      },
+      "certificate_lifecycle_summary": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\certificate_lifecycle_summary.json",
+        "error": ""
+      },
+      "certificate_lifecycle_summary_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\certificate_lifecycle_summary.md",
+        "error": ""
+      },
+      "certificate_readiness_summary": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\certificate_readiness_summary.json",
+        "error": ""
+      },
+      "certificate_readiness_summary_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\certificate_readiness_summary.md",
+        "error": ""
+      },
+      "pre_run_readiness_gate": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\pre_run_readiness_gate.json",
+        "error": ""
+      },
+      "pre_run_readiness_gate_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\pre_run_readiness_gate.md",
+        "error": ""
+      },
+      "metrology_traceability_stub": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\metrology_traceability_stub.json",
+        "error": ""
+      },
+      "metrology_traceability_stub_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\metrology_traceability_stub.md",
+        "error": ""
+      },
+      "uncertainty_model": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_model.json",
+        "error": ""
+      },
+      "uncertainty_model_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_model.md",
+        "error": ""
+      },
+      "uncertainty_input_set": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_input_set.json",
+        "error": ""
+      },
+      "uncertainty_input_set_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_input_set.md",
+        "error": ""
+      },
+      "sensitivity_coefficient_set": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\sensitivity_coefficient_set.json",
+        "error": ""
+      },
+      "sensitivity_coefficient_set_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\sensitivity_coefficient_set.md",
+        "error": ""
+      },
+      "budget_case": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\budget_case.json",
+        "error": ""
+      },
+      "budget_case_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\budget_case.md",
+        "error": ""
+      },
+      "uncertainty_golden_cases": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_golden_cases.json",
+        "error": ""
+      },
+      "uncertainty_golden_cases_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_golden_cases.md",
+        "error": ""
+      },
+      "uncertainty_report_pack": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_report_pack.json",
+        "error": ""
+      },
+      "uncertainty_report_pack_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_report_pack.md",
+        "error": ""
+      },
+      "uncertainty_digest": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_digest.json",
+        "error": ""
+      },
+      "uncertainty_digest_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_digest.md",
+        "error": ""
+      },
+      "uncertainty_rollup": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_rollup.json",
+        "error": ""
+      },
+      "uncertainty_rollup_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_rollup.md",
+        "error": ""
+      },
+      "uncertainty_budget_stub": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_budget_stub.json",
+        "error": ""
+      },
+      "uncertainty_budget_stub_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_budget_stub.md",
+        "error": ""
+      },
+      "method_confirmation_protocol": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\method_confirmation_protocol.json",
+        "error": ""
+      },
+      "method_confirmation_protocol_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\method_confirmation_protocol.md",
+        "error": ""
+      },
+      "method_confirmation_matrix": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\method_confirmation_matrix.json",
+        "error": ""
+      },
+      "method_confirmation_matrix_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\method_confirmation_matrix.md",
+        "error": ""
+      },
+      "route_specific_validation_matrix": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\route_specific_validation_matrix.json",
+        "error": ""
+      },
+      "route_specific_validation_matrix_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\route_specific_validation_matrix.md",
+        "error": ""
+      },
+      "validation_run_set": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\validation_run_set.json",
+        "error": ""
+      },
+      "validation_run_set_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\validation_run_set.md",
+        "error": ""
+      },
+      "verification_digest": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\verification_digest.json",
+        "error": ""
+      },
+      "verification_digest_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\verification_digest.md",
+        "error": ""
+      },
+      "verification_rollup": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\verification_rollup.json",
+        "error": ""
+      },
+      "verification_rollup_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\verification_rollup.md",
+        "error": ""
+      },
+      "uncertainty_method_readiness_summary": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_method_readiness_summary.json",
+        "error": ""
+      },
+      "uncertainty_method_readiness_summary_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\uncertainty_method_readiness_summary.md",
+        "error": ""
+      },
+      "software_validation_traceability_matrix": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\software_validation_traceability_matrix.json",
+        "error": ""
+      },
+      "software_validation_traceability_matrix_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\software_validation_traceability_matrix.md",
+        "error": ""
+      },
+      "requirement_design_code_test_links": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\requirement_design_code_test_links.json",
+        "error": ""
+      },
+      "requirement_design_code_test_links_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\requirement_design_code_test_links.md",
+        "error": ""
+      },
+      "validation_evidence_index": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\validation_evidence_index.json",
+        "error": ""
+      },
+      "validation_evidence_index_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\validation_evidence_index.md",
+        "error": ""
+      },
+      "change_impact_summary": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\change_impact_summary.json",
+        "error": ""
+      },
+      "change_impact_summary_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\change_impact_summary.md",
+        "error": ""
+      },
+      "rollback_readiness_summary": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\rollback_readiness_summary.json",
+        "error": ""
+      },
+      "rollback_readiness_summary_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\rollback_readiness_summary.md",
+        "error": ""
+      },
+      "artifact_hash_registry": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\artifact_hash_registry.json",
+        "error": ""
+      },
+      "artifact_hash_registry_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\artifact_hash_registry.md",
+        "error": ""
+      },
+      "audit_event_store": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\audit_event_store.json",
+        "error": ""
+      },
+      "audit_event_store_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\audit_event_store.md",
+        "error": ""
+      },
+      "environment_fingerprint": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\environment_fingerprint.json",
+        "error": ""
+      },
+      "environment_fingerprint_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\environment_fingerprint.md",
+        "error": ""
+      },
+      "config_fingerprint": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\config_fingerprint.json",
+        "error": ""
+      },
+      "config_fingerprint_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\config_fingerprint.md",
+        "error": ""
+      },
+      "release_input_digest": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_input_digest.json",
+        "error": ""
+      },
+      "release_input_digest_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_input_digest.md",
+        "error": ""
+      },
+      "release_manifest": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_manifest.json",
+        "error": ""
+      },
+      "release_manifest_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_manifest.md",
+        "error": ""
+      },
+      "release_scope_summary": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_scope_summary.json",
+        "error": ""
+      },
+      "release_scope_summary_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_scope_summary.md",
+        "error": ""
+      },
+      "release_boundary_digest": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_boundary_digest.json",
+        "error": ""
+      },
+      "release_boundary_digest_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_boundary_digest.md",
+        "error": ""
+      },
+      "release_evidence_pack_index": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_evidence_pack_index.json",
+        "error": ""
+      },
+      "release_evidence_pack_index_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_evidence_pack_index.md",
+        "error": ""
+      },
+      "release_validation_manifest": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_validation_manifest.json",
+        "error": ""
+      },
+      "release_validation_manifest_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\release_validation_manifest.md",
+        "error": ""
+      },
+      "audit_readiness_digest": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\audit_readiness_digest.json",
+        "error": ""
+      },
+      "audit_readiness_digest_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\audit_readiness_digest.md",
+        "error": ""
+      },
+      "pt_ilc_registry": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\pt_ilc_registry.json",
+        "error": ""
+      },
+      "pt_ilc_registry_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\pt_ilc_registry.md",
+        "error": ""
+      },
+      "external_comparison_importer": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\external_comparison_importer.json",
+        "error": ""
+      },
+      "external_comparison_importer_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\external_comparison_importer.md",
+        "error": ""
+      },
+      "comparison_evidence_pack": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_evidence_pack.json",
+        "error": ""
+      },
+      "comparison_evidence_pack_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_evidence_pack.md",
+        "error": ""
+      },
+      "scope_comparison_view": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_comparison_view.json",
+        "error": ""
+      },
+      "scope_comparison_view_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\scope_comparison_view.md",
+        "error": ""
+      },
+      "comparison_digest": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_digest.json",
+        "error": ""
+      },
+      "comparison_digest_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_digest.md",
+        "error": ""
+      },
+      "comparison_rollup": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_rollup.json",
+        "error": ""
+      },
+      "comparison_rollup_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\comparison_rollup.md",
+        "error": ""
+      },
+      "step2_closeout_digest": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\step2_closeout_digest.json",
+        "error": ""
+      },
+      "step2_closeout_digest_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\step2_closeout_digest.md",
+        "error": ""
+      },
+      "run_artifact_index": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\run_artifact_index.json",
+        "error": ""
+      },
+      "run_artifact_index_markdown": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\run_artifact_index.md",
+        "error": ""
+      },
+      "artifact_contract_catalog": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\artifact_contract_catalog.json",
+        "error": ""
+      },
+      "artifact_contract_catalog_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\artifact_contract_catalog.md",
+        "error": ""
+      },
+      "compatibility_scan_summary": {
+        "role": "diagnostic_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\compatibility_scan_summary.json",
+        "error": ""
+      },
+      "compatibility_scan_summary_markdown": {
+        "role": "formal_analysis",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\compatibility_scan_summary.md",
+        "error": ""
+      },
+      "reindex_manifest": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\reindex_manifest.json",
+        "error": ""
+      },
+      "reindex_manifest_markdown": {
+        "role": "execution_summary",
+        "status": "ok",
+        "path": "D:\\gas_calibrator\\_handoff\\a2_16_crosscheck_suites\\smoke_a2_16_crosscheck_20260430\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_163159\\reindex_manifest.md",
+        "error": ""
+      }
+    },
+    "artifact_role_summary": {
+      "execution_rows": {
+        "count": 5,
+        "artifacts": [
+          "io_log",
+          "results_json",
+          "runtime_points",
+          "samples_csv",
+          "samples_excel"
+        ],
+        "status_counts": {
+          "ok": 5
+        }
+      },
+      "execution_summary": {
+        "count": 41,
+        "artifacts": [
+          "acceptance_plan",
+          "artifact_hash_registry",
+          "audit_event_store",
+          "budget_case",
+          "change_impact_summary",
+          "config_fingerprint",
+          "decision_rule_profile",
+          "environment_fingerprint",
+          "evidence_registry",
+          "external_comparison_importer",
+          "lineage_summary",
+          "manifest",
+          "method_confirmation_matrix",
+          "method_confirmation_protocol",
+          "metrology_traceability_stub",
+          "points_readable",
+          "pt_ilc_registry",
+          "reference_asset_registry",
+          "reindex_manifest",
+          "reindex_manifest_markdown",
+          "release_boundary_digest",
+          "release_evidence_pack_index",
+          "release_input_digest",
+          "release_manifest",
+          "release_scope_summary",
+          "release_validation_manifest",
+          "requirement_design_code_test_links",
+          "rollback_readiness_summary",
+          "route_specific_validation_matrix",
+          "run_artifact_index",
+          "run_artifact_index_markdown",
+          "run_summary",
+          "scope_definition_pack",
+          "sensitivity_coefficient_set",
+          "simulation_evidence_sidecar_bundle",
+          "software_validation_traceability_matrix",
+          "uncertainty_budget_stub",
+          "uncertainty_input_set",
+          "uncertainty_model",
+          "validation_evidence_index",
+          "validation_run_set"
+        ],
+        "status_counts": {
+          "ok": 41
+        }
+      },
+      "formal_analysis": {
+        "count": 51,
+        "artifacts": [
+          "artifact_contract_catalog_markdown",
+          "artifact_hash_registry_markdown",
+          "audit_event_store_markdown",
+          "audit_readiness_digest_markdown",
+          "budget_case_markdown",
+          "certificate_lifecycle_summary_markdown",
+          "certificate_readiness_summary_markdown",
+          "change_impact_summary_markdown",
+          "coefficient_registry",
+          "coefficient_report",
+          "comparison_digest_markdown",
+          "comparison_evidence_pack_markdown",
+          "comparison_rollup_markdown",
+          "compatibility_scan_summary_markdown",
+          "config_fingerprint_markdown",
+          "decision_rule_profile_markdown",
+          "environment_fingerprint_markdown",
+          "external_comparison_importer_markdown",
+          "method_confirmation_matrix_markdown",
+          "method_confirmation_protocol_markdown",
+          "metrology_traceability_stub_markdown",
+          "pre_run_readiness_gate_markdown",
+          "pt_ilc_registry_markdown",
+          "reference_asset_registry_markdown",
+          "release_boundary_digest_markdown",
+          "release_evidence_pack_index_markdown",
+          "release_input_digest_markdown",
+          "release_manifest_markdown",
+          "release_scope_summary_markdown",
+          "release_validation_manifest_markdown",
+          "requirement_design_code_test_links_markdown",
+          "rollback_readiness_summary_markdown",
+          "route_specific_validation_matrix_markdown",
+          "scope_comparison_view_markdown",
+          "scope_definition_pack_markdown",
+          "scope_readiness_summary_markdown",
+          "sensitivity_coefficient_set_markdown",
+          "software_validation_traceability_matrix_markdown",
+          "step2_closeout_digest_markdown",
+          "uncertainty_budget_stub_markdown",
+          "uncertainty_digest_markdown",
+          "uncertainty_golden_cases_markdown",
+          "uncertainty_input_set_markdown",
+          "uncertainty_method_readiness_summary_markdown",
+          "uncertainty_model_markdown",
+          "uncertainty_report_pack_markdown",
+          "uncertainty_rollup_markdown",
+          "validation_evidence_index_markdown",
+          "validation_run_set_markdown",
+          "verification_digest_markdown",
+          "verification_rollup_markdown"
+        ],
+        "status_counts": {
+          "skipped": 1,
+          "ok": 50
+        }
+      },
+      "diagnostic_analysis": {
+        "count": 29,
+        "artifacts": [
+          "analytics_summary",
+          "artifact_contract_catalog",
+          "audit_readiness_digest",
+          "certificate_lifecycle_summary",
+          "certificate_readiness_summary",
+          "comparison_digest",
+          "comparison_evidence_pack",
+          "comparison_rollup",
+          "compatibility_scan_summary",
+          "measurement_phase_coverage_report",
+          "measurement_phase_coverage_report_markdown",
+          "multi_source_stability_evidence",
+          "multi_source_stability_evidence_markdown",
+          "pre_run_readiness_gate",
+          "qc_report",
+          "scope_comparison_view",
+          "scope_readiness_summary",
+          "state_transition_evidence",
+          "state_transition_evidence_markdown",
+          "step2_closeout_digest",
+          "temperature_snapshots",
+          "trend_registry",
+          "uncertainty_digest",
+          "uncertainty_golden_cases",
+          "uncertainty_method_readiness_summary",
+          "uncertainty_report_pack",
+          "uncertainty_rollup",
+          "verification_digest",
+          "verification_rollup"
+        ],
+        "status_counts": {
+          "ok": 29
+        }
+      }
+    },
+    "reporting_mode": {
+      "include_fleet_stats": false,
+      "mode": "formal_default"
+    },
+    "point_taxonomy_summary": {
+      "pressure_summary": "1000hPa 2 | 800hPa 2",
+      "pressure_mode_summary": "sealed_controlled 4",
+      "pressure_target_label_summary": "1000hPa 2 | 800hPa 2",
+      "flush_gate_summary": "",
+      "preseal_summary": "",
+      "postseal_summary": "",
+      "stale_gauge_summary": ""
+    },
+    "config_safety": {
+      "status": "ok",
+      "summary": "当前配置为 simulation-only，未发现真实串口风险。",
+      "simulation_only": true,
+      "operator_safe": true,
+      "risk_markers": [],
+      "real_port_device_count": 0,
+      "devices_with_real_ports": [],
+      "engineering_only_flag_count": 0,
+      "enabled_engineering_flags": [],
+      "warnings": [],
+      "requires_explicit_unlock": false,
+      "step2_default_workflow_allowed": true,
+      "inventory": {
+        "enabled_device_count": 16,
+        "simulated_device_count": 16,
+        "real_port_device_count": 0,
+        "engineering_only_flag_count": 0,
+        "device_ports": [
+          {
+            "device": "pressure_controller",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "pressure_meter",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "dewpoint_meter",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "humidity_generator",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "temperature_chamber",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "thermometer",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "relay_a",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "relay_b",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga01",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga02",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga03",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga04",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga05",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga06",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga07",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga08",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          }
+        ],
+        "engineering_only_flags": [],
+        "shared_pressure_flag_count": 3,
+        "shared_pressure_flags_enabled_count": 0,
+        "shared_pressure_flags": [
+          {
+            "flag": "capture_then_hold_enabled",
+            "config_path": "workflow.pressure.capture_then_hold_enabled",
+            "label": "capture_then_hold",
+            "category": "engineering_only",
+            "default_enabled": false,
+            "enabled": false,
+            "status": "default_safe"
+          },
+          {
+            "flag": "adaptive_pressure_sampling_enabled",
+            "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+            "label": "adaptive_pressure_sampling",
+            "category": "engineering_only",
+            "default_enabled": false,
+            "enabled": false,
+            "status": "default_safe"
+          },
+          {
+            "flag": "soft_control_enabled",
+            "config_path": "workflow.pressure.soft_control_enabled",
+            "label": "soft_control",
+            "category": "engineering_only",
+            "default_enabled": false,
+            "enabled": false,
+            "status": "default_safe"
+          }
+        ],
+        "summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。"
+      },
+      "execution_gate": {
+        "status": "open",
+        "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+        "requires_dual_unlock": false,
+        "allow_unsafe_step2_config_flag": false,
+        "allow_unsafe_step2_config_env": false,
+        "unlock_cli_flag": "--allow-unsafe-step2-config",
+        "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+        "blocked_reasons": [],
+        "blocked_reason_details": []
+      },
+      "review_lines": [
+        "当前配置为 simulation-only，未发现真实串口风险。",
+        "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+        "?????默认安全仿真库存",
+        "?????库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+        "simulation_mode=enabled???????? simulation/offline/headless?",
+        "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+        "?????仿真边界 / 默认安全",
+        "?????? Step 2 simulation-only operator-safe ???"
+      ],
+      "classification": "operator_safe_simulation_only",
+      "classification_display": "默认安全仿真库存",
+      "badge_ids": [
+        "simulation_only",
+        "operator_safe"
+      ],
+      "badges": [
+        {
+          "id": "simulation_only",
+          "label": "仿真边界",
+          "tone": "info"
+        },
+        {
+          "id": "operator_safe",
+          "label": "默认安全",
+          "tone": "ok"
+        }
+      ],
+      "inventory_summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "blocked_reason_details": []
+    },
+    "config_safety_review": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "review_lines": [
+        "当前配置为 simulation-only，未发现真实串口风险。",
+        "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+        "?????默认安全仿真库存",
+        "?????库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+        "simulation_mode=enabled???????? simulation/offline/headless?",
+        "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+        "?????仿真边界 / 默认安全",
+        "?????? Step 2 simulation-only operator-safe ???"
+      ],
+      "classification": "operator_safe_simulation_only",
+      "classification_display": "默认安全仿真库存",
+      "badge_ids": [
+        "simulation_only",
+        "operator_safe"
+      ],
+      "badges": [
+        {
+          "id": "simulation_only",
+          "label": "仿真边界",
+          "tone": "info"
+        },
+        {
+          "id": "operator_safe",
+          "label": "默认安全",
+          "tone": "ok"
+        }
+      ],
+      "inventory_summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "inventory": {
+        "enabled_device_count": 16,
+        "simulated_device_count": 16,
+        "real_port_device_count": 0,
+        "engineering_only_flag_count": 0,
+        "device_ports": [
+          {
+            "device": "pressure_controller",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "pressure_meter",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "dewpoint_meter",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "humidity_generator",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "temperature_chamber",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "thermometer",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "relay_a",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "relay_b",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga01",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga02",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga03",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga04",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga05",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga06",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga07",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga08",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          }
+        ],
+        "engineering_only_flags": [],
+        "shared_pressure_flag_count": 3,
+        "shared_pressure_flags_enabled_count": 0,
+        "shared_pressure_flags": [
+          {
+            "flag": "capture_then_hold_enabled",
+            "config_path": "workflow.pressure.capture_then_hold_enabled",
+            "label": "capture_then_hold",
+            "category": "engineering_only",
+            "default_enabled": false,
+            "enabled": false,
+            "status": "default_safe"
+          },
+          {
+            "flag": "adaptive_pressure_sampling_enabled",
+            "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+            "label": "adaptive_pressure_sampling",
+            "category": "engineering_only",
+            "default_enabled": false,
+            "enabled": false,
+            "status": "default_safe"
+          },
+          {
+            "flag": "soft_control_enabled",
+            "config_path": "workflow.pressure.soft_control_enabled",
+            "label": "soft_control",
+            "category": "engineering_only",
+            "default_enabled": false,
+            "enabled": false,
+            "status": "default_safe"
+          }
+        ],
+        "summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。"
+      },
+      "blocked_reasons": [],
+      "blocked_reason_details": [],
+      "operator_safe": true,
+      "simulation_only": true,
+      "risk_markers": [],
+      "warnings": [],
+      "real_port_device_count": 0,
+      "devices_with_real_ports": [],
+      "engineering_only_flag_count": 0,
+      "enabled_engineering_flags": [],
+      "execution_gate": {
+        "status": "open",
+        "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+        "requires_dual_unlock": false,
+        "allow_unsafe_step2_config_flag": false,
+        "allow_unsafe_step2_config_env": false,
+        "unlock_cli_flag": "--allow-unsafe-step2-config",
+        "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+        "blocked_reasons": [],
+        "blocked_reason_details": []
+      },
+      "requires_explicit_unlock": false,
+      "step2_default_workflow_allowed": true
+    },
+    "config_governance_handoff": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "review_lines": [
+        "当前配置为 simulation-only，未发现真实串口风险。",
+        "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+        "?????默认安全仿真库存",
+        "?????库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+        "simulation_mode=enabled???????? simulation/offline/headless?",
+        "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+        "?????仿真边界 / 默认安全",
+        "?????? Step 2 simulation-only operator-safe ???"
+      ],
+      "classification": "operator_safe_simulation_only",
+      "classification_display": "默认安全仿真库存",
+      "badge_ids": [
+        "simulation_only",
+        "operator_safe"
+      ],
+      "badges": [
+        {
+          "id": "simulation_only",
+          "label": "仿真边界",
+          "tone": "info"
+        },
+        {
+          "id": "operator_safe",
+          "label": "默认安全",
+          "tone": "ok"
+        }
+      ],
+      "inventory_summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "inventory": {
+        "enabled_device_count": 16,
+        "simulated_device_count": 16,
+        "real_port_device_count": 0,
+        "engineering_only_flag_count": 0,
+        "device_ports": [
+          {
+            "device": "pressure_controller",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "pressure_meter",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "dewpoint_meter",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "humidity_generator",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "temperature_chamber",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "thermometer",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "relay_a",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "relay_b",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga01",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga02",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga03",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga04",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga05",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga06",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga07",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          },
+          {
+            "device": "ga08",
+            "port": "",
+            "requires_real_device_review": false,
+            "classification": "simulated_port"
+          }
+        ],
+        "engineering_only_flags": [],
+        "shared_pressure_flag_count": 3,
+        "shared_pressure_flags_enabled_count": 0,
+        "shared_pressure_flags": [
+          {
+            "flag": "capture_then_hold_enabled",
+            "config_path": "workflow.pressure.capture_then_hold_enabled",
+            "label": "capture_then_hold",
+            "category": "engineering_only",
+            "default_enabled": false,
+            "enabled": false,
+            "status": "default_safe"
+          },
+          {
+            "flag": "adaptive_pressure_sampling_enabled",
+            "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+            "label": "adaptive_pressure_sampling",
+            "category": "engineering_only",
+            "default_enabled": false,
+            "enabled": false,
+            "status": "default_safe"
+          },
+          {
+            "flag": "soft_control_enabled",
+            "config_path": "workflow.pressure.soft_control_enabled",
+            "label": "soft_control",
+            "category": "engineering_only",
+            "default_enabled": false,
+            "enabled": false,
+            "status": "default_safe"
+          }
+        ],
+        "summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。"
+      },
+      "blocked_reasons": [],
+      "blocked_reason_details": [],
+      "warnings": [],
+      "operator_safe": true,
+      "simulation_only": true,
+      "risk_markers": [],
+      "real_port_device_count": 0,
+      "devices_with_real_ports": [],
+      "engineering_only_flag_count": 0,
+      "enabled_engineering_flags": [],
+      "execution_gate": {
+        "status": "open",
+        "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+        "requires_dual_unlock": false,
+        "allow_unsafe_step2_config_flag": false,
+        "allow_unsafe_step2_config_env": false,
+        "unlock_cli_flag": "--allow-unsafe-step2-config",
+        "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+        "blocked_reasons": [],
+        "blocked_reason_details": []
+      },
+      "requires_explicit_unlock": false,
+      "step2_default_workflow_allowed": true
+    },
+    "startup_pressure_precheck": {
+      "passed": true,
+      "route": "co2",
+      "point_index": null,
+      "target_pressure_hpa": null,
+      "warning_count": 0,
+      "error_count": 0,
+      "details": {
+        "skipped": true,
+        "reason": "disabled"
+      },
+      "error": null
+    },
+    "temperature_chamber_required_for_a2": false,
+    "temperature_chamber_init_attempted": true,
+    "temperature_chamber_init_ok": true,
+    "temperature_chamber_init_failed": false,
+    "temperature_chamber_init_failure_blocks_a2": false,
+    "temperature_chamber_optional_in_skip_temp_wait": false,
+    "temperature_context_available": null,
+    "temperature_context_source": "",
+    "temperature_context_unavailable_reason": "",
+    "temperature_chamber_readonly_probe_attempted": false,
+    "temperature_chamber_readonly_probe_result": "not_applicable",
+    "temperature_not_part_of_acceptance": false,
+    "temperature_stabilization_wait_skipped": false,
+    "temperature_gate_mode": "",
+    "critical_devices_required": [
+      "gas_analyzer_0",
+      "gas_analyzer_1",
+      "gas_analyzer_2",
+      "gas_analyzer_3",
+      "gas_analyzer_4",
+      "gas_analyzer_5",
+      "gas_analyzer_6",
+      "gas_analyzer_7",
+      "temperature_chamber"
+    ],
+    "critical_devices_failed": [],
+    "optional_context_devices": [],
+    "optional_context_devices_failed": [],
+    "critical_device_init_failure_blocks_probe": false,
+    "optional_context_failure_blocks_probe": false
+  },
+  "evidence_source": "simulated_protocol",
+  "not_real_acceptance_evidence": true,
+  "acceptance_level": "offline_regression",
+  "promotion_state": "dry_run_only",
+  "config_safety": {
+    "status": "ok",
+    "summary": "当前配置为 simulation-only，未发现真实串口风险。",
+    "simulation_only": true,
+    "operator_safe": true,
+    "risk_markers": [],
+    "real_port_device_count": 0,
+    "devices_with_real_ports": [],
+    "engineering_only_flag_count": 0,
+    "enabled_engineering_flags": [],
+    "warnings": [],
+    "requires_explicit_unlock": false,
+    "step2_default_workflow_allowed": true,
+    "inventory": {
+      "enabled_device_count": 16,
+      "simulated_device_count": 16,
+      "real_port_device_count": 0,
+      "engineering_only_flag_count": 0,
+      "device_ports": [
+        {
+          "device": "pressure_controller",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "pressure_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "dewpoint_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "humidity_generator",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "temperature_chamber",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "thermometer",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_a",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_b",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga01",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga02",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga03",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga04",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga05",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga06",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga07",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga08",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        }
+      ],
+      "engineering_only_flags": [],
+      "shared_pressure_flag_count": 3,
+      "shared_pressure_flags_enabled_count": 0,
+      "shared_pressure_flags": [
+        {
+          "flag": "capture_then_hold_enabled",
+          "config_path": "workflow.pressure.capture_then_hold_enabled",
+          "label": "capture_then_hold",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "adaptive_pressure_sampling_enabled",
+          "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+          "label": "adaptive_pressure_sampling",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "soft_control_enabled",
+          "config_path": "workflow.pressure.soft_control_enabled",
+          "label": "soft_control",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        }
+      ],
+      "summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。"
+    },
+    "execution_gate": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "requires_dual_unlock": false,
+      "allow_unsafe_step2_config_flag": false,
+      "allow_unsafe_step2_config_env": false,
+      "unlock_cli_flag": "--allow-unsafe-step2-config",
+      "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+      "blocked_reasons": [],
+      "blocked_reason_details": []
+    },
+    "review_lines": [
+      "当前配置为 simulation-only，未发现真实串口风险。",
+      "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "?????默认安全仿真库存",
+      "?????库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "simulation_mode=enabled???????? simulation/offline/headless?",
+      "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+      "?????仿真边界 / 默认安全",
+      "?????? Step 2 simulation-only operator-safe ???"
+    ],
+    "classification": "operator_safe_simulation_only",
+    "classification_display": "默认安全仿真库存",
+    "badge_ids": [
+      "simulation_only",
+      "operator_safe"
+    ],
+    "badges": [
+      {
+        "id": "simulation_only",
+        "label": "仿真边界",
+        "tone": "info"
+      },
+      {
+        "id": "operator_safe",
+        "label": "默认安全",
+        "tone": "ok"
+      }
+    ],
+    "inventory_summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+    "blocked_reason_details": []
+  },
+  "config_safety_review": {
+    "status": "open",
+    "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+    "review_lines": [
+      "当前配置为 simulation-only，未发现真实串口风险。",
+      "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "?????默认安全仿真库存",
+      "?????库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "simulation_mode=enabled???????? simulation/offline/headless?",
+      "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+      "?????仿真边界 / 默认安全",
+      "?????? Step 2 simulation-only operator-safe ???"
+    ],
+    "classification": "operator_safe_simulation_only",
+    "classification_display": "默认安全仿真库存",
+    "badge_ids": [
+      "simulation_only",
+      "operator_safe"
+    ],
+    "badges": [
+      {
+        "id": "simulation_only",
+        "label": "仿真边界",
+        "tone": "info"
+      },
+      {
+        "id": "operator_safe",
+        "label": "默认安全",
+        "tone": "ok"
+      }
+    ],
+    "inventory_summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+    "inventory": {
+      "enabled_device_count": 16,
+      "simulated_device_count": 16,
+      "real_port_device_count": 0,
+      "engineering_only_flag_count": 0,
+      "device_ports": [
+        {
+          "device": "pressure_controller",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "pressure_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "dewpoint_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "humidity_generator",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "temperature_chamber",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "thermometer",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_a",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_b",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga01",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga02",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga03",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga04",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga05",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga06",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga07",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga08",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        }
+      ],
+      "engineering_only_flags": [],
+      "shared_pressure_flag_count": 3,
+      "shared_pressure_flags_enabled_count": 0,
+      "shared_pressure_flags": [
+        {
+          "flag": "capture_then_hold_enabled",
+          "config_path": "workflow.pressure.capture_then_hold_enabled",
+          "label": "capture_then_hold",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "adaptive_pressure_sampling_enabled",
+          "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+          "label": "adaptive_pressure_sampling",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "soft_control_enabled",
+          "config_path": "workflow.pressure.soft_control_enabled",
+          "label": "soft_control",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        }
+      ],
+      "summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。"
+    },
+    "blocked_reasons": [],
+    "blocked_reason_details": [],
+    "operator_safe": true,
+    "simulation_only": true,
+    "risk_markers": [],
+    "warnings": [],
+    "real_port_device_count": 0,
+    "devices_with_real_ports": [],
+    "engineering_only_flag_count": 0,
+    "enabled_engineering_flags": [],
+    "execution_gate": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "requires_dual_unlock": false,
+      "allow_unsafe_step2_config_flag": false,
+      "allow_unsafe_step2_config_env": false,
+      "unlock_cli_flag": "--allow-unsafe-step2-config",
+      "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+      "blocked_reasons": [],
+      "blocked_reason_details": []
+    },
+    "requires_explicit_unlock": false,
+    "step2_default_workflow_allowed": true
+  },
+  "startup_pressure_precheck": {
+    "passed": true,
+    "route": "co2",
+    "point_index": null,
+    "target_pressure_hpa": null,
+    "warning_count": 0,
+    "error_count": 0,
+    "details": {
+      "skipped": true,
+      "reason": "disabled"
+    },
+    "error": null
+  },
+  "reporting": {
+    "include_fleet_stats": false,
+    "mode": "formal_default"
+  },
+  "point_taxonomy_summary": {
+    "pressure_summary": "1000hPa 2 | 800hPa 2",
+    "pressure_mode_summary": "sealed_controlled 4",
+    "pressure_target_label_summary": "1000hPa 2 | 800hPa 2",
+    "flush_gate_summary": "",
+    "preseal_summary": "",
+    "postseal_summary": "",
+    "stale_gauge_summary": ""
+  },
+  "artifact_role_summary": {
+    "execution_rows": {
+      "count": 5,
+      "artifacts": [
+        "io_log",
+        "results_json",
+        "runtime_points",
+        "samples_csv",
+        "samples_excel"
+      ],
+      "status_counts": {
+        "ok": 5
+      }
+    },
+    "execution_summary": {
+      "count": 41,
+      "artifacts": [
+        "acceptance_plan",
+        "artifact_hash_registry",
+        "audit_event_store",
+        "budget_case",
+        "change_impact_summary",
+        "config_fingerprint",
+        "decision_rule_profile",
+        "environment_fingerprint",
+        "evidence_registry",
+        "external_comparison_importer",
+        "lineage_summary",
+        "manifest",
+        "method_confirmation_matrix",
+        "method_confirmation_protocol",
+        "metrology_traceability_stub",
+        "points_readable",
+        "pt_ilc_registry",
+        "reference_asset_registry",
+        "reindex_manifest",
+        "reindex_manifest_markdown",
+        "release_boundary_digest",
+        "release_evidence_pack_index",
+        "release_input_digest",
+        "release_manifest",
+        "release_scope_summary",
+        "release_validation_manifest",
+        "requirement_design_code_test_links",
+        "rollback_readiness_summary",
+        "route_specific_validation_matrix",
+        "run_artifact_index",
+        "run_artifact_index_markdown",
+        "run_summary",
+        "scope_definition_pack",
+        "sensitivity_coefficient_set",
+        "simulation_evidence_sidecar_bundle",
+        "software_validation_traceability_matrix",
+        "uncertainty_budget_stub",
+        "uncertainty_input_set",
+        "uncertainty_model",
+        "validation_evidence_index",
+        "validation_run_set"
+      ],
+      "status_counts": {
+        "ok": 41
+      }
+    },
+    "formal_analysis": {
+      "count": 51,
+      "artifacts": [
+        "artifact_contract_catalog_markdown",
+        "artifact_hash_registry_markdown",
+        "audit_event_store_markdown",
+        "audit_readiness_digest_markdown",
+        "budget_case_markdown",
+        "certificate_lifecycle_summary_markdown",
+        "certificate_readiness_summary_markdown",
+        "change_impact_summary_markdown",
+        "coefficient_registry",
+        "coefficient_report",
+        "comparison_digest_markdown",
+        "comparison_evidence_pack_markdown",
+        "comparison_rollup_markdown",
+        "compatibility_scan_summary_markdown",
+        "config_fingerprint_markdown",
+        "decision_rule_profile_markdown",
+        "environment_fingerprint_markdown",
+        "external_comparison_importer_markdown",
+        "method_confirmation_matrix_markdown",
+        "method_confirmation_protocol_markdown",
+        "metrology_traceability_stub_markdown",
+        "pre_run_readiness_gate_markdown",
+        "pt_ilc_registry_markdown",
+        "reference_asset_registry_markdown",
+        "release_boundary_digest_markdown",
+        "release_evidence_pack_index_markdown",
+        "release_input_digest_markdown",
+        "release_manifest_markdown",
+        "release_scope_summary_markdown",
+        "release_validation_manifest_markdown",
+        "requirement_design_code_test_links_markdown",
+        "rollback_readiness_summary_markdown",
+        "route_specific_validation_matrix_markdown",
+        "scope_comparison_view_markdown",
+        "scope_definition_pack_markdown",
+        "scope_readiness_summary_markdown",
+        "sensitivity_coefficient_set_markdown",
+        "software_validation_traceability_matrix_markdown",
+        "step2_closeout_digest_markdown",
+        "uncertainty_budget_stub_markdown",
+        "uncertainty_digest_markdown",
+        "uncertainty_golden_cases_markdown",
+        "uncertainty_input_set_markdown",
+        "uncertainty_method_readiness_summary_markdown",
+        "uncertainty_model_markdown",
+        "uncertainty_report_pack_markdown",
+        "uncertainty_rollup_markdown",
+        "validation_evidence_index_markdown",
+        "validation_run_set_markdown",
+        "verification_digest_markdown",
+        "verification_rollup_markdown"
+      ],
+      "status_counts": {
+        "skipped": 1,
+        "ok": 50
+      }
+    },
+    "diagnostic_analysis": {
+      "count": 29,
+      "artifacts": [
+        "analytics_summary",
+        "artifact_contract_catalog",
+        "audit_readiness_digest",
+        "certificate_lifecycle_summary",
+        "certificate_readiness_summary",
+        "comparison_digest",
+        "comparison_evidence_pack",
+        "comparison_rollup",
+        "compatibility_scan_summary",
+        "measurement_phase_coverage_report",
+        "measurement_phase_coverage_report_markdown",
+        "multi_source_stability_evidence",
+        "multi_source_stability_evidence_markdown",
+        "pre_run_readiness_gate",
+        "qc_report",
+        "scope_comparison_view",
+        "scope_readiness_summary",
+        "state_transition_evidence",
+        "state_transition_evidence_markdown",
+        "step2_closeout_digest",
+        "temperature_snapshots",
+        "trend_registry",
+        "uncertainty_digest",
+        "uncertainty_golden_cases",
+        "uncertainty_method_readiness_summary",
+        "uncertainty_report_pack",
+        "uncertainty_rollup",
+        "verification_digest",
+        "verification_rollup"
+      ],
+      "status_counts": {
+        "ok": 29
+      }
+    }
+  },
+  "reporting_mode": {
+    "include_fleet_stats": false,
+    "mode": "formal_default"
+  },
+  "config_governance_handoff": {
+    "status": "open",
+    "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+    "review_lines": [
+      "当前配置为 simulation-only，未发现真实串口风险。",
+      "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "?????默认安全仿真库存",
+      "?????库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "simulation_mode=enabled???????? simulation/offline/headless?",
+      "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+      "?????仿真边界 / 默认安全",
+      "?????? Step 2 simulation-only operator-safe ???"
+    ],
+    "classification": "operator_safe_simulation_only",
+    "classification_display": "默认安全仿真库存",
+    "badge_ids": [
+      "simulation_only",
+      "operator_safe"
+    ],
+    "badges": [
+      {
+        "id": "simulation_only",
+        "label": "仿真边界",
+        "tone": "info"
+      },
+      {
+        "id": "operator_safe",
+        "label": "默认安全",
+        "tone": "ok"
+      }
+    ],
+    "inventory_summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。",
+    "inventory": {
+      "enabled_device_count": 16,
+      "simulated_device_count": 16,
+      "real_port_device_count": 0,
+      "engineering_only_flag_count": 0,
+      "device_ports": [
+        {
+          "device": "pressure_controller",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "pressure_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "dewpoint_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "humidity_generator",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "temperature_chamber",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "thermometer",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_a",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_b",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga01",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga02",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga03",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga04",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga05",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga06",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga07",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga08",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        }
+      ],
+      "engineering_only_flags": [],
+      "shared_pressure_flag_count": 3,
+      "shared_pressure_flags_enabled_count": 0,
+      "shared_pressure_flags": [
+        {
+          "flag": "capture_then_hold_enabled",
+          "config_path": "workflow.pressure.capture_then_hold_enabled",
+          "label": "capture_then_hold",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "adaptive_pressure_sampling_enabled",
+          "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+          "label": "adaptive_pressure_sampling",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "soft_control_enabled",
+          "config_path": "workflow.pressure.soft_control_enabled",
+          "label": "soft_control",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        }
+      ],
+      "summary": "库存治理：已启用设备 16 台；SIM 16 台；real-COM 0 台；engineering-only 开关 0 个。"
+    },
+    "blocked_reasons": [],
+    "blocked_reason_details": [],
+    "warnings": [],
+    "operator_safe": true,
+    "simulation_only": true,
+    "risk_markers": [],
+    "real_port_device_count": 0,
+    "devices_with_real_ports": [],
+    "engineering_only_flag_count": 0,
+    "enabled_engineering_flags": [],
+    "execution_gate": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "requires_dual_unlock": false,
+      "allow_unsafe_step2_config_flag": false,
+      "allow_unsafe_step2_config_env": false,
+      "unlock_cli_flag": "--allow-unsafe-step2-config",
+      "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+      "blocked_reasons": [],
+      "blocked_reason_details": []
+    },
+    "requires_explicit_unlock": false,
+    "step2_default_workflow_allowed": true
+  }
+}

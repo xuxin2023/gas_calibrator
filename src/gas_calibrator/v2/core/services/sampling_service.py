@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import datetime, timezone
 from statistics import mean, stdev
@@ -7,6 +8,7 @@ import time
 from typing import Any, Callable, Dict, Optional
 
 from ...utils import as_float, safe_get
+from ..device_manager import DeviceStatus
 from ..models import CalibrationPoint, SamplingResult
 from ..orchestration_context import OrchestrationContext
 from ..run_state import RunState
@@ -217,6 +219,8 @@ class SamplingService:
             return value
         dewpoint_meter = self.context.device_manager.get_device("dewpoint_meter")
         if dewpoint_meter is None:
+            return None
+        if self.context.device_manager.get_status("dewpoint_meter") is DeviceStatus.DISABLED:
             return None
         current = self.normalize_snapshot(
             self.read_device_snapshot(
@@ -682,7 +686,7 @@ class SamplingService:
     def sampling_params(self, phase: str = "") -> tuple[int, float]:
         count = int(self.host._cfg_get("workflow.sampling.stable_count", self.host._cfg_get("workflow.sampling.count", 10)))
         count = max(1, count)
-        interval = float(self.host._cfg_get("workflow.sampling.interval_s", 1.0))
+        interval = float(self.host._cfg_get("workflow.sampling.interval_s", 2.0))
         if phase == "co2":
             interval = float(self.host._cfg_get("workflow.sampling.co2_interval_s", interval))
         elif phase == "h2o":
@@ -736,6 +740,31 @@ class SamplingService:
             "analyzer_unusable_labels": ",".join(unusable),
         }
 
+    def _read_single_analyzer_snapshot(
+        self,
+        point: CalibrationPoint,
+        label: str,
+        analyzer: Any,
+        phase: str,
+        point_tag: str,
+        sample_index: int,
+    ) -> tuple[Optional[SamplingResult], Any]:
+        raw_snapshot = self.read_analyzer_snapshot(
+            analyzer,
+            label=label,
+            context=f"analyzer {label} batch read",
+        )
+        result = self.collect_sampling_result(
+            point,
+            label,
+            analyzer,
+            phase=phase,
+            point_tag=point_tag,
+            snapshot=raw_snapshot,
+            sample_index=sample_index,
+        )
+        return result, raw_snapshot
+
     def collect_sample_batch(
         self,
         point: CalibrationPoint,
@@ -776,44 +805,44 @@ class SamplingService:
             batch_results: list[SamplingResult] = []
             preferred_result: Optional[SamplingResult] = None
             first_usable_result: Optional[SamplingResult] = None
-            for analyzer_index, (label, analyzer, _) in enumerate(analyzers):
-                prefix = str(label or "").lower().replace(" ", "_")
-                try:
-                    raw_snapshot = self.read_analyzer_snapshot(
-                        analyzer,
-                        label=label,
-                        context=f"analyzer {label} batch read",
+            preferred_analyzer_label = analyzers[0][0] if analyzers else ""
+            sample_idx = sample_index + 1
+            with ThreadPoolExecutor(max_workers=len(analyzers)) as pool:
+                analyzer_futures: dict[Any, str] = {}
+                for label, analyzer, _ in analyzers:
+                    future = pool.submit(
+                        self._read_single_analyzer_snapshot,
+                        point, label, analyzer, phase, point_tag, sample_idx,
                     )
-                    result = self.collect_sampling_result(
-                        point,
-                        label,
-                        analyzer,
-                        phase=phase,
-                        point_tag=point_tag,
-                        snapshot=raw_snapshot,
-                        sample_index=sample_index + 1,
-                    )
-                    batch_results.append(result)
-                    snapshot = self.normalize_snapshot(raw_snapshot)
-                    row[f"{prefix}_frame_has_data"] = True
-                    row[f"{prefix}_frame_usable"] = True
-                    row[f"{prefix}_frame_status"] = "ok"
-                    row[f"{prefix}_co2_ppm"] = result.co2_ppm
-                    row[f"{prefix}_h2o_mmol"] = result.h2o_mmol
-                    row[f"{prefix}_co2_ratio_f"] = result.co2_ratio_f
-                    row[f"{prefix}_h2o_ratio_f"] = result.h2o_ratio_f
-                    if first_usable_result is None:
-                        first_usable_result = result
-                    if analyzer_index == 0:
-                        preferred_result = result
-                    for key, value in snapshot.items():
-                        row[f"{prefix}_{key}"] = value
-                except Exception as exc:
-                    row[f"{prefix}_frame_has_data"] = False
-                    row[f"{prefix}_frame_usable"] = False
-                    row[f"{prefix}_frame_status"] = "read_error"
-                    row[f"{prefix}_error"] = str(exc)
-                    batch_failures.append(label)
+                    analyzer_futures[future] = label
+                for future in as_completed(analyzer_futures):
+                    label = analyzer_futures[future]
+                    prefix = str(label or "").lower().replace(" ", "_")
+                    try:
+                        result, raw_snapshot = future.result()
+                        if result is None:
+                            raise RuntimeError("analyzer read returned None")
+                        batch_results.append(result)
+                        snapshot = self.normalize_snapshot(raw_snapshot)
+                        row[f"{prefix}_frame_has_data"] = True
+                        row[f"{prefix}_frame_usable"] = True
+                        row[f"{prefix}_frame_status"] = "ok"
+                        row[f"{prefix}_co2_ppm"] = result.co2_ppm
+                        row[f"{prefix}_h2o_mmol"] = result.h2o_mmol
+                        row[f"{prefix}_co2_ratio_f"] = result.co2_ratio_f
+                        row[f"{prefix}_h2o_ratio_f"] = result.h2o_ratio_f
+                        if label == preferred_analyzer_label:
+                            preferred_result = result
+                        if first_usable_result is None:
+                            first_usable_result = result
+                        for key, value in snapshot.items():
+                            row[f"{prefix}_{key}"] = value
+                    except Exception as exc:
+                        row[f"{prefix}_frame_has_data"] = False
+                        row[f"{prefix}_frame_usable"] = False
+                        row[f"{prefix}_frame_status"] = "read_error"
+                        row[f"{prefix}_error"] = str(exc)
+                        batch_failures.append(label)
             if preferred_result is None:
                 preferred_result = first_usable_result
             if preferred_result is not None:
@@ -851,7 +880,7 @@ class SamplingService:
                 row["thermometer_reference_status"] = thermometer_reference_status
             if pressure_reader is not None:
                 row.setdefault("pressure_hpa", pressure_hpa)
-            if dewpoint is not None:
+            if dewpoint is not None and self.context.device_manager.get_status("dewpoint_meter") is not DeviceStatus.DISABLED:
                 if phase == "h2o" and self.run_state.humidity.preseal_dewpoint_snapshot:
                     row["dewpoint_c"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("dewpoint_c")
                     row["dew_temp_c"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("temp_c")
@@ -877,7 +906,7 @@ class SamplingService:
                 humidity_reader = self.host._first_method(chamber, ("read_rh_pct", "read_humidity_pct"))
                 if humidity_reader is not None:
                     row["chamber_rh_pct"] = self.host._as_float(humidity_reader())
-            if generator is not None:
+            if generator is not None and self.context.device_manager.get_status("humidity_generator") is not DeviceStatus.DISABLED:
                 snapshot = self.normalize_snapshot(
                     self.read_device_snapshot(
                         generator,

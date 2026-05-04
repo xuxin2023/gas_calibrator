@@ -2,7 +2,7 @@
   "devices": {
     "pressure_controller": {
       "enabled": true,
-      "port": "COM31",
+      "port": "COM23",
       "baud": 9600,
       "timeout": 1.0,
       "line_ending": "LF",
@@ -22,7 +22,7 @@
     },
     "pressure_gauge": {
       "enabled": true,
-      "port": "COM30",
+      "port": "COM22",
       "baud": 9600,
       "timeout": 1.0,
       "response_timeout_s": 2.2,
@@ -30,13 +30,13 @@
     },
     "dewpoint_meter": {
       "enabled": true,
-      "port": "COM25",
+      "port": "COM17",
       "baud": 9600,
       "station": "001"
     },
     "humidity_generator": {
       "enabled": true,
-      "port": "COM24",
+      "port": "COM16",
       "baud": 9600
     },
     "gas_analyzer": {
@@ -151,13 +151,13 @@
     ],
     "temperature_chamber": {
       "enabled": false,
-      "port": "COM27",
+      "port": "COM19",
       "baud": 9600,
       "addr": 1
     },
     "thermometer": {
       "enabled": true,
-      "port": "COM26",
+      "port": "COM18",
       "baud": 2400,
       "bytesize": 8,
       "parity": "N",
@@ -166,13 +166,13 @@
     },
     "relay": {
       "enabled": true,
-      "port": "COM28",
+      "port": "COM20",
       "baud": 38400,
       "addr": 1
     },
     "relay_8": {
       "enabled": true,
-      "port": "COM29",
+      "port": "COM21",
       "baud": 38400,
       "addr": 1
     }

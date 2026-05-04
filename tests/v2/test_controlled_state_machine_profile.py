@@ -64,7 +64,7 @@ def test_controlled_state_machine_profile_compiles_from_current_plan() -> None:
 
     profile = compile_controlled_state_machine_profile(compiled)
 
-    assert profile["profile_version"] == "controlled_flex_v1"
+    assert profile["profile_version"] == "controlled_flex_v2"
     assert profile["enabled_states"][0:3] == ["INIT", "DEVICE_READY", "PLAN_COMPILED"]
     assert "PRESEAL_STABILITY" in profile["enabled_states"]
     assert "PRESSURE_STABLE" in profile["enabled_states"]
@@ -73,6 +73,11 @@ def test_controlled_state_machine_profile_compiles_from_current_plan() -> None:
     assert set(profile["route_families"]) >= {"water", "gas", "ambient"}
     assert set(profile["allowed_transitions"]) >= set(ALLOWED_TRANSITIONS)
     assert all(state in CANONICAL_STATES for state in profile["enabled_states"])
+    assert profile["state_library"]["artifact_type"] == "state_library"
+    assert profile["transition_policy_profile"]["artifact_type"] == "transition_policy_profile"
+    assert profile["compiled_route_state_graph"]["artifact_type"] == "compiled_route_state_graph"
+    assert profile["transition_policy_profile"]["policy_profile"]["retry_policy"]["by_state"]["PRESEAL_STABILITY"] == 2
+    assert profile["compiled_route_state_graph"]["route_paths"]
 
 
 def test_controlled_state_machine_profile_rejects_illegal_transition() -> None:
@@ -133,10 +138,19 @@ def test_state_transition_evidence_captures_recovery_trace_and_boundaries() -> N
         str(row.get("decision_result") or "") == "fault_capture_recovery"
         for row in raw["phase_decision_logs"]
     )
+    assert raw["transition_policy_profile"]["artifact_type"] == "transition_policy_profile"
+    assert raw["compiled_route_state_graph"]["artifact_type"] == "compiled_route_state_graph"
+    assert raw["state_library"]["artifact_type"] == "state_library"
+    assert raw["replay_trace"]["sequence_count"] >= len(raw["state_transition_logs"])
+    assert raw["comparison_rollup"]["summary"]
+    assert raw["reviewer_only"] is True
+    assert raw["readiness_mapping_only"] is True
+    assert raw["not_ready_for_formal_claim"] is True
     assert raw["illegal_transitions"]
     assert all(item["allowed"] is False for item in raw["illegal_transitions"])
     assert any(str(item.get("recovery_marker") or "") == "retry_or_recovery" for item in raw["illegal_transitions"])
     assert raw["review_surface"]["anchor_id"] == "state-transition-evidence"
+    assert "controlled_state_machine.step2_offline_v2" in raw["review_surface"]["policy_version_filters"]
     assert "actual_simulated_run" in raw["review_surface"]["evidence_source_filters"]
     assert "gas" in raw["review_surface"]["route_filters"]
     assert "shadow evaluation only" in raw["boundary_statements"]

@@ -1246,7 +1246,51 @@
       "ai_report_summary": "AI 报告摘要",
       "no_ai_report_summary": "暂无 AI 报告摘要。",
       "review_digest": "离线证据审阅摘要",
-      "review_center": "审阅中心"
+      "review_center": "审阅中心",
+      "compact_summary_panel": "紧凑摘要",
+      "compact_summary_no_content": "暂无紧凑摘要内容",
+      "compact_summary_legacy_notice": "兼容视图：旧运行未提供紧凑摘要包",
+      "closeout_readiness_panel": "Step 2 收官就绪度",
+      "closeout_readiness_no_content": "暂无收官就绪度数据",
+      "closeout_readiness_status_ok": "阶段就绪",
+      "closeout_readiness_status_attention": "存在需关注项",
+      "closeout_readiness_status_blocker": "存在阻塞项",
+      "closeout_readiness_status_reviewer_only": "仅限审阅观察",
+      "closeout_readiness_boundary_notice": "本视图仅基于仿真/离线/headless 证据，不代表 real acceptance evidence，不构成正式放行结论。",
+      "closeout_readiness_gate_status": "门禁状态",
+      "closeout_readiness_gate_summary": "门禁摘要",
+      "closeout_readiness_gate_alignment": "收官-门禁对齐",
+      "closeout_readiness_gate_ready": "门禁已就绪",
+      "closeout_readiness_gate_not_ready": "门禁未就绪",
+      "closeout_readiness_fallback_note": "本数据为兼容性 fallback 生成，非原始持久化 closeout readiness。",
+      "closeout_readiness_gate_status_line": "门禁状态：{status}",
+      "closeout_readiness_gate_summary_line": "门禁摘要：{pass_count}/{total_count} 通过，{blocked_count} 阻塞",
+      "closeout_readiness_gate_alignment_aligned": "收官-门禁对齐：对齐",
+      "closeout_readiness_gate_alignment_misaligned": "收官-门禁对齐：⚠ 不对齐",
+      "closeout_readiness_gate_no_data": "暂无门禁数据",
+      "closeout_package_panel": "Step 2 收官包",
+      "closeout_package_no_content": "暂无收官包数据",
+      "closeout_package_boundary_notice": "本收官包仅基于仿真/离线/headless 证据，不代表 real acceptance evidence，不构成正式放行结论。",
+      "freeze_audit_panel": "Step 2 冻结审计",
+      "freeze_audit_no_content": "暂无冻结审计数据",
+      "freeze_audit_boundary_notice": "本冻结审计仅基于仿真/离线/headless 证据，不代表 real acceptance evidence，不构成正式放行结论。",
+      "freeze_candidate_notice": "审阅候选，非正式批准",
+      "admission_dossier_panel": "Step 3 准入材料",
+      "admission_dossier_no_content": "暂无准入材料数据",
+      "admission_dossier_boundary_notice": "本准入材料仅基于仿真/离线/headless 证据，不代表 real acceptance evidence。",
+      "admission_candidate_notice": "审阅候选材料，非正式批准",
+      "admission_dossier_dossier_status": "准入材料状态：{status}",
+      "admission_dossier_blockers_count": "阻塞项（{count}）：",
+      "admission_dossier_next_steps_count": "下一步（{count}）：",
+      "closeout_verification_panel": "Step 2 收官验证",
+      "closeout_verification_no_content": "暂无收官验证数据",
+      "closeout_verification_boundary_notice": "本收官验证仅基于仿真/离线/headless 证据，不代表 real acceptance evidence。",
+      "freeze_seal_panel": "Step 2 封板守护",
+      "freeze_seal_no_content": "暂无封板守护数据",
+      "freeze_seal_boundary_notice": "本封板守护仅基于仿真/离线/headless 证据，不代表 real acceptance evidence，不构成正式放行结论。",
+      "final_closure_matrix_panel": "Step 2 最终封板矩阵",
+      "final_closure_matrix_no_content": "暂无最终封板矩阵数据",
+      "final_closure_matrix_boundary_notice": "本最终封板矩阵仅基于仿真/离线/headless 证据，不代表 real acceptance evidence，不构成正式批准结论。"
     },
     "qc": {
       "score": "质控评分",
@@ -1615,8 +1659,17 @@
         "uncertainty_budget_completeness": "预算完整度：{value}",
         "uncertainty_top_contributors": "主要不确定度贡献：{value}",
         "uncertainty_data_completeness": "数据完整度：{value}",
+        "uncertainty_budget_levels": "不确定度预算层级：{value}",
+        "uncertainty_binding": "不确定度绑定：{value}",
+        "uncertainty_calculation_chain": "不确定度计算链：{value}",
+        "uncertainty_fixture_summary": "不确定度 fixture：{value}",
         "uncertainty_rollup": "不确定度 rollup：{value}",
-        "uncertainty_non_claim": "不确定度 non-claim：{value}"
+        "uncertainty_non_claim": "不确定度 non-claim：{value}",
+        "artifact_compatibility": "工件兼容：{value}",
+        "artifact_compatibility_summary": "兼容摘要：{value}",
+        "artifact_compatibility_regenerate": "建议运行轻量 reindex/regenerate，仅重建 reviewer/index sidecar，不改写原始主证据",
+        "config_safety": "配置安全：{value}",
+        "evidence_source": "证据来源：{value}"
       }
     },
     "route_status": {
@@ -1957,7 +2010,8 @@
         "run_index": "跨 run 审阅索引",
         "evidence_list": "最近证据",
         "evidence_detail": "证据详情",
-        "risk": "风险等级"
+        "risk": "风险等级",
+        "compact_summary": "紧凑摘要"
       },
       "column": {
         "time": "时间",
@@ -2008,6 +2062,17 @@
         "offline_diagnostic_recommended_variant": "建议变体",
         "offline_diagnostic_dominant_error": "主导误差",
         "offline_diagnostic_next_check": "下一步检查",
+        "offline_diagnostic_compare_heading": "V1/V2 离线对齐",
+        "offline_diagnostic_compare_summary": "V1/V2 离线对齐 | 对齐状态 {status} | 对齐配置 {profile} | 目标气路 {route} | 首个失败阶段 {failure}",
+        "offline_diagnostic_compare_status": "对齐状态",
+        "offline_diagnostic_validation_profile": "对齐配置",
+        "offline_diagnostic_target_route": "目标气路",
+        "offline_diagnostic_first_failure_phase": "首个失败阶段",
+        "offline_diagnostic_point_presence_diff": "点位存在差异",
+        "offline_diagnostic_sample_count_diff": "样本数差异",
+        "offline_diagnostic_route_trace_diff": "路由轨迹差异",
+        "offline_diagnostic_key_action_mismatches": "关键动作不一致",
+        "offline_diagnostic_physical_route_mismatch": "物理气路不一致",
         "offline_diagnostic_continue_s1": "S1 继续判定",
         "offline_diagnostic_dominant_conclusion": "主导结论",
         "offline_diagnostic_recommended_next_check": "建议下一步检查",
@@ -2019,8 +2084,24 @@
           "fail": "失败",
           "pass": "通过",
           "insufficient_evidence": "证据不足",
+          "match": "匹配",
+          "mismatch": "不一致",
+          "not_executed": "未执行",
+          "invalid_profile_input": "配置输入无效",
           "continue": "继续",
-          "hold": "保持"
+          "hold": "保持",
+          "diff_present": "存在差异",
+          "no_diff": "无差异",
+          "yes": "是",
+          "no": "否",
+          "inspect_point_presence_diff": "检查点位存在差异",
+          "inspect_sample_count_diff": "检查样本数差异",
+          "inspect_route_trace_diff": "检查路由轨迹差异",
+          "inspect_key_action_mismatches": "检查关键动作不一致",
+          "inspect_route_physical_mismatch": "检查物理气路不一致",
+          "review_compare_report_keep_gate": "复核对齐报告并保持仅仿真门禁",
+          "review_compare_report": "复核对齐报告",
+          "review_failure_phase": "复核 {phase} 失败阶段"
         },
         "spectral_status": "谱分析状态",
         "measurement": {
@@ -2358,6 +2439,17 @@
     "engineering_isolation_admission_checklist": "工程隔离准入清单",
     "engineering_isolation_admission_checklist_reviewer": "工程隔离准入清单审阅"
   },
+  "results.review_center.engineering_isolation_gate.blockers": "阻塞项：{value}",
+  "results.review_center.engineering_isolation_gate.warnings": "警示项：{value}",
+  "results.review_center.engineering_isolation_gate.unresolved_gaps": "未闭合缺口：{value}",
+  "results.review_center.engineering_isolation_gate.suggested_next_actions": "建议下一步：{value}",
+  "pages.devices.workbench.engineer_card.bridge_readiness": "准入桥接总闸",
+  "pages.devices.workbench.engineer_section.bridge_readiness.title": "准入桥接总闸",
+  "pages.devices.workbench.engineer_section.bridge_readiness.summary": "桥接状态：{status}",
+  "pages.devices.workbench.bridge_readiness.blocker_line": "桥接阻塞：{value}",
+  "pages.devices.workbench.bridge_readiness.warning_line": "桥接警示：{value}",
+  "pages.devices.workbench.bridge_readiness.gap_line": "桥接缺口：{value}",
+  "pages.devices.workbench.bridge_readiness.next_action_line": "桥接下一步：{value}",
   "phase_evidence": {
     "point_taxonomy_summary": "点位语义摘要",
     "measurement_phase_coverage_report": "测量阶段覆盖",
@@ -2420,5 +2512,279 @@
     "evidence_source": "证据来源",
     "offline_diagnostic": "离线诊断",
     "workbench_evidence": "工作台诊断证据"
+  },
+  "formatter_labels": {
+    "artifacts": "工件",
+    "plots": "图表",
+    "primary": "主工件",
+    "supporting": "支撑工件",
+    "coverage": "覆盖",
+    "complete": "完整",
+    "gapped": "缺口",
+    "missing_label": "缺少",
+    "no_gaps": "无缺口",
+    "visible": "可见",
+    "present": "存在",
+    "external": "外部",
+    "catalog": "当前运行基线",
+    "filtered": "当前筛选",
+    "failed": "失败",
+    "degraded": "降级",
+    "diagnostic": "仅诊断",
+    "high": "高",
+    "medium": "中",
+    "low": "低"
+  },
+  "compat_row_labels": {
+    "version": "版本",
+    "status": "状态",
+    "reader_mode": "读取",
+    "schema_contract": "合同/Schema",
+    "regenerate_recommended": "建议再生成 reviewer/index sidecar",
+    "recommendation": "建议",
+    "no_rewrite_primary": "不改写原始主证据"
+  },
+  "historical_rollup_labels": {
+    "scope_run_count": "认可范围包运行数",
+    "canonical_direct": "canonical 直读",
+    "compatibility_adapter": "兼容适配读取",
+    "readiness_status": "就绪状态"
+  },
+  "reviewer_summary": {
+    "measurement": {
+      "payload_complete": "payload 完整阶段：{value}",
+      "payload_partial": "payload 部分阶段：{value}",
+      "trace_only": "仅 trace 阶段：{value}",
+      "blockers": "当前阻塞：{value}",
+      "next_artifacts": "下一步补证工件：{value}",
+      "boundary": "边界：{value}",
+      "non_claim": "非声明边界：{value}"
+    },
+    "readiness": {
+      "scope_overview": "认可范围概览：{value}",
+      "decision_rule": "决策规则概览：{value}",
+      "readiness_status": "验证就绪状态：{value}",
+      "top_gaps": "主要缺口：{value}",
+      "current_coverage": "当前证据覆盖：{value}",
+      "boundary": "边界：{value}",
+      "non_claim": "非声明边界：{value}"
+    },
+    "phase_evidence": {
+      "point_taxonomy": "点位语义：{value}",
+      "measurement_phase_coverage": "测量阶段覆盖：{value}",
+      "phase_transition_bridge": "阶段桥接：{value}"
+    },
+    "v12_alignment": {
+      "header": "V1.2 审阅摘要",
+      "point_taxonomy": "点位语义：{value}",
+      "measurement_phase_coverage": "测量阶段覆盖：{value}",
+      "phase_transition_bridge": "阶段桥接：{value}",
+      "parity_resilience": "一致性/韧性：{parity} / {resilience}",
+      "governance_blockers": "治理阻塞：{value}",
+      "simulated_only_note": "仅仿真 / 仅审阅 / 非真实验收证据",
+      "no_formal_claim": "不构成正式放行结论"
+    },
+    "governance_handoff": {
+      "current_stage": "当前阶段：{value}",
+      "blockers": "阻塞项：{value}",
+      "next_steps": "下一步：{value}",
+      "evidence_source": "证据来源：{value}"
+    },
+    "parity_resilience": {
+      "parity_status": "一致性状态：{value}",
+      "resilience_status": "韧性状态：{value}",
+      "parity_last_run": "最近一致性：{value}",
+      "resilience_last_run": "最近韧性：{value}"
+    },
+    "offline_compare": {
+      "summary_line": "离线对齐：{status} | 首个失败阶段：{failure} | 下一步检查：{next_check}",
+      "status": "对齐状态：{value}",
+      "profile_route": "对齐配置：{profile} | 目标气路：{route}",
+      "primary_diffs": "点位存在差异：{point_presence} | 样本数差异：{sample_count}",
+      "secondary_diffs": "路由轨迹差异：{route_trace} | 关键动作不一致：{key_actions}",
+      "route_gate": "物理气路不一致：{physical_route} | 首个失败阶段：{first_failure}",
+      "next_check": "下一步检查：{value}",
+      "diff_present": "存在差异",
+      "no_diff": "无差异",
+      "next_check_actions": {
+        "inspect_point_presence_diff": "检查点位存在差异",
+        "inspect_sample_count_diff": "检查样本数差异",
+        "inspect_route_trace_diff": "检查路由轨迹差异",
+        "inspect_key_action_mismatches": "检查关键动作不一致",
+        "inspect_route_physical_mismatch": "检查物理气路不一致",
+        "review_compare_report_keep_gate": "复核对齐报告并保持仅仿真门禁",
+        "review_compare_report": "复核对齐报告",
+        "review_failure_phase": "复核 {phase} 失败阶段"
+      }
+    },
+    "compact_summary_budget": {
+      "truncated_hint": "（{count} 行摘要因预算截断未显示）",
+      "truncated_note": "摘要行预算已用尽"
+    },
+    "compact_summary_pack": {
+      "header": "紧凑摘要包",
+      "measurement_digest": "测量审阅摘要",
+      "readiness_digest": "就绪审阅摘要",
+      "phase_evidence": "阶段证据摘要",
+      "v12_alignment": "V1.2 对齐摘要",
+      "control_flow_compare": "V1/V2 离线对齐摘要",
+      "governance_handoff": "治理交接摘要",
+      "parity_resilience": "一致性/韧性摘要",
+      "render_surface": "渲染面",
+      "pack_count": "摘要包数",
+      "used_lines": "已用行数",
+      "budget_lines": "预算行数",
+      "truncated_lines": "截断行数",
+      "omitted_sections": "已省略的摘要节",
+      "no_packs_available": "无紧凑摘要包可用",
+      "legacy_label": "兼容视图",
+      "legacy_hint": "未提供紧凑摘要包，已使用兼容渲染",
+      "budget_summary": "预算：{used}/{budget} 行，{packs} 包",
+      "omitted_label": "已省略：{labels}",
+      "truncated_section": "（{count} 行截断）"
+    }
+  },
+  "closeout_readiness": {
+    "title": "Step 2 收官就绪度",
+    "summary_line": "Step 2 仿真收官视图：汇总当前阶段就绪状态、阻塞项与下一步。不是正式放行结论，不是 real acceptance evidence。",
+    "status": {
+      "ok": "阶段就绪",
+      "attention": "存在需关注项",
+      "blocker": "存在阻塞项",
+      "reviewer_only": "仅限审阅观察"
+    },
+    "simulation_only_boundary": "本视图仅基于仿真/离线/headless 证据，不代表 real acceptance evidence，不构成正式放行结论。",
+    "reviewer_only_notice": "本视图仅供 reviewer 审阅，不作为 operator 操作依据。",
+    "non_claim_notice": "不形成 formal compliance claim / accreditation claim / real acceptance evidence。",
+    "blockers_label": "阻塞项",
+    "next_steps_label": "下一步",
+    "contributing_sections_label": "聚合来源"
+  },
+  "closeout_package": {
+    "title": "Step 2 收官包",
+    "summary": "Step 2 仿真收官包：将当前阶段所有收官相关对象聚合为单一 canonical reviewer bundle。不是正式放行结论，不是 real acceptance evidence。",
+    "section": {
+      "readiness": "收官就绪度",
+      "digest": "收官摘要",
+      "governance_handoff": "治理交接",
+      "compact_summaries": "紧凑摘要",
+      "parity_resilience": "一致性/韧性",
+      "phase_evidence": "阶段证据 / V1.2 对齐",
+      "stage_admission": "阶段准入审阅包",
+      "engineering_isolation_checklist": "工程隔离准入清单",
+      "blockers": "阻塞项",
+      "next_steps": "下一步",
+      "boundary": "边界声明"
+    },
+    "simulation_only_boundary": "本收官包仅基于 simulation / offline / headless 证据，不代表 real acceptance evidence，不构成正式放行结论。",
+    "reviewer_only_notice": "本收官包仅供 reviewer 审阅，不作为 operator 操作依据，不形成 formal compliance claim。",
+    "non_claim_notice": "不形成 formal compliance claim / accreditation claim / real acceptance evidence。",
+    "package_status": "收官包状态",
+    "no_content": "暂无收官包数据"
+  },
+  "freeze_audit": {
+    "title": "Step 2 冻结审计",
+    "summary": "Step 2 release-candidate 冻结审计：汇总 suite / parity / resilience / governance / closeout 状态，判断当前是否进入 RC 审阅候选态。不是正式放行结论，不是 real acceptance evidence。",
+    "section": {
+      "suite": "测试套件",
+      "parity": "一致性",
+      "resilience": "韧性",
+      "governance": "治理",
+      "closeout": "收官包",
+      "boundary": "边界声明"
+    },
+    "status": {
+      "ok": "冻结审计就绪",
+      "attention": "存在需关注项",
+      "blocker": "存在阻塞项",
+      "reviewer_only": "仅限审阅观察"
+    },
+    "simulation_only_boundary": "本冻结审计仅基于 simulation / offline / headless 证据，不代表 real acceptance evidence，不构成正式放行结论。",
+    "reviewer_only_notice": "本冻结审计仅供 reviewer 审阅，不作为 operator 操作依据，不形成 formal compliance claim。",
+    "non_claim_notice": "不形成 formal compliance claim / accreditation claim / real acceptance evidence。",
+    "freeze_candidate_notice": "freeze_candidate = True 仅表示 Step 2 RC 审阅候选，不是正式放行批准。",
+    "audit_status": "审计状态",
+    "no_content": "暂无冻结审计数据",
+    "panel": "Step 2 冻结审计"
+  },
+  "admission_dossier": {
+    "title": "Step 3 准入材料",
+    "summary": "Step 3 准入材料：汇总 Step 2 全部收官证据，判断当前是否具备进入下一阶段审阅的条件。仅为阶段准入治理材料，不是正式放行结论，不是 real acceptance evidence。",
+    "section": {
+      "freeze_audit": "冻结审计",
+      "closeout_package": "收官包",
+      "closeout_readiness": "收官就绪度",
+      "governance_handoff": "治理交接",
+      "parity_resilience": "一致性/韧性",
+      "phase_evidence": "阶段证据 / V1.2 对齐",
+      "blockers": "阻塞项",
+      "next_steps": "下一步",
+      "boundary": "边界声明"
+    },
+    "status": {
+      "ok": "准入材料就绪",
+      "attention": "存在需关注项",
+      "blocker": "存在阻塞项",
+      "reviewer_only": "仅限审阅观察"
+    },
+    "simulation_only_boundary": "本准入材料仅基于 simulation / offline / headless 证据，不代表 real acceptance evidence，不构成正式放行结论。进入 Step 3 真实验证仍需明确授权和真实设备验证。",
+    "reviewer_only_notice": "本准入材料仅供 reviewer 审阅，不作为 operator 操作依据，不形成 formal compliance claim。",
+    "non_claim_notice": "不形成 formal compliance claim / accreditation claim / real acceptance evidence。",
+    "admission_candidate_notice": "admission_candidate = True 仅表示 Step 3 审阅候选材料已具备，不是 Step 3 已批准，不是正式放行结论。",
+    "dossier_status": "准入材料状态",
+    "no_content": "暂无准入材料数据",
+    "panel": "Step 3 准入材料"
+  },
+  "freeze_seal": {
+    "title": "Step 2 封板守护",
+    "summary": "Step 2 封板守护：审计五个核心收官对象在 results / reports / historical / review index / UI 之间的一致性，防止后续漂移。不是正式放行结论，不是 real acceptance evidence。",
+    "status": {
+      "ok": "封板守护就绪",
+      "attention": "存在漂移风险",
+      "blocker": "存在漂移阻塞",
+      "reviewer_only": "仅限审阅观察"
+    },
+    "simulation_only_boundary": "本封板守护仅基于仿真/离线/headless 证据，不代表 real acceptance evidence，不构成正式放行结论。",
+    "reviewer_only_notice": "本封板守护仅供 reviewer 审阅，不作为 operator 操作依据。",
+    "non_claim_notice": "不形成 formal compliance claim / accreditation claim / real acceptance evidence。",
+    "drift": {
+      "field_missing": "字段缺失",
+      "field_value_mismatch": "字段值不一致",
+      "boundary_marker_mismatch": "边界标记不一致",
+      "status_bucket_mismatch": "状态桶不一致",
+      "source_priority_mismatch": "source 优先级不一致"
+    },
+    "missing_surface": {
+      "results": "results 层缺失",
+      "reports": "reports 层缺失",
+      "historical": "historical 层缺失",
+      "review_index": "review index 层缺失",
+      "ui": "UI 层缺失"
+    },
+    "source_mismatch": {
+      "persisted_vs_rebuilt": "persisted 与 rebuilt 不一致",
+      "rebuilt_vs_fallback": "rebuilt 与 fallback 不一致",
+      "unexpected_source": "非预期 source 值"
+    },
+    "panel": "Step 2 封板守护",
+    "no_content": "暂无封板守护数据",
+    "audited_objects": "审计对象",
+    "freeze_seal_status": "封板守护状态"
+  },
+  "final_closure_matrix": {
+    "title": "Step 2 最终封板矩阵",
+    "summary": "Step 2 最终封板矩阵：面向 reviewer 与工程维护者，锁定五个核心收官对象在 results / reports / historical / review index 之间的可消费口径一致性。它只表达 Step 2 封板一致性，不代表正式批准。",
+    "status": {
+      "ok": "封板矩阵一致",
+      "attention": "存在封板关注项",
+      "blocker": "存在封板阻塞项",
+      "reviewer_only": "仅限审阅观察"
+    },
+    "simulation_only_boundary": "本最终封板矩阵仅基于仿真/离线/headless 证据，不代表 real acceptance evidence，不构成正式批准结论。",
+    "reviewer_only_notice": "本最终封板矩阵仅供 reviewer / 工程维护者审阅，不作为 operator 真实设备操作依据。",
+    "non_claim_notice": "不形成 formal compliance claim / accreditation claim / real acceptance evidence。",
+    "panel": "Step 2 最终封板矩阵",
+    "no_content": "暂无最终封板矩阵数据",
+    "closure_matrix_status": "封板矩阵状态"
   }
 }

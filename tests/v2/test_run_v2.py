@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -15,6 +17,10 @@ def _load_run_v2_module():
     assert spec is not None and spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def _run_v2_script_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "src" / "gas_calibrator" / "v2" / "scripts" / "run_v2.py"
 
 
 def test_run_v2_headless_uses_calibration_service_without_ui(monkeypatch) -> None:
@@ -42,6 +48,67 @@ def test_run_v2_headless_uses_calibration_service_without_ui(monkeypatch) -> Non
     assert calls[0] == "create:demo.json:True:False"
     assert calls[1] == "run"
     assert "ui" not in calls
+
+
+def test_run_v2_headless_direct_script_persists_mainline_smoke_artifacts(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    source_config = repo_root / "src" / "gas_calibrator" / "v2" / "configs" / "smoke_v2_minimal.json"
+    source_points = repo_root / "src" / "gas_calibrator" / "v2" / "configs" / "smoke_points_minimal.json"
+    config_path = config_dir / "smoke_v2_minimal.json"
+    points_path = config_dir / "smoke_points_minimal.json"
+    config_path.write_text(source_config.read_text(encoding="utf-8"), encoding="utf-8")
+    points_path.write_text(source_points.read_text(encoding="utf-8"), encoding="utf-8")
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(_run_v2_script_path()),
+            "--config",
+            str(config_path),
+            "--simulation",
+            "--headless",
+        ],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=90,
+    )
+
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+    run_root = tmp_path / "output" / "smoke_v2_minimal"
+    run_dirs = sorted(path for path in run_root.iterdir() if path.is_dir())
+    assert run_dirs
+    run_dir = run_dirs[-1]
+    required = {
+        "summary.json",
+        "manifest.json",
+        "route_trace.jsonl",
+        "results.json",
+        "qc_report.json",
+    }
+    assert required <= {path.name for path in run_dir.iterdir()}
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    trace_entries = [
+        json.loads(line)
+        for line in (run_dir / "route_trace.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert summary["status"]["phase"] == "completed"
+    assert summary["status"]["completed_points"] == summary["status"]["total_points"]
+    assert summary["status"]["progress"] == 1.0
+    assert results["samples"]
+    actions = [entry["action"] for entry in trace_entries]
+    first_sample_start = actions.index("sample_start")
+    assert "wait_temperature" in actions[:first_sample_start]
+    assert any(action in actions[:first_sample_start] for action in ("wait_route_ready", "wait_route_soak"))
+    assert any(action.startswith("final_safe_stop") for action in actions)
 
 
 def test_run_v2_ui_mode_delegates_to_ui_main(monkeypatch) -> None:

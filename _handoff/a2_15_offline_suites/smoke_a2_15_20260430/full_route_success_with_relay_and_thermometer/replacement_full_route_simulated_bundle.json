@@ -1,0 +1,598 @@
+{
+  "generated_at": "2026-04-30T07:44:01.500210+00:00",
+  "classification": "control_flow_replacement_validation",
+  "checklist_gate": "SIM-FULL",
+  "validation_profile": "replacement_full_route_simulated",
+  "evidence_source": "simulated",
+  "evidence_state": "simulated_protocol",
+  "diagnostic_only": false,
+  "acceptance_evidence": false,
+  "not_real_acceptance_evidence": true,
+  "run_name": "full_route_success_with_relay_and_thermometer",
+  "report_root": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430",
+  "report_dir": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer",
+  "compare_status": "MATCH",
+  "overall_match": true,
+  "bench_context": {
+    "co2_0ppm_available": true,
+    "other_gases_available": true,
+    "h2o_route_available": true,
+    "humidity_generator_humidity_feedback_valid": true,
+    "primary_replacement_route": "skip0_co2_only_replacement",
+    "validation_role": "simulated_acceptance_like_coverage",
+    "target_route": "h2o_then_co2",
+    "diagnostic_only": false,
+    "acceptance_evidence": false
+  },
+  "simulation_context": {
+    "scenario": "full_route_success_with_relay_and_thermometer",
+    "description": "Full-route success with relay and thermometer protocol devices exercised end-to-end.",
+    "diagnostic_only": false,
+    "target_route": "h2o_then_co2",
+    "execution_mode": "protocol",
+    "baseline_mode": "mirror_v2",
+    "simulation_backend": "protocol",
+    "device_matrix": {
+      "analyzers": {
+        "protocol": "ygas",
+        "count": 8,
+        "mode2_stream": "stable",
+        "active_send": true,
+        "sensor_precheck": "strict_pass",
+        "versions": [
+          "v5_plus",
+          "v5_plus",
+          "v5_plus",
+          "v5_plus",
+          "v5_plus",
+          "v5_plus",
+          "v5_plus",
+          "v5_plus"
+        ],
+        "status_bits": [
+          "0000",
+          "0000",
+          "0000",
+          "0000",
+          "0000",
+          "0000",
+          "0000",
+          "0000"
+        ],
+        "mode_switch_not_applied": false
+      },
+      "humidity_generator": {
+        "protocol": "grz5013",
+        "mode": "stable",
+        "skipped_by_profile": false
+      },
+      "dewpoint_meter": {
+        "mode": "stable",
+        "skipped_by_profile": false
+      },
+      "pressure_controller": {
+        "protocol": "scpi",
+        "mode": "stable",
+        "unit": "HPA",
+        "unsupported_headers": [],
+        "faults": []
+      },
+      "pressure_gauge": {
+        "protocol": "paroscientific_735_745",
+        "mode": "stable",
+        "dest_id": "01",
+        "source_id": "00",
+        "unit": "HPA",
+        "temperature_unit": "C",
+        "measurement_mode": "single",
+        "unsupported_commands": [],
+        "faults": []
+      },
+      "temperature_chamber": {
+        "protocol": "modbus",
+        "mode": "stable",
+        "soak_behavior": "on_target",
+        "ramp_rate_c_per_s": 10.0,
+        "soak_s": 0.5
+      },
+      "relay": {
+        "protocol": "modbus_rtu",
+        "channel_count": 16,
+        "mode": "stable",
+        "stuck_channels": [],
+        "skipped_by_profile": false
+      },
+      "relay_8": {
+        "protocol": "modbus_rtu",
+        "channel_count": 8,
+        "mode": "stable",
+        "stuck_channels": [],
+        "skipped_by_profile": false
+      },
+      "thermometer": {
+        "protocol": "ascii_stream",
+        "mode": "stable",
+        "plus_200_mode": false,
+        "drift_step_c": 0.05,
+        "skipped_by_profile": false
+      },
+      "device_overrides": {},
+      "transport_faults": []
+    },
+    "runtime_overrides": {
+      "workflow": {
+        "startup_pressure_precheck": {
+          "enabled": false
+        },
+        "stability": {
+          "temperature": {
+            "tol": 1.0,
+            "window_s": 0.4,
+            "timeout_s": 2.5,
+            "soak_after_reach_s": 0.1,
+            "transition_check_window_s": 0.8,
+            "transition_min_delta_c": 0.05,
+            "analyzer_chamber_temp_enabled": false
+          },
+          "humidity_generator": {
+            "timeout_s": 3.0,
+            "window_s": 0.4,
+            "rh_stable_window_s": 0.4,
+            "rh_stable_span_pct": 0.8,
+            "poll_s": 0.05,
+            "temp_tol_c": 1.0,
+            "rh_tol_pct": 2.0
+          },
+          "dewpoint": {
+            "window_s": 0.5,
+            "timeout_s": 2.0,
+            "poll_s": 0.05,
+            "temp_match_tol_c": 1.0,
+            "rh_match_tol_pct": 2.0,
+            "stability_tol_c": 0.5,
+            "min_samples": 2
+          },
+          "h2o_route": {
+            "preseal_soak_s": 0.05,
+            "humidity_timeout_policy": "abort_like_v1"
+          },
+          "co2_route": {
+            "preseal_soak_s": 0.05,
+            "first_point_preseal_soak_s": 0.05,
+            "post_h2o_zero_ppm_soak_s": 0.05
+          }
+        },
+        "pressure": {
+          "pressurize_high_hpa": 1000.0,
+          "pressurize_wait_after_vent_off_s": 0.0,
+          "pressurize_timeout_s": 1.5,
+          "post_stable_sample_delay_s": 0.0,
+          "co2_post_stable_sample_delay_s": 0.0,
+          "co2_post_h2o_vent_off_wait_s": 0.0,
+          "vent_time_s": 0.0,
+          "vent_transition_timeout_s": 1.0,
+          "continuous_atmosphere_hold": true,
+          "vent_hold_interval_s": 0.05,
+          "stabilize_timeout_s": 1.5,
+          "restabilize_retries": 0,
+          "restabilize_retry_interval_s": 0.1
+        },
+        "sampling": {
+          "count": 2,
+          "stable_count": 2,
+          "interval_s": 0.05,
+          "h2o_interval_s": 0.05,
+          "co2_interval_s": 0.05,
+          "quality": {
+            "enabled": false
+          }
+        }
+      }
+    },
+    "protocol_devices": {
+      "analyzer": "ygas",
+      "pressure_controller": "pace_scpi",
+      "humidity_generator": "grz5013",
+      "temperature_chamber": "modbus",
+      "relay": "modbus_rtu",
+      "relay_8": "modbus_rtu",
+      "thermometer": "ascii_stream"
+    }
+  },
+  "effective_validation_mode": {
+    "validation_profile": "replacement_full_route_simulated",
+    "route_mode": "h2o_then_co2",
+    "target_route": null,
+    "diagnostic_only": false,
+    "acceptance_evidence": false
+  },
+  "reference_quality": {
+    "reference_integrity": "healthy",
+    "reference_quality": "healthy",
+    "reference_quality_degraded": false,
+    "thermometer_reference_status": "healthy",
+    "pressure_reference_status": "healthy",
+    "reasons": []
+  },
+  "summary": "Full-route simulated replacement coverage exercises 0 ppm, H2O, CO2, multiple temperatures, multiple pressures, and full route/action ordering without touching real devices.",
+  "validation_scope": {
+    "profile": "replacement_full_route_simulated",
+    "summary": "Full-route simulated replacement coverage exercises 0 ppm, H2O, CO2, multiple temperatures, multiple pressures, and full route/action ordering without touching real devices.",
+    "proves": [
+      "Full logical route/action coverage for H2O + CO2 + 0 ppm in simulation.",
+      "Compare/report/latest/bundle generation can be regression-tested without bench access.",
+      "UI validation cockpit can consume full-route evidence in a device-free environment."
+    ],
+    "does_not_prove": [
+      "Real-device acceptance evidence.",
+      "Bench cutover readiness.",
+      "Physical device timing, transport, or numeric equivalence."
+    ]
+  },
+  "replacement_validation": {
+    "scope": "standard_compare",
+    "scope_statement": "",
+    "conclusion": "replacement-validation path usable",
+    "path_usable": true,
+    "cutover_ready": false,
+    "default_replacement_ready": false,
+    "full_equivalence_established": false,
+    "numeric_equivalence_established": false,
+    "evidence_state": "simulated_protocol",
+    "first_failure_phase": null,
+    "only_in_v1": [],
+    "only_in_v2": [],
+    "missing_points": {
+      "missing_in_v1": [],
+      "missing_in_v2": []
+    },
+    "sample_count_mismatch": false,
+    "sample_count_mismatches": [],
+    "presence_evaluable": true,
+    "sample_count_evaluable": true,
+    "route_action_order_evaluable": true,
+    "presence_matches": true,
+    "sample_count_matches": true,
+    "route_action_order_matches": true,
+    "route_action_order_differences": [],
+    "blocking_route_action_order_differences": [],
+    "key_action_groups_evaluable": true,
+    "key_action_group_matches": {
+      "pressure": true,
+      "sample": true,
+      "valves": true,
+      "vent": true
+    },
+    "key_action_group_registry": "gas_calibrator.v2.scripts.route_trace_diff.KEY_ACTION_GROUPS",
+    "review_stage_registry": "gas_calibrator.v2.scripts.route_trace_diff.REVIEW_STAGE_GROUPS"
+  },
+  "route_execution_summary": {
+    "target_route": null,
+    "compare_status": "MATCH",
+    "entered_target_route": {
+      "v1": true,
+      "v2": true
+    },
+    "target_route_event_count": {
+      "v1": 0,
+      "v2": 0
+    },
+    "valid_for_route_diff": true,
+    "has_route_failures": false,
+    "has_physical_route_mismatches": false,
+    "route_physical_state_match": {
+      "v1": true,
+      "v2": true
+    },
+    "relay_physical_mismatch": {
+      "v1": false,
+      "v2": false
+    },
+    "first_failure_phase": null,
+    "reason": "",
+    "bench_context": {
+      "co2_0ppm_available": true,
+      "other_gases_available": true,
+      "h2o_route_available": true,
+      "humidity_generator_humidity_feedback_valid": true,
+      "primary_replacement_route": "skip0_co2_only_replacement",
+      "validation_role": "simulated_acceptance_like_coverage",
+      "target_route": "h2o_then_co2",
+      "diagnostic_only": false,
+      "acceptance_evidence": false
+    },
+    "effective_v2_compare_config": "D:\\gas_calibrator\\src\\gas_calibrator\\v2\\configs\\validation\\simulated\\replacement_full_route_simulated.json",
+    "sides": {
+      "v1": {
+        "ok": true,
+        "status_phase": "simulated.protocol_baseline",
+        "status_error": null,
+        "error_category": null,
+        "derived_failure_phase": null,
+        "last_runner_stage": null,
+        "last_runner_event": null,
+        "abort_message": null,
+        "trace_expected_but_missing": null,
+        "cleanup_terminated": null,
+        "cleanup_termination_reason": null,
+        "entered_target_route": true,
+        "target_route_event_count": 0,
+        "route_failures": [],
+        "route_physical_failures": [],
+        "target_open_valves": [],
+        "actual_open_valves": [],
+        "target_relay_state": {
+          "relay_a": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "4": false,
+            "5": false,
+            "6": false,
+            "7": false,
+            "8": false,
+            "9": false,
+            "10": false,
+            "11": false,
+            "12": false,
+            "15": false,
+            "16": false
+          },
+          "relay_b": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "8": false
+          }
+        },
+        "actual_relay_state": {
+          "relay_a": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "4": false,
+            "5": false,
+            "6": false,
+            "7": false,
+            "8": false,
+            "9": false,
+            "10": false,
+            "11": false,
+            "12": false,
+            "15": false,
+            "16": false
+          },
+          "relay_b": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "8": false
+          }
+        },
+        "route_physical_state_match": true,
+        "relay_physical_mismatch": false,
+        "mismatched_valves": [],
+        "mismatched_channels": [],
+        "cleanup_relay_state": {
+          "relay_a": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "4": false,
+            "5": false,
+            "6": false,
+            "7": false,
+            "8": false,
+            "9": false,
+            "10": false,
+            "11": false,
+            "12": false,
+            "15": false,
+            "16": false
+          },
+          "relay_b": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "8": false
+          }
+        },
+        "cleanup_all_relays_off": true,
+        "first_failure_phase": "",
+        "preflight": {
+          "ok": true
+        },
+        "runtime_policy": {
+          "simulation_baseline": "mirror_v2"
+        }
+      },
+      "v2": {
+        "ok": true,
+        "status_phase": "completed",
+        "status_error": null,
+        "error_category": null,
+        "derived_failure_phase": null,
+        "last_runner_stage": null,
+        "last_runner_event": null,
+        "abort_message": null,
+        "trace_expected_but_missing": null,
+        "cleanup_terminated": null,
+        "cleanup_termination_reason": null,
+        "entered_target_route": true,
+        "target_route_event_count": 0,
+        "route_failures": [],
+        "route_physical_failures": [],
+        "target_open_valves": [],
+        "actual_open_valves": [],
+        "target_relay_state": {
+          "relay_a": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "4": false,
+            "5": false,
+            "6": false,
+            "7": false,
+            "8": false,
+            "9": false,
+            "10": false,
+            "11": false,
+            "12": false,
+            "15": false,
+            "16": false
+          },
+          "relay_b": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "8": false
+          }
+        },
+        "actual_relay_state": {
+          "relay_a": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "4": false,
+            "5": false,
+            "6": false,
+            "7": false,
+            "8": false,
+            "9": false,
+            "10": false,
+            "11": false,
+            "12": false,
+            "15": false,
+            "16": false
+          },
+          "relay_b": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "8": false
+          }
+        },
+        "route_physical_state_match": true,
+        "relay_physical_mismatch": false,
+        "mismatched_valves": [],
+        "mismatched_channels": [],
+        "cleanup_relay_state": {
+          "relay_a": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "4": false,
+            "5": false,
+            "6": false,
+            "7": false,
+            "8": false,
+            "9": false,
+            "10": false,
+            "11": false,
+            "12": false,
+            "15": false,
+            "16": false
+          },
+          "relay_b": {
+            "1": false,
+            "2": false,
+            "3": false,
+            "8": false
+          }
+        },
+        "cleanup_all_relays_off": true,
+        "first_failure_phase": "",
+        "preflight": {
+          "ok": true
+        },
+        "runtime_policy": {
+          "route_mode": "h2o_then_co2",
+          "collect_only": true,
+          "collect_only_fast_path": false,
+          "precheck_device_connection": true,
+          "precheck_sensor_check": false,
+          "sensor_precheck_enabled": true,
+          "sensor_precheck_profile": "raw_frame_first",
+          "sensor_precheck_scope": "all_analyzers",
+          "sensor_precheck_validation_mode": "v1_frame_like",
+          "sensor_precheck_active_send": true,
+          "sensor_precheck_strict": true,
+          "expected_disabled_devices": [],
+          "h2o_humidity_timeout_policy": "abort_like_v1",
+          "effective_v2_compare_config": "D:\\gas_calibrator\\src\\gas_calibrator\\v2\\configs\\validation\\simulated\\replacement_full_route_simulated.json",
+          "bench_context": {
+            "co2_0ppm_available": true,
+            "other_gases_available": true,
+            "h2o_route_available": true,
+            "humidity_generator_humidity_feedback_valid": true,
+            "primary_replacement_route": "skip0_co2_only_replacement",
+            "validation_role": "simulated_acceptance_like_coverage",
+            "target_route": "h2o_then_co2",
+            "diagnostic_only": false,
+            "acceptance_evidence": false
+          }
+        }
+      }
+    }
+  },
+  "artifacts": {
+    "v1_route_trace": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v1_route_trace.jsonl",
+    "v2_route_trace": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_route_trace.jsonl",
+    "route_trace_diff": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\route_trace_diff.txt",
+    "point_presence_diff": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\point_presence_diff.json",
+    "sample_count_diff": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\sample_count_diff.json",
+    "control_flow_compare_report_json": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\control_flow_compare_report.json",
+    "control_flow_compare_report_markdown": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\control_flow_compare_report.md",
+    "runtime_v2_config": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\runtime_v2_config.json",
+    "artifact_inventory": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\artifact_inventory.json"
+  },
+  "artifact_inventory": {
+    "required_keys": [
+      "v1_route_trace",
+      "v2_route_trace",
+      "route_trace_diff",
+      "point_presence_diff",
+      "sample_count_diff",
+      "control_flow_compare_report_json",
+      "control_flow_compare_report_markdown"
+    ],
+    "required": {
+      "v1_route_trace": {
+        "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v1_route_trace.jsonl",
+        "exists": true
+      },
+      "v2_route_trace": {
+        "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\v2_route_trace.jsonl",
+        "exists": true
+      },
+      "route_trace_diff": {
+        "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\route_trace_diff.txt",
+        "exists": true
+      },
+      "point_presence_diff": {
+        "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\point_presence_diff.json",
+        "exists": true
+      },
+      "sample_count_diff": {
+        "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\sample_count_diff.json",
+        "exists": true
+      },
+      "control_flow_compare_report_json": {
+        "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\control_flow_compare_report.json",
+        "exists": true
+      },
+      "control_flow_compare_report_markdown": {
+        "path": "D:\\gas_calibrator\\_handoff\\a2_15_offline_suites\\smoke_a2_15_20260430\\full_route_success_with_relay_and_thermometer\\control_flow_compare_report.md",
+        "exists": true
+      }
+    },
+    "complete": true
+  },
+  "command_hint": "python -m gas_calibrator.v2.scripts.run_simulated_compare --profile replacement_full_route_simulated --scenario full_route_success_all_temps_all_sources [--run-name <name>]",
+  "latest_governance": {
+    "root_latest_update_requested": false,
+    "root_latest_update_allowed": false,
+    "root_latest_update_blocked": true,
+    "reason": "simulated evidence is isolated to the report directory and must not overwrite root latest"
+  }
+}

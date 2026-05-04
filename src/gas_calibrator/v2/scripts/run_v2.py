@@ -5,6 +5,16 @@ from pathlib import Path
 import sys
 from typing import Any, Optional
 
+
+def _bootstrap_src_path_for_direct_script() -> None:
+    src_root = Path(__file__).resolve().parents[3]
+    src_root_text = str(src_root)
+    if src_root_text not in sys.path:
+        sys.path.insert(0, src_root_text)
+
+
+_bootstrap_src_path_for_direct_script()
+
 from gas_calibrator.v2.entry import create_calibration_service
 from gas_calibrator.v2.scripts._cli_safety import build_step2_cli_safety_lines
 

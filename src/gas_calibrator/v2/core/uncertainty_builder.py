@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
+from math import isclose, sqrt
 from typing import Any
 
 
@@ -115,6 +117,44 @@ def _component_fields() -> tuple[str, ...]:
         "coefficient_rounding_component",
         "writeback_verification_component",
     )
+
+
+def _default_method_confirmation_protocol_id(run_id: str) -> str:
+    return f"{run_id}-method-confirmation-protocol"
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_budget_level(value: Any) -> str:
+    text = str(value or "point").strip().lower()
+    return text if text in {"point", "route", "result"} else "point"
+
+
+def _fixture_case_specs(uncertainty_fixture: dict[str, Any] | None) -> list[dict[str, Any]]:
+    payload = dict(uncertainty_fixture or {})
+    direct_cases = payload.get("cases")
+    if isinstance(direct_cases, list):
+        return [dict(item) for item in direct_cases if isinstance(item, dict)]
+    grouped_cases: list[dict[str, Any]] = []
+    for level_group in list(payload.get("budget_levels") or []):
+        if not isinstance(level_group, dict):
+            continue
+        budget_level = _normalize_budget_level(level_group.get("budget_level"))
+        for case in list(level_group.get("cases") or []):
+            if not isinstance(case, dict):
+                continue
+            grouped_cases.append(
+                {
+                    "budget_level": budget_level,
+                    **dict(case),
+                }
+            )
+    return grouped_cases
 
 
 def _common_context(
@@ -234,7 +274,7 @@ def _common_context(
     }
 
 
-def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
+def _legacy_case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
     reference_assets_by_type: dict[str, list[str]] = {}
     for asset in list(common.get("reference_assets") or []):
         asset_type = str(dict(asset).get("asset_type") or "").strip()
@@ -256,6 +296,14 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
     scope_id = str(common.get("scope_id") or "")
     decision_rule_id = str(common.get("decision_rule_id") or "")
     component_fields = _component_fields()
+    protocol_id = _default_method_confirmation_protocol_id(run_id)
+    case_budget_levels = {
+        "co2-gas-route": "point",
+        "h2o-water-route": "point",
+        "ambient-diagnostic": "point",
+        "writeback-rounding": "route",
+        "pressure-handoff-seal-ingress": "result",
+    }
     case_specs = [
         {
             "case_key": "co2-gas-route",
@@ -416,8 +464,11 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
     cases: list[dict[str, Any]] = []
     input_rows: list[dict[str, Any]] = []
     coefficient_rows: list[dict[str, Any]] = []
+    budget_level_counts: dict[str, int] = {"point": 0, "route": 0, "result": 0}
     for spec in case_specs:
         case_id = f"{run_id}-{spec['case_key']}"
+        budget_level = str(case_budget_levels.get(str(spec.get("case_key") or ""), "point"))
+        budget_level_counts[budget_level] = budget_level_counts.get(budget_level, 0) + 1
         input_ids: list[str] = []
         coefficient_ids: list[str] = []
         distribution_types: list[str] = []
@@ -431,6 +482,8 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
                     "uncertainty_case_id": case_id,
                     "scope_id": scope_id,
                     "decision_rule_id": decision_rule_id,
+                    "method_confirmation_protocol_id": protocol_id,
+                    "budget_level": budget_level,
                     "route_type": str(spec["route_type"]),
                     "measurand": str(spec["measurand"]),
                     "quantity_key": str(quantity_key),
@@ -456,6 +509,8 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
                     "uncertainty_case_id": case_id,
                     "scope_id": scope_id,
                     "decision_rule_id": decision_rule_id,
+                    "method_confirmation_protocol_id": protocol_id,
+                    "budget_level": budget_level,
                     "route_type": str(spec["route_type"]),
                     "measurand": str(spec["measurand"]),
                     "quantity_key": str(quantity_key),
@@ -479,6 +534,8 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
                 "uncertainty_case_id": case_id,
                 "scope_id": scope_id,
                 "decision_rule_id": decision_rule_id,
+                "method_confirmation_protocol_id": protocol_id,
+                "budget_level": budget_level,
                 "route_type": str(spec["route_type"]),
                 "measurand": str(spec["measurand"]),
                 "case_label": str(spec["case_label"]),
@@ -487,9 +544,14 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
                 "distribution_type": _dedupe(distribution_types),
                 "sensitivity_coefficients": list(coefficient_ids),
                 **component_values,
+                "component_breakdown": [],
+                "calculation_chain": [],
                 "combined_standard_uncertainty": combined,
+                "expected_combined_standard_uncertainty": combined,
                 "coverage_factor": 2.0,
                 "expanded_uncertainty": round(combined * 2.0, 6),
+                "expected_expanded_uncertainty": round(combined * 2.0, 6),
+                "golden_case_status": "match",
                 "report_rule": str(common.get("report_rule") or "step2_readiness_mapping_only"),
                 "evidence_source": "simulated",
                 "ready_for_readiness_mapping": True,
@@ -504,10 +566,20 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
                 "reference_asset_ids": list(spec["reference_asset_ids"]),
                 "certificate_summary_refs": list(spec["certificate_ids"]),
                 "top_contributors": top_contributors,
+                "calculation_chain_summary": (
+                    f"legacy placeholder inputs {len(input_ids)} -> coefficients {len(coefficient_ids)} -> "
+                    f"combined u {combined:.6f} -> expanded U {round(combined * 2.0, 6):.6f}"
+                ),
+                "fixture_set_id": "legacy-placeholder",
+                "fixture_source_summary": "legacy placeholder uncertainty cases",
                 "placeholder_value_only": True,
             }
         )
 
+    selected_result_case = next(
+        (dict(case) for case in cases if str(case.get("budget_level") or "") == "result"),
+        dict(cases[-1]) if cases else {},
+    )
     top_contributor_summary = " | ".join(
         f"{str(case.get('case_label') or '--')}: "
         + ", ".join(
@@ -515,6 +587,11 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
             for item in list(case.get("top_contributors") or [])[:2]
         )
         for case in cases
+    )
+    budget_level_summary = (
+        f"point {budget_level_counts.get('point', 0)} | "
+        f"route {budget_level_counts.get('route', 0)} | "
+        f"result {budget_level_counts.get('result', 0)}"
     )
     return {
         "component_fields": component_fields,
@@ -524,10 +601,24 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
         "route_types": _dedupe([str(case.get("route_type") or "") for case in cases]),
         "measurands": _dedupe([str(case.get("measurand") or "") for case in cases]),
         "case_ids": [str(case.get("uncertainty_case_id") or "") for case in cases],
+        "selected_result_case_id": str(selected_result_case.get("uncertainty_case_id") or ""),
+        "method_confirmation_protocol_id": protocol_id,
+        "budget_level_summary": budget_level_summary,
+        "binding_summary": (
+            f"scope {scope_id} | decision rule {decision_rule_id} | "
+            f"uncertainty case {str(selected_result_case.get('uncertainty_case_id') or '--')} | "
+            f"method protocol {protocol_id}"
+        ),
+        "calculation_chain_summary": (
+            f"legacy placeholder inputs {len(input_rows)} -> coefficients {len(coefficient_rows)} -> "
+            f"budget cases {len(cases)} -> combined u -> expanded U"
+        ),
+        "fixture_summary": "legacy placeholder uncertainty cases",
+        "golden_case_summary": f"golden matches {len(cases)}/{len(cases)}",
         "top_contributor_summary": top_contributor_summary,
         "budget_completeness_summary": (
             f"components {len(component_fields)}/{len(component_fields)} per case | "
-            f"scope {scope_id} | decision rule {decision_rule_id}"
+            f"levels {budget_level_summary} | scope {scope_id} | decision rule {decision_rule_id}"
         ),
         "placeholder_completeness_summary": (
             f"cases {len(cases)}/{len(case_specs)} | "
@@ -535,7 +626,430 @@ def _case_payloads(*, run_id: str, common: dict[str, Any]) -> dict[str, Any]:
             f"coefficients {len(coefficient_rows)}/{len(coefficient_rows)} | "
             "placeholder values only"
         ),
+        "budget_level_counts": budget_level_counts,
+        "fixture_artifact_paths": {},
     }
+
+
+def _build_fixture_case_payloads(
+    *,
+    run_id: str,
+    common: dict[str, Any],
+    uncertainty_fixture: dict[str, Any],
+    fixture_artifact_paths: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    case_specs = _fixture_case_specs(uncertainty_fixture)
+    if not case_specs:
+        return {}
+
+    reference_assets_by_type: dict[str, list[str]] = defaultdict(list)
+    for asset in list(common.get("reference_assets") or []):
+        asset_payload = dict(asset)
+        asset_id = str(asset_payload.get("asset_id") or "").strip()
+        if not asset_id:
+            continue
+        asset_types = [
+            str(asset_payload.get("asset_type") or "").strip(),
+            *[
+                str(item).strip()
+                for item in list(asset_payload.get("asset_type_aliases") or [])
+                if str(item).strip()
+            ],
+        ]
+        for asset_type in asset_types:
+            if asset_type and asset_id not in reference_assets_by_type[asset_type]:
+                reference_assets_by_type[asset_type].append(asset_id)
+
+    def _pick_reference_assets(*asset_types: str) -> list[str]:
+        rows: list[str] = []
+        for asset_type in asset_types:
+            rows.extend(reference_assets_by_type.get(str(asset_type), []))
+        if not rows:
+            rows = list(common.get("reference_asset_ids") or [])[:4]
+        return _dedupe(rows)
+
+    certificate_ids = list(common.get("certificate_ids") or [])
+    scope_id = str(common.get("scope_id") or "")
+    decision_rule_id = str(common.get("decision_rule_id") or "")
+    component_fields = _component_fields()
+    protocol_id = str(
+        uncertainty_fixture.get("method_confirmation_protocol_id")
+        or _default_method_confirmation_protocol_id(run_id)
+    )
+    fixture_set_id = str(
+        uncertainty_fixture.get("fixture_set_id")
+        or uncertainty_fixture.get("fixture_id")
+        or "step2-default-uncertainty-fixtures"
+    )
+    fixture_source_summary = " | ".join(
+        part
+        for part in (
+            fixture_set_id,
+            str(uncertainty_fixture.get("schema_version") or "").strip(),
+            str((fixture_artifact_paths or {}).get("readiness_fixture_uncertainty_budget_inputs") or "").strip(),
+        )
+        if part
+    )
+
+    cases: list[dict[str, Any]] = []
+    input_rows: list[dict[str, Any]] = []
+    coefficient_rows: list[dict[str, Any]] = []
+    budget_level_counts: dict[str, int] = {"point": 0, "route": 0, "result": 0}
+    golden_match_count = 0
+
+    for spec in case_specs:
+        spec_payload = dict(spec)
+        budget_level = _normalize_budget_level(spec_payload.get("budget_level"))
+        budget_level_counts[budget_level] = budget_level_counts.get(budget_level, 0) + 1
+        case_key = str(
+            spec_payload.get("case_key")
+            or spec_payload.get("uncertainty_case_id")
+            or f"{budget_level}-{len(cases) + 1}"
+        ).strip()
+        case_id = str(spec_payload.get("uncertainty_case_id") or f"{run_id}-{case_key}")
+        input_ids: list[str] = []
+        coefficient_ids: list[str] = []
+        distribution_types: list[str] = []
+        input_rows_by_key: dict[str, dict[str, Any]] = {}
+        contribution_rows_by_component: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
+        for index, raw_input in enumerate(list(spec_payload.get("inputs") or []), start=1):
+            if not isinstance(raw_input, dict):
+                continue
+            input_spec = dict(raw_input)
+            input_id = str(input_spec.get("input_id") or f"{case_id}-input-{index}")
+            quantity_key = str(input_spec.get("quantity_key") or f"input_{index}")
+            distribution_type = str(input_spec.get("distribution_type") or "normal")
+            distribution_types.append(distribution_type)
+            asset_type_values = [
+                str(input_spec.get("asset_type") or "").strip(),
+                *[
+                    str(item).strip()
+                    for item in list(input_spec.get("asset_types") or [])
+                    if str(item).strip()
+                ],
+            ]
+            input_row = {
+                "input_id": input_id,
+                "uncertainty_case_id": case_id,
+                "scope_id": scope_id,
+                "decision_rule_id": decision_rule_id,
+                "method_confirmation_protocol_id": protocol_id,
+                "budget_level": budget_level,
+                "route_type": str(spec_payload.get("route_type") or ""),
+                "measurand": str(spec_payload.get("measurand") or ""),
+                "quantity_key": quantity_key,
+                "quantity_label": str(input_spec.get("quantity_label") or quantity_key),
+                "distribution_type": distribution_type,
+                "quantity_value": _safe_float(input_spec.get("quantity_value")),
+                "placeholder_value": _safe_float(
+                    input_spec.get("placeholder_value", input_spec.get("quantity_value"))
+                ),
+                "standard_uncertainty": _safe_float(input_spec.get("standard_uncertainty")),
+                "divisor": _safe_float(input_spec.get("divisor"), 1.0),
+                "unit": str(input_spec.get("unit") or ""),
+                "component_key": str(input_spec.get("component_key") or ""),
+                "component_label": str(
+                    input_spec.get("component_label") or str(input_spec.get("component_key") or "")
+                ),
+                "source_type": str(input_spec.get("source_type") or input_spec.get("asset_type") or ""),
+                "source_note": str(input_spec.get("source_note") or ""),
+                "linked_reference_asset_ids": _pick_reference_assets(*asset_type_values),
+                "linked_certificate_id": str(
+                    input_spec.get("linked_certificate_id")
+                    or (certificate_ids or [f"{run_id}-certificate-placeholder"])[
+                        min(index - 1, max(len(certificate_ids), 1) - 1)
+                    ]
+                ),
+                "evidence_source": "simulated",
+                "ready_for_readiness_mapping": True,
+                "not_ready_for_formal_claim": True,
+                "not_real_acceptance_evidence": True,
+                "reviewer_note": str(
+                    input_spec.get("reviewer_note")
+                    or input_spec.get("source_note")
+                    or f"{input_spec.get('quantity_label') or quantity_key} stays placeholder-only for reviewer pack use."
+                ),
+            }
+            input_rows.append(input_row)
+            input_rows_by_key[quantity_key] = input_row
+            input_ids.append(input_id)
+
+        for index, raw_coefficient in enumerate(list(spec_payload.get("coefficients") or []), start=1):
+            if not isinstance(raw_coefficient, dict):
+                continue
+            coefficient_spec = dict(raw_coefficient)
+            quantity_key = str(coefficient_spec.get("quantity_key") or "")
+            input_row = dict(input_rows_by_key.get(quantity_key) or {})
+            coefficient_id = str(coefficient_spec.get("coefficient_id") or f"{case_id}-sc-{index}")
+            coefficient_value = _safe_float(
+                coefficient_spec.get("coefficient_value", coefficient_spec.get("placeholder_value"))
+            )
+            standard_uncertainty = _safe_float(input_row.get("standard_uncertainty"))
+            contribution_value = round(abs(coefficient_value) * standard_uncertainty, 6)
+            component_key = str(
+                coefficient_spec.get("component_key")
+                or input_row.get("component_key")
+                or ""
+            )
+            coefficient_row = {
+                "coefficient_id": coefficient_id,
+                "uncertainty_case_id": case_id,
+                "scope_id": scope_id,
+                "decision_rule_id": decision_rule_id,
+                "method_confirmation_protocol_id": protocol_id,
+                "budget_level": budget_level,
+                "route_type": str(spec_payload.get("route_type") or ""),
+                "measurand": str(spec_payload.get("measurand") or ""),
+                "quantity_key": quantity_key,
+                "input_id": str(input_row.get("input_id") or ""),
+                "coefficient_key": str(coefficient_spec.get("coefficient_key") or ""),
+                "coefficient_value": coefficient_value,
+                "placeholder_value": coefficient_value,
+                "standard_uncertainty": standard_uncertainty,
+                "contribution_value": contribution_value,
+                "component_key": component_key,
+                "component_label": str(
+                    coefficient_spec.get("component_label")
+                    or input_row.get("component_label")
+                    or component_key
+                ),
+                "source_note": str(
+                    coefficient_spec.get("source_note")
+                    or coefficient_spec.get("reviewer_note")
+                    or ""
+                ),
+                "evidence_source": "simulated",
+                "ready_for_readiness_mapping": True,
+                "not_ready_for_formal_claim": True,
+                "not_real_acceptance_evidence": True,
+                "reviewer_note": str(
+                    coefficient_spec.get("reviewer_note")
+                    or coefficient_spec.get("source_note")
+                    or ""
+                ),
+            }
+            coefficient_rows.append(coefficient_row)
+            coefficient_ids.append(coefficient_id)
+            if component_key:
+                contribution_rows_by_component[component_key].append(coefficient_row)
+
+        component_values: dict[str, float] = {}
+        component_breakdown: list[dict[str, Any]] = []
+        for component_name in component_fields:
+            rows = list(contribution_rows_by_component.get(component_name, []))
+            component_value = round(sqrt(sum(_safe_float(item.get("contribution_value")) ** 2 for item in rows)), 6)
+            component_values[component_name] = component_value
+            component_breakdown.append(
+                {
+                    "component_key": component_name,
+                    "component_value": component_value,
+                    "contributions": [
+                        {
+                            "input_id": str(item.get("input_id") or ""),
+                            "coefficient_id": str(item.get("coefficient_id") or ""),
+                            "quantity_key": str(item.get("quantity_key") or ""),
+                            "coefficient_key": str(item.get("coefficient_key") or ""),
+                            "standard_uncertainty": _safe_float(item.get("standard_uncertainty")),
+                            "sensitivity_coefficient": _safe_float(item.get("coefficient_value")),
+                            "contribution_value": _safe_float(item.get("contribution_value")),
+                            "source_note": str(item.get("source_note") or ""),
+                        }
+                        for item in rows
+                    ],
+                }
+            )
+
+        combined = round(sqrt(sum(value * value for value in component_values.values())), 6)
+        coverage_factor = _safe_float(spec_payload.get("coverage_factor"), 2.0)
+        expanded = round(combined * coverage_factor, 6)
+        expected_combined = round(
+            _safe_float(spec_payload.get("expected_combined_standard_uncertainty"), combined),
+            6,
+        )
+        expected_expanded = round(
+            _safe_float(spec_payload.get("expected_expanded_uncertainty"), expanded),
+            6,
+        )
+        golden_case_status = (
+            "match"
+            if isclose(combined, expected_combined, abs_tol=1e-6)
+            and isclose(expanded, expected_expanded, abs_tol=1e-6)
+            else "mismatch"
+        )
+        if golden_case_status == "match":
+            golden_match_count += 1
+        top_contributors = [
+            {"component_key": name, "value": value}
+            for name, value in sorted(component_values.items(), key=lambda item: item[1], reverse=True)
+            if value > 0.0
+        ][:3]
+        calculation_chain_rows = [
+            {
+                "quantity_key": str(item.get("quantity_key") or ""),
+                "input_id": str(item.get("input_id") or ""),
+                "coefficient_id": str(item.get("coefficient_id") or ""),
+                "component_key": str(item.get("component_key") or ""),
+                "standard_uncertainty": _safe_float(item.get("standard_uncertainty")),
+                "sensitivity_coefficient": _safe_float(item.get("coefficient_value")),
+                "contribution_value": _safe_float(item.get("contribution_value")),
+            }
+            for item in coefficient_rows
+            if str(item.get("uncertainty_case_id") or "") == case_id
+        ]
+        cases.append(
+            {
+                "uncertainty_case_id": case_id,
+                "scope_id": scope_id,
+                "decision_rule_id": decision_rule_id,
+                "method_confirmation_protocol_id": protocol_id,
+                "budget_level": budget_level,
+                "route_type": str(spec_payload.get("route_type") or ""),
+                "measurand": str(spec_payload.get("measurand") or ""),
+                "case_label": str(spec_payload.get("case_label") or case_key),
+                "point_context": dict(spec_payload.get("point_context") or {}),
+                "route_context": dict(spec_payload.get("route_context") or {}),
+                "result_context": dict(spec_payload.get("result_context") or {}),
+                "input_quantity_set": list(input_ids),
+                "distribution_type": _dedupe(distribution_types),
+                "sensitivity_coefficients": list(coefficient_ids),
+                **component_values,
+                "component_breakdown": component_breakdown,
+                "calculation_chain": calculation_chain_rows,
+                "combined_standard_uncertainty": combined,
+                "expected_combined_standard_uncertainty": expected_combined,
+                "coverage_factor": coverage_factor,
+                "expanded_uncertainty": expanded,
+                "expected_expanded_uncertainty": expected_expanded,
+                "golden_case_status": golden_case_status,
+                "report_rule": str(common.get("report_rule") or "step2_readiness_mapping_only"),
+                "evidence_source": "simulated",
+                "ready_for_readiness_mapping": True,
+                "not_ready_for_formal_claim": True,
+                "not_real_acceptance_evidence": True,
+                "readiness_mapping_only": True,
+                "reviewer_only": True,
+                "non_claim": True,
+                "limitation_note": str(common.get("limitation_note") or ""),
+                "non_claim_note": str(common.get("non_claim_note") or ""),
+                "reviewer_note": str(
+                    spec_payload.get("reviewer_note") or "reviewer-facing golden case only"
+                ),
+                "reference_asset_ids": _dedupe(
+                    [
+                        *[
+                            str(item)
+                            for item in list(spec_payload.get("reference_asset_ids") or [])
+                            if str(item).strip()
+                        ],
+                        *[
+                            str(item)
+                            for input_row in input_rows_by_key.values()
+                            for item in list(input_row.get("linked_reference_asset_ids") or [])
+                            if str(item).strip()
+                        ],
+                    ]
+                ),
+                "certificate_summary_refs": _dedupe(
+                    [
+                        *[
+                            str(item)
+                            for item in list(spec_payload.get("certificate_ids") or [])
+                            if str(item).strip()
+                        ],
+                        *[
+                            str(input_row.get("linked_certificate_id") or "")
+                            for input_row in input_rows_by_key.values()
+                            if str(input_row.get("linked_certificate_id") or "").strip()
+                        ],
+                    ]
+                ),
+                "top_contributors": top_contributors,
+                "calculation_chain_summary": str(
+                    spec_payload.get("calculation_chain_summary")
+                    or f"inputs {len(input_ids)} -> coefficients {len(coefficient_ids)} -> combined u {combined:.6f} -> expanded U {expanded:.6f}"
+                ),
+                "fixture_set_id": fixture_set_id,
+                "fixture_source_summary": fixture_source_summary,
+                "placeholder_value_only": True,
+            }
+        )
+
+    selected_result_case = next(
+        (dict(case) for case in cases if str(case.get("budget_level") or "") == "result"),
+        dict(cases[-1]) if cases else {},
+    )
+    top_contributor_summary = " | ".join(
+        f"{str(case.get('case_label') or '--')}: "
+        + ", ".join(
+            f"{str(item.get('component_key') or '--')} {float(item.get('value', 0.0) or 0.0):.3f}"
+            for item in list(case.get("top_contributors") or [])[:2]
+        )
+        for case in cases
+    )
+    budget_level_summary = (
+        f"point {budget_level_counts.get('point', 0)} | "
+        f"route {budget_level_counts.get('route', 0)} | "
+        f"result {budget_level_counts.get('result', 0)}"
+    )
+    binding_summary = (
+        f"scope {scope_id} | decision rule {decision_rule_id} | "
+        f"uncertainty case {str(selected_result_case.get('uncertainty_case_id') or '--')} | "
+        f"method protocol {protocol_id}"
+    )
+    calculation_chain_summary = (
+        f"fixture-backed inputs {len(input_rows)} -> coefficients {len(coefficient_rows)} -> "
+        f"budget cases {len(cases)} -> combined u -> expanded U"
+    )
+    golden_case_summary = f"golden matches {golden_match_count}/{len(cases)}"
+    return {
+        "component_fields": component_fields,
+        "cases": cases,
+        "input_rows": input_rows,
+        "coefficient_rows": coefficient_rows,
+        "route_types": _dedupe([str(case.get("route_type") or "") for case in cases]),
+        "measurands": _dedupe([str(case.get("measurand") or "") for case in cases]),
+        "case_ids": [str(case.get("uncertainty_case_id") or "") for case in cases],
+        "selected_result_case_id": str(selected_result_case.get("uncertainty_case_id") or ""),
+        "method_confirmation_protocol_id": protocol_id,
+        "budget_level_summary": budget_level_summary,
+        "binding_summary": binding_summary,
+        "calculation_chain_summary": calculation_chain_summary,
+        "fixture_summary": fixture_source_summary or fixture_set_id,
+        "golden_case_summary": golden_case_summary,
+        "top_contributor_summary": top_contributor_summary,
+        "budget_completeness_summary": (
+            f"levels {budget_level_summary} | inputs {len(input_rows)} | coefficients {len(coefficient_rows)}"
+        ),
+        "placeholder_completeness_summary": (
+            f"cases {len(cases)}/{len(case_specs)} | "
+            f"golden {golden_match_count}/{len(cases)} | placeholder values only"
+        ),
+        "budget_level_counts": budget_level_counts,
+        "fixture_artifact_paths": {
+            str(key): str(value)
+            for key, value in dict(fixture_artifact_paths or {}).items()
+            if str(key).strip() and str(value).strip()
+        },
+    }
+
+
+def _case_payloads(
+    *,
+    run_id: str,
+    common: dict[str, Any],
+    uncertainty_fixture: dict[str, Any] | None = None,
+    fixture_artifact_paths: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    fixture_payloads = _build_fixture_case_payloads(
+        run_id=run_id,
+        common=common,
+        uncertainty_fixture=dict(uncertainty_fixture or {}),
+        fixture_artifact_paths=dict(fixture_artifact_paths or {}),
+    )
+    if fixture_payloads:
+        return fixture_payloads
+    return _legacy_case_payloads(run_id=run_id, common=common)
 
 
 def _base_artifact_paths(path_map: dict[str, str], common: dict[str, Any], *extra_keys: str) -> dict[str, str]:
@@ -543,6 +1057,20 @@ def _base_artifact_paths(path_map: dict[str, str], common: dict[str, Any], *extr
     for key in extra_keys:
         rows[str(key)] = str(path_map[str(key)])
     return rows
+
+
+def _artifact_paths_with_fixtures(
+    base_paths: dict[str, str],
+    fixture_artifact_paths: dict[str, str] | None,
+) -> dict[str, str]:
+    return {
+        **dict(base_paths or {}),
+        **{
+            str(key): str(value)
+            for key, value in dict(fixture_artifact_paths or {}).items()
+            if str(key).strip() and str(value).strip()
+        },
+    }
 
 
 def _scope_digest(common: dict[str, Any], *, summary: str, current_coverage: str, missing_evidence: str) -> dict[str, Any]:
@@ -566,6 +1094,7 @@ def _model_artifact(
     filenames: dict[str, str],
     boundary_statements: list[str],
 ) -> dict[str, Any]:
+    fixture_paths = dict(case_payloads.get("fixture_artifact_paths") or {})
     digest = _scope_digest(
         common,
         summary=f"uncertainty model skeleton | cases {len(list(case_payloads.get('cases') or []))} | scope {common['scope_id']}",
@@ -589,26 +1118,37 @@ def _model_artifact(
         ],
         detail_lines=[
             f"component fields: {' | '.join(case_payloads['component_fields'])}",
+            f"budget levels: {case_payloads.get('budget_level_summary') or '--'}",
+            f"binding: {case_payloads.get('binding_summary') or '--'}",
+            f"fixture summary: {case_payloads.get('fixture_summary') or '--'}",
             f"linked report pack: {path_map['uncertainty_report_pack']}",
             f"linked digest: {path_map['uncertainty_digest']}",
             f"linked rollup: {path_map['uncertainty_rollup']}",
         ],
-        artifact_paths=_base_artifact_paths(
-            path_map,
-            common,
-            "uncertainty_model",
-            "uncertainty_model_markdown",
-            "uncertainty_input_set",
-            "sensitivity_coefficient_set",
-            "budget_case",
-            "uncertainty_golden_cases",
-            "uncertainty_report_pack",
-            "uncertainty_digest",
-            "uncertainty_rollup",
+        artifact_paths=_artifact_paths_with_fixtures(
+            _base_artifact_paths(
+                path_map,
+                common,
+                "uncertainty_model",
+                "uncertainty_model_markdown",
+                "uncertainty_input_set",
+                "sensitivity_coefficient_set",
+                "budget_case",
+                "uncertainty_golden_cases",
+                "uncertainty_report_pack",
+                "uncertainty_digest",
+                "uncertainty_rollup",
+            ),
+            fixture_paths,
         ),
         body={
             "scope_id": common["scope_id"],
             "decision_rule_id": common["decision_rule_id"],
+            "uncertainty_case_id": str(case_payloads.get("selected_result_case_id") or ""),
+            "method_confirmation_protocol_id": str(
+                case_payloads.get("method_confirmation_protocol_id")
+                or _default_method_confirmation_protocol_id(run_id)
+            ),
             "report_rule": common["report_rule"],
             "standard_family": list(common.get("standard_family") or []),
             "required_evidence_categories": list(common.get("required_evidence_categories") or []),
@@ -623,6 +1163,10 @@ def _model_artifact(
             "measurands": list(case_payloads.get("measurands") or []),
             "uncertainty_case_ids": list(case_payloads.get("case_ids") or []),
             "component_fields": list(case_payloads.get("component_fields") or []),
+            "budget_level_summary": str(case_payloads.get("budget_level_summary") or "--"),
+            "binding_summary": str(case_payloads.get("binding_summary") or "--"),
+            "fixture_summary": str(case_payloads.get("fixture_summary") or "--"),
+            "calculation_chain_summary": str(case_payloads.get("calculation_chain_summary") or "--"),
             "reference_asset_ids": list(common.get("reference_asset_ids") or []),
             "certificate_summary_refs": list(common.get("certificate_ids") or []),
             "limitation_note": common["limitation_note"],
@@ -645,6 +1189,7 @@ def _input_artifact(
     boundary_statements: list[str],
 ) -> dict[str, Any]:
     rows = [dict(item) for item in list(case_payloads.get("input_rows") or []) if isinstance(item, dict)]
+    fixture_paths = dict(case_payloads.get("fixture_artifact_paths") or {})
     digest = _scope_digest(
         common,
         summary=f"uncertainty input set | rows {len(rows)} | reviewer placeholder only",
@@ -661,12 +1206,37 @@ def _input_artifact(
         reviewer_note="输入量集合仅用于 reviewer pack 和 readiness mapping，不产生 formal claim。",
         summary_text=digest["summary"],
         summary_lines=[f"scope: {common['scope_id']}", f"case count: {len(list(case_payloads.get('case_ids') or []))}", f"input rows: {len(rows)}"],
-        detail_lines=[f"linked sensitivity set: {path_map['sensitivity_coefficient_set']}", f"linked budget cases: {path_map['budget_case']}"],
-        artifact_paths=_base_artifact_paths(path_map, common, "uncertainty_input_set", "uncertainty_input_set_markdown", "sensitivity_coefficient_set", "budget_case"),
+        detail_lines=[
+            f"budget levels: {case_payloads.get('budget_level_summary') or '--'}",
+            f"binding: {case_payloads.get('binding_summary') or '--'}",
+            f"fixture summary: {case_payloads.get('fixture_summary') or '--'}",
+            f"linked sensitivity set: {path_map['sensitivity_coefficient_set']}",
+            f"linked budget cases: {path_map['budget_case']}",
+        ],
+        artifact_paths=_artifact_paths_with_fixtures(
+            _base_artifact_paths(
+                path_map,
+                common,
+                "uncertainty_input_set",
+                "uncertainty_input_set_markdown",
+                "sensitivity_coefficient_set",
+                "budget_case",
+            ),
+            fixture_paths,
+        ),
         body={
             "scope_id": common["scope_id"],
             "decision_rule_id": common["decision_rule_id"],
+            "uncertainty_case_id": str(case_payloads.get("selected_result_case_id") or ""),
+            "method_confirmation_protocol_id": str(
+                case_payloads.get("method_confirmation_protocol_id")
+                or _default_method_confirmation_protocol_id(run_id)
+            ),
             "report_rule": common["report_rule"],
+            "budget_level_summary": str(case_payloads.get("budget_level_summary") or "--"),
+            "binding_summary": str(case_payloads.get("binding_summary") or "--"),
+            "fixture_summary": str(case_payloads.get("fixture_summary") or "--"),
+            "calculation_chain_summary": str(case_payloads.get("calculation_chain_summary") or "--"),
             "input_quantity_set": rows,
             "limitation_note": common["limitation_note"],
             "non_claim_note": common["non_claim_note"],
@@ -688,6 +1258,7 @@ def _coefficient_artifact(
     boundary_statements: list[str],
 ) -> dict[str, Any]:
     rows = [dict(item) for item in list(case_payloads.get("coefficient_rows") or []) if isinstance(item, dict)]
+    fixture_paths = dict(case_payloads.get("fixture_artifact_paths") or {})
     digest = _scope_digest(
         common,
         summary=f"sensitivity coefficient set | rows {len(rows)} | reviewer placeholder only",
@@ -704,12 +1275,37 @@ def _coefficient_artifact(
         reviewer_note="灵敏系数当前是 placeholder rows，保留 writeback/rounding/handoff 字段，不做真实求解。",
         summary_text=digest["summary"],
         summary_lines=[f"scope: {common['scope_id']}", f"decision rule: {common['decision_rule_id']}", f"coefficient rows: {len(rows)}"],
-        detail_lines=[f"linked input set: {path_map['uncertainty_input_set']}", f"linked budget cases: {path_map['budget_case']}"],
-        artifact_paths=_base_artifact_paths(path_map, common, "uncertainty_input_set", "sensitivity_coefficient_set", "sensitivity_coefficient_set_markdown", "budget_case"),
+        detail_lines=[
+            f"budget levels: {case_payloads.get('budget_level_summary') or '--'}",
+            f"binding: {case_payloads.get('binding_summary') or '--'}",
+            f"calculation chain: {case_payloads.get('calculation_chain_summary') or '--'}",
+            f"linked input set: {path_map['uncertainty_input_set']}",
+            f"linked budget cases: {path_map['budget_case']}",
+        ],
+        artifact_paths=_artifact_paths_with_fixtures(
+            _base_artifact_paths(
+                path_map,
+                common,
+                "uncertainty_input_set",
+                "sensitivity_coefficient_set",
+                "sensitivity_coefficient_set_markdown",
+                "budget_case",
+            ),
+            fixture_paths,
+        ),
         body={
             "scope_id": common["scope_id"],
             "decision_rule_id": common["decision_rule_id"],
+            "uncertainty_case_id": str(case_payloads.get("selected_result_case_id") or ""),
+            "method_confirmation_protocol_id": str(
+                case_payloads.get("method_confirmation_protocol_id")
+                or _default_method_confirmation_protocol_id(run_id)
+            ),
             "report_rule": common["report_rule"],
+            "budget_level_summary": str(case_payloads.get("budget_level_summary") or "--"),
+            "binding_summary": str(case_payloads.get("binding_summary") or "--"),
+            "fixture_summary": str(case_payloads.get("fixture_summary") or "--"),
+            "calculation_chain_summary": str(case_payloads.get("calculation_chain_summary") or "--"),
             "sensitivity_coefficients": rows,
             "limitation_note": common["limitation_note"],
             "non_claim_note": common["non_claim_note"],
@@ -731,6 +1327,7 @@ def _budget_case_artifact(
     boundary_statements: list[str],
 ) -> dict[str, Any]:
     cases = [dict(item) for item in list(case_payloads.get("cases") or []) if isinstance(item, dict)]
+    fixture_paths = dict(case_payloads.get("fixture_artifact_paths") or {})
     digest = _scope_digest(
         common,
         summary=f"budget cases {len(cases)} | reviewer-only / readiness mapping only",
@@ -747,12 +1344,38 @@ def _budget_case_artifact(
         reviewer_note="预算案例保留完整组件字段，但数值仅为 simulated/example placeholders。",
         summary_text=digest["summary"],
         summary_lines=[f"budget completeness: {case_payloads.get('budget_completeness_summary')}", f"top contributors: {case_payloads.get('top_contributor_summary')}"],
-        detail_lines=[f"golden cases: {path_map['uncertainty_golden_cases']}", f"report pack: {path_map['uncertainty_report_pack']}"],
-        artifact_paths=_base_artifact_paths(path_map, common, "budget_case", "budget_case_markdown", "uncertainty_golden_cases", "uncertainty_report_pack"),
+        detail_lines=[
+            f"budget levels: {case_payloads.get('budget_level_summary') or '--'}",
+            f"binding: {case_payloads.get('binding_summary') or '--'}",
+            f"calculation chain: {case_payloads.get('calculation_chain_summary') or '--'}",
+            f"golden cases: {path_map['uncertainty_golden_cases']}",
+            f"report pack: {path_map['uncertainty_report_pack']}",
+        ],
+        artifact_paths=_artifact_paths_with_fixtures(
+            _base_artifact_paths(
+                path_map,
+                common,
+                "budget_case",
+                "budget_case_markdown",
+                "uncertainty_golden_cases",
+                "uncertainty_report_pack",
+            ),
+            fixture_paths,
+        ),
         body={
             "scope_id": common["scope_id"],
             "decision_rule_id": common["decision_rule_id"],
+            "uncertainty_case_id": str(case_payloads.get("selected_result_case_id") or ""),
+            "method_confirmation_protocol_id": str(
+                case_payloads.get("method_confirmation_protocol_id")
+                or _default_method_confirmation_protocol_id(run_id)
+            ),
             "report_rule": common["report_rule"],
+            "budget_level_summary": str(case_payloads.get("budget_level_summary") or "--"),
+            "binding_summary": str(case_payloads.get("binding_summary") or "--"),
+            "fixture_summary": str(case_payloads.get("fixture_summary") or "--"),
+            "calculation_chain_summary": str(case_payloads.get("calculation_chain_summary") or "--"),
+            "golden_case_summary": str(case_payloads.get("golden_case_summary") or "--"),
             "budget_case": cases,
             "limitation_note": common["limitation_note"],
             "non_claim_note": common["non_claim_note"],
@@ -773,6 +1396,7 @@ def _golden_cases_artifact(
     filenames: dict[str, str],
     boundary_statements: list[str],
 ) -> dict[str, Any]:
+    fixture_paths = dict(case_payloads.get("fixture_artifact_paths") or {})
     cases = [
         {
             **dict(item),
@@ -792,7 +1416,7 @@ def _golden_cases_artifact(
     digest = _scope_digest(
         common,
         summary=f"golden cases {len(cases)} | reviewer-only / non-claim",
-        current_coverage="CO2 gas | H2O water | ambient diagnostic | writeback/rounding | handoff/seal ingress",
+        current_coverage=str(case_payloads.get("golden_case_summary") or "--"),
         missing_evidence="golden cases remain artifact-based examples only",
     )
     return _bundle(
@@ -804,13 +1428,43 @@ def _golden_cases_artifact(
         title_text="不确定度 golden cases",
         reviewer_note="Golden cases 是 Step 2 reviewer-facing examples，不是认可样例，也不是 formal claim。",
         summary_text=digest["summary"],
-        summary_lines=["coverage: CO2 gas | H2O water | ambient diagnostic | writeback/rounding | handoff/seal ingress", f"scope: {common['scope_id']}", f"decision rule: {common['decision_rule_id']}"],
-        detail_lines=[f"budget cases: {path_map['budget_case']}", f"report pack: {path_map['uncertainty_report_pack']}"],
-        artifact_paths=_base_artifact_paths(path_map, common, "budget_case", "uncertainty_golden_cases", "uncertainty_golden_cases_markdown", "uncertainty_report_pack"),
+        summary_lines=[
+            f"coverage: {case_payloads.get('golden_case_summary') or '--'}",
+            f"scope: {common['scope_id']}",
+            f"decision rule: {common['decision_rule_id']}",
+        ],
+        detail_lines=[
+            f"budget levels: {case_payloads.get('budget_level_summary') or '--'}",
+            f"binding: {case_payloads.get('binding_summary') or '--'}",
+            f"fixture summary: {case_payloads.get('fixture_summary') or '--'}",
+            f"budget cases: {path_map['budget_case']}",
+            f"report pack: {path_map['uncertainty_report_pack']}",
+        ],
+        artifact_paths=_artifact_paths_with_fixtures(
+            _base_artifact_paths(
+                path_map,
+                common,
+                "budget_case",
+                "uncertainty_golden_cases",
+                "uncertainty_golden_cases_markdown",
+                "uncertainty_report_pack",
+            ),
+            fixture_paths,
+        ),
         body={
             "scope_id": common["scope_id"],
             "decision_rule_id": common["decision_rule_id"],
+            "uncertainty_case_id": str(case_payloads.get("selected_result_case_id") or ""),
+            "method_confirmation_protocol_id": str(
+                case_payloads.get("method_confirmation_protocol_id")
+                or _default_method_confirmation_protocol_id(run_id)
+            ),
             "report_rule": common["report_rule"],
+            "budget_level_summary": str(case_payloads.get("budget_level_summary") or "--"),
+            "binding_summary": str(case_payloads.get("binding_summary") or "--"),
+            "fixture_summary": str(case_payloads.get("fixture_summary") or "--"),
+            "calculation_chain_summary": str(case_payloads.get("calculation_chain_summary") or "--"),
+            "golden_case_summary": str(case_payloads.get("golden_case_summary") or "--"),
             "golden_cases": cases,
             "limitation_note": common["limitation_note"],
             "non_claim_note": common["non_claim_note"],
@@ -832,6 +1486,7 @@ def _report_pack_artifact(
     boundary_statements: list[str],
 ) -> dict[str, Any]:
     cases = [dict(item) for item in list(case_payloads.get("cases") or []) if isinstance(item, dict)]
+    fixture_paths = dict(case_payloads.get("fixture_artifact_paths") or {})
     top_contributors = [
         {
             "uncertainty_case_id": str(case.get("uncertainty_case_id") or ""),
@@ -843,20 +1498,29 @@ def _report_pack_artifact(
         **_scope_digest(
             common,
             summary=f"uncertainty report pack | cases {len(cases)} | reviewer-only / non-claim",
-            current_coverage="report pack wired to scope / decision / asset / certificate / pre-run artifacts",
+            current_coverage=(
+                f"report pack wired to scope / decision / method / fixture / budget levels | "
+                f"{str(case_payloads.get('budget_level_summary') or '--')}"
+            ),
             missing_evidence="real uncertainty engine, released coefficients, and formal compliance claim remain out of scope",
         ),
         "uncertainty_overview_summary": (
             f"scope {common['scope_id']} | decision rule {common['decision_rule_id']} | "
-            f"cases {len(cases)} | readiness mapping only"
+            f"case {str(case_payloads.get('selected_result_case_id') or '--')} | "
+            f"method protocol {str(case_payloads.get('method_confirmation_protocol_id') or _default_method_confirmation_protocol_id(run_id))} | readiness mapping only"
         ),
         "budget_component_summary": str(case_payloads.get("budget_completeness_summary") or "--"),
         "top_contributors_summary": str(case_payloads.get("top_contributor_summary") or "--"),
         "data_completeness_summary": (
             f"input rows {len(list(case_payloads.get('input_rows') or []))} | "
             f"coefficients {len(list(case_payloads.get('coefficient_rows') or []))} | "
-            "all values placeholder/simulated"
+            f"fixture {str(case_payloads.get('fixture_summary') or '--')} | all values placeholder/simulated"
         ),
+        "budget_level_summary": str(case_payloads.get("budget_level_summary") or "--"),
+        "binding_summary": str(case_payloads.get("binding_summary") or "--"),
+        "calculation_chain_summary": str(case_payloads.get("calculation_chain_summary") or "--"),
+        "fixture_summary": str(case_payloads.get("fixture_summary") or "--"),
+        "golden_case_summary": str(case_payloads.get("golden_case_summary") or "--"),
         "placeholder_completeness_summary": str(case_payloads.get("placeholder_completeness_summary") or "--"),
         "warning_summary": "placeholder values only | reviewer-only | not ready for formal claim",
         "reviewer_action_summary": "review linked scope/decision/assets/certificates | keep formal uncertainty declaration disabled in Step 2",
@@ -877,6 +1541,11 @@ def _report_pack_artifact(
             f"data completeness: {digest['data_completeness_summary']}",
         ],
         detail_lines=[
+            f"budget levels: {digest['budget_level_summary']}",
+            f"binding: {digest['binding_summary']}",
+            f"calculation chain: {digest['calculation_chain_summary']}",
+            f"fixture summary: {digest['fixture_summary']}",
+            f"golden cases: {digest['golden_case_summary']}",
             f"placeholder completeness: {digest['placeholder_completeness_summary']}",
             f"reviewer actions: {digest['reviewer_action_summary']}",
             f"non-claim: {common['non_claim_note']}",
@@ -886,26 +1555,39 @@ def _report_pack_artifact(
             f"certificate lifecycle artifact: {path_map['certificate_lifecycle_summary']}",
             f"pre-run gate artifact: {path_map['pre_run_readiness_gate']}",
         ],
-        artifact_paths=_base_artifact_paths(
-            path_map,
-            common,
-            "uncertainty_model",
-            "uncertainty_input_set",
-            "sensitivity_coefficient_set",
-            "budget_case",
-            "uncertainty_golden_cases",
-            "uncertainty_report_pack",
-            "uncertainty_report_pack_markdown",
+        artifact_paths=_artifact_paths_with_fixtures(
+            _base_artifact_paths(
+                path_map,
+                common,
+                "uncertainty_model",
+                "uncertainty_input_set",
+                "sensitivity_coefficient_set",
+                "budget_case",
+                "uncertainty_golden_cases",
+                "uncertainty_report_pack",
+                "uncertainty_report_pack_markdown",
+            ),
+            fixture_paths,
         ),
         body={
             "scope_id": common["scope_id"],
             "decision_rule_id": common["decision_rule_id"],
+            "uncertainty_case_id": str(case_payloads.get("selected_result_case_id") or ""),
+            "method_confirmation_protocol_id": str(
+                case_payloads.get("method_confirmation_protocol_id")
+                or _default_method_confirmation_protocol_id(run_id)
+            ),
             "report_rule": common["report_rule"],
             "standard_family": list(common.get("standard_family") or []),
             "required_evidence_categories": list(common.get("required_evidence_categories") or []),
             "asset_readiness_overview": common["asset_readiness_overview"],
             "certificate_lifecycle_overview": common["certificate_lifecycle_overview"],
             "gate_status": common["pre_run_gate_status"],
+            "budget_level_summary": str(case_payloads.get("budget_level_summary") or "--"),
+            "binding_summary": str(case_payloads.get("binding_summary") or "--"),
+            "calculation_chain_summary": str(case_payloads.get("calculation_chain_summary") or "--"),
+            "fixture_summary": str(case_payloads.get("fixture_summary") or "--"),
+            "golden_case_summary": str(case_payloads.get("golden_case_summary") or "--"),
             "top_contributors": top_contributors,
             "data_completeness": {
                 "input_rows": len(list(case_payloads.get("input_rows") or [])),
@@ -938,11 +1620,13 @@ def _digest_artifact(
     run_id: str,
     common: dict[str, Any],
     report_pack: dict[str, Any],
+    case_payloads: dict[str, Any],
     path_map: dict[str, str],
     filenames: dict[str, str],
     boundary_statements: list[str],
 ) -> dict[str, Any]:
     report_digest = dict(report_pack.get("digest") or {})
+    fixture_paths = dict(case_payloads.get("fixture_artifact_paths") or {})
     digest = {
         **_scope_digest(
             common,
@@ -954,6 +1638,11 @@ def _digest_artifact(
         "budget_component_summary": str(report_digest.get("budget_component_summary") or "--"),
         "top_contributors_summary": str(report_digest.get("top_contributors_summary") or "--"),
         "data_completeness_summary": str(report_digest.get("data_completeness_summary") or "--"),
+        "budget_level_summary": str(report_digest.get("budget_level_summary") or case_payloads.get("budget_level_summary") or "--"),
+        "binding_summary": str(report_digest.get("binding_summary") or case_payloads.get("binding_summary") or "--"),
+        "calculation_chain_summary": str(report_digest.get("calculation_chain_summary") or case_payloads.get("calculation_chain_summary") or "--"),
+        "fixture_summary": str(report_digest.get("fixture_summary") or case_payloads.get("fixture_summary") or "--"),
+        "golden_case_summary": str(report_digest.get("golden_case_summary") or case_payloads.get("golden_case_summary") or "--"),
         "placeholder_completeness_summary": str(report_digest.get("placeholder_completeness_summary") or "--"),
         "warning_summary": str(report_digest.get("warning_summary") or "--"),
         "reviewer_action_summary": str(report_digest.get("reviewer_action_summary") or "--"),
@@ -968,12 +1657,34 @@ def _digest_artifact(
         reviewer_note="Digest 只汇总 reviewer-facing uncertainty skeleton，不做 formal statement。",
         summary_text=digest["summary"],
         summary_lines=[f"uncertainty overview: {digest['uncertainty_overview_summary']}", f"top contributors: {digest['top_contributors_summary']}"],
-        detail_lines=[f"budget completeness: {digest['budget_component_summary']}", f"data completeness: {digest['data_completeness_summary']}", f"placeholder completeness: {digest['placeholder_completeness_summary']}"],
-        artifact_paths=_base_artifact_paths(path_map, common, "uncertainty_report_pack", "uncertainty_digest", "uncertainty_digest_markdown"),
+        detail_lines=[
+            f"budget completeness: {digest['budget_component_summary']}",
+            f"budget levels: {digest['budget_level_summary']}",
+            f"binding: {digest['binding_summary']}",
+            f"calculation chain: {digest['calculation_chain_summary']}",
+            f"fixture summary: {digest['fixture_summary']}",
+            f"golden cases: {digest['golden_case_summary']}",
+            f"data completeness: {digest['data_completeness_summary']}",
+            f"placeholder completeness: {digest['placeholder_completeness_summary']}",
+        ],
+        artifact_paths=_artifact_paths_with_fixtures(
+            _base_artifact_paths(path_map, common, "uncertainty_report_pack", "uncertainty_digest", "uncertainty_digest_markdown"),
+            fixture_paths,
+        ),
         body={
             "scope_id": common["scope_id"],
             "decision_rule_id": common["decision_rule_id"],
+            "uncertainty_case_id": str(case_payloads.get("selected_result_case_id") or ""),
+            "method_confirmation_protocol_id": str(
+                case_payloads.get("method_confirmation_protocol_id")
+                or _default_method_confirmation_protocol_id(run_id)
+            ),
             "report_rule": common["report_rule"],
+            "budget_level_summary": str(case_payloads.get("budget_level_summary") or "--"),
+            "binding_summary": str(case_payloads.get("binding_summary") or "--"),
+            "calculation_chain_summary": str(case_payloads.get("calculation_chain_summary") or "--"),
+            "fixture_summary": str(case_payloads.get("fixture_summary") or "--"),
+            "golden_case_summary": str(case_payloads.get("golden_case_summary") or "--"),
             "limitation_note": common["limitation_note"],
             "non_claim_note": common["non_claim_note"],
             "reviewer_note": common["reviewer_note"],
@@ -996,6 +1707,7 @@ def _rollup_artifact(
 ) -> dict[str, Any]:
     report_digest = dict(report_pack.get("digest") or {})
     cases = [dict(item) for item in list(case_payloads.get("cases") or []) if isinstance(item, dict)]
+    fixture_paths = dict(case_payloads.get("fixture_artifact_paths") or {})
     digest = {
         **_scope_digest(
             common,
@@ -1007,6 +1719,11 @@ def _rollup_artifact(
         "budget_component_summary": str(report_digest.get("budget_component_summary") or "--"),
         "top_contributors_summary": str(report_digest.get("top_contributors_summary") or "--"),
         "data_completeness_summary": str(report_digest.get("data_completeness_summary") or "--"),
+        "budget_level_summary": str(report_digest.get("budget_level_summary") or case_payloads.get("budget_level_summary") or "--"),
+        "binding_summary": str(report_digest.get("binding_summary") or case_payloads.get("binding_summary") or "--"),
+        "calculation_chain_summary": str(report_digest.get("calculation_chain_summary") or case_payloads.get("calculation_chain_summary") or "--"),
+        "fixture_summary": str(report_digest.get("fixture_summary") or case_payloads.get("fixture_summary") or "--"),
+        "golden_case_summary": str(report_digest.get("golden_case_summary") or case_payloads.get("golden_case_summary") or "--"),
         "placeholder_completeness_summary": str(report_digest.get("placeholder_completeness_summary") or "--"),
         "warning_summary": str(report_digest.get("warning_summary") or "--"),
         "reviewer_action_summary": str(report_digest.get("reviewer_action_summary") or "--"),
@@ -1026,23 +1743,52 @@ def _rollup_artifact(
             f"top contributors: {digest['top_contributors_summary']}",
             f"data completeness: {digest['data_completeness_summary']}",
         ],
-        detail_lines=[f"placeholder completeness: {digest['placeholder_completeness_summary']}", f"reviewer actions: {digest['reviewer_action_summary']}", f"report pack: {path_map['uncertainty_report_pack']}", f"digest: {path_map['uncertainty_digest']}"],
-        artifact_paths=_base_artifact_paths(path_map, common, "uncertainty_report_pack", "uncertainty_digest", "uncertainty_rollup", "uncertainty_rollup_markdown"),
+        detail_lines=[
+            f"budget levels: {digest['budget_level_summary']}",
+            f"binding: {digest['binding_summary']}",
+            f"calculation chain: {digest['calculation_chain_summary']}",
+            f"fixture summary: {digest['fixture_summary']}",
+            f"golden cases: {digest['golden_case_summary']}",
+            f"placeholder completeness: {digest['placeholder_completeness_summary']}",
+            f"reviewer actions: {digest['reviewer_action_summary']}",
+            f"report pack: {path_map['uncertainty_report_pack']}",
+            f"digest: {path_map['uncertainty_digest']}",
+        ],
+        artifact_paths=_artifact_paths_with_fixtures(
+            _base_artifact_paths(path_map, common, "uncertainty_report_pack", "uncertainty_digest", "uncertainty_rollup", "uncertainty_rollup_markdown"),
+            fixture_paths,
+        ),
         body={
             "scope_id": common["scope_id"],
             "decision_rule_id": common["decision_rule_id"],
+            "uncertainty_case_id": str(case_payloads.get("selected_result_case_id") or ""),
+            "method_confirmation_protocol_id": str(
+                case_payloads.get("method_confirmation_protocol_id")
+                or _default_method_confirmation_protocol_id(run_id)
+            ),
             "report_rule": common["report_rule"],
             "asset_readiness_overview": common["asset_readiness_overview"],
             "certificate_lifecycle_overview": common["certificate_lifecycle_overview"],
             "gate_status": common["pre_run_gate_status"],
             "linked_surface_visibility": ["results", "review_center", "workbench", "historical_artifacts"],
             "overview_display": str(report_digest.get("uncertainty_overview_summary") or "--"),
+            "rollup_summary_display": (
+                f"{str(report_digest.get('uncertainty_overview_summary') or '--')} | "
+                f"{str(case_payloads.get('budget_level_summary') or '--')}"
+            ),
             "budget_completeness_summary": str(report_digest.get("budget_component_summary") or "--"),
             "top_contributors_summary": str(report_digest.get("top_contributors_summary") or "--"),
             "data_completeness_summary": str(report_digest.get("data_completeness_summary") or "--"),
+            "budget_level_summary": str(case_payloads.get("budget_level_summary") or "--"),
+            "binding_summary": str(case_payloads.get("binding_summary") or "--"),
+            "calculation_chain_summary": str(case_payloads.get("calculation_chain_summary") or "--"),
+            "fixture_summary": str(case_payloads.get("fixture_summary") or "--"),
+            "golden_case_summary": str(case_payloads.get("golden_case_summary") or "--"),
             "placeholder_completeness_summary": str(report_digest.get("placeholder_completeness_summary") or "--"),
             "case_count": len(cases),
-            "golden_case_count": len(cases),
+            "golden_case_count": sum(
+                1 for case in cases if str(case.get("golden_case_status") or "").strip().lower() == "match"
+            ),
             "report_pack_available": True,
             "limitation_note": common["limitation_note"],
             "non_claim_note": common["non_claim_note"],
@@ -1125,6 +1871,8 @@ def build_uncertainty_wp3_artifacts(
     certificate_lifecycle_summary: dict[str, Any],
     pre_run_readiness_gate: dict[str, Any],
     path_map: dict[str, str],
+    uncertainty_fixture: dict[str, Any] | None = None,
+    fixture_artifact_paths: dict[str, str] | None = None,
     filenames: dict[str, str],
     boundary_statements: list[str],
 ) -> dict[str, dict[str, Any]]:
@@ -1137,7 +1885,12 @@ def build_uncertainty_wp3_artifacts(
         pre_run_readiness_gate=pre_run_readiness_gate,
         path_map=path_map,
     )
-    case_payloads = _case_payloads(run_id=run_id, common=common)
+    case_payloads = _case_payloads(
+        run_id=run_id,
+        common=common,
+        uncertainty_fixture=uncertainty_fixture,
+        fixture_artifact_paths=fixture_artifact_paths,
+    )
     report_pack = _report_pack_artifact(
         run_id=run_id,
         common=common,
@@ -1150,6 +1903,7 @@ def build_uncertainty_wp3_artifacts(
         run_id=run_id,
         common=common,
         report_pack=report_pack,
+        case_payloads=case_payloads,
         path_map=path_map,
         filenames=filenames,
         boundary_statements=boundary_statements,

@@ -5,8 +5,26 @@ from gas_calibrator.tools.safe_stop import perform_safe_stop, perform_safe_stop_
 
 
 class _FakePace:
-    def __init__(self) -> None:
+    PROFILE_OLD_PACE5000 = "OLD_PACE5000"
+    PROFILE_PACE5000E = "PACE5000E"
+    PROFILE_UNKNOWN = "UNKNOWN"
+
+    def __init__(self, *, profile: str = PROFILE_OLD_PACE5000, helper_vent_command_sent: bool = True) -> None:
         self.calls = []
+        self.profile = profile
+        self.helper_vent_command_sent = helper_vent_command_sent
+        self.classify_calls = []
+
+    def safe_stop(self):
+        self.calls.append("safe_stop")
+        return {
+            "profile": self.profile,
+            "output_state": 0,
+            "isolation_state": 1,
+            "vent_status": 2,
+            "vent_command_sent": self.helper_vent_command_sent,
+            "system_error": ':SYST:ERR 0,"No error"',
+        }
 
     def enter_atmosphere_mode(self):
         self.calls.append("enter_atmosphere_mode")
@@ -21,6 +39,70 @@ class _FakePace:
             ":OUTP:ISOL:STAT?": ":OUTP:ISOL:STAT 1",
         }
         return mapping[cmd]
+
+    def detect_profile(self):
+        return self.profile
+
+    @staticmethod
+    def parse_vent_status_value(response):
+        return int(str(response).strip().split()[-1])
+
+    def classify_vent_status(self, status):
+        value = self.parse_vent_status_value(status)
+        self.classify_calls.append(value)
+        if value == 0:
+            return "idle"
+        if value == 1:
+            return "in_progress"
+        if value == 2 and self.profile == self.PROFILE_OLD_PACE5000:
+            return "completed_latched"
+        if value == 2 and self.profile == self.PROFILE_PACE5000E:
+            return "timed_out"
+        if value == 3 and self.profile == self.PROFILE_PACE5000E:
+            return "trapped_pressure"
+        if value == 4 and self.profile == self.PROFILE_PACE5000E:
+            return "aborted"
+        return "unknown"
+
+    def vent_status_text(self, status):
+        value = self.parse_vent_status_value(status)
+        if value == 2 and self.profile == self.PROFILE_OLD_PACE5000:
+            return "completed"
+        if value == 2 and self.profile == self.PROFILE_PACE5000E:
+            return "timeout"
+        if value == 0:
+            return "idle"
+        if value == 1:
+            return "in_progress"
+        return "unknown"
+
+
+class _FakeDiagnosticBlockedPace(_FakePace):
+    def enter_legacy_diagnostic_safe_vent_mode(self, action: str = "safe_stop"):
+        self.calls.append(("diagnostic_safe_vent", action))
+        return {
+            "action": action,
+            "legacy_identity": True,
+            "ok": False,
+            "recoverable": True,
+            "reason": "legacy_safe_vent_blocked_for_test",
+            "vent_command_sent": False,
+            "profile": self.profile,
+        }
+
+
+class _FakeSuppressedSafeStopPace(_FakePace):
+    def safe_stop(self):
+        self.calls.append("safe_stop")
+        return {
+            "profile": self.profile,
+            "output_state": 0,
+            "isolation_state": 1,
+            "vent_status": 2,
+            "vent_command_sent": False,
+            "reason": "adapter_safe_stop_did_not_send_vent_for_test",
+            "system_error": ':SYST:ERR 0,"No error"',
+        }
 
 
 class _FakeRelay:
@@ -109,10 +191,94 @@ def test_perform_safe_stop_uses_set_valve_and_verifies_states() -> None:
     assert result["relay_states"] == [False] * 16
     assert result["relay8_states"] == [False] * 8
     assert result["pace_pressure_hpa"] == 1010.5
+    assert result["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert result["pace_vent_command_suppressed"] is False
+    assert result["pace_vent_status_returned"] == 2
+    assert result["pace_vent_status_text"] == "completed"
+    assert result["pace_vent_status_classification"] == "completed_latched"
+    assert result["pace_profile"] == "OLD_PACE5000"
+    assert result["pace_vent_status_query_raw"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 2"
     assert result["gauge_pressure_hpa"] == 1009.9
     assert result["chamber"]["run_state"] == 0
     assert result["hgen_stop_check"] == {"ok": True, "flow_lpm": 0.0, "max_flow_lpm": 0.05}
     assert hgen.wait_calls == [{"max_flow_lpm": 0.05, "timeout_s": 5.0, "poll_s": 0.5}]
+
+
+def test_never_sends_vent_status_2_as_command() -> None:
+    pace = _FakePace()
+
+    result = perform_safe_stop({"pace": pace}, log_fn=lambda *_: None)
+
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT 2" not in pace.calls
+    assert result["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert result["pace_vent_status_returned"] == 2
+    assert result["pace_vent_status_classification"] == "completed_latched"
+
+
+def test_cleanup_summary_separates_vent_command_and_vent_status() -> None:
+    result = perform_safe_stop({"pace": _FakePace()}, log_fn=lambda *_: None)
+
+    assert "pace_vent" not in result
+    assert result["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert result["pace_vent_status_returned"] == 2
+    assert result["pace_vent_status_text"] == "completed"
+    assert result["pace_vent_status_classification"] == "completed_latched"
+
+
+def test_safe_stop_old_pace5000_vent_status_2_completed() -> None:
+    result = perform_safe_stop({"pace": _FakePace(profile=_FakePace.PROFILE_OLD_PACE5000)}, log_fn=lambda *_: None)
+
+    assert result["pace_profile"] == "OLD_PACE5000"
+    assert result["pace_vent_status_returned"] == 2
+    assert result["pace_vent_status_text"] == "completed"
+    assert result["pace_vent_status_classification"] == "completed_latched"
+
+
+def test_safe_stop_pace5000e_vent_status_2_timeout_or_profile_defined() -> None:
+    result = perform_safe_stop({"pace": _FakePace(profile=_FakePace.PROFILE_PACE5000E)}, log_fn=lambda *_: None)
+
+    assert result["pace_profile"] == "PACE5000E"
+    assert result["pace_vent_status_returned"] == 2
+    assert result["pace_vent_status_text"] == "timeout"
+    assert result["pace_vent_status_classification"] == "timed_out"
+
+
+def test_safe_stop_uses_profile_vent_status_classifier() -> None:
+    pace = _FakePace(profile=_FakePace.PROFILE_PACE5000E)
+
+    result = perform_safe_stop({"pace": pace}, log_fn=lambda *_: None)
+
+    assert pace.classify_calls
+    assert pace.classify_calls[-1] == 2
+    assert result["pace_vent_status_classification"] == "timed_out"
+
+
+def test_safe_stop_records_vent_command_only_when_write_happens() -> None:
+    result = perform_safe_stop({"pace": _FakePace(helper_vent_command_sent=True)}, log_fn=lambda *_: None)
+
+    assert result["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert result["pace_vent_command_suppressed"] is False
+    assert result["pace_vent_command_suppressed_reason"] == ""
+
+
+def test_safe_stop_does_not_record_vent_command_when_helper_blocks() -> None:
+    result = perform_safe_stop(
+        {"pace": _FakeDiagnosticBlockedPace()},
+        log_fn=lambda *_: None,
+        pace_mode="diagnostic_safe_vent",
+    )
+
+    assert result["pace_vent_command_sent"] is None
+    assert result["pace_vent_command_suppressed"] is True
+    assert result["pace_diagnostic_safe_vent"]["ok"] is False
+
+
+def test_safe_stop_records_suppressed_reason_when_vent_not_sent() -> None:
+    result = perform_safe_stop({"pace": _FakeSuppressedSafeStopPace()}, log_fn=lambda *_: None)
+
+    assert result["pace_vent_command_sent"] is None
+    assert result["pace_vent_command_suppressed"] is True
+    assert result["pace_vent_command_suppressed_reason"] == "adapter_safe_stop_did_not_send_vent_for_test"
 
 
 def test_perform_safe_stop_uses_cfg_baseline_when_available() -> None:

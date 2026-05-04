@@ -69,6 +69,30 @@ def test_software_validation_wp5_repository_and_gateway_contract(tmp_path: Path)
     assert release_validation_manifest["artifact_type"] == "release_validation_manifest"
     assert audit_digest["artifact_type"] == "audit_readiness_digest"
 
+    wp5_payloads = {
+        "software_validation_traceability_matrix": traceability,
+        "requirement_design_code_test_links": links,
+        "validation_evidence_index": evidence_index,
+        "change_impact_summary": change_impact,
+        "rollback_readiness_summary": rollback,
+        "artifact_hash_registry": hash_registry,
+        "audit_event_store": audit_event_store,
+        "environment_fingerprint": environment_fingerprint,
+        "config_fingerprint": config_fingerprint,
+        "release_input_digest": release_input_digest,
+        "release_manifest": release_manifest,
+        "release_scope_summary": release_scope_summary,
+        "release_boundary_digest": release_boundary_digest,
+        "release_evidence_pack_index": release_evidence_pack_index,
+        "release_validation_manifest": release_validation_manifest,
+        "audit_readiness_digest": audit_digest,
+    }
+    for artifact_key, artifact_payload in wp5_payloads.items():
+        assert artifact_payload["artifact_type"] == artifact_key
+        assert artifact_payload["not_real_acceptance_evidence"] is True
+        assert artifact_payload["not_ready_for_formal_claim"] is True
+        assert artifact_payload["primary_evidence_rewritten"] is False
+
     required_traceability_fields = {
         "traceability_id",
         "traceability_version",
@@ -97,9 +121,38 @@ def test_software_validation_wp5_repository_and_gateway_contract(tmp_path: Path)
     assert traceability["not_real_acceptance_evidence"] is True
     assert traceability["not_ready_for_formal_claim"] is True
     assert traceability["primary_evidence_rewritten"] is False
+    assert traceability["traceability_completeness"] == "4/4 linked"
+    assert traceability["traceability_rows"]
     assert traceability["artifact_paths"]["software_validation_traceability_matrix"].endswith(
         recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME
     )
+
+    assert change_impact["changed_modules"]
+    assert change_impact["changed_module_paths"]
+    assert change_impact["changed_modules_summary"]
+    assert change_impact["impacts_main_execution_chain"] is False
+    assert "unchanged" in change_impact["main_execution_chain_impact_summary"].lower()
+    assert change_impact["impacts_artifact_schema"] is True
+    assert "reviewer-sidecar" in change_impact["artifact_schema_impact_summary"].lower()
+    assert change_impact["impacts_results_surface"] is True
+    assert change_impact["impacts_review_center_surface"] is True
+    assert change_impact["impacts_workbench_surface"] is True
+    assert change_impact["impacts_reports_surface"] is True
+    assert change_impact["db_ready_stub_only"] is True
+    assert set(change_impact["linked_surface_visibility"]) >= {
+        "results_payload",
+        "reports",
+        "review_center",
+        "workbench_recognition_readiness",
+    }
+
+    assert rollback["rollback_mode"] == "file_artifact_first"
+    assert rollback["file_artifact_first"] is True
+    assert rollback["sidecar_revocable"] is True
+    assert rollback["primary_evidence_preserved"] is True
+    assert rollback["touches_primary_evidence"] is False
+    assert rollback["rollback_steps"]
+    assert rollback["db_ready_stub_only"] is True
 
     required_hash_registry_fields = {
         "hash_registry_id",
@@ -120,6 +173,11 @@ def test_software_validation_wp5_repository_and_gateway_contract(tmp_path: Path)
     assert hash_registry["reviewer_only"] is True
     assert hash_registry["not_real_acceptance_evidence"] is True
     assert hash_registry["primary_evidence_rewritten"] is False
+    assert hash_registry["reviewer_trace_only"] is True
+    assert hash_registry["file_backed_only"] is True
+    assert hash_registry["formal_anti_tamper_claim"] is False
+    assert hash_registry["tamper_evidence_claimed"] is False
+    assert hash_registry["trace_purpose"] == "file_backed_reviewer_trace"
     assert hash_registry["entries"]
     first_hash_entry = dict(hash_registry["entries"][0])
     assert {
@@ -144,6 +202,24 @@ def test_software_validation_wp5_repository_and_gateway_contract(tmp_path: Path)
     assert first_hash_entry["primary_evidence_rewritten"] is False
     assert first_hash_entry["reviewer_only"] is True
     assert first_hash_entry["not_real_acceptance_evidence"] is True
+    assert first_hash_entry["reviewer_trace_only"] is True
+    assert first_hash_entry["formal_anti_tamper_claim"] is False
+    assert first_hash_entry["tamper_evidence_claimed"] is False
+
+    assert environment_fingerprint["reviewer_trace_only"] is True
+    assert environment_fingerprint["formal_anti_tamper_claim"] is False
+    assert environment_fingerprint["tamper_evidence_claimed"] is False
+    assert environment_fingerprint["fingerprint_scope"] == "file_backed_reviewer_trace"
+    assert config_fingerprint["reviewer_trace_only"] is True
+    assert config_fingerprint["formal_anti_tamper_claim"] is False
+    assert config_fingerprint["tamper_evidence_claimed"] is False
+    assert config_fingerprint["fingerprint_scope"] == "file_backed_reviewer_trace"
+    assert release_input_digest["reviewer_trace_only"] is True
+    assert release_input_digest["formal_anti_tamper_claim"] is False
+    assert release_input_digest["tamper_evidence_claimed"] is False
+    assert release_input_digest["digest_scope"] == "file_backed_reviewer_trace"
+    assert audit_event_store["event_store_mode"] == "file_backed_reviewer_trace"
+    assert audit_event_store["reviewer_trace_only"] is True
 
     required_release_fields = {
         "release_id",
@@ -195,6 +271,27 @@ def test_software_validation_wp5_repository_and_gateway_contract(tmp_path: Path)
     assert rollup["traceability_summary"]
     assert rollup["hash_registry_summary"]
     assert rollup["release_manifest_summary"]
+    assert rollup["change_impact_summary"]
+    assert rollup["changed_modules_summary"]
+    assert rollup["main_execution_chain_impacted"] is False
+    assert rollup["artifact_schema_impacted"] is True
+    assert rollup["results_surface_impacted"] is True
+    assert rollup["review_center_surface_impacted"] is True
+    assert rollup["workbench_surface_impacted"] is True
+    assert rollup["rollback_summary"]
+    assert rollup["rollback_mode"] == "file_artifact_first"
+    assert rollup["file_artifact_first"] is True
+    assert rollup["sidecar_revocable"] is True
+    assert rollup["primary_evidence_preserved"] is True
+    assert rollup["audit_event_summary"]
+    assert rollup["config_fingerprint_summary"]
+    assert rollup["release_input_summary"]
+    assert set(rollup["linked_surface_visibility"]) >= {
+        "results_payload",
+        "reports",
+        "review_center",
+        "workbench_recognition_readiness",
+    }
     assert rollup["parity_status"]
     assert rollup["resilience_status"]
     assert rollup["smoke_status"]
@@ -256,6 +353,11 @@ def test_software_validation_wp5_results_and_review_center_visibility(tmp_path: 
     assert index_summary["software_validation_summary"]
     assert index_summary["traceability_summary"]
     assert index_summary["audit_hash_summary"]
+    assert index_summary["change_impact_summary"]
+    assert index_summary["rollback_summary"]
+    assert index_summary["audit_event_summary"]
+    assert index_summary["config_fingerprint_summary"]
+    assert index_summary["release_input_summary"]
     assert index_summary["release_manifest_summary"]
     assert "software" in str(index_summary["summary"] or "").lower() or "软件验证" in str(index_summary["summary"] or "")
 
@@ -264,19 +366,32 @@ def test_software_validation_wp5_results_and_review_center_visibility(tmp_path: 
         for item in list(review_center["evidence_items"] or [])
         if str(item.get("type") or "") == "readiness_governance"
     ]
-    assert any(
-        Path(str(item.get("path") or "")).name == recognition_readiness.RELEASE_MANIFEST_FILENAME
-        for item in readiness_items
-    )
-    assert any(
-        Path(str(item.get("path") or "")).name == recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME
-        for item in readiness_items
-    )
+    readiness_filenames = {Path(str(item.get("path") or "")).name for item in readiness_items}
+    assert {
+        recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME,
+        recognition_readiness.VALIDATION_EVIDENCE_INDEX_FILENAME,
+        recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME,
+        recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME,
+        recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
+        recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME,
+        recognition_readiness.AUDIT_EVENT_STORE_FILENAME,
+        recognition_readiness.ENVIRONMENT_FINGERPRINT_FILENAME,
+        recognition_readiness.CONFIG_FINGERPRINT_FILENAME,
+        recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME,
+        recognition_readiness.RELEASE_MANIFEST_FILENAME,
+        recognition_readiness.RELEASE_SCOPE_SUMMARY_FILENAME,
+        recognition_readiness.RELEASE_BOUNDARY_DIGEST_FILENAME,
+        recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_FILENAME,
+        recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME,
+        recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
+    } <= readiness_filenames
     assert any(
         "Release Manifest" in str(item.get("detail_text") or "")
         or "software validation" in str(item.get("detail_text") or "").lower()
         for item in readiness_items
     )
+    assert any("Changed modules:" in str(item.get("detail_text") or "") for item in readiness_items)
+    assert any("Rollback mode:" in str(item.get("detail_text") or "") for item in readiness_items)
 
 
 def test_software_validation_wp5_workbench_and_historical_visibility(tmp_path: Path) -> None:
@@ -296,20 +411,35 @@ def test_software_validation_wp5_workbench_and_historical_visibility(tmp_path: P
     readiness_evidence = dict(report_payload["recognition_readiness_evidence"])
     artifact_paths = dict(readiness_evidence["artifact_paths"])
 
-    assert readiness_evidence["software_validation_traceability_matrix"]["artifact_type"] == (
-        "software_validation_traceability_matrix"
-    )
-    assert readiness_evidence["artifact_hash_registry"]["artifact_type"] == "artifact_hash_registry"
-    assert readiness_evidence["environment_fingerprint"]["artifact_type"] == "environment_fingerprint"
-    assert readiness_evidence["release_manifest"]["artifact_type"] == "release_manifest"
+    expected_workbench_keys = {
+        "requirement_design_code_test_links": recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME,
+        "validation_evidence_index": recognition_readiness.VALIDATION_EVIDENCE_INDEX_FILENAME,
+        "change_impact_summary": recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME,
+        "rollback_readiness_summary": recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME,
+        "software_validation_traceability_matrix": recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
+        "artifact_hash_registry": recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME,
+        "audit_event_store": recognition_readiness.AUDIT_EVENT_STORE_FILENAME,
+        "environment_fingerprint": recognition_readiness.ENVIRONMENT_FINGERPRINT_FILENAME,
+        "config_fingerprint": recognition_readiness.CONFIG_FINGERPRINT_FILENAME,
+        "release_input_digest": recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME,
+        "release_manifest": recognition_readiness.RELEASE_MANIFEST_FILENAME,
+        "release_scope_summary": recognition_readiness.RELEASE_SCOPE_SUMMARY_FILENAME,
+        "release_boundary_digest": recognition_readiness.RELEASE_BOUNDARY_DIGEST_FILENAME,
+        "release_evidence_pack_index": recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_FILENAME,
+        "release_validation_manifest": recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME,
+        "audit_readiness_digest": recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
+    }
+    for artifact_key, filename in expected_workbench_keys.items():
+        assert readiness_evidence[artifact_key]["artifact_type"] == artifact_key
+        assert readiness_evidence[artifact_key]["not_real_acceptance_evidence"] is True
+        assert readiness_evidence[artifact_key]["not_ready_for_formal_claim"] is True
+        assert readiness_evidence[artifact_key]["primary_evidence_rewritten"] is False
+        assert artifact_paths[artifact_key].endswith(filename)
     assert readiness_evidence["software_validation_rollup"]["repository_mode"] == "file_artifact_first"
-    assert artifact_paths["software_validation_traceability_matrix"].endswith(
-        recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME
-    )
-    assert artifact_paths["artifact_hash_registry"].endswith(
-        recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME
-    )
-    assert artifact_paths["release_manifest"].endswith(recognition_readiness.RELEASE_MANIFEST_FILENAME)
+    assert readiness_evidence["change_impact_summary"]["changed_modules_summary"]
+    assert readiness_evidence["change_impact_summary"]["impacts_main_execution_chain"] is False
+    assert readiness_evidence["rollback_readiness_summary"]["rollback_mode"] == "file_artifact_first"
+    assert readiness_evidence["rollback_readiness_summary"]["touches_primary_evidence"] is False
     assert any(
         "软件验证总览" in str(line) or "Software validation overview" in str(line)
         for line in list(readiness_evidence["summary_lines"] or [])

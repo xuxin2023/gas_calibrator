@@ -11,6 +11,7 @@ from ..models import CalibrationPhase, CalibrationPoint
 from ..orchestration_context import OrchestrationContext
 from ..run_state import RunState
 from ...exceptions import WorkflowInterruptedError
+from .trace_size_guard import guard_trace_event
 
 
 class StatusService:
@@ -103,8 +104,9 @@ class StatusService:
                 "result": str(result or "ok").strip().lower() or "ok",
                 "message": str(message or ""),
             }
+            guarded_payload = guard_trace_event(payload, trace_name="route_trace")
             with trace_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                handle.write(json.dumps(guarded_payload, ensure_ascii=False, separators=(",", ":")) + "\n")
             self.remember_output_file(str(trace_path))
         except Exception as exc:
             try:

@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "suite_analytics_summary",
+  "suite": "smoke",
+  "generated_at": "2026-04-30T12:30:40",
+  "pass_rates": {
+    "suite_pass_rate": 1.0,
+    "passed": 5,
+    "failed": 0,
+    "total": 5
+  },
+  "case_status_counts": {
+    "MATCH": 4,
+    "MISMATCH": 1
+  },
+  "case_kind_counts": {
+    "scenario": 4,
+    "parity": 1
+  },
+  "common_failure_types": {},
+  "top_failure_phases": {},
+  "evidence_sources_present": [
+    "simulated_protocol",
+    "diagnostic"
+  ],
+  "digest": {
+    "summary": "5/5 passed | top failures none",
+    "health": "healthy"
+  }
+}

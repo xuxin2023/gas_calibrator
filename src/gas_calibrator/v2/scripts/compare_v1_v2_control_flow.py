@@ -52,6 +52,7 @@ FULL_ROUTE_SIMULATED_DIAGNOSTIC_VALIDATION_PROFILE = "replacement_full_route_sim
 SKIP0_CO2_ONLY_SIMULATED_VALIDATION_PROFILE = "replacement_skip0_co2_only_simulated"
 H2O_ONLY_SIMULATED_VALIDATION_PROFILE = "replacement_h2o_only_simulated"
 KEY_ACTION_REGISTRY = "gas_calibrator.v2.scripts.route_trace_diff.KEY_ACTION_GROUPS"
+REVIEW_STAGE_REGISTRY = "gas_calibrator.v2.scripts.route_trace_diff.REVIEW_STAGE_GROUPS"
 SKIP0_CO2_ONLY_REPLACEMENT_BUNDLE_NAME = "skip0_co2_only_replacement_bundle.json"
 SKIP0_CO2_ONLY_REPLACEMENT_LATEST_NAME = "skip0_co2_only_replacement_latest.json"
 SKIP0_CO2_ONLY_DIAGNOSTIC_BUNDLE_NAME = "skip0_co2_only_diagnostic_relaxed_bundle.json"
@@ -83,6 +84,9 @@ COMPARE_STATUS_NOT_EXECUTED = "NOT_EXECUTED"
 COMPARE_STATUS_INVALID_PROFILE_INPUT = "INVALID_PROFILE_INPUT"
 EVIDENCE_SOURCE_REAL = "real"
 EVIDENCE_SOURCE_SIMULATED = "simulated"
+REPLACEMENT_VALIDATION_SCOPE_NARROWED_SKIP0_CO2_ONLY = "narrowed_skip0_co2_only"
+REPLACEMENT_VALIDATION_PATH_USABLE = "replacement-validation path usable"
+REPLACEMENT_VALIDATION_PATH_NOT_USABLE = "replacement-validation path not usable"
 V1_TRACE_SUBPROCESS_POLL_S = 0.2
 V1_TRACE_SUBPROCESS_GRACE_S = 5.0
 V1_TRACE_SUBPROCESS_TERMINATE_WAIT_S = 3.0
@@ -1072,6 +1076,72 @@ def summarize_key_action_diffs(
     return report
 
 
+def summarize_review_stage_diffs(
+    v1_events: list[route_trace_diff.RouteTraceEvent],
+    v2_events: list[route_trace_diff.RouteTraceEvent],
+) -> dict[str, Any]:
+    report: dict[str, Any] = {}
+    for stage, actions in route_trace_diff.review_stage_groups().items():
+        filtered_v1 = [event for event in v1_events if event.action in actions]
+        filtered_v2 = [event for event in v2_events if event.action in actions]
+        summaries = route_trace_diff.compare_route_traces(filtered_v1, filtered_v2, max_diff_lines=8)
+        report[stage] = {
+            "matches": all(summary.matches for summary in summaries),
+            "actions": list(actions),
+            "v1_action_counts": dict(sorted(Counter(event.action for event in filtered_v1).items())),
+            "v2_action_counts": dict(sorted(Counter(event.action for event in filtered_v2).items())),
+            "routes": [_route_diff_summary_to_dict(summary) for summary in summaries],
+        }
+    return report
+
+
+def _replacement_scope_id(validation_profile: str, skip_co2_ppm: Any) -> str:
+    skip_set = set()
+    for value in list(skip_co2_ppm or []):
+        try:
+            skip_set.add(int(value))
+        except Exception:
+            continue
+    if validation_profile in {SKIP0_CO2_ONLY_VALIDATION_PROFILE, SKIP0_CO2_ONLY_SIMULATED_VALIDATION_PROFILE}:
+        return REPLACEMENT_VALIDATION_SCOPE_NARROWED_SKIP0_CO2_ONLY
+    if validation_profile == SKIP0_CO2_ONLY_DIAGNOSTIC_VALIDATION_PROFILE:
+        return "narrowed_skip0_co2_only_diagnostic"
+    if validation_profile == SKIP0_VALIDATION_PROFILE or 0 in skip_set:
+        return "mixed_route_skip0_review_aid"
+    if validation_profile == H2O_ONLY_VALIDATION_PROFILE:
+        return "h2o_only_diagnostic"
+    return "standard_compare"
+
+
+def _classify_route_action_difference(
+    item: dict[str, Any],
+    *,
+    target_route: Optional[str],
+) -> dict[str, Any]:
+    route = str(item.get("route") or "").strip().lower()
+    target_route_text = str(target_route or "").strip().lower()
+    missing = list(item.get("missing_in_v2") or [])
+    extra = list(item.get("extra_in_v2") or [])
+    order = list(item.get("order_mismatches") or [])
+    difference_types: list[str] = []
+    if missing or extra:
+        difference_types.append("missing_action")
+    if order:
+        difference_types.append("ordering_difference")
+    expected_divergence = bool(target_route_text and route and route != target_route_text)
+    if expected_divergence:
+        difference_types.append("expected_divergence")
+    return {
+        "route": route,
+        "missing_in_v2": missing,
+        "extra_in_v2": extra,
+        "order_mismatches": order,
+        "difference_types": difference_types,
+        "expected_divergence": expected_divergence,
+        "classification": "expected_divergence" if expected_divergence else ",".join(difference_types),
+    }
+
+
 def summarize_replacement_validation(
     *,
     presence: dict[str, Any],
@@ -1080,37 +1150,78 @@ def summarize_replacement_validation(
     key_actions: dict[str, Any],
     compare_status: str,
     valid_for_route_diff: bool,
+    validation_profile: str,
+    skip_co2_ppm: Any,
+    target_route: Optional[str],
+    evidence_state: str,
+    route_execution_summary: dict[str, Any],
 ) -> dict[str, Any]:
     route_action_order_differences = [
-        {
-            "route": item.get("route"),
-            "missing_in_v2": list(item.get("missing_in_v2") or []),
-            "extra_in_v2": list(item.get("extra_in_v2") or []),
-            "order_mismatches": list(item.get("order_mismatches") or []),
-        }
+        _classify_route_action_difference(item, target_route=target_route)
         for item in route_sequence.get("routes") or []
         if (item.get("missing_in_v2") or item.get("extra_in_v2") or item.get("order_mismatches"))
+    ]
+    blocking_route_action_order_differences = [
+        item for item in route_action_order_differences if not bool(item.get("expected_divergence"))
     ]
     evaluable = compare_status not in {
         COMPARE_STATUS_INVALID_PROFILE_INPUT,
         COMPARE_STATUS_NOT_EXECUTED,
     } and bool(valid_for_route_diff)
+    presence_matches = bool(presence.get("matches", False)) if evaluable else None
+    sample_count_matches = bool(sample_count.get("matches", False)) if evaluable else None
+    route_action_order_matches = (not blocking_route_action_order_differences) if evaluable else None
+    route_has_failures = bool(route_execution_summary.get("has_route_failures"))
+    route_has_physical_mismatches = bool(route_execution_summary.get("has_physical_route_mismatches"))
+    path_usable = bool(
+        evaluable
+        and compare_status == COMPARE_STATUS_MATCH
+        and presence_matches is True
+        and sample_count_matches is True
+        and route_action_order_matches is True
+        and not route_has_failures
+        and not route_has_physical_mismatches
+    )
+    missing_in_v1 = list(presence.get("v2_only") or [])
+    missing_in_v2 = list(presence.get("v1_only") or [])
+    sample_count_mismatches = list(sample_count.get("mismatches") or [])
     return {
+        "scope": _replacement_scope_id(validation_profile, skip_co2_ppm),
+        "scope_statement": "co2_only + skip_co2_ppm=[0] narrowed replacement-validation path"
+        if _replacement_scope_id(validation_profile, skip_co2_ppm)
+        == REPLACEMENT_VALIDATION_SCOPE_NARROWED_SKIP0_CO2_ONLY
+        else "",
+        "conclusion": REPLACEMENT_VALIDATION_PATH_USABLE if path_usable else REPLACEMENT_VALIDATION_PATH_NOT_USABLE,
+        "path_usable": path_usable,
+        "cutover_ready": False,
+        "default_replacement_ready": False,
+        "full_equivalence_established": False,
+        "numeric_equivalence_established": False,
+        "evidence_state": evidence_state,
+        "first_failure_phase": route_execution_summary.get("first_failure_phase"),
         "only_in_v1": list(presence.get("v1_only") or []),
         "only_in_v2": list(presence.get("v2_only") or []),
+        "missing_points": {
+            "missing_in_v1": missing_in_v1,
+            "missing_in_v2": missing_in_v2,
+        },
+        "sample_count_mismatch": None if sample_count_matches is None else not bool(sample_count_matches),
+        "sample_count_mismatches": sample_count_mismatches,
         "presence_evaluable": evaluable,
         "sample_count_evaluable": evaluable,
         "route_action_order_evaluable": evaluable,
-        "presence_matches": bool(presence.get("matches", False)) if evaluable else None,
-        "sample_count_matches": bool(sample_count.get("matches", False)) if evaluable else None,
-        "route_action_order_matches": (not route_action_order_differences) if evaluable else None,
+        "presence_matches": presence_matches,
+        "sample_count_matches": sample_count_matches,
+        "route_action_order_matches": route_action_order_matches,
         "route_action_order_differences": route_action_order_differences,
+        "blocking_route_action_order_differences": blocking_route_action_order_differences,
         "key_action_groups_evaluable": evaluable,
         "key_action_group_matches": {
             category: bool(payload.get("matches", False)) if evaluable else None
             for category, payload in sorted((key_actions or {}).items())
         },
         "key_action_group_registry": KEY_ACTION_REGISTRY,
+        "review_stage_registry": REVIEW_STAGE_REGISTRY,
     }
 
 
@@ -1515,15 +1626,19 @@ def _build_route_execution_summary(
             "runtime_policy": runtime_policies.get(side, {}),
         }
 
-    has_physical_route_mismatches = any(bool(value) for value in relay_physical_mismatch.values())
-    valid_for_route_diff = bool(all(entered_target_route.values())) and not has_physical_route_mismatches
     has_route_failures = any(bool((payload or {}).get("route_failures")) for payload in sides.values())
+    has_physical_route_mismatches = any(bool(value) for value in relay_physical_mismatch.values())
+    valid_for_route_diff = (
+        bool(all(entered_target_route.values()))
+        and not has_physical_route_mismatches
+        and not has_route_failures
+    )
     if preflight and not bool(preflight.get("ok", True)):
         compare_status = COMPARE_STATUS_INVALID_PROFILE_INPUT
-    elif not valid_for_route_diff:
-        compare_status = COMPARE_STATUS_MISMATCH if has_physical_route_mismatches else COMPARE_STATUS_NOT_EXECUTED
     elif has_route_failures:
         compare_status = COMPARE_STATUS_MISMATCH
+    elif not valid_for_route_diff:
+        compare_status = COMPARE_STATUS_MISMATCH if has_physical_route_mismatches else COMPARE_STATUS_NOT_EXECUTED
     else:
         compare_status = COMPARE_STATUS_MISMATCH
 
@@ -1807,9 +1922,9 @@ def _evidence_descriptor(*, validation_profile: str, evidence_source: str) -> di
     if validation_profile == SKIP0_CO2_ONLY_VALIDATION_PROFILE:
         return {
             "checklist_gate": "12A",
-            "evidence_state": "current_primary_validation",
+            "evidence_state": "narrowed_replacement_validation",
             "diagnostic_only": False,
-            "acceptance_evidence": True,
+            "acceptance_evidence": False,
             "not_real_acceptance_evidence": False,
         }
     return {
@@ -1835,6 +1950,7 @@ def build_control_flow_report(
     presence = summarize_presence(v1_records, v2_records)
     sample_count = summarize_sample_counts(v1_records, v2_records)
     key_actions = summarize_key_action_diffs(v1_events, v2_events)
+    review_stages = summarize_review_stage_diffs(v1_events, v2_events)
     route_sequence = {
         "matches": all(summary.matches for summary in route_summaries),
         "routes": [_route_diff_summary_to_dict(summary) for summary in route_summaries],
@@ -1868,6 +1984,11 @@ def build_control_flow_report(
         key_actions=key_actions,
         compare_status=compare_status,
         valid_for_route_diff=bool(route_execution_summary.get("valid_for_route_diff", True)),
+        validation_profile=validation_profile,
+        skip_co2_ppm=metadata.get("skip_co2_ppm"),
+        target_route=target_route,
+        evidence_state=evidence_state,
+        route_execution_summary=route_execution_summary,
     )
     overall_ok = compare_status == COMPARE_STATUS_MATCH
     if compare_status == COMPARE_STATUS_MISMATCH:
@@ -1876,13 +1997,26 @@ def build_control_flow_report(
             and bool(metadata.get("v2", {}).get("ok"))
             and presence["matches"]
             and sample_count["matches"]
-            and route_sequence["matches"]
+            and bool(replacement_validation.get("route_action_order_matches", False))
             and all(payload.get("matches", False) for payload in key_actions.values())
             and not bool(route_execution_summary.get("has_route_failures"))
             and not bool(route_execution_summary.get("has_physical_route_mismatches"))
         )
         compare_status = COMPARE_STATUS_MATCH if overall_ok else COMPARE_STATUS_MISMATCH
     route_execution_summary["compare_status"] = compare_status
+    replacement_validation = summarize_replacement_validation(
+        presence=presence,
+        sample_count=sample_count,
+        route_sequence=route_sequence,
+        key_actions=key_actions,
+        compare_status=compare_status,
+        valid_for_route_diff=bool(route_execution_summary.get("valid_for_route_diff", True)),
+        validation_profile=validation_profile,
+        skip_co2_ppm=metadata.get("skip_co2_ppm"),
+        target_route=target_route,
+        evidence_state=evidence_state,
+        route_execution_summary=route_execution_summary,
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "compare_status": compare_status,
@@ -1908,6 +2042,7 @@ def build_control_flow_report(
         "sample_count": sample_count,
         "route_sequence": route_sequence,
         "key_actions": key_actions,
+        "route_review_stages": review_stages,
         "replacement_validation": replacement_validation,
     }
 
@@ -2052,11 +2187,23 @@ def format_control_flow_report_markdown(report: dict[str, Any]) -> str:
         [
             "",
         "## Replacement Validation",
+        f"- scope: {report['replacement_validation'].get('scope')}",
+        f"- scope_statement: {report['replacement_validation'].get('scope_statement') or '-'}",
+        f"- conclusion: {report['replacement_validation'].get('conclusion')}",
+        f"- path_usable: {report['replacement_validation'].get('path_usable')}",
+        f"- cutover_ready: {report['replacement_validation'].get('cutover_ready')}",
+        f"- default_replacement_ready: {report['replacement_validation'].get('default_replacement_ready')}",
+        f"- full_equivalence_established: {report['replacement_validation'].get('full_equivalence_established')}",
+        f"- numeric_equivalence_established: {report['replacement_validation'].get('numeric_equivalence_established')}",
+        f"- evidence_state: {report['replacement_validation'].get('evidence_state')}",
+        f"- first_failure_phase: {report['replacement_validation'].get('first_failure_phase') or '-'}",
         f"- presence_evaluable: {report['replacement_validation'].get('presence_evaluable')}",
         f"- sample_count_evaluable: {report['replacement_validation'].get('sample_count_evaluable')}",
         f"- route_action_order_evaluable: {report['replacement_validation'].get('route_action_order_evaluable')}",
         f"- only_in_v1: {', '.join(report['replacement_validation']['only_in_v1']) or '-'}",
         f"- only_in_v2: {', '.join(report['replacement_validation']['only_in_v2']) or '-'}",
+        f"- missing_points: {report['replacement_validation'].get('missing_points')}",
+        f"- sample_count_mismatch: {report['replacement_validation'].get('sample_count_mismatch')}",
         f"- sample_count_matches: {report['replacement_validation']['sample_count_matches']}",
         f"- route_action_order_matches: {report['replacement_validation']['route_action_order_matches']}",
         "",
@@ -2097,8 +2244,15 @@ def format_control_flow_report_markdown(report: dict[str, Any]) -> str:
         for item in report["replacement_validation"]["route_action_order_differences"]:
             lines.append(
                 f"- {item['route']}: missing={len(item['missing_in_v2'])} extra={len(item['extra_in_v2'])} "
-                f"order_mismatches={len(item['order_mismatches'])}"
+                f"order_mismatches={len(item['order_mismatches'])} "
+                f"classification={item.get('classification') or '-'}"
             )
+    lines.extend(["", "## Route Review Stages"])
+    for stage, payload in sorted((report.get("route_review_stages") or {}).items()):
+        lines.append(
+            f"- {stage}: match={payload.get('matches')} "
+            f"v1={payload.get('v1_action_counts')} v2={payload.get('v2_action_counts')}"
+        )
     lines.extend(["", "## Key Actions"])
     for category, payload in sorted((report.get("key_actions") or {}).items()):
         lines.append(
@@ -2405,6 +2559,15 @@ def _write_replacement_validation_indexes(
         report_dir=report_dir,
         report=report,
     )
+    evidence_source = str(bundle.get("evidence_source") or report.get("evidence_source") or "").strip().lower()
+    bundle["latest_governance"] = {
+        "root_latest_update_requested": bool(update_latest),
+        "root_latest_update_allowed": bool(update_latest),
+        "root_latest_update_blocked": not bool(update_latest),
+        "reason": ""
+        if update_latest
+        else f"{evidence_source or 'unknown'} evidence is isolated to the report directory and must not overwrite root latest",
+    }
     bundle_path = _write_json(report_dir / str(names["bundle_name"]), bundle)
     latest_parent = report_root if update_latest else report_dir
     latest_path = _write_json(latest_parent / str(names["latest_name"]), bundle)
@@ -2644,13 +2807,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             v2_runtime_cfg_path,
             simulation_mode=bool(args.simulation),
         )
+    evidence_source = EVIDENCE_SOURCE_SIMULATED if bool(args.simulation) else EVIDENCE_SOURCE_REAL
     report = build_control_flow_report(
         v1_trace_path=Path(v1_run["trace_path"]),
         v2_trace_path=Path(v2_run["trace_path"]),
         metadata={
             "run_name": run_name,
             "validation_profile": validation_profile,
-            "evidence_source": EVIDENCE_SOURCE_REAL,
+            "evidence_source": evidence_source,
             "temp_c": args.temp,
             "skip_co2_ppm": [] if skip_co2_ppm is None else list(skip_co2_ppm),
             "route_mode": route_mode,
@@ -2715,6 +2879,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 report_root=report_root,
                 report_dir=report_dir,
                 report=report,
+                update_latest=not bool(args.simulation),
             )
         )
     json_path = _write_json(report_dir / "control_flow_compare_report.json", report)

@@ -469,7 +469,7 @@ def test_build_runtime_cfg_disables_calibration_fit(monkeypatch) -> None:
         root.destroy()
 
 
-def test_build_runtime_cfg_enables_postrun_corrected_delivery(monkeypatch) -> None:
+def test_build_runtime_cfg_strips_postrun_corrected_delivery_from_v1_ui(monkeypatch) -> None:
     monkeypatch.setattr(app_module, "load_config", lambda _path: _basic_cfg())
     monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0))
 
@@ -479,22 +479,7 @@ def test_build_runtime_cfg_enables_postrun_corrected_delivery(monkeypatch) -> No
         ui = app_module.App(root)
         ui.postrun_delivery_var.set(True)
         runtime_cfg = ui._build_runtime_cfg()
-        assert runtime_cfg["workflow"]["postrun_corrected_delivery"]["enabled"] is True
-    finally:
-        root.destroy()
-
-
-def test_build_runtime_cfg_disables_postrun_corrected_delivery(monkeypatch) -> None:
-    monkeypatch.setattr(app_module, "load_config", lambda _path: _basic_cfg())
-    monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0))
-
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        ui = app_module.App(root)
-        ui.postrun_delivery_var.set(False)
-        runtime_cfg = ui._build_runtime_cfg()
-        assert runtime_cfg["workflow"]["postrun_corrected_delivery"]["enabled"] is False
+        assert "postrun_corrected_delivery" not in runtime_cfg["workflow"]
     finally:
         root.destroy()
 
@@ -555,9 +540,9 @@ def test_load_config_reads_calibration_fit_switch(monkeypatch) -> None:
         root.destroy()
 
 
-def test_load_config_reads_postrun_corrected_delivery_switch(monkeypatch) -> None:
+def test_load_config_ignores_postrun_corrected_delivery_switch(monkeypatch) -> None:
     cfg = _basic_cfg()
-    cfg["workflow"]["postrun_corrected_delivery"] = {"enabled": False}
+    cfg["workflow"]["postrun_corrected_delivery"] = {"enabled": True}
     monkeypatch.setattr(app_module, "load_config", lambda _path: cfg)
     monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0))
 
@@ -566,7 +551,8 @@ def test_load_config_reads_postrun_corrected_delivery_switch(monkeypatch) -> Non
     try:
         ui = app_module.App(root)
         assert ui.postrun_delivery_var.get() is False
-        assert "自动交付：关闭" in ui.summary_var.get()
+        assert str(ui.postrun_delivery_check.cget("state")) == "disabled"
+        assert "自动交付" not in ui.summary_var.get()
     finally:
         root.destroy()
 
@@ -3268,6 +3254,60 @@ def test_parse_pressure_reapply_info_counts_latest_block() -> None:
     target, reapply_count = app_module.App._parse_pressure_reapply_info(rows)
     assert target == 1000
     assert reapply_count == 2
+
+
+def test_parse_pressure_reapply_info_accepts_short_sour_pres() -> None:
+    rows = [
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 1100.0"},
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 1000.0"},
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 1000.0"},
+    ]
+
+    target, reapply_count = app_module.App._parse_pressure_reapply_info(rows)
+
+    assert target == 1000
+    assert reapply_count == 1
+
+
+def test_parse_pressure_reapply_info_accepts_legacy_lev_imm_ampl() -> None:
+    rows = [
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 1100.0"},
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 1000.0"},
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 1000.0"},
+    ]
+
+    target, reapply_count = app_module.App._parse_pressure_reapply_info(rows)
+
+    assert target == 1000
+    assert reapply_count == 1
+
+
+def test_parse_last_numeric_command_accepts_short_sour_pres() -> None:
+    rows = [
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 900.0"},
+    ]
+
+    assert app_module.App._parse_last_numeric_command(rows, "COM31", ":SOUR:PRES:LEV:IMM:AMPL") == 900.0
+
+
+def test_parse_last_numeric_command_accepts_legacy_lev_imm_ampl() -> None:
+    rows = [
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 900.0"},
+    ]
+
+    assert app_module.App._parse_last_numeric_command(rows, "COM31", ":SOUR:PRES") == 900.0
+
+
+def test_pressure_setpoint_hold_telemetry_preserved_for_both_tokens() -> None:
+    short_events = app_module.App._extract_key_events_from_io(
+        [{"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 900.0"}]
+    )
+    legacy_events = app_module.App._extract_key_events_from_io(
+        [{"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 900.0"}]
+    )
+
+    assert "压力控制目标：900 hPa" in short_events
+    assert "压力控制目标：900 hPa" in legacy_events
 
 
 def test_find_latest_active_run_dir_supports_rerun_prefix(monkeypatch, tmp_path) -> None:

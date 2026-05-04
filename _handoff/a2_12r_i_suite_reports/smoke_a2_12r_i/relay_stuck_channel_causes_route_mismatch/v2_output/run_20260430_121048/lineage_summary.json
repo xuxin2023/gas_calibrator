@@ -1,0 +1,160 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "lineage_summary",
+  "run_id": "run_20260430_121048",
+  "generated_at": "2026-04-30T12:10:55",
+  "parent_run_id": null,
+  "source_artifact_ids": [
+    "run_20260430_121048:source_points"
+  ],
+  "config_version": "cfg-4d7eb044bc81",
+  "points_version": "pts-h2o_only_points_simulated.json-500-1774434050306605800-e99564e9d673",
+  "profile_version": null,
+  "software_build_id": "0.1.0",
+  "artifacts": [
+    {
+      "artifact_id": "run_20260430_121048:coefficient_report",
+      "artifact_name": "coefficient_report",
+      "role": "formal_analysis",
+      "path": "",
+      "present": false,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:io_log",
+      "artifact_name": "io_log",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\io_log.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:manifest",
+      "artifact_name": "manifest",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\manifest.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:points_readable",
+      "artifact_name": "points_readable",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\points_readable.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:qc_report",
+      "artifact_name": "qc_report",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\qc_report.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:results_json",
+      "artifact_name": "results_json",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\results.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:run_summary",
+      "artifact_name": "run_summary",
+      "role": "execution_summary",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\summary.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:runtime_points",
+      "artifact_name": "runtime_points",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\points.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:samples_csv",
+      "artifact_name": "samples_csv",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\samples.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:samples_excel",
+      "artifact_name": "samples_excel",
+      "role": "execution_rows",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\samples.xlsx",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260430_121048:temperature_snapshots",
+      "artifact_name": "temperature_snapshots",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\temperature_snapshots.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260430_121048:source_points"
+      ]
+    }
+  ],
+  "known_output_files": [
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\manifest.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\points_readable.csv",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\qc_manifest.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\qc_report.csv",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\qc_report.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\qc_reviewer_digest.md",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\qc_summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\results.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\route_trace.jsonl",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\samples.csv",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\samples.xlsx",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\temperature_snapshots.json"
+  ],
+  "expected_artifacts": [
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\acceptance_plan.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\analytics_summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\trend_registry.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\lineage_summary.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\evidence_registry.json",
+    "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch\\v2_output\\run_20260430_121048\\coefficient_registry.json"
+  ]
+}

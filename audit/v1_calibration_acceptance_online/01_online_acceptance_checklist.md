@@ -1,7 +1,7 @@
 # Online Acceptance Checklist
 
-- generated_at: 2026-04-13T12:47:29+08:00
-- head: `f41b7b20c35a5051943fecd35bdaf62c05ae8d34`
+- generated_at: 2026-04-13T15:00:25+08:00
+- head: `367a1089ebaca1388dbb9d11648f74513316e502`
 - dual_gate_required: CLI `--real-device` + ENV `ALLOW_REAL_DEVICE_WRITE=1`
 - capability_boundary: Current HEAD V1 only supports the CO2 main chain; H2O zero/span is NOT_SUPPORTED.
 

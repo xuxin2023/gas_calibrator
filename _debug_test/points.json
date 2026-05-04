@@ -1,1 +1,0 @@
-{"points": [{"index": 1, "temperature_c": 25.0, "humidity_pct": 30.0, "pressure_hpa": 1000.0, "route": "h2o"}, {"index": 2, "temperature_c": 25.0, "co2_ppm": 400.0, "pressure_hpa": 1000.0, "route": "co2"}]}

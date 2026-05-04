@@ -30,6 +30,9 @@ def build_review_center_view(
     selected_artifact_role: str = "all",
     selected_standard_family: str = "all",
     selected_evidence_category: str = "all",
+    selected_readiness_status: str = "all",
+    selected_missing_coverage: str = "all",
+    selected_gap: str = "all",
     selected_boundary: str = "all",
     selected_anchor: str = "all",
     selected_route: str = "all",
@@ -54,6 +57,9 @@ def build_review_center_view(
         selected_artifact_role=selected_artifact_role,
         selected_standard_family=selected_standard_family,
         selected_evidence_category=selected_evidence_category,
+        selected_readiness_status=selected_readiness_status,
+        selected_missing_coverage=selected_missing_coverage,
+        selected_gap=selected_gap,
         selected_boundary=selected_boundary,
         selected_anchor=selected_anchor,
         selected_route=selected_route,
@@ -87,6 +93,9 @@ def build_review_center_view(
         selected_artifact_role=selected_artifact_role,
         selected_standard_family=selected_standard_family,
         selected_evidence_category=selected_evidence_category,
+        selected_readiness_status=selected_readiness_status,
+        selected_missing_coverage=selected_missing_coverage,
+        selected_gap=selected_gap,
         selected_boundary=selected_boundary,
         selected_anchor=selected_anchor,
     )
@@ -129,6 +138,15 @@ def build_review_center_view(
         ),
         "engineering_isolation_admission_checklist_artifact_entry": dict(
             reviewer_artifact_entry_by_key.get("engineering_isolation_admission_checklist", {})
+        ),
+        "engineering_isolation_gate_artifact_entry": dict(
+            reviewer_artifact_entry_by_key.get("engineering_isolation_gate_result", {})
+        ),
+        "engineering_isolation_gate_view": _build_engineering_isolation_gate_view(
+            gate_result=dict(base_payload.get("engineering_isolation_gate_result", {}) or {}),
+            gate_blockers=dict(base_payload.get("engineering_isolation_blockers", {}) or {}),
+            gate_warnings=dict(base_payload.get("engineering_isolation_warnings", {}) or {}),
+            gate_entry=dict(reviewer_artifact_entry_by_key.get("engineering_isolation_gate_result", {})),
         ),
         "stage3_real_validation_plan_artifact_entry": dict(
             reviewer_artifact_entry_by_key.get("stage3_real_validation_plan", {})
@@ -175,6 +193,7 @@ def _normalize_reviewer_artifact_entries(payload: dict[str, Any]) -> list[dict[s
     for key in (
         "stage_admission_review_pack_artifact_entry",
         "engineering_isolation_admission_checklist_artifact_entry",
+        "engineering_isolation_gate_artifact_entry",
         "stage3_real_validation_plan_artifact_entry",
         "stage3_standards_alignment_matrix_artifact_entry",
     ):
@@ -184,6 +203,82 @@ def _normalize_reviewer_artifact_entries(payload: dict[str, Any]) -> list[dict[s
     return entries
 
 
+def _build_engineering_isolation_gate_view(
+    *,
+    gate_result: dict[str, Any],
+    gate_blockers: dict[str, Any],
+    gate_warnings: dict[str, Any],
+    gate_entry: dict[str, Any],
+) -> dict[str, Any]:
+    review_surface = dict(gate_result.get("review_surface") or {})
+    blocker_lines = [
+        str(item).strip()
+        for item in (
+            list(review_surface.get("blocker_lines") or [])
+            or [
+                str(dict(item).get("summary") or "").strip()
+                for item in list(gate_blockers.get("items") or [])
+                if isinstance(item, dict)
+            ]
+        )
+        if str(item).strip()
+    ]
+    warning_lines = [
+        str(item).strip()
+        for item in (
+            list(review_surface.get("warning_lines") or [])
+            or [
+                str(dict(item).get("summary") or "").strip()
+                for item in list(gate_warnings.get("items") or [])
+                if isinstance(item, dict)
+            ]
+        )
+        if str(item).strip()
+    ]
+    unresolved_gap_lines = [
+        str(item).strip()
+        for item in list(review_surface.get("unresolved_gap_lines") or [])
+        if str(item).strip()
+    ]
+    next_action_lines = [
+        str(item).strip()
+        for item in list(review_surface.get("suggested_next_action_lines") or [])
+        if str(item).strip()
+    ]
+    return {
+        "available": bool(gate_entry.get("available", False)) and bool(gate_result),
+        "title_text": str(review_surface.get("title_text") or gate_entry.get("title_text") or t("common.none")),
+        "status_line": str(
+            review_surface.get("status_line")
+            or gate_entry.get("status_line")
+            or gate_result.get("gate_level_display")
+            or t("common.none")
+        ),
+        "summary_text": str(
+            review_surface.get("summary_text")
+            or gate_entry.get("summary_text")
+            or gate_result.get("note")
+            or t("common.none")
+        ),
+        "artifact_path_text": str(
+            gate_entry.get("reviewer_path")
+            or gate_entry.get("path")
+            or dict(gate_result.get("artifact_paths") or {}).get("engineering_isolation_gate_digest")
+            or dict(gate_result.get("artifact_paths") or {}).get("engineering_isolation_gate_result")
+            or t("common.none")
+        ),
+        "bridge_note_text": str(
+            gate_entry.get("bridge_note_text")
+            or gate_result.get("note")
+            or t("common.none")
+        ),
+        "blocker_lines": blocker_lines,
+        "warning_lines": warning_lines,
+        "unresolved_gap_lines": unresolved_gap_lines,
+        "suggested_next_action_lines": next_action_lines,
+    }
+
+
 def _filter_reviewer_artifact_entries(
     entries: list[dict[str, Any]],
     *,
@@ -191,6 +286,9 @@ def _filter_reviewer_artifact_entries(
     selected_artifact_role: str,
     selected_standard_family: str,
     selected_evidence_category: str,
+    selected_readiness_status: str,
+    selected_missing_coverage: str,
+    selected_gap: str,
     selected_boundary: str,
     selected_anchor: str,
 ) -> list[dict[str, Any]]:
@@ -202,6 +300,9 @@ def _filter_reviewer_artifact_entries(
             selected_artifact_role=selected_artifact_role,
             selected_standard_family=selected_standard_family,
             selected_evidence_category=selected_evidence_category,
+            selected_readiness_status=selected_readiness_status,
+            selected_missing_coverage=selected_missing_coverage,
+            selected_gap=selected_gap,
             selected_boundary=selected_boundary,
             selected_anchor=selected_anchor,
         ):
@@ -217,10 +318,16 @@ def _entry_matches_reviewer_filters(
     selected_artifact_role: str,
     selected_standard_family: str,
     selected_evidence_category: str,
+    selected_readiness_status: str,
+    selected_missing_coverage: str,
+    selected_gap: str,
     selected_boundary: str,
     selected_anchor: str,
 ) -> bool:
-    if selected_anchor not in {"", "all"} and str(entry.get("anchor_id") or "") != selected_anchor:
+    if selected_anchor not in {"", "all"} and not _matches_list_filter(
+        [str(entry.get("anchor_id") or "").strip(), *list(entry.get("anchor_filters") or [])],
+        selected_anchor,
+    ):
         return False
     if not _matches_list_filter(entry.get("phase_filters"), selected_phase):
         return False
@@ -229,6 +336,12 @@ def _entry_matches_reviewer_filters(
     if not _matches_list_filter(entry.get("standard_family_filters"), selected_standard_family):
         return False
     if not _matches_list_filter(entry.get("evidence_category_filters"), selected_evidence_category):
+        return False
+    if not _matches_list_filter(entry.get("readiness_status_filters"), selected_readiness_status):
+        return False
+    if not _matches_list_filter(entry.get("missing_coverage_filters"), selected_missing_coverage):
+        return False
+    if not _matches_list_filter(entry.get("gap_filters"), selected_gap):
         return False
     if not _matches_list_filter(entry.get("boundary_filters"), selected_boundary):
         return False
@@ -395,6 +508,9 @@ def _filter_review_items(
     selected_artifact_role: str,
     selected_standard_family: str,
     selected_evidence_category: str,
+    selected_readiness_status: str,
+    selected_missing_coverage: str,
+    selected_gap: str,
     selected_boundary: str,
     selected_anchor: str,
     selected_route: str,
@@ -415,7 +531,10 @@ def _filter_review_items(
             continue
         if selected_source_row and not _item_matches_selected_source(item, selected_source_row):
             continue
-        if selected_anchor not in {"", "all"} and str(item.get("anchor_id") or "") != selected_anchor:
+        if selected_anchor not in {"", "all"} and not _matches_list_filter(
+            [str(item.get("anchor_id") or "").strip(), *list(item.get("anchor_filters") or [])],
+            selected_anchor,
+        ):
             continue
         if not _matches_list_filter(item.get("phase_filters"), selected_phase):
             continue
@@ -424,6 +543,12 @@ def _filter_review_items(
         if not _matches_list_filter(item.get("standard_family_filters"), selected_standard_family):
             continue
         if not _matches_list_filter(item.get("evidence_category_filters"), selected_evidence_category):
+            continue
+        if not _matches_list_filter(item.get("readiness_status_filters"), selected_readiness_status):
+            continue
+        if not _matches_list_filter(item.get("missing_coverage_filters"), selected_missing_coverage):
+            continue
+        if not _matches_list_filter(item.get("gap_filters"), selected_gap):
             continue
         if not _matches_list_filter(item.get("boundary_filters"), selected_boundary):
             continue

@@ -1,0 +1,2501 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "run_analytics_summary",
+  "run_id": "run_20260430_145929",
+  "generated_at": "2026-04-30T14:59:32",
+  "evidence_source": "simulated_protocol",
+  "not_real_acceptance_evidence": true,
+  "acceptance_level": "offline_regression",
+  "promotion_state": "dry_run_only",
+  "evidence_state": "collected",
+  "config_safety": {
+    "status": "ok",
+    "summary": "当前配置为 simulation-only，未发现真实串口风险。",
+    "simulation_only": true,
+    "operator_safe": true,
+    "risk_markers": [],
+    "real_port_device_count": 0,
+    "devices_with_real_ports": [],
+    "engineering_only_flag_count": 0,
+    "enabled_engineering_flags": [],
+    "warnings": [],
+    "requires_explicit_unlock": false,
+    "step2_default_workflow_allowed": true,
+    "inventory": {
+      "enabled_device_count": 14,
+      "simulated_device_count": 14,
+      "real_port_device_count": 0,
+      "engineering_only_flag_count": 0,
+      "device_ports": [
+        {
+          "device": "pressure_controller",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "pressure_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "temperature_chamber",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "thermometer",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_a",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_b",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga01",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga02",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga03",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga04",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga05",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga06",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga07",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga08",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        }
+      ],
+      "engineering_only_flags": [],
+      "shared_pressure_flag_count": 3,
+      "shared_pressure_flags_enabled_count": 0,
+      "shared_pressure_flags": [
+        {
+          "flag": "capture_then_hold_enabled",
+          "config_path": "workflow.pressure.capture_then_hold_enabled",
+          "label": "capture_then_hold",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "adaptive_pressure_sampling_enabled",
+          "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+          "label": "adaptive_pressure_sampling",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "soft_control_enabled",
+          "config_path": "workflow.pressure.soft_control_enabled",
+          "label": "soft_control",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        }
+      ],
+      "summary": "库存治理：已启用设备 14 台；SIM 14 台；real-COM 0 台；engineering-only 开关 0 个。"
+    },
+    "execution_gate": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "requires_dual_unlock": false,
+      "allow_unsafe_step2_config_flag": false,
+      "allow_unsafe_step2_config_env": false,
+      "unlock_cli_flag": "--allow-unsafe-step2-config",
+      "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+      "blocked_reasons": [],
+      "blocked_reason_details": []
+    },
+    "review_lines": [
+      "当前配置为 simulation-only，未发现真实串口风险。",
+      "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "?????默认安全仿真库存",
+      "?????库存治理：已启用设备 14 台；SIM 14 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "simulation_mode=enabled???????? simulation/offline/headless?",
+      "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+      "?????仿真边界 / 默认安全",
+      "?????? Step 2 simulation-only operator-safe ???"
+    ],
+    "classification": "operator_safe_simulation_only",
+    "classification_display": "默认安全仿真库存",
+    "badge_ids": [
+      "simulation_only",
+      "operator_safe"
+    ],
+    "badges": [
+      {
+        "id": "simulation_only",
+        "label": "仿真边界",
+        "tone": "info"
+      },
+      {
+        "id": "operator_safe",
+        "label": "默认安全",
+        "tone": "ok"
+      }
+    ],
+    "inventory_summary": "库存治理：已启用设备 14 台；SIM 14 台；real-COM 0 台；engineering-only 开关 0 个。",
+    "blocked_reason_details": []
+  },
+  "config_safety_review": {
+    "status": "open",
+    "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+    "review_lines": [
+      "当前配置为 simulation-only，未发现真实串口风险。",
+      "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "?????默认安全仿真库存",
+      "?????库存治理：已启用设备 14 台；SIM 14 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "simulation_mode=enabled???????? simulation/offline/headless?",
+      "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+      "?????仿真边界 / 默认安全",
+      "?????? Step 2 simulation-only operator-safe ???"
+    ],
+    "classification": "operator_safe_simulation_only",
+    "classification_display": "默认安全仿真库存",
+    "badge_ids": [
+      "simulation_only",
+      "operator_safe"
+    ],
+    "badges": [
+      {
+        "id": "simulation_only",
+        "label": "仿真边界",
+        "tone": "info"
+      },
+      {
+        "id": "operator_safe",
+        "label": "默认安全",
+        "tone": "ok"
+      }
+    ],
+    "inventory_summary": "库存治理：已启用设备 14 台；SIM 14 台；real-COM 0 台；engineering-only 开关 0 个。",
+    "inventory": {
+      "enabled_device_count": 14,
+      "simulated_device_count": 14,
+      "real_port_device_count": 0,
+      "engineering_only_flag_count": 0,
+      "device_ports": [
+        {
+          "device": "pressure_controller",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "pressure_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "temperature_chamber",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "thermometer",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_a",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_b",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga01",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga02",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga03",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga04",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga05",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga06",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga07",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga08",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        }
+      ],
+      "engineering_only_flags": [],
+      "shared_pressure_flag_count": 3,
+      "shared_pressure_flags_enabled_count": 0,
+      "shared_pressure_flags": [
+        {
+          "flag": "capture_then_hold_enabled",
+          "config_path": "workflow.pressure.capture_then_hold_enabled",
+          "label": "capture_then_hold",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "adaptive_pressure_sampling_enabled",
+          "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+          "label": "adaptive_pressure_sampling",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "soft_control_enabled",
+          "config_path": "workflow.pressure.soft_control_enabled",
+          "label": "soft_control",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        }
+      ],
+      "summary": "库存治理：已启用设备 14 台；SIM 14 台；real-COM 0 台；engineering-only 开关 0 个。"
+    },
+    "blocked_reasons": [],
+    "blocked_reason_details": [],
+    "operator_safe": true,
+    "simulation_only": true,
+    "risk_markers": [],
+    "warnings": [],
+    "real_port_device_count": 0,
+    "devices_with_real_ports": [],
+    "engineering_only_flag_count": 0,
+    "enabled_engineering_flags": [],
+    "execution_gate": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "requires_dual_unlock": false,
+      "allow_unsafe_step2_config_flag": false,
+      "allow_unsafe_step2_config_env": false,
+      "unlock_cli_flag": "--allow-unsafe-step2-config",
+      "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+      "blocked_reasons": [],
+      "blocked_reason_details": []
+    },
+    "requires_explicit_unlock": false,
+    "step2_default_workflow_allowed": true
+  },
+  "config_governance_handoff": {
+    "status": "open",
+    "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+    "review_lines": [
+      "当前配置为 simulation-only，未发现真实串口风险。",
+      "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "?????默认安全仿真库存",
+      "?????库存治理：已启用设备 14 台；SIM 14 台；real-COM 0 台；engineering-only 开关 0 个。",
+      "simulation_mode=enabled???????? simulation/offline/headless?",
+      "shared runner ?????capture_then_hold=off(default) / adaptive_pressure_sampling=off(default) / soft_control=off(default)",
+      "?????仿真边界 / 默认安全",
+      "?????? Step 2 simulation-only operator-safe ???"
+    ],
+    "classification": "operator_safe_simulation_only",
+    "classification_display": "默认安全仿真库存",
+    "badge_ids": [
+      "simulation_only",
+      "operator_safe"
+    ],
+    "badges": [
+      {
+        "id": "simulation_only",
+        "label": "仿真边界",
+        "tone": "info"
+      },
+      {
+        "id": "operator_safe",
+        "label": "默认安全",
+        "tone": "ok"
+      }
+    ],
+    "inventory_summary": "库存治理：已启用设备 14 台；SIM 14 台；real-COM 0 台；engineering-only 开关 0 个。",
+    "inventory": {
+      "enabled_device_count": 14,
+      "simulated_device_count": 14,
+      "real_port_device_count": 0,
+      "engineering_only_flag_count": 0,
+      "device_ports": [
+        {
+          "device": "pressure_controller",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "pressure_meter",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "temperature_chamber",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "thermometer",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_a",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "relay_b",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga01",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga02",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga03",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga04",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga05",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga06",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga07",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        },
+        {
+          "device": "ga08",
+          "port": "",
+          "requires_real_device_review": false,
+          "classification": "simulated_port"
+        }
+      ],
+      "engineering_only_flags": [],
+      "shared_pressure_flag_count": 3,
+      "shared_pressure_flags_enabled_count": 0,
+      "shared_pressure_flags": [
+        {
+          "flag": "capture_then_hold_enabled",
+          "config_path": "workflow.pressure.capture_then_hold_enabled",
+          "label": "capture_then_hold",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "adaptive_pressure_sampling_enabled",
+          "config_path": "workflow.pressure.adaptive_pressure_sampling_enabled",
+          "label": "adaptive_pressure_sampling",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        },
+        {
+          "flag": "soft_control_enabled",
+          "config_path": "workflow.pressure.soft_control_enabled",
+          "label": "soft_control",
+          "category": "engineering_only",
+          "default_enabled": false,
+          "enabled": false,
+          "status": "default_safe"
+        }
+      ],
+      "summary": "库存治理：已启用设备 14 台；SIM 14 台；real-COM 0 台；engineering-only 开关 0 个。"
+    },
+    "blocked_reasons": [],
+    "blocked_reason_details": [],
+    "warnings": [],
+    "operator_safe": true,
+    "simulation_only": true,
+    "risk_markers": [],
+    "real_port_device_count": 0,
+    "devices_with_real_ports": [],
+    "engineering_only_flag_count": 0,
+    "enabled_engineering_flags": [],
+    "execution_gate": {
+      "status": "open",
+      "summary": "当前配置属于 Step 2 simulation-only 安全边界，可进入默认工作流。",
+      "requires_dual_unlock": false,
+      "allow_unsafe_step2_config_flag": false,
+      "allow_unsafe_step2_config_env": false,
+      "unlock_cli_flag": "--allow-unsafe-step2-config",
+      "unlock_env_var": "GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG",
+      "blocked_reasons": [],
+      "blocked_reason_details": []
+    },
+    "requires_explicit_unlock": false,
+    "step2_default_workflow_allowed": true
+  },
+  "analyzer_coverage": {
+    "expected_analyzers": [
+      "GA01",
+      "GA02",
+      "GA03",
+      "GA04",
+      "GA05",
+      "GA06",
+      "GA07",
+      "GA08"
+    ],
+    "present_analyzers": [
+      "GA01",
+      "GA02",
+      "GA03",
+      "GA04",
+      "GA05",
+      "GA06",
+      "GA07",
+      "GA08"
+    ],
+    "usable_analyzers": [
+      "GA01",
+      "GA02",
+      "GA03",
+      "GA04",
+      "GA05",
+      "GA06",
+      "GA07",
+      "GA08"
+    ],
+    "unusable_analyzers": [],
+    "coverage_text": "8/8"
+  },
+  "frame_quality_statistics": {
+    "total_frames": 128,
+    "frames_with_data": 128,
+    "usable_frames": 128,
+    "unusable_frames": 0,
+    "usable_frame_ratio": 1.0,
+    "frame_status_counts": {
+      "ok": 128
+    }
+  },
+  "reference_quality_statistics": {
+    "reference_quality": "degraded",
+    "thermometer_reference_count": 0,
+    "pressure_reference_count": 128,
+    "thermometer_reference_ratio": 0.0,
+    "pressure_reference_ratio": 1.0,
+    "thermometer_reference_status": "missing",
+    "pressure_reference_status": "healthy",
+    "thermometer_status_counts": {},
+    "pressure_status_counts": {
+      "healthy": 128
+    },
+    "reference_quality_trend": "degraded"
+  },
+  "route_physical_mismatch_counts": {
+    "total": 0,
+    "mismatched": 0
+  },
+  "export_resilience_status": {
+    "status_counts": {
+      "ok": 10,
+      "skipped": 1
+    },
+    "overall_status": "ok",
+    "failing_exports": []
+  },
+  "summary_parity_status": "missing",
+  "routes": [
+    "co2"
+  ],
+  "point_failure_reasons": {
+    "time_not_continuous": 8
+  },
+  "run_kpis": {
+    "sample_count": 128,
+    "point_count": 8,
+    "completed_points": 0,
+    "flagged_points": 8,
+    "expected_analyzer_count": 8,
+    "present_analyzer_count": 8,
+    "usable_analyzer_count": 8,
+    "coverage_ratio": 1.0,
+    "usable_frame_ratio": 1.0,
+    "export_error_count": 0,
+    "parity_status": "missing"
+  },
+  "point_kpis": {
+    "rows": [
+      {
+        "point_index": 6,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 400.0,
+        "sample_count": 32,
+        "usable_sample_count": 32,
+        "reason": "passed",
+        "usable_ratio": 1.0,
+        "status": "ok"
+      },
+      {
+        "point_index": 7,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 400.0,
+        "sample_count": 32,
+        "usable_sample_count": 32,
+        "reason": "passed",
+        "usable_ratio": 1.0,
+        "status": "ok"
+      },
+      {
+        "point_index": 8,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 400.0,
+        "sample_count": 32,
+        "usable_sample_count": 32,
+        "reason": "passed",
+        "usable_ratio": 1.0,
+        "status": "ok"
+      },
+      {
+        "point_index": 10,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 400.0,
+        "sample_count": 32,
+        "usable_sample_count": 32,
+        "reason": "passed",
+        "usable_ratio": 1.0,
+        "status": "ok"
+      }
+    ],
+    "status_counts": {
+      "ok": 4
+    },
+    "route_breakdown": {
+      "co2": 4
+    },
+    "point_count": 4
+  },
+  "qc_overview": {
+    "point_rows": [
+      {
+        "point_index": 8,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 400.0,
+        "pressure_target_label": "1100hPa",
+        "quality_score": 0.6000000000000001,
+        "valid": false,
+        "recommendation": "review",
+        "reason": "time_not_continuous",
+        "failed_checks": [
+          {
+            "rule_name": "time_continuity",
+            "actual": 0,
+            "threshold": 1,
+            "message": "Timestamps are not continuous"
+          }
+        ],
+        "postseal_guard_status": "skipped",
+        "postseal_guard_flags": [],
+        "pressure_gauge_stale_ratio": 0.0,
+        "reason_codes": [
+          "time_not_continuous"
+        ],
+        "reject_categories": [
+          "timing"
+        ],
+        "result_level": "warn"
+      },
+      {
+        "point_index": 6,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 400.0,
+        "pressure_target_label": "1000hPa",
+        "quality_score": 0.6000000000000001,
+        "valid": false,
+        "recommendation": "review",
+        "reason": "time_not_continuous",
+        "failed_checks": [
+          {
+            "rule_name": "time_continuity",
+            "actual": 0,
+            "threshold": 1,
+            "message": "Timestamps are not continuous"
+          }
+        ],
+        "postseal_guard_status": "skipped",
+        "postseal_guard_flags": [],
+        "pressure_gauge_stale_ratio": 0.0,
+        "reason_codes": [
+          "time_not_continuous"
+        ],
+        "reject_categories": [
+          "timing"
+        ],
+        "result_level": "warn"
+      },
+      {
+        "point_index": 7,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 400.0,
+        "pressure_target_label": "800hPa",
+        "quality_score": 0.6000000000000001,
+        "valid": false,
+        "recommendation": "review",
+        "reason": "time_not_continuous",
+        "failed_checks": [
+          {
+            "rule_name": "time_continuity",
+            "actual": 0,
+            "threshold": 1,
+            "message": "Timestamps are not continuous"
+          }
+        ],
+        "postseal_guard_status": "skipped",
+        "postseal_guard_flags": [],
+        "pressure_gauge_stale_ratio": 0.0,
+        "reason_codes": [
+          "time_not_continuous"
+        ],
+        "reject_categories": [
+          "timing"
+        ],
+        "result_level": "warn"
+      },
+      {
+        "point_index": 10,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 400.0,
+        "pressure_target_label": "600hPa",
+        "quality_score": 0.6000000000000001,
+        "valid": false,
+        "recommendation": "review",
+        "reason": "time_not_continuous",
+        "failed_checks": [
+          {
+            "rule_name": "time_continuity",
+            "actual": 0,
+            "threshold": 1,
+            "message": "Timestamps are not continuous"
+          }
+        ],
+        "postseal_guard_status": "skipped",
+        "postseal_guard_flags": [],
+        "pressure_gauge_stale_ratio": 0.0,
+        "reason_codes": [
+          "time_not_continuous"
+        ],
+        "reject_categories": [
+          "timing"
+        ],
+        "result_level": "warn"
+      },
+      {
+        "point_index": 8,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 1000.0,
+        "pressure_target_label": "1100hPa",
+        "quality_score": 0.6000000000000001,
+        "valid": false,
+        "recommendation": "review",
+        "reason": "time_not_continuous",
+        "failed_checks": [
+          {
+            "rule_name": "time_continuity",
+            "actual": 0,
+            "threshold": 1,
+            "message": "Timestamps are not continuous"
+          }
+        ],
+        "postseal_guard_status": "skipped",
+        "postseal_guard_flags": [],
+        "pressure_gauge_stale_ratio": 0.0,
+        "reason_codes": [
+          "time_not_continuous"
+        ],
+        "reject_categories": [
+          "timing"
+        ],
+        "result_level": "warn"
+      },
+      {
+        "point_index": 6,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 1000.0,
+        "pressure_target_label": "1000hPa",
+        "quality_score": 0.6000000000000001,
+        "valid": false,
+        "recommendation": "review",
+        "reason": "time_not_continuous",
+        "failed_checks": [
+          {
+            "rule_name": "time_continuity",
+            "actual": 0,
+            "threshold": 1,
+            "message": "Timestamps are not continuous"
+          }
+        ],
+        "postseal_guard_status": "skipped",
+        "postseal_guard_flags": [],
+        "pressure_gauge_stale_ratio": 0.0,
+        "reason_codes": [
+          "time_not_continuous"
+        ],
+        "reject_categories": [
+          "timing"
+        ],
+        "result_level": "warn"
+      },
+      {
+        "point_index": 7,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 1000.0,
+        "pressure_target_label": "800hPa",
+        "quality_score": 0.6000000000000001,
+        "valid": false,
+        "recommendation": "review",
+        "reason": "time_not_continuous",
+        "failed_checks": [
+          {
+            "rule_name": "time_continuity",
+            "actual": 0,
+            "threshold": 1,
+            "message": "Timestamps are not continuous"
+          }
+        ],
+        "postseal_guard_status": "skipped",
+        "postseal_guard_flags": [],
+        "pressure_gauge_stale_ratio": 0.0,
+        "reason_codes": [
+          "time_not_continuous"
+        ],
+        "reject_categories": [
+          "timing"
+        ],
+        "result_level": "warn"
+      },
+      {
+        "point_index": 10,
+        "route": "co2",
+        "temperature_c": 20.0,
+        "co2_ppm": 1000.0,
+        "pressure_target_label": "600hPa",
+        "quality_score": 0.6000000000000001,
+        "valid": false,
+        "recommendation": "review",
+        "reason": "time_not_continuous",
+        "failed_checks": [
+          {
+            "rule_name": "time_continuity",
+            "actual": 0,
+            "threshold": 1,
+            "message": "Timestamps are not continuous"
+          }
+        ],
+        "postseal_guard_status": "skipped",
+        "postseal_guard_flags": [],
+        "pressure_gauge_stale_ratio": 0.0,
+        "reason_codes": [
+          "time_not_continuous"
+        ],
+        "reject_categories": [
+          "timing"
+        ],
+        "result_level": "warn"
+      }
+    ],
+    "decision_counts": {
+      "pass": 0,
+      "warn": 8,
+      "reject": 0,
+      "skipped": 0
+    },
+    "run_gate": {
+      "status": "warn",
+      "reason": "review_required",
+      "passed": false
+    },
+    "point_gate_summary": {
+      "status": "warn",
+      "flagged_point_count": 8,
+      "flagged_routes": [
+        "co2"
+      ],
+      "evaluated_routes": [
+        "co2"
+      ],
+      "passed": false
+    },
+    "route_decision_breakdown": {
+      "co2": {
+        "pass": 0,
+        "warn": 8,
+        "reject": 0,
+        "skipped": 0
+      }
+    },
+    "reject_reason_taxonomy": [
+      {
+        "code": "time_not_continuous",
+        "category": "timing",
+        "count": 8
+      }
+    ],
+    "failed_check_taxonomy": [
+      {
+        "code": "time_continuity",
+        "category": "timing",
+        "count": 8
+      }
+    ],
+    "reviewer_digest": {
+      "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "status": "warn",
+      "top_reasons": "time_not_continuous",
+      "top_checks": "time_continuity",
+      "route_summary": "co2: 0/8/0/0",
+      "lines": [
+        "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "点级门禁: warn | 关注路由: co2",
+        "按气路分布: co2: 0/8/0/0",
+        "主要拒绝原因: time_not_continuous",
+        "失败检查: time_continuity"
+      ]
+    },
+    "reviewer_card": {
+      "title": "质控审阅卡",
+      "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "status": "warn",
+      "lines": [
+        "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "运行门禁: warn | 原因: review_required",
+        "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+        "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+        "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "审阅结论: 点级门禁: warn | 关注路由: co2",
+        "审阅结论: 按气路分布: co2: 0/8/0/0",
+        "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+        "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+      ],
+      "sections": [
+        {
+          "id": "summary",
+          "title": "审阅结论",
+          "lines": [
+            "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+            "点级门禁: warn | 关注路由: co2"
+          ]
+        },
+        {
+          "id": "gates",
+          "title": "门禁状态",
+          "lines": [
+            "运行门禁: warn | 原因: review_required",
+            "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+            "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+          ]
+        },
+        {
+          "id": "taxonomy",
+          "title": "风险归类",
+          "lines": [
+            "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+            "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+            "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+          ]
+        },
+        {
+          "id": "boundary",
+          "title": "证据边界",
+          "lines": [
+            "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+          ]
+        },
+        {
+          "id": "co2_postseal_quality",
+          "title": "CO2 post-seal 守卫",
+          "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "lines": [
+            "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+            "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+          ]
+        }
+      ]
+    },
+    "review_card_lines": [
+      "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "运行门禁: warn | 原因: review_required",
+      "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+      "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+      "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+      "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "审阅结论: 点级门禁: warn | 关注路由: co2",
+      "审阅结论: 按气路分布: co2: 0/8/0/0",
+      "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+      "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+      "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+    ],
+    "review_sections": [
+      {
+        "id": "summary",
+        "title": "审阅结论",
+        "lines": [
+          "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2"
+        ]
+      },
+      {
+        "id": "gates",
+        "title": "门禁状态",
+        "lines": [
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+        ]
+      },
+      {
+        "id": "taxonomy",
+        "title": "风险归类",
+        "lines": [
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "lines": [
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        ]
+      },
+      {
+        "id": "co2_postseal_quality",
+        "title": "CO2 post-seal 守卫",
+        "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "lines": [
+          "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ]
+      }
+    ],
+    "evidence_section": {
+      "title": "质控证据",
+      "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "status": "warn",
+      "lines": [
+        "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "运行门禁: warn | 原因: review_required",
+        "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+        "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+        "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "审阅结论: 点级门禁: warn | 关注路由: co2",
+        "审阅结论: 按气路分布: co2: 0/8/0/0",
+        "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+        "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+      ],
+      "reviewer_digest": {
+        "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "status": "warn",
+        "top_reasons": "time_not_continuous",
+        "top_checks": "time_continuity",
+        "route_summary": "co2: 0/8/0/0",
+        "lines": [
+          "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2",
+          "按气路分布: co2: 0/8/0/0",
+          "主要拒绝原因: time_not_continuous",
+          "失败检查: time_continuity"
+        ]
+      },
+      "reviewer_card": {
+        "title": "质控审阅卡",
+        "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "status": "warn",
+        "lines": [
+          "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+          "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "审阅结论: 点级门禁: warn | 关注路由: co2",
+          "审阅结论: 按气路分布: co2: 0/8/0/0",
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+          "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ],
+        "sections": [
+          {
+            "id": "summary",
+            "title": "审阅结论",
+            "lines": [
+              "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+              "点级门禁: warn | 关注路由: co2"
+            ]
+          },
+          {
+            "id": "gates",
+            "title": "门禁状态",
+            "lines": [
+              "运行门禁: warn | 原因: review_required",
+              "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+              "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+            ]
+          },
+          {
+            "id": "taxonomy",
+            "title": "风险归类",
+            "lines": [
+              "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+              "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+              "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+            ]
+          },
+          {
+            "id": "boundary",
+            "title": "证据边界",
+            "lines": [
+              "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+            ]
+          },
+          {
+            "id": "co2_postseal_quality",
+            "title": "CO2 post-seal 守卫",
+            "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+            "lines": [
+              "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+              "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+            ]
+          }
+        ]
+      },
+      "review_card_lines": [
+        "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "运行门禁: warn | 原因: review_required",
+        "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+        "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+        "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "审阅结论: 点级门禁: warn | 关注路由: co2",
+        "审阅结论: 按气路分布: co2: 0/8/0/0",
+        "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+        "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+      ],
+      "sections": [
+        {
+          "id": "summary",
+          "title": "审阅结论",
+          "lines": [
+            "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+            "点级门禁: warn | 关注路由: co2"
+          ]
+        },
+        {
+          "id": "gates",
+          "title": "门禁状态",
+          "lines": [
+            "运行门禁: warn | 原因: review_required",
+            "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+            "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+          ]
+        },
+        {
+          "id": "taxonomy",
+          "title": "风险归类",
+          "lines": [
+            "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+            "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+            "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+          ]
+        },
+        {
+          "id": "boundary",
+          "title": "证据边界",
+          "lines": [
+            "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+          ]
+        },
+        {
+          "id": "co2_postseal_quality",
+          "title": "CO2 post-seal 守卫",
+          "lines": [
+            "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+            "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+          ]
+        }
+      ],
+      "review_sections": [
+        {
+          "id": "summary",
+          "title": "审阅结论",
+          "lines": [
+            "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+            "点级门禁: warn | 关注路由: co2"
+          ]
+        },
+        {
+          "id": "gates",
+          "title": "门禁状态",
+          "lines": [
+            "运行门禁: warn | 原因: review_required",
+            "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+            "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+          ]
+        },
+        {
+          "id": "taxonomy",
+          "title": "风险归类",
+          "lines": [
+            "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+            "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+            "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+          ]
+        },
+        {
+          "id": "boundary",
+          "title": "证据边界",
+          "lines": [
+            "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+          ]
+        },
+        {
+          "id": "co2_postseal_quality",
+          "title": "CO2 post-seal 守卫",
+          "lines": [
+            "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+            "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+          ]
+        }
+      ],
+      "cards": [
+        {
+          "id": "summary",
+          "title": "审阅结论",
+          "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "lines": [
+            "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+            "点级门禁: warn | 关注路由: co2"
+          ]
+        },
+        {
+          "id": "gates",
+          "title": "门禁状态",
+          "summary": "运行门禁: warn | 原因: review_required",
+          "lines": [
+            "运行门禁: warn | 原因: review_required",
+            "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+            "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+          ]
+        },
+        {
+          "id": "taxonomy",
+          "title": "风险归类",
+          "summary": "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "lines": [
+            "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+            "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+            "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+          ]
+        },
+        {
+          "id": "boundary",
+          "title": "证据边界",
+          "summary": "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+          "lines": [
+            "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+          ]
+        },
+        {
+          "id": "co2_postseal_quality",
+          "title": "CO2 post-seal 守卫",
+          "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "lines": [
+            "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+            "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+          ]
+        }
+      ],
+      "run_gate": {
+        "status": "warn",
+        "reason": "review_required",
+        "passed": false
+      },
+      "point_gate_summary": {
+        "status": "warn",
+        "flagged_point_count": 8,
+        "flagged_routes": [
+          "co2"
+        ],
+        "evaluated_routes": [
+          "co2"
+        ],
+        "passed": false
+      },
+      "decision_counts": {
+        "pass": 0,
+        "warn": 8,
+        "reject": 0,
+        "skipped": 0
+      },
+      "route_decision_breakdown": {
+        "co2": {
+          "pass": 0,
+          "warn": 8,
+          "reject": 0,
+          "skipped": 0
+        }
+      },
+      "reject_reason_taxonomy": [
+        {
+          "code": "time_not_continuous",
+          "category": "timing",
+          "count": 8
+        }
+      ],
+      "failed_check_taxonomy": [
+        {
+          "code": "time_continuity",
+          "category": "timing",
+          "count": 8
+        }
+      ],
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "offline_review",
+      "not_real_acceptance_evidence": true,
+      "acceptance_level": "offline_regression",
+      "promotion_state": "dry_run_only"
+    },
+    "postseal_guard_review": {
+      "rows": [
+        {
+          "point_index": 8,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 400.0,
+          "pressure_target_label": "1100hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 6,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 400.0,
+          "pressure_target_label": "1000hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 7,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 400.0,
+          "pressure_target_label": "800hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 10,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 400.0,
+          "pressure_target_label": "600hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 8,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 1000.0,
+          "pressure_target_label": "1100hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 6,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 1000.0,
+          "pressure_target_label": "1000hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 7,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 1000.0,
+          "pressure_target_label": "800hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 10,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 1000.0,
+          "pressure_target_label": "600hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        }
+      ],
+      "status_counts": {
+        "skipped": 8
+      },
+      "active_point_count": 0,
+      "rebound_veto_count": 0,
+      "physical_flagged_count": 0,
+      "late_rebound_flagged_count": 0,
+      "stale_flagged_count": 0,
+      "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+      "lines": [
+        "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+      ],
+      "section": {
+        "id": "co2_postseal_quality",
+        "title": "CO2 post-seal 守卫",
+        "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "lines": [
+          "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ]
+      }
+    }
+  },
+  "drift_summary": {
+    "overall_trend": "increasing",
+    "max_abs_delta": 60.0,
+    "analyzers": [
+      {
+        "analyzer_id": "GA01",
+        "start_value": 40.0,
+        "end_value": 100.0,
+        "delta": 60.0,
+        "trend": "increasing"
+      },
+      {
+        "analyzer_id": "GA02",
+        "start_value": 42.0,
+        "end_value": 102.0,
+        "delta": 60.0,
+        "trend": "increasing"
+      },
+      {
+        "analyzer_id": "GA03",
+        "start_value": 44.0,
+        "end_value": 104.0,
+        "delta": 60.0,
+        "trend": "increasing"
+      },
+      {
+        "analyzer_id": "GA04",
+        "start_value": 46.0,
+        "end_value": 106.0,
+        "delta": 60.0,
+        "trend": "increasing"
+      },
+      {
+        "analyzer_id": "GA05",
+        "start_value": 48.0,
+        "end_value": 108.0,
+        "delta": 60.0,
+        "trend": "increasing"
+      },
+      {
+        "analyzer_id": "GA06",
+        "start_value": 50.0,
+        "end_value": 110.0,
+        "delta": 60.0,
+        "trend": "increasing"
+      },
+      {
+        "analyzer_id": "GA07",
+        "start_value": 52.0,
+        "end_value": 112.0,
+        "delta": 60.0,
+        "trend": "increasing"
+      },
+      {
+        "analyzer_id": "GA08",
+        "start_value": 54.0,
+        "end_value": 114.0,
+        "delta": 60.0,
+        "trend": "increasing"
+      }
+    ],
+    "summary": "drift increasing | max_delta 60"
+  },
+  "control_chart_summary": {
+    "metric": {
+      "metric": "usable_frame_ratio",
+      "center_line": 1.0,
+      "ucl": 1.0,
+      "lcl": 1.0,
+      "latest": 1.0
+    },
+    "status": "in_control",
+    "sample_count": 128,
+    "summary": "control in_control | latest 1.0"
+  },
+  "analyzer_health_digest": {
+    "overall_status": "healthy",
+    "rows": [
+      {
+        "analyzer_id": "GA01",
+        "status": "healthy",
+        "frame_count": 16,
+        "usable_frame_ratio": 1.0,
+        "missing_data_count": 0
+      },
+      {
+        "analyzer_id": "GA02",
+        "status": "healthy",
+        "frame_count": 16,
+        "usable_frame_ratio": 1.0,
+        "missing_data_count": 0
+      },
+      {
+        "analyzer_id": "GA03",
+        "status": "healthy",
+        "frame_count": 16,
+        "usable_frame_ratio": 1.0,
+        "missing_data_count": 0
+      },
+      {
+        "analyzer_id": "GA04",
+        "status": "healthy",
+        "frame_count": 16,
+        "usable_frame_ratio": 1.0,
+        "missing_data_count": 0
+      },
+      {
+        "analyzer_id": "GA05",
+        "status": "healthy",
+        "frame_count": 16,
+        "usable_frame_ratio": 1.0,
+        "missing_data_count": 0
+      },
+      {
+        "analyzer_id": "GA06",
+        "status": "healthy",
+        "frame_count": 16,
+        "usable_frame_ratio": 1.0,
+        "missing_data_count": 0
+      },
+      {
+        "analyzer_id": "GA07",
+        "status": "healthy",
+        "frame_count": 16,
+        "usable_frame_ratio": 1.0,
+        "missing_data_count": 0
+      },
+      {
+        "analyzer_id": "GA08",
+        "status": "healthy",
+        "frame_count": 16,
+        "usable_frame_ratio": 1.0,
+        "missing_data_count": 0
+      }
+    ],
+    "summary": "analyzers 8 | overall healthy"
+  },
+  "fault_attribution_summary": {
+    "primary_fault": "time_not_continuous",
+    "rows": [
+      {
+        "source": "point_qc",
+        "code": "time_not_continuous",
+        "count": 8,
+        "impact": "point_quality"
+      },
+      {
+        "source": "reference_quality",
+        "code": "degraded",
+        "count": 1,
+        "impact": "reference_quality"
+      }
+    ],
+    "summary": "faults time_not_continuous | categories 2"
+  },
+  "measurement_analytics_summary": {
+    "frame_count": 128,
+    "usable_frame_count": 128,
+    "usable_frame_ratio": 1.0,
+    "route_counts": {
+      "co2": 128
+    },
+    "postseal_guard_review": {
+      "rows": [
+        {
+          "point_index": 8,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 400.0,
+          "pressure_target_label": "1100hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 6,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 400.0,
+          "pressure_target_label": "1000hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 7,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 400.0,
+          "pressure_target_label": "800hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 10,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 400.0,
+          "pressure_target_label": "600hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 8,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 1000.0,
+          "pressure_target_label": "1100hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 6,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 1000.0,
+          "pressure_target_label": "1000hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 7,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 1000.0,
+          "pressure_target_label": "800hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        },
+        {
+          "point_index": 10,
+          "route": "co2",
+          "temperature_c": 20.0,
+          "co2_ppm": 1000.0,
+          "pressure_target_label": "600hPa",
+          "guard_enabled": false,
+          "guard_status": "skipped",
+          "guard_flags": [],
+          "guard_reason": "guard_disabled",
+          "postseal_rebound_veto": false,
+          "postseal_physical_qc_status": "skipped",
+          "postsample_late_rebound_status": "skipped",
+          "pressure_gauge_stale_ratio": 0.0
+        }
+      ],
+      "status_counts": {
+        "skipped": 8
+      },
+      "active_point_count": 0,
+      "rebound_veto_count": 0,
+      "physical_flagged_count": 0,
+      "late_rebound_flagged_count": 0,
+      "stale_flagged_count": 0,
+      "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+      "lines": [
+        "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+      ],
+      "section": {
+        "id": "co2_postseal_quality",
+        "title": "CO2 post-seal 守卫",
+        "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "lines": [
+          "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ]
+      }
+    },
+    "summary": "frames 128/128 usable | routes co2 | CO2 post-seal 守卫未启用或当前运行未命中低压密封点"
+  },
+  "unified_review_summary": {
+    "evidence_source": "simulated_protocol",
+    "not_real_acceptance_evidence": true,
+    "acceptance_level": "offline_regression",
+    "promotion_state": "dry_run_only",
+    "reviewer_title": "离线审阅摘要",
+    "summary": "离线分析摘要：点位 4，覆盖 8/8，质控 warn，漂移 increasing，控制图 in_control，健康 healthy，主故障 time_not_continuous。",
+    "reviewer_notes": [
+      "离线分析摘要：点位 4，覆盖 8/8，质控 warn，漂移 increasing，控制图 in_control，健康 healthy，主故障 time_not_continuous。",
+      "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "运行门禁: warn | 原因: review_required",
+      "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+      "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+      "点级门禁: warn | 关注路由: co2",
+      "按气路分布: co2: 0/8/0/0",
+      "主要拒绝原因: time_not_continuous",
+      "失败检查: time_continuity",
+      "frames 128/128 usable | routes co2 | CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+      "离线分析覆盖: 8/8 | 点位 4",
+      "漂移趋势: increasing",
+      "控制图状态: in_control",
+      "分析仪健康: healthy",
+      "主故障归因: time_not_continuous",
+      "证据边界: evidence_source=simulated_protocol | 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+    ],
+    "qc_summary": {
+      "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "lines": [
+        "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "运行门禁: warn | 原因: review_required",
+        "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+        "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "点级门禁: warn | 关注路由: co2",
+        "按气路分布: co2: 0/8/0/0",
+        "主要拒绝原因: time_not_continuous",
+        "失败检查: time_continuity"
+      ],
+      "reviewer_card": {
+        "title": "质控审阅卡",
+        "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "status": "warn",
+        "lines": [
+          "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+          "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "审阅结论: 点级门禁: warn | 关注路由: co2",
+          "审阅结论: 按气路分布: co2: 0/8/0/0",
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+          "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ],
+        "sections": [
+          {
+            "id": "summary",
+            "title": "审阅结论",
+            "lines": [
+              "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+              "点级门禁: warn | 关注路由: co2"
+            ]
+          },
+          {
+            "id": "gates",
+            "title": "门禁状态",
+            "lines": [
+              "运行门禁: warn | 原因: review_required",
+              "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+              "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+            ]
+          },
+          {
+            "id": "taxonomy",
+            "title": "风险归类",
+            "lines": [
+              "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+              "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+              "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+            ]
+          },
+          {
+            "id": "boundary",
+            "title": "证据边界",
+            "lines": [
+              "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+            ]
+          },
+          {
+            "id": "co2_postseal_quality",
+            "title": "CO2 post-seal 守卫",
+            "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+            "lines": [
+              "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+              "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+            ]
+          }
+        ]
+      },
+      "reviewer_card_lines": [
+        "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "运行门禁: warn | 原因: review_required",
+        "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+        "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+        "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "审阅结论: 点级门禁: warn | 关注路由: co2",
+        "审阅结论: 按气路分布: co2: 0/8/0/0",
+        "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+        "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+      ],
+      "review_sections": [
+        {
+          "id": "summary",
+          "title": "审阅结论",
+          "lines": [
+            "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+            "点级门禁: warn | 关注路由: co2"
+          ]
+        },
+        {
+          "id": "gates",
+          "title": "门禁状态",
+          "lines": [
+            "运行门禁: warn | 原因: review_required",
+            "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+            "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+          ]
+        },
+        {
+          "id": "taxonomy",
+          "title": "风险归类",
+          "lines": [
+            "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+            "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+            "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+          ]
+        },
+        {
+          "id": "boundary",
+          "title": "证据边界",
+          "lines": [
+            "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+          ]
+        },
+        {
+          "id": "co2_postseal_quality",
+          "title": "CO2 post-seal 守卫",
+          "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "lines": [
+            "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+            "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+          ]
+        }
+      ]
+    },
+    "analytics_summary": {
+      "summary": "离线分析覆盖 8/8 | 点位 4 | 漂移 increasing | 控制图 in_control | 健康 healthy | 主故障 time_not_continuous",
+      "lines": [
+        "frames 128/128 usable | routes co2 | CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "离线分析覆盖: 8/8 | 点位 4",
+        "漂移趋势: increasing",
+        "控制图状态: in_control",
+        "分析仪健康: healthy",
+        "主故障归因: time_not_continuous"
+      ]
+    },
+    "boundary_note": "证据边界: evidence_source=simulated_protocol | 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。",
+    "reviewer_sections": [
+      {
+        "id": "qc",
+        "title": "质控审阅",
+        "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "lines": [
+          "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "点级门禁: warn | 关注路由: co2",
+          "按气路分布: co2: 0/8/0/0",
+          "主要拒绝原因: time_not_continuous",
+          "失败检查: time_continuity"
+        ]
+      },
+      {
+        "id": "analytics",
+        "title": "离线分析审阅",
+        "summary": "离线分析覆盖 8/8 | 点位 4 | 漂移 increasing | 控制图 in_control | 健康 healthy | 主故障 time_not_continuous",
+        "lines": [
+          "frames 128/128 usable | routes co2 | CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "离线分析覆盖: 8/8 | 点位 4",
+          "漂移趋势: increasing",
+          "控制图状态: in_control",
+          "分析仪健康: healthy",
+          "主故障归因: time_not_continuous"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "summary": "证据边界: evidence_source=simulated_protocol | 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。",
+        "lines": [
+          "证据边界: evidence_source=simulated_protocol | 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ]
+      }
+    ]
+  },
+  "qc_reviewer_card": {
+    "title": "质控审阅卡",
+    "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+    "status": "warn",
+    "lines": [
+      "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "运行门禁: warn | 原因: review_required",
+      "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+      "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+      "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+      "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "审阅结论: 点级门禁: warn | 关注路由: co2",
+      "审阅结论: 按气路分布: co2: 0/8/0/0",
+      "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+      "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+      "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+    ],
+    "sections": [
+      {
+        "id": "summary",
+        "title": "审阅结论",
+        "lines": [
+          "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2"
+        ]
+      },
+      {
+        "id": "gates",
+        "title": "门禁状态",
+        "lines": [
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+        ]
+      },
+      {
+        "id": "taxonomy",
+        "title": "风险归类",
+        "lines": [
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "lines": [
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        ]
+      },
+      {
+        "id": "co2_postseal_quality",
+        "title": "CO2 post-seal 守卫",
+        "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "lines": [
+          "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ]
+      }
+    ]
+  },
+  "qc_evidence_section": {
+    "title": "质控证据",
+    "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+    "status": "warn",
+    "lines": [
+      "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "运行门禁: warn | 原因: review_required",
+      "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+      "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+      "点级门禁: warn | 关注路由: co2",
+      "按气路分布: co2: 0/8/0/0",
+      "主要拒绝原因: time_not_continuous",
+      "失败检查: time_continuity",
+      "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+    ],
+    "reviewer_digest": {
+      "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "status": "warn",
+      "top_reasons": "time_not_continuous",
+      "top_checks": "time_continuity",
+      "route_summary": "co2: 0/8/0/0",
+      "lines": [
+        "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "点级门禁: warn | 关注路由: co2",
+        "按气路分布: co2: 0/8/0/0",
+        "主要拒绝原因: time_not_continuous",
+        "失败检查: time_continuity"
+      ]
+    },
+    "reviewer_card": {
+      "title": "质控审阅卡",
+      "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "status": "warn",
+      "lines": [
+        "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "运行门禁: warn | 原因: review_required",
+        "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+        "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+        "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "审阅结论: 点级门禁: warn | 关注路由: co2",
+        "审阅结论: 按气路分布: co2: 0/8/0/0",
+        "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+        "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+      ],
+      "sections": [
+        {
+          "id": "summary",
+          "title": "审阅结论",
+          "lines": [
+            "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+            "点级门禁: warn | 关注路由: co2"
+          ]
+        },
+        {
+          "id": "gates",
+          "title": "门禁状态",
+          "lines": [
+            "运行门禁: warn | 原因: review_required",
+            "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+            "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+          ]
+        },
+        {
+          "id": "taxonomy",
+          "title": "风险归类",
+          "lines": [
+            "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+            "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+            "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+          ]
+        },
+        {
+          "id": "boundary",
+          "title": "证据边界",
+          "lines": [
+            "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+          ]
+        },
+        {
+          "id": "co2_postseal_quality",
+          "title": "CO2 post-seal 守卫",
+          "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "lines": [
+            "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+            "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+          ]
+        }
+      ]
+    },
+    "review_card_lines": [
+      "质控摘要: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "运行门禁: warn | 原因: review_required",
+      "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+      "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+      "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+      "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)",
+      "审阅结论: 运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "审阅结论: 点级门禁: warn | 关注路由: co2",
+      "审阅结论: 按气路分布: co2: 0/8/0/0",
+      "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+      "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+      "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+    ],
+    "sections": [
+      {
+        "id": "summary",
+        "title": "审阅结论",
+        "lines": [
+          "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2"
+        ]
+      },
+      {
+        "id": "gates",
+        "title": "门禁状态",
+        "lines": [
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+        ]
+      },
+      {
+        "id": "taxonomy",
+        "title": "风险归类",
+        "lines": [
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "lines": [
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        ]
+      },
+      {
+        "id": "co2_postseal_quality",
+        "title": "CO2 post-seal 守卫",
+        "lines": [
+          "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ]
+      }
+    ],
+    "review_sections": [
+      {
+        "id": "summary",
+        "title": "审阅结论",
+        "lines": [
+          "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2"
+        ]
+      },
+      {
+        "id": "gates",
+        "title": "门禁状态",
+        "lines": [
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+        ]
+      },
+      {
+        "id": "taxonomy",
+        "title": "风险归类",
+        "lines": [
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "lines": [
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        ]
+      },
+      {
+        "id": "co2_postseal_quality",
+        "title": "CO2 post-seal 守卫",
+        "lines": [
+          "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ]
+      }
+    ],
+    "cards": [
+      {
+        "id": "summary",
+        "title": "审阅结论",
+        "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "lines": [
+          "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+          "点级门禁: warn | 关注路由: co2"
+        ]
+      },
+      {
+        "id": "gates",
+        "title": "门禁状态",
+        "summary": "运行门禁: warn | 原因: review_required",
+        "lines": [
+          "运行门禁: warn | 原因: review_required",
+          "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+          "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+        ]
+      },
+      {
+        "id": "taxonomy",
+        "title": "风险归类",
+        "summary": "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "lines": [
+          "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+          "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+          "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+        ]
+      },
+      {
+        "id": "boundary",
+        "title": "证据边界",
+        "summary": "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+        "lines": [
+          "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        ]
+      },
+      {
+        "id": "co2_postseal_quality",
+        "title": "CO2 post-seal 守卫",
+        "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "lines": [
+          "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+          "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+        ]
+      }
+    ],
+    "run_gate": {
+      "status": "warn",
+      "reason": "review_required",
+      "passed": false
+    },
+    "point_gate_summary": {
+      "status": "warn",
+      "flagged_point_count": 8,
+      "flagged_routes": [
+        "co2"
+      ],
+      "evaluated_routes": [
+        "co2"
+      ],
+      "passed": false
+    },
+    "decision_counts": {
+      "pass": 0,
+      "warn": 8,
+      "reject": 0,
+      "skipped": 0
+    },
+    "route_decision_breakdown": {
+      "co2": {
+        "pass": 0,
+        "warn": 8,
+        "reject": 0,
+        "skipped": 0
+      }
+    },
+    "reject_reason_taxonomy": [
+      {
+        "code": "time_not_continuous",
+        "category": "timing",
+        "count": 8
+      }
+    ],
+    "failed_check_taxonomy": [
+      {
+        "code": "time_continuity",
+        "category": "timing",
+        "count": 8
+      }
+    ],
+    "evidence_source": "simulated_protocol",
+    "evidence_state": "collected",
+    "not_real_acceptance_evidence": true,
+    "acceptance_level": "offline_regression",
+    "promotion_state": "dry_run_only"
+  },
+  "qc_review_cards": [
+    {
+      "id": "summary",
+      "title": "审阅结论",
+      "summary": "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+      "lines": [
+        "运行 run_20260430_145929 质控评分 -- / 等级 --；通过 0，预警 8，拒绝 0，跳过 0；门禁 warn。",
+        "点级门禁: warn | 关注路由: co2"
+      ]
+    },
+    {
+      "id": "gates",
+      "title": "门禁状态",
+      "summary": "运行门禁: warn | 原因: review_required",
+      "lines": [
+        "运行门禁: warn | 原因: review_required",
+        "点级门禁: warn | 关注路由: co2 | 非通过点数: 8",
+        "结果分级: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0"
+      ]
+    },
+    {
+      "id": "taxonomy",
+      "title": "风险归类",
+      "summary": "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+      "lines": [
+        "主要拒绝原因: time_not_continuous | 失败检查: time_continuity",
+        "路由分布 co2: 通过 0 / 预警 8 / 拒绝 0 / 跳过 0",
+        "拒绝原因分类: time_not_continuous(8) | 失败检查分类: time_continuity(8)"
+      ]
+    },
+    {
+      "id": "boundary",
+      "title": "证据边界",
+      "summary": "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。",
+      "lines": [
+        "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+      ]
+    },
+    {
+      "id": "co2_postseal_quality",
+      "title": "CO2 post-seal 守卫",
+      "summary": "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+      "lines": [
+        "CO2 post-seal 守卫未启用或当前运行未命中低压密封点",
+        "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+      ]
+    }
+  ],
+  "point_taxonomy_summary": {
+    "pressure_summary": "1100hPa 2 | 1000hPa 2 | 800hPa 2 | 600hPa 2",
+    "pressure_mode_summary": "sealed_controlled 8",
+    "pressure_target_label_summary": "1100hPa 2 | 1000hPa 2 | 800hPa 2 | 600hPa 2",
+    "flush_gate_summary": "",
+    "preseal_summary": "",
+    "postseal_summary": "",
+    "stale_gauge_summary": ""
+  },
+  "digest": {
+    "summary": "coverage 8/8 | reference degraded | exports 0 error | parity missing | 质控 warn | drift increasing | faults time_not_continuous",
+    "health": "healthy",
+    "reviewer_summary": "离线分析摘要：点位 4，覆盖 8/8，质控 warn，漂移 increasing，控制图 in_control，健康 healthy，主故障 time_not_continuous。"
+  }
+}

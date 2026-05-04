@@ -100,9 +100,10 @@ def test_historical_scan_supports_single_run_dir_and_root_dir(tmp_path: Path, ca
     assert single_report["runs"][0]["certificate_lifecycle_overview"]
     assert single_report["runs"][0]["pre_run_gate_status"] in {
         "--",
-        "ok_for_reviewer_mapping",
-        "warning_reviewer_attention",
-        "blocked_for_formal_claim",
+        "pass",
+        "warning",
+        "block",
+        "diagnostic_only",
     }
     assert single_report["runs"][0]["pre_run_gate_summary"]
     assert single_report["runs"][0]["blocking_digest"]

@@ -1,0 +1,316 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "suite_evidence_registry",
+  "suite": "smoke",
+  "generated_at": "2026-04-30T12:11:34",
+  "evidence_source": "simulated_protocol",
+  "not_real_acceptance_evidence": true,
+  "acceptance_level": "offline_regression",
+  "promotion_state": "dry_run_only",
+  "acceptance_scope": "suite",
+  "review_state": "pending",
+  "approval_state": "blocked",
+  "ready_for_promotion": false,
+  "entries": [
+    {
+      "artifact_id": "smoke:full_route_success_with_relay_and_thermometer",
+      "artifact_name": "full_route_success_with_relay_and_thermometer",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\full_route_success_with_relay_and_thermometer",
+      "present": true,
+      "run_id": "full_route_success_with_relay_and_thermometer",
+      "parent_run_id": "full_route_success_with_relay_and_thermometer",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "suite_case",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "",
+      "points_version": "",
+      "profile_version": "",
+      "software_build_id": "",
+      "source_artifact_ids": [
+        "full_route_success_with_relay_and_thermometer:report_json",
+        "full_route_success_with_relay_and_thermometer:report_markdown"
+      ],
+      "dimensions": {
+        "suite": "smoke",
+        "scenario": "full_route_success_with_relay_and_thermometer",
+        "analyzer": [],
+        "route": [],
+        "temp": []
+      },
+      "details": {
+        "status": "MATCH",
+        "risk_level": "low",
+        "failure_type": "none"
+      }
+    },
+    {
+      "artifact_id": "smoke:relay_stuck_channel_causes_route_mismatch",
+      "artifact_name": "relay_stuck_channel_causes_route_mismatch",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\relay_stuck_channel_causes_route_mismatch",
+      "present": true,
+      "run_id": "relay_stuck_channel_causes_route_mismatch",
+      "parent_run_id": "relay_stuck_channel_causes_route_mismatch",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "suite_case",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "",
+      "points_version": "",
+      "profile_version": "",
+      "software_build_id": "",
+      "source_artifact_ids": [
+        "relay_stuck_channel_causes_route_mismatch:report_json",
+        "relay_stuck_channel_causes_route_mismatch:report_markdown"
+      ],
+      "dimensions": {
+        "suite": "smoke",
+        "scenario": "relay_stuck_channel_causes_route_mismatch",
+        "analyzer": [],
+        "route": [],
+        "temp": []
+      },
+      "details": {
+        "status": "MISMATCH",
+        "risk_level": "medium",
+        "failure_type": "route_physical_mismatch"
+      }
+    },
+    {
+      "artifact_id": "smoke:thermometer_stale_reference",
+      "artifact_name": "thermometer_stale_reference",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\thermometer_stale_reference",
+      "present": true,
+      "run_id": "thermometer_stale_reference",
+      "parent_run_id": "thermometer_stale_reference",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "suite_case",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "",
+      "points_version": "",
+      "profile_version": "",
+      "software_build_id": "",
+      "source_artifact_ids": [
+        "thermometer_stale_reference:report_json",
+        "thermometer_stale_reference:report_markdown"
+      ],
+      "dimensions": {
+        "suite": "smoke",
+        "scenario": "thermometer_stale_reference",
+        "analyzer": [],
+        "route": [],
+        "temp": []
+      },
+      "details": {
+        "status": "MATCH",
+        "risk_level": "medium",
+        "failure_type": "reference_quality"
+      }
+    },
+    {
+      "artifact_id": "smoke:pressure_reference_degraded",
+      "artifact_name": "pressure_reference_degraded",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\pressure_reference_degraded",
+      "present": true,
+      "run_id": "pressure_reference_degraded",
+      "parent_run_id": "pressure_reference_degraded",
+      "evidence_source": "simulated_protocol",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "suite_case",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "",
+      "points_version": "",
+      "profile_version": "",
+      "software_build_id": "",
+      "source_artifact_ids": [
+        "pressure_reference_degraded:report_json",
+        "pressure_reference_degraded:report_markdown"
+      ],
+      "dimensions": {
+        "suite": "smoke",
+        "scenario": "pressure_reference_degraded",
+        "analyzer": [],
+        "route": [],
+        "temp": []
+      },
+      "details": {
+        "status": "MATCH",
+        "risk_level": "medium",
+        "failure_type": "reference_quality"
+      }
+    },
+    {
+      "artifact_id": "smoke:summary_parity",
+      "artifact_name": "summary_parity",
+      "role": "diagnostic_analysis",
+      "path": "D:\\gas_calibrator\\_handoff\\a2_12r_i_suite_reports\\smoke_a2_12r_i\\summary_parity",
+      "present": true,
+      "run_id": "summary_parity",
+      "parent_run_id": "summary_parity",
+      "evidence_source": "diagnostic",
+      "evidence_state": "collected",
+      "acceptance_level": "offline_regression",
+      "acceptance_scope": "suite_case",
+      "promotion_state": "dry_run_only",
+      "review_state": "pending",
+      "approval_state": "blocked",
+      "ready_for_promotion": false,
+      "config_version": "",
+      "points_version": "",
+      "profile_version": "",
+      "software_build_id": "",
+      "source_artifact_ids": [
+        "summary_parity:report_json",
+        "summary_parity:report_markdown"
+      ],
+      "dimensions": {
+        "suite": "smoke",
+        "scenario": "summary_parity",
+        "analyzer": [],
+        "route": [],
+        "temp": []
+      },
+      "details": {
+        "status": "MATCH",
+        "risk_level": "low",
+        "failure_type": "summary_parity"
+      }
+    }
+  ],
+  "indexes": {
+    "by_evidence_source": {
+      "simulated_protocol": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:thermometer_stale_reference"
+      ],
+      "diagnostic": [
+        "smoke:summary_parity"
+      ]
+    },
+    "by_evidence_state": {
+      "collected": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:summary_parity",
+        "smoke:thermometer_stale_reference"
+      ]
+    },
+    "by_suite": {
+      "smoke": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:summary_parity",
+        "smoke:thermometer_stale_reference"
+      ]
+    },
+    "by_scenario": {
+      "full_route_success_with_relay_and_thermometer": [
+        "smoke:full_route_success_with_relay_and_thermometer"
+      ],
+      "relay_stuck_channel_causes_route_mismatch": [
+        "smoke:relay_stuck_channel_causes_route_mismatch"
+      ],
+      "thermometer_stale_reference": [
+        "smoke:thermometer_stale_reference"
+      ],
+      "pressure_reference_degraded": [
+        "smoke:pressure_reference_degraded"
+      ],
+      "summary_parity": [
+        "smoke:summary_parity"
+      ]
+    },
+    "by_analyzer": {
+      "--": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:summary_parity",
+        "smoke:thermometer_stale_reference"
+      ]
+    },
+    "by_route": {
+      "--": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:summary_parity",
+        "smoke:thermometer_stale_reference"
+      ]
+    },
+    "by_temp": {
+      "--": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:summary_parity",
+        "smoke:thermometer_stale_reference"
+      ]
+    },
+    "by_config_version": {
+      "--": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:summary_parity",
+        "smoke:thermometer_stale_reference"
+      ]
+    },
+    "by_points_version": {
+      "--": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:summary_parity",
+        "smoke:thermometer_stale_reference"
+      ]
+    },
+    "by_profile_version": {
+      "--": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:summary_parity",
+        "smoke:thermometer_stale_reference"
+      ]
+    },
+    "by_software_build_id": {
+      "--": [
+        "smoke:full_route_success_with_relay_and_thermometer",
+        "smoke:pressure_reference_degraded",
+        "smoke:relay_stuck_channel_causes_route_mismatch",
+        "smoke:summary_parity",
+        "smoke:thermometer_stale_reference"
+      ]
+    }
+  },
+  "digest": {
+    "summary": "5/5 passed | top failures none",
+    "health": "healthy"
+  }
+}

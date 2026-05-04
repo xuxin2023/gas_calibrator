@@ -1,0 +1,63 @@
+{
+  "output_dir": "D:\\gas_calibrator\\audit\\real_pace_controller_acceptance\\20260417_181512_controller_handoff_acceptance",
+  "runner_trace_path": "D:\\gas_calibrator\\audit\\real_pace_controller_acceptance\\20260417_181512_controller_handoff_acceptance\\runner_artifacts\\real_controller_handoff\\pressure_transition_trace.csv",
+  "snapshot_path": "D:\\gas_calibrator\\audit\\real_pace_controller_acceptance\\20260417_181512_controller_handoff_acceptance\\controller_scpi_snapshots.json",
+  "message_path": "D:\\gas_calibrator\\audit\\real_pace_controller_acceptance\\20260417_181512_controller_handoff_acceptance\\runner_messages.txt",
+  "point_targets_hpa": {
+    "point1": 1012.7,
+    "point2": 1010.3,
+    "timeout_point3": 1032.7
+  },
+  "point_results": {
+    "point1_set_ok": false,
+    "point1_wait_ok": false,
+    "point2_set_ok": false,
+    "point2_wait_ok": false,
+    "timeout_point3_result": null
+  },
+  "same_route_handoff_selected_count": 0,
+  "same_route_handoff_selected_rows": [],
+  "timeout_recovery_skipped_count": 0,
+  "timeout_recovery_skipped_rows": [],
+  "dangerous_trace_rows": [],
+  "forbidden_note_rows": [],
+  "sampling_end_to_point2_sampling_begin_window_stages": [],
+  "sampling_end_to_point2_sampling_begin_dangerous_stages": [],
+  "sampling_end_to_point2_sampling_begin_forbidden_notes": [],
+  "snapshots": [
+    {
+      "timestamp": "2026-04-17T18:15:13",
+      "label": "initial_before_control",
+      "target_hpa": null,
+      "vent_raw": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+      "outp_stat_raw": ":OUTP:STAT 0",
+      "outp_isol_stat_raw": ":OUTP:ISOL:STAT 1",
+      "oper_pres_cond_raw": ":STAT:OPER:PRES:COND 5",
+      "oper_pres_even_raw": ":STAT:OPER:PRES:EVEN 0",
+      "syst_err_raw": ":SYST:ERR 0, No error",
+      "barometric_pressure_hpa": 1008.3366007,
+      "in_limits_pressure_hpa": 1010.6920166,
+      "in_limits_state": 0,
+      "outp_stat": 0,
+      "outp_isol_stat": 1,
+      "vent": 2
+    },
+    {
+      "timestamp": "2026-04-17T18:16:20",
+      "label": "final_after_output_off",
+      "target_hpa": 1010.3,
+      "vent_raw": ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
+      "outp_stat_raw": ":OUTP:STAT 0",
+      "outp_isol_stat_raw": ":OUTP:ISOL:STAT 1",
+      "oper_pres_cond_raw": ":STAT:OPER:PRES:COND 1",
+      "oper_pres_even_raw": ":STAT:OPER:PRES:EVEN 0",
+      "syst_err_raw": ":SYST:ERR -102,\"Syntax error\"",
+      "barometric_pressure_hpa": 1008.341144,
+      "in_limits_pressure_hpa": 1291.0280762,
+      "in_limits_state": 0,
+      "outp_stat": 0,
+      "outp_isol_stat": 1,
+      "vent": 3
+    }
+  ]
+}

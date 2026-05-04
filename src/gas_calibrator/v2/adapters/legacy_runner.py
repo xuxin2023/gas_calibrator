@@ -25,6 +25,9 @@ from gas_calibrator.v2.config import AppConfig
 from gas_calibrator.v2.core.calibration_service import CalibrationService
 from gas_calibrator.v2.entry import create_calibration_service_from_config
 
+# Boundary note: this file is a V2 compatibility adapter. It may call the V1
+# runner on purpose, but it is not part of the V2 main runtime boundary.
+
 # 导入旧版 CalibrationRunner
 # 注意：这里使用延迟导入，避免循环依赖
 _legacy_runner = None

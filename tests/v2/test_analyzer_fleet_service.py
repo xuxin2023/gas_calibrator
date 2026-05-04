@@ -136,6 +136,7 @@ class FakeAnalyzer:
             return None
         try:
             return {
+                "id": parts[1],
                 "mode": 2,
                 "co2_ppm": float(parts[2]),
                 "h2o_mmol": float(parts[3]),
@@ -510,6 +511,36 @@ def test_analyzer_fleet_service_apply_analyzer_setup_assigns_device_ids_and_reco
     context.run_logger.finalize()
 
 
+def test_analyzer_fleet_service_can_keep_detected_device_ids_without_applying(tmp_path: Path) -> None:
+    service, context, _run_state, host = _build_service(tmp_path)
+    context.config.workflow.analyzer_setup = {
+        "software_version": "v5_plus",
+        "device_id_assignment_mode": "manual",
+        "start_device_id": "091",
+        "manual_device_ids": ["091", "003"],
+        "apply_device_id": False,
+    }
+
+    service.apply_analyzer_setup()
+
+    first = context.device_manager.get_device("gas_analyzer_0")
+    second = context.device_manager.get_device("gas_analyzer_1")
+    assert first.device_id == ""
+    assert second.device_id == ""
+    assert not any(name == "set_device_id_with_ack" for name, _args, _kwargs in first.calls)
+    assert not any(name == "set_device_id_with_ack" for name, _args, _kwargs in second.calls)
+    assert any("apply_device_id=False" in message for message in host.logs)
+
+    trace_path = context.result_store.run_dir / "route_trace.jsonl"
+    entries = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    keep_entries = [entry for entry in entries if entry["action"] == "analyzer_device_id_keep"]
+    assert [entry["target"].get("device_id") for entry in keep_entries] == ["091", "003"]
+    assert all(entry["result"] == "ok" for entry in keep_entries)
+    assert not any(entry["action"] == "analyzer_device_id_assignment" for entry in entries)
+
+    context.run_logger.finalize()
+
+
 def test_analyzer_fleet_service_sensor_precheck_raises_when_strict(tmp_path: Path) -> None:
     service, context, run_state, host = _build_service(tmp_path)
     context.config.workflow.sensor_precheck = {
@@ -855,5 +886,41 @@ def test_analyzer_fleet_service_sensor_precheck_explicit_raw_frame_first_profile
         in message
         for message in host.logs
     )
+
+    context.run_logger.finalize()
+
+
+def test_analyzer_fleet_service_sensor_precheck_blocks_device_id_mismatch(tmp_path: Path) -> None:
+    service, context, _run_state, _host = _build_service(tmp_path)
+    context.config.devices.gas_analyzers[0].device_id = "091"
+    context.config.workflow.sensor_precheck = {
+        "enabled": True,
+        "profile": "raw_frame_first",
+        "scope": "first_analyzer_only",
+        "validation_mode": "v1_frame_like",
+        "duration_s": 0.5,
+        "poll_s": 0.0,
+        "min_valid_frames": 1,
+        "strict": True,
+    }
+    analyzer = context.device_manager.get_device("gas_analyzer_0")
+    analyzer.raw_lines = ["YGAS,001,400.0,10.0"]
+
+    try:
+        service.run_sensor_precheck()
+    except WorkflowValidationError as exc:
+        assert exc.context["analyzer"] == "GA01"
+        assert exc.context["expected_device_id"] == "091"
+        assert exc.context["observed_device_id"] == "001"
+    else:
+        raise AssertionError("Expected WorkflowValidationError")
+
+    trace_path = context.result_store.run_dir / "route_trace.jsonl"
+    entries = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    mismatch = [entry for entry in entries if entry["action"] == "sensor_precheck_analyzer"]
+    assert mismatch[-1]["result"] == "fail"
+    assert mismatch[-1]["message"].startswith("Sensor precheck device_id_mismatch")
+    assert mismatch[-1]["target"]["expected_device_id"] == "091"
+    assert mismatch[-1]["actual"]["observed_device_id"] == "001"
 
     context.run_logger.finalize()

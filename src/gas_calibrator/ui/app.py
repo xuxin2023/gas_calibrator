@@ -746,7 +746,7 @@ class App:
         self.route_mode_var.trace_add("write", lambda *_args: self._on_route_mode_change())
         self.fit_enabled_var = tk.BooleanVar(value=True)
         self.fit_enabled_var.trace_add("write", lambda *_args: self._on_fit_mode_change())
-        self.postrun_delivery_var = tk.BooleanVar(value=True)
+        self.postrun_delivery_var = tk.BooleanVar(value=False)
         self.postrun_delivery_var.trace_add("write", lambda *_args: self._on_postrun_delivery_change())
         self.temp_scope_var = tk.StringVar(value="全部温度点")
         self.temp_scope_var.trace_add("write", lambda *_args: self._on_temp_scope_change())
@@ -1133,6 +1133,7 @@ class App:
             command=self._refresh_execution_summary,
         )
         self.postrun_delivery_check.pack(fill="x")
+        self.postrun_delivery_check.configure(state="disabled")
         tk.Label(
             delivery_field,
             text="自动计算系数、写入设备，并执行短验证；可随本轮关闭。",
@@ -1143,6 +1144,7 @@ class App:
             wraplength=190,
             font=("Microsoft YaHei UI", 8),
         ).pack(fill="x", pady=(4, 0))
+        delivery_field.grid_remove()
         mode_meta = tk.Frame(mode_panel, bg=self.ui_colors["soft_layer"])
         mode_meta.pack(fill="x", pady=(4, 0))
         self.route_mode_brief_label = tk.Label(
@@ -3812,7 +3814,9 @@ class App:
             self._log_app_event("EVENT", command="close-window", response="stop-and-close")
             if self.runner:
                 self.runner.stop()
-                self.log("已请求停止，窗口将关闭")
+                self.log("已请求停止，等待流程结束...")
+                if not self._wait_for_worker_shutdown(timeout_s=20.0):
+                    self.log("警告：流程停止超时(20s)，强制关闭")
         else:
             self._log_app_event("EVENT", command="close-window", response="closed-idle")
         self.root.destroy()
@@ -4170,8 +4174,7 @@ class App:
             and bool(coeff_cfg.get("fit_h2o", True))
         )
         self.fit_enabled_var.set(fit_enabled)
-        postrun_cfg = workflow_cfg.get("postrun_corrected_delivery", {}) if isinstance(workflow_cfg.get("postrun_corrected_delivery", {}), dict) else {}
-        self.postrun_delivery_var.set(bool(postrun_cfg.get("enabled", True)))
+        self.postrun_delivery_var.set(False)
         self.temperature_order_var.set("从高到低" if bool(workflow_cfg.get("temperature_descending", True)) else "从低到高")
         selected_temps_raw = workflow_cfg.get("selected_temps_c")
         selected_temps: set[float] = set()
@@ -5652,12 +5655,11 @@ class App:
     def _refresh_current_selection_summary(self) -> None:
         route_text = self.route_mode_var.get().strip() or "先水后气"
         fit_text = self._fit_mode_text()
-        delivery_text = self._postrun_delivery_text()
         temp_text = self._selected_temps_text()
         co2_text = self._selected_co2_text()
         pressure_text = self._selected_pressure_text()
         self.current_selection_var.set(
-            f"当前选择：{route_text} | 拟合：{fit_text} | 自动交付：{delivery_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
+            f"当前选择：{route_text} | 拟合：{fit_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
         )
         self.summary_mode_card_var.set(f"测量模式\n{route_text}")
         self.summary_temp_card_var.set(f"温度点\n{self._compact_temps_text()}")
@@ -5707,7 +5709,6 @@ class App:
     def _refresh_execution_summary(self) -> None:
         route_text = self.route_mode_var.get().strip() or "先水后气"
         fit_text = self._fit_mode_text()
-        delivery_text = self._postrun_delivery_text()
         order_text = self._temperature_order_text()
         temp_text = self._selected_temps_text()
         co2_text = self._selected_co2_text()
@@ -5718,10 +5719,10 @@ class App:
         self.temp_scope_brief_var.set(f"范围：{self.temp_scope_var.get().strip() or '全部温度点'}")
         self.temperature_order_brief_var.set(f"顺序：{order_text}")
         self.summary_var.set(
-            f"执行摘要：{route_text} | 拟合：{fit_text} | 自动交付：{delivery_text} | 顺序：{order_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
+            f"执行摘要：{route_text} | 拟合：{fit_text} | 顺序：{order_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
         )
         self.startup_summary_var.set(
-            f"测量模式：{route_text} | 校准拟合：{fit_text} | 自动交付：{delivery_text} | 温度顺序：{order_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
+            f"测量模式：{route_text} | 校准拟合：{fit_text} | 温度顺序：{order_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
         )
         self._refresh_current_selection_summary()
         ready, text, level = self._compute_start_readiness()
@@ -5746,8 +5747,6 @@ class App:
         }
         route_text = route_text_map.get(route_mode, route_mode)
         fit_text = "开启" if (not bool(workflow.get("collect_only", False)) and bool(coeff_cfg.get("fit_h2o", True))) else "关闭，仅采集"
-        postrun_cfg = workflow.get("postrun_corrected_delivery", {}) if isinstance(workflow.get("postrun_corrected_delivery", {}), dict) else {}
-        delivery_text = "开启" if bool(postrun_cfg.get("enabled", True)) else "关闭"
         order_text = "从高到低" if bool(workflow.get("temperature_descending", True)) else "从低到高"
 
         selected_temps = workflow.get("selected_temps_c")
@@ -5787,7 +5786,6 @@ class App:
             "即将开始本次校准流程：",
             f"流程模式：{route_text}",
             f"校准拟合：{fit_text}",
-            f"自动交付：{delivery_text}",
             f"温度顺序：{order_text}",
             f"温度点：{temp_text}",
             f"气点：{'、'.join(selected_ppm) if selected_ppm else '未选择'}",
@@ -5913,6 +5911,22 @@ class App:
         return None
 
     @staticmethod
+    def _pressure_setpoint_command_prefixes(prefix: str) -> Tuple[str, ...]:
+        normalized = str(prefix or "").strip().upper()
+        if normalized in {":SOUR:PRES", ":SOUR:PRES:LEV:IMM:AMPL"}:
+            return (":SOUR:PRES", ":SOUR:PRES:LEV:IMM:AMPL")
+        return (str(prefix or "").strip(),)
+
+    @staticmethod
+    def _parse_pressure_setpoint_command(command: str, prefix: str = ":SOUR:PRES") -> Tuple[float | None, str | None]:
+        text = str(command or "").strip()
+        for candidate in App._pressure_setpoint_command_prefixes(prefix):
+            m = re.match(re.escape(candidate) + r"\s*(-?\d+(?:\.\d+)?)$", text)
+            if m:
+                return float(m.group(1)), candidate
+        return None, None
+
+    @staticmethod
     def _parse_last_numeric_command(rows: List[Dict[str, str]], port: str, prefix: str) -> float | None:
         for row in reversed(rows):
             if str(row.get("port", "")).strip() != port:
@@ -5920,9 +5934,9 @@ class App:
             if str(row.get("direction", "")).strip().upper() != "TX":
                 continue
             command = str(row.get("command", "") or "").strip()
-            m = re.match(re.escape(prefix) + r"\s*(-?\d+(?:\.\d+)?)", command)
-            if m:
-                return float(m.group(1))
+            value, _matched_prefix = App._parse_pressure_setpoint_command(command, prefix)
+            if value is not None:
+                return value
         return None
 
     @staticmethod
@@ -5935,10 +5949,10 @@ class App:
             if str(row.get("direction", "")).strip().upper() != "TX":
                 continue
             command = str(row.get("command", "") or "").strip()
-            m = re.match(r":SOUR:PRES:LEV:IMM:AMPL\s+(-?\d+(?:\.\d+)?)$", command)
-            if not m:
+            value, _matched_prefix = App._parse_pressure_setpoint_command(command)
+            if value is None:
                 continue
-            target = int(round(float(m.group(1))))
+            target = int(round(float(value)))
             if last_target is None:
                 last_target = target
                 total_count = 1
@@ -6695,15 +6709,15 @@ class App:
                 return True
             if port != "COM31" or direction != "TX":
                 return False
+            pressure_value, _matched_prefix = App._parse_pressure_setpoint_command(command)
             return any(
                 token in command
                 for token in (
                     ":OUTP 0",
                     ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
-                    ":SOUR:PRES:LEV:IMM:AMPL ",
                     ":OUTP:MODE",
                 )
-            )
+            ) or pressure_value is not None
 
         latest_sample_index: Optional[int] = None
         for idx in range(len(rows) - 1, -1, -1):
@@ -9144,11 +9158,7 @@ class App:
             coefficients["enabled"] = True
             coefficients["auto_fit"] = True
             coefficients["fit_h2o"] = True
-        postrun_cfg = workflow.setdefault("postrun_corrected_delivery", {})
-        if not isinstance(postrun_cfg, dict):
-            postrun_cfg = {}
-            workflow["postrun_corrected_delivery"] = postrun_cfg
-        postrun_cfg["enabled"] = bool(self.postrun_delivery_var.get())
+        workflow.pop("postrun_corrected_delivery", None)
 
         scope = self.temp_scope_var.get().strip()
         if scope == "指定温度点":
@@ -9226,7 +9236,7 @@ class App:
         self.temp_scope_combo.configure(state=combo_state)
         self.temperature_order_combo.configure(state=combo_state)
         self.fit_enabled_check.configure(state=button_state)
-        self.postrun_delivery_check.configure(state=button_state)
+        self.postrun_delivery_check.configure(state="disabled")
         self.temp_select_all_button.configure(state=button_state)
         self.temp_clear_button.configure(state=button_state)
         self.co2_select_all_button.configure(state=button_state)

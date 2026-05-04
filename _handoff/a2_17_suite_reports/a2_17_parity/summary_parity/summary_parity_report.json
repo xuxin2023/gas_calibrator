@@ -1,0 +1,334 @@
+{
+  "tool": "summary_parity",
+  "status": "MATCH",
+  "evidence_source": "diagnostic",
+  "evidence_state": "collected",
+  "acceptance_level": "offline_regression",
+  "not_real_acceptance_evidence": true,
+  "risk_level": "low",
+  "float_tolerance": 1e-06,
+  "float_fields": [
+    "ppm_CO2",
+    "ppm_H2O",
+    "Temp",
+    "P",
+    "ppm_H2O_Dew"
+  ],
+  "exact_fields": [
+    "AnalyzerCoverage",
+    "UsableAnalyzers",
+    "ExpectedAnalyzers",
+    "PointIntegrity",
+    "MissingAnalyzers",
+    "UnusableAnalyzers",
+    "ValidFrames",
+    "TotalFrames",
+    "FrameStatus"
+  ],
+  "tolerance_rules": {
+    "default_float_abs": 1e-06,
+    "float_fields": [
+      "ppm_CO2",
+      "ppm_H2O",
+      "Temp",
+      "P",
+      "ppm_H2O_Dew"
+    ],
+    "exact_fields": [
+      "AnalyzerCoverage",
+      "UsableAnalyzers",
+      "ExpectedAnalyzers",
+      "PointIntegrity",
+      "MissingAnalyzers",
+      "UnusableAnalyzers",
+      "ValidFrames",
+      "TotalFrames",
+      "FrameStatus"
+    ]
+  },
+  "expected_divergence": [],
+  "summary": {
+    "cases_total": 2,
+    "cases_matched": 2,
+    "cases_failed": 0,
+    "failed_cases": [],
+    "float_within_tolerance": 10,
+    "float_failed": 0,
+    "exact_matched": 18,
+    "exact_failed": 0
+  },
+  "cases": [
+    {
+      "name": "reference_on_aligned_rows",
+      "reference_on_aligned_rows": true,
+      "status": "MATCH",
+      "expected_divergence": [],
+      "comparison_summary": {
+        "float_within_tolerance": 5,
+        "float_failed": 0,
+        "exact_matched": 9,
+        "exact_failed": 0,
+        "within_tolerance_fields": [
+          "ppm_CO2",
+          "ppm_H2O",
+          "Temp",
+          "P",
+          "ppm_H2O_Dew"
+        ],
+        "exact_match_fields": [
+          "AnalyzerCoverage",
+          "UsableAnalyzers",
+          "ExpectedAnalyzers",
+          "PointIntegrity",
+          "MissingAnalyzers",
+          "UnusableAnalyzers",
+          "ValidFrames",
+          "TotalFrames",
+          "FrameStatus"
+        ],
+        "failed_fields": []
+      },
+      "comparisons": [
+        {
+          "field": "ppm_CO2",
+          "type": "float",
+          "v1": 400.0,
+          "v2": 400.0,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "ppm_H2O",
+          "type": "float",
+          "v1": 6.0,
+          "v2": 6.0,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "Temp",
+          "type": "float",
+          "v1": 25.0,
+          "v2": 25.0,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "P",
+          "type": "float",
+          "v1": 998.0,
+          "v2": 998.0,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "ppm_H2O_Dew",
+          "type": "float",
+          "v1": 7.073535,
+          "v2": 7.073535,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "AnalyzerCoverage",
+          "type": "exact",
+          "v1": "1/3",
+          "v2": "1/3",
+          "matched": true
+        },
+        {
+          "field": "UsableAnalyzers",
+          "type": "exact",
+          "v1": 1,
+          "v2": 1,
+          "matched": true
+        },
+        {
+          "field": "ExpectedAnalyzers",
+          "type": "exact",
+          "v1": 3,
+          "v2": 3,
+          "matched": true
+        },
+        {
+          "field": "PointIntegrity",
+          "type": "exact",
+          "v1": "閮ㄥ垎缂哄け涓斿惈寮傚父甯?",
+          "v2": "閮ㄥ垎缂哄け涓斿惈寮傚父甯?",
+          "matched": true
+        },
+        {
+          "field": "MissingAnalyzers",
+          "type": "exact",
+          "v1": "GA03",
+          "v2": "GA03",
+          "matched": true
+        },
+        {
+          "field": "UnusableAnalyzers",
+          "type": "exact",
+          "v1": "GA02",
+          "v2": "GA02",
+          "matched": true
+        },
+        {
+          "field": "ValidFrames",
+          "type": "exact",
+          "v1": 1,
+          "v2": 1,
+          "matched": true
+        },
+        {
+          "field": "TotalFrames",
+          "type": "exact",
+          "v1": 2,
+          "v2": 2,
+          "matched": true
+        },
+        {
+          "field": "FrameStatus",
+          "type": "exact",
+          "v1": "部分可用",
+          "v2": "部分可用",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "name": "reference_pool_pressure_expansion",
+      "reference_on_aligned_rows": false,
+      "status": "MATCH",
+      "expected_divergence": [],
+      "comparison_summary": {
+        "float_within_tolerance": 5,
+        "float_failed": 0,
+        "exact_matched": 9,
+        "exact_failed": 0,
+        "within_tolerance_fields": [
+          "ppm_CO2",
+          "ppm_H2O",
+          "Temp",
+          "P",
+          "ppm_H2O_Dew"
+        ],
+        "exact_match_fields": [
+          "AnalyzerCoverage",
+          "UsableAnalyzers",
+          "ExpectedAnalyzers",
+          "PointIntegrity",
+          "MissingAnalyzers",
+          "UnusableAnalyzers",
+          "ValidFrames",
+          "TotalFrames",
+          "FrameStatus"
+        ],
+        "failed_fields": []
+      },
+      "comparisons": [
+        {
+          "field": "ppm_CO2",
+          "type": "float",
+          "v1": 400.0,
+          "v2": 400.0,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "ppm_H2O",
+          "type": "float",
+          "v1": 6.0,
+          "v2": 6.0,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "Temp",
+          "type": "float",
+          "v1": 25.0,
+          "v2": 25.0,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "P",
+          "type": "float",
+          "v1": 964.0,
+          "v2": 964.0,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "ppm_H2O_Dew",
+          "type": "float",
+          "v1": 9.050208,
+          "v2": 9.050208,
+          "tolerance": 1e-06,
+          "matched": true
+        },
+        {
+          "field": "AnalyzerCoverage",
+          "type": "exact",
+          "v1": "1/1",
+          "v2": "1/1",
+          "matched": true
+        },
+        {
+          "field": "UsableAnalyzers",
+          "type": "exact",
+          "v1": 1,
+          "v2": 1,
+          "matched": true
+        },
+        {
+          "field": "ExpectedAnalyzers",
+          "type": "exact",
+          "v1": 1,
+          "v2": 1,
+          "matched": true
+        },
+        {
+          "field": "PointIntegrity",
+          "type": "exact",
+          "v1": "瀹屾暣",
+          "v2": "瀹屾暣",
+          "matched": true
+        },
+        {
+          "field": "MissingAnalyzers",
+          "type": "exact",
+          "v1": "",
+          "v2": "",
+          "matched": true
+        },
+        {
+          "field": "UnusableAnalyzers",
+          "type": "exact",
+          "v1": "",
+          "v2": "",
+          "matched": true
+        },
+        {
+          "field": "ValidFrames",
+          "type": "exact",
+          "v1": 1,
+          "v2": 1,
+          "matched": true
+        },
+        {
+          "field": "TotalFrames",
+          "type": "exact",
+          "v1": 2,
+          "v2": 2,
+          "matched": true
+        },
+        {
+          "field": "FrameStatus",
+          "type": "exact",
+          "v1": "部分可用",
+          "v2": "部分可用",
+          "matched": true
+        }
+      ]
+    }
+  ]
+}

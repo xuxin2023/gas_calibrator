@@ -1,0 +1,256 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "v2_cutover_candidate_worksheet",
+  "generated_at": "2026-04-24T14:03:31+00:00",
+  "stage": "step2_real_machine_dry_run_preparation",
+  "third_batch": {
+    "cloud_closure_commit": "cba08beb",
+    "scope": "narrowed_skip0_co2_only",
+    "conclusion": "replacement-validation path usable",
+    "cutover_ready": false
+  },
+  "boundary": {
+    "default_entry_remains_v1": true,
+    "v2_replaces_v1": false,
+    "cutover_ready": false,
+    "real_write_allowed": false,
+    "real_com_serial_allowed": false,
+    "real_acceptance_allowed": false,
+    "real_primary_latest_refresh_allowed": false,
+    "simulated_latest_can_replace_real_latest": false,
+    "not_real_acceptance_evidence": true,
+    "evidence_source": "simulated"
+  },
+  "allowed_conclusions": {
+    "can_enter_v2_real_machine_dry_run_preparation_no_real_write": "Can enter V2 real-machine dry-run preparation, but real write remains prohibited.",
+    "complete_minor_p1_before_v2_real_machine_dry_run_preparation": "Complete minor P1 items before entering V2 real-machine dry-run preparation.",
+    "not_recommended_for_v2_real_machine_dry_run_preparation_p0_blocked": "Do not enter V2 real-machine dry-run preparation; P0 blockers remain."
+  },
+  "selected_conclusion": "can_enter_v2_real_machine_dry_run_preparation_no_real_write",
+  "selected_conclusion_label": "Can enter V2 real-machine dry-run preparation, but real write remains prohibited.",
+  "status_counts": {
+    "green": 11,
+    "yellow": 2,
+    "red": 0
+  },
+  "readiness_items": [
+    {
+      "key": "smoke",
+      "label": "Smoke",
+      "status": "green",
+      "evidence_path": "tests/v2/test_run_validation_replay.py; tests/v2/test_compare_v1_v2_control_flow.py",
+      "reason": "Offline replay and compare smoke coverage is available for the current preparation worksheet.",
+      "remaining_blocker": "No dry-run-preparation blocker; real smoke remains explicitly out of scope.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "safe",
+      "label": "Safe",
+      "status": "green",
+      "evidence_path": "src/gas_calibrator/v2/scripts/_cli_safety.py; tests/v2/test_export_resilience.py",
+      "reason": "Step-2 safety messaging and export resilience are available without opening real ports.",
+      "remaining_blocker": "No dry-run-preparation blocker; real COM/serial and live write remain prohibited.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "route_trace",
+      "label": "route_trace",
+      "status": "green",
+      "evidence_path": "src/gas_calibrator/v2/scripts/route_trace_diff.py",
+      "reason": "Route traces are produced and diffable as offline review artifacts.",
+      "remaining_blocker": "Real route trace refresh is not allowed in this batch.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "fit_ready",
+      "label": "Fit-Ready",
+      "status": "green",
+      "evidence_path": "src/gas_calibrator/v2/output/fit_ready_smoke/run_*; tests/v2/test_export_resilience.py",
+      "reason": "Fit-ready/export artifact paths are covered as offline evidence and resilience tests.",
+      "remaining_blocker": "No real fit-ready acceptance is claimed.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "completed_progress_semantics",
+      "label": "completed/progress semantics",
+      "status": "green",
+      "evidence_path": "tests/v2/test_run_validation_replay.py; tests/v2/test_run_state.py",
+      "reason": "Replay/state coverage protects completed and progress semantics from false-green drift.",
+      "remaining_blocker": "No dry-run-preparation blocker.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "headless_entry",
+      "label": "headless entry",
+      "status": "green",
+      "evidence_path": "src/gas_calibrator/v2/scripts/run_v2.py; tests/v2/test_run_v2.py",
+      "reason": "The formal V2 headless entry remains the offline launch path for review and simulation.",
+      "remaining_blocker": "Default production entry remains V1; no V2 default switch is allowed.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "h2o_single_route_readiness",
+      "label": "H2O single-route readiness",
+      "status": "yellow",
+      "evidence_path": "src/gas_calibrator/v2/output/v1_v2_compare/replacement_h2o_only_simulated_latest.json; tests/v2/test_verify_v1_v2_h2o_only_replacement.py",
+      "reason": "H2O has diagnostic/offline coverage, but it is not the main replacement route for this phase.",
+      "remaining_blocker": "H2O hardware equivalence and humidity-feedback behavior remain future dry-run/bench questions.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "co2_single_route_readiness",
+      "label": "CO2 single-route readiness",
+      "status": "green",
+      "evidence_path": "src/gas_calibrator/v2/output/v1_v2_compare/replacement_skip0_co2_only_simulated_latest.json",
+      "reason": "The narrowed CO2-only skip0 path is usable for replacement-validation preparation in simulation.",
+      "remaining_blocker": "Real-machine dry-run evidence remains pending and must not include live write.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "single_temperature_group_readiness",
+      "label": "single temperature group readiness",
+      "status": "yellow",
+      "evidence_path": "src/gas_calibrator/v2/configs/validation/simulated/replacement_skip0_co2_only_simulated.json",
+      "reason": "The current preparation path is narrowed to one CO2 temperature group, not a full H2O+CO2 group.",
+      "remaining_blocker": "Full single-temperature H2O+CO2 group evidence remains future dry-run preparation work.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "route_trace_diff_readiness",
+      "label": "route trace diff readiness",
+      "status": "green",
+      "evidence_path": "src/gas_calibrator/v2/scripts/route_trace_diff.py; tests/v2/test_route_trace_diff.py",
+      "reason": "Route trace diff has structured output and tests for the narrowed replacement path.",
+      "remaining_blocker": "Real compare/verify remains prohibited.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "narrowed_skip0_replacement_readiness",
+      "label": "narrowed skip0 replacement readiness",
+      "status": "green",
+      "evidence_path": "src/gas_calibrator/v2/output/v1_v2_compare/replacement_skip0_co2_only_simulated_latest.json",
+      "reason": "Third-batch scope is narrowed_skip0_co2_only and the path is usable for preparation.",
+      "remaining_blocker": "cutover_ready remains false; this does not prove full V1 replacement.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "rollback_strategy_ready",
+      "label": "rollback strategy ready",
+      "status": "green",
+      "evidence_path": "v2_cutover_rollback_guard.md",
+      "reason": "A fallback guard/SOP is generated with V1 as the unchanged default entry.",
+      "remaining_blocker": "Dry-run rollback rehearsal remains document-only in this batch.",
+      "blocks_dry_run_preparation": false
+    },
+    {
+      "key": "v1_remains_frozen",
+      "label": "V1 remains frozen",
+      "status": "green",
+      "evidence_path": "v1_freeze_check_summary.json",
+      "reason": "No V1 production/default-entry paths changed.",
+      "remaining_blocker": "none",
+      "blocks_dry_run_preparation": false
+    }
+  ],
+  "rollback_guard": {
+    "schema_version": "1.0",
+    "artifact_type": "v2_cutover_rollback_guard",
+    "stage": "v2_real_machine_dry_run_preparation",
+    "default_entry": {
+      "status": "v1_remains_default",
+      "path": "run_app.py",
+      "change_allowed": false,
+      "reason": "The fourth batch does not switch the default production entry to V2."
+    },
+    "future_dry_run_boundary": {
+      "real_write_allowed": false,
+      "real_com_open_allowed_in_this_batch": false,
+      "real_acceptance_allowed_in_this_batch": false,
+      "real_primary_latest_refresh_allowed": false,
+      "operator_manual_device_control_allowed": false
+    },
+    "preserve_v1_baselines": [
+      "Current V1 run logs for the production path.",
+      "Current V1 exported summaries, raw rows, and coefficient/writeback references.",
+      "Current V1 runtime configuration and points source used for comparison.",
+      "Known-good V1 sidecar/latest metadata, without rewriting real_primary_latest."
+    ],
+    "rollback_sensitive_files": [
+      "run_app.py",
+      "src/gas_calibrator/workflow/**",
+      "src/gas_calibrator/ui/**",
+      "src/gas_calibrator/devices/**",
+      "any /v1/ or /legacy/ path",
+      "real_primary_latest and any real latest pointer"
+    ],
+    "rollback_triggers": [
+      "Any V2 dry-run preparation attempts to open real write paths.",
+      "Any coefficient, zero, span, or calibration-parameter write is attempted.",
+      "V2 route trace enters an unexpected route or cleanup cannot restore safe state.",
+      "V2 dry-run preparation produces false completed/progress semantics.",
+      "V1 baseline outputs, logs, or configs are missing before a dry-run window.",
+      "Any default-entry or V1 production path diff appears in review."
+    ],
+    "rollback_steps": [
+      "Stop the V2 preparation path and do not retry against real devices.",
+      "Keep run_app.py pointed at the existing V1 default entry.",
+      "Use the preserved V1 configuration, logs, and output baseline as the operating reference.",
+      "Discard or quarantine the failed V2 dry-run artifacts as diagnostic-only evidence.",
+      "Record the trigger, artifact paths, and operator/reviewer notes in the worksheet.",
+      "Resume only the known-good V1 production workflow after V1 baseline verification passes."
+    ],
+    "post_rollback_verification": [
+      "git diff shows no changes to run_app.py or V1 workflow/ui/devices paths.",
+      "V1 baseline config and points source are still present.",
+      "V1 output/log storage path is still writable by the existing production process.",
+      "No real_primary_latest pointer was refreshed by the V2 preparation attempt.",
+      "No instrument zero/span/coefficient/calibration parameter write occurred."
+    ],
+    "prohibited_actions": [
+      "Do not switch the default entry to V2.",
+      "Do not close or delete V1 as a fallback path.",
+      "Do not run real compare/real verify from this worksheet.",
+      "Do not open real COM/serial or PLC/valve/instrument/PACE control from this batch.",
+      "Do not refresh real_primary_latest."
+    ],
+    "evidence_source": "offline_worksheet",
+    "not_real_acceptance_evidence": true
+  },
+  "freeze_check": {
+    "schema_version": "1.0",
+    "artifact_type": "v1_freeze_check_summary",
+    "status": "green",
+    "evidence_source": "git_diff",
+    "not_real_acceptance_evidence": true,
+    "checked_rules": [
+      "run_app.py unchanged",
+      "src/gas_calibrator/workflow/** unchanged",
+      "src/gas_calibrator/ui/** unchanged",
+      "src/gas_calibrator/devices/** unchanged",
+      "no /v1/ or /legacy/ path changed"
+    ],
+    "changed_paths": [
+      "docs/architecture/v2_cutover_candidate/v1_freeze_check_summary.json",
+      "docs/architecture/v2_cutover_candidate/v2_cutover_candidate_worksheet.json",
+      "docs/architecture/v2_cutover_candidate/v2_cutover_candidate_worksheet.md",
+      "docs/architecture/v2_cutover_candidate/v2_cutover_rollback_guard.md",
+      "src/gas_calibrator/v2/core/cutover_candidate_worksheet.py",
+      "src/gas_calibrator/v2/scripts/build_cutover_candidate_worksheet.py",
+      "tests/v2/test_cutover_candidate_worksheet.py"
+    ],
+    "ignored_paths": [
+      "_handoff/fb182ac7_v2_seal_transition_files.zip",
+      "_handoff/fb182ac7_v2_seal_transition_files/src/gas_calibrator/v2/core/orchestrator.py",
+      "_handoff/fb182ac7_v2_seal_transition_files/src/gas_calibrator/v2/core/run_state.py",
+      "_handoff/fb182ac7_v2_seal_transition_files/src/gas_calibrator/v2/core/services/pressure_control_service.py",
+      "_handoff/fb182ac7_v2_seal_transition_files/tests/v2/test_calibration_service.py",
+      "_handoff/fb182ac7_v2_seal_transition_files/tests/v2/test_pressure_control_service.py",
+      "_handoff/v2_mainline_smoke_semantics_67f3ed46.zip",
+      "_handoff/v2_pressure_seal_control_gate_967dc6ed.zip"
+    ],
+    "forbidden_changed_paths": [],
+    "reason": "No V1 production/default-entry paths changed.",
+    "remaining_blocker": "none",
+    "v1_remains_frozen": true
+  }
+}

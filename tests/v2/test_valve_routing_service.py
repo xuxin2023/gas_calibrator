@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import threading
 
+import pytest
+
 from gas_calibrator.v2.config import AppConfig
 from gas_calibrator.v2.core.device_manager import DeviceManager
 from gas_calibrator.v2.core.event_bus import EventBus
@@ -257,6 +259,35 @@ def test_valve_routing_service_handles_co2_path_cleanup_and_pending_mark(tmp_pat
     assert host.vent_calls[0] == (True, "after H2O route")
     assert host.vent_calls[-1] == (True, "after CO2 route")
     assert any("CO2 route baseline applied" in message for message in host.logs)
+
+    context.run_logger.finalize()
+
+
+def test_co2_route_baseline_closes_valves_before_pressure_vent_gate_failure(tmp_path: Path) -> None:
+    service, context, run_state, host, relay_a, relay_b, _, _ = _build_service(tmp_path)
+    point = CalibrationPoint(index=1, temperature_c=25.0, co2_ppm=400.0, route="co2", co2_group="B")
+    service.set_valves_for_co2(point)
+    relay_a.actions.clear()
+    relay_b.actions.clear()
+
+    def _fail_pressure_vent(_vent_on: bool, reason: str = "") -> None:
+        raise RuntimeError("pressure atmosphere gate failed")
+
+    host._set_pressure_controller_vent = _fail_pressure_vent
+
+    with pytest.raises(RuntimeError, match="pressure atmosphere gate failed"):
+        service.set_co2_route_baseline(reason="before CO2 route conditioning")
+
+    baseline_a = _relay_state_map(relay_a)
+    baseline_b = _relay_state_map(relay_b)
+    assert baseline_a[1] is False
+    assert baseline_a[2] is False
+    assert baseline_a[3] is False
+    assert baseline_a[4] is False
+    assert baseline_a[5] is False
+    assert baseline_a[6] is False
+    assert baseline_b[2] is False
+    assert baseline_b[3] is False
 
     context.run_logger.finalize()
 

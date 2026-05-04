@@ -1,0 +1,65 @@
+[
+  {
+    "index": 1,
+    "temperature_c": 20.0,
+    "pressure_hpa": 1100.0,
+    "route": "co2",
+    "co2_ppm": 100.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 100.0
+  },
+  {
+    "index": 2,
+    "temperature_c": 20.0,
+    "pressure_hpa": 1000.0,
+    "route": "co2",
+    "co2_ppm": 100.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 100.0
+  },
+  {
+    "index": 3,
+    "temperature_c": 20.0,
+    "pressure_hpa": 900.0,
+    "route": "co2",
+    "co2_ppm": 100.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 100.0
+  },
+  {
+    "index": 4,
+    "temperature_c": 20.0,
+    "pressure_hpa": 800.0,
+    "route": "co2",
+    "co2_ppm": 100.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 100.0
+  },
+  {
+    "index": 5,
+    "temperature_c": 20.0,
+    "pressure_hpa": 700.0,
+    "route": "co2",
+    "co2_ppm": 100.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 100.0
+  },
+  {
+    "index": 6,
+    "temperature_c": 20.0,
+    "pressure_hpa": 600.0,
+    "route": "co2",
+    "co2_ppm": 100.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 100.0
+  },
+  {
+    "index": 7,
+    "temperature_c": 20.0,
+    "pressure_hpa": 500.0,
+    "route": "co2",
+    "co2_ppm": 100.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 100.0
+  }
+]

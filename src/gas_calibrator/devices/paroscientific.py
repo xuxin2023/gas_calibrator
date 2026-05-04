@@ -193,6 +193,95 @@ class ParoscientificGauge:
             raise last_exc
         raise RuntimeError("NO_RESPONSE")
 
+    def _p3_read_with_retry(
+        self,
+        *,
+        cancel_wait_s: float = 0.30,
+        query_timeout_s: float = 0.20,
+        max_retries: int = 3,
+        retry_increment_s: float = 0.10,
+    ) -> float:
+        """Robust P3 read with continuous-mode cancellation and progressive retry.
+
+        1. Send P3 to cancel any continuous mode (P4/P7).
+        2. Wait cancel_wait_s for the gauge to exit continuous mode.
+        3. Drain input buffer.
+        4. Send P3 query with timeout.
+        5. If no response, retry up to max_retries with increasing delay.
+        6. If all retries fail, attempt full restart: cancel → wait → query.
+        """
+        last_exc: Optional[Exception] = None
+        cmd_p3 = self._cmd("P3")
+
+        with self._query_lock:
+            drain_input_nonblock = getattr(self.ser, "drain_input_nonblock", None)
+            reset_input_buffer = getattr(self.ser, "reset_input_buffer", None)
+
+            # Step 1: Cancel continuous mode
+            try:
+                self.ser.write(cmd_p3)
+            except Exception:
+                pass
+
+            # Step 2: Wait for gauge to exit continuous mode
+            time.sleep(max(0.05, float(cancel_wait_s)))
+
+            # Step 3: Drain buffer
+            if callable(drain_input_nonblock):
+                try:
+                    drain_input_nonblock(drain_s=0.25, read_timeout_s=0.02)
+                except Exception:
+                    pass
+            elif callable(reset_input_buffer):
+                try:
+                    reset_input_buffer()
+                except Exception:
+                    pass
+
+            # Clear continuous mode flag so we don't misinterpret state
+            self._continuous_pressure_mode = ""
+
+            # Step 4-5: P3 query with progressive retry
+            for attempt in range(max(1, int(max_retries))):
+                try:
+                    return self._read_pressure_query_locked(
+                        cmd=cmd_p3,
+                        timeout_s=max(0.15, float(query_timeout_s)),
+                        clear_buffer=(attempt == 0),
+                    )
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt + 1 < max_retries:
+                        wait_s = float(retry_increment_s) * (attempt + 1)
+                        time.sleep(max(0.05, wait_s))
+                        # Drain any stale data before retry
+                        if callable(drain_input_nonblock):
+                            try:
+                                drain_input_nonblock(drain_s=0.10, read_timeout_s=0.01)
+                            except Exception:
+                                pass
+
+            # Step 6: Full restart — cancel once more, wait, drain, query
+            try:
+                self.ser.write(cmd_p3)
+                time.sleep(max(0.05, float(cancel_wait_s)))
+                if callable(drain_input_nonblock):
+                    drain_input_nonblock(drain_s=0.25, read_timeout_s=0.02)
+                elif callable(reset_input_buffer):
+                    reset_input_buffer()
+                self._continuous_pressure_mode = ""
+                return self._read_pressure_query_locked(
+                    cmd=cmd_p3,
+                    timeout_s=max(0.15, float(query_timeout_s)),
+                    clear_buffer=True,
+                )
+            except Exception as exc:
+                last_exc = exc
+
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("NO_RESPONSE")
+
     def pressure_continuous_active(self) -> bool:
         return bool(self._continuous_pressure_mode)
 

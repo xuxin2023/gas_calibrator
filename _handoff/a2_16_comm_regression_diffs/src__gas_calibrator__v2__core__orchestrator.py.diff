@@ -1,0 +1,742 @@
+﻿diff --git a/src/gas_calibrator/v2/core/orchestrator.py b/src/gas_calibrator/v2/core/orchestrator.py
+index c1e669ce..00a0a3c4 100644
+--- a/src/gas_calibrator/v2/core/orchestrator.py
++++ b/src/gas_calibrator/v2/core/orchestrator.py
+@@ -13,7 +13,7 @@ from ..config import AppConfig
+ from ..export import export_ratio_poly_report
+ from ..exceptions import StabilityTimeoutError, WorkflowInterruptedError, WorkflowValidationError
+ from ..qc import QCPipeline
+-from ..utils import as_float, safe_get
++from ..utils import as_bool, as_float, safe_get
+ from ...validation.dewpoint_flush_gate import evaluate_dewpoint_flush_gate
+ from .device_factory import DeviceType
+ from .device_manager import DeviceManager, DeviceStatus
+@@ -118,6 +118,11 @@ class WorkflowOrchestrator:
+         )
+         self._startup_pressure_precheck_result: Optional[StartupPressurePrecheckResult] = None
+         self._last_co2_route_dewpoint_gate_summary: Dict[str, Any] = {}
++        self._device_init_policy_evidence: dict[str, Any] = self._classify_device_failures(
++            [],
++            all_devices=[],
++            stage="initialization",
++        )
+ 
+     def set_log_callback(self, callback: Optional[Callable[[str], None]]) -> None:
+         self._log_callback = callback
+@@ -295,17 +300,18 @@ class WorkflowOrchestrator:
+             self._log(info_message)
+         failed = [name for name, ok in results.items() if not ok and name not in expected_disabled]
+         if failed:
+-            critical = [name for name in failed if self._is_critical_device(name)]
+-            self.event_bus.publish(EventType.DEVICE_ERROR, {"failed_devices": failed})
+-            if critical:
+-                raise WorkflowValidationError(
+-                    "Critical device initialization failed",
+-                    details={"failed_devices": critical},
+-                )
+-            warning = f"Device open warnings: {', '.join(failed)}"
+-            self.session.add_warning(warning)
+-            self.event_bus.publish(EventType.WARNING_RAISED, {"message": warning, "devices": failed})
+-            self._log(warning)
++            self._handle_device_failures(
++                failed,
++                all_devices=results.keys(),
++                error_message="Critical device initialization failed",
++                warning_prefix="Device open warnings",
++                stage="initialization",
++            )
++        else:
++            self._record_device_failure_policy(
++                self._classify_device_failures([], all_devices=results.keys(), stage="initialization"),
++                stage="initialization",
++            )
+         self._update_status(
+             phase=CalibrationPhase.INITIALIZING,
+             message="Applying analyzer setup",
+@@ -347,17 +353,13 @@ class WorkflowOrchestrator:
+                 self._log(f"Devices skipped by profile: {', '.join(sorted(expected_disabled))}")
+             failing = [name for name, ok in health.items() if not ok and name not in expected_disabled]
+             if failing:
+-                critical = [name for name in failing if self._is_critical_device(name)]
+-                self.event_bus.publish(EventType.DEVICE_ERROR, {"failed_devices": failing})
+-                if critical:
+-                    raise WorkflowValidationError(
+-                        "Device precheck failed",
+-                        details={"failed_devices": critical},
+-                    )
+-                warning = f"Device precheck warnings: {', '.join(failing)}"
+-                self.session.add_warning(warning)
+-                self.event_bus.publish(EventType.WARNING_RAISED, {"message": warning, "devices": failing})
+-                self._log(warning)
++                self._handle_device_failures(
++                    failing,
++                    all_devices=health.keys(),
++                    error_message="Device precheck failed",
++                    warning_prefix="Device precheck warnings",
++                    stage="precheck",
++                )
+ 
+         if precheck.pressure_leak_test:
+             self._run_pressure_leak_test()
+@@ -434,8 +436,309 @@ class WorkflowOrchestrator:
+             return
+         self.device_manager.create_device(name, device_type, config)
+ 
++    def _handle_device_failures(
++        self,
++        failed_devices: Iterable[str],
++        *,
++        all_devices: Iterable[str],
++        error_message: str,
++        warning_prefix: str,
++        stage: str,
++    ) -> dict[str, Any]:
++        failed = sorted({str(name) for name in failed_devices if str(name or "").strip()})
++        policy = self._classify_device_failures(failed, all_devices=all_devices, stage=stage)
++        self._record_device_failure_policy(policy, stage=stage)
++        if not failed:
++            return policy
++
++        critical = list(policy.get("critical_devices_failed") or [])
++        optional_failed = list(policy.get("optional_context_devices_failed") or [])
++        self.event_bus.publish(
++            EventType.DEVICE_ERROR,
++            {
++                "failed_devices": failed,
++                "critical_devices_failed": critical,
++                "optional_context_devices_failed": optional_failed,
++                "device_policy_stage": stage,
++            },
++        )
++        if critical:
++            raise WorkflowValidationError(
++                error_message,
++                details={
++                    "failed_devices": critical,
++                    "critical_devices_failed": critical,
++                    "optional_context_devices_failed": optional_failed,
++                    "critical_device_init_failure_blocks_probe": True,
++                },
++            )
++
++        if optional_failed and set(optional_failed) == set(failed):
++            warning = f"Optional context devices unavailable during {stage}: {', '.join(optional_failed)}"
++        elif optional_failed:
++            warning = f"{warning_prefix}: {', '.join(failed)}; optional_context_devices_failed={optional_failed}"
++        else:
++            warning = f"{warning_prefix}: {', '.join(failed)}"
++        self.session.add_warning(warning)
++        self.event_bus.publish(
++            EventType.WARNING_RAISED,
++            {
++                "message": warning,
++                "devices": failed,
++                "optional_context_devices_failed": optional_failed,
++                "device_policy_stage": stage,
++            },
++        )
++        self._log(warning)
++        return policy
++
++    def _classify_device_failures(
++        self,
++        failed_devices: Iterable[str],
++        *,
++        all_devices: Iterable[str] | None = None,
++        stage: str = "initialization",
++    ) -> dict[str, Any]:
++        failed = sorted({str(name) for name in failed_devices if str(name or "").strip()})
++        known = sorted({str(name) for name in (all_devices or []) if str(name or "").strip()} | set(failed))
++        gas_devices = sorted({name for name in known if name.startswith("gas_analyzer_")})
++        a2_probe = self._a2_pressure_sweep_mode()
++        skip_temp_probe = self._a2_skip_temp_wait_engineering_probe_mode()
++
++        route_pressure_devices = ["pressure_controller", "pressure_meter", "relay_a", "relay_b"]
++        if a2_probe:
++            critical_required = list(route_pressure_devices)
++            critical_required.extend(gas_devices)
++            optional_context_devices = ["temperature_chamber"] if skip_temp_probe else []
++            if not skip_temp_probe:
++                critical_required.append("temperature_chamber")
++        else:
++            critical_required = ["temperature_chamber", *gas_devices]
++            optional_context_devices = []
++        critical_required = sorted(dict.fromkeys(critical_required))
++        optional_context_devices = sorted(dict.fromkeys(optional_context_devices))
++
++        critical_failed = [name for name in failed if name in critical_required or name.startswith("gas_analyzer_")]
++        optional_failed = [name for name in failed if name in optional_context_devices and name not in critical_failed]
++        temp_attempted = "temperature_chamber" in known or "temperature_chamber" in failed
++        temp_failed_at_stage = "temperature_chamber" in failed
++        temp_init_failed = bool(stage == "initialization" and temp_failed_at_stage)
++        temp_blocks_a2 = bool("temperature_chamber" in critical_failed and a2_probe)
++        temp_required_for_a2 = bool(a2_probe and "temperature_chamber" in critical_required)
++        temp_context_available: Optional[bool]
++        if temp_failed_at_stage and "temperature_chamber" in optional_context_devices:
++            temp_context_available = False
++        elif temp_attempted and "temperature_chamber" in optional_context_devices:
++            temp_context_available = True
++        elif temp_attempted and a2_probe and "temperature_chamber" in critical_required:
++            temp_context_available = not temp_failed_at_stage
++        else:
++            temp_context_available = None
++
++        unavailable_reason = ""
++        if temp_failed_at_stage and "temperature_chamber" in optional_context_devices:
++            unavailable_reason = (
++                "temperature_chamber_init_failed"
++                if stage == "initialization"
++                else "temperature_chamber_precheck_failed"
++            )
++        readonly_probe_result = "not_applicable"
++        if skip_temp_probe:
++            if temp_context_available is False:
++                readonly_probe_result = "unavailable"
++            elif temp_context_available is True:
++                readonly_probe_result = "available_pending_current_pv_read"
++
++        return {
++            "temperature_chamber_required_for_a2": temp_required_for_a2,
++            "temperature_chamber_init_attempted": bool(temp_attempted if stage == "initialization" else temp_attempted),
++            "temperature_chamber_init_ok": bool(temp_attempted and not temp_init_failed) if stage == "initialization" else None,
++            "temperature_chamber_init_failed": temp_init_failed,
++            "temperature_chamber_init_failure_blocks_a2": temp_blocks_a2,
++            "temperature_chamber_optional_in_skip_temp_wait": bool(skip_temp_probe),
++            "temperature_context_available": temp_context_available,
++            "temperature_context_source": (
++                "temperature_chamber_readonly_current_pv"
++                if temp_context_available is True and skip_temp_probe
++                else ("unavailable" if temp_context_available is False else "")
++            ),
++            "temperature_context_unavailable_reason": unavailable_reason,
++            "temperature_chamber_readonly_probe_attempted": bool(skip_temp_probe and temp_attempted),
++            "temperature_chamber_readonly_probe_result": readonly_probe_result,
++            "temperature_not_part_of_acceptance": self._cfg_bool_any(
++                (
++                    "a2_co2_7_pressure_no_write_probe.temperature_not_part_of_acceptance",
++                    "workflow.stability.temperature.temperature_not_part_of_acceptance",
++                ),
++                default=False,
++            ),
++            "temperature_stabilization_wait_skipped": self._a2_temperature_wait_skipped(),
++            "temperature_gate_mode": self._temperature_gate_mode(),
++            "critical_devices_required": critical_required,
++            "critical_devices_failed": critical_failed,
++            "optional_context_devices": optional_context_devices,
++            "optional_context_devices_failed": optional_failed,
++            "critical_device_init_failure_blocks_probe": bool(critical_failed),
++            "optional_context_failure_blocks_probe": False,
++        }
++
++    def _record_device_failure_policy(self, policy: Mapping[str, Any], *, stage: str) -> None:
++        current = dict(getattr(self, "_device_init_policy_evidence", {}) or {})
++        if stage != "initialization" and current:
++            preserved = {
++                key: current.get(key)
++                for key in (
++                    "temperature_chamber_init_attempted",
++                    "temperature_chamber_init_ok",
++                    "temperature_chamber_init_failed",
++                )
++                if key in current
++            }
++            current.update(dict(policy))
++            current.update({key: value for key, value in preserved.items() if value is not None})
++        else:
++            current.update(dict(policy))
++        self._device_init_policy_evidence = current
++        self._record_workflow_timing(
++            "device_init_policy",
++            "warning"
++            if current.get("critical_devices_failed") or current.get("optional_context_devices_failed")
++            else "info",
++            stage=f"device_{stage}",
++            decision="blocked"
++            if current.get("critical_devices_failed")
++            else (
++                "optional_context_unavailable"
++                if current.get("optional_context_devices_failed")
++                else "ok"
++            ),
++            route_state=current,
++        )
++
++    def _device_init_policy_summary(self) -> dict[str, Any]:
++        current = dict(getattr(self, "_device_init_policy_evidence", {}) or {})
++        if not current:
++            current = self._classify_device_failures(
++                [],
++                all_devices=self._known_device_names(),
++                stage="initialization",
++            )
++        return dict(current)
++
++    def _known_device_names(self) -> list[str]:
++        manager = getattr(self, "device_manager", None)
++        lister = getattr(manager, "list_device_info", None)
++        if callable(lister):
++            try:
++                return sorted(str(name) for name in dict(lister()).keys())
++            except Exception:
++                return []
++        return []
++
+     def _is_critical_device(self, name: str) -> bool:
+-        return name == "temperature_chamber" or name.startswith("gas_analyzer_")
++        policy = self._classify_device_failures([name], all_devices=[name], stage="classification")
++        return str(name or "") in set(policy.get("critical_devices_failed") or [])
++
++    def _a2_pressure_sweep_mode(self) -> bool:
++        run001_scope = str(self._cfg_get("run001_a2.scope", "") or "").strip()
++        probe_scope = str(self._cfg_get("a2_co2_7_pressure_no_write_probe.scope", "") or "").strip()
++        return bool(
++            run001_scope == "run001_a2_co2_no_write_pressure_sweep"
++            or probe_scope == "a2_co2_7_pressure_no_write"
++            or (
++                self._cfg_bool_any(("run001_a2.no_write",), default=False)
++                and self._cfg_bool_any(("run001_a2.co2_only",), default=False)
++            )
++        )
++
++    def _a2_skip_temp_wait_engineering_probe_mode(self) -> bool:
++        if not self._a2_pressure_sweep_mode():
++            return False
++        route_mode = str(self._cfg_get("workflow.route_mode", "") or "").strip().lower()
++        co2_only = bool(
++            route_mode == "co2_only"
++            or self._cfg_bool_any(
++                (
++                    "a2_co2_7_pressure_no_write_probe.co2_only",
++                    "run001_a2.co2_only",
++                ),
++                default=False,
++            )
++        )
++        selected_temps = self._cfg_get("workflow.selected_temps_c", [])
++        single_temp = self._cfg_bool_any(
++            (
++                "a2_co2_7_pressure_no_write_probe.single_temperature",
++                "run001_a2.single_temperature_group",
++            ),
++            default=False,
++        )
++        if isinstance(selected_temps, list) and len(selected_temps) <= 1:
++            single_temp = True
++        skip_wait = self._a2_temperature_wait_skipped()
++        current_pv_mode = self._temperature_gate_mode() == "current_pv_engineering_probe"
++        not_acceptance = self._cfg_bool_any(
++            (
++                "a2_co2_7_pressure_no_write_probe.temperature_not_part_of_acceptance",
++                "workflow.stability.temperature.temperature_not_part_of_acceptance",
++            ),
++            default=False,
++        )
++        no_chamber_writes = not any(
++            self._cfg_bool_any((path,), default=False)
++            for path in (
++                "a2_co2_7_pressure_no_write_probe.chamber_set_temperature_enabled",
++                "a2_co2_7_pressure_no_write_probe.chamber_start_enabled",
++                "a2_co2_7_pressure_no_write_probe.chamber_stop_enabled",
++                "run001_a2.chamber_set_temperature_enabled",
++                "run001_a2.chamber_start_enabled",
++                "run001_a2.chamber_stop_enabled",
++            )
++        )
++        multi_temperature = self._cfg_bool_any(
++            (
++                "a2_co2_7_pressure_no_write_probe.multi_temperature_enabled",
++                "run001_a2.multi_temperature_enabled",
++            ),
++            default=False,
++        )
++        return bool(
++            co2_only
++            and single_temp
++            and skip_wait
++            and current_pv_mode
++            and not_acceptance
++            and no_chamber_writes
++            and not multi_temperature
++        )
++
++    def _a2_temperature_wait_skipped(self) -> bool:
++        return bool(
++            self._cfg_bool_any(
++                (
++                    "a2_co2_7_pressure_no_write_probe.temperature_stabilization_wait_skipped",
++                    "workflow.stability.temperature.skip_temperature_stabilization_wait",
++                    "workflow.stability.temperature.temperature_stabilization_wait_skipped",
++                ),
++                default=False,
++            )
++            or self._temperature_gate_mode() == "current_pv_engineering_probe"
++        )
++
++    def _temperature_gate_mode(self) -> str:
++        return str(
++            self._cfg_get("a2_co2_7_pressure_no_write_probe.temperature_gate_mode", "")
++            or self._cfg_get("workflow.stability.temperature.temperature_gate_mode", "")
++            or self._cfg_get("workflow.stability.temperature.gate_mode", "")
++            or ""
++        ).strip()
++
++    def _cfg_bool_any(self, paths: Iterable[str], *, default: bool = False) -> bool:
++        for path in paths:
++            value = self._cfg_get(path, None)
++            if value is not None:
++                return as_bool(value, default=default)
++        return default
+ 
+     def _set_pressure_target(self, pressure_hpa: Optional[float]) -> None:
+         if pressure_hpa is None:
+@@ -1774,6 +2077,11 @@ class WorkflowOrchestrator:
+             "defer_started_at": "",
+             "defer_returned_to_vent_loop": False,
+             "defer_to_next_vent_loop_ms": None,
++            "defer_reschedule_latency_ms": None,
++            "defer_reschedule_latency_budget_ms": self._a2_conditioning_defer_reschedule_latency_budget_ms(),
++            "defer_reschedule_latency_exceeded": False,
++            "defer_reschedule_latency_warning": False,
++            "defer_reschedule_caused_vent_gap_exceeded": False,
+             "defer_reschedule_requested": False,
+             "defer_reschedule_completed": False,
+             "defer_reschedule_reason": "",
+@@ -1782,6 +2090,9 @@ class WorkflowOrchestrator:
+             "fast_vent_after_defer_write_ms": None,
+             "terminal_gap_after_defer": False,
+             "terminal_gap_after_defer_ms": None,
++            "vent_gap_exceeded_after_defer": False,
++            "vent_gap_after_defer_ms": None,
++            "vent_gap_after_defer_threshold_ms": None,
+             "defer_path_no_reschedule": False,
+             "defer_path_no_reschedule_reason": "",
+             "fail_closed_path_started": False,
+@@ -1986,6 +2297,15 @@ class WorkflowOrchestrator:
+         )
+         return min(0.2, max(0.01, float(0.1 if value is None else value)))
+ 
++    def _a2_conditioning_defer_reschedule_latency_budget_ms(self) -> float:
++        value = self._as_float(
++            self._cfg_get(
++                "workflow.pressure.route_conditioning_defer_reschedule_latency_budget_ms",
++                self._cfg_get("workflow.pressure.conditioning_defer_reschedule_latency_budget_ms", 200.0),
++            )
++        )
++        return min(1000.0, max(50.0, float(200.0 if value is None else value)))
++
+     def _a2_conditioning_pressure_monitor_interval_s(self) -> float:
+         value = self._as_float(
+             self._cfg_get(
+@@ -2267,33 +2587,38 @@ class WorkflowOrchestrator:
+         defer_started = self._as_float(updated.get("last_diagnostic_defer_monotonic_s"))
+         if defer_started is not None and not bool(updated.get("_last_diagnostic_defer_reschedule_recorded", False)):
+             defer_loop_ms = round(max(0.0, float(now_mono) - float(defer_started)) * 1000.0, 3)
+-            returned_to_loop = defer_loop_ms <= 200.0
++            schedule = self._a2_conditioning_vent_schedule(updated, now_mono=now_mono)
++            defer_state = self._a2_conditioning_defer_reschedule_state(
++                updated,
++                now_mono=now_mono,
++                max_gap_s=float(schedule["route_conditioning_effective_max_gap_s"]),
++                defer_loop_ms=defer_loop_ms,
++            )
+             operation = str(
+                 updated.get("last_diagnostic_defer_operation")
+                 or updated.get("defer_operation")
+                 or updated.get("diagnostic_blocking_operation")
+                 or "deferred_diagnostic"
+             )
+-            updated["defer_to_next_vent_loop_ms"] = defer_loop_ms
+-            updated["vent_tick_after_defer_ms"] = defer_loop_ms
+-            updated["defer_returned_to_vent_loop"] = returned_to_loop
++            updated.update(schedule)
++            updated.update(defer_state)
++            vent_gap_exceeded = bool(defer_state.get("vent_gap_exceeded_after_defer"))
++            updated["defer_returned_to_vent_loop"] = True
+             updated["defer_reschedule_requested"] = True
+-            updated["defer_reschedule_completed"] = returned_to_loop
++            updated["defer_reschedule_completed"] = not vent_gap_exceeded
+             updated["defer_reschedule_reason"] = str(
+                 updated.get("defer_reschedule_reason") or f"return_to_vent_loop_after_{operation}"
+             )
+-            updated["terminal_gap_after_defer"] = not returned_to_loop
+-            updated["terminal_gap_after_defer_ms"] = None if returned_to_loop else defer_loop_ms
+-            if not returned_to_loop:
+-                updated["defer_path_no_reschedule"] = True
+-                updated["defer_path_no_reschedule_reason"] = "defer_to_next_vent_loop_exceeded_200ms"
++            if vent_gap_exceeded:
+                 updated["terminal_gap_source"] = "defer_path_no_reschedule"
+                 updated["terminal_gap_operation"] = operation
+-                updated["terminal_gap_duration_ms"] = defer_loop_ms
++                updated["terminal_gap_duration_ms"] = defer_state.get("vent_gap_after_defer_ms")
+                 updated["terminal_gap_detected_at"] = datetime.now(timezone.utc).isoformat()
+                 updated["terminal_gap_stack_marker"] = str(
+                     updated.get("terminal_gap_stack_marker") or "defer_path_no_reschedule"
+                 )
++            elif bool(defer_state.get("defer_reschedule_latency_warning")):
++                updated = self._a2_route_open_transient_mark_continuing_after_defer_warning(updated)
+             updated["_last_diagnostic_defer_reschedule_recorded"] = True
+         updated["last_vent_scheduler_tick_monotonic_s"] = float(now_mono)
+         updated["vent_scheduler_tick_count"] = int(updated.get("vent_scheduler_tick_count") or 0) + 1
+@@ -2306,6 +2631,47 @@ class WorkflowOrchestrator:
+             or context.get("last_vent_heartbeat_started_monotonic_s")
+         )
+ 
++    def _a2_conditioning_defer_reschedule_state(
++        self,
++        context: Mapping[str, Any],
++        *,
++        now_mono: float,
++        max_gap_s: float,
++        defer_loop_ms: Optional[float] = None,
++    ) -> dict[str, Any]:
++        budget_ms = self._a2_conditioning_defer_reschedule_latency_budget_ms()
++        if defer_loop_ms is None:
++            defer_started = self._as_float(context.get("last_diagnostic_defer_monotonic_s"))
++            if defer_started is not None:
++                defer_loop_ms = round(max(0.0, float(now_mono) - float(defer_started)) * 1000.0, 3)
++        latency_exceeded = bool(defer_loop_ms is not None and float(defer_loop_ms) > float(budget_ms))
++        last_write = self._a2_conditioning_last_vent_write_monotonic_s(context)
++        vent_gap_ms = None
++        if last_write is not None:
++            vent_gap_ms = round(max(0.0, float(now_mono) - float(last_write)) * 1000.0, 3)
++        elif defer_loop_ms is not None:
++            vent_gap_ms = round(float(defer_loop_ms), 3)
++        threshold_ms = round(float(max_gap_s) * 1000.0, 3)
++        vent_gap_exceeded = bool(vent_gap_ms is not None and float(vent_gap_ms) > threshold_ms)
++        return {
++            "defer_to_next_vent_loop_ms": defer_loop_ms,
++            "vent_tick_after_defer_ms": defer_loop_ms,
++            "defer_reschedule_latency_ms": defer_loop_ms,
++            "defer_reschedule_latency_budget_ms": round(float(budget_ms), 3),
++            "defer_reschedule_latency_exceeded": latency_exceeded,
++            "defer_reschedule_latency_warning": latency_exceeded,
++            "defer_reschedule_caused_vent_gap_exceeded": vent_gap_exceeded,
++            "vent_gap_exceeded_after_defer": vent_gap_exceeded,
++            "vent_gap_after_defer_ms": vent_gap_ms,
++            "vent_gap_after_defer_threshold_ms": threshold_ms,
++            "terminal_gap_after_defer": vent_gap_exceeded,
++            "terminal_gap_after_defer_ms": vent_gap_ms if vent_gap_exceeded else None,
++            "defer_path_no_reschedule": vent_gap_exceeded,
++            "defer_path_no_reschedule_reason": (
++                "actual_vent_gap_exceeded_after_defer" if vent_gap_exceeded else ""
++            ),
++        }
++
+     def _a2_conditioning_scheduler_evidence(self, context: Mapping[str, Any]) -> dict[str, Any]:
+         keys = (
+             "vent_scheduler_priority_mode",
+@@ -2347,6 +2713,11 @@ class WorkflowOrchestrator:
+             "defer_started_at",
+             "defer_returned_to_vent_loop",
+             "defer_to_next_vent_loop_ms",
++            "defer_reschedule_latency_ms",
++            "defer_reschedule_latency_budget_ms",
++            "defer_reschedule_latency_exceeded",
++            "defer_reschedule_latency_warning",
++            "defer_reschedule_caused_vent_gap_exceeded",
+             "defer_reschedule_requested",
+             "defer_reschedule_completed",
+             "defer_reschedule_reason",
+@@ -2355,6 +2726,9 @@ class WorkflowOrchestrator:
+             "fast_vent_after_defer_write_ms",
+             "terminal_gap_after_defer",
+             "terminal_gap_after_defer_ms",
++            "vent_gap_exceeded_after_defer",
++            "vent_gap_after_defer_ms",
++            "vent_gap_after_defer_threshold_ms",
+             "defer_path_no_reschedule",
+             "defer_path_no_reschedule_reason",
+             "fail_closed_path_started",
+@@ -2459,6 +2833,11 @@ class WorkflowOrchestrator:
+                 "_last_diagnostic_defer_reschedule_recorded": False,
+                 "defer_returned_to_vent_loop": False,
+                 "defer_to_next_vent_loop_ms": None,
++                "defer_reschedule_latency_ms": None,
++                "defer_reschedule_latency_budget_ms": self._a2_conditioning_defer_reschedule_latency_budget_ms(),
++                "defer_reschedule_latency_exceeded": False,
++                "defer_reschedule_latency_warning": False,
++                "defer_reschedule_caused_vent_gap_exceeded": False,
+                 "defer_reschedule_requested": True,
+                 "defer_reschedule_completed": False,
+                 "defer_reschedule_reason": f"return_to_vent_loop_after_{operation_text}",
+@@ -2467,6 +2846,9 @@ class WorkflowOrchestrator:
+                 "fast_vent_after_defer_write_ms": None,
+                 "terminal_gap_after_defer": False,
+                 "terminal_gap_after_defer_ms": None,
++                "vent_gap_exceeded_after_defer": False,
++                "vent_gap_after_defer_ms": None,
++                "vent_gap_after_defer_threshold_ms": None,
+                 "defer_path_no_reschedule": False,
+                 "defer_path_no_reschedule_reason": "",
+                 "terminal_gap_stack_marker": f"defer:{component_text}:{operation_text}",
+@@ -3079,6 +3461,36 @@ class WorkflowOrchestrator:
+         updated["route_open_transient_summary_source"] = "route_conditioning_vent_gap"
+         return updated
+ 
++    def _a2_route_open_transient_mark_continuing_after_defer_warning(
++        self,
++        context: Mapping[str, Any],
++    ) -> dict[str, Any]:
++        updated = dict(context)
++        if not bool(updated.get("route_open_transient_window_enabled", True)):
++            updated["route_open_transient_evaluation_state"] = "not_started"
++            return updated
++        route_open_monotonic = self._as_float(
++            updated.get("route_open_completed_monotonic_s")
++            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
++        )
++        if route_open_monotonic is None:
++            return updated
++        if bool(updated.get("route_open_transient_accepted", False)):
++            return updated
++        if bool(updated.get("route_conditioning_hard_abort_exceeded", False)):
++            updated["route_open_transient_evaluation_state"] = "hard_abort"
++            return updated
++        if bool(updated.get("vent_gap_exceeded_after_defer", False)):
++            return updated
++        updated["route_open_transient_evaluation_state"] = "continuing_after_defer_warning"
++        updated["route_open_transient_interrupted_by_vent_gap"] = False
++        updated["route_open_transient_interrupted_reason"] = ""
++        if updated.get("route_open_transient_rejection_reason") == "vent_gap_exceeded_before_recovery_evaluation":
++            updated["route_open_transient_rejection_reason"] = ""
++        updated.setdefault("route_open_transient_rejection_reason", "")
++        updated["route_open_transient_summary_source"] = "route_conditioning_defer_latency_warning"
++        return updated
++
+     def _a2_route_open_transient_target_hpa(self, context: Mapping[str, Any]) -> Optional[float]:
+         return self._a2_conditioning_first_float(
+             context.get("measured_atmospheric_pressure_hpa"),
+@@ -3517,7 +3929,9 @@ class WorkflowOrchestrator:
+         existing = str(context.get("terminal_gap_source") or "").strip()
+         if existing and existing != "terminal_gap":
+             return existing
+-        if bool(context.get("defer_path_no_reschedule")) or bool(context.get("terminal_gap_after_defer")):
++        if bool(context.get("defer_reschedule_caused_vent_gap_exceeded")) or bool(
++            context.get("vent_gap_exceeded_after_defer")
++        ):
+             return "defer_path_no_reschedule"
+         if bool(context.get("fail_closed_path_started")):
+             if bool(context.get("fail_closed_path_vent_maintenance_required")):
+@@ -3549,7 +3963,9 @@ class WorkflowOrchestrator:
+         terminal_source = str(context.get("terminal_gap_source") or "").strip()
+         if terminal_source and terminal_source != "terminal_gap":
+             return terminal_source
+-        if bool(context.get("defer_path_no_reschedule")) or bool(context.get("terminal_gap_after_defer")):
++        if bool(context.get("defer_reschedule_caused_vent_gap_exceeded")) or bool(
++            context.get("vent_gap_exceeded_after_defer")
++        ):
+             return "defer_path_no_reschedule"
+         if bool(context.get("route_conditioning_diagnostic_blocked_vent_scheduler")):
+             return self._a2_conditioning_diagnostic_source(context, fallback="unknown")
+@@ -3576,7 +3992,10 @@ class WorkflowOrchestrator:
+         schedule: Mapping[str, Any],
+         phase: str,
+     ) -> None:
+-        if not bool(context.get("defer_path_no_reschedule") or context.get("terminal_gap_after_defer")):
++        if not bool(
++            context.get("defer_reschedule_caused_vent_gap_exceeded")
++            or context.get("vent_gap_exceeded_after_defer")
++        ):
+             return
+         terminal = self._a2_conditioning_terminal_gap_details(
+             context,
+@@ -3627,33 +4046,34 @@ class WorkflowOrchestrator:
+         max_gap_s = float(schedule["route_conditioning_effective_max_gap_s"])
+         interval_s = float(schedule["route_conditioning_effective_vent_interval_s"])
+         defer_loop_ms = round(max(0.0, float(now_mono) - float(defer_started)) * 1000.0, 3)
+-        returned_to_loop = defer_loop_ms <= 200.0
++        defer_state = self._a2_conditioning_defer_reschedule_state(
++            context,
++            now_mono=now_mono,
++            max_gap_s=max_gap_s,
++            defer_loop_ms=defer_loop_ms,
++        )
++        vent_gap_exceeded = bool(defer_state.get("vent_gap_exceeded_after_defer"))
+         context.update(schedule)
++        context.update(defer_state)
+         context.update(
+             {
+-                "defer_returned_to_vent_loop": returned_to_loop,
+-                "defer_to_next_vent_loop_ms": defer_loop_ms,
+-                "vent_tick_after_defer_ms": defer_loop_ms,
++                "defer_returned_to_vent_loop": True,
+                 "defer_reschedule_requested": True,
+-                "defer_reschedule_completed": returned_to_loop,
++                "defer_reschedule_completed": not vent_gap_exceeded,
+                 "defer_reschedule_reason": str(reason or "return_to_vent_loop_after_defer"),
+                 "_last_diagnostic_defer_reschedule_recorded": True,
+             }
+         )
+-        if not returned_to_loop:
++        if vent_gap_exceeded:
+             context.update(
+                 {
+-                    "terminal_gap_after_defer": True,
+-                    "terminal_gap_after_defer_ms": defer_loop_ms,
+-                    "defer_path_no_reschedule": True,
+-                    "defer_path_no_reschedule_reason": "defer_to_next_vent_loop_exceeded_200ms",
+                     "terminal_gap_source": "defer_path_no_reschedule",
+                     "terminal_gap_operation": str(
+                         context.get("defer_operation")
+                         or context.get("last_diagnostic_defer_operation")
+                         or "deferred_diagnostic"
+                     ),
+-                    "terminal_gap_duration_ms": defer_loop_ms,
++                    "terminal_gap_duration_ms": defer_state.get("vent_gap_after_defer_ms"),
+                     "terminal_gap_detected_at": datetime.now(timezone.utc).isoformat(),
+                 }
+             )
+@@ -3667,6 +4087,8 @@ class WorkflowOrchestrator:
+                 schedule=schedule,
+                 phase=phase,
+             )
++        elif bool(defer_state.get("defer_reschedule_latency_warning")):
++            context = self._a2_route_open_transient_mark_continuing_after_defer_warning(context)
+         last_write = self._a2_conditioning_last_vent_write_monotonic_s(context)
+         age_s = None if last_write is None else max(0.0, float(now_mono) - float(last_write))
+         should_vent = bool(last_write is None or (age_s is not None and age_s >= interval_s))
+@@ -5316,30 +5738,34 @@ class WorkflowOrchestrator:
+         defer_started = self._as_float(context.get("last_diagnostic_defer_monotonic_s"))
+         if defer_started is not None and context.get("vent_tick_after_defer_ms") in (None, ""):
+             vent_after_defer_ms = round(max(0.0, tick_started_monotonic_s - float(defer_started)) * 1000.0, 3)
+-            returned_to_loop = bool(context.get("defer_returned_to_vent_loop")) or vent_after_defer_ms <= 200.0
++            defer_state = self._a2_conditioning_defer_reschedule_state(
++                context,
++                now_mono=tick_started_monotonic_s,
++                max_gap_s=max_gap_s,
++                defer_loop_ms=vent_after_defer_ms,
++            )
++            vent_gap_exceeded = bool(defer_state.get("vent_gap_exceeded_after_defer"))
+             operation = str(
+                 context.get("defer_operation")
+                 or context.get("last_diagnostic_defer_operation")
+                 or context.get("diagnostic_blocking_operation")
+                 or "deferred_diagnostic"
+             )
+-            context["vent_tick_after_defer_ms"] = vent_after_defer_ms
++            context.update(defer_state)
+             context["defer_to_next_vent_loop_ms"] = context.get("defer_to_next_vent_loop_ms", vent_after_defer_ms)
+-            context["defer_returned_to_vent_loop"] = returned_to_loop
++            context["defer_returned_to_vent_loop"] = True
+             context["defer_reschedule_requested"] = True
+-            context["defer_reschedule_completed"] = returned_to_loop
++            context["defer_reschedule_completed"] = not vent_gap_exceeded
+             context["defer_reschedule_reason"] = str(
+                 context.get("defer_reschedule_reason") or f"fast_vent_tick_after_{operation}"
+             )
+-            if vent_after_defer_ms > 200.0:
+-                context["terminal_gap_after_defer"] = True
+-                context["terminal_gap_after_defer_ms"] = vent_after_defer_ms
+-                context["defer_path_no_reschedule"] = True
+-                context["defer_path_no_reschedule_reason"] = "defer_to_next_vent_loop_exceeded_200ms"
++            if vent_gap_exceeded:
+                 context["terminal_gap_source"] = "defer_path_no_reschedule"
+                 context["terminal_gap_operation"] = operation
+-                context["terminal_gap_duration_ms"] = vent_after_defer_ms
++                context["terminal_gap_duration_ms"] = defer_state.get("vent_gap_after_defer_ms")
+                 context["terminal_gap_detected_at"] = datetime.now(timezone.utc).isoformat()
++            elif bool(defer_state.get("defer_reschedule_latency_warning")):
++                context = self._a2_route_open_transient_mark_continuing_after_defer_warning(context)
+         context.setdefault("vent_scheduler_priority_mode", True)
+         context.setdefault("diagnostic_budget_ms", self._a2_conditioning_diagnostic_budget_ms())
+         context.setdefault("pressure_monitor_budget_ms", self._a2_conditioning_pressure_monitor_budget_ms())

@@ -215,12 +215,39 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
         assert _v12_inner["alignment_status"] in ("aligned", "attention")
         assert "parity_status" in _v12_inner
         assert "resilience_status" in _v12_inner
+        # Step 2.12: verify compact_summary_lines from shared builder
+        if "compact_summary_lines" in _v12_inner:
+            assert isinstance(_v12_inner["compact_summary_lines"], list)
+            assert len(_v12_inner["compact_summary_lines"]) > 0
+        if "builders_version" in _v12_inner:
+            assert _v12_inner["builders_version"] == "2.12.0"
     assert any(item["source_label"] == "review_run_a" for item in review_center["index_summary"]["sources"])
     assert all(str(item.get("coverage_display") or "").strip() for item in review_center["index_summary"]["sources"])
     assert all(str(item.get("gaps_display") or "").strip() for item in review_center["index_summary"]["sources"])
     assert all(bool(item.get("not_real_acceptance_evidence", False)) for item in review_center["evidence_items"])
     assert review_center["risk_summary"]["level"] in {"high", "medium"}
     assert "acceptance" in review_center["disclaimer"].lower()
+
+
+def test_review_center_index_summary_exposes_recognition_scope_binding(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+
+    rebuild_run(run_dir)
+
+    results_snapshot = facade.build_results_snapshot()
+    review_center = dict(results_snapshot.get("review_center") or {})
+    index_summary = dict(review_center.get("index_summary") or {})
+    recognition_scope_rollup = dict(index_summary.get("recognition_scope_rollup") or {})
+    recognition_binding = dict(recognition_scope_rollup.get("recognition_binding") or {})
+
+    assert recognition_binding["scope_id"] == results_snapshot["recognition_binding"]["scope_id"]
+    assert recognition_binding["decision_rule_id"] == results_snapshot["recognition_binding"]["decision_rule_id"]
+    assert recognition_binding["applicability_scope_display"]
+    assert recognition_binding["limitation_note"]
+    assert recognition_binding["non_claim_note"]
+    assert "simulation_offline_headless" in index_summary["recognition_scope_summary"]
+    assert "formal compliance" in index_summary["recognition_scope_summary"].lower()
 
 
 def test_review_center_artifact_discovery_uses_cache_budget_and_recent_run_invalidation(tmp_path: Path) -> None:
@@ -2119,3 +2146,226 @@ def test_artifact_scope_decorate_source_rows_humanizes_raw_coverage_fragments() 
     assert decorated[0]["gaps_display"] == "\u7f3a\u5c11 suite / analytics"
     assert "\u8986\u76d6 | \u5b8c\u6574 0 | \u7f3a\u53e3 2 | \u7f3a\u5c11 parity / resilience" in decorated[0]["scope_count_display"]
     assert rows[0]["coverage_display"] == "coverage | complete 0 | gapped 2 | missing parity / resilience"
+
+
+def test_review_center_panel_displays_closeout_readiness() -> None:
+    """Review center panel should display Step 2 closeout readiness section."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
+
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, title="审阅中心")
+        readiness = build_step2_readiness_summary(
+            run_id="test-closeout-rc",
+            simulation_mode=True,
+            config_governance_handoff={
+                "simulation_only": True,
+                "operator_safe": True,
+                "real_port_device_count": 0,
+                "engineering_only_flag_count": 0,
+                "enabled_engineering_flags": [],
+                "execution_gate": {"status": "open"},
+                "step2_default_workflow_allowed": True,
+                "requires_explicit_unlock": False,
+            },
+        )
+        closeout = build_step2_closeout_readiness(
+            run_id="test-closeout-rc",
+            step2_readiness_summary=readiness,
+        )
+        payload = {
+            "evidence_items": [],
+            "filters": {
+                "selected_type": "all",
+                "selected_status": "all",
+                "selected_time": "all",
+                "selected_source": "all",
+                "type_options": [],
+                "status_options": [],
+                "time_options": [],
+                "source_options": [],
+            },
+            "step2_closeout_readiness": closeout,
+        }
+        panel.render(payload)
+        # Closeout readiness section should have content
+        text_content = panel.closeout_readiness_text.get("1.0", "end")
+        assert "Step 2" in text_content
+        assert "real acceptance" in text_content.lower() or "real acceptance" in text_content
+        # Boundary notice should be visible
+        boundary_text = panel.closeout_readiness_boundary_var.get()
+        assert boundary_text
+    finally:
+        root.destroy()
+
+
+def test_review_center_panel_closeout_readiness_boundary_markers() -> None:
+    """Review center closeout readiness should maintain simulation-only boundary."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, title="审阅中心")
+        closeout = build_step2_closeout_readiness(run_id="test-boundary")
+        payload = {
+            "evidence_items": [],
+            "filters": {
+                "selected_type": "all",
+                "selected_status": "all",
+                "selected_time": "all",
+                "selected_source": "all",
+                "type_options": [],
+                "status_options": [],
+                "time_options": [],
+                "source_options": [],
+            },
+            "step2_closeout_readiness": closeout,
+        }
+        panel.render(payload)
+        text_content = panel.closeout_readiness_text.get("1.0", "end")
+        # Must contain simulation-only boundary
+        assert "仿真" in text_content or "simulation" in text_content.lower()
+        # Must not contain formal acceptance language
+        assert "正式放行" not in text_content or "不构成正式放行" in text_content
+    finally:
+        root.destroy()
+
+
+# ---------------------------------------------------------------------------
+# Freeze audit display tests (Step 2.22)
+# ---------------------------------------------------------------------------
+
+def test_review_center_has_freeze_audit_section() -> None:
+    """ReviewCenterPanel should have a freeze_audit_section attribute."""
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        assert hasattr(panel, "freeze_audit_section"), "ReviewCenterPanel missing freeze_audit_section"
+        assert hasattr(panel, "freeze_audit_text"), "ReviewCenterPanel missing freeze_audit_text"
+        assert hasattr(panel, "freeze_audit_boundary_var"), "ReviewCenterPanel missing freeze_audit_boundary_var"
+    finally:
+        root.destroy()
+
+
+def test_review_center_renders_freeze_audit() -> None:
+    """ReviewCenterPanel should render freeze audit data when present in payload."""
+    from gas_calibrator.v2.core.step2_freeze_audit_builder import build_step2_freeze_audit
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        audit = build_step2_freeze_audit(run_id="test-run")
+        payload = {
+            "run_id": "test-run",
+            "step2_freeze_audit": audit,
+        }
+        panel.render(payload)
+        text_content = panel.freeze_audit_text.get("1.0", "end")
+        assert text_content.strip(), "Freeze audit section should not be empty"
+    finally:
+        root.destroy()
+
+
+def test_review_center_freeze_audit_boundary_enforced() -> None:
+    """Freeze audit in review center must show simulation-only boundary."""
+    from gas_calibrator.v2.core.step2_freeze_audit_builder import build_step2_freeze_audit
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        audit = build_step2_freeze_audit(run_id="test-run")
+        payload = {
+            "run_id": "test-run",
+            "step2_freeze_audit": audit,
+        }
+        panel.render(payload)
+        text_content = panel.freeze_audit_text.get("1.0", "end")
+        # Must contain simulation-only boundary
+        assert "仿真" in text_content or "simulation" in text_content.lower()
+        # Must not contain formal acceptance language
+        assert "正式放行" not in text_content or "不构成正式放行" in text_content
+    finally:
+        root.destroy()
+
+
+def test_review_center_payload_includes_final_closure_matrix(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+
+    review_center = facade.build_results_snapshot()["review_center"]
+    matrix = dict(review_center.get("step2_final_closure_matrix") or {})
+
+    assert matrix
+    assert matrix["artifact_type"] == "step2_final_closure_matrix"
+    assert "review_index" in matrix["audited_surfaces"]
+    assert not any(item["surface"] == "review_index" for item in matrix["missing_surfaces"])
+    assert matrix["not_real_acceptance_evidence"] is True
+    assert matrix["not_ready_for_formal_claim"] is True
+    assert matrix["real_acceptance_ready"] is False
+
+
+def test_review_center_panel_displays_final_closure_matrix() -> None:
+    from gas_calibrator.v2.core.step2_closeout_package_builder import build_step2_closeout_package
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_final_closure_matrix import build_step2_final_closure_matrix
+    from gas_calibrator.v2.core.step2_freeze_audit_builder import build_step2_freeze_audit
+    from gas_calibrator.v2.core.step2_freeze_seal_builder import build_step2_freeze_seal
+    from gas_calibrator.v2.core.step2_closeout_verification import build_step2_closeout_verification
+    from gas_calibrator.v2.core.step3_admission_dossier_builder import build_step3_admission_dossier
+
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        readiness = build_step2_closeout_readiness(run_id="review-center-matrix")
+        package = build_step2_closeout_package(
+            run_id="review-center-matrix",
+            step2_closeout_readiness=readiness,
+        )
+        audit = build_step2_freeze_audit(
+            run_id="review-center-matrix",
+            step2_closeout_package=package,
+            step2_closeout_readiness=readiness,
+        )
+        dossier = build_step3_admission_dossier(
+            run_id="review-center-matrix",
+            step2_freeze_audit=audit,
+            step2_closeout_package=package,
+            step2_closeout_readiness=readiness,
+        )
+        verification = build_step2_closeout_verification(
+            run_id="review-center-matrix",
+            step2_closeout_readiness=readiness,
+            step2_closeout_package=package,
+            step2_freeze_audit=audit,
+            step3_admission_dossier=dossier,
+        )
+        seal = build_step2_freeze_seal(
+            run_id="review-center-matrix",
+            step2_closeout_readiness=readiness,
+            step2_closeout_package=package,
+            step2_freeze_audit=audit,
+            step3_admission_dossier=dossier,
+            step2_closeout_verification=verification,
+        )
+        matrix = build_step2_final_closure_matrix(
+            run_id="review-center-matrix",
+            step2_closeout_readiness=readiness,
+            step2_closeout_package=package,
+            step2_freeze_audit=audit,
+            step3_admission_dossier=dossier,
+            step2_freeze_seal=seal,
+        )
+
+        panel.render(
+            {
+                "run_id": "review-center-matrix",
+                "step2_final_closure_matrix": matrix,
+            }
+        )
+
+        text_content = panel.final_closure_matrix_text.get("1.0", "end")
+        assert matrix["closure_matrix_status_label"] in text_content
+        assert "Step 2" in text_content
+        boundary_text = panel.final_closure_matrix_boundary_var.get()
+        assert boundary_text
+        assert "real acceptance" in boundary_text.lower()
+    finally:
+        root.destroy()

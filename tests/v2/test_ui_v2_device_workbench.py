@@ -7,13 +7,14 @@ from gas_calibrator.v2.config import summarize_step2_config_safety
 from gas_calibrator.v2.core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
 from gas_calibrator.v2.core.multi_source_stability import MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME
 from gas_calibrator.v2.core.phase_taxonomy_contract import UNCERTAINTY_INPUT_FAMILY
+from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 from gas_calibrator.v2.ui_v2.i18n import display_taxonomy_value, t
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade
+from ui_v2_support import build_fake_facade, build_fake_sidecar_index
 
 
 def _inject_point_taxonomy_summary(run_dir: Path) -> None:
@@ -126,6 +127,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         "decision_rule_profile"
         in workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["artifact_paths"]
     )
+    assert (
+        "step2_closeout_bundle"
+        in workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["artifact_paths"]
+    )
     assert workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["compatibility_rollup"][
         "rollup_scope"
     ] == "run-dir"
@@ -202,6 +207,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         "范围/规则 rollup" in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
     )
+    assert any(
+        "Step 2 收尾总包" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
     assert all(
         "scope_overview_summary" not in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["detail_lines"] or [])
@@ -215,6 +224,11 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert str(workbench["workbench"]["preset_center"]["manager"]["selected_preset_capability_summary"] or "").strip()
     assert str(workbench["workbench"]["preset_center"]["manager"]["directory_summary"] or "").strip()
     assert workbench["engineer_summary"]["sections"]
+    assert any(
+        str(item.get("title") or "") == t("pages.devices.workbench.engineer_card.step2_closeout_bundle", default="Step 2 收尾总包")
+        and "Step 2 收尾总包" in str(item.get("summary") or "")
+        for item in list(workbench["engineer_summary"]["cards"] or [])
+    )
     assert set(workbench) >= {
         "analyzer",
         "pace",
@@ -229,6 +243,50 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         "workbench",
         "history",
     }
+
+
+def test_workbench_engineer_summary_exposes_bridge_readiness_compact_panel(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    workbench = facade.get_devices_snapshot()["workbench"]
+    recognition_readiness = dict(
+        workbench["workbench"]["live_snapshot_evidence"].get("recognition_readiness_evidence", {}) or {}
+    )
+    gate_result = dict(recognition_readiness.get("engineering_isolation_gate_result", {}) or {})
+    gate_panel = dict(recognition_readiness.get("engineering_isolation_gate_compact_panel", {}) or {})
+    expected_summary = (
+        gate_panel.get("summary_line")
+        or dict(gate_result.get("review_surface") or {}).get("summary_text")
+    )
+    bridge_card = next(
+        item
+        for item in list(workbench["engineer_summary"]["cards"] or [])
+        if str(item.get("summary") or "") == str(expected_summary or "")
+    )
+    bridge_section = next(
+        item
+        for item in list(workbench["engineer_summary"]["sections"] or [])
+        if str(item.get("id") or "") == "bridge_readiness"
+    )
+
+    assert gate_result["reviewer_bridge_only"] is True
+    assert gate_result["not_formal_admission_approval"] is True
+    assert gate_result["not_real_acceptance_evidence"] is True
+    assert gate_result["default_execution_chain_unchanged"] is True
+    assert gate_result["real_device_touched"] is False
+    assert bridge_card["summary"] == expected_summary
+    assert bridge_section["summary"] == t(
+        "pages.devices.workbench.engineer_section.bridge_readiness.summary",
+        status=gate_panel.get("status_line") or gate_result.get("gate_level_display") or t("common.none"),
+        default=f"桥接状态：{gate_panel.get('status_line') or gate_result.get('gate_level_display') or t('common.none')}",
+    )
+    assert gate_result["note"] in bridge_section["body_text"]
+    assert "not formal admission approval" in bridge_section["body_text"]
+    assert "not real acceptance" in bridge_section["body_text"]
+    assert "formal admission approved" not in bridge_section["body_text"]
+    assert "real acceptance approved" not in bridge_section["body_text"]
 
 
 def test_workbench_live_snapshot_prefers_runtime_config_governance_override(tmp_path: Path) -> None:
@@ -280,6 +338,31 @@ def test_workbench_prefers_stored_point_taxonomy_summary_handoff(tmp_path: Path)
     assert workbench["evidence"]["point_taxonomy_summary"]["flush_gate_summary"] == "stored flush taxonomy"
     assert workbench["engineer_summary"]["diagnostics"]["point_taxonomy_summary"]["preseal_summary"] == (
         "stored preseal taxonomy"
+    )
+
+
+def test_workbench_surfaces_sidecar_analytics_ai_objects_without_control_actions(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    sidecar_index = build_fake_sidecar_index(tmp_path, run_id=facade.session.run_id)
+    facade.sidecar_index = sidecar_index
+    facade.results_gateway.sidecar_index = sidecar_index
+
+    snapshot = facade.get_device_workbench_snapshot()
+    sidecar_payload = snapshot["evidence"]["analytics_ai_sidecar"]
+
+    assert sidecar_payload["available"] is True
+    assert sidecar_payload["review_copilot_payload"]["risk_summary"] == "high risk | score 0.82 | unresolved pressure drift"
+    assert sidecar_payload["model_governance_summary"]["model_version"] == "risk-model-1.2.0"
+    assert sidecar_payload["not_device_control"] is True
+    assert sidecar_payload["not_coefficient_writeback"] is True
+    assert any(
+        str(card.get("title") or "") == t("pages.devices.workbench.engineer_card.analytics_ai_sidecar", default="analytics / AI 旁路")
+        for card in snapshot["engineer_summary"]["cards"]
+    )
+    assert any(
+        str(section.get("id") or "") == "analytics_ai_sidecar"
+        and "Review Copilot" in str(section.get("body_text") or "")
+        for section in snapshot["engineer_summary"]["sections"]
     )
 
 

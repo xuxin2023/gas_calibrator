@@ -42,13 +42,50 @@ class HumidityRuntimeState:
 
 
 @dataclass
+class PressureRuntimeState:
+    sealed_route: str = ""
+    sealed_source_point_index: Optional[int] = None
+    final_vent_off_command_sent: bool = False
+    sealed_pressure_hpa: Optional[float] = None
+    preseal_pressure_peak_hpa: Optional[float] = None
+    preseal_pressure_last_hpa: Optional[float] = None
+    preseal_trigger: str = ""
+    preseal_trigger_pressure_hpa: Optional[float] = None
+    preseal_trigger_threshold_hpa: Optional[float] = None
+    preseal_final_atmosphere_exit_required: bool = False
+    preseal_final_atmosphere_exit_started: bool = False
+    preseal_final_atmosphere_exit_verified: bool = False
+    preseal_final_atmosphere_exit_phase: str = ""
+    preseal_final_atmosphere_exit_reason: str = ""
+    preseal_watchlist_status_seen: bool = False
+    preseal_watchlist_status_accepted: bool = False
+    preseal_watchlist_status_reason: str = ""
+    preseal_status_lag_accepted: bool = False
+    preseal_status_lag_reason: str = ""
+    seal_transition_completed: bool = False
+    seal_transition_status: str = ""
+    seal_transition_reason: str = ""
+    control_ready_watchlist_status_accepted: bool = False
+    sealed_route_pressure_control_started: bool = False
+    sealed_route_last_controlled_pressure_hpa: Optional[float] = None
+    ambient_reference_pressure_hpa: Optional[float] = None
+    ambient_reference_source: str = ""
+    ambient_reference_timestamp: str = ""
+    ambient_reference_monotonic_s: Optional[float] = None
+
+
+@dataclass
 class TemperatureRuntimeState:
     snapshot_keys: set[tuple[float, str]] = field(default_factory=set)
     snapshots: list[dict[str, Any]] = field(default_factory=list)
+    analyzer_chamber_temp_stability_evidence: dict[str, Any] = field(default_factory=dict)
     ready_target_c: Optional[float] = None
     last_target_c: Optional[float] = None
     last_soak_done: bool = False
     last_wait_result: Any = None
+    chamber_settle_status: str = ""
+    chamber_settle_passed_at: str = ""
+    analyzer_chamber_stability_started_at: str = ""
 
 
 @dataclass
@@ -62,6 +99,7 @@ class RunState:
     qc: QCRuntimeState = field(default_factory=QCRuntimeState)
     analyzers: AnalyzerRuntimeState = field(default_factory=AnalyzerRuntimeState)
     humidity: HumidityRuntimeState = field(default_factory=HumidityRuntimeState)
+    pressure: PressureRuntimeState = field(default_factory=PressureRuntimeState)
     temperature: TemperatureRuntimeState = field(default_factory=TemperatureRuntimeState)
     timing: TimingRuntimeState = field(default_factory=TimingRuntimeState)
 
@@ -89,11 +127,45 @@ class RunState:
         self.humidity.last_hgen_target = (None, None)
         self.humidity.last_hgen_setpoint_ready = False
 
+        self.pressure.sealed_route = ""
+        self.pressure.sealed_source_point_index = None
+        self.pressure.final_vent_off_command_sent = False
+        self.pressure.sealed_pressure_hpa = None
+        self.pressure.preseal_pressure_peak_hpa = None
+        self.pressure.preseal_pressure_last_hpa = None
+        self.pressure.preseal_trigger = ""
+        self.pressure.preseal_trigger_pressure_hpa = None
+        self.pressure.preseal_trigger_threshold_hpa = None
+        self.pressure.preseal_final_atmosphere_exit_required = False
+        self.pressure.preseal_final_atmosphere_exit_started = False
+        self.pressure.preseal_final_atmosphere_exit_verified = False
+        self.pressure.preseal_final_atmosphere_exit_phase = ""
+        self.pressure.preseal_final_atmosphere_exit_reason = ""
+        self.pressure.preseal_watchlist_status_seen = False
+        self.pressure.preseal_watchlist_status_accepted = False
+        self.pressure.preseal_watchlist_status_reason = ""
+        self.pressure.preseal_status_lag_accepted = False
+        self.pressure.preseal_status_lag_reason = ""
+        self.pressure.seal_transition_completed = False
+        self.pressure.seal_transition_status = ""
+        self.pressure.seal_transition_reason = ""
+        self.pressure.control_ready_watchlist_status_accepted = False
+        self.pressure.sealed_route_pressure_control_started = False
+        self.pressure.sealed_route_last_controlled_pressure_hpa = None
+        self.pressure.ambient_reference_pressure_hpa = None
+        self.pressure.ambient_reference_source = ""
+        self.pressure.ambient_reference_timestamp = ""
+        self.pressure.ambient_reference_monotonic_s = None
+
         self.temperature.snapshot_keys.clear()
         self.temperature.snapshots.clear()
+        self.temperature.analyzer_chamber_temp_stability_evidence.clear()
         self.temperature.ready_target_c = None
         self.temperature.last_target_c = None
         self.temperature.last_soak_done = False
         self.temperature.last_wait_result = None
+        self.temperature.chamber_settle_status = ""
+        self.temperature.chamber_settle_passed_at = ""
+        self.temperature.analyzer_chamber_stability_started_at = ""
 
         self.timing.point_contexts.clear()

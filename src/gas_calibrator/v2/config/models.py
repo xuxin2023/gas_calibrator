@@ -212,11 +212,23 @@ def _normalize_analyzer_setup_config(value: Any) -> Dict[str, Any]:
             text = text.upper()
         manual_device_ids.append(text)
 
+    raw_apply_device_id = payload.get(
+        "apply_device_id",
+        payload.get("write_device_id", payload.get("enable_device_id_assignment", True)),
+    )
+    if isinstance(raw_apply_device_id, bool):
+        apply_device_id = raw_apply_device_id
+    elif raw_apply_device_id is None:
+        apply_device_id = True
+    else:
+        apply_device_id = str(raw_apply_device_id).strip().lower() not in {"0", "false", "no", "off"}
+
     return {
         "software_version": software_version,
         "device_id_assignment_mode": assignment_mode,
         "start_device_id": start_device_id,
         "manual_device_ids": manual_device_ids,
+        "apply_device_id": apply_device_id,
     }
 
 

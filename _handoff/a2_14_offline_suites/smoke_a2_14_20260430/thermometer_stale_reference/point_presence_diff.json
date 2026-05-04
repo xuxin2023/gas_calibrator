@@ -1,0 +1,23 @@
+{
+  "matches": true,
+  "v1_only": [],
+  "v2_only": [],
+  "v1_count": 32,
+  "v2_count": 32,
+  "routes": {
+    "co2": {
+      "matches": true,
+      "v1_only": [],
+      "v2_only": [],
+      "v1_count": 16,
+      "v2_count": 16
+    },
+    "h2o": {
+      "matches": true,
+      "v1_only": [],
+      "v2_only": [],
+      "v1_count": 16,
+      "v2_count": 16
+    }
+  }
+}

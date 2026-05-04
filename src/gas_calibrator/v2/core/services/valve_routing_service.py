@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from ..models import CalibrationPoint
 from ..orchestration_context import OrchestrationContext
@@ -239,6 +239,7 @@ class ValveRoutingService:
 
     def set_valves_for_co2(self, point: CalibrationPoint) -> None:
         open_valves = self.co2_open_valves(point, include_total_valve=True)
+        self._sync_simulated_co2_target(point)
         relay_state = self.apply_valve_states(open_valves)
         physical = self._physical_route_evidence(open_valves, relay_state)
         self._record_route_trace(
@@ -265,8 +266,32 @@ class ValveRoutingService:
             message="CO2 route valves set",
         )
 
+    def _sync_simulated_co2_target(self, point: CalibrationPoint) -> None:
+        target_ppm = self.host._as_float(point.co2_ppm)
+        if target_ppm is None:
+            return
+        for device_name in (
+            "gas_analyzer",
+            "gas_analyzer_0",
+            "pressure_controller",
+            "pressure_meter",
+            "pressure_gauge",
+            "relay_a",
+            "relay_b",
+        ):
+            device = self.host._device(device_name)
+            plant_state = getattr(device, "plant_state", None) if device is not None else None
+            if plant_state is None or not hasattr(plant_state, "analyzer_co2_ppm"):
+                continue
+            try:
+                setattr(plant_state, "analyzer_co2_ppm", float(target_ppm))
+                sync = getattr(plant_state, "sync", None)
+                if callable(sync):
+                    sync()
+            except Exception:
+                continue
+
     def set_co2_route_baseline(self, *, reason: str = "") -> None:
-        self.host._set_pressure_controller_vent(True, reason=reason or "before CO2 route conditioning")
         relay_state = self.apply_valve_states([])
         physical = self._physical_route_evidence([], relay_state)
         self._record_route_trace(
@@ -290,6 +315,7 @@ class ValveRoutingService:
             message=reason or "CO2 route baseline applied",
         )
         self.host._log("CO2 route baseline applied: gas_main=OFF flow_switch=ON h2o_path=OFF hold=OFF")
+        self.host._set_pressure_controller_vent(True, reason=reason or "before CO2 route conditioning")
 
     def restore_baseline_after_run(self, *, reason: str = "") -> dict[str, Any]:
         relay_state = self.apply_valve_states([])
@@ -319,8 +345,57 @@ class ValveRoutingService:
         )
         return summary
 
+    def _final_chamber_stop_authorized(self) -> bool:
+        no_write_active = False
+        service = getattr(self.host, "service", None)
+        for owner in (self.host, service):
+            if owner is None:
+                continue
+            guard = getattr(owner, "no_write_guard", None)
+            if guard is not None and bool(getattr(guard, "enabled", True)):
+                no_write_active = True
+        workflow_guard = getattr(self.host, "_workflow_no_write_guard_active", None)
+        if callable(workflow_guard):
+            try:
+                no_write_active = no_write_active or bool(workflow_guard())
+            except Exception:
+                pass
+        raw_cfg = getattr(service, "_raw_cfg", None)
+        if isinstance(raw_cfg, Mapping):
+            for section in ("run001_a2", "a2_co2_7_pressure_no_write_probe", "run001_a1r", "run001_r1"):
+                policy = raw_cfg.get(section)
+                if isinstance(policy, Mapping) and bool(policy.get("no_write")):
+                    no_write_active = True
+        if not no_write_active:
+            return True
+        cfg_getter = getattr(self.host, "_cfg_get", None)
+        chamber_stop_paths = (
+            "workflow.safety.allow_final_chamber_stop",
+            "workflow.safety.final_safe_stop_chamber_stop_enabled",
+            "chamber_stop_enabled",
+            "run001_a2.chamber_stop_enabled",
+            "a2_co2_7_pressure_no_write_probe.chamber_stop_enabled",
+            "run001_a1r.chamber_stop_enabled",
+            "r1_conditioning_only.chamber_stop_enabled",
+            "run001_r1.chamber_stop_enabled",
+        )
+        for path in chamber_stop_paths:
+            value = cfg_getter(path, None) if callable(cfg_getter) else None
+            if value is True or (isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "on"}):
+                return True
+        return False
+
     def safe_stop_after_run(self, *, baseline_already_restored: bool = False, reason: str = "") -> dict[str, Any]:
-        summary: dict[str, Any] = {}
+        summary: dict[str, Any] = {
+            "final_safe_stop_warning_count": 0,
+            "final_safe_stop_warnings": [],
+            "final_safe_stop_chamber_stop_warning": "",
+            "final_safe_stop_chamber_stop_attempted": False,
+            "final_safe_stop_chamber_stop_command_sent": False,
+            "final_safe_stop_chamber_stop_result": "not_attempted",
+            "final_safe_stop_chamber_stop_blocked_by_no_write": False,
+        }
+        safe_stop_warnings: list[str] = []
         relay_state = {} if baseline_already_restored else self.apply_valve_states([])
         physical = self._physical_route_evidence([], relay_state) if relay_state else None
         if relay_state:
@@ -333,10 +408,26 @@ class ValveRoutingService:
 
         chamber = self.host._device("temperature_chamber")
         if chamber is not None:
-            try:
-                self.host._call_first(chamber, ("stop",))
-            except Exception as exc:
-                self.host._log(f"Final safe stop warning: chamber stop failed: {exc}")
+            summary["final_safe_stop_chamber_stop_attempted"] = True
+            if not self._final_chamber_stop_authorized():
+                warning = "chamber stop blocked by A2 no-write final safe stop policy"
+                summary["final_safe_stop_chamber_stop_warning"] = warning
+                summary["final_safe_stop_chamber_stop_command_sent"] = False
+                summary["final_safe_stop_chamber_stop_blocked_by_no_write"] = True
+                summary["final_safe_stop_chamber_stop_result"] = "blocked_by_no_write"
+                safe_stop_warnings.append(warning)
+                self.host._log(f"Final safe stop warning: {warning}")
+            else:
+                try:
+                    summary["final_safe_stop_chamber_stop_command_sent"] = True
+                    self.host._call_first(chamber, ("stop",))
+                    summary["final_safe_stop_chamber_stop_result"] = "success"
+                except Exception as exc:
+                    warning = f"chamber stop failed: {exc}"
+                    summary["final_safe_stop_chamber_stop_warning"] = warning
+                    summary["final_safe_stop_chamber_stop_result"] = "failed"
+                    safe_stop_warnings.append(warning)
+                    self.host._log(f"Final safe stop warning: {warning}")
             chamber_state = self._chamber_state(chamber)
             if chamber_state:
                 summary["chamber"] = chamber_state
@@ -354,10 +445,17 @@ class ValveRoutingService:
                     else:
                         self.host._call_first(generator, ("disable_control",), False)
             except Exception as exc:
-                self.host._log(f"Final safe stop warning: humidity generator stop failed: {exc}")
+                warning = f"humidity generator stop failed: {exc}"
+                safe_stop_warnings.append(warning)
+                self.host._log(f"Final safe stop warning: {warning}")
             stop_check = self._humidity_generator_stop_check(generator)
             if stop_check:
                 summary["hgen_stop_check"] = stop_check
+                if not bool(stop_check.get("ok", True)) and stop_check.get("error"):
+                    safe_stop_warnings.append(f"humidity generator verify failed: {stop_check.get('error')}")
+
+        summary["final_safe_stop_warnings"] = list(dict.fromkeys(safe_stop_warnings))
+        summary["final_safe_stop_warning_count"] = len(summary["final_safe_stop_warnings"])
 
         self._record_route_trace(
             action="final_safe_stop_routes",
@@ -486,7 +584,12 @@ class ValveRoutingService:
             actual = bool(desired)
             relay = self.host._device(relay_name)
             if relay is not None:
-                reader = self.host._first_method(relay, ("read_coils",))
+                method_finder = getattr(self.host, "_first_method", None)
+                reader = (
+                    method_finder(relay, ("read_coils",))
+                    if callable(method_finder)
+                    else getattr(relay, "read_coils", None)
+                )
                 if reader is not None:
                     try:
                         response = reader(max(0, int(channel) - 1), 1)
