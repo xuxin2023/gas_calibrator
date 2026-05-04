@@ -6048,7 +6048,7 @@ class PressureControlService:
         slew_method = getattr(controller, "set_slew_rate", None)
         if callable(slew_method):
             try:
-                slew_method(10.0)
+                slew_method(20.0)
                 set_mode = getattr(controller, "set_slew_mode_linear", None)
                 if callable(set_mode):
                     set_mode()
