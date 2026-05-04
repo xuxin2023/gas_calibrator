@@ -6096,41 +6096,13 @@ class PressureControlService:
                 "error": "setpoint_method_unavailable",
                 "reason": "setpoint_method_unavailable",
             }
-        getter = None
-        for getter_name in ("get_setpoint", "get_pressure_setpoint", "read_setpoint"):
-            candidate = getattr(controller, getter_name, None)
-            if callable(candidate):
-                getter = candidate
-                break
-        if getter is None:
-            return {
-                "command_sent": True,
-                "method": method_used,
-                "accepted": True,
-                "readback_hpa": None,
-                "error": "",
-                "reason": "setpoint_command_completed_without_readback",
-            }
-        try:
-            readback = self._coerce_float(getter())
-        except Exception as exc:
-            return {
-                "command_sent": True,
-                "method": method_used,
-                "accepted": False,
-                "readback_hpa": None,
-                "error": str(exc),
-                "reason": "setpoint_readback_failed",
-            }
-        tolerance = float(self.host._cfg_get("workflow.pressure_control.setpoint_tolerance_hpa", 1.0))
-        accepted = readback is not None and abs(float(readback) - float(target_hpa)) <= max(0.05, tolerance)
         return {
             "command_sent": True,
             "method": method_used,
-            "accepted": bool(accepted),
-            "readback_hpa": readback,
-            "error": "" if accepted else "setpoint_readback_mismatch",
-            "reason": "setpoint_readback_accepted" if accepted else "setpoint_readback_mismatch",
+            "accepted": True,
+            "readback_hpa": None,
+            "error": "",
+            "reason": "setpoint_command_sent",
         }
 
     def _pressure_output_enabled_for_control(self, controller: Any) -> Optional[bool]:

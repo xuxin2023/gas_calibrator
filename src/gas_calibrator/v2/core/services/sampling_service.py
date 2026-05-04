@@ -785,12 +785,15 @@ class SamplingService:
         generator = self.host._device("humidity_generator")
         rows: list[dict[str, Any]] = []
         results: list[SamplingResult] = []
-        for sample_index in range(count):
-            self.host._check_stop()
-            row: dict[str, Any] = {
-                "point_index": point.index,
-                "point_phase": phase,
-                "point_tag": point_tag,
+        total_workers = len(analyzers) + 6
+        with ThreadPoolExecutor(max_workers=total_workers) as executor:
+            for sample_index in range(count):
+                self.host._check_stop()
+                sample_idx = sample_index + 1
+                row: dict[str, Any] = {
+                    "point_index": point.index,
+                    "point_phase": phase,
+                    "point_tag": point_tag,
                 "sample_index": sample_index + 1,
                 "sample_ts": datetime.now(timezone.utc).isoformat(),
                 "temp_set_c": point.temp_chamber_c,
@@ -806,59 +809,56 @@ class SamplingService:
             preferred_result: Optional[SamplingResult] = None
             first_usable_result: Optional[SamplingResult] = None
             preferred_analyzer_label = analyzers[0][0] if analyzers else ""
-            sample_idx = sample_index + 1
-            total_workers = len(analyzers) + 6
-            with ThreadPoolExecutor(max_workers=total_workers) as executor:
-                analyzer_futures: dict[Any, str] = {}
-                for label, analyzer, _ in analyzers:
-                    future = executor.submit(
-                        self._read_single_analyzer_snapshot,
-                        point, label, analyzer, phase, point_tag, sample_idx,
-                    )
-                    analyzer_futures[future] = label
-                pressure_future = executor.submit(pressure_reader) if pressure_reader is not None else None
-                pressure_snapshot_future = executor.submit(pressure_gauge_snapshot_reader) if pressure_gauge_snapshot_reader is not None else None
-                thermometer_future = executor.submit(thermometer_reader) if thermometer_reader is not None else None
-                thermometer_snapshot_future = executor.submit(thermometer_snapshot_reader) if thermometer_snapshot_reader is not None else None
-                chamber_temp_future = executor.submit(self.make_temperature_reader(chamber)) if chamber is not None and self.make_temperature_reader(chamber) is not None else None
-                chamber_rh_method = self.host._first_method(chamber, ("read_rh_pct", "read_humidity_pct")) if chamber is not None else None
-                chamber_rh_future = executor.submit(chamber_rh_method) if chamber_rh_method is not None else None
+            analyzer_futures: dict[Any, str] = {}
+            for label, analyzer, _ in analyzers:
+                future = executor.submit(
+                    self._read_single_analyzer_snapshot,
+                    point, label, analyzer, phase, point_tag, sample_idx,
+                )
+                analyzer_futures[future] = label
+            pressure_future = executor.submit(pressure_reader) if pressure_reader is not None else None
+            pressure_snapshot_future = executor.submit(pressure_gauge_snapshot_reader) if pressure_gauge_snapshot_reader is not None else None
+            thermometer_future = executor.submit(thermometer_reader) if thermometer_reader is not None else None
+            thermometer_snapshot_future = executor.submit(thermometer_snapshot_reader) if thermometer_snapshot_reader is not None else None
+            chamber_temp_future = executor.submit(self.make_temperature_reader(chamber)) if chamber is not None and self.make_temperature_reader(chamber) is not None else None
+            chamber_rh_method = self.host._first_method(chamber, ("read_rh_pct", "read_humidity_pct")) if chamber is not None else None
+            chamber_rh_future = executor.submit(chamber_rh_method) if chamber_rh_method is not None else None
 
-                for future in as_completed(analyzer_futures):
-                    label = analyzer_futures[future]
-                    prefix = str(label or "").lower().replace(" ", "_")
-                    try:
-                        result, raw_snapshot = future.result()
-                        if result is None:
-                            raise RuntimeError("analyzer read returned None")
-                        batch_results.append(result)
-                        snapshot = self.normalize_snapshot(raw_snapshot)
-                        row[f"{prefix}_frame_has_data"] = True
-                        row[f"{prefix}_frame_usable"] = True
-                        row[f"{prefix}_frame_status"] = "ok"
-                        row[f"{prefix}_co2_ppm"] = result.co2_ppm
-                        row[f"{prefix}_h2o_mmol"] = result.h2o_mmol
-                        row[f"{prefix}_co2_ratio_f"] = result.co2_ratio_f
-                        row[f"{prefix}_h2o_ratio_f"] = result.h2o_ratio_f
-                        if label == preferred_analyzer_label:
-                            preferred_result = result
-                        if first_usable_result is None:
-                            first_usable_result = result
-                        for key, value in snapshot.items():
-                            row[f"{prefix}_{key}"] = value
-                    except Exception as exc:
-                        row[f"{prefix}_frame_has_data"] = False
-                        row[f"{prefix}_frame_usable"] = False
-                        row[f"{prefix}_frame_status"] = "read_error"
-                        row[f"{prefix}_error"] = str(exc)
-                        batch_failures.append(label)
+            for future in as_completed(analyzer_futures):
+                label = analyzer_futures[future]
+                prefix = str(label or "").lower().replace(" ", "_")
+                try:
+                    result, raw_snapshot = future.result()
+                    if result is None:
+                        raise RuntimeError("analyzer read returned None")
+                    batch_results.append(result)
+                    snapshot = self.normalize_snapshot(raw_snapshot)
+                    row[f"{prefix}_frame_has_data"] = True
+                    row[f"{prefix}_frame_usable"] = True
+                    row[f"{prefix}_frame_status"] = "ok"
+                    row[f"{prefix}_co2_ppm"] = result.co2_ppm
+                    row[f"{prefix}_h2o_mmol"] = result.h2o_mmol
+                    row[f"{prefix}_co2_ratio_f"] = result.co2_ratio_f
+                    row[f"{prefix}_h2o_ratio_f"] = result.h2o_ratio_f
+                    if label == preferred_analyzer_label:
+                        preferred_result = result
+                    if first_usable_result is None:
+                        first_usable_result = result
+                    for key, value in snapshot.items():
+                        row[f"{prefix}_{key}"] = value
+                except Exception as exc:
+                    row[f"{prefix}_frame_has_data"] = False
+                    row[f"{prefix}_frame_usable"] = False
+                    row[f"{prefix}_frame_status"] = "read_error"
+                    row[f"{prefix}_error"] = str(exc)
+                    batch_failures.append(label)
 
-                pressure_hpa = pressure_future.result() if pressure_future is not None else None
-                pressure_snapshot = pressure_snapshot_future.result() if pressure_snapshot_future is not None else {}
-                thermometer_snapshot = thermometer_snapshot_future.result() if thermometer_snapshot_future is not None else {}
-                thermometer_temp_c_raw = thermometer_future.result() if thermometer_future is not None else None
-                chamber_temp_c_raw = chamber_temp_future.result() if chamber_temp_future is not None else None
-                chamber_rh_raw = self.host._as_float(chamber_rh_future.result()) if chamber_rh_future is not None else None
+            pressure_hpa = pressure_future.result() if pressure_future is not None else None
+            pressure_snapshot = pressure_snapshot_future.result() if pressure_snapshot_future is not None else {}
+            thermometer_snapshot = thermometer_snapshot_future.result() if thermometer_snapshot_future is not None else {}
+            thermometer_temp_c_raw = thermometer_future.result() if thermometer_future is not None else None
+            chamber_temp_c_raw = chamber_temp_future.result() if chamber_temp_future is not None else None
+            chamber_rh_raw = self.host._as_float(chamber_rh_future.result()) if chamber_rh_future is not None else None
 
             if preferred_result is None:
                 preferred_result = first_usable_result
