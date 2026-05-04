@@ -1,0 +1,15 @@
+[
+  {
+    "index": 1,
+    "temperature_c": 20.0,
+    "humidity_pct": 37.31,
+    "pressure_hpa": 1013.25,
+    "route": "h2o",
+    "co2_ppm": null,
+    "humidity_generator_temp_c": 20.0,
+    "dewpoint_c": 5.0,
+    "h2o_mmol": 10.69,
+    "co2_group": null,
+    "cylinder_nominal_ppm": null
+  }
+]
