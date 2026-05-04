@@ -6,6 +6,7 @@ Idempotent: skips artifacts already stored with matching hash.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -14,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL = """
 CREATE TABLE IF NOT EXISTS run_index (
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS run_index (
     pressure_points_completed INTEGER DEFAULT 0,
     sample_count_total INTEGER DEFAULT 0,
     attempted_write_count INTEGER DEFAULT 0,
+    analyzer_sn TEXT DEFAULT '',
     config_path TEXT DEFAULT '',
     output_dir TEXT DEFAULT '',
     created_at TEXT NOT NULL
@@ -47,13 +49,24 @@ CREATE TABLE IF NOT EXISTS coefficient_version (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL,
     analyzer_id TEXT NOT NULL,
+    analyzer_sn TEXT DEFAULT '',
     coefficient_value REAL,
     written_to_device INTEGER DEFAULT 0,
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS analyzer_registry (
+    analyzer_sn TEXT PRIMARY KEY,
+    first_seen_run_id TEXT NOT NULL,
+    first_seen_time TEXT NOT NULL,
+    last_seen_time TEXT NOT NULL,
+    model TEXT DEFAULT '',
+    notes TEXT DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS ix_artifact_run_id ON artifact_index(run_id);
 CREATE INDEX IF NOT EXISTS ix_coefficient_run_id ON coefficient_version(run_id);
+CREATE INDEX IF NOT EXISTS ix_coefficient_analyzer_sn ON coefficient_version(analyzer_sn);
 """
 
 
@@ -114,6 +127,64 @@ def _collect_artifacts(output_dir: str) -> list[dict[str, str]]:
     return artifacts
 
 
+def _discover_analyzer_sns(output_dir: str) -> list[str]:
+    base = Path(output_dir)
+    csv_path = base / "samples_runtime.csv"
+    if not csv_path.exists():
+        csv_path = base / "samples.csv"
+    if not csv_path.exists():
+        return []
+
+    sns: list[str] = []
+    try:
+        with open(csv_path, "r", encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            if reader.fieldnames:
+                for col in reader.fieldnames:
+                    if col.endswith("_serial") and col.lower().startswith(("ga", "analyzer_")):
+                        prefix = col.rsplit("_serial", 1)[0]
+                        try:
+                            first_row = next(reader)
+                        except StopIteration:
+                            break
+                        sn_val = (first_row.get(col) or "").strip()
+                        if sn_val:
+                            sns.append(sn_val)
+    except Exception:
+        pass
+    return sns
+
+
+def _index_analyzer_registry(
+    conn: sqlite3.Connection,
+    run_id: str,
+    timestamp: str,
+    analyzer_sns: list[str],
+) -> int:
+    updated = 0
+    for sn in analyzer_sns:
+        if not sn:
+            continue
+        existing = conn.execute(
+            "SELECT analyzer_sn FROM analyzer_registry WHERE analyzer_sn=?",
+            (sn,),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE analyzer_registry SET last_seen_time=? WHERE analyzer_sn=?",
+                (timestamp, sn),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO analyzer_registry "
+                "(analyzer_sn, first_seen_run_id, first_seen_time, last_seen_time, model, notes) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (sn, run_id, timestamp, timestamp, "", ""),
+            )
+        updated += 1
+    return updated
+
+
 def index_run(output_dir: str, *, db_path: str = "gas_calibrator_index.db") -> dict[str, Any]:
     if not output_dir or not Path(output_dir).is_dir():
         return {"ok": False, "error": f"output_dir not found: {output_dir}"}
@@ -137,15 +208,19 @@ def index_run(output_dir: str, *, db_path: str = "gas_calibrator_index.db") -> d
     config_path = str(summary.get("config_path", ""))
     created_at = _utc_now_text()
 
+    analyzer_sns = _discover_analyzer_sns(output_dir)
+    analyzer_sn_text = ";".join(analyzer_sns)
+    registry_updated = _index_analyzer_registry(conn, run_id, timestamp, analyzer_sns)
+
     conn.execute(
         """INSERT OR REPLACE INTO run_index
            (run_id, timestamp, branch, head, final_decision,
             pressure_points_completed, sample_count_total, attempted_write_count,
-            config_path, output_dir, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            analyzer_sn, config_path, output_dir, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (run_id, timestamp, "", "", final_decision,
          points_completed, sample_count, write_count,
-         config_path, str(Path(output_dir).resolve()), created_at),
+         analyzer_sn_text, config_path, str(Path(output_dir).resolve()), created_at),
     )
 
     artifacts = _collect_artifacts(output_dir)
@@ -174,6 +249,8 @@ def index_run(output_dir: str, *, db_path: str = "gas_calibrator_index.db") -> d
     return {
         "ok": True,
         "run_id": run_id,
+        "analyzer_sns": analyzer_sns,
+        "registry_updated": registry_updated,
         "artifacts_inserted": inserted,
         "artifacts_skipped": skipped,
         "artifacts_total": len(artifacts),
