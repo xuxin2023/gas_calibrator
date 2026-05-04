@@ -466,7 +466,7 @@ class GasAnalyzer:
             time.sleep(self.PASSIVE_READ_DELAY_S)
             line = self.ser.readline()
             if str(line or "").strip():
-                return line
+                return str(line).replace("\x00", "")
             if idx + 1 < attempts:
                 time.sleep(self.PASSIVE_READ_DELAY_S)
         return ""
@@ -523,7 +523,7 @@ class GasAnalyzer:
                 last_lines = lines
                 for line in reversed(lines):
                     if self.parse_line_mode2(line):
-                        return line
+                        return str(line).replace("\x00", "")
             if idx + 1 < attempts:
                 time.sleep(max(0.0, float(self.ACTIVE_READ_RETRY_DELAY_S)))
 
@@ -531,8 +531,8 @@ class GasAnalyzer:
             return ""
         for line in reversed(last_lines):
             if self.parse_line(line):
-                return line
-        return last_lines[-1]
+                return str(line).replace("\x00", "")
+        return str(last_lines[-1]).replace("\x00", "")
 
     def read_latest_data(
         self,
@@ -684,9 +684,10 @@ class GasAnalyzer:
 
     def parse_line_mode2(self, line: str) -> Optional[Dict[str, Any]]:
         try:
-            for candidate in self._iter_frame_candidates(line):
+            clean = str(line or "").replace("\x00", "")
+            for candidate in self._iter_frame_candidates(clean):
                 parts = self._split_frame_parts(candidate)
-                parsed = self._parse_mode2(parts, line)
+                parsed = self._parse_mode2(parts, clean)
                 if parsed is not None:
                     return parsed
             return None
@@ -695,12 +696,13 @@ class GasAnalyzer:
 
     def parse_line(self, line: str) -> Optional[Dict[str, Any]]:
         try:
-            for candidate in self._iter_frame_candidates(line):
+            clean = str(line or "").replace("\x00", "")
+            for candidate in self._iter_frame_candidates(clean):
                 parts = self._split_frame_parts(candidate)
-                mode2 = self._parse_mode2(parts, line)
+                mode2 = self._parse_mode2(parts, clean)
                 if mode2 is not None:
                     return mode2
-                legacy = self._parse_legacy(parts, line)
+                legacy = self._parse_legacy(parts, clean)
                 if legacy is not None:
                     return legacy
             return None
