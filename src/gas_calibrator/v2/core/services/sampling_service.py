@@ -780,12 +780,11 @@ class SamplingService:
         pressure_gauge_snapshot_reader = self.make_pressure_gauge_snapshot_reader()
         thermometer_reader = self.make_thermometer_reader()
         thermometer_snapshot_reader = self.make_thermometer_snapshot_reader()
-        dewpoint = self.host._device("dewpoint_meter")
         chamber = self.host._device("temperature_chamber")
         generator = self.host._device("humidity_generator")
         rows: list[dict[str, Any]] = []
         results: list[SamplingResult] = []
-        total_workers = len(analyzers) + 6
+        total_workers = len(analyzers) + 8
         with ThreadPoolExecutor(max_workers=total_workers) as executor:
             for sample_index in range(count):
                 self.host._check_stop()
@@ -823,6 +822,37 @@ class SamplingService:
             chamber_temp_future = executor.submit(self.make_temperature_reader(chamber)) if chamber is not None and self.make_temperature_reader(chamber) is not None else None
             chamber_rh_method = self.host._first_method(chamber, ("read_rh_pct", "read_humidity_pct")) if chamber is not None else None
             chamber_rh_future = executor.submit(chamber_rh_method) if chamber_rh_method is not None else None
+
+            humidity_reader = self.make_humidity_reader(generator)
+            hgen_future = executor.submit(humidity_reader) if humidity_reader is not None else None
+            dewpoint = self.host._device("dewpoint_meter")
+            dewpoint_enabled = (
+                dewpoint is not None
+                and self.context.device_manager.get_status("dewpoint_meter") is not DeviceStatus.DISABLED
+            )
+            dewpoint_future = executor.submit(
+                lambda d=dewpoint: self.normalize_snapshot(
+                    self.read_device_snapshot(
+                        d,
+                        context="dewpoint batch parallel snapshot",
+                        required_keys=("dewpoint_c", "dew_point_c", "dew_point", "Td"),
+                        retry_on_empty=True,
+                    )
+                )
+            ) if dewpoint_enabled else None
+            hgen_snapshot_enabled = (
+                generator is not None
+                and self.context.device_manager.get_status("humidity_generator") is not DeviceStatus.DISABLED
+            )
+            hgen_snapshot_future = executor.submit(
+                lambda g=generator: self.normalize_snapshot(
+                    self.read_device_snapshot(
+                        g,
+                        context="humidity generator batch parallel snapshot",
+                        retry_on_empty=True,
+                    )
+                )
+            ) if hgen_snapshot_enabled else None
 
             for future in as_completed(analyzer_futures):
                 label = analyzer_futures[future]
@@ -900,7 +930,8 @@ class SamplingService:
             if pressure_reader is not None:
                 row.setdefault("pressure_hpa", pressure_hpa)
 
-            if dewpoint is not None and self.context.device_manager.get_status("dewpoint_meter") is not DeviceStatus.DISABLED:
+            if dewpoint_future is not None:
+                dewpoint_snapshot = dewpoint_future.result()
                 if phase == "h2o" and self.run_state.humidity.preseal_dewpoint_snapshot:
                     row["dewpoint_c"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("dewpoint_c")
                     row["dew_temp_c"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("temp_c")
@@ -908,31 +939,22 @@ class SamplingService:
                     row["dew_pressure_hpa"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("pressure_hpa")
                     row["dewpoint_sample_ts"] = self.run_state.humidity.preseal_dewpoint_snapshot.get("sample_ts")
                 else:
-                    snapshot = self.normalize_snapshot(
-                        self.read_device_snapshot(
-                            dewpoint,
-                            context="dewpoint batch snapshot",
-                            required_keys=("dewpoint_c", "dew_point_c", "dew_point", "Td"),
-                            retry_on_empty=True,
-                        )
-                    )
-                    row["dewpoint_c"] = snapshot.get("dewpoint_c")
-                    row["dew_temp_c"] = snapshot.get("temp_c")
-                    row["dew_rh_pct"] = snapshot.get("rh_pct")
+                    row["dewpoint_c"] = dewpoint_snapshot.get("dewpoint_c")
+                    row["dew_temp_c"] = dewpoint_snapshot.get("temp_c")
+                    row["dew_rh_pct"] = dewpoint_snapshot.get("rh_pct")
 
             if chamber_temp_c_raw is not None:
                 row["chamber_temp_c"] = chamber_temp_c_raw
             if chamber_rh_raw is not None:
                 row["chamber_rh_pct"] = chamber_rh_raw
 
-            if generator is not None and self.context.device_manager.get_status("humidity_generator") is not DeviceStatus.DISABLED:
-                snapshot = self.normalize_snapshot(
-                    self.read_device_snapshot(
-                        generator,
-                        context="humidity generator batch snapshot",
-                        retry_on_empty=True,
-                    )
-                )
+            if hgen_future is not None:
+                humidity_val = hgen_future.result()
+                if humidity_val is not None:
+                    row["humidity_generator_rh_pct"] = humidity_val
+
+            if hgen_snapshot_future is not None:
+                snapshot = hgen_snapshot_future.result()
                 data = safe_get(snapshot, "data", default=snapshot)
                 if isinstance(data, dict):
                     for key, value in data.items():

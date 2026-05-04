@@ -804,6 +804,18 @@ def prepare_h2o_downstream_points_config(
     return aligned_config_path, metadata
 
 
+def _shutdown_humidity_generator(service: Any) -> None:
+    generator = service.device_manager.get_device("humidity_generator")
+    if generator is None:
+        return
+    stopper = getattr(generator, "safe_stop", None)
+    if callable(stopper):
+        stopper()
+    waiter = getattr(generator, "wait_stopped", None)
+    if callable(waiter):
+        waiter(max_flow_lpm=0.05, timeout_s=30.0, poll_s=0.5)
+
+
 def execute_h2o_single_point_probe(config_path: str | Path) -> dict[str, Any]:
     from gas_calibrator.v2.core.no_write_guard import build_no_write_guard_from_raw_config
     from gas_calibrator.v2.entry import create_calibration_service_from_config, load_config_bundle
@@ -822,7 +834,10 @@ def execute_h2o_single_point_probe(config_path: str | Path) -> dict[str, Any]:
     )
     build_no_write_guard_from_raw_config(raw_cfg)
     timeout_s = max(900.0, float(raw_cfg.get("max_runtime_s", 900.0)))
-    service.run(timeout=timeout_s)
+    try:
+        service.run(timeout=timeout_s)
+    finally:
+        _shutdown_humidity_generator(service)
     run_dir = Path(service.session.output_dir)
     summary = _load_json_dict(run_dir / "summary.json")
     run_log_text = ""
