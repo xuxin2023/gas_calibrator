@@ -542,7 +542,7 @@
         "humidity_timeout_policy": "abort_like_v1"
       },
       "co2_route": {
-        "preseal_soak_s": 180,
+        "preseal_soak_s": 300,
         "post_h2o_zero_ppm_soak_s": 0
       },
       "sensor": {

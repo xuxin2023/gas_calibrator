@@ -807,7 +807,7 @@ class SamplingService:
             first_usable_result: Optional[SamplingResult] = None
             preferred_analyzer_label = analyzers[0][0] if analyzers else ""
             sample_idx = sample_index + 1
-            total_workers = len(analyzers) + 4  # analyzers + pressure + thermometer + chamber_temp + chamber_rh
+            total_workers = len(analyzers) + 6
             with ThreadPoolExecutor(max_workers=total_workers) as executor:
                 analyzer_futures: dict[Any, str] = {}
                 for label, analyzer, _ in analyzers:
@@ -818,6 +818,7 @@ class SamplingService:
                     analyzer_futures[future] = label
                 pressure_future = executor.submit(pressure_reader) if pressure_reader is not None else None
                 pressure_snapshot_future = executor.submit(pressure_gauge_snapshot_reader) if pressure_gauge_snapshot_reader is not None else None
+                thermometer_future = executor.submit(thermometer_reader) if thermometer_reader is not None else None
                 thermometer_snapshot_future = executor.submit(thermometer_snapshot_reader) if thermometer_snapshot_reader is not None else None
                 chamber_temp_future = executor.submit(self.make_temperature_reader(chamber)) if chamber is not None and self.make_temperature_reader(chamber) is not None else None
                 chamber_rh_method = self.host._first_method(chamber, ("read_rh_pct", "read_humidity_pct")) if chamber is not None else None
@@ -875,8 +876,8 @@ class SamplingService:
             )
             thermometer_snapshot = thermometer_snapshot_future.result() if thermometer_snapshot_future is not None else {}
             thermometer_temp_c = self.pick_numeric(thermometer_snapshot, "thermometer_temp_c", "temp_c", "temperature_c")
-            if thermometer_temp_c is None and thermometer_reader is not None:
-                thermometer_temp_c = thermometer_reader()
+            if thermometer_temp_c is None and thermometer_future is not None:
+                thermometer_temp_c = thermometer_future.result()
             thermometer_reference_status = self.pick_text(
                 thermometer_snapshot,
                 "thermometer_reference_status",

@@ -458,8 +458,8 @@
         "humidity_timeout_policy": "abort_like_v1"
       },
       "co2_route": {
-        "preseal_soak_s": 15,
-        "first_point_preseal_soak_s": 15,
+        "preseal_soak_s": 300,
+        "first_point_preseal_soak_s": 300,
         "post_h2o_zero_ppm_soak_s": 0
       },
       "sensor": {
@@ -468,9 +468,9 @@
         "co2_ratio_f_preseal_tol": 0.01,
         "co2_ratio_f_tol": 0.001,
         "read_interval_s": 1.0,
-        "window_s": 30,
-        "timeout_s": 300,
-        "poll_s": 0.5
+        "window_s": 15,
+        "timeout_s": 60,
+        "poll_s": 1.0
       },
       "dewpoint": {
         "timeout_s": 1800,
