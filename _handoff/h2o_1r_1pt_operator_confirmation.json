@@ -1,14 +1,9 @@
 {
-  "operator_name": "a2_44_smoke",
-  "timestamp": "2026-05-04T01:30:00.000000+00:00",
+  "operator_name": "h2o_1r_engineering_probe",
+  "timestamp": "2026-05-04T09:45:00.000000+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
   "HEAD": "9309c3e1",
-  "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_a2_co2_only_7_pressure_no_write_real_machine.json",
-  "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
-  "pressure_points_hpa": [
-    1100
-  ],
-  "pressure_source": "v1_aligned",
+  "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_h2o_only_1_point_no_write_real_machine.json",
   "port_manifest": {
     "humidity_generator": "COM16",
     "dewpoint_meter": "COM17",
@@ -23,14 +18,12 @@
     "pressure_controller": "COM23"
   },
   "explicit_acknowledgement": {
-    "only_a2_co2_7_pressure_no_write": true,
-    "co2_only": true,
+    "h2o_only": true,
+    "only_h2o_1_point_no_write": true,
     "skip0": true,
     "single_route": true,
     "single_temperature": true,
-    "skip_temperature_stabilization_wait": true,
-    "seven_pressure_points": true,
-    "one_pressure_point": true,
+    "single_pressure_point": true,
     "no_write": true,
     "no_id_write": true,
     "no_senco_write": true,
@@ -43,18 +36,17 @@
     "not_real_acceptance": true,
     "engineering_probe_only": true,
     "v1_fallback_required": true,
-    "authorized_pressure_control_scope_acknowledged": true,
     "do_not_refresh_real_primary_latest": true,
     "a3_enabled": false,
-    "h2o_enabled": false,
+    "co2_enabled": false,
     "full_group_enabled": false,
     "multi_temperature_enabled": false,
     "real_primary_latest_refresh": false
   },
   "single_run_only": false,
   "do_not_repeat": true,
-  "operator_confirmation_source": "A2.44 smoke",
-  "probe_scope": "A2.44 1-point smoke test",
+  "operator_confirmation_source": "H2O.1R engineering probe",
+  "probe_scope": "H2O-only single-point no-write engineering probe",
   "not_real_acceptance_evidence": true,
   "promotion_state": "blocked"
 }
