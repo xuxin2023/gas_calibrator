@@ -538,7 +538,7 @@ class GasAnalyzer:
         self,
         *,
         prefer_stream: Optional[bool] = None,
-        drain_s: float = 0.35,
+        drain_s: float = 0.5,
         read_timeout_s: float = 0.05,
         allow_passive_fallback: bool = False,
     ) -> str:
