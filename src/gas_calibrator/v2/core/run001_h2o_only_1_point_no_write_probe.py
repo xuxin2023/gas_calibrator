@@ -361,20 +361,6 @@ def _load_h2o_points_from_v1_excel(excel_path: Path, raw_cfg: Mapping[str, Any])
 
 
 def _build_h2o_downstream_point_rows(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
-    paths = raw_cfg.get("paths", {})
-    if not isinstance(paths, dict):
-        paths = {}
-    raw_path = str(paths.get("points_excel", "") or "").strip()
-    if raw_path and raw_path.endswith((".xlsx", ".xls")):
-        from pathlib import Path as _Path
-        base = _Path(os.getcwd())
-        candidate = _Path(raw_path)
-        if not candidate.is_absolute():
-            candidate = (base / candidate).resolve()
-        if candidate.exists():
-            rows = _load_h2o_points_from_v1_excel(candidate, raw_cfg)
-            if rows:
-                return rows
     temperature_c = _selected_temperature_c(raw_cfg)
     rows: list[dict[str, Any]] = []
     for index, pressure in enumerate(H2O_ALLOWED_PRESSURE_POINTS_HPA, start=1):
@@ -844,39 +830,15 @@ def prepare_h2o_downstream_points_config(
     config_path: str | Path,
     output_dir: str | Path,
 ) -> tuple[Path, dict[str, Any]]:
-    from gas_calibrator.v2.core.run001_a1_dry_run import load_point_rows, resolve_config_relative_path
-
     run_dir = Path(output_dir).expanduser().resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
-    original_config_path = Path(config_path).expanduser().resolve()
-    raw_paths = raw_cfg.get("paths") if isinstance(raw_cfg.get("paths"), Mapping) else {}
-    raw_points_value = str((raw_paths or {}).get("points_excel") or "").strip()
-    resolved_points = resolve_config_relative_path(original_config_path, raw_points_value)
-
-    generated = False
-    if resolved_points is not None and resolved_points.exists():
-        points_path = resolved_points
-        if points_path.suffix.lower() in (".xlsx", ".xls"):
-            rows = _load_h2o_points_from_v1_excel(points_path, raw_cfg)
-            reasons = _validate_h2o_downstream_point_rows(rows)
-            if reasons:
-                raise H2OPointsConfigAlignmentError("; ".join(reasons))
-            generated = True
-            points_path = run_dir / "h2o_1r_v1_aligned_points.json"
-            _write_json_no_bom(points_path, rows)
-        else:
-            rows = load_point_rows(original_config_path, raw_cfg)
-            reasons = _validate_h2o_downstream_point_rows(rows)
-            if reasons:
-                raise H2OPointsConfigAlignmentError("; ".join(reasons))
-    else:
-        generated = True
-        rows = _build_h2o_downstream_point_rows(raw_cfg)
-        reasons = _validate_h2o_downstream_point_rows(rows)
-        if reasons:
-            raise H2OPointsConfigAlignmentError("; ".join(reasons))
-        points_path = run_dir / "h2o_1r_v1_aligned_points.json"
-        _write_json_no_bom(points_path, rows)
+    generated = True
+    rows = _build_h2o_downstream_point_rows(raw_cfg)
+    reasons = _validate_h2o_downstream_point_rows(rows)
+    if reasons:
+        raise H2OPointsConfigAlignmentError("; ".join(reasons))
+    points_path = run_dir / "h2o_1r_v1_aligned_points.json"
+    _write_json_no_bom(points_path, rows)
 
     aligned_raw_cfg = _json_clone_mapping(raw_cfg)
     paths = aligned_raw_cfg.setdefault("paths", {})
