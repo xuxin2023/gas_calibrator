@@ -842,7 +842,7 @@ def execute_h2o_single_point_probe(config_path: str | Path) -> dict[str, Any]:
         require_no_write_guard=True,
     )
     build_no_write_guard_from_raw_config(raw_cfg)
-    timeout_s = max(900.0, float(raw_cfg.get("max_runtime_s", 900.0)))
+    timeout_s = max(3600.0, float(raw_cfg.get("max_runtime_s", 3600.0)))
     try:
         service.run(timeout=timeout_s)
     finally:
