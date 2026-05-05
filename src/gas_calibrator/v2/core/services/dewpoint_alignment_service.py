@@ -55,15 +55,11 @@ class DewpointAlignmentService:
             return False
 
     def _h2o_atmosphere_vent_keepalive(self) -> None:
+        controller = self.host._device("pressure_controller")
+        if controller is None:
+            return
         try:
-            self.host._set_pressure_controller_vent(
-                True,
-                reason="H2O dewpoint wait keepalive",
-                wait_after_command=False,
-                capture_pressure=False,
-                snapshot_after_command=False,
-                vent_classification="h2o_keepalive",
-            )
+            controller.vent(True)
         except Exception:
             pass
 
@@ -78,6 +74,7 @@ class DewpointAlignmentService:
         while time.time() - start < soak_s:
             self.host._check_stop()
             self._refresh_live_snapshots(reason="h2o_route_preseal_soak")
+            self._h2o_atmosphere_vent_keepalive()
             time.sleep(min(1.0, max(0.05, soak_s - (time.time() - start))))
         return True
 
@@ -197,7 +194,6 @@ class DewpointAlignmentService:
                 stable_samples = []
             if time.time() - last_report >= 30.0:
                 last_report = time.time()
-                self._h2o_atmosphere_vent_keepalive()
                 elapsed_s = time.time() - start
                 if not matched:
                     msg = (
@@ -225,6 +221,7 @@ class DewpointAlignmentService:
                     )
                     self.host._log(msg)
                     print(f"  [露点] {msg}  已运行{elapsed_s:.0f}s", flush=True)
+            self._h2o_atmosphere_vent_keepalive()
             time.sleep(poll_s)
         self.host._log(
             "Dewpoint meter stability timeout: "

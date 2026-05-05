@@ -125,15 +125,11 @@ class HumidityGeneratorService:
                 self.host._log(f"Humidity generator ensure_run failed: {exc}")
 
     def _h2o_atmosphere_vent_keepalive(self) -> None:
+        controller = self.host._device("pressure_controller")
+        if controller is None:
+            return
         try:
-            self.host._set_pressure_controller_vent(
-                True,
-                reason="H2O humidity wait keepalive",
-                wait_after_command=False,
-                capture_pressure=False,
-                snapshot_after_command=False,
-                vent_classification="h2o_keepalive",
-            )
+            controller.vent(True)
         except Exception:
             pass
 
@@ -248,7 +244,6 @@ class HumidityGeneratorService:
                 rh_samples = []
             if time.time() - last_report >= 30.0:
                 last_report = time.time()
-                self._h2o_atmosphere_vent_keepalive()
                 elapsed_s = time.time() - start
                 if in_band_since is None or not rh_samples:
                     msg = (
@@ -266,6 +261,7 @@ class HumidityGeneratorService:
                     )
                     self.host._log(msg)
                     print(f"  [湿度] {msg}  已运行{elapsed_s:.0f}s", flush=True)
+            self._h2o_atmosphere_vent_keepalive()
             time.sleep(poll_s)
         self.host._log("Humidity generator reach-setpoint timeout")
         return HumidityWaitResult(
