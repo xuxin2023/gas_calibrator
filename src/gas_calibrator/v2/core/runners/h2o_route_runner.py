@@ -311,17 +311,30 @@ class H2oRouteRunner:
         if self._vent_keepalive_thread is not None:
             return
         self._vent_keepalive_stop.clear()
+        svc = self.service
+        interval_s = 1.0
 
         def _keepalive() -> None:
-            interval_s = 30.0
+            self.service.status_service.log("[h2o-vent-keepalive] thread started")
+            tick = 0
             while not self._vent_keepalive_stop.wait(interval_s):
+                tick += 1
                 try:
-                    self.service.pressure_control_service.set_pressure_controller_vent_fast_reassert(
+                    result = svc.pressure_control_service.set_pressure_controller_vent_fast_reassert(
                         True,
                         reason="h2o-vent-keepalive",
+                        wait_after_command=False,
+                        capture_pressure=False,
+                        query_state=False,
+                        confirm_transition=False,
                     )
-                except Exception:
-                    pass
+                    if tick == 1 or tick % 60 == 0:
+                        ok_str = "ok" if result.get("command_result") == "ok" else result.get("command_result", "?")
+                        self.service.status_service.log(
+                            f"[h2o-vent-keepalive] tick={tick} result={ok_str}"
+                        )
+                except Exception as exc:
+                    self.service.status_service.log(f"[h2o-vent-keepalive] tick={tick} error={exc}")
 
         t = threading.Thread(target=_keepalive, daemon=True, name="h2o-vent-keepalive")
         t.start()
