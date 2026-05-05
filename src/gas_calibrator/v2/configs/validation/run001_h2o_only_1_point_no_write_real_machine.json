@@ -9,6 +9,7 @@
     "single_temperature_group": true,
     "allow_real_route": true,
     "allow_real_pressure": true,
+    "pressure_points_hpa": [1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0],
     "allow_real_wait": true,
     "allow_real_sample": true,
     "allow_artifact": true,
@@ -254,7 +255,7 @@
       "device_connection": true
     },
     "pressure": {
-      "pressurize_high_hpa": 1013.25,
+      "pressurize_high_hpa": 1100.0,
       "pressurize_wait_after_vent_off_s": 3,
       "pressurize_timeout_s": 120,
       "post_stable_sample_delay_s": 0,
