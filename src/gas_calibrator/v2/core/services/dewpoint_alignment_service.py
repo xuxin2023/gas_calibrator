@@ -250,6 +250,7 @@ class DewpointAlignmentService:
     def open_h2o_route_and_wait_ready(self, point: CalibrationPoint) -> bool:
         self.host._set_pressure_controller_vent(True, reason="during H2O route pre-seal preparation")
         self.host._set_h2o_path(True, point)
+        self.host._set_pressure_controller_vent(True, reason="H2O route open: re-assert atmosphere after valve change")
         if not self.ensure_dewpoint_meter_ready():
             return False
         return self.wait_h2o_route_soak_before_seal(point)

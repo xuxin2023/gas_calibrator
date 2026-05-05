@@ -124,6 +124,30 @@ class HumidityGeneratorService:
             except Exception as exc:
                 self.host._log(f"Humidity generator ensure_run failed: {exc}")
 
+    def _reassert_atmosphere_vent_if_open(self) -> None:
+        controller = self.host._device("pressure_controller")
+        if controller is None:
+            return
+        vent_on = getattr(controller, "vent_open", None)
+        if vent_on is None:
+            try:
+                vent_status = controller.get_vent_status() if callable(getattr(controller, "get_vent_status", None)) else None
+            except Exception:
+                vent_status = None
+            vent_on = vent_status in (1, True)
+        if not vent_on:
+            return
+        try:
+            enter = getattr(controller, "enter_atmosphere_mode", None)
+            if callable(enter):
+                enter(
+                    timeout_s=float(self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", 30.0)),
+                    hold_open=bool(self.host._cfg_get("workflow.pressure.continuous_atmosphere_hold", True)),
+                    hold_interval_s=float(self.host._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)),
+                )
+        except Exception:
+            pass
+
     def read_humidity_generator_temp_rh(self) -> tuple[Optional[float], Optional[float]]:
         generator = self.host._device("humidity_generator")
         if generator is None:
@@ -235,6 +259,7 @@ class HumidityGeneratorService:
                 rh_samples = []
             if time.time() - last_report >= 30.0:
                 last_report = time.time()
+                self._reassert_atmosphere_vent_if_open()
                 elapsed_s = time.time() - start
                 if in_band_since is None or not rh_samples:
                     msg = (
