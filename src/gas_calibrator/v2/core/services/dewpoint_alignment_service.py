@@ -54,15 +54,6 @@ class DewpointAlignmentService:
             self.host._log(f"Dewpoint meter initial read failed: {exc}")
             return False
 
-    def _h2o_atmosphere_vent_keepalive(self) -> None:
-        controller = self.host._device("pressure_controller")
-        if controller is None:
-            return
-        try:
-            getattr(controller, "write", lambda _: None)(":SOUR:PRES:LEV:IMM:AMPL:VENT 1")
-        except Exception:
-            pass
-
     def wait_h2o_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
         if self.host._collect_only_fast_path_enabled():
             self.host._log("Collect-only mode: H2O route pre-seal soak skipped")
@@ -74,7 +65,6 @@ class DewpointAlignmentService:
         while time.time() - start < soak_s:
             self.host._check_stop()
             self._refresh_live_snapshots(reason="h2o_route_preseal_soak")
-            self._h2o_atmosphere_vent_keepalive()
             time.sleep(min(1.0, max(0.05, soak_s - (time.time() - start))))
         return True
 
@@ -221,7 +211,6 @@ class DewpointAlignmentService:
                     )
                     self.host._log(msg)
                     print(f"  [露点] {msg}  已运行{elapsed_s:.0f}s", flush=True)
-            self._h2o_atmosphere_vent_keepalive()
             time.sleep(poll_s)
         self.host._log(
             "Dewpoint meter stability timeout: "

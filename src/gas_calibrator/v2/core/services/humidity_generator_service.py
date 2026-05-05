@@ -124,15 +124,6 @@ class HumidityGeneratorService:
             except Exception as exc:
                 self.host._log(f"Humidity generator ensure_run failed: {exc}")
 
-    def _h2o_atmosphere_vent_keepalive(self) -> None:
-        controller = self.host._device("pressure_controller")
-        if controller is None:
-            return
-        try:
-            getattr(controller, "write", lambda _: None)(":SOUR:PRES:LEV:IMM:AMPL:VENT 1")
-        except Exception:
-            pass
-
     def read_humidity_generator_temp_rh(self) -> tuple[Optional[float], Optional[float]]:
         generator = self.host._device("humidity_generator")
         if generator is None:
@@ -261,7 +252,6 @@ class HumidityGeneratorService:
                     )
                     self.host._log(msg)
                     print(f"  [湿度] {msg}  已运行{elapsed_s:.0f}s", flush=True)
-            self._h2o_atmosphere_vent_keepalive()
             time.sleep(poll_s)
         self.host._log("Humidity generator reach-setpoint timeout")
         return HumidityWaitResult(
