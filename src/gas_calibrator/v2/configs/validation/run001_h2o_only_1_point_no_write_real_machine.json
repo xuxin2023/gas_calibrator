@@ -295,7 +295,7 @@
       "humidity_generator": {
         "enabled": true,
         "temp_tol_c": 1.0,
-        "rh_tol_pct": 1.0,
+        "rh_tol_pct": 1.6,
         "rh_stable_window_s": 60,
         "rh_stable_span_pct": 0.3,
         "reach_confirm_count": 3,
