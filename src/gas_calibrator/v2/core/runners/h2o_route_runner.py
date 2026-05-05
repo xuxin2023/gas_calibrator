@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from typing import Any, Sequence
 
@@ -212,7 +213,12 @@ class H2oRouteRunner:
                             self.service.status_service.log(
                                 "H2O route: keepalive stopped, vent=OFF bare command sent before seal"
                             )
-                        if not self.service.pressure_control_service.pressurize_and_hold(lead, route=phase).ok:
+                        os.environ["GAS_CALIBRATOR_PACE5000_LEGACY_ALLOW_AUTO_VENT_ABORT"] = "1"
+                        try:
+                            seal_ok = self.service.pressure_control_service.pressurize_and_hold(lead, route=phase).ok
+                        finally:
+                            os.environ.pop("GAS_CALIBRATOR_PACE5000_LEGACY_ALLOW_AUTO_VENT_ABORT", None)
+                        if not seal_ok:
                             self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O deferred pressure-seal failure")
                             skipped_point_indices.extend(expected_indices)
                             return RouteRunResult(
