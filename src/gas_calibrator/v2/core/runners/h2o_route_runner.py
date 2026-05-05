@@ -48,8 +48,9 @@ class H2oRouteRunner:
                 message=f"H2O route for point {lead.index}",
             )
 
-            self.service.valve_routing_service.set_h2o_path(False, lead)
+            self.service.valve_routing_service.apply_route_baseline_valves()
             self.service.pressure_control_service.prepare_pressure_for_h2o(lead)
+            self.service.status_service.log("Pressure controller kept at atmosphere for H2O route conditioning")
             self.service.humidity_generator_service.prepare_humidity_generator(lead)
             temperature_wait = self.service.temperature_control_service.set_temperature_for_point(lead, phase=phase)
             self.service.status_service.record_route_trace(
