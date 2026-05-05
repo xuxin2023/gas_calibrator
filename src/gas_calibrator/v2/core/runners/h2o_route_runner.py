@@ -223,6 +223,10 @@ class H2oRouteRunner:
                                 error="H2O deferred pressure seal failed",
                             )
                         seal_deferred = False
+                        self.service.pressure_control_service.run_state.pressure.preseal_watchlist_status_accepted = True
+                        self.service.status_service.log(
+                            "H2O seal accepted: watchlist status=3 allowed for sealed pressure sweep"
+                        )
                     if not self.service.pressure_control_service.set_pressure_to_target(sample_point).ok:
                         self.service.status_service.log(f"H2O row {sample_point.index} skipped: pressure did not stabilize")
                         self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
