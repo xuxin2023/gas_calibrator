@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time as _time
 from typing import Any, Sequence
 
 from ...exceptions import WorkflowInterruptedError
@@ -15,6 +17,8 @@ class H2oRouteRunner:
         self.service = service
         self.points = list(points)
         self.pressure_points = list(pressure_points)
+        self._vent_keepalive_stop = threading.Event()
+        self._vent_keepalive_thread = None  # type: threading.Thread | None
 
     def execute(self) -> RouteRunResult:
         if not self.points:
@@ -50,6 +54,7 @@ class H2oRouteRunner:
 
             self.service.valve_routing_service.apply_route_baseline_valves()
             self.service.pressure_control_service.prepare_pressure_for_h2o(lead)
+            self._start_h2o_vent_keepalive()
             self.service.humidity_generator_service.prepare_humidity_generator(lead)
             temperature_wait = self.service.temperature_control_service.set_temperature_for_point(lead, phase=phase)
             self.service.status_service.record_route_trace(
@@ -293,7 +298,35 @@ class H2oRouteRunner:
                 error=str(exc),
             )
         finally:
+            self._stop_h2o_vent_keepalive()
             route_context.clear()
+
+    def _start_h2o_vent_keepalive(self) -> None:
+        if self._vent_keepalive_thread is not None:
+            return
+        self._vent_keepalive_stop.clear()
+
+        def _keepalive() -> None:
+            interval_s = 30.0
+            while not self._vent_keepalive_stop.wait(interval_s):
+                try:
+                    self.service.pressure_control_service.set_pressure_controller_vent_fast_reassert(
+                        True,
+                        reason="h2o-vent-keepalive",
+                    )
+                except Exception:
+                    pass
+
+        t = threading.Thread(target=_keepalive, daemon=True, name="h2o-vent-keepalive")
+        t.start()
+        self._vent_keepalive_thread = t
+
+    def _stop_h2o_vent_keepalive(self) -> None:
+        self._vent_keepalive_stop.set()
+        t = self._vent_keepalive_thread
+        if t is not None and t.is_alive():
+            t.join(timeout=5.0)
+        self._vent_keepalive_thread = None
 
     def _continue_after_humidity_timeout(self, result: Any) -> bool:
         if bool(getattr(result, "ok", False)):

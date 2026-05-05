@@ -5445,33 +5445,23 @@ class PressureControlService:
                 if self.host._call_first(controller, ("vent",), True):
                     command_method = "set_output_false_set_isolation_open_vent_true"
                 else:
-                    enter = getattr(controller, "enter_atmosphere_mode_with_open_vent_valve", None)
-                    if not callable(enter):
-                        enter = getattr(controller, "enter_atmosphere_mode", None)
+                    enter = getattr(controller, "enter_atmosphere_mode", None)
                     if callable(enter):
-                        command_method = "enter_atmosphere_mode_with_open_vent_valve" if "with_open_vent_valve" in str(enter) else "enter_atmosphere_mode"
+                        command_method = "enter_atmosphere_mode"
                         self._log_pressure_controller_io(
                             "TX",
-                            f"{command_method}(vent_on=True)",
+                            "enter_atmosphere_mode(vent_on=True)",
                         )
                         resolved_timeout_s = (
                             float(transition_timeout_s)
                             if transition_timeout_s is not None
                             else float(self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", 30.0))
                         )
-                        try:
-                            enter(
-                                timeout_s=resolved_timeout_s,
-                            )
-                        except Exception:
-                            enter_std = getattr(controller, "enter_atmosphere_mode", None)
-                            if callable(enter_std):
-                                command_method = "enter_atmosphere_mode"
-                                enter_std(
-                                    timeout_s=resolved_timeout_s,
-                                    hold_open=bool(self.host._cfg_get("workflow.pressure.continuous_atmosphere_hold", True)),
-                                    hold_interval_s=float(self.host._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)),
-                                )
+                        enter(
+                            timeout_s=resolved_timeout_s,
+                            hold_open=bool(self.host._cfg_get("workflow.pressure.continuous_atmosphere_hold", True)),
+                            hold_interval_s=float(self.host._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)),
+                        )
                         self._log_pressure_controller_io("RX", "ok")
             else:
                 if prefer_direct_command:
