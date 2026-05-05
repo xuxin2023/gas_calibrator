@@ -5696,7 +5696,7 @@ class PressureControlService:
 
     def prepare_pressure_for_h2o(self, point: CalibrationPoint) -> None:
         self._set_h2o_prepared_target(None)
-        self.host._set_pressure_controller_vent(False, reason="H2O idle precondition")
+        self.host._set_pressure_controller_vent(False, reason="H2O idle precondition", prefer_direct_command=True)
         self.host._log("Pressure controller isolated from atmosphere while waiting for H2O route conditioning")
 
     def safe_stop_after_run(self, *, reason: str = "") -> dict[str, Any]:
