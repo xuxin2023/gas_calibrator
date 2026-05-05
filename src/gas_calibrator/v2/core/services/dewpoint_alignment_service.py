@@ -54,6 +54,19 @@ class DewpointAlignmentService:
             self.host._log(f"Dewpoint meter initial read failed: {exc}")
             return False
 
+    def _h2o_atmosphere_vent_keepalive(self) -> None:
+        try:
+            self.host._set_pressure_controller_vent(
+                True,
+                reason="H2O dewpoint wait keepalive",
+                wait_after_command=False,
+                capture_pressure=False,
+                snapshot_after_command=False,
+                vent_classification="h2o_keepalive",
+            )
+        except Exception:
+            pass
+
     def wait_h2o_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
         if self.host._collect_only_fast_path_enabled():
             self.host._log("Collect-only mode: H2O route pre-seal soak skipped")
@@ -184,6 +197,7 @@ class DewpointAlignmentService:
                 stable_samples = []
             if time.time() - last_report >= 30.0:
                 last_report = time.time()
+                self._h2o_atmosphere_vent_keepalive()
                 elapsed_s = time.time() - start
                 if not matched:
                     msg = (
