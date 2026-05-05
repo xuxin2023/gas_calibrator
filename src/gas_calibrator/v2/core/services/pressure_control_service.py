@@ -5109,6 +5109,7 @@ class PressureControlService:
         capture_pressure: bool = False,
         query_state: bool = False,
         confirm_transition: bool = False,
+        prefer_direct_command: bool = False,
     ) -> dict[str, Any]:
         controller = self.host._device("pressure_controller")
         resolved_max_s = float(
@@ -5152,7 +5153,7 @@ class PressureControlService:
                 }
             )
             return diagnostics
-        if vent_on:
+        if vent_on and not prefer_direct_command:
             guard = getattr(self.host, "_guard_a2_conditioning_vent_command", None)
             if callable(guard):
                 blocked = guard(reason=reason)
@@ -5339,7 +5340,7 @@ class PressureControlService:
             )
         if vent_on and emergency_abort_relief:
             vent_classification = "emergency_abort_relief"
-        if vent_on:
+        if vent_on and not prefer_direct_command:
             guard = getattr(self.host, "_guard_a2_conditioning_vent_command", None)
             if callable(guard):
                 try:
@@ -5363,10 +5364,8 @@ class PressureControlService:
                 if isinstance(blocked, Mapping):
                     guard_payload = dict(blocked)
         pressure_points_started = self._a2_pressure_points_started_or_control_active()
-        # A2.37: during post-seal pressure control, vent=ON must be unconditionally blocked
-        # to prevent atmosphere ingress that would destroy the sealed pressure state.
         _post_seal_vent_blocked = False
-        if vent_on and not emergency_abort_relief:
+        if vent_on and not emergency_abort_relief and not prefer_direct_command:
             _cond_ctx = self.host.a2_hooks.co2_route_conditioning_at_atmosphere_context
             if isinstance(_cond_ctx, dict) and str(_cond_ctx.get("route_conditioning_phase") or "") == "post_seal_pressure_control":
                 _post_seal_vent_blocked = True
@@ -5392,6 +5391,7 @@ class PressureControlService:
         if (
             vent_on
             and not emergency_abort_relief
+            and not prefer_direct_command
             and self._a2_preseal_state_machine_enforced()
             and pressure_points_started
         ):

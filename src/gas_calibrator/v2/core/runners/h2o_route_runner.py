@@ -345,6 +345,7 @@ class H2oRouteRunner:
                         capture_pressure=False,
                         query_state=False,
                         confirm_transition=False,
+                        prefer_direct_command=True,
                     )
                     if tick == 1 or tick % 60 == 0:
                         ok_str = "ok" if result.get("command_result") == "ok" else result.get("command_result", "?")
