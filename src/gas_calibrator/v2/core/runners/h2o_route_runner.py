@@ -212,6 +212,10 @@ class H2oRouteRunner:
                             self.service.status_service.log(
                                 "H2O route: keepalive stopped, vent=OFF bare command sent before seal"
                             )
+                        self.service.valve_routing_service.set_h2o_path(False, lead)
+                        self.service.status_service.log(
+                            "H2O route: water path valve closed before seal"
+                        )
                         if not self.service.pressure_control_service.pressurize_and_hold(
                             lead, route=phase, prefer_direct_vent_close=True
                         ).ok:
