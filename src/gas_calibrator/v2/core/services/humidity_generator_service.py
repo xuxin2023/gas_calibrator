@@ -129,7 +129,7 @@ class HumidityGeneratorService:
         if controller is None:
             return
         try:
-            controller.vent(True)
+            getattr(controller, "write", lambda _: None)(":SOUR:PRES:LEV:IMM:AMPL:VENT 1")
         except Exception:
             pass
 
