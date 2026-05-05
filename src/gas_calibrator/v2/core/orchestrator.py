@@ -477,6 +477,7 @@ class WorkflowOrchestrator:
             },
         )
         if critical:
+            fault = self._resolve_fault_code(failed_devices=critical, stage=stage)
             raise WorkflowValidationError(
                 error_message,
                 details={
@@ -484,6 +485,7 @@ class WorkflowOrchestrator:
                     "critical_devices_failed": critical,
                     "optional_context_devices_failed": optional_failed,
                     "critical_device_init_failure_blocks_probe": True,
+                    "fault_code": fault,
                 },
             )
 
@@ -628,6 +630,16 @@ class WorkflowOrchestrator:
             ),
             route_state=current,
         )
+
+    @staticmethod
+    def _resolve_fault_code(*, failed_devices: list[str], stage: str) -> str:
+        from .models import FAULT_CODES
+
+        if stage in ("precheck", "initialization"):
+            analyzer_failed = any("gas_analyzer" in d for d in failed_devices)
+            if analyzer_failed:
+                return "H2O-001"
+        return "H2O-009"
 
     def _device_init_policy_summary(self) -> dict[str, Any]:
         current = dict(getattr(self, "_device_init_policy_evidence", {}) or {})

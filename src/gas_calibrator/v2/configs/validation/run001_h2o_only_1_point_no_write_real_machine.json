@@ -336,7 +336,8 @@
     },
     "water_first_all_temps": false,
     "water_first_temp_gte": 100,
-    "h2o_fast_test_mode": false
+    "h2o_fast_test_mode": false,
+    "h2o_force_conditioning": true
   },
   "paths": {
     "points_excel": "run001_h2o_only_1_point_no_write_points.json",

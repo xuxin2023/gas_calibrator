@@ -395,10 +395,39 @@ class DeviceManager:
 
     def _health_check_device(self, device: Any) -> bool:
         if hasattr(device, "selftest"):
-            return self._interpret_health_result(device.selftest())
+            result = device.selftest()
+            healthy = self._interpret_health_result(result)
+            if not healthy and isinstance(result, dict):
+                mode_val = result.get("mode")
+                if mode_val is not None and int(mode_val or 0) != 2:
+                    recovered = self._recover_gas_analyzer_mode2(device, result)
+                    if recovered:
+                        retry_result = device.selftest()
+                        return self._interpret_health_result(retry_result)
+            return healthy
         if hasattr(device, "status"):
             return self._interpret_health_result(device.status())
         return True
+
+    @staticmethod
+    def _recover_gas_analyzer_mode2(device: Any, selftest_result: dict[str, Any]) -> bool:
+        if not (hasattr(device, "read_latest_data") or hasattr(device, "set_mode_with_ack")):
+            return False
+        mode_val = int(selftest_result.get("mode") or 0)
+        if mode_val == 2:
+            return False
+        try:
+            set_mode = getattr(device, "set_mode_with_ack", None)
+            if callable(set_mode):
+                set_mode(2)
+                return True
+            set_mode_simple = getattr(device, "set_mode", None)
+            if callable(set_mode_simple):
+                set_mode_simple(2)
+                return True
+            return False
+        except Exception:
+            return False
 
     def _interpret_health_result(self, result: Any) -> bool:
         if isinstance(result, bool):

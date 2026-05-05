@@ -61,22 +61,30 @@ class HumidityGeneratorService:
         if target_temp is not None:
             current_temp, _ = self.read_humidity_generator_temp_rh()
             if current_temp is not None and (current_temp - target_temp) > 5.0:
-                clamped = current_temp - 5.0
-                self.host._log(
-                    f"Humidity generator target temp clamped: {target_temp:.1f}C -> {clamped:.1f}C "
-                    f"(current={current_temp:.1f}C, cooling >5C impossible)"
-                )
-                target_temp = clamped
-                dewpoint_c = self.host._as_float(point.dewpoint_c)
-                if dewpoint_c is not None:
-                    from gas_calibrator.humidity_math import rh_pct_from_dewpoint
-                    new_rh = rh_pct_from_dewpoint(target_temp, dewpoint_c)
+                force_conditioning = self.host._cfg_get("workflow.h2o_force_conditioning")
+                if force_conditioning is True:
                     self.host._log(
-                        f"Humidity generator RH re-derived for clamped temp: "
-                        f"{target_rh:.1f}% -> {new_rh:.1f}% "
-                        f"(dewpoint={dewpoint_c:.1f}C, temp={target_temp:.1f}C)"
+                        f"Humidity generator force conditioning: "
+                        f"current={current_temp:.1f}C -> target={target_temp:.1f}C "
+                        f"({current_temp - target_temp:.1f}C cooling required, clamp bypassed)"
                     )
-                    target_rh = new_rh
+                else:
+                    clamped = current_temp - 5.0
+                    self.host._log(
+                        f"Humidity generator target temp clamped: {target_temp:.1f}C -> {clamped:.1f}C "
+                        f"(current={current_temp:.1f}C, cooling >5C impossible)"
+                    )
+                    target_temp = clamped
+                    dewpoint_c = self.host._as_float(point.dewpoint_c)
+                    if dewpoint_c is not None:
+                        from gas_calibrator.humidity_math import rh_pct_from_dewpoint
+                        new_rh = rh_pct_from_dewpoint(target_temp, dewpoint_c)
+                        self.host._log(
+                            f"Humidity generator RH re-derived for clamped temp: "
+                            f"{target_rh:.1f}% -> {new_rh:.1f}% "
+                            f"(dewpoint={dewpoint_c:.1f}C, temp={target_temp:.1f}C)"
+                        )
+                        target_rh = new_rh
 
         target_key = (target_temp, target_rh)
         target_changed = target_key != self.run_state.humidity.last_hgen_target

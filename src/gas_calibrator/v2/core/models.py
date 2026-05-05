@@ -23,6 +23,7 @@ class CalibrationPhase(Enum):
     IDLE = "idle"
     INITIALIZING = "initializing"
     PRECHECK = "precheck"
+    CONDITIONING = "conditioning"
     TEMPERATURE_GROUP = "temperature_group"
     H2O_ROUTE = "h2o_route"
     CO2_ROUTE = "co2_route"
@@ -128,6 +129,22 @@ class CalibrationStatus:
     message: str = ""
     elapsed_s: float = 0.0
     error: Optional[str] = None
+    fault_code: str = ""
+
+# ---------------------------------------------------------------------------
+# 结构化故障码 (H2O 探针)
+# ---------------------------------------------------------------------------
+FAULT_CODES = {
+    "H2O-001": "设备预检失败: 分析仪未切换到 mode2",
+    "H2O-002": "湿度发生器主动控制失败: 目标温度/湿度未能在超时内达到",
+    "H2O-003": "露点仪对准失败: 读数与湿度发生器不匹配",
+    "H2O-004": "采样阶段失败: 传感器信号不稳定",
+    "H2O-005": "过程被外部中断: 探针提前退出",
+    "H2O-006": "湿度发生器过热: 初始腔温过高, 需冷却后重试",
+    "H2O-007": "阀门路由失败: 继电器未响应或物理状态不匹配",
+    "H2O-008": "压力控制失败: 压力未稳定在目标范围内",
+    "H2O-009": "分析仪 mode2 恢复失败: selftest 重试后仍不合格",
+}
 
 
 @dataclass(frozen=True)
