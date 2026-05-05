@@ -193,6 +193,9 @@ class HumidityGeneratorService:
         )
         span_tol = float(self.host._cfg_get("workflow.stability.humidity_generator.rh_stable_span_pct", 0.3))
         timeout_raw = float(self.host._cfg_get("workflow.stability.humidity_generator.timeout_s", 1800.0))
+        if self.host._cfg_get("workflow.h2o_fast_test_mode") is True:
+            timeout_raw = 60.0
+            self.host._log("H2O fast test mode: humidity generator wait timeout overridden to 60s")
         timeout_s: Optional[float] = timeout_raw if timeout_raw > 0 else None
         poll_s = max(0.1, float(self.host._cfg_get("workflow.stability.humidity_generator.poll_s", 1.0)))
         start = time.time()

@@ -76,6 +76,9 @@ class DewpointAlignmentService:
             return True
         window_s = float(self.host._cfg_get("workflow.stability.dewpoint.window_s", 40.0))
         timeout_s = float(self.host._cfg_get("workflow.stability.dewpoint.timeout_s", 1800.0))
+        if self.host._cfg_get("workflow.h2o_fast_test_mode") is True:
+            timeout_s = 120.0
+            self.host._log("H2O fast test mode: dewpoint alignment timeout overridden to 120s")
         poll_s = max(0.1, float(self.host._cfg_get("workflow.stability.dewpoint.poll_s", 1.0)))
         temp_tol = float(
             self.host._cfg_get(
