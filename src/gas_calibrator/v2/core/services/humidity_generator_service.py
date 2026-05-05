@@ -125,26 +125,8 @@ class HumidityGeneratorService:
                 self.host._log(f"Humidity generator ensure_run failed: {exc}")
 
     def _reassert_atmosphere_vent_if_open(self) -> None:
-        controller = self.host._device("pressure_controller")
-        if controller is None:
-            return
-        vent_on = getattr(controller, "vent_open", None)
-        if vent_on is None:
-            try:
-                vent_status = controller.get_vent_status() if callable(getattr(controller, "get_vent_status", None)) else None
-            except Exception:
-                vent_status = None
-            vent_on = vent_status in (1, True)
-        if not vent_on:
-            return
         try:
-            enter = getattr(controller, "enter_atmosphere_mode", None)
-            if callable(enter):
-                enter(
-                    timeout_s=float(self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", 30.0)),
-                    hold_open=bool(self.host._cfg_get("workflow.pressure.continuous_atmosphere_hold", True)),
-                    hold_interval_s=float(self.host._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)),
-                )
+            self.host._set_pressure_controller_vent(True, reason="H2O humidity wait: periodic atmosphere re-assert")
         except Exception:
             pass
 

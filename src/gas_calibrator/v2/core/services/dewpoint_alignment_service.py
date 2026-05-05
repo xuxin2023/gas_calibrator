@@ -68,6 +68,12 @@ class DewpointAlignmentService:
             time.sleep(min(1.0, max(0.05, soak_s - (time.time() - start))))
         return True
 
+    def _reassert_atmosphere_vent(self) -> None:
+        try:
+            self.host._set_pressure_controller_vent(True, reason="H2O dewpoint wait: periodic atmosphere re-assert")
+        except Exception:
+            pass
+
     def wait_dewpoint_alignment_stable(self, point: Optional[CalibrationPoint] = None) -> bool:
         dewpoint = self.host._device("dewpoint_meter")
         if dewpoint is None:
@@ -184,6 +190,7 @@ class DewpointAlignmentService:
                 stable_samples = []
             if time.time() - last_report >= 30.0:
                 last_report = time.time()
+                self._reassert_atmosphere_vent()
                 elapsed_s = time.time() - start
                 if not matched:
                     msg = (
