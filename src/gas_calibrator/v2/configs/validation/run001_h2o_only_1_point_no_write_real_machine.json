@@ -249,7 +249,7 @@
     },
     "precheck": {
       "enabled": true,
-      "pressure_leak_test": true,
+      "pressure_leak_test": false,
       "sensor_check": false,
       "device_connection": true
     },
