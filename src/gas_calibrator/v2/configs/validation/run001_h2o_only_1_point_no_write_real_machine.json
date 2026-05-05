@@ -297,7 +297,7 @@
         "temp_tol_c": 1.0,
         "rh_tol_pct": 1.6,
         "rh_stable_window_s": 60,
-        "rh_stable_span_pct": 0.3,
+        "rh_stable_span_pct": 0.6,
         "reach_confirm_count": 3,
         "window_s": 60,
         "timeout_s": 1800,
