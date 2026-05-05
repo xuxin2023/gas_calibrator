@@ -330,7 +330,7 @@
         "rh_match_tol_pct": 4.0,
         "window_s": 40,
         "stability_tol_c": 0.06,
-        "timeout_s": 600,
+        "timeout_s": 1800,
         "poll_s": 1.0
       }
     },
