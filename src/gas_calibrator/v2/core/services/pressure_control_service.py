@@ -5444,8 +5444,9 @@ class PressureControlService:
                 self.host._call_first(controller, ("set_isolation_open",), True)
                 if self.host._call_first(controller, ("vent",), True):
                     command_method = "set_output_false_set_isolation_open_vent_true"
+                    self.host._call_first(controller, ("set_vent_after_valve_open",), True)
                 else:
-                    enter = getattr(controller, "enter_atmosphere_mode", None)
+                    enter = getattr(controller, "enter_atmosphere_mode_with_open_vent_valve", None) or getattr(controller, "enter_atmosphere_mode", None)
                     if callable(enter):
                         command_method = "enter_atmosphere_mode"
                         self._log_pressure_controller_io(
@@ -5467,6 +5468,7 @@ class PressureControlService:
                 if prefer_direct_command:
                     self.host._call_first(controller, ("set_output",), False)
                     direct_vent_ok = bool(self.host._call_first(controller, ("vent",), False))
+                    self.host._call_first(controller, ("set_vent_after_valve_open",), False)
                     self.host._call_first(controller, ("set_isolation_open",), True)
                     if direct_vent_ok:
                         command_method = "set_output_false_vent_false_set_isolation_open_fast"
@@ -5490,6 +5492,7 @@ class PressureControlService:
                     self.host._call_first(controller, ("set_output",), False)
                     if self.host._call_first(controller, ("vent",), False):
                         command_method = "set_output_false_vent_false"
+                        self.host._call_first(controller, ("set_vent_after_valve_open",), False)
                     self.host._call_first(controller, ("set_isolation_open",), True)
                     if command_method:
                         command_return_status = 0
