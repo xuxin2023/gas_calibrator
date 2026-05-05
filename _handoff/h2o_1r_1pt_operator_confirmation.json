@@ -2,7 +2,7 @@
   "operator_name": "h2o_1r_engineering_probe",
   "timestamp": "2026-05-04T09:45:00.000000+00:00",
   "branch": "codex/run001-a1-no-write-dry-run",
-  "HEAD": "6d77b7cb",
+  "HEAD": "22d62570",
   "config_path": "D:/gas_calibrator/src/gas_calibrator/v2/configs/validation/run001_h2o_only_1_point_no_write_real_machine.json",
   "port_manifest": {
     "humidity_generator": "COM16",

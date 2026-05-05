@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time as _time
 from typing import Any, Sequence
 
 from ...exceptions import WorkflowInterruptedError
@@ -54,7 +53,6 @@ class H2oRouteRunner:
 
             self.service.valve_routing_service.apply_route_baseline_valves()
             self.service.pressure_control_service.prepare_pressure_for_h2o(lead)
-            self._start_h2o_vent_keepalive()
             self.service.humidity_generator_service.prepare_humidity_generator(lead)
             temperature_wait = self.service.temperature_control_service.set_temperature_for_point(lead, phase=phase)
             self.service.status_service.record_route_trace(
@@ -106,6 +104,7 @@ class H2oRouteRunner:
             if humidity_wait.ok:
                 self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": lead, "stability_type": "humidity"})
             self.service.temperature_control_service.capture_temperature_calibration_snapshot(lead, route_type=phase)
+            self._start_h2o_vent_keepalive()
             route_ready = self.service.dewpoint_alignment_service.open_h2o_route_and_wait_ready(lead)
             self.service.status_service.record_route_trace(
                 action="wait_route_ready",
@@ -271,6 +270,13 @@ class H2oRouteRunner:
                 sampled_point_indices.append(sample_point.index)
                 completed_points.append(sample_point)
                 completed_point_indices.append(sample_point.index)
+                if is_current_ambient:
+                    self._stop_h2o_vent_keepalive()
+                    self.service.pressure_control_service.set_pressure_controller_vent(
+                        False, reason="H2O ambient sampling complete: close atmosphere, prepare for sealed pressure control"
+                    )
+                    self.service.valve_routing_service.set_h2o_path(False, lead)
+                    self.service.status_service.log("H2O ambient point complete: vent closed, H2O path closed")
 
             self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O group complete")
             return RouteRunResult(
