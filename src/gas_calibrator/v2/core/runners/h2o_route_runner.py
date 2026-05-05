@@ -268,13 +268,12 @@ class H2oRouteRunner:
                                 ).get("pressure_hpa", 1013.25)
                             )
                         )
-                        result.dry_air_corrected_h2o_ppm = dry_air_corrected_co2_ppm(
+                        corrected = dry_air_corrected_co2_ppm(
                             cylinder_co2_ppm=round(float(result.h2o_mmol) * 1000.0, 4),
                             pressure_p3_hpa=float(sample_pressure),
                             temp_c=float(sample_point.temperature_c or getattr(result, "temperature_c", None) or 20.0),
                         )
-                    else:
-                        result.dry_air_corrected_h2o_ppm = None
+                        object.__setattr__(result, "dry_air_corrected_h2o_ppm", corrected)
                     self.service.event_bus.publish(EventType.SAMPLE_COLLECTED, result)
                 self.service.status_service.record_route_trace(
                     action="sample_end",

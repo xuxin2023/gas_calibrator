@@ -181,3 +181,4 @@ class SamplingResult:
     sample_index: int = 0
     stability_time_s: Optional[float] = None
     total_time_s: Optional[float] = None
+    dry_air_corrected_h2o_ppm: Optional[float] = None
