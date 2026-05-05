@@ -340,7 +340,7 @@
     "h2o_force_conditioning": true
   },
   "paths": {
-    "points_excel": "run001_h2o_only_1_point_no_write_points.json",
+    "points_excel": "../../../../../configs/points_real_smoke_h2o_fasttrace.xlsx",
     "output_dir": "../../output/run001_h2o/1_point_no_write"
   },
   "coefficients": {

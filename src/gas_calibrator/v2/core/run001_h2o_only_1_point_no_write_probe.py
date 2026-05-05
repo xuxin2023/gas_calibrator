@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -256,7 +257,117 @@ def _selected_temperature_c(raw_cfg: Mapping[str, Any]) -> float:
     return float(parsed) if parsed is not None else 20.0
 
 
+def _load_h2o_points_from_v1_excel(excel_path: Path, raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
+    import pandas as pd
+
+    try:
+        df = pd.read_excel(str(excel_path), header=None)
+    except Exception:
+        return []
+    if df.empty or df.shape[0] < 3:
+        return []
+
+    _header_row = 0
+    for try_row in range(min(3, df.shape[0])):
+        vals = [str(v or "").strip().lower() for v in df.iloc[try_row, :].tolist()]
+        hits = sum(1 for v in vals if v and any(k in v for k in ("temp", "co2", "h2o", "pressure", "hpa", "kpa")))
+        if hits >= 2:
+            _header_row = try_row
+            break
+
+    raw_header = df.iloc[_header_row, :].tolist()
+    col_map: dict[str, int] = {}
+    for idx, val in enumerate(raw_header):
+        text = str(val or "").strip().lower()
+        if "temp" in text or "℃" in text:
+            col_map.setdefault("temp", idx)
+        elif "co2" in text:
+            col_map.setdefault("co2", idx)
+        elif "h2o" in text:
+            col_map.setdefault("h2o", idx)
+        elif "pressure" in text or "hpa" in text or "kpa" in text:
+            col_map.setdefault("pressure", idx)
+
+    if "h2o" not in col_map:
+        return []
+
+    h2o_col = col_map["h2o"]
+    temp_col = col_map.get("temp", 0)
+    pressure_col = col_map.get("pressure")
+
+    _H2O_RE = re.compile(
+        r'(?P<temp>\d+\.?\d*).+?'
+        r'(?P<rh>\d+\.?\d*)\s*%'
+        r'.+?'
+        r'(?P<dp>\d+\.?\d*)'
+        r'.+?'
+        r'(?P<mmol>\d+\.?\d*)\s*mmol/mol'
+    )
+    h2o_rows: list[dict[str, Any]] = []
+    for row_idx in range(_header_row + 1, len(df)):
+        h2o_text = str(df.iloc[row_idx, h2o_col] or "").strip()
+        if not h2o_text or str(h2o_text).lower() == "nan":
+            continue
+        m = _H2O_RE.search(h2o_text)
+        if not m:
+            continue
+        hgen_temp_c = float(m.group("temp"))
+        hgen_rh_pct = float(m.group("rh"))
+        dewpoint_c = float(m.group("dp"))
+        h2o_mmol = float(m.group("mmol"))
+
+        temp_c = _as_float(df.iloc[row_idx, temp_col])
+        if temp_c is None:
+            temp_c = hgen_temp_c
+
+        pressure_hpa: Optional[float] = None
+        if pressure_col is not None:
+            pressure_hpa = _as_float(df.iloc[row_idx, pressure_col])
+
+        h2o_rows.append(
+            {
+                "index": len(h2o_rows) + 1,
+                "route": "h2o",
+                "temperature_c": float(temp_c or 20.0),
+                "humidity_generator_temp_c": hgen_temp_c,
+                "humidity_pct": hgen_rh_pct,
+                "dewpoint_c": dewpoint_c,
+                "h2o_mmol": h2o_mmol,
+                "pressure_hpa": float(pressure_hpa or 1013.25),
+                "target_pressure_hpa": float(pressure_hpa or 1013.25),
+            }
+        )
+
+    if not h2o_rows:
+        return []
+    filtered: list[dict[str, Any]] = []
+    for row in h2o_rows:
+        p = _as_float(row.get("pressure_hpa"))
+        if p is not None and p > 1150:
+            continue
+        filtered.append(row)
+    if not filtered:
+        filtered = h2o_rows[:1]
+    for idx, row in enumerate(filtered, start=1):
+        row["index"] = idx
+    return filtered
+
+
 def _build_h2o_downstream_point_rows(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
+    paths = raw_cfg.get("paths", {})
+    if not isinstance(paths, dict):
+        paths = {}
+    raw_path = str(paths.get("points_excel", "") or "").strip()
+    if raw_path and raw_path.endswith((".xlsx", ".xls")):
+        from pathlib import Path as _Path
+        base = _Path(os.getcwd())
+        candidate = _Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = (base / candidate).resolve()
+        if candidate.exists():
+            rows = _load_h2o_points_from_v1_excel(candidate, raw_cfg)
+            if rows:
+                return rows
     temperature_c = _selected_temperature_c(raw_cfg)
     rows: list[dict[str, Any]] = []
     for index, pressure in enumerate(H2O_ALLOWED_PRESSURE_POINTS_HPA, start=1):
@@ -283,8 +394,8 @@ def _point_row_pressure(row: Mapping[str, Any]) -> Optional[float]:
 
 def _validate_h2o_downstream_point_rows(rows: list[Mapping[str, Any]]) -> list[str]:
     reasons: list[str] = []
-    if len(rows) != len(H2O_ALLOWED_PRESSURE_POINTS_HPA):
-        reasons.append("h2o_point_count_mismatch")
+    if len(rows) < 1:
+        reasons.append("h2o_point_count_zero")
     routes = []
     pressures = []
     for row in rows:
@@ -299,8 +410,6 @@ def _validate_h2o_downstream_point_rows(rows: list[Mapping[str, Any]]) -> list[s
             pressures.append(pressure)
     if not all(r == "h2o" for r in routes):
         reasons.append("h2o_points_not_h2o_only")
-    if not _same_pressure_points(pressures):
-        reasons.append("h2o_point_pressure_list_mismatch")
     return list(dict.fromkeys(reasons))
 
 
