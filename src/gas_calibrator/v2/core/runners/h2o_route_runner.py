@@ -136,6 +136,21 @@ class H2oRouteRunner:
             self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": lead, "stability_type": "dewpoint"})
             self.service.valve_routing_service.mark_post_h2o_co2_zero_flush_pending()
 
+            if effective_pressure_points and not getattr(effective_pressure_points[0], "is_ambient_pressure_point", False):
+                ambient_ref = CalibrationPoint(
+                    index=lead.index,
+                    temperature_c=lead.temperature_c,
+                    humidity_pct=lead.hgen_rh_pct,
+                    pressure_hpa=None,
+                    route="h2o",
+                    humidity_generator_temp_c=lead.hgen_temp_c,
+                    dewpoint_c=lead.dewpoint_c,
+                    h2o_mmol=lead.h2o_mmol,
+                    raw_h2o=lead.raw_h2o,
+                    pressure_selection_token="ambient_open",
+                )
+                effective_pressure_points = [ambient_ref] + list(effective_pressure_points)
+
             first_point_is_ambient = bool(
                 effective_pressure_points
                 and getattr(effective_pressure_points[0], "is_ambient_pressure_point", False)
