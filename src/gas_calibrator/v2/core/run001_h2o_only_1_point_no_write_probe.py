@@ -258,11 +258,16 @@ def _selected_temperature_c(raw_cfg: Mapping[str, Any]) -> float:
 
 
 def _load_h2o_points_from_v1_excel(excel_path: Path, raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
-    import pandas as pd
+    try:
+        import pandas as pd
+    except Exception as e:
+        print(f"[H2O 探针] pandas import failed: {e}", file=sys.stderr, flush=True)
+        return []
 
     try:
         df = pd.read_excel(str(excel_path), header=None)
-    except Exception:
+    except Exception as e:
+        print(f"[H2O 探针] Excel read failed: {e}", file=sys.stderr, flush=True)
         return []
     if df.empty or df.shape[0] < 3:
         return []
