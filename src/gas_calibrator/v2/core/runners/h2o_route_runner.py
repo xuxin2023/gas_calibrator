@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any, Sequence
 
 from ...exceptions import WorkflowInterruptedError
@@ -211,6 +212,24 @@ class H2oRouteRunner:
                             controller.vent(False)
                             self.service.status_service.log(
                                 "H2O route: keepalive stopped, vent=OFF bare command sent before seal"
+                            )
+                        time.sleep(1.5)
+                        gauge = self.service.device_manager.get_device("pressure_gauge")
+                        gauge_pressure = None
+                        if gauge is not None:
+                            reader = getattr(gauge, "read_pressure", None)
+                            if callable(reader):
+                                try:
+                                    gauge_pressure = reader()
+                                except Exception:
+                                    pass
+                        if gauge_pressure is not None:
+                            self.service.status_service.log(
+                                f"vent closed, waiting for natural pressure rise; current pressure={gauge_pressure:.1f} hPa"
+                            )
+                        else:
+                            self.service.status_service.log(
+                                "vent closed, waiting for natural pressure rise; gauge reading unavailable"
                             )
                         self.service.valve_routing_service.set_h2o_path(False, lead)
                         self.service.status_service.log(
