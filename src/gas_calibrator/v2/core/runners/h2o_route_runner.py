@@ -121,6 +121,7 @@ class H2oRouteRunner:
                     skipped_point_indices=skipped_point_indices,
                     error="H2O route readiness failed",
                 )
+            self._start_h2o_vent_keepalive()
             dewpoint_ok = self.service.dewpoint_alignment_service.wait_dewpoint_alignment_stable(lead)
             self.service.status_service.record_route_trace(
                 action="wait_dewpoint",
@@ -138,7 +139,6 @@ class H2oRouteRunner:
                     error="H2O dewpoint alignment failed",
                 )
             self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": lead, "stability_type": "dewpoint"})
-            self._start_h2o_vent_keepalive()
             self.service.valve_routing_service.mark_post_h2o_co2_zero_flush_pending()
 
             if effective_pressure_points and not getattr(effective_pressure_points[0], "is_ambient_pressure_point", False):
@@ -334,26 +334,22 @@ class H2oRouteRunner:
 
         def _keepalive() -> None:
             self.service.status_service.log("[h2o-vent-keepalive] thread started")
+            controller = svc.device_manager.get_device("pressure_controller")
+            if controller is None:
+                self.service.status_service.log("[h2o-vent-keepalive] FATAL: pressure_controller device not found, daemon cannot operate")
+                return
             tick = 0
             while not self._vent_keepalive_stop.wait(interval_s):
                 tick += 1
                 try:
-                    result = svc.pressure_control_service.set_pressure_controller_vent_fast_reassert(
-                        True,
-                        reason="h2o-vent-keepalive",
-                        wait_after_command=False,
-                        capture_pressure=False,
-                        query_state=False,
-                        confirm_transition=False,
-                        prefer_direct_command=True,
-                    )
-                    if tick == 1 or tick % 60 == 0:
-                        ok_str = "ok" if result.get("command_result") == "ok" else result.get("command_result", "?")
-                        self.service.status_service.log(
-                            f"[h2o-vent-keepalive] tick={tick} result={ok_str}"
-                        )
+                    controller.vent(True)
+                    command_result = "ok"
                 except Exception as exc:
-                    self.service.status_service.log(f"[h2o-vent-keepalive] tick={tick} error={exc}")
+                    command_result = f"error:{exc}"
+                if tick == 1 or tick % 60 == 0:
+                    self.service.status_service.log(
+                        f"[h2o-vent-keepalive] tick={tick} direct_vent result={command_result}"
+                    )
 
         t = threading.Thread(target=_keepalive, daemon=True, name="h2o-vent-keepalive")
         t.start()
