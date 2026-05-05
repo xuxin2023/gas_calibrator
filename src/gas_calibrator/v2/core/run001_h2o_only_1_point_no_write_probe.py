@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import signal
+import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
@@ -843,9 +846,61 @@ def execute_h2o_single_point_probe(config_path: str | Path) -> dict[str, Any]:
     )
     build_no_write_guard_from_raw_config(raw_cfg)
     timeout_s = max(3600.0, float(raw_cfg.get("max_runtime_s", 3600.0)))
+
+    _original_sigint = signal.getsignal(signal.SIGINT)
+
+    def _on_first_interrupt(signum, frame):
+        print("\n[H2O 探针] 收到中断信号，等待当前阶段安全完成...", flush=True)
+        print("[H2O 探针] 再次按 Ctrl+C 可强制退出", flush=True)
+        signal.signal(signal.SIGINT, _on_force_exit)
+
+    def _on_force_exit(signum, frame):
+        print("\n[H2O 探针] 强制退出", flush=True)
+        sys.exit(1)
+
+    signal.signal(signal.SIGINT, _on_first_interrupt)
+
+    started = time.time()
+    last_status = ""
+    last_report = 0.0
     try:
-        service.run(timeout=timeout_s)
+        service.start()
+        while True:
+            elapsed = time.time() - started
+            if service._done_event.wait(timeout=30.0):
+                break
+            if elapsed >= timeout_s:
+                print(
+                    f"\n[H2O 探针] 运行 {elapsed:.0f}s 超过总超时 {timeout_s:.0f}s，正在停止...",
+                    flush=True,
+                )
+                break
+            status = service.get_status()
+            if status is None:
+                continue
+            phase_val = getattr(status.phase, "value", str(status.phase or "unknown"))
+            phase_text = str(phase_val or "unknown")
+            msg = str(status.message or "")
+            status_text = f"phase={phase_text}"
+            if msg:
+                status_text += f" msg={msg[:150]}"
+            if status_text != last_status:
+                print(f"[H2O 探针] {status_text}", flush=True)
+                last_status = status_text
+                last_report = elapsed
+            elif elapsed - last_report >= 120.0:
+                print(f"[H2O 探针] 仍在运行 {elapsed:.0f}s: {status_text}", flush=True)
+                last_report = elapsed
+    except KeyboardInterrupt:
+        print("\n[H2O 探针] KeyboardInterrupt，等待工作流安全结束...", flush=True)
+        if not service._done_event.is_set():
+            service._done_event.wait(timeout=60.0)
     finally:
+        signal.signal(signal.SIGINT, _original_sigint)
+        try:
+            service.stop(wait=True, timeout=30.0)
+        except Exception:
+            pass
         _shutdown_humidity_generator(service)
     run_dir = Path(service.session.output_dir)
     summary = _load_json_dict(run_dir / "summary.json")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import sys
 import time
 from typing import Any, Optional
 
@@ -183,26 +184,33 @@ class DewpointAlignmentService:
                 stable_samples = []
             if time.time() - last_report >= 30.0:
                 last_report = time.time()
+                elapsed_s = time.time() - start
                 if not matched:
-                    self.host._log(
+                    msg = (
                         "Dewpoint meter matching humidity generator... "
                         f"dew_temp={last_dew_temp_c} hgen_temp={last_hgen_temp_c} diff={last_temp_diff_c} "
                         f"dew_rh={last_dew_rh_pct} hgen_rh={last_hgen_rh_pct} diff={last_rh_diff_pct} "
                         f"tol=({temp_tol}C,{rh_tol}%) dewpoint={last_dew_dp}"
                     )
+                    self.host._log(msg)
+                    print(f"  [露点] {msg}  已运行{elapsed_s:.0f}s", flush=True)
                 elif not stable_samples or matched_since is None:
-                    self.host._log(f"Dewpoint meter settling... dewpoint={last_dew_dp}")
+                    msg = f"Dewpoint meter settling... dewpoint={last_dew_dp}"
+                    self.host._log(msg)
+                    print(f"  [露点] {msg}  已运行{elapsed_s:.0f}s", flush=True)
                 else:
                     now = time.time()
                     remain = max(0.0, window_s - (now - matched_since))
                     window_samples = [(ts, value) for ts, value in stable_samples if now - ts <= window_s]
                     span = self._span([value for _, value in window_samples]) if window_samples else float("inf")
                     sample_count = len(window_samples)
-                    self.host._log(
+                    msg = (
                         f"Dewpoint meter observing stability... dewpoint={last_dew_dp} "
                         f"span={span:.4f} samples={sample_count}/{min_window_samples} "
                         f"remaining={int(remain)}s"
                     )
+                    self.host._log(msg)
+                    print(f"  [露点] {msg}  已运行{elapsed_s:.0f}s", flush=True)
             time.sleep(poll_s)
         self.host._log(
             "Dewpoint meter stability timeout: "

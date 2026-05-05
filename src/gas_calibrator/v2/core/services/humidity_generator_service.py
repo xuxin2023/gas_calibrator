@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import sys
 import time
 from typing import Any, Optional
 
@@ -254,18 +255,23 @@ class HumidityGeneratorService:
                 rh_samples = []
             if time.time() - last_report >= 30.0:
                 last_report = time.time()
+                elapsed_s = time.time() - start
                 if in_band_since is None or not rh_samples:
-                    self.host._log(
+                    msg = (
                         f"Humidity settling... temp={temp_now}C/{target_temp} rh={rh_now}%/{target_rh} "
                         f"window=0/{int(window_s)}s"
                     )
+                    self.host._log(msg)
+                    print(f"  [湿度] {msg}  已运行{elapsed_s:.0f}s", flush=True)
                 else:
                     remain = max(0.0, window_s - (time.time() - in_band_since))
                     span = self._span([value for _, value in rh_samples])
-                    self.host._log(
+                    msg = (
                         f"Humidity in target band, observing stability... temp={temp_now}C/{target_temp} "
                         f"rh={rh_now}%/{target_rh} span={span:.3f} remaining={int(remain)}s"
                     )
+                    self.host._log(msg)
+                    print(f"  [湿度] {msg}  已运行{elapsed_s:.0f}s", flush=True)
             time.sleep(poll_s)
         self.host._log("Humidity generator reach-setpoint timeout")
         return HumidityWaitResult(
