@@ -305,7 +305,7 @@
       },
       "h2o_route": {
         "preseal_soak_s": 30,
-        "humidity_timeout_policy": "warn"
+        "humidity_timeout_policy": "continue_after_timeout"
       },
       "co2_route": {
         "preseal_soak_s": 180,
