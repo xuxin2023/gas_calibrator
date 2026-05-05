@@ -205,6 +205,13 @@ class H2oRouteRunner:
                     self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
                 else:
                     if seal_deferred:
+                        self._stop_h2o_vent_keepalive()
+                        controller = self.service.device_manager.get_device("pressure_controller")
+                        if controller is not None:
+                            controller.vent(False)
+                            self.service.status_service.log(
+                                "H2O route: keepalive stopped, vent=OFF bare command sent before seal"
+                            )
                         if not self.service.pressure_control_service.pressurize_and_hold(lead, route=phase).ok:
                             self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O deferred pressure-seal failure")
                             skipped_point_indices.extend(expected_indices)
