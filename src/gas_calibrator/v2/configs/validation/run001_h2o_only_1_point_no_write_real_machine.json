@@ -329,7 +329,7 @@
         "temp_match_tol_c": 0.3,
         "rh_match_tol_pct": 4.0,
         "window_s": 60,
-        "stability_tol_c": 0.01,
+        "stability_tol_c": 0.05,
         "timeout_s": 1800,
         "poll_s": 1.0
       }
