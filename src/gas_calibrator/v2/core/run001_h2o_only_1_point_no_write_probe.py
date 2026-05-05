@@ -903,7 +903,7 @@ def prepare_h2o_downstream_points_config(
     aligned_config_path = run_dir / "h2o_1r_v1_aligned_downstream_config.json"
     _write_json_no_bom(aligned_config_path, aligned_raw_cfg)
 
-    loaded_rows = load_point_rows(aligned_config_path, aligned_raw_cfg)
+    loaded_rows = rows
     loaded_reasons = _validate_h2o_downstream_point_rows(loaded_rows)
     if loaded_reasons:
         raise H2OPointsConfigAlignmentError("; ".join(loaded_reasons))
