@@ -29,8 +29,8 @@ H2O_SCHEMA_VERSION = "v2.run001.h2o_only_1_point_no_write_probe.1"
 H2O_ENV_VAR = "GAS_CAL_V2_H2O_1_POINT_NO_WRITE_REAL_COM"
 H2O_ENV_VALUE = "1"
 H2O_CLI_FLAG = "--allow-v2-h2o-1-point-no-write-real-com"
-H2O_ALLOWED_PRESSURE_POINTS_HPA = (1013.25,)
-H2O_ACCEPTED_SINGLE_PRESSURE_POINTS_HPA = (1013.25, 1100.0)
+H2O_ALLOWED_PRESSURE_POINTS_HPA = (1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
+H2O_ACCEPTED_SINGLE_PRESSURE_POINTS_HPA = H2O_ALLOWED_PRESSURE_POINTS_HPA
 H2O_CURRENT_EVIDENCE_SOURCE = "real_probe_h2o_1r_1_point_no_write"
 H2O_EVIDENCE_MARKERS = {
     "probe_identity": "H2O.1R H2O-only single-point no-write engineering probe",
@@ -171,9 +171,11 @@ def _same_pressure_points(value: Any) -> bool:
     points = _float_list(value)
     if not points:
         return False
-    if len(points) == 1:
-        return any(abs(float(points[0]) - float(ref)) <= 1e-6 for ref in H2O_ACCEPTED_SINGLE_PRESSURE_POINTS_HPA)
-    return False
+    allowed = set(round(float(ref), 6) for ref in H2O_ACCEPTED_SINGLE_PRESSURE_POINTS_HPA)
+    for p in points:
+        if round(float(p), 6) not in allowed:
+            return False
+    return True
 
 
 def _scope(raw_cfg: Mapping[str, Any]) -> str:

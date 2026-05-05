@@ -6,6 +6,7 @@ from typing import Any, Sequence
 from ...exceptions import WorkflowInterruptedError
 from ..event_bus import EventType
 from ..models import CalibrationPhase, CalibrationPoint
+from ..services.coefficient_service import dry_air_corrected_co2_ppm, saturation_vapor_pressure_hpa
 from .route_run_result import RouteRunResult
 
 
@@ -104,7 +105,6 @@ class H2oRouteRunner:
             if humidity_wait.ok:
                 self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": lead, "stability_type": "humidity"})
             self.service.temperature_control_service.capture_temperature_calibration_snapshot(lead, route_type=phase)
-            self._start_h2o_vent_keepalive()
             route_ready = self.service.dewpoint_alignment_service.open_h2o_route_and_wait_ready(lead)
             self.service.status_service.record_route_trace(
                 action="wait_route_ready",
@@ -138,6 +138,7 @@ class H2oRouteRunner:
                     error="H2O dewpoint alignment failed",
                 )
             self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": lead, "stability_type": "dewpoint"})
+            self._start_h2o_vent_keepalive()
             self.service.valve_routing_service.mark_post_h2o_co2_zero_flush_pending()
 
             if effective_pressure_points and not getattr(effective_pressure_points[0], "is_ambient_pressure_point", False):
@@ -255,6 +256,25 @@ class H2oRouteRunner:
                     self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
                     continue
                 for result in results:
+                    if result.h2o_mmol is not None and result.h2o_mmol > 0:
+                        sample_pressure = (
+                            getattr(result, "pressure_hpa", None)
+                            or sample_point.target_pressure_hpa
+                            or float(
+                                getattr(
+                                    getattr(self.service, "route_context", None),
+                                    "route_state",
+                                    {},
+                                ).get("pressure_hpa", 1013.25)
+                            )
+                        )
+                        result.dry_air_corrected_h2o_ppm = dry_air_corrected_co2_ppm(
+                            cylinder_co2_ppm=round(float(result.h2o_mmol) * 1000.0, 4),
+                            pressure_p3_hpa=float(sample_pressure),
+                            temp_c=float(sample_point.temperature_c or getattr(result, "temperature_c", None) or 20.0),
+                        )
+                    else:
+                        result.dry_air_corrected_h2o_ppm = None
                     self.service.event_bus.publish(EventType.SAMPLE_COLLECTED, result)
                 self.service.status_service.record_route_trace(
                     action="sample_end",
@@ -271,16 +291,10 @@ class H2oRouteRunner:
                 completed_points.append(sample_point)
                 completed_point_indices.append(sample_point.index)
                 if is_current_ambient:
-                    self._stop_h2o_vent_keepalive()
-                    try:
-                        self.service.pressure_control_service.set_pressure_controller_vent(
-                            False,
-                            reason="H2O ambient complete: close vent before sealed pressure control",
-                            prefer_direct_command=True,
-                        )
-                    except Exception:
-                        pass
-                    self.service.status_service.log("H2O ambient complete: keepalive stopped, vent closed")
+                    self.service.status_service.log(
+                        "H2O ambient complete: daemon keeps vent open through remaining pressure sweep, "
+                        "seal deferred for upcoming pressure control"
+                    )
 
             self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O group complete")
             return RouteRunResult(
