@@ -849,7 +849,10 @@ def prepare_h2o_downstream_points_config(
     generated = False
     if resolved_points is not None and resolved_points.exists():
         points_path = resolved_points
-        rows = load_point_rows(original_config_path, raw_cfg)
+        if points_path.suffix.lower() in (".xlsx", ".xls"):
+            rows = _load_h2o_points_from_v1_excel(points_path, raw_cfg)
+        else:
+            rows = load_point_rows(original_config_path, raw_cfg)
         reasons = _validate_h2o_downstream_point_rows(rows)
         if reasons:
             raise H2OPointsConfigAlignmentError("; ".join(reasons))
