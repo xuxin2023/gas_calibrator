@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
@@ -404,6 +405,12 @@ class DeviceManager:
                     if recovered:
                         retry_result = device.selftest()
                         return self._interpret_health_result(retry_result)
+                if mode_val is None and hasattr(device, "read_latest_data"):
+                    for _ in range(3):
+                        time.sleep(0.5)
+                        retry_result = device.selftest()
+                        if self._interpret_health_result(retry_result):
+                            return True
             return healthy
         if hasattr(device, "status"):
             return self._interpret_health_result(device.status())

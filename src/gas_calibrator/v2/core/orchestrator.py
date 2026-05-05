@@ -522,19 +522,31 @@ class WorkflowOrchestrator:
         skip_temp_probe = self._a2_skip_temp_wait_engineering_probe_mode()
 
         route_pressure_devices = ["pressure_controller", "pressure_meter", "relay_a", "relay_b"]
+        h2o_only_precheck = (
+            stage == "precheck"
+            and str(self._cfg_get("workflow.route_mode", "") or "").strip().lower() == "h2o_only"
+        )
         if a2_probe:
             critical_required = list(route_pressure_devices)
             critical_required.extend(gas_devices)
             optional_context_devices = ["temperature_chamber"] if skip_temp_probe else []
             if not skip_temp_probe:
                 critical_required.append("temperature_chamber")
+        elif h2o_only_precheck:
+            healthy_gas = [d for d in gas_devices if d not in set(failed)]
+            critical_required = ["temperature_chamber"] if healthy_gas else ["temperature_chamber", *gas_devices]
+            optional_context_devices = list(gas_devices) if healthy_gas else []
         else:
             critical_required = ["temperature_chamber", *gas_devices]
             optional_context_devices = []
         critical_required = sorted(dict.fromkeys(critical_required))
         optional_context_devices = sorted(dict.fromkeys(optional_context_devices))
 
-        critical_failed = [name for name in failed if name in critical_required or name.startswith("gas_analyzer_")]
+        critical_failed = [
+            name for name in failed
+            if name in critical_required
+            or (name.startswith("gas_analyzer_") and not h2o_only_precheck)
+        ]
         optional_failed = [name for name in failed if name in optional_context_devices and name not in critical_failed]
         temp_attempted = "temperature_chamber" in known or "temperature_chamber" in failed
         temp_failed_at_stage = "temperature_chamber" in failed
