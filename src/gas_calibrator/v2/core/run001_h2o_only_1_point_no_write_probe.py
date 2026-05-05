@@ -856,11 +856,17 @@ def prepare_h2o_downstream_points_config(
         points_path = resolved_points
         if points_path.suffix.lower() in (".xlsx", ".xls"):
             rows = _load_h2o_points_from_v1_excel(points_path, raw_cfg)
+            reasons = _validate_h2o_downstream_point_rows(rows)
+            if reasons:
+                raise H2OPointsConfigAlignmentError("; ".join(reasons))
+            generated = True
+            points_path = run_dir / "h2o_1r_v1_aligned_points.json"
+            _write_json_no_bom(points_path, rows)
         else:
             rows = load_point_rows(original_config_path, raw_cfg)
-        reasons = _validate_h2o_downstream_point_rows(rows)
-        if reasons:
-            raise H2OPointsConfigAlignmentError("; ".join(reasons))
+            reasons = _validate_h2o_downstream_point_rows(rows)
+            if reasons:
+                raise H2OPointsConfigAlignmentError("; ".join(reasons))
     else:
         generated = True
         rows = _build_h2o_downstream_point_rows(raw_cfg)
