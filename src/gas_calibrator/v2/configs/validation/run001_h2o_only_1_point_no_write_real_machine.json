@@ -295,7 +295,7 @@
       "humidity_generator": {
         "enabled": true,
         "temp_tol_c": 1.0,
-        "rh_tol_pct": 4.5,
+        "rh_tol_pct": 1.0,
         "rh_stable_window_s": 60,
         "rh_stable_span_pct": 0.3,
         "reach_confirm_count": 3,
@@ -326,10 +326,10 @@
       },
       "dewpoint": {
         "target_tol_c": 0.2,
-        "temp_match_tol_c": 0.55,
+        "temp_match_tol_c": 0.3,
         "rh_match_tol_pct": 4.0,
-        "window_s": 40,
-        "stability_tol_c": 0.06,
+        "window_s": 60,
+        "stability_tol_c": 0.01,
         "timeout_s": 1800,
         "poll_s": 1.0
       }
