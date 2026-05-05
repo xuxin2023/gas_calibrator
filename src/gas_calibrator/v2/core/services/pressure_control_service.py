@@ -6397,7 +6397,7 @@ class PressureControlService:
             )
         return result
 
-    def pressurize_and_hold(self, point: CalibrationPoint, route: str = "co2") -> PressureWaitResult:
+    def pressurize_and_hold(self, point: CalibrationPoint, route: str = "co2", *, prefer_direct_vent_close: bool = False) -> PressureWaitResult:
         route_text = str(route or "").strip().lower()
         timing_recorder = getattr(self.host, "_record_workflow_timing", None)
         if callable(timing_recorder):
@@ -6517,6 +6517,7 @@ class PressureControlService:
                     self.host._set_pressure_controller_vent(
                         False,
                         reason=f"before {route_text.upper()} pressure seal",
+                        prefer_direct_command=prefer_direct_vent_close,
                     )
                     or {}
                 )
@@ -6532,6 +6533,7 @@ class PressureControlService:
                 self.host._set_pressure_controller_vent(
                     False,
                     reason=f"before {route_text.upper()} pressure seal",
+                    prefer_direct_command=prefer_direct_vent_close,
                 )
                 or {}
             )
