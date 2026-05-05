@@ -272,11 +272,15 @@ class H2oRouteRunner:
                 completed_point_indices.append(sample_point.index)
                 if is_current_ambient:
                     self._stop_h2o_vent_keepalive()
-                    self.service.pressure_control_service.set_pressure_controller_vent(
-                        False,
-                        reason="H2O ambient complete: close vent before sealed pressure control",
-                        prefer_direct_command=True,
-                    )
+                    try:
+                        self.service.pressure_control_service.set_pressure_controller_vent(
+                            False,
+                            reason="H2O ambient complete: close vent before sealed pressure control",
+                            prefer_direct_command=True,
+                        )
+                    except Exception:
+                        pass
+                    self.service.status_service.log("H2O ambient complete: keepalive stopped, vent closed")
 
             self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O group complete")
             return RouteRunResult(
