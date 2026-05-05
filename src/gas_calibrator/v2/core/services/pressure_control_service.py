@@ -5466,11 +5466,10 @@ class PressureControlService:
             else:
                 if prefer_direct_command:
                     self.host._call_first(controller, ("set_output",), False)
-                    direct_vent_ok = bool(self.host._call_first(controller, ("vent",), False))
+                    controller.vent(False)
                     self.host._call_first(controller, ("set_isolation_open",), True)
-                    if direct_vent_ok:
-                        command_method = "set_output_false_vent_false_set_isolation_open_fast"
-                        command_return_status = 0
+                    command_method = "set_output_false_vent_false_set_isolation_open_fast"
+                    command_return_status = 0
                 exit_mode = getattr(controller, "exit_atmosphere_mode", None)
                 if not command_method and callable(exit_mode):
                     command_method = "exit_atmosphere_mode"
