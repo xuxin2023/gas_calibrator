@@ -524,8 +524,7 @@ class Co2RouteRunner:
             return default
 
     def interpoint_flush(self) -> None:
-        getter = getattr(self.service, "_cfg_get", None)
-        flush_s = float(getter("co2.interpoint_flush_s", 300.0) if callable(getter) else 300.0)
+        flush_s = 300.0
         if flush_s <= 0:
             return
         valve_service = getattr(self.service, "valve_routing_service", None)
