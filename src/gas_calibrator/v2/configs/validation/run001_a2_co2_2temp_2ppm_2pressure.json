@@ -333,7 +333,7 @@
   },
   "paths": {
     "points_excel": "run001_a2_co2_2temp_2ppm_2pressure_points.json",
-    "output_dir": "../../output/run001_a2/co2_2temp_2ppm_2pressure"
+    "output_dir": "D:/output/run001_a2/co2_2temp_2ppm_2pressure"
   },
   "coefficients": {
     "enabled": false,
