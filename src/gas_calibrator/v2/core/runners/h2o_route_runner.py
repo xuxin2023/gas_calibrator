@@ -213,7 +213,7 @@ class H2oRouteRunner:
                             self.service.status_service.log(
                                 "H2O route: keepalive stopped, vent=OFF bare command sent before seal"
                             )
-                        time.sleep(1.5)
+                        time.sleep(float(self.service._cfg_get("workflow.pressure.h2o_pre_seal_natural_rise_wait_s", 1.5)))
                         gauge = self.service.device_manager.get_device("pressure_gauge")
                         gauge_pressure = None
                         if gauge is not None:
@@ -365,7 +365,7 @@ class H2oRouteRunner:
             return
         self._vent_keepalive_stop.clear()
         svc = self.service
-        interval_s = 1.0
+        interval_s = float(svc._cfg_get("workflow.pressure.h2o_vent_keepalive_interval_s", 1.0))
 
         def _keepalive() -> None:
             self.service.status_service.log("[h2o-vent-keepalive] thread started")
@@ -394,7 +394,7 @@ class H2oRouteRunner:
         self._vent_keepalive_stop.set()
         t = self._vent_keepalive_thread
         if t is not None and t.is_alive():
-            t.join(timeout=5.0)
+            t.join(timeout=float(self.service._cfg_get("workflow.pressure.h2o_vent_keepalive_stop_timeout_s", 5.0)))
         self._vent_keepalive_thread = None
 
     def _continue_after_humidity_timeout(self, result: Any) -> bool:

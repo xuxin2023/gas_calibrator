@@ -267,7 +267,10 @@
       "stabilize_timeout_s": 180,
       "restabilize_retries": 0,
       "co2_reseal_retry_count": 1,
-      "soft_recover_on_pressure_timeout": false
+      "soft_recover_on_pressure_timeout": false,
+      "h2o_vent_keepalive_interval_s": 1.0,
+      "h2o_pre_seal_natural_rise_wait_s": 1.5,
+      "h2o_vent_keepalive_stop_timeout_s": 5.0
     },
     "sampling": {
       "count": 10,
