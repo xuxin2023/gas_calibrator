@@ -123,49 +123,10 @@ class TemperatureGroupRunner:
                     )
                     co2_runner = Co2RouteRunner(self.service, source_point, effective_pressure_points)
                     co2_runner.interpoint_flush()
-                    result = co2_runner.execute()
-                    self.service.route_context.enter(
-                        current_route="temperature_group",
-                        current_phase=CalibrationPhase.TEMPERATURE_GROUP,
-                        current_point=lead,
-                        active_point=lead,
-                        point_tag="",
-                        retry=0,
-                        route_state={
-                            "temperature_c": float(lead.temp_chamber_c),
-                            "point_indices": [point.index for point in self.points],
-                            "h2o_indices": [point.index for point in h2o_points],
-                            "co2_indices": [point.index for point in co2_points],
-                        },
-                    )
-                    if result.stopped:
-                        self.service.route_context.clear()
-                        raise WorkflowInterruptedError(reason=result.error or "Stop requested")
-                    self._mark_completed_points(
-                        result=result,
-                        points_by_index=points_by_index,
-                        completed_keys=completed_keys,
-                    )
-                    if not result.success:
-                        route_failures.append(
-                            {
-                                "route": "co2",
-                                "source_point_index": source_point.index,
-                                "completed_point_indices": list(result.completed_point_indices),
-                                "sampled_point_indices": list(result.sampled_point_indices),
-                                "skipped_point_indices": list(result.skipped_point_indices),
-                                "error": result.error,
-                            }
-                        )
                     for amb_point in ambient_points:
                         sampling_service = getattr(self.service, "sampling_service", None)
                         if sampling_service is None:
                             continue
-                        pressure_service = getattr(self.service, "pressure_control_service", None)
-                        if pressure_service is not None:
-                            pressure_service.set_pressure_controller_vent(
-                                True, reason="ambient point sampling"
-                            )
                         self.service.status_service.check_stop()
                         sample_point = self.service.route_planner.build_co2_pressure_point(source_point, amb_point)
                         point_tag = self.service.route_planner.co2_point_tag(sample_point)
@@ -216,6 +177,40 @@ class TemperatureGroupRunner:
                                 message="CO2 ambient sampling returned no results",
                             )
                         self.service.status_service.clear_point_timing(sample_point, phase="co2", point_tag=point_tag)
+                    result = co2_runner.execute()
+                    self.service.route_context.enter(
+                        current_route="temperature_group",
+                        current_phase=CalibrationPhase.TEMPERATURE_GROUP,
+                        current_point=lead,
+                        active_point=lead,
+                        point_tag="",
+                        retry=0,
+                        route_state={
+                            "temperature_c": float(lead.temp_chamber_c),
+                            "point_indices": [point.index for point in self.points],
+                            "h2o_indices": [point.index for point in h2o_points],
+                            "co2_indices": [point.index for point in co2_points],
+                        },
+                    )
+                    if result.stopped:
+                        self.service.route_context.clear()
+                        raise WorkflowInterruptedError(reason=result.error or "Stop requested")
+                    self._mark_completed_points(
+                        result=result,
+                        points_by_index=points_by_index,
+                        completed_keys=completed_keys,
+                    )
+                    if not result.success:
+                        route_failures.append(
+                            {
+                                "route": "co2",
+                                "source_point_index": source_point.index,
+                                "completed_point_indices": list(result.completed_point_indices),
+                                "sampled_point_indices": list(result.sampled_point_indices),
+                                "skipped_point_indices": list(result.skipped_point_indices),
+                                "error": result.error,
+                            }
+                        )
 
         if self.next_group and not preconditioned:
             self.service._precondition_next_temperature_humidity(self.next_group)
