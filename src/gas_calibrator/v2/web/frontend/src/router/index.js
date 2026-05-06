@@ -31,6 +31,11 @@ const routes = [
     name: 'ParamsEditor',
     component: () => import('@/views/ParamsEditor.vue'),
   },
+  {
+    path: '/run',
+    name: 'RunControl',
+    component: () => import('@/views/RunControl.vue'),
+  },
 ]
 
 const router = createRouter({

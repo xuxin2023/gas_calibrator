@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import random
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -42,15 +41,35 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def _simulate_data() -> dict:
+def _read_telemetry_state() -> dict:
+    try:
+        from .app import app
+
+        tele = getattr(app.state, "telemetry_state", None)
+        if isinstance(tele, dict):
+            return {
+                "type": "telemetry",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "pressure_hpa": tele.get("pressure_hpa"),
+                "temperature_c": tele.get("temperature_c"),
+                "humidity_pct": tele.get("humidity_pct"),
+                "dewpoint_c": tele.get("dewpoint_c"),
+                "co2_ppm": tele.get("co2_ppm"),
+                "phase": tele.get("phase", "idle"),
+                "point_index": tele.get("point_index", 0),
+                "total_points": tele.get("total_points", 0),
+                "progress_pct": tele.get("progress_pct", 0.0),
+            }
+    except Exception:
+        pass
     return {
         "type": "telemetry",
         "ts": datetime.now(timezone.utc).isoformat(),
-        "pressure_hpa": round(random.uniform(990, 1010), 1),
-        "temperature_c": round(random.uniform(22.5, 23.5), 2),
-        "humidity_pct": round(random.uniform(45, 55), 1),
-        "dewpoint_c": round(random.uniform(10, 14), 2),
-        "co2_ppm": round(random.uniform(400, 420), 1),
+        "pressure_hpa": None,
+        "temperature_c": None,
+        "humidity_pct": None,
+        "dewpoint_c": None,
+        "co2_ppm": None,
         "phase": "idle",
         "point_index": 0,
         "total_points": 0,
@@ -62,7 +81,7 @@ async def _broadcast_loop():
     while True:
         await asyncio.sleep(2.0)
         if manager.active_count > 0:
-            await manager.broadcast(_simulate_data())
+            await manager.broadcast(_read_telemetry_state())
 
 
 @router.on_event("startup")

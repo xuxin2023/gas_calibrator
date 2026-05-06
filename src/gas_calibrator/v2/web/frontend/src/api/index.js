@@ -51,4 +51,36 @@ export function fetchSimSnapshot() {
   return api.get('/simulation/snapshot')
 }
 
+export function fetchRunDetail(runId) {
+  return api.get(`/runs/${runId}`)
+}
+
+export function fetchDevicesLive() {
+  return api.get('/devices/live')
+}
+
+export function fetchRunStatus() {
+  return api.get('/run/status')
+}
+
+export function initRunService(payload) {
+  return api.post('/run/init', payload)
+}
+
+export function startRun(payload) {
+  return api.post('/run/start', payload || {})
+}
+
+export function stopRun() {
+  return api.post('/run/stop')
+}
+
+export function pauseRun() {
+  return api.post('/run/pause')
+}
+
+export function resumeRun() {
+  return api.post('/run/resume')
+}
+
 export default api

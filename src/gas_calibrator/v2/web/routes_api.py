@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 router = APIRouter(prefix="/api")
 
@@ -269,26 +269,262 @@ def api_save_params(
 
 
 @router.get("/history")
-def api_history(limit: int = Query(default=50)):
-    return {
-        "runs": [],
-        "total": 0,
-        "note": "历史记录模块待数据库集成后可用",
-    }
+def api_history(request: Request, limit: int = Query(default=50)):
+    db = getattr(request.app.state, "database_manager", None)
+    if db is None:
+        return {"runs": [], "total": 0, "note": "数据库未连接"}
+    try:
+        from ..storage.queries import HistoryQueryService
+
+        service = HistoryQueryService(db)
+        raw = service.runs_by_time_range(limit=limit)
+        runs: list[dict[str, Any]] = []
+        for r in raw:
+            runs.append({
+                "run_id": str(r.get("id", "")),
+                "start_time": r.get("start_time"),
+                "end_time": r.get("end_time"),
+                "status": r.get("status", ""),
+                "total_points": r.get("total_points", 0),
+                "successful_points": r.get("successful_points", 0),
+                "failed_points": r.get("failed_points", 0),
+                "route_mode": r.get("route_mode", ""),
+                "run_mode": r.get("run_mode", ""),
+                "operator": r.get("operator", "") or "",
+                "software_version": r.get("software_version", ""),
+            })
+        return {"runs": runs, "total": len(runs)}
+    except Exception as exc:
+        return {"runs": [], "total": 0, "note": f"查询失败: {exc}"}
+
+
+@router.get("/runs/{run_id}")
+def api_run_detail(request: Request, run_id: str):
+    db = getattr(request.app.state, "database_manager", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="数据库未连接")
+    try:
+        from ..storage.database import resolve_run_uuid
+        from ..storage.queries import HistoryQueryService
+
+        service = HistoryQueryService(db)
+        run_uuid = resolve_run_uuid(run_id)
+
+        all_runs = service.runs_by_time_range(limit=10000)
+        run_data = None
+        for r in all_runs:
+            if str(r.get("id", "")) == str(run_uuid):
+                run_data = r
+                break
+        if run_data is None:
+            raise HTTPException(status_code=404, detail=f"运行记录未找到: {run_id}")
+
+        points: list[dict[str, Any]] = []
+        try:
+            raw_samples = service.samples_by_point(run_id=str(run_uuid))
+            point_map: dict[str, dict[str, Any]] = {}
+            for s in raw_samples:
+                pid = str(s.get("point_id", ""))
+                if pid not in point_map:
+                    point_map[pid] = {
+                        "point_id": pid,
+                        "sample_count": 0,
+                        "analyzer_ids": [],
+                        "co2_values": [],
+                    }
+                entry = point_map[pid]
+                entry["sample_count"] += 1
+                aid = s.get("analyzer_id", "")
+                if aid and aid not in entry["analyzer_ids"]:
+                    entry["analyzer_ids"].append(aid)
+                co2 = s.get("co2_ppm")
+                if co2 is not None:
+                    entry["co2_values"].append(co2)
+            for pid, info in point_map.items():
+                vals = info["co2_values"]
+                info["co2_avg"] = round(sum(vals) / len(vals), 2) if vals else None
+                del info["co2_values"]
+            points = sorted(point_map.values(), key=lambda x: x["point_id"])
+        except Exception:
+            pass
+
+        return {
+            "run_id": run_data.get("id"),
+            "start_time": run_data.get("start_time"),
+            "end_time": run_data.get("end_time"),
+            "status": run_data.get("status"),
+            "total_points": run_data.get("total_points", 0),
+            "successful_points": run_data.get("successful_points", 0),
+            "failed_points": run_data.get("failed_points", 0),
+            "route_mode": run_data.get("route_mode"),
+            "run_mode": run_data.get("run_mode"),
+            "operator": run_data.get("operator") or "",
+            "software_version": run_data.get("software_version"),
+            "points": points,
+            "stats": service.statistics(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"查询运行详情失败: {exc}") from exc
+
+
+@router.get("/devices/live")
+def api_devices_live(request: Request):
+    svc = getattr(request.app.state, "calibration_service", None)
+    if svc is None:
+        return {"devices": [], "total": 0, "note": "校准服务未初始化"}
+    try:
+        mgr = getattr(svc, "device_manager", None)
+        if mgr is None:
+            return {"devices": [], "total": 0, "note": "设备管理器不可用"}
+        health = mgr.health_check()
+        result: list[dict[str, Any]] = []
+        for name, info in mgr.list_device_info().items():
+            result.append({
+                "name": name,
+                "device_type": info.device_type,
+                "port": info.port,
+                "enabled": info.enabled,
+                "status": info.status.value,
+                "healthy": health.get(name, False),
+                "error_message": info.error_message,
+            })
+        return {"devices": result, "total": len(result)}
+    except Exception as exc:
+        return {"devices": [], "total": 0, "note": f"设备状态查询失败: {exc}"}
+
+
+@router.post("/run/start")
+def api_run_start(request: Request, payload: dict[str, Any] | None = None):
+    svc = getattr(request.app.state, "calibration_service", None)
+    if svc is None:
+        raise HTTPException(status_code=503, detail="校准服务未初始化，请先 POST /api/run/init")
+    if svc.is_running:
+        raise HTTPException(status_code=409, detail="校准运行已在进行中")
+    try:
+        points_path = (payload or {}).get("points_path")
+        svc.start(points_path=points_path)
+        status = svc.get_status()
+        return {
+            "ok": True,
+            "run_id": svc.run_id,
+            "phase": status.phase.value if hasattr(status.phase, "value") else str(status.phase),
+            "total_points": status.total_points,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"启动失败: {exc}") from exc
+
+
+@router.post("/run/stop")
+def api_run_stop(request: Request):
+    svc = getattr(request.app.state, "calibration_service", None)
+    if svc is None:
+        raise HTTPException(status_code=503, detail="校准服务未初始化")
+    try:
+        svc.stop(wait=False)
+        return {"ok": True, "message": "停止信号已发送"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"停止失败: {exc}") from exc
+
+
+@router.post("/run/pause")
+def api_run_pause(request: Request):
+    svc = getattr(request.app.state, "calibration_service", None)
+    if svc is None:
+        raise HTTPException(status_code=503, detail="校准服务未初始化")
+    try:
+        svc.pause()
+        return {"ok": True, "message": "已暂停"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"暂停失败: {exc}") from exc
+
+
+@router.post("/run/resume")
+def api_run_resume(request: Request):
+    svc = getattr(request.app.state, "calibration_service", None)
+    if svc is None:
+        raise HTTPException(status_code=503, detail="校准服务未初始化")
+    try:
+        svc.resume()
+        return {"ok": True, "message": "已恢复"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"恢复失败: {exc}") from exc
+
+
+@router.get("/run/status")
+def api_run_status(request: Request):
+    svc = getattr(request.app.state, "calibration_service", None)
+    if svc is None:
+        return {
+            "running": False,
+            "phase": "idle",
+            "current_point": None,
+            "total_points": 0,
+            "completed_points": 0,
+            "progress_pct": 0.0,
+            "message": "校准服务未初始化",
+        }
+    try:
+        status = svc.get_status()
+        return {
+            "running": svc.is_running,
+            "phase": status.phase.value if hasattr(status.phase, "value") else str(status.phase),
+            "current_point": status.current_point,
+            "total_points": status.total_points,
+            "completed_points": status.completed_points,
+            "progress_pct": round(status.progress * 100, 1) if status.progress else 0.0,
+            "message": status.message or "",
+        }
+    except Exception as exc:
+        return {
+            "running": False,
+            "phase": "error",
+            "current_point": None,
+            "total_points": 0,
+            "completed_points": 0,
+            "progress_pct": 0.0,
+            "message": f"状态查询失败: {exc}",
+        }
+
+
+@router.post("/run/init")
+def api_run_init(request: Request, payload: dict[str, Any]):
+    config_path = payload.get("config_path", "")
+    points_path = payload.get("points_path", "")
+    if not config_path:
+        raise HTTPException(status_code=400, detail="缺少 config_path")
+
+    try:
+        from ..config import AppConfig
+
+        cfg = AppConfig.from_json(config_path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"配置加载失败: {exc}") from exc
+
+    try:
+        from ..core.calibration_service import CalibrationService
+
+        svc = CalibrationService(config=cfg)
+        if points_path:
+            svc.load_points(points_path)
+        request.app.state.calibration_service = svc
+        return {"ok": True, "run_id": svc.run_id, "points_loaded": len(svc._points)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"校准服务初始化失败: {exc}") from exc
 
 
 @router.get("/simulation/snapshot")
-def api_simulation_snapshot():
-    import random
-
+def api_simulation_snapshot(request: Request):
+    tele = request.app.state.telemetry_state
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "pressure_hpa": round(random.uniform(990, 1010), 1),
-        "temperature_c": round(random.uniform(22.5, 23.5), 1),
-        "humidity_pct": round(random.uniform(45, 55), 1),
-        "dewpoint_c": round(random.uniform(10, 14), 1),
-        "co2_ppm": round(random.uniform(400, 420), 1),
-        "phase": "idle",
-        "point": 0,
-        "progress_pct": 0.0,
+        "pressure_hpa": tele.get("pressure_hpa"),
+        "temperature_c": tele.get("temperature_c"),
+        "humidity_pct": tele.get("humidity_pct"),
+        "dewpoint_c": tele.get("dewpoint_c"),
+        "co2_ppm": tele.get("co2_ppm"),
+        "phase": tele.get("phase", "idle"),
+        "point": tele.get("point_index", 0),
+        "progress_pct": tele.get("progress_pct", 0.0),
     }

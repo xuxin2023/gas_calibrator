@@ -40,6 +40,10 @@
           <el-icon><Operation /></el-icon>
           <span>参数配置</span>
         </el-menu-item>
+        <el-menu-item index="/run">
+          <el-icon><VideoPlay /></el-icon>
+          <span>运行控制</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-main style="background:#f5f7fa;padding:24px 32px">
@@ -51,7 +55,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { DataBoard, Monitor, Connection, Clock, Setting, Operation } from '@element-plus/icons-vue'
+import { DataBoard, Monitor, Connection, Clock, Setting, Operation, VideoPlay } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const currentRoute = computed(() => route.path)
