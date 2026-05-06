@@ -271,6 +271,7 @@ class FitResultRecord(Base):
         Index("ix_fit_results_run_id", "run_id"),
         Index("ix_fit_results_analyzer", "analyzer_id"),
         Index("ix_fit_results_sensor_id", "sensor_id"),
+        Index("ix_fit_results_run_analyzer", "run_id", "analyzer_id"),
     )
 
     id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
@@ -430,6 +431,7 @@ class StabilityWindowRecord(Base):
         Index("ix_stability_windows_run_id", "run_id"),
         Index("ix_stability_windows_timestamp", "timestamp"),
         Index("ix_stability_windows_analyzer_sn", "analyzer_sn"),
+        Index("ix_stability_windows_run_sn_window", "run_id", "analyzer_sn", "window_start_time"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -458,6 +460,7 @@ class StateTransitionLogRecord(Base):
         Index("ix_state_transition_logs_run_id", "run_id"),
         Index("ix_state_transition_logs_timestamp", "timestamp"),
         Index("ix_state_transition_logs_analyzer_sn", "analyzer_sn"),
+        Index("ix_state_transition_logs_run_time", "run_id", "timestamp"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

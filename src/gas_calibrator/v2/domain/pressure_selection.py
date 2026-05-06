@@ -70,7 +70,7 @@ def effective_pressure_mode(
         return AMBIENT_OPEN_MODE
     if _safe_float(pressure_hpa) is not None:
         return SEALED_CONTROLLED_MODE
-    return ""
+    return AMBIENT_OPEN_MODE
 
 
 def pressure_target_label(
