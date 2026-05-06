@@ -96,6 +96,17 @@ class Co2RouteRunner:
             if callable(mark_route_open_started):
                 mark_route_open_started(point)
             self.service.valve_routing_service.set_valves_for_co2(point)
+            flush_s = float(self.service._cfg_get("co2.interpoint_flush_s", 0.0))
+            last_ppm = getattr(self.service.a2_hooks, "last_co2_route_ppm", None)
+            current_ppm = float(point.co2_ppm or 0)
+            if flush_s > 0 and last_ppm is not None and abs(current_ppm - last_ppm) > 0.5:
+                self.service.valve_routing_service.set_valves_for_co2(point)
+                self.service.status_service.log(
+                    f"CO2 sealed-path gas flush for {flush_s:.1f}s "
+                    f"({last_ppm:.0f}→{current_ppm:.0f} ppm, vent stays OFF)"
+                )
+                time.sleep(flush_s)
+            self.service.a2_hooks.last_co2_route_ppm = current_ppm
             mark_route_open_completed = self.service.a2_hooks.callbacks.get("mark_route_open_completed")
             if callable(mark_route_open_completed):
                 mark_route_open_completed(point)
@@ -448,19 +459,6 @@ class Co2RouteRunner:
                     target_pressure_hpa=sample_point.target_pressure_hpa,
                     decision="ok",
                 )
-
-                flush_s = float(self.service._cfg_get("co2.interpoint_flush_s", 0.0))
-                is_last_ref = loop_index + 1 >= len(refs_list)
-                next_pressure = refs_list[loop_index + 1] if not is_last_ref else None
-                next_is_ambient = bool(getattr(next_pressure, "is_ambient_pressure_point", False)) if next_pressure is not None else True
-                if flush_s > 0 and not is_current_ambient and not next_is_ambient:
-                    next_sample = self.service.route_planner.build_co2_pressure_point(point, next_pressure)
-                    self.service.status_service.log(
-                        f"CO2 interpoint flush: sealed-path gas cycle for {flush_s:.1f}s "
-                        f"({sample_point.co2_ppm}→{next_sample.co2_ppm} ppm, vent stays OFF)"
-                    )
-                    self.service.valve_routing_service.set_valves_for_co2(next_sample)
-                    time.sleep(flush_s)
 
             self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 source complete")
             return RouteRunResult(
