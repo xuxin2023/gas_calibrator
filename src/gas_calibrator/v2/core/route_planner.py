@@ -105,6 +105,11 @@ class RoutePlanner:
 
     def co2_pressure_points(self, source: Optional[CalibrationPoint], points: list[CalibrationPoint]) -> list[CalibrationPoint]:
         pressure_points = self._pressure_reference_points(points)
+        if source is not None:
+            source_ppm = float(source.co2_ppm or 0)
+            pressure_points = [p for p in pressure_points if abs(float(p.co2_ppm or 0) - source_ppm) < 0.5]
+            if not pressure_points:
+                pressure_points = self._pressure_reference_points(points)
         if source is None or not pressure_points or not self._carry_forward_pressure_mode():
             return pressure_points
 

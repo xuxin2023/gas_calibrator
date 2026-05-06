@@ -96,6 +96,38 @@ class Co2RouteRunner:
             if callable(mark_route_open_started):
                 mark_route_open_started(point)
             self.service.valve_routing_service.set_valves_for_co2(point)
+            target_ppm = float(point.co2_ppm or 0)
+            prestab_max = int(self.service._cfg_get("co2.prestabilize_max_cycles", 4))
+            if prestab_max > 0:
+                if target_ppm < 10.0:
+                    condition = lambda v: v is not None and v <= 20.0
+                    label = "≤20 ppm"
+                else:
+                    lo = target_ppm * 0.8
+                    condition = lambda v: v is not None and v >= lo
+                    label = f"≥{lo:.0f} ppm"
+                vent_p_s = float(self.service._cfg_get("co2.prestabilize_pulse_s", 5.0))
+                poll_s = float(self.service._cfg_get("co2.prestabilize_poll_s", 2.0))
+                for cycle in range(1, prestab_max + 1):
+                    self.service.pressure_control_service.set_pressure_controller_vent(
+                        True, reason=f"CO2 prestabilize cycle {cycle}: vent open"
+                    )
+                    time.sleep(vent_p_s)
+                    self.service.pressure_control_service.set_pressure_controller_vent(
+                        False, reason=f"CO2 prestabilize cycle {cycle}: vent close",
+                        prefer_direct_command=True,
+                    )
+                    time.sleep(poll_s)
+                    co2_val = self._read_co2_from_first_usable()
+                    self.service.status_service.log(
+                        f"CO2 pre-point stability check: cycle {cycle}/{prestab_max}, "
+                        f"CO2={co2_val:.1f if co2_val is not None else 'N/A'} ppm, target {label}"
+                    )
+                    if condition(co2_val):
+                        self.service.status_service.log(
+                            f"CO2 pre-point stability passed at cycle {cycle}/{prestab_max}"
+                        )
+                        break
             mark_route_open_completed = self.service.a2_hooks.callbacks.get("mark_route_open_completed")
             if callable(mark_route_open_completed):
                 mark_route_open_completed(point)
@@ -249,17 +281,14 @@ class Co2RouteRunner:
                     )
             else:
                 seal_deferred = True
-                self.service.pressure_control_service.set_pressure_controller_vent(
-                    True, reason="CO2 first point ambient: keep atmosphere open, seal deferred"
-                )
-                self.service.status_service.log("Pressure controller kept at atmosphere for CO2 ambient first point (seal deferred)")
+                self.service.status_service.log("CO2 first point ambient: seal deferred, vent stays as-is")
                 self.service.status_service.record_route_trace(
                     action="pressure_skip",
                     route=phase,
                     point=point,
-                    target={"pressure_hpa": None, "vent_on": True},
-                    result="skipped",
-                    message="CO2 first point ambient: seal/pressurize bypassed, vent stays open",
+                    target={"pressure_hpa": None, "vent_on": "as_is"},
+                    result="deferred",
+                    message="CO2 first point ambient: seal/pressurize bypassed",
                 )
 
             retry_total = self._co2_pressure_retry_total()
@@ -493,6 +522,24 @@ class Co2RouteRunner:
             )
         finally:
             route_context.clear()
+
+    def _read_co2_from_first_usable(self) -> Optional[float]:
+        for logical_id in range(4):
+            device = self.service.device_manager.get_device(f"gas_analyzer_{logical_id}")
+            if device is None:
+                continue
+            read_fn = getattr(device, "read_latest_data", None) or getattr(device, "read", None)
+            if not callable(read_fn):
+                continue
+            try:
+                raw = read_fn()
+                norm = self.service.sampling_service.normalize_snapshot(raw) if hasattr(self.service, "sampling_service") else {}
+                ppm = self.service.sampling_service.pick_numeric(norm, "co2_ppm", "co2", "co2_signal") if hasattr(self.service, "sampling_service") else None
+                if ppm is not None:
+                    return float(ppm)
+            except Exception:
+                continue
+        return None
 
     def _ambient_fallback_results(self, sample_point: CalibrationPoint, *, phase: str, point_tag: str) -> list[Any]:
         results: list[Any] = []
