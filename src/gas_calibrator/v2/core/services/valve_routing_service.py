@@ -198,7 +198,8 @@ class ValveRoutingService:
         return maps
 
     def co2_path_for_point(self, point: CalibrationPoint) -> Optional[int]:
-        ppm_key = str(self.host._as_int(point.co2_ppm) or "")
+        raw = self.host._as_int(point.co2_ppm)
+        ppm_key = str(raw) if raw is not None else ""
         map_a = self.host._cfg_get("valves.co2_map", {})
         map_b = self.host._cfg_get("valves.co2_map_group2", {})
         in_a = isinstance(map_a, dict) and ppm_key in map_a
@@ -214,7 +215,8 @@ class ValveRoutingService:
         return self.host._as_int(self.host._cfg_get("valves.co2_path"))
 
     def source_valve_for_point(self, point: CalibrationPoint) -> Optional[int]:
-        ppm_key = str(self.host._as_int(point.co2_ppm) or "")
+        raw = self.host._as_int(point.co2_ppm)
+        ppm_key = str(raw) if raw is not None else ""
         for mapping in self.co2_maps_for_point(point):
             value = mapping.get(ppm_key) if isinstance(mapping, dict) else None
             iv = self.host._as_int(value)

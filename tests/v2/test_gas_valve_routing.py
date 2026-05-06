@@ -197,7 +197,7 @@ def test_co2_map_0ppm_selects_channel_1(tmp_path: Path) -> None:
     point = CalibrationPoint(index=1, temperature_c=25.0, co2_ppm=0.0, route="co2", co2_group="A")
 
     source = service.source_valve_for_point(point)
-    assert source is None, "0ppm always skipped; source_valve_for_point resolves to None (0 is falsy in or chain)"
+    assert source == 1, f"co2_map 0ppm should map to logical valve 1, got {source}"
 
     context.run_logger.finalize()
 
