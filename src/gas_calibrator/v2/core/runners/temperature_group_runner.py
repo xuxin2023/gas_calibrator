@@ -115,16 +115,43 @@ class TemperatureGroupRunner:
                     if flush_s > 0 and prev_ppm is not None and abs(current_ppm - prev_ppm) > 0.5:
                         self.service.valve_routing_service.set_valves_for_co2(source_point)
                         self.service.pressure_control_service.set_pressure_controller_vent(
-                            True, reason="CO2 interpoint flush: vent open"
+                            True, reason="CO2 interpoint flush: pulse start"
                         )
                         self.service.status_service.log(
-                            f"CO2 interpoint flush: {prev_ppm:.0f}→{current_ppm:.0f} ppm, "
-                            f"vent=ON for {flush_s:.1f}s (cylinder gas displacement)"
+                            f"CO2 pulse flush start: {prev_ppm:.0f}→{current_ppm:.0f} ppm"
                         )
-                        time.sleep(flush_s)
-                        self.service.pressure_control_service.set_pressure_controller_vent(
-                            False, reason="CO2 interpoint flush: vent close", prefer_direct_command=True
-                        )
+                        max_cycles = int(self.service._cfg_get("co2.interpoint_flush_max_cycles", 4))
+                        vent_pulse_s = float(self.service._cfg_get("co2.interpoint_flush_pulse_s", 10.0))
+                        poll_gap_s = float(self.service._cfg_get("co2.interpoint_flush_poll_gap_s", 2.0))
+                        flush_ok = False
+                        for cycle in range(1, max_cycles + 1):
+                            self.service.pressure_control_service.set_pressure_controller_vent(
+                                True, reason=f"CO2 pulse flush cycle {cycle}: vent open"
+                            )
+                            time.sleep(vent_pulse_s)
+                            self.service.pressure_control_service.set_pressure_controller_vent(
+                                False, reason=f"CO2 pulse flush cycle {cycle}: vent close",
+                                prefer_direct_command=True,
+                            )
+                            time.sleep(poll_gap_s)
+                            co2_read = self._read_co2_ppm_from_analyzers()
+                            threshold = max(current_ppm + 20.0, 20.0) if current_ppm < 100.0 else current_ppm + 50.0
+                            self.service.status_service.log(
+                                f"CO2 pulse flush cycle {cycle}/{max_cycles}: "
+                                f"co2_read={co2_read:.1f} ppm, threshold≤{threshold:.0f} ppm"
+                            )
+                            if co2_read is not None and co2_read <= threshold:
+                                self.service.status_service.log(
+                                    f"CO2 pulse flush complete at cycle {cycle}/{max_cycles}: "
+                                    f"{co2_read:.1f} ≤ {threshold:.0f} ppm"
+                                )
+                                flush_ok = True
+                                break
+                        if not flush_ok:
+                            self.service.status_service.log(
+                                f"CO2 pulse flush exhausted {max_cycles} cycles, "
+                                f"proceeding (last_read={co2_read:.1f if co2_read is not None else 'N/A'} ppm)"
+                            )
                     prev_ppm = current_ppm
                     self.service.route_context.update(
                         active_point=source_point,
@@ -181,6 +208,35 @@ class TemperatureGroupRunner:
                 "Temperature group route execution failed",
                 details={"route_failures": route_failures, "temperature_c": float(lead.temp_chamber_c)},
             )
+
+    def _read_co2_ppm_from_analyzers(self) -> Optional[float]:
+        """Read CO2 ppm from the first usable active gas analyzer."""
+        analyzer_mgr = getattr(self.service, "device_manager", None)
+        if analyzer_mgr is None:
+            return None
+        for logical_id in range(4):
+            device = analyzer_mgr.get_device(f"gas_analyzer_{logical_id}")
+            if device is None:
+                continue
+            read_method = getattr(device, "read_latest_data", None) or getattr(device, "read_data_passive", None)
+            if not callable(read_method):
+                continue
+            try:
+                raw = read_method()
+            except Exception:
+                continue
+            if not raw:
+                continue
+            raw_str = str(raw).strip()
+            parts = raw_str.split(",") if "," in raw_str else [raw_str]
+            for part in parts:
+                part = part.strip()
+                clean = part.lstrip("-+")
+                if clean.replace(".", "", 1).isdigit():
+                    val = float(part)
+                    if 0 <= val <= 5000:
+                        return val
+        return None
 
     def _mark_completed_points(
         self,
