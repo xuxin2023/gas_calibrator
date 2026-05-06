@@ -229,6 +229,7 @@ class Co2RouteRunner:
                 self.service.status_service.log(
                     "A2 1100 hPa high-pressure first-point mode armed after CO2 route conditioning"
                 )
+
             first_point_is_ambient = bool(
                 pressure_refs
                 and getattr(pressure_refs[0], "is_ambient_pressure_point", False)
@@ -236,7 +237,7 @@ class Co2RouteRunner:
             seal_deferred = False
 
             if not first_point_is_ambient:
-                if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
+                if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase, prefer_direct_vent_close=True).ok:
                     self._clear_active_post_h2o_zero_flush_flag()
                     self.service.status_service.log(f"CO2 row {point.index} skipped: route sealing failed")
                     self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 pressure-seal failure")
@@ -288,12 +289,12 @@ class Co2RouteRunner:
                         point=sample_point,
                         target={"pressure_hpa": None, "vent_on": True},
                         result="skipped",
-                        message="CO2 ambient pressure point: vent stays open, set_pressure bypassed",
+                        message="CO2 ambient pressure point: vent stays open, set_pressure bypassed, P3 ambient read used",
                     )
                     self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
                 else:
                     if seal_deferred:
-                        if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
+                        if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase, prefer_direct_vent_close=True).ok:
                             self._clear_active_post_h2o_zero_flush_flag()
                             self.service.status_service.log(f"CO2 row {point.index} skipped: deferred route sealing failed")
                             self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 deferred pressure-seal failure")
@@ -338,6 +339,7 @@ class Co2RouteRunner:
                         )
                         skipped_point_indices.append(sample_point.index)
                         continue
+                if not is_current_ambient:
                     self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
                     if not self.service.pressure_control_service.wait_after_pressure_stable_before_sampling(sample_point).ok:
                         self.service.status_service.log(
@@ -355,8 +357,7 @@ class Co2RouteRunner:
                         )
                         skipped_point_indices.append(sample_point.index)
                         continue
-                if not is_current_ambient:
-                    self.service.status_service.mark_point_stable_for_sampling(sample_point, phase=phase, point_tag=point_tag)
+                self.service.status_service.mark_point_stable_for_sampling(sample_point, phase=phase, point_tag=point_tag)
                 self.service.status_service.update_status(
                     phase=CalibrationPhase.SAMPLING,
                     current_point=sample_point,
@@ -493,6 +494,29 @@ class Co2RouteRunner:
         finally:
             route_context.clear()
 
+    def _ambient_fallback_results(self, sample_point: CalibrationPoint, *, phase: str, point_tag: str) -> list[Any]:
+        results: list[Any] = []
+        collector = getattr(self.service.sampling_service, "collect_sampling_result", None)
+        if not callable(collector):
+            return results
+        for logical_id in range(4):
+            device = self.service.device_manager.get_device(f"gas_analyzer_{logical_id}")
+            if device is None:
+                continue
+            try:
+                result = collector(
+                    sample_point,
+                    f"ga{logical_id + 1:02d}",
+                    device,
+                    phase=phase,
+                    point_tag=point_tag,
+                )
+                if result is not None and getattr(result, "co2_ppm", None) is not None:
+                    results.append(result)
+            except Exception:
+                continue
+        return results
+
     def _special_zero_flush_pending(self, point: CalibrationPoint) -> bool:
         has_pending = getattr(self.service, "_has_special_co2_zero_flush_pending", None)
         is_zero_point = getattr(self.service, "_is_zero_co2_point", None)
@@ -523,32 +547,6 @@ class Co2RouteRunner:
                 self.service._active_post_h2o_co2_zero_flush = False
             except Exception:
                 pass
-
-    def _ambient_fallback_results(self, sample_point: CalibrationPoint, *, phase: str, point_tag: str) -> list[Any]:
-        results: list[Any] = []
-        collector = getattr(self.service.sampling_service, "collect_sampling_result", None)
-        if not callable(collector):
-            return results
-        for logical_id in range(4):
-            device = getattr(getattr(self.service, "device_manager", None), "get_device", None)
-            if not callable(device):
-                continue
-            dev = device(f"gas_analyzer_{logical_id}")
-            if dev is None:
-                continue
-            try:
-                result = collector(
-                    sample_point,
-                    f"ga{logical_id + 1:02d}",
-                    dev,
-                    phase=phase,
-                    point_tag=point_tag,
-                )
-                if result is not None and getattr(result, "co2_ppm", None) is not None:
-                    results.append(result)
-            except Exception:
-                continue
-        return results
 
     def _wait_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
         waiter = getattr(self.service, "_wait_co2_route_soak_before_seal", None)
@@ -600,8 +598,6 @@ class Co2RouteRunner:
 
     def interpoint_flush(self) -> None:
         flush_s = 300.0
-        if flush_s <= 0:
-            return
         valve_service = getattr(self.service, "valve_routing_service", None)
         pressure_service = getattr(self.service, "pressure_control_service", None)
         if valve_service is None or pressure_service is None:
@@ -612,6 +608,6 @@ class Co2RouteRunner:
             True, reason="interpoint flush before CO2 route"
         )
         self.service.status_service.log(
-            f"CO2 interpoint gas flush: {flush_s:.0f}s at {self.point.co2_ppm:.0f} ppm"
+            f"CO2 interpoint gas flush: 300s at {self.point.co2_ppm:.0f} ppm"
         )
         time.sleep(flush_s)
