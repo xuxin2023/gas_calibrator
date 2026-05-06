@@ -331,6 +331,9 @@
     "water_first_all_temps": false,
     "water_first_temp_gte": 100
   },
+  "co2": {
+    "interpoint_flush_s": 30
+  },
   "paths": {
     "points_excel": "run001_a2_co2_2temp_2ppm_2pressure_points.json",
     "output_dir": "D:/output/run001_a2/co2_2temp_2ppm_2pressure"
