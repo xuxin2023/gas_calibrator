@@ -162,7 +162,6 @@ class RoutePlanner:
         for group in self.group_by_temperature(list(points)):
             group_points = list(group.points)
             h2o_points = [point for point in group_points if point.is_h2o_point]
-            co2_points = [point for point in group_points if not point.is_h2o_point and point.co2_ppm is not None]
 
             for route_name in self.route_sequence(group_points):
                 if route_name == "h2o":

@@ -261,7 +261,7 @@ class Co2RouteRunner:
 
             retry_total = self._co2_pressure_retry_total()
             refs_list = list(pressure_refs)
-            for loop_index, pressure_point in enumerate(refs_list):
+            for _loop_index, pressure_point in enumerate(refs_list):
                 self.service.status_service.check_stop()
                 sample_point = self.service.route_planner.build_co2_pressure_point(point, pressure_point)
                 point_tag = self.service.route_planner.co2_point_tag(sample_point)
