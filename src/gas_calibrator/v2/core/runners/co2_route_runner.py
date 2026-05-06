@@ -119,9 +119,10 @@ class Co2RouteRunner:
                     )
                     time.sleep(poll_s)
                     co2_val = self._read_co2_from_first_usable()
+                    co2_display = f"{co2_val:.1f}" if co2_val is not None else "N/A"
                     self.service.status_service.log(
                         f"CO2 pre-point stability check: cycle {cycle}/{prestab_max}, "
-                        f"CO2={co2_val:.1f if co2_val is not None else 'N/A'} ppm, target {label}"
+                        f"CO2={co2_display} ppm, target {label}"
                     )
                     if condition(co2_val):
                         self.service.status_service.log(
