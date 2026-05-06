@@ -237,7 +237,7 @@ class Co2RouteRunner:
             seal_deferred = False
 
             if not first_point_is_ambient:
-                if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
+                if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase, prefer_direct_vent_close=True).ok:
                     self._clear_active_post_h2o_zero_flush_flag()
                     self.service.status_service.log(f"CO2 row {point.index} skipped: route sealing failed")
                     self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 pressure-seal failure")
@@ -293,7 +293,7 @@ class Co2RouteRunner:
                     self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
                 else:
                     if seal_deferred:
-                        if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
+                        if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase, prefer_direct_vent_close=True).ok:
                             self._clear_active_post_h2o_zero_flush_flag()
                             self.service.status_service.log(f"CO2 row {point.index} skipped: deferred route sealing failed")
                             self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 deferred pressure-seal failure")
