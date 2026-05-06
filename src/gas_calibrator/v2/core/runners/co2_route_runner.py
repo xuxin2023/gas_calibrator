@@ -249,14 +249,17 @@ class Co2RouteRunner:
                     )
             else:
                 seal_deferred = True
-                self.service.status_service.log("CO2 first point ambient: seal deferred, vent stays as-is")
+                self.service.pressure_control_service.set_pressure_controller_vent(
+                    True, reason="CO2 first point ambient: keep atmosphere open"
+                )
+                self.service.status_service.log("CO2 first point ambient: seal deferred, vent=ON")
                 self.service.status_service.record_route_trace(
                     action="pressure_skip",
                     route=phase,
                     point=point,
-                    target={"pressure_hpa": None, "vent_on": "as_is"},
+                    target={"pressure_hpa": None, "vent_on": True},
                     result="deferred",
-                    message="CO2 first point ambient: seal/pressurize bypassed",
+                    message="CO2 first point ambient: seal/pressurize bypassed, vent stays open",
                 )
 
             retry_total = self._co2_pressure_retry_total()
