@@ -1,12 +1,12 @@
 {
   "run001_a2": {
-    "run_id": "Run-001/A2/2T2P2PR",
-    "scenario": "Run-001/A2 CO2-only 2temp 2ppm 2pressure no-write real-machine simplified",
-    "scope": "run001_a2_co2_no_write_2temp_2ppm_2pressure",
+    "run_id": "Run-001/Slim-2T2P2PR",
+    "scenario": "Slim CO2-only 2temp 2ppm 2pressure no-write real-machine simplified",
+    "scope": "run001_a2_co2_no_write_slim_2temp_2ppm_2pressure",
     "guard_scope": "run001_a2",
     "mode": "real_machine_dry_run",
     "no_write": true,
-    "co2_only": true,
+    "co2_only": false,
     "skip_co2_ppm": [],
     "single_route": true,
     "single_temperature_group": false,
@@ -263,10 +263,10 @@
       "enabled": false
     },
     "precheck": {
-      "enabled": true,
+      "enabled": false,
       "pressure_leak_test": false,
       "sensor_check": false,
-      "device_connection": true
+      "device_connection": false
     },
     "pressure": {
       "pressurize_high_hpa": 800,

@@ -99,6 +99,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         config,
         raw_cfg=raw_cfg,
         preload_points=True,
+        require_no_write_guard=True,
     )
 
     timeout_s = float(raw_cfg.get("max_runtime_s", 3600.0))
