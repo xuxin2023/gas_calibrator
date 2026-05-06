@@ -522,3 +522,22 @@ class Co2RouteRunner:
             return int(getter(path, default))
         except Exception:
             return default
+
+    def interpoint_flush(self) -> None:
+        getter = getattr(self.service, "_cfg_get", None)
+        flush_s = float(getter("co2.interpoint_flush_s", 30.0) if callable(getter) else 30.0)
+        if flush_s <= 0:
+            return
+        valve_service = getattr(self.service, "valve_routing_service", None)
+        pressure_service = getattr(self.service, "pressure_control_service", None)
+        if valve_service is None or pressure_service is None:
+            return
+        valve_service.set_co2_route_baseline(reason="before interpoint flush")
+        valve_service.set_valves_for_co2(self.point)
+        pressure_service.set_pressure_controller_vent(
+            True, reason="interpoint flush before CO2 route"
+        )
+        self.service.status_service.log(
+            f"CO2 interpoint gas flush: {flush_s:.0f}s at {self.point.co2_ppm:.0f} ppm"
+        )
+        time.sleep(flush_s)
