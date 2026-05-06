@@ -6,7 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import tempfile
+import zipfile
+from io import BytesIO
+
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 
 router = APIRouter(prefix="/api")
 
@@ -367,6 +372,124 @@ def api_run_detail(request: Request, run_id: str):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"查询运行详情失败: {exc}") from exc
+
+
+@router.get("/runs/{run_id}/bundle")
+def api_run_bundle(request: Request, run_id: str):
+    db = getattr(request.app.state, "database_manager", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="数据库未连接")
+    try:
+        from ..storage.exporter import StorageExporter
+
+        exporter = StorageExporter(db)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = exporter.export_run_bundle(run_id, tmpdir)
+            buf = BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for name, filepath in paths.items():
+                    p = Path(filepath) if not isinstance(filepath, Path) else filepath
+                    if p.exists():
+                        zf.write(str(p), p.name)
+            buf.seek(0)
+            return StreamingResponse(
+                buf,
+                media_type="application/zip",
+                headers={"Content-Disposition": f"attachment; filename=run_{run_id}_evidence_bundle.zip"},
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"证据包导出失败: {exc}") from exc
+
+
+@router.get("/sensors")
+def api_sensors(request: Request):
+    db = getattr(request.app.state, "database_manager", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="数据库未连接")
+    try:
+        from ..storage.queries import HistoryQueryService
+
+        service = HistoryQueryService(db)
+        sensors = service.sensors()
+        return {"sensors": sensors, "total": len(sensors)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"传感器查询失败: {exc}") from exc
+
+
+@router.get("/sensors/{sensor_id}/coefficients")
+def api_sensor_coefficients(request: Request, sensor_id: str):
+    db = getattr(request.app.state, "database_manager", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="数据库未连接")
+    try:
+        from ..storage.coefficient_store import CoefficientVersionStore
+
+        store = CoefficientVersionStore(db)
+        versions = store.list_versions(sensor_id=sensor_id)
+        result: list[dict[str, Any]] = []
+        for v in versions:
+            result.append({
+                "id": str(v.id),
+                "sensor_id": str(v.sensor_id) if v.sensor_id else None,
+                "analyzer_id": v.analyzer_id,
+                "analyzer_serial": v.analyzer_serial,
+                "version": v.version,
+                "coefficients": dict(v.coefficients or {}),
+                "created_at": None if v.created_at is None else v.created_at.isoformat(),
+                "created_by": v.created_by,
+                "approved": v.approved,
+                "deployed": v.deployed,
+                "notes": v.notes,
+            })
+        return {"versions": result, "total": len(result)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"系数查询失败: {exc}") from exc
+
+
+@router.post("/sensors/{sensor_id}/coefficients/{version_id}/approve")
+def api_sensor_coefficient_approve(request: Request, sensor_id: str, version_id: str):
+    db = getattr(request.app.state, "database_manager", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="数据库未连接")
+    try:
+        from ..storage.coefficient_store import CoefficientVersionStore
+
+        store = CoefficientVersionStore(db)
+        record = store.approve_version(version_id, approved_by="web_operator")
+        return {
+            "ok": True,
+            "version_id": str(record.id),
+            "approved": record.approved,
+            "approved_by": record.approved_by,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"审批失败: {exc}") from exc
+
+
+@router.post("/sensors/{sensor_id}/coefficients/{version_id}/deploy")
+def api_sensor_coefficient_deploy(request: Request, sensor_id: str, version_id: str):
+    db = getattr(request.app.state, "database_manager", None)
+    if db is None:
+        raise HTTPException(status_code=503, detail="数据库未连接")
+    try:
+        from ..storage.coefficient_store import CoefficientVersionStore
+
+        store = CoefficientVersionStore(db)
+        record = store.deploy_version(version_id)
+        return {
+            "ok": True,
+            "version_id": str(record.id),
+            "deployed": record.deployed,
+            "deployed_at": None if record.deployed_at is None else record.deployed_at.isoformat(),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"部署失败: {exc}") from exc
 
 
 @router.get("/devices/live")

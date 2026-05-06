@@ -104,6 +104,12 @@
         </el-table-column>
       </el-table>
       <el-empty v-else description="该运行无采样点数据" :image-size="60" />
+
+      <div style="margin-top:16px;text-align:right" v-if="detail">
+        <el-button type="primary" @click="downloadBundle(detailRunId)" size="small">
+          📥 下载证据包
+        </el-button>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -163,6 +169,17 @@ async function showDetail(row) {
   } catch (e) {
     ElMessage.error('加载运行详情失败: ' + e.message)
   }
+}
+
+function downloadBundle(runId) {
+  const url = `/api/runs/${encodeURIComponent(runId)}/bundle`
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `run_${runId}_evidence_bundle.zip`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  ElMessage.success('证据包下载已开始')
 }
 
 onMounted(loadHistory)

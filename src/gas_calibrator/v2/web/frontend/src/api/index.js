@@ -87,4 +87,20 @@ export function resumeRun() {
   return api.post('/run/resume')
 }
 
+export function fetchSensors() {
+  return api.get('/sensors')
+}
+
+export function fetchSensorCoefficients(sensorId) {
+  return api.get(`/sensors/${sensorId}/coefficients`)
+}
+
+export function approveCoefficient(sensorId, versionId) {
+  return api.post(`/sensors/${sensorId}/coefficients/${versionId}/approve`)
+}
+
+export function deployCoefficient(sensorId, versionId) {
+  return api.post(`/sensors/${sensorId}/coefficients/${versionId}/deploy`)
+}
+
 export default api

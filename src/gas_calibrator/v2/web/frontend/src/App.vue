@@ -44,6 +44,10 @@
           <el-icon><Operation /></el-icon>
           <span>参数配置</span>
         </el-menu-item>
+        <el-menu-item index="/coefficients">
+          <el-icon><Memo /></el-icon>
+          <span>系数管理</span>
+        </el-menu-item>
         <el-menu-item index="/run">
           <el-icon><VideoPlay /></el-icon>
           <span>运行控制</span>
@@ -59,7 +63,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { DataBoard, Monitor, Connection, Cpu, Clock, Setting, Operation, VideoPlay } from '@element-plus/icons-vue'
+import { DataBoard, Monitor, Connection, Cpu, Clock, Setting, Operation, Memo, VideoPlay } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const currentRoute = computed(() => route.path)

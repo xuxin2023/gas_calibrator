@@ -37,6 +37,11 @@ const routes = [
     component: () => import('@/views/ParamsEditor.vue'),
   },
   {
+    path: '/coefficients',
+    name: 'CoefficientManager',
+    component: () => import('@/views/CoefficientManager.vue'),
+  },
+  {
     path: '/run',
     name: 'RunControl',
     component: () => import('@/views/RunControl.vue'),
