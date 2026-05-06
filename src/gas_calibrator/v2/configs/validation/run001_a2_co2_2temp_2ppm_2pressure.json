@@ -229,7 +229,7 @@
     "route_mode": "co2_only",
     "selected_temps_c": [20.0, 30.0],
     "temperature_descending": false,
-    "skip_co2_ppm": [0],
+    "skip_co2_ppm": [],
     "humidity_generator": {
       "ensure_run": false
     },

@@ -108,9 +108,15 @@ class TemperatureGroupRunner:
             if route_name == "co2":
                 for source_point in self.service.route_planner.co2_sources(self.points):
                     all_pressure_points = list(self.service.route_planner.co2_pressure_points(source_point, self.points))
-                    ambient_points = [p for p in all_pressure_points if getattr(p, "is_ambient_pressure_point", False)]
                     sealable_points = [p for p in all_pressure_points if not getattr(p, "is_ambient_pressure_point", False)]
                     effective_pressure_points = sealable_points if sealable_points else all_pressure_points
+                    source_ppm = float(source_point.co2_ppm or 0)
+                    ambient_points = [
+                        p for p in self.points
+                        if not p.is_h2o_point
+                        and getattr(p, "is_ambient_pressure_point", False)
+                        and abs(float(p.co2_ppm or 0) - source_ppm) < 0.5
+                    ]
                     self.service.route_context.update(
                         active_point=source_point,
                         point_tag=self.service.route_planner.co2_point_tag(source_point),
@@ -118,7 +124,7 @@ class TemperatureGroupRunner:
                         route_state={
                             "active_subroute": "co2",
                             "source_point_index": source_point.index,
-                            "pressure_indices": [point.index for point in all_pressure_points],
+                            "pressure_indices": [point.index for point in all_pressure_points] + [p.index for p in ambient_points],
                         },
                     )
                     co2_runner = Co2RouteRunner(self.service, source_point, effective_pressure_points)
