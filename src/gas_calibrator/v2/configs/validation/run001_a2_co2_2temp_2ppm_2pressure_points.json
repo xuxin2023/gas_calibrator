@@ -5,9 +5,9 @@
     "pressure_hpa": null,
     "is_ambient_pressure_point": true,
     "route": "co2",
-    "co2_ppm": 1.0,
+    "co2_ppm": 0.0,
     "co2_group": "A",
-    "cylinder_nominal_ppm": 1.0
+    "cylinder_nominal_ppm": 0.0
   },
   {
     "index": 2,
@@ -15,9 +15,9 @@
     "pressure_hpa": 800.0,
     "is_ambient_pressure_point": false,
     "route": "co2",
-    "co2_ppm": 1.0,
+    "co2_ppm": 0.0,
     "co2_group": "A",
-    "cylinder_nominal_ppm": 1.0
+    "cylinder_nominal_ppm": 0.0
   },
   {
     "index": 3,
@@ -45,9 +45,9 @@
     "pressure_hpa": null,
     "is_ambient_pressure_point": true,
     "route": "co2",
-    "co2_ppm": 1.0,
+    "co2_ppm": 0.0,
     "co2_group": "A",
-    "cylinder_nominal_ppm": 1.0
+    "cylinder_nominal_ppm": 0.0
   },
   {
     "index": 6,
@@ -55,9 +55,9 @@
     "pressure_hpa": 800.0,
     "is_ambient_pressure_point": false,
     "route": "co2",
-    "co2_ppm": 1.0,
+    "co2_ppm": 0.0,
     "co2_group": "A",
-    "cylinder_nominal_ppm": 1.0
+    "cylinder_nominal_ppm": 0.0
   },
   {
     "index": 7,
