@@ -258,6 +258,14 @@ class WorkflowOrchestrator:
         self._temperature_snapshots = self.run_state.temperature.snapshots
         self._point_timing_contexts = self.run_state.timing.point_contexts
         self._temperature_ready_target_c = self.run_state.temperature.ready_target_c
+        self.result_store._samples.clear()
+        self.result_store._point_summaries.clear()
+        self.timing_monitor_service = TimingMonitorService(
+            self.result_store.run_dir,
+            run_id=self.session.run_id,
+            no_write_guard_active=self._workflow_no_write_guard_active(),
+            enabled=self._workflow_timing_enabled(),
+        )
 
     def reset_run_state(self) -> None:
         self.run_state.reset(initial_co2_zero_flush_pending=self._route_mode() == "co2_only")
@@ -269,16 +277,6 @@ class WorkflowOrchestrator:
 
     def _precondition_next_temperature_chamber(self, next_group: Any) -> None:
         pass
-
-    def _bind_run_state_aliases(self) -> None:
-        self.result_store._samples.clear()
-        self.result_store._point_summaries.clear()
-        self.timing_monitor_service = TimingMonitorService(
-            self.result_store.run_dir,
-            run_id=self.session.run_id,
-            no_write_guard_active=self._workflow_no_write_guard_active(),
-            enabled=self._workflow_timing_enabled(),
-        )
 
     def get_results(self) -> list[SamplingResult]:
         return self.result_store.get_samples()
