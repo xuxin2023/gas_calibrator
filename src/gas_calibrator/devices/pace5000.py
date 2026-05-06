@@ -1536,6 +1536,8 @@ class Pace5000:
             if self.vent_status_is_trapped_pressure(status):
                 raise RuntimeError(f"VENT_TRAPPED_PRESSURE(last_status={status})")
             if self.vent_status_is_unexpected_legacy_watchlist(status):
+                if self.legacy_auto_abort_vent_override_enabled():
+                    return status
                 raise RuntimeError(f"VENT_STATUS_{status}_WATCHLIST_OLD")
             raise RuntimeError(f"VENT_STATUS_{status}")
         raise RuntimeError(f"VENT_TIMEOUT(last_status={last_status},clear_sent={clear_sent},clear_retries={clear_retries})")
