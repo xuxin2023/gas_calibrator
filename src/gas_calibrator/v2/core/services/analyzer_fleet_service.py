@@ -820,6 +820,72 @@ class AnalyzerFleetService:
                 if poll_s > 0:
                     time.sleep(poll_s)
             else:
+                retries = max(0, self.host._as_int(pcfg.get("sensor_precheck_retries", 0)))
+                passed_after_retry = False
+                for retry_attempt in range(1, retries + 1):
+                    if self.context.stop_event.is_set():
+                        break
+                    time.sleep(1.0)
+                    try:
+                        self.host._log(
+                            f"Sensor precheck retry {retry_attempt}/{retries} ({label})"
+                        )
+                        self.configure_gas_analyzer(
+                            analyzer,
+                            label=label,
+                            cfg=cfg,
+                            overrides=settings,
+                        )
+                    except Exception:
+                        pass
+                    deadline = time.time() + float(settings["duration_s"])
+                    while time.time() < deadline:
+                        if self.context.stop_event.is_set():
+                            break
+                        try:
+                            snapshot, source, last_error = self._read_sensor_precheck_frame(
+                                analyzer,
+                                label=label,
+                                validation_mode=validation_mode,
+                                log_failures=False,
+                            )
+                        except Exception as exc:
+                            source = ""
+                            last_error = str(exc)
+                            snapshot = {}
+                        if self._has_valid_sensor_frame(snapshot, validation_mode=validation_mode):
+                            valid_frames = 1
+                            passed_after_retry = True
+                            self.host._log(
+                                f"Sensor precheck passed ({label}) after retry {retry_attempt}/{retries}: "
+                                f"source={source or 'unknown'}"
+                            )
+                            self._record_route_trace(
+                                action="sensor_precheck_analyzer",
+                                target={
+                                    "analyzer": label,
+                                    "profile": profile["profile"],
+                                    "scope": scope,
+                                    "validation_mode": validation_mode,
+                                    "min_valid_frames": int(settings["min_valid_frames"]),
+                                    "strict": bool(settings["strict"]),
+                                },
+                                actual={
+                                    "valid_frames": valid_frames,
+                                    "source": source,
+                                    "retry_attempt": retry_attempt,
+                                },
+                                result="ok",
+                                message=f"Sensor precheck passed after retry {retry_attempt}",
+                            )
+                            break
+                        poll_s = float(settings["poll_s"])
+                        if poll_s > 0:
+                            time.sleep(poll_s)
+                    if passed_after_retry:
+                        break
+                if passed_after_retry:
+                    continue
                 message = (
                     f"Sensor precheck failed ({label}): valid_frames={valid_frames}/{int(settings['min_valid_frames'])}"
                 )
@@ -842,6 +908,7 @@ class AnalyzerFleetService:
                         "last_valid": last_valid,
                         "last_error": last_error,
                         "source": source,
+                        "retries_exhausted": retries,
                     },
                     result="fail" if bool(settings["strict"]) else "warn",
                     message=message,

@@ -254,7 +254,8 @@
       "duration_s": 8.0,
       "poll_s": 0.2,
       "min_valid_frames": 1,
-      "strict": false
+      "strict": false,
+      "sensor_precheck_retries": 3
     },
     "startup_connect_check": {
       "enabled": true

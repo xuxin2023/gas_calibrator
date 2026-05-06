@@ -263,7 +263,8 @@ class Co2RouteRunner:
                 )
 
             retry_total = self._co2_pressure_retry_total()
-            for pressure_point in pressure_refs:
+            refs_list = list(pressure_refs)
+            for loop_index, pressure_point in enumerate(refs_list):
                 self.service.status_service.check_stop()
                 sample_point = self.service.route_planner.build_co2_pressure_point(point, pressure_point)
                 point_tag = self.service.route_planner.co2_point_tag(sample_point)
@@ -449,17 +450,17 @@ class Co2RouteRunner:
                 )
 
                 flush_s = float(self.service._cfg_get("co2.interpoint_flush_s", 0.0))
-                if flush_s > 0 and not is_current_ambient:
-                    self.service.pressure_control_service.set_pressure_controller_vent(
-                        True, reason="CO2 interpoint flush: vent open"
-                    )
+                is_last_ref = loop_index + 1 >= len(refs_list)
+                next_pressure = refs_list[loop_index + 1] if not is_last_ref else None
+                next_is_ambient = bool(getattr(next_pressure, "is_ambient_pressure_point", False)) if next_pressure is not None else True
+                if flush_s > 0 and not is_current_ambient and not next_is_ambient:
+                    next_sample = self.service.route_planner.build_co2_pressure_point(point, next_pressure)
                     self.service.status_service.log(
-                        f"CO2 interpoint flush: vent ON for {flush_s:.1f}s (point {sample_point.index})"
+                        f"CO2 interpoint flush: sealed-path gas cycle for {flush_s:.1f}s "
+                        f"({sample_point.co2_ppm}→{next_sample.co2_ppm} ppm, vent stays OFF)"
                     )
+                    self.service.valve_routing_service.set_valves_for_co2(next_sample)
                     time.sleep(flush_s)
-                    self.service.pressure_control_service.set_pressure_controller_vent(
-                        False, reason="CO2 interpoint flush: vent close", prefer_direct_command=True
-                    )
 
             self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 source complete")
             return RouteRunResult(
