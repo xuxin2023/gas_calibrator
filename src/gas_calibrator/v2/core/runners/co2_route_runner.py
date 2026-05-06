@@ -249,17 +249,14 @@ class Co2RouteRunner:
                     )
             else:
                 seal_deferred = True
-                self.service.pressure_control_service.set_pressure_controller_vent(
-                    True, reason="CO2 first point ambient: keep atmosphere open, seal deferred"
-                )
-                self.service.status_service.log("Pressure controller kept at atmosphere for CO2 ambient first point (seal deferred)")
+                self.service.status_service.log("CO2 first point ambient: seal deferred, vent stays as-is")
                 self.service.status_service.record_route_trace(
                     action="pressure_skip",
                     route=phase,
                     point=point,
-                    target={"pressure_hpa": None, "vent_on": True},
-                    result="skipped",
-                    message="CO2 first point ambient: seal/pressurize bypassed, vent stays open",
+                    target={"pressure_hpa": None, "vent_on": "as_is"},
+                    result="deferred",
+                    message="CO2 first point ambient: seal/pressurize bypassed",
                 )
 
             retry_total = self._co2_pressure_retry_total()
@@ -569,3 +566,19 @@ class Co2RouteRunner:
             return int(getter(path, default))
         except Exception:
             return default
+
+    def interpoint_flush(self) -> None:
+        flush_s = 300.0
+        valve_service = getattr(self.service, "valve_routing_service", None)
+        pressure_service = getattr(self.service, "pressure_control_service", None)
+        if valve_service is None or pressure_service is None:
+            return
+        valve_service.set_co2_route_baseline(reason="before interpoint flush")
+        valve_service.set_valves_for_co2(self.point)
+        pressure_service.set_pressure_controller_vent(
+            True, reason="interpoint flush before CO2 route"
+        )
+        self.service.status_service.log(
+            f"CO2 interpoint gas flush: 300s at {self.point.co2_ppm:.0f} ppm"
+        )
+        time.sleep(flush_s)
