@@ -106,9 +106,8 @@ class TemperatureGroupRunner:
                 continue
 
             if route_name == "co2":
-                source_list = self.service.route_planner.co2_sources(self.points)
                 prev_ppm: Optional[float] = None
-                for source_point in source_list:
+                for source_point in self.service.route_planner.co2_sources(self.points):
                     current_ppm = float(source_point.co2_ppm or 0)
                     if prev_ppm is not None and abs(current_ppm - prev_ppm) > 0.5:
                         self._wait_co2_stable(current_ppm, timeout_s=120)
@@ -170,61 +169,6 @@ class TemperatureGroupRunner:
                 details={"route_failures": route_failures, "temperature_c": float(lead.temp_chamber_c)},
             )
 
-    def _read_co2_ppm_stabilize(self) -> Optional[float]:
-        dm = getattr(self.service, "device_manager", None)
-        if dm is None:
-            return None
-        values: list[float] = []
-        for logical_id in range(4):
-            device = dm.get_device(f"gas_analyzer_{logical_id}")
-            if device is None:
-                continue
-            for method_name in ("read_latest_data", "read_data_passive", "read"):
-                fn = getattr(device, method_name, None)
-                if not callable(fn):
-                    continue
-                try:
-                    raw = str(fn()).strip()
-                    parts = raw.split(",")
-                    if len(parts) >= 3:
-                        ppm = float(parts[2].strip())
-                        if 0.0 <= ppm <= 5000.0:
-                            values.append(ppm)
-                            break
-                except (ValueError, Exception):
-                    continue
-        return (sum(values) / len(values)) if values else None
-
-    def _wait_co2_stable(self, target_ppm: float, timeout_s: float = 120.0) -> None:
-        tol = 20.0 if target_ppm < 10.0 else 30.0
-        deadline = time.monotonic() + timeout_s
-        log = self.service.status_service.log
-        log(f"CO2 wait-stable start: target={target_ppm:.0f} ppm, tol={tol:.0f} ppm, timeout={timeout_s:.0f}s")
-        readings: list[float] = []
-        window = int(self.service._cfg_get("co2.stabilize_window_samples", 3))
-        poll_s = float(self.service._cfg_get("co2.stabilize_poll_s", 10.0))
-        cycle = 0
-        while time.monotonic() < deadline:
-            co2_val = self._read_co2_ppm_stabilize()
-            if co2_val is not None:
-                readings.append(co2_val)
-                if len(readings) > window:
-                    readings.pop(0)
-            cycle += 1
-            elapsed = time.monotonic() + timeout_s - deadline
-            co2_display = f"{co2_val:.1f}" if co2_val is not None else "N/A"
-            log(f"CO2 wait-stable cycle {cycle} ({elapsed:.0f}s/{timeout_s:.0f}s): CO2={co2_display} ppm")
-            if co2_val is not None and abs(co2_val - target_ppm) <= tol:
-                log(f"CO2 wait-stable passed at cycle {cycle}: {co2_val:.1f} ppm within {tol:.0f} ppm of target")
-                return
-            if len(readings) >= window and co2_val is not None:
-                span = max(readings) - min(readings)
-                if span <= tol and abs(co2_val - target_ppm) <= tol * 2:
-                    log(f"CO2 wait-stable passed at cycle {cycle}: span={span:.1f} ppm, last={co2_val:.1f} ppm")
-                    return
-            time.sleep(poll_s)
-        log(f"CO2 wait-stable timeout after {timeout_s:.0f}s, proceeding")
-
     def _mark_completed_points(
         self,
         *,
@@ -254,3 +198,58 @@ class TemperatureGroupRunner:
         if route == "co2":
             return self.service.route_planner.co2_point_tag(point)
         return ""
+
+    def _read_co2_ppm_stabilize(self) -> Optional[float]:
+        dm = getattr(self.service, "device_manager", None)
+        if dm is None:
+            return None
+        values: list[float] = []
+        for logical_id in range(4):
+            device = dm.get_device(f"gas_analyzer_{logical_id}")
+            if device is None:
+                continue
+            for method_name in ("read_latest_data", "read_data_passive", "read"):
+                fn = getattr(device, method_name, None)
+                if not callable(fn):
+                    continue
+                try:
+                    raw = str(fn()).strip()
+                    parts = raw.split(",")
+                    if len(parts) >= 3:
+                        ppm = float(parts[2].strip())
+                        if 0.0 <= ppm <= 5000.0:
+                            values.append(ppm)
+                            break
+                except (ValueError, Exception):
+                    continue
+        return (sum(values) / len(values)) if values else None
+
+    def _wait_co2_stable(self, target_ppm: float, timeout_s: float = 120.0) -> None:
+        if target_ppm < 10.0:
+            threshold_operator = "le"
+            threshold_value = 20.0
+        else:
+            threshold_operator = "ge"
+            threshold_value = target_ppm * 0.8
+        if threshold_value > target_ppm - 20.0 and target_ppm >= 10.0:
+            threshold_value = target_ppm - 20.0
+        deadline = time.monotonic() + timeout_s
+        log = self.service.status_service.log
+        log(f"CO2 passive wait: target={target_ppm:.0f} ppm, {threshold_operator} {threshold_value:.0f} ppm, timeout={timeout_s:.0f}s")
+        poll_s = float(self.service._cfg_get("co2.stabilize_poll_s", 10.0))
+        cycle = 0
+        while time.monotonic() < deadline:
+            cycle += 1
+            co2_val = self._read_co2_ppm_stabilize()
+            elapsed = time.monotonic() + timeout_s - deadline
+            co2_display = f"{co2_val:.1f}" if co2_val is not None else "N/A"
+            log(f"CO2 passive wait cycle {cycle} ({elapsed:.0f}s/{timeout_s:.0f}s): CO2={co2_display} ppm")
+            if co2_val is not None:
+                if threshold_operator == "le" and co2_val <= threshold_value:
+                    log(f"CO2 passive wait passed at cycle {cycle}: {co2_val:.1f} ppm <= {threshold_value:.0f} ppm")
+                    return
+                if threshold_operator == "ge" and co2_val >= threshold_value:
+                    log(f"CO2 passive wait passed at cycle {cycle}: {co2_val:.1f} ppm >= {threshold_value:.0f} ppm")
+                    return
+            time.sleep(poll_s)
+        log(f"CO2 passive wait timeout after {timeout_s:.0f}s, proceeding with ppm={target_ppm:.0f}")
