@@ -127,6 +127,11 @@ class TemperatureGroupRunner:
                         sampling_service = getattr(self.service, "sampling_service", None)
                         if sampling_service is None:
                             continue
+                        pressure_service = getattr(self.service, "pressure_control_service", None)
+                        if pressure_service is not None:
+                            pressure_service.set_pressure_controller_vent(
+                                True, reason="CO2 ambient point: keep atmosphere open"
+                            )
                         self.service.status_service.check_stop()
                         sample_point = self.service.route_planner.build_co2_pressure_point(source_point, amb_point)
                         point_tag = self.service.route_planner.co2_point_tag(sample_point)
