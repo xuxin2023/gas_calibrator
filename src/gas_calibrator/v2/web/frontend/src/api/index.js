@@ -59,6 +59,10 @@ export function fetchDevicesLive() {
   return api.get('/devices/live')
 }
 
+export function fetchAnalyzersLive() {
+  return api.get('/analyzers/live')
+}
+
 export function fetchRunStatus() {
   return api.get('/run/status')
 }

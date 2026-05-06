@@ -381,7 +381,7 @@ def api_devices_live(request: Request):
         health = mgr.health_check()
         result: list[dict[str, Any]] = []
         for name, info in mgr.list_device_info().items():
-            result.append({
+            entry = {
                 "name": name,
                 "device_type": info.device_type,
                 "port": info.port,
@@ -389,10 +389,70 @@ def api_devices_live(request: Request):
                 "status": info.status.value,
                 "healthy": health.get(name, False),
                 "error_message": info.error_message,
-            })
+                "current_value": None,
+            }
+            if info.enabled and info.device is not None:
+                try:
+                    dev = info.device
+                    if hasattr(dev, "status"):
+                        st = dev.status()
+                        if isinstance(st, dict):
+                            entry["current_value"] = {k: v for k, v in st.items() if k != "ok" and not k.startswith("_")}
+                except Exception:
+                    pass
+            result.append(entry)
         return {"devices": result, "total": len(result)}
     except Exception as exc:
         return {"devices": [], "total": 0, "note": f"设备状态查询失败: {exc}"}
+
+
+@router.get("/analyzers/live")
+def api_analyzers_live(request: Request):
+    svc = getattr(request.app.state, "calibration_service", None)
+    if svc is None:
+        return {"analyzers": [], "total": 0, "note": "校准服务未初始化"}
+    try:
+        orchestrator = getattr(svc, "orchestrator", None)
+        if orchestrator is None:
+            return {"analyzers": [], "total": 0, "note": "编排器不可用"}
+        fleet = getattr(orchestrator, "analyzer_fleet_service", None)
+        if fleet is None:
+            return {"analyzers": [], "total": 0, "note": "分析仪服务不可用"}
+        analyzers = fleet.all_gas_analyzers()
+        result: list[dict[str, Any]] = []
+        for label, analyzer, _cfg in analyzers:
+            entry: dict[str, Any] = {
+                "label": label,
+                "online": label not in getattr(orchestrator.run_state.analyzers, "disabled", set()),
+                "co2_ppm": None,
+                "h2o_mmol": None,
+                "co2_ratio_f": None,
+                "h2o_ratio_f": None,
+                "chamber_temp_c": None,
+                "pressure_kpa": None,
+                "co2_signal": None,
+                "h2o_signal": None,
+            }
+            try:
+                snapshot = fleet._read_raw_sensor_frame_with_retry(
+                    analyzer, label=label, log_failures=False
+                )
+                frame = snapshot[0] if snapshot else {}
+                if isinstance(frame, dict) and frame:
+                    entry["co2_ppm"] = frame.get("co2_ppm") or frame.get("co2")
+                    entry["h2o_mmol"] = frame.get("h2o_mmol") or frame.get("h2o")
+                    entry["co2_ratio_f"] = frame.get("co2_ratio_f")
+                    entry["h2o_ratio_f"] = frame.get("h2o_ratio_f")
+                    entry["co2_signal"] = frame.get("co2_signal")
+                    entry["h2o_signal"] = frame.get("h2o_signal")
+                    entry["chamber_temp_c"] = frame.get("chamber_temp_c") or frame.get("temp_c")
+                    entry["pressure_kpa"] = frame.get("pressure_kpa") or frame.get("pressure_hpa")
+            except Exception:
+                pass
+            result.append(entry)
+        return {"analyzers": result, "total": len(result)}
+    except Exception as exc:
+        return {"analyzers": [], "total": 0, "note": f"分析仪查询失败: {exc}"}
 
 
 @router.post("/run/start")

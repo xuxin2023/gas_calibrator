@@ -17,6 +17,11 @@ const routes = [
     component: () => import('@/views/Status.vue'),
   },
   {
+    path: '/analyzers',
+    name: 'AnalyzerLive',
+    component: () => import('@/views/AnalyzerLive.vue'),
+  },
+  {
     path: '/history',
     name: 'History',
     component: () => import('@/views/History.vue'),

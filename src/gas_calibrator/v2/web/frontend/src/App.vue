@@ -28,6 +28,10 @@
           <el-icon><Connection /></el-icon>
           <span>设备状态</span>
         </el-menu-item>
+        <el-menu-item index="/analyzers">
+          <el-icon><Cpu /></el-icon>
+          <span>分析仪数据</span>
+        </el-menu-item>
         <el-menu-item index="/history">
           <el-icon><Clock /></el-icon>
           <span>历史记录</span>
@@ -55,7 +59,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { DataBoard, Monitor, Connection, Clock, Setting, Operation, VideoPlay } from '@element-plus/icons-vue'
+import { DataBoard, Monitor, Connection, Cpu, Clock, Setting, Operation, VideoPlay } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const currentRoute = computed(() => route.path)

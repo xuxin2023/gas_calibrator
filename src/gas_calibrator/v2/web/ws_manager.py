@@ -45,6 +45,31 @@ def _read_telemetry_state() -> dict:
     try:
         from .app import app
 
+        svc = getattr(app.state, "calibration_service", None)
+        if svc is not None:
+            try:
+                results = svc.get_results()
+                if results:
+                    latest = results[-1]
+                    tele = app.state.telemetry_state
+                    tele.update({
+                        "pressure_hpa": latest.pressure_hpa,
+                        "temperature_c": latest.temperature_c,
+                        "dewpoint_c": latest.dew_point_c,
+                        "co2_ppm": latest.co2_ppm,
+                    })
+            except Exception:
+                pass
+            try:
+                status = svc.get_status()
+                tele = app.state.telemetry_state
+                tele["phase"] = status.phase.value if hasattr(status.phase, "value") else str(status.phase)
+                tele["point_index"] = status.completed_points
+                tele["total_points"] = status.total_points
+                tele["progress_pct"] = round(status.progress * 100, 1) if status.progress else 0.0
+            except Exception:
+                pass
+
         tele = getattr(app.state, "telemetry_state", None)
         if isinstance(tele, dict):
             return {
