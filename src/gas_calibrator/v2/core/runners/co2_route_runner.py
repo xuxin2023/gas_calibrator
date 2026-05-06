@@ -229,15 +229,37 @@ class Co2RouteRunner:
                 self.service.status_service.log(
                     "A2 1100 hPa high-pressure first-point mode armed after CO2 route conditioning"
                 )
-            if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
-                self._clear_active_post_h2o_zero_flush_flag()
-                self.service.status_service.log(f"CO2 row {point.index} skipped: route sealing failed")
-                self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 pressure-seal failure")
-                skipped_point_indices.extend(expected_indices)
-                return RouteRunResult(
-                    success=False,
-                    skipped_point_indices=skipped_point_indices,
-                    error="CO2 pressure seal failed",
+
+            first_point_is_ambient = bool(
+                pressure_refs
+                and getattr(pressure_refs[0], "is_ambient_pressure_point", False)
+            )
+            seal_deferred = False
+
+            if not first_point_is_ambient:
+                if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
+                    self._clear_active_post_h2o_zero_flush_flag()
+                    self.service.status_service.log(f"CO2 row {point.index} skipped: route sealing failed")
+                    self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 pressure-seal failure")
+                    skipped_point_indices.extend(expected_indices)
+                    return RouteRunResult(
+                        success=False,
+                        skipped_point_indices=skipped_point_indices,
+                        error="CO2 pressure seal failed",
+                    )
+            else:
+                seal_deferred = True
+                self.service.pressure_control_service.set_pressure_controller_vent(
+                    True, reason="CO2 first point ambient: keep atmosphere open, seal deferred"
+                )
+                self.service.status_service.log("Pressure controller kept at atmosphere for CO2 ambient first point (seal deferred)")
+                self.service.status_service.record_route_trace(
+                    action="pressure_skip",
+                    route=phase,
+                    point=point,
+                    target={"pressure_hpa": None, "vent_on": True},
+                    result="skipped",
+                    message="CO2 first point ambient: seal/pressurize bypassed, vent stays open",
                 )
 
             retry_total = self._co2_pressure_retry_total()
@@ -245,6 +267,7 @@ class Co2RouteRunner:
                 self.service.status_service.check_stop()
                 sample_point = self.service.route_planner.build_co2_pressure_point(point, pressure_point)
                 point_tag = self.service.route_planner.co2_point_tag(sample_point)
+                is_current_ambient = bool(getattr(sample_point, "is_ambient_pressure_point", False))
                 route_context.update(
                     current_point=sample_point,
                     source_point=point,
@@ -258,57 +281,81 @@ class Co2RouteRunner:
                     },
                 )
                 self.service.status_service.begin_point_timing(sample_point, phase=phase, point_tag=point_tag)
-                self.service._record_workflow_timing(
-                    "pressure_point_start",
-                    "start",
-                    stage="pressure_point",
-                    point=sample_point,
-                    target_pressure_hpa=sample_point.target_pressure_hpa,
-                )
-                pressure_ok = self.service.pressure_control_service.set_pressure_to_target(sample_point).ok
-                retry_done = 0
-                while not pressure_ok and retry_done < retry_total:
-                    retry_done += 1
-                    route_context.update(retry=retry_done, route_state={"retry": retry_done})
-                    pressure_ok = self._retry_pressure_point_after_timeout(
-                        point,
-                        sample_point,
-                        attempt=retry_done,
-                        total=retry_total,
+                if is_current_ambient:
+                    self.service.status_service.record_route_trace(
+                        action="pressure_skip",
+                        route=phase,
+                        point=sample_point,
+                        target={"pressure_hpa": None, "vent_on": True},
+                        result="skipped",
+                        message="CO2 ambient pressure point: vent stays open, set_pressure bypassed, P3 ambient read used",
                     )
-                if not pressure_ok:
-                    self.service.status_service.log(
-                        f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa skipped: "
-                        f"pressure did not stabilize"
-                    )
-                    self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                    self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
+                else:
+                    if seal_deferred:
+                        if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
+                            self._clear_active_post_h2o_zero_flush_flag()
+                            self.service.status_service.log(f"CO2 row {point.index} skipped: deferred route sealing failed")
+                            self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 deferred pressure-seal failure")
+                            skipped_point_indices.extend(expected_indices)
+                            return RouteRunResult(
+                                success=False,
+                                skipped_point_indices=skipped_point_indices,
+                                error="CO2 deferred pressure seal failed",
+                            )
+                        seal_deferred = False
                     self.service._record_workflow_timing(
-                        "pressure_point_end",
-                        "warning",
+                        "pressure_point_start",
+                        "start",
                         stage="pressure_point",
                         point=sample_point,
                         target_pressure_hpa=sample_point.target_pressure_hpa,
-                        decision="pressure_not_stable",
                     )
-                    skipped_point_indices.append(sample_point.index)
-                    continue
-                self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
-                if not self.service.pressure_control_service.wait_after_pressure_stable_before_sampling(sample_point).ok:
-                    self.service.status_service.log(
-                        f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa skipped: "
-                        f"post-pressure hold before sampling interrupted"
-                    )
-                    self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
-                    self.service._record_workflow_timing(
-                        "pressure_point_end",
-                        "warning",
-                        stage="pressure_point",
-                        point=sample_point,
-                        target_pressure_hpa=sample_point.target_pressure_hpa,
-                        decision="wait_gate_interrupted",
-                    )
-                    skipped_point_indices.append(sample_point.index)
-                    continue
+                    pressure_ok = self.service.pressure_control_service.set_pressure_to_target(sample_point).ok
+                    retry_done = 0
+                    while not pressure_ok and retry_done < retry_total:
+                        retry_done += 1
+                        route_context.update(retry=retry_done, route_state={"retry": retry_done})
+                        pressure_ok = self._retry_pressure_point_after_timeout(
+                            point,
+                            sample_point,
+                            attempt=retry_done,
+                            total=retry_total,
+                        )
+                    if not pressure_ok:
+                        self.service.status_service.log(
+                            f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa skipped: "
+                            f"pressure did not stabilize"
+                        )
+                        self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                        self.service._record_workflow_timing(
+                            "pressure_point_end",
+                            "warning",
+                            stage="pressure_point",
+                            point=sample_point,
+                            target_pressure_hpa=sample_point.target_pressure_hpa,
+                            decision="pressure_not_stable",
+                        )
+                        skipped_point_indices.append(sample_point.index)
+                        continue
+                if not is_current_ambient:
+                    self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
+                    if not self.service.pressure_control_service.wait_after_pressure_stable_before_sampling(sample_point).ok:
+                        self.service.status_service.log(
+                            f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa skipped: "
+                            f"post-pressure hold before sampling interrupted"
+                        )
+                        self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                        self.service._record_workflow_timing(
+                            "pressure_point_end",
+                            "warning",
+                            stage="pressure_point",
+                            point=sample_point,
+                            target_pressure_hpa=sample_point.target_pressure_hpa,
+                            decision="wait_gate_interrupted",
+                        )
+                        skipped_point_indices.append(sample_point.index)
+                        continue
                 self.service.status_service.mark_point_stable_for_sampling(sample_point, phase=phase, point_tag=point_tag)
                 self.service.status_service.update_status(
                     phase=CalibrationPhase.SAMPLING,
@@ -522,19 +569,3 @@ class Co2RouteRunner:
             return int(getter(path, default))
         except Exception:
             return default
-
-    def interpoint_flush(self) -> None:
-        flush_s = 300.0
-        valve_service = getattr(self.service, "valve_routing_service", None)
-        pressure_service = getattr(self.service, "pressure_control_service", None)
-        if valve_service is None or pressure_service is None:
-            return
-        valve_service.set_co2_route_baseline(reason="before interpoint flush")
-        valve_service.set_valves_for_co2(self.point)
-        pressure_service.set_pressure_controller_vent(
-            True, reason="interpoint flush before CO2 route"
-        )
-        self.service.status_service.log(
-            f"CO2 interpoint gas flush: 300s at {self.point.co2_ppm:.0f} ppm"
-        )
-        time.sleep(flush_s)

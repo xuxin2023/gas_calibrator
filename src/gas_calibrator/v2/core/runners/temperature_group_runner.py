@@ -117,9 +117,7 @@ class TemperatureGroupRunner:
                             "pressure_indices": [point.index for point in pressure_points],
                         },
                     )
-                    co2_runner = Co2RouteRunner(self.service, source_point, pressure_points)
-                    co2_runner.interpoint_flush()
-                    result = co2_runner.execute()
+                    result = Co2RouteRunner(self.service, source_point, pressure_points).execute()
                     self.service.route_context.enter(
                         current_route="temperature_group",
                         current_phase=CalibrationPhase.TEMPERATURE_GROUP,
