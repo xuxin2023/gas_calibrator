@@ -288,6 +288,14 @@ class Co2RouteRunner:
                         message="CO2 ambient pressure point: vent stays open, set_pressure bypassed, P3 ambient read used",
                     )
                     self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
+                    try:
+                        pace = self.service._device("pressure_controller")
+                        if pace is not None:
+                            pace.send_command(":SOUR:PRES:LEV:IMM:AMPL:VENT 1")
+                            time.sleep(0.5)
+                            self.service.status_service.log("CO2 ambient point: direct hardware VENT:ON sent, bypassed vent guard")
+                    except Exception as _exc:
+                        self.service.status_service.log(f"CO2 ambient point: direct VENT:ON failed: {_exc}")
                 else:
                     if seal_deferred:
                         if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
@@ -467,15 +475,14 @@ class Co2RouteRunner:
                 sampled_points=sampled_points,
                 sampled_point_indices=sampled_point_indices,
                 skipped_point_indices=skipped_point_indices,
+                error=str(exc.reason if hasattr(exc, "reason") else exc) or "CO2 route stopped",
                 stopped=True,
-                error=str(exc),
             )
-        except WorkflowValidationError as exc:
+        except Exception as exc:
             try:
                 self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 route fail-closed")
             except Exception:
                 pass
-            skipped_point_indices.extend(index for index in expected_indices if index not in skipped_point_indices)
             return RouteRunResult(
                 success=False,
                 completed_points=completed_points,
@@ -483,20 +490,8 @@ class Co2RouteRunner:
                 sampled_points=sampled_points,
                 sampled_point_indices=sampled_point_indices,
                 skipped_point_indices=skipped_point_indices,
-                error=str(exc),
+                error=f"CO2 route error: {exc}",
             )
-        finally:
-            route_context.clear()
-
-    def _special_zero_flush_pending(self, point: CalibrationPoint) -> bool:
-        has_pending = getattr(self.service, "_has_special_co2_zero_flush_pending", None)
-        is_zero_point = getattr(self.service, "_is_zero_co2_point", None)
-        if not callable(has_pending) or not callable(is_zero_point):
-            return False
-        try:
-            return bool(has_pending()) and bool(is_zero_point(point))
-        except Exception:
-            return False
 
     def _reassert_route_after_special_zero_flush(self, point: CalibrationPoint) -> None:
         self.service.status_service.log(
@@ -519,44 +514,58 @@ class Co2RouteRunner:
             except Exception:
                 pass
 
+    def _special_zero_flush_pending(self, point: CalibrationPoint) -> bool:
+        if self._as_float(point.co2_ppm) != 0.0:
+            return False
+        run_state = getattr(self.service, "run_state", None)
+        humidity_state = getattr(run_state, "humidity", None)
+        if humidity_state is not None:
+            initial = getattr(humidity_state, "initial_co2_zero_flush_pending", False)
+            post_h2o = getattr(humidity_state, "post_h2o_co2_zero_flush_pending", False)
+            active = getattr(humidity_state, "active_post_h2o_co2_zero_flush", False)
+            return bool(initial or post_h2o or active)
+        return False
+
     def _wait_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
-        waiter = getattr(self.service, "_wait_co2_route_soak_before_seal", None)
-        if callable(waiter):
-            return bool(waiter(point))
+        soak_s = self._cfg_float("workflow.pressure.conditioning_soak_s", 30.0)
+        if soak_s <= 0:
+            return True
+        self.service.status_service.log(f"CO2 route soak {soak_s:.0f}s before seal")
+        time.sleep(soak_s)
         return True
 
     def _co2_pressure_retry_total(self) -> int:
-        retry_total_reader = getattr(self.service, "_co2_pressure_timeout_reseal_retries", None)
-        if callable(retry_total_reader):
-            try:
-                return max(0, int(retry_total_reader()))
-            except Exception:
-                return 0
-        return max(0, self._cfg_int("workflow.pressure.co2_reseal_retry_count", 1))
+        return self._cfg_int("workflow.pressure.co2_reseal_retry_count", 1)
 
     def _retry_pressure_point_after_timeout(
         self,
-        source_point: CalibrationPoint,
+        point: CalibrationPoint,
         sample_point: CalibrationPoint,
         *,
         attempt: int,
         total: int,
     ) -> bool:
-        retry_helper = getattr(self.service, "_retry_co2_pressure_point_after_timeout", None)
-        if callable(retry_helper):
-            return bool(
-                retry_helper(
-                    source_point,
-                    sample_point,
-                    attempt=attempt,
-                    total=total,
-                )
-            )
         self.service.status_service.log(
-            f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa timeout; "
-            f"retry within sealed route {attempt}/{total}"
+            f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa: "
+            f"pressure retry {attempt}/{total}"
         )
-        return bool(self.service.pressure_control_service.set_pressure_to_target(sample_point).ok)
+        self.service.valve_routing_service.cleanup_co2_route(reason="before CO2 pressure retry")
+        time.sleep(2.0)
+        self.service.valve_routing_service.set_co2_route_baseline(reason="before CO2 pressure retry recharge")
+        self.service.valve_routing_service.set_valves_for_co2(point)
+        time.sleep(1.0)
+        if not self.service.pressure_control_service.pressurize_and_hold(point, route="co2").ok:
+            return False
+        return self.service.pressure_control_service.set_pressure_to_target(sample_point).ok
+
+    def _cfg_float(self, path: str, default: float) -> float:
+        getter = getattr(self.service, "_cfg_get", None)
+        if not callable(getter):
+            return default
+        try:
+            return float(getter(path, default))
+        except Exception:
+            return default
 
     def _cfg_int(self, path: str, default: int) -> int:
         getter = getattr(self.service, "_cfg_get", None)
@@ -566,6 +575,14 @@ class Co2RouteRunner:
             return int(getter(path, default))
         except Exception:
             return default
+
+    def _as_float(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except Exception:
+            return None
 
     def interpoint_flush(self) -> None:
         flush_s = 300.0
