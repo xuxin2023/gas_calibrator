@@ -448,18 +448,18 @@ class Co2RouteRunner:
                     decision="ok",
                 )
 
-            flush_s = float(self.service._cfg_get("workflow.co2.interpoint_flush_s", 0.0))
-            if flush_s > 0 and not is_current_ambient:
-                self.service.pressure_control_service.set_pressure_controller_vent(
-                    True, reason="CO2 interpoint flush: vent open"
-                )
-                self.service.status_service.log(
-                    f"CO2 interpoint flush: vent ON for {flush_s:.1f}s (point {sample_point.index})"
-                )
-                time.sleep(flush_s)
-                self.service.pressure_control_service.set_pressure_controller_vent(
-                    False, reason="CO2 interpoint flush: vent close"
-                )
+                flush_s = float(self.service._cfg_get("co2.interpoint_flush_s", 0.0))
+                if flush_s > 0 and not is_current_ambient:
+                    self.service.pressure_control_service.set_pressure_controller_vent(
+                        True, reason="CO2 interpoint flush: vent open"
+                    )
+                    self.service.status_service.log(
+                        f"CO2 interpoint flush: vent ON for {flush_s:.1f}s (point {sample_point.index})"
+                    )
+                    time.sleep(flush_s)
+                    self.service.pressure_control_service.set_pressure_controller_vent(
+                        False, reason="CO2 interpoint flush: vent close", prefer_direct_command=True
+                    )
 
             self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 source complete")
             return RouteRunResult(
