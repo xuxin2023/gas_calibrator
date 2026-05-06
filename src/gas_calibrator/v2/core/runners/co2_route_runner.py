@@ -384,6 +384,8 @@ class Co2RouteRunner:
                     message="CO2 sampling start",
                 )
                 results = self.service.sampling_service.sample_point(sample_point, phase=phase, point_tag=point_tag)
+                if not results and is_current_ambient:
+                    results = list(self._ambient_fallback_results(sample_point, phase=phase, point_tag=point_tag))
                 if not results:
                     self.service._record_workflow_timing(
                         "sample_end",
@@ -491,6 +493,29 @@ class Co2RouteRunner:
             )
         finally:
             route_context.clear()
+
+    def _ambient_fallback_results(self, sample_point: CalibrationPoint, *, phase: str, point_tag: str) -> list[Any]:
+        results: list[Any] = []
+        collector = getattr(self.service.sampling_service, "collect_sampling_result", None)
+        if not callable(collector):
+            return results
+        for logical_id in range(4):
+            device = self.service.device_manager.get_device(f"gas_analyzer_{logical_id}")
+            if device is None:
+                continue
+            try:
+                result = collector(
+                    sample_point,
+                    f"ga{logical_id + 1:02d}",
+                    device,
+                    phase=phase,
+                    point_tag=point_tag,
+                )
+                if result is not None and getattr(result, "co2_ppm", None) is not None:
+                    results.append(result)
+            except Exception:
+                continue
+        return results
 
     def _special_zero_flush_pending(self, point: CalibrationPoint) -> bool:
         has_pending = getattr(self.service, "_has_special_co2_zero_flush_pending", None)
