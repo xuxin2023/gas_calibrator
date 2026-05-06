@@ -263,6 +263,14 @@ class WorkflowOrchestrator:
         self.run_state.reset(initial_co2_zero_flush_pending=self._route_mode() == "co2_only")
         self.route_context.clear()
         self._bind_run_state_aliases()
+
+    def _precondition_next_temperature_humidity(self, next_group: Any) -> None:
+        pass
+
+    def _precondition_next_temperature_chamber(self, next_group: Any) -> None:
+        pass
+
+    def _bind_run_state_aliases(self) -> None:
         self.result_store._samples.clear()
         self.result_store._point_summaries.clear()
         self.timing_monitor_service = TimingMonitorService(
