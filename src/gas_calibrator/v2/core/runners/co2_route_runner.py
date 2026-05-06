@@ -96,17 +96,6 @@ class Co2RouteRunner:
             if callable(mark_route_open_started):
                 mark_route_open_started(point)
             self.service.valve_routing_service.set_valves_for_co2(point)
-            flush_s = float(self.service._cfg_get("co2.interpoint_flush_s", 0.0))
-            last_ppm = getattr(self.service.a2_hooks, "last_co2_route_ppm", None)
-            current_ppm = float(point.co2_ppm or 0)
-            if flush_s > 0 and last_ppm is not None and abs(current_ppm - last_ppm) > 0.5:
-                self.service.valve_routing_service.set_valves_for_co2(point)
-                self.service.status_service.log(
-                    f"CO2 sealed-path gas flush for {flush_s:.1f}s "
-                    f"({last_ppm:.0f}→{current_ppm:.0f} ppm, vent stays OFF)"
-                )
-                time.sleep(flush_s)
-            self.service.a2_hooks.last_co2_route_ppm = current_ppm
             mark_route_open_completed = self.service.a2_hooks.callbacks.get("mark_route_open_completed")
             if callable(mark_route_open_completed):
                 mark_route_open_completed(point)

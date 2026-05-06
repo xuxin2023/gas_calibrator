@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Sequence
+import time
+from typing import Any, Optional, Sequence
 
 from ...exceptions import WorkflowInterruptedError, WorkflowValidationError
 from ..models import CalibrationPhase, CalibrationPoint
@@ -105,8 +106,26 @@ class TemperatureGroupRunner:
                 continue
 
             if route_name == "co2":
-                for source_point in self.service.route_planner.co2_sources(self.points):
+                source_list = self.service.route_planner.co2_sources(self.points)
+                prev_ppm: Optional[float] = None
+                for source_point in source_list:
                     pressure_points = self.service.route_planner.co2_pressure_points(source_point, self.points)
+                    current_ppm = float(source_point.co2_ppm or 0)
+                    flush_s = float(self.service._cfg_get("co2.interpoint_flush_s", 0.0))
+                    if flush_s > 0 and prev_ppm is not None and abs(current_ppm - prev_ppm) > 0.5:
+                        self.service.valve_routing_service.set_valves_for_co2(source_point)
+                        self.service.pressure_control_service.set_pressure_controller_vent(
+                            True, reason="CO2 interpoint flush: vent open"
+                        )
+                        self.service.status_service.log(
+                            f"CO2 interpoint flush: {prev_ppm:.0f}→{current_ppm:.0f} ppm, "
+                            f"vent=ON for {flush_s:.1f}s (cylinder gas displacement)"
+                        )
+                        time.sleep(flush_s)
+                        self.service.pressure_control_service.set_pressure_controller_vent(
+                            False, reason="CO2 interpoint flush: vent close", prefer_direct_command=True
+                        )
+                    prev_ppm = current_ppm
                     self.service.route_context.update(
                         active_point=source_point,
                         point_tag=self.service.route_planner.co2_point_tag(source_point),
