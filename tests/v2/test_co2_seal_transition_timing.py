@@ -63,6 +63,7 @@ def _make_host(overrides=None):
 
     host._apply_valve_states = _apply_valve_states
     host.apply_calls = apply_calls
+    host._set_h2o_path = lambda state, point: None
 
     return host, route_trace_records
 
@@ -70,7 +71,10 @@ def _make_host(overrides=None):
 def _make_service(host):
     service = PressureControlService(
         SimpleNamespace(),
-        SimpleNamespace(humidity=SimpleNamespace(active_post_h2o_co2_zero_flush=False)),
+        SimpleNamespace(
+            humidity=SimpleNamespace(active_post_h2o_co2_zero_flush=False),
+            pressure=SimpleNamespace(),
+        ),
         host=host,
     )
     service._make_preseal_observation_reader = lambda: None
@@ -109,6 +113,7 @@ def _make_service(host):
     service._seal_transition_gate = lambda *a, **kw: PressureWaitResult(
         ok=True, diagnostics={"seal_transition_completed": True}
     )
+    host._device = lambda name: SimpleNamespace() if name == "pressure_controller" else None
     return service
 
 

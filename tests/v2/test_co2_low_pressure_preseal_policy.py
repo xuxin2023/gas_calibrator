@@ -110,7 +110,7 @@ class TestPositivePresealEnabledForSubAtmospheric:
         )
         assert result is False
 
-    def test_800hPa_at_ambient_850_margin_30_returns_false(self):
+    def test_800hPa_at_ambient_825_margin_30_returns_true(self):
         point = _point(pressure=800.0)
         host = _make_host({"workflow.pressure.co2_preseal_sub_atmospheric_margin_hpa": 30.0})
         svc = PressureControlService(SimpleNamespace(), SimpleNamespace(humidity=SimpleNamespace(active_post_h2o_co2_zero_flush=False)), host=host)
@@ -118,9 +118,9 @@ class TestPositivePresealEnabledForSubAtmospheric:
         result = svc._positive_preseal_enabled(
             point, route="co2", measured_atmospheric_pressure_hpa=825.0
         )
-        assert result is False
+        assert result is True
 
-    def test_800hPa_at_ambient_840_with_margin_30_returns_true(self):
+    def test_800hPa_at_ambient_840_with_margin_30_returns_false(self):
         point = _point(pressure=800.0)
         host = _make_host({"workflow.pressure.co2_preseal_sub_atmospheric_margin_hpa": 30.0})
         svc = PressureControlService(SimpleNamespace(), SimpleNamespace(humidity=SimpleNamespace(active_post_h2o_co2_zero_flush=False)), host=host)
@@ -128,7 +128,7 @@ class TestPositivePresealEnabledForSubAtmospheric:
         result = svc._positive_preseal_enabled(
             point, route="co2", measured_atmospheric_pressure_hpa=840.0
         )
-        assert result is True
+        assert result is False
 
 
 class TestPositivePresealDisabledWhenHighPressureModeFalse:
