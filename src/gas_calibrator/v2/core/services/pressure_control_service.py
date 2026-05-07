@@ -116,6 +116,16 @@ class PressureControlService:
         if str(route or "").strip().lower() == "h2o":
             return False
         if self.host.a2_hooks.high_pressure_first_point_mode_enabled:
+            _tgt = self.host._as_float(point.target_pressure_hpa)
+            _amb = measured_atmospheric_pressure_hpa
+            if _tgt is not None:
+                _margin = float(
+                    self.host._cfg_get("workflow.pressure.co2_preseal_sub_atmospheric_margin_hpa", 50.0)
+                )
+                if _amb is not None and float(_tgt) + abs(_margin) < float(_amb):
+                    return False
+                if _amb is None and float(_tgt) < 1000.0:
+                    return False
             return True
         configured = self._coerce_bool(
             self.host._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", None)
@@ -6480,22 +6490,11 @@ class PressureControlService:
                     route=route_text,
                     measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
                 )
-                if positive_preseal:
-                    _tgt = self.host._as_float(point.target_pressure_hpa)
-                    _amb = measured_atmospheric_pressure_hpa
-                    _margin = float(
-                        self.host._cfg_get(
-                            "workflow.pressure.co2_preseal_sub_atmospheric_margin_hpa", 50.0
-                        )
-                    )
-                    _sub_skip = False
-                    if _tgt is not None:
-                        if _amb is not None and float(_tgt) + abs(_margin) < float(_amb):
-                            _sub_skip = True
-                        elif _amb is None and float(_tgt) < 1000.0:
-                            _sub_skip = True
-                    if _sub_skip:
-                        positive_preseal = False
+                if not positive_preseal and self._coerce_bool(
+                    self.host._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", None)
+                ):
+                    _tgt_inner = self.host._as_float(point.target_pressure_hpa)
+                    if _tgt_inner is not None and float(_tgt_inner) < 1000.0:
                         positive_preseal_skipped = True
                         positive_preseal_skip_reason = "target_below_atmosphere_direct_pressure_control"
             if positive_preseal:
