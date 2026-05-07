@@ -1620,11 +1620,30 @@ class WorkflowOrchestrator:
         enabled = bool(self._cfg_get("workflow.pressure.co2_route_conditioning_atmosphere_required", True))
         pressure_values = self._a2_high_pressure_pressure_values(point, pressure_points)
         contains_1100 = any(abs(float(value) - 1100.0) <= 0.001 for value in pressure_values)
+        smoke_conditioning_required = self._a2_co2_smoke_conditioning_required()
         return bool(
             enabled
-            and contains_1100
+            and (contains_1100 or smoke_conditioning_required)
             and self._workflow_timing_enabled()
             and self._workflow_no_write_guard_active()
+        )
+
+    def _a2_co2_smoke_conditioning_required(self) -> bool:
+        raw_cfg = getattr(self.service, "_raw_cfg", None)
+        if not isinstance(raw_cfg, dict):
+            return False
+        policy = raw_cfg.get("run001_a2")
+        if not isinstance(policy, dict):
+            return False
+        route_mode = str(self._cfg_get("workflow.route_mode", "") or "").strip()
+        return bool(
+            bool(policy.get("engineering_smoke_only"))
+            and bool(policy.get("not_for_production_readiness"))
+            and bool(policy.get("not_real_acceptance_evidence"))
+            and bool(policy.get("no_write"))
+            and route_mode == "co2_only"
+            and not bool(policy.get("default_cutover_to_v2"))
+            and not bool(policy.get("disable_v1"))
         )
 
     def _co2_conditioning_soak_s(self, point: CalibrationPoint) -> float:
@@ -3128,6 +3147,9 @@ class WorkflowOrchestrator:
 
     def _a2_mark_preseal_capture_pressure(self, *args, **kwargs):
         return self.conditioning_service._a2_mark_preseal_capture_pressure(*args, **kwargs)
+
+    def _verify_co2_preseal_atmosphere_hold_pressure(self, point):
+        return self.conditioning_service._verify_co2_preseal_atmosphere_hold_pressure(point)
 
     def _get_latest_pressure_hpa(self) -> Optional[float]:
         return self.pressure_control_service._get_latest_pressure_hpa()
