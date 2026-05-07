@@ -202,9 +202,25 @@ def completed_profile_from_trace(run_dir: str | Path | None) -> list[_ProfileIte
         tag = str(item.get("point_tag") or "")
         target = item.get("target", {})
         target_pressure = None
+        is_ambient = False
         if isinstance(target, Mapping):
             target_pressure = target.get("pressure_hpa")
-        if "ambient" in tag.lower() and tag.lower().endswith("ambient"):
+            if str(target.get("pressure_selection_token") or "").strip().lower() == "ambient_open":
+                is_ambient = True
+            if target.get("is_ambient_pressure_point") is True:
+                is_ambient = True
+            if str(target_pressure or "").strip().lower() == "ambient_open":
+                is_ambient = True
+                target_pressure = None
+        tag_lower = tag.lower()
+        if not is_ambient:
+            if "ambient_open" in tag_lower:
+                is_ambient = True
+            elif tag_lower.endswith("_ambient"):
+                is_ambient = True
+            elif tag_lower.endswith("_ambient_open"):
+                is_ambient = True
+        if is_ambient:
             key = "ambient_open"
             if key not in seen:
                 seen.add(key)

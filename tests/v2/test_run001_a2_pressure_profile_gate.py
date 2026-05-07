@@ -204,11 +204,78 @@ def test_planned_pressure_point_count():
     assert planned_pressure_point_count([1100, 1000, 900, 800, 700, 600, 500]) == 7
 
 
-def test_completed_profile_from_trace_ambient_plus_800(tmp_path):
+def test_completed_profile_from_trace_ambient_open_tag(tmp_path):
+    import json
+    trace_path = tmp_path / "route_trace.jsonl"
+    trace_path.write_text(
+        json.dumps({"action": "sample_end", "result": "ok", "point_tag": "co2_groupa_1000ppm_ambient_open"}),
+        encoding="utf-8",
+    )
+    result = completed_profile_from_trace(tmp_path)
+    assert result == ["ambient_open"]
+
+
+def test_completed_profile_from_trace_ambient_tag(tmp_path):
+    import json
+    trace_path = tmp_path / "route_trace.jsonl"
+    trace_path.write_text(
+        json.dumps({"action": "sample_end", "result": "ok", "point_tag": "co2_groupa_1000ppm_ambient"}),
+        encoding="utf-8",
+    )
+    result = completed_profile_from_trace(tmp_path)
+    assert result == ["ambient_open"]
+
+
+def test_completed_profile_from_trace_ambient_by_selection_token(tmp_path):
+    import json
+    trace_path = tmp_path / "route_trace.jsonl"
+    trace_path.write_text(
+        json.dumps({
+            "action": "sample_end", "result": "ok",
+            "point_tag": "co2_groupa_1000ppm_0hpa",
+            "target": {"pressure_hpa": None, "pressure_selection_token": "ambient_open"},
+        }),
+        encoding="utf-8",
+    )
+    result = completed_profile_from_trace(tmp_path)
+    assert result == ["ambient_open"]
+
+
+def test_completed_profile_from_trace_ambient_by_is_ambient_flag(tmp_path):
+    import json
+    trace_path = tmp_path / "route_trace.jsonl"
+    trace_path.write_text(
+        json.dumps({
+            "action": "sample_end", "result": "ok",
+            "point_tag": "co2_groupa_1000ppm_0hpa",
+            "target": {"pressure_hpa": None, "is_ambient_pressure_point": True},
+        }),
+        encoding="utf-8",
+    )
+    result = completed_profile_from_trace(tmp_path)
+    assert result == ["ambient_open"]
+
+
+def test_completed_profile_from_trace_ambient_by_pressure_hpa_string(tmp_path):
+    import json
+    trace_path = tmp_path / "route_trace.jsonl"
+    trace_path.write_text(
+        json.dumps({
+            "action": "sample_end", "result": "ok",
+            "point_tag": "co2_groupa_1000ppm_0hpa",
+            "target": {"pressure_hpa": "ambient_open"},
+        }),
+        encoding="utf-8",
+    )
+    result = completed_profile_from_trace(tmp_path)
+    assert result == ["ambient_open"]
+
+
+def test_completed_profile_from_trace_ambient_open_plus_800(tmp_path):
     import json
     trace_path = tmp_path / "route_trace.jsonl"
     trace_path.write_text("\n".join([
-        json.dumps({"action": "sample_end", "result": "ok", "point_tag": "co2_groupa_1000ppm_ambient", "target": {"pressure_hpa": None}}),
+        json.dumps({"action": "sample_end", "result": "ok", "point_tag": "co2_groupa_1000ppm_ambient_open", "target": {"pressure_hpa": None}}),
         json.dumps({"action": "sample_end", "result": "ok", "point_tag": "co2_groupa_1000ppm_800hpa", "target": {"pressure_hpa": 800.0}}),
     ]), encoding="utf-8")
     result = completed_profile_from_trace(tmp_path)
