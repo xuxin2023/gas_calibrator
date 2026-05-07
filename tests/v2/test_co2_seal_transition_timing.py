@@ -204,3 +204,63 @@ class TestPressurePeakRecorded:
         ev = evidence_records[-1]["actual"]
         assert ev["positive_preseal_peak_hpa"] is None
         assert ev["positive_preseal_peak_after_vent_off_s"] is None
+
+
+class TestSmokeConfigLoadsCorrectly:
+    def test_ambient_800_smoke_config_has_correct_preseal_settings(self):
+        import json
+        from pathlib import Path
+
+        config_path = Path(__file__).resolve().parents[2] / "src" / "gas_calibrator" / "v2" / "configs" / "validation" / "run001_a2_co2_1000ppm_ambient_800hpa_smoke.json"
+        with open(config_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+
+        pressure_cfg = data.get("workflow", {}).get("pressure", {})
+
+        assert pressure_cfg.get("high_pressure_first_point_mode_enabled") is False, (
+            "ambient+800 smoke MUST set high_pressure_first_point_mode_enabled=false"
+        )
+        assert pressure_cfg.get("positive_preseal_pressurization_enabled") is False, (
+            "ambient+800 smoke MUST set positive_preseal_pressurization_enabled=false"
+        )
+
+    def test_ambient_800_smoke_config_has_all_no_write_guards(self):
+        import json
+        from pathlib import Path
+
+        config_path = Path(__file__).resolve().parents[2] / "src" / "gas_calibrator" / "v2" / "configs" / "validation" / "run001_a2_co2_1000ppm_ambient_800hpa_smoke.json"
+        with open(config_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+
+        run001 = data.get("run001_a2", {})
+
+        assert run001.get("no_write") is True
+        assert run001.get("allow_write_coefficients") is False
+        assert run001.get("allow_write_zero") is False
+        assert run001.get("allow_write_span") is False
+        assert run001.get("allow_write_calibration_parameters") is False
+        assert run001.get("default_cutover_to_v2") is False
+        assert run001.get("disable_v1") is False
+
+        a2_probe = data.get("a2_co2_7_pressure_no_write_probe", {})
+
+        assert a2_probe.get("co2_only") is True
+        assert a2_probe.get("no_write") is True
+        assert a2_probe.get("skip0") is True
+        assert a2_probe.get("single_route") is True
+        assert a2_probe.get("single_temperature") is True
+
+    def test_ambient_800_smoke_config_authorized_pressure_points(self):
+        import json
+        from pathlib import Path
+
+        config_path = Path(__file__).resolve().parents[2] / "src" / "gas_calibrator" / "v2" / "configs" / "validation" / "run001_a2_co2_1000ppm_ambient_800hpa_smoke.json"
+        with open(config_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+
+        run001 = data.get("run001_a2", {})
+        authorized = run001.get("authorized_pressure_points_hpa", [])
+
+        assert "ambient_open" in authorized
+        assert 800 in authorized
+        assert len(authorized) == 2
