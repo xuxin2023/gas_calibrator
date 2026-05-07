@@ -293,7 +293,8 @@ class Co2RouteRunner:
                     self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
                 else:
                     if seal_deferred:
-                        if not self.service.pressure_control_service.pressurize_and_hold(sample_point, route=phase).ok:
+                        transition = self._transition_co2_ambient_open_to_sealed_pressure(sample_point)
+                        if not transition.ok:
                             self._clear_active_post_h2o_zero_flush_flag()
                             self.service.status_service.log(f"CO2 row {point.index} skipped: deferred route sealing failed")
                             self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 deferred pressure-seal failure")
@@ -568,6 +569,69 @@ class Co2RouteRunner:
             f"pressure retry {attempt}/{total}"
         )
         return self.service.pressure_control_service.set_pressure_to_target(sample_point).ok
+
+    def _transition_co2_ambient_open_to_sealed_pressure(self, sample_point: CalibrationPoint) -> Any:
+        from datetime import datetime, timezone
+        from ..services.pressure_control_service import PressureWaitResult
+
+        phase = "co2"
+
+        if getattr(self.service.a2_hooks, "co2_route_conditioning_at_atmosphere_active", False):
+            self.service.a2_hooks.co2_route_conditioning_at_atmosphere_active = False
+        ctx = getattr(self.service.a2_hooks, "co2_route_conditioning_at_atmosphere_context", None)
+        if isinstance(ctx, dict):
+            ctx["route_conditioning_phase"] = "ready_to_seal_phase"
+
+        vent_off_sent_at = datetime.now(timezone.utc).isoformat()
+        vent_off_mono = time.monotonic()
+        self.service.pressure_control_service.set_pressure_controller_vent(
+            False,
+            reason="CO2 ambient_open to sealed pressure: vent off before route close",
+            prefer_direct_command=True,
+        )
+
+        settle_s = max(0.1, float(
+            getattr(self.service, "_cfg_get", lambda p, d: d)(
+                "workflow.pressure.co2_ambient_to_sealed_vent_off_settle_s", 1.5
+            )
+        ))
+        time.sleep(settle_s)
+
+        route_close_sent_at = datetime.now(timezone.utc).isoformat()
+        route_close_mono = time.monotonic()
+        relay_state = self.service.valve_routing_service.apply_valve_states([])
+
+        vent_off_to_route_close_s = round(max(0.0, route_close_mono - vent_off_mono), 3)
+        limit_s = max(0.1, self._cfg_float("workflow.pressure.co2_vent_off_to_route_close_max_s", 1.5))
+
+        self.service.status_service.record_route_trace(
+            action="co2_ambient_to_sealed_transition",
+            route=phase,
+            point=sample_point,
+            actual={
+                "vent_off_sent_at": vent_off_sent_at,
+                "vent_off_to_route_close_s": vent_off_to_route_close_s,
+                "vent_off_to_route_close_limit_s": limit_s,
+                "route_close_sent_at": route_close_sent_at,
+                "pressure_read_between_vent_off_and_route_close": False,
+                "vent_reassert_between_vent_off_and_route_close": False,
+                "preseal_atmosphere_hold_used": False,
+                "positive_preseal_used": False,
+                "target_pressure_hpa": sample_point.target_pressure_hpa,
+                "relay_state": relay_state,
+            },
+            target={"pressure_hpa": sample_point.target_pressure_hpa, "vent_on": False},
+            result="ok",
+            message="CO2 ambient_open to sealed pressure: minimal transition complete",
+        )
+
+        return PressureWaitResult(
+            ok=True,
+            diagnostics={
+                "vent_off_to_route_close_s": vent_off_to_route_close_s,
+                "transition_type": "ambient_to_sealed_minimal",
+            },
+        )
 
     def _cfg_float(self, path: str, default: float) -> float:
         getter = getattr(self.service, "_cfg_get", None)

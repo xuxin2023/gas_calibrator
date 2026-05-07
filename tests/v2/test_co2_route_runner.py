@@ -462,12 +462,17 @@ def test_co2_pressure_retry_fallback_only_retries_set_pressure_to_target_without
 def test_co2_ambient_plus_800hpa_deferred_seal_uses_sample_point_not_source_point() -> None:
     calls: list[str] = []
     tracers: list[dict[str, object]] = []
-    pressurize_and_hold_calls: list[tuple[object, str]] = []
+    vent_off_calls: list[tuple[bool, str]] = []
+    apply_valve_state_calls: list[list[int]] = []
     set_pressure_to_target_calls: list[object] = []
 
-    def recording_pressurize_and_hold(pt, route="co2"):
-        pressurize_and_hold_calls.append((pt, route))
-        return SimpleNamespace(ok=True)
+    def recording_set_pressure_controller_vent(on, reason="", **kw):
+        vent_off_calls.append((on, reason))
+        return {}
+
+    def recording_apply_valve_states(open_valves):
+        apply_valve_state_calls.append(list(open_valves))
+        return {"relay_a": {"1": False}, "relay_b": {"1": False}}
 
     def recording_set_pressure_to_target(pt):
         set_pressure_to_target_calls.append(pt)
@@ -488,12 +493,13 @@ def test_co2_ambient_plus_800hpa_deferred_seal_uses_sample_point_not_source_poin
             set_co2_route_baseline=lambda reason="": None,
             set_valves_for_co2=lambda point: None,
             cleanup_co2_route=lambda reason="": calls.append(f"cleanup:{reason}"),
+            apply_valve_states=recording_apply_valve_states,
         ),
         pressure_control_service=SimpleNamespace(
-            pressurize_and_hold=recording_pressurize_and_hold,
+            pressurize_and_hold=lambda point, route="co2": SimpleNamespace(ok=True),
             set_pressure_to_target=recording_set_pressure_to_target,
             wait_after_pressure_stable_before_sampling=lambda point: SimpleNamespace(ok=True),
-            set_pressure_controller_vent=lambda on, reason="": None,
+            set_pressure_controller_vent=recording_set_pressure_controller_vent,
         ),
         sampling_service=SimpleNamespace(
             sampling_params=lambda phase="": (4, 15),
@@ -504,7 +510,9 @@ def test_co2_ambient_plus_800hpa_deferred_seal_uses_sample_point_not_source_poin
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": None),
         _wait_co2_route_soak_before_seal=lambda point: True,
         _record_workflow_timing=lambda *a, **kw: None,
-        _cfg_get=lambda path, default=None: default,
+        _cfg_get=lambda path, default=None: (
+            0.0 if path == "workflow.pressure.co2_ambient_to_sealed_vent_off_settle_s" else default
+        ),
     )
 
     source = CalibrationPoint(
@@ -525,20 +533,37 @@ def test_co2_ambient_plus_800hpa_deferred_seal_uses_sample_point_not_source_poin
     assert result.success is True, "ambient+800hPa route should succeed"
     assert set(result.completed_point_indices) == {99, 101}
 
-    assert len(pressurize_and_hold_calls) == 1, (
-        "ambient+800hPa should call pressurize_and_hold exactly once (deferred seal for 800hPa)"
+    vent_off_calls_before_close = [
+        (on, reason) for on, reason in vent_off_calls
+        if "vent off before route close" in reason
+    ]
+    assert len(vent_off_calls_before_close) == 1, (
+        "ambient→800 transition must send exactly one VENT=OFF before route close"
     )
-    seal_call_point, seal_call_route = pressurize_and_hold_calls[0]
-    assert seal_call_route == "co2"
-    assert seal_call_point is not source, (
-        "pressurize_and_hold MUST receive sample_point (800hPa), NOT the CO2 source point"
+    assert vent_off_calls_before_close[0][0] is False, (
+        "ambient→800 transition must send VENT=OFF (False)"
     )
-    assert seal_call_point.index == 101, (
-        "pressurize_and_hold must receive the 800hPa sample_point, not the ambient or source index"
+
+    assert len(apply_valve_state_calls) == 1, (
+        "ambient→800 transition must call apply_valve_states exactly once"
     )
-    assert seal_call_point.target_pressure_hpa == 800.0, (
-        "pressurize_and_hold sample_point must carry target_pressure_hpa=800"
+    assert apply_valve_state_calls[0] == [], (
+        "apply_valve_states must be called with empty list to close all valves"
     )
+
+    transition_traces = [
+        t for t in tracers
+        if t.get("action") == "co2_ambient_to_sealed_transition"
+    ]
+    assert len(transition_traces) == 1
+    actual = transition_traces[0]["actual"]
+    assert actual["target_pressure_hpa"] == 800.0, (
+        "transition evidence must record target_pressure_hpa=800"
+    )
+    assert actual["pressure_read_between_vent_off_and_route_close"] is False
+    assert actual["vent_reassert_between_vent_off_and_route_close"] is False
+    assert actual["preseal_atmosphere_hold_used"] is False
+    assert actual["positive_preseal_used"] is False
 
     assert len(set_pressure_to_target_calls) == 1, (
         "only the 800hPa point should call set_pressure_to_target"
@@ -569,12 +594,13 @@ def test_co2_ambient_plus_800hpa_deferred_seal_logs_correctly() -> None:
             set_co2_route_baseline=lambda reason="": None,
             set_valves_for_co2=lambda point: None,
             cleanup_co2_route=lambda reason="": calls.append(f"cleanup:{reason}"),
+            apply_valve_states=lambda open_valves: {"relay_a": {}, "relay_b": {}},
         ),
         pressure_control_service=SimpleNamespace(
             pressurize_and_hold=lambda point, route="co2": SimpleNamespace(ok=True),
             set_pressure_to_target=lambda point: SimpleNamespace(ok=True),
             wait_after_pressure_stable_before_sampling=lambda point: SimpleNamespace(ok=True),
-            set_pressure_controller_vent=lambda on, reason="": None,
+            set_pressure_controller_vent=lambda on, reason="", **kw: None,
         ),
         sampling_service=SimpleNamespace(
             sampling_params=lambda phase="": (4, 15),
@@ -585,7 +611,9 @@ def test_co2_ambient_plus_800hpa_deferred_seal_logs_correctly() -> None:
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": None),
         _wait_co2_route_soak_before_seal=lambda point: True,
         _record_workflow_timing=lambda *a, **kw: None,
-        _cfg_get=lambda path, default=None: default,
+        _cfg_get=lambda path, default=None: (
+            0.0 if path == "workflow.pressure.co2_ambient_to_sealed_vent_off_settle_s" else default
+        ),
     )
 
     source = CalibrationPoint(
@@ -620,3 +648,96 @@ def test_co2_ambient_plus_800hpa_deferred_seal_logs_correctly() -> None:
 
     sampled_traces = [t for t in tracers if t.get("action") == "sample_end" and t.get("result") == "ok"]
     assert len(sampled_traces) == 2, "both ambient and 800hPa should be sampled"
+
+    transition_traces = [
+        t for t in tracers
+        if t.get("action") == "co2_ambient_to_sealed_transition"
+    ]
+    assert len(transition_traces) == 1, "ambient→800 transition must be recorded"
+    actual = transition_traces[0]["actual"]
+    assert actual["vent_off_to_route_close_s"] >= 0
+    assert actual["target_pressure_hpa"] == 800.0
+    assert actual["pressure_read_between_vent_off_and_route_close"] is False
+    assert actual["vent_reassert_between_vent_off_and_route_close"] is False
+
+
+def test_co2_ambient_to_sealed_transition_disables_conditioning_state() -> None:
+    calls: list[str] = []
+    tracers: list[dict[str, object]] = []
+    a2_hooks = _make_a2_hooks()
+    a2_hooks.co2_route_conditioning_at_atmosphere_active = True
+    a2_hooks.co2_route_conditioning_at_atmosphere_context = {
+        "route_conditioning_phase": "conditioning",
+        "vent_ticks": 311,
+    }
+
+    service = SimpleNamespace(
+        event_bus=EventBus(),
+        route_context=RecordingRouteContext(),
+        a2_hooks=a2_hooks,
+        route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
+        status_service=_TraceStatusService(calls, tracers),
+        temperature_control_service=SimpleNamespace(
+            set_temperature_for_point=lambda point, phase="": SimpleNamespace(ok=True),
+            capture_temperature_calibration_snapshot=lambda point, route_type="": None,
+        ),
+        valve_routing_service=SimpleNamespace(
+            set_co2_route_baseline=lambda reason="": None,
+            set_valves_for_co2=lambda point: None,
+            cleanup_co2_route=lambda reason="": calls.append(f"cleanup:{reason}"),
+            apply_valve_states=lambda open_valves: {"relay_a": {}, "relay_b": {}},
+        ),
+        pressure_control_service=SimpleNamespace(
+            pressurize_and_hold=lambda point, route="co2": SimpleNamespace(ok=True),
+            set_pressure_to_target=lambda point: SimpleNamespace(ok=True),
+            wait_after_pressure_stable_before_sampling=lambda point: SimpleNamespace(ok=True),
+            set_pressure_controller_vent=lambda on, reason="", **kw: None,
+        ),
+        sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (4, 15),
+            sample_point=lambda point, phase="", point_tag="": [
+                SimpleNamespace(point=point, point_tag=point_tag)
+            ],
+        ),
+        qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": None),
+        _wait_co2_route_soak_before_seal=lambda point: True,
+        _record_workflow_timing=lambda *a, **kw: None,
+        _cfg_get=lambda path, default=None: (
+            0.0 if path == "workflow.pressure.co2_ambient_to_sealed_vent_off_settle_s" else default
+        ),
+    )
+
+    source = CalibrationPoint(
+        index=120, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None,
+        pressure_mode="ambient_open", route="co2", co2_group="A",
+    )
+    ambient = CalibrationPoint(
+        index=121, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None,
+        pressure_mode="ambient_open", route="co2", co2_group="A",
+    )
+    hpa800 = CalibrationPoint(
+        index=122, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=800.0,
+        pressure_mode="sealed_controlled", route="co2", co2_group="A",
+    )
+
+    result = Co2RouteRunner(service, source, [ambient, hpa800]).execute()
+
+    assert result.success is True
+
+    assert a2_hooks.co2_route_conditioning_at_atmosphere_active is False, (
+        "conditioning atmosphere_active must be disabled during ambient→sealed transition"
+    )
+    ctx = a2_hooks.co2_route_conditioning_at_atmosphere_context
+    assert isinstance(ctx, dict)
+    assert ctx.get("route_conditioning_phase") == "ready_to_seal_phase", (
+        "conditioning context phase must be set to ready_to_seal_phase"
+    )
+
+    transition_traces = [
+        t for t in tracers
+        if t.get("action") == "co2_ambient_to_sealed_transition"
+    ]
+    assert len(transition_traces) == 1
+    actual = transition_traces[0]["actual"]
+    assert actual["preseal_atmosphere_hold_used"] is False
+    assert actual["positive_preseal_used"] is False
