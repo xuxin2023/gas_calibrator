@@ -6398,6 +6398,11 @@ class PressureControlService:
 
     def pressurize_and_hold(self, point: CalibrationPoint, route: str = "co2", *, prefer_direct_vent_close: bool = False) -> PressureWaitResult:
         route_text = str(route or "").strip().lower()
+        co2_seal_transition_started_at = datetime.now(timezone.utc).isoformat()
+        co2_seal_transition_started_monotonic_s = time.monotonic()
+        vent_off_command_sent_at: Optional[str] = None
+        vent_off_monotonic_s: Optional[float] = None
+        pressure_read_between_vent_off_and_route_close = False
         timing_recorder = getattr(self.host, "_record_workflow_timing", None)
         if callable(timing_recorder):
             timing_recorder(
@@ -6511,7 +6516,13 @@ class PressureControlService:
                 preseal_trigger_threshold_hpa = self._coerce_float(
                     positive_preseal_diagnostics.get("preseal_trigger_threshold_hpa")
                 )
+                vent_off_command_sent_at = str(
+                    positive_preseal_diagnostics.get("vent_close_command_sent_at") or ""
+                )
+                pressure_read_between_vent_off_and_route_close = True
             else:
+                vent_off_command_sent_at = datetime.now(timezone.utc).isoformat()
+                vent_off_monotonic_s = time.monotonic()
                 final_vent_off_diagnostics = dict(
                     self.host._set_pressure_controller_vent(
                         False,
@@ -6544,6 +6555,7 @@ class PressureControlService:
             if wait_after_vent_off_s > 0:
                 start = time.time()
                 sample_interval_s = min(0.5, wait_after_vent_off_s)
+                pressure_read_between_vent_off_and_route_close = True
                 while True:
                     self.host._check_stop()
                     pressure_now = None if pressure_reader is None else (self._read_pressure_with_recovery() or pressure_reader())
@@ -6747,8 +6759,51 @@ class PressureControlService:
                         pressure_hpa=preseal_trigger_pressure_hpa,
                         wait_reason="close_co2_route_valves",
                     )
+                co2_route_valve_close_command_sent_at = datetime.now(timezone.utc).isoformat()
+                co2_route_valve_close_monotonic_s = time.monotonic()
                 relay_state = early_relay_state if early_seal_command_sent else self.host._apply_valve_states([])
             seal_transition = self._seal_transition_gate(point, route=route_text, relay_state=relay_state)
+            co2_route_valve_close_confirmed_at = datetime.now(timezone.utc).isoformat()
+            if route_text != "h2o":
+                _vent_off_at = vent_off_command_sent_at or ""
+                _vent_off_mono = vent_off_monotonic_s
+                _vent_off_to_route_close_s: Optional[float] = None
+                if _vent_off_mono is not None:
+                    _vent_off_to_route_close_s = round(max(0.0, co2_route_valve_close_monotonic_s - float(_vent_off_mono)), 3)
+                elif _vent_off_at:
+                    try:
+                        _p = datetime.fromisoformat(_vent_off_at.replace("Z", "+00:00"))
+                        if _p.tzinfo is None:
+                            _p = _p.replace(tzinfo=timezone.utc)
+                        _n = datetime.now(timezone.utc)
+                        _vent_off_to_route_close_s = round(max(0.0, (_n - _p.astimezone(timezone.utc)).total_seconds()), 3)
+                        vent_off_monotonic_s = time.monotonic() - (_vent_off_to_route_close_s if _vent_off_to_route_close_s else 0)
+                    except Exception:
+                        _vent_off_to_route_close_s = None
+                _limit_s = float(self.host._cfg_get("workflow.pressure.co2_vent_off_to_route_close_max_s", 1.5) or 1.5)
+                _limit_s = max(0.1, _limit_s)
+                _co2_seal_evidence = {
+                    "co2_seal_transition_started_at": co2_seal_transition_started_at,
+                    "vent_off_command_sent_at": _vent_off_at,
+                    "co2_route_valve_close_command_sent_at": co2_route_valve_close_command_sent_at,
+                    "co2_route_valve_close_confirmed_at": co2_route_valve_close_confirmed_at,
+                    "vent_off_to_route_close_s": _vent_off_to_route_close_s,
+                    "vent_off_to_route_close_limit_s": _limit_s,
+                    "positive_preseal_peak_hpa": (
+                        float(preseal_pressure_peak) if preseal_pressure_peak is not None else None
+                    ),
+                    "positive_preseal_peak_after_vent_off_s": None,
+                    "pressure_read_between_vent_off_and_route_close": bool(pressure_read_between_vent_off_and_route_close),
+                    "pressure_read_blocked_route_close": False,
+                }
+                self._record_route_trace(
+                    action="co2_seal_transition_evidence",
+                    route=route_text,
+                    point=point,
+                    actual=_co2_seal_evidence,
+                    result="ok",
+                    message="CO2 seal transition evidence recorded",
+                )
             if not seal_transition.ok:
                 if positive_preseal and callable(timing_recorder):
                     if high_pressure_first_point_mode:

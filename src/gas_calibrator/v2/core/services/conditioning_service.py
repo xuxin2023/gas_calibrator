@@ -372,6 +372,15 @@ class ConditioningService:
             return 0.0
         return max(0.0, float(command_latency or 0.0) + float(confirm_latency or 0.0))
 
+    def _a2_co2_vent_off_to_route_close_max_s(self) -> float:
+        value = self.host._as_float(
+            self.host._cfg_get(
+                "workflow.pressure.co2_vent_off_to_route_close_max_s",
+                1.5,
+            )
+        )
+        return max(0.1, float(1.5 if value is None else value))
+
     def _begin_a2_co2_route_conditioning_at_atmosphere(
         self,
         point: "CalibrationPoint",
