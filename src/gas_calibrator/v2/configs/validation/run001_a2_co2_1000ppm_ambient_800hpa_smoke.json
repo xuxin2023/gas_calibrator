@@ -7,7 +7,7 @@
     "mode": "real_machine_dry_run",
     "no_write": true,
     "co2_only": true,
-    "skip_co2_ppm": [],
+    "skip_co2_ppm": [0],
     "single_route": true,
     "single_temperature_group": true,
     "allow_real_route": true,
@@ -394,7 +394,7 @@
       20.0
     ],
     "temperature_descending": false,
-    "skip_co2_ppm": [],
+    "skip_co2_ppm": [0],
     "humidity_generator": {
       "ensure_run": false
     },

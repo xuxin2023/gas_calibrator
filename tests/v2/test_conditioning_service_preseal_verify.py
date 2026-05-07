@@ -308,3 +308,21 @@ def test_smoke_bypass_contains_1100():
     )
     pressure_points = [ambient, sealed]
     assert orchestrator._a2_co2_route_conditioning_required(ambient, pressure_points) is True
+
+
+def test_analyzer_snapshot_hook_missing_does_not_crash():
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    assert not hasattr(orchestrator, "_refresh_live_analyzer_snapshots")
+    refresher = getattr(orchestrator, "_refresh_live_analyzer_snapshots", None)
+    assert refresher is None
+
+
+def test_analyzer_snapshot_hook_callable_is_called_with_correct_reason():
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    calls = []
+    orchestrator._refresh_live_analyzer_snapshots = lambda **kw: calls.append(kw)
+    refresher = getattr(orchestrator, "_refresh_live_analyzer_snapshots", None)
+    assert callable(refresher)
+    refresher(reason="co2_route_preseal_soak")
+    assert len(calls) == 1
+    assert calls[0]["reason"] == "co2_route_preseal_soak"

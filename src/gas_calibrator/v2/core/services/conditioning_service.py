@@ -2161,7 +2161,9 @@ class ConditioningService:
                 if not positive_preseal_enabled:
                     self.host._verify_co2_preseal_atmosphere_hold_pressure(point)
             if (now - last_snapshot_refresh_ts) >= 1.0:
-                self.host._refresh_live_analyzer_snapshots(reason="co2_route_preseal_soak")
+                refresher = getattr(self.host, "_refresh_live_analyzer_snapshots", None)
+                if callable(refresher):
+                    refresher(reason="co2_route_preseal_soak")
                 last_snapshot_refresh_ts = now
             sleep_ceiling_s = preseal_pressure_poll_interval_s if positive_preseal_enabled else 1.0
             if conditioning_at_atmosphere:
