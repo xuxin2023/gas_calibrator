@@ -155,6 +155,7 @@ def _make_orchestrator_for_smoke_check(smoke_overrides=None):
             self._raw_cfg = raw_cfg
 
     orchestrator.service = FakeService()
+    orchestrator._record_workflow_timing = lambda *a, **kw: None
     orchestrator._cfg_get = lambda path, default=None: {
         "workflow.route_mode": raw_cfg["workflow"]["route_mode"],
     }.get(path, default)
@@ -174,7 +175,20 @@ def _co2_point(idx=1, ppm=1000.0, pressure=800.0):
 
 def test_smoke_conditioning_required_returns_true():
     orchestrator = _make_orchestrator_for_smoke_check()
-    result = orchestrator._a2_co2_smoke_conditioning_required()
+    orchestrator._record_workflow_timing = lambda *a, **kw: None
+    ambient = CalibrationPoint(
+        index=1, temperature_c=20.0, co2_ppm=1000.0,
+        pressure_hpa=None, pressure_mode="ambient_open",
+        pressure_selection_token="ambient_open", route="co2",
+    )
+    sealed = CalibrationPoint(
+        index=2, temperature_c=20.0, co2_ppm=1000.0,
+        pressure_hpa=800.0, pressure_mode="sealed_controlled",
+        pressure_selection_token="800hPa", route="co2",
+    )
+    result = orchestrator._a2_co2_smoke_conditioning_required(
+        point=ambient, pressure_points=[ambient, sealed]
+    )
     assert result is True
 
 
@@ -240,7 +254,7 @@ def test_original_1100_path_still_works_without_smoke():
     orchestrator._workflow_timing_enabled = lambda: True
     orchestrator._workflow_no_write_guard_active = lambda: True
     orchestrator._a2_high_pressure_pressure_values = lambda pt, pp: [1100.0]
-    orchestrator._a2_co2_smoke_conditioning_required = lambda: False
+    orchestrator._a2_co2_smoke_conditioning_required = lambda pt=None, pp=None: False
     orchestrator._as_float = lambda v: None if v in (None, "") else float(v)
 
     point = _co2_point()
@@ -279,8 +293,18 @@ def test_smoke_bypass_contains_1100():
     orchestrator._workflow_timing_enabled = lambda: True
     orchestrator._workflow_no_write_guard_active = lambda: True
     orchestrator._a2_high_pressure_pressure_values = lambda pt, pp: [800.0]
+    orchestrator._record_workflow_timing = lambda *a, **kw: None
     orchestrator._as_float = lambda v: None if v in (None, "") else float(v)
 
-    point = _co2_point(pressure=800.0)
-    pressure_points = [_co2_point(2, pressure=800.0)]
-    assert orchestrator._a2_co2_route_conditioning_required(point, pressure_points) is True
+    ambient = CalibrationPoint(
+        index=1, temperature_c=20.0, co2_ppm=1000.0,
+        pressure_hpa=None, pressure_mode="ambient_open",
+        pressure_selection_token="ambient_open", route="co2",
+    )
+    sealed = CalibrationPoint(
+        index=2, temperature_c=20.0, co2_ppm=1000.0,
+        pressure_hpa=800.0, pressure_mode="sealed_controlled",
+        pressure_selection_token="800hPa", route="co2",
+    )
+    pressure_points = [ambient, sealed]
+    assert orchestrator._a2_co2_route_conditioning_required(ambient, pressure_points) is True

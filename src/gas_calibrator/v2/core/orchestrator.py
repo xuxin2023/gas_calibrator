@@ -1620,7 +1620,9 @@ class WorkflowOrchestrator:
         enabled = bool(self._cfg_get("workflow.pressure.co2_route_conditioning_atmosphere_required", True))
         pressure_values = self._a2_high_pressure_pressure_values(point, pressure_points)
         contains_1100 = any(abs(float(value) - 1100.0) <= 0.001 for value in pressure_values)
-        smoke_conditioning_required = self._a2_co2_smoke_conditioning_required()
+        smoke_conditioning_required = self._a2_co2_smoke_conditioning_required(
+            point, pressure_points
+        )
         return bool(
             enabled
             and (contains_1100 or smoke_conditioning_required)
@@ -1628,7 +1630,11 @@ class WorkflowOrchestrator:
             and self._workflow_no_write_guard_active()
         )
 
-    def _a2_co2_smoke_conditioning_required(self) -> bool:
+    def _a2_co2_smoke_conditioning_required(
+        self,
+        point: CalibrationPoint | None = None,
+        pressure_points: Optional[Iterable[CalibrationPoint]] = None,
+    ) -> bool:
         raw_cfg = getattr(self.service, "_raw_cfg", None)
         if not isinstance(raw_cfg, dict):
             return False
@@ -1636,7 +1642,7 @@ class WorkflowOrchestrator:
         if not isinstance(policy, dict):
             return False
         route_mode = str(self._cfg_get("workflow.route_mode", "") or "").strip()
-        return bool(
+        flags_ok = bool(
             bool(policy.get("engineering_smoke_only"))
             and bool(policy.get("not_for_production_readiness"))
             and bool(policy.get("not_real_acceptance_evidence"))
@@ -1645,6 +1651,45 @@ class WorkflowOrchestrator:
             and not bool(policy.get("default_cutover_to_v2"))
             and not bool(policy.get("disable_v1"))
         )
+        if not flags_ok:
+            return False
+
+        pressure_points_list = list(pressure_points or [])
+        if point is not None and not pressure_points_list:
+            pressure_points_list = [point]
+
+        has_ambient = any(
+            getattr(p, "is_ambient_pressure_point", None) is True
+            if hasattr(p, "is_ambient_pressure_point") else False
+            for p in pressure_points_list
+        ) or any(
+            getattr(p, "is_ambient_pressure_point", False)
+            for p in pressure_points_list
+        )
+        has_800 = any(
+            abs(float(getattr(p, "target_pressure_hpa", None) or 0) - 800.0) <= 0.5
+            for p in pressure_points_list
+            if getattr(p, "target_pressure_hpa", None) is not None
+        )
+
+        self._record_workflow_timing(
+            "co2_smoke_conditioning_gate",
+            "info",
+            stage="co2_route_conditioning_at_atmosphere",
+            point=point,
+            decision="engineering_smoke_conditioning_required" if (has_ambient and has_800) else "smoke_pressure_refs_insufficient",
+            route_state={
+                "smoke_pressure_refs_include_ambient_open": has_ambient,
+                "smoke_pressure_refs_include_800hpa": has_800,
+                "reason": (
+                    "engineering_smoke_conditioning_required"
+                    if (has_ambient and has_800)
+                    else "smoke_pressure_refs_insufficient"
+                ),
+            },
+        )
+
+        return bool(has_ambient and has_800)
 
     def _co2_conditioning_soak_s(self, point: CalibrationPoint) -> float:
         if self._has_special_co2_zero_flush_pending() and self._is_zero_co2_point(point):
