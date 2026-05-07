@@ -7,6 +7,7 @@ from .dewpoint_alignment_service import DewpointAlignmentService
 from .humidity_generator_service import HumidityGeneratorService, HumidityWaitResult
 from .pressure_control_service import PressureControlService, PressureWaitResult, StartupPressurePrecheckResult
 from .qc_service import QCService
+from .route_pressure_block_service import PressureBlockResult, RoutePressureBlockService
 from .sampling_service import SamplingService
 from .status_service import StatusService
 from .temperature_control_service import TemperatureControlService, WaitResult
@@ -22,11 +23,13 @@ __all__ = [
     "DewpointAlignmentService",
     "HumidityGeneratorService",
     "HumidityWaitResult",
+    "PressureBlockResult",
     "PressureControlService",
     "PressureWaitResult",
-    "StartupPressurePrecheckResult",
     "QCService",
+    "RoutePressureBlockService",
     "SamplingService",
+    "StartupPressurePrecheckResult",
     "StatusService",
     "TemperatureControlService",
     "TimingMonitorService",
