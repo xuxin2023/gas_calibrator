@@ -5337,6 +5337,39 @@ class PressureControlService:
         if controller is None:
             return {}
         guard_payload: dict[str, Any] = {}
+        if vent_on:
+            sealed_no_vent = getattr(
+                getattr(self.host, "a2_hooks", None),
+                "co2_sealed_route_no_vent_active",
+                False,
+            )
+            if sealed_no_vent:
+                ctx = getattr(
+                    getattr(self.host, "a2_hooks", None),
+                    "co2_sealed_route_no_vent_context",
+                    {},
+                ) or {}
+                blocked_payload = {
+                    "vent_command_blocked": True,
+                    "vent_pulse_blocked_reason": "co2_sealed_route_no_vent_guard",
+                    "attempted_vent_on_after_route_close": True,
+                    "vent_on_command_sent_after_route_close": False,
+                    "blocked_by": "co2_sealed_route_no_vent_guard",
+                    "caller_reason": reason,
+                    "point_index": ctx.get("point_index"),
+                    "target_pressure_hpa": ctx.get("target_pressure_hpa"),
+                    "vent_classification": vent_classification,
+                    "blocked_at": datetime.now(timezone.utc).isoformat(),
+                }
+                self._record_route_trace(
+                    action="sealed_route_vent_on_blocked",
+                    route="co2",
+                    target={"vent_on": True},
+                    actual=blocked_payload,
+                    result="blocked",
+                    message="CO2 sealed route no-vent guard blocked VENT=ON",
+                )
+                return blocked_payload
         if vent_on and not emergency_abort_relief:
             inferred_context = self._a2_emergency_abort_relief_context_for_reason(reason)
             if inferred_context:

@@ -450,6 +450,9 @@ class Co2RouteRunner:
                 )
 
             self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 source complete")
+            self.service.a2_hooks.co2_sealed_route_no_vent_active = False
+            if isinstance(getattr(self.service.a2_hooks, "co2_sealed_route_no_vent_context", None), dict):
+                self.service.a2_hooks.co2_sealed_route_no_vent_context = {}
             return RouteRunResult(
                 success=bool(completed_point_indices) and not skipped_point_indices,
                 completed_points=completed_points,
@@ -601,6 +604,15 @@ class Co2RouteRunner:
         route_close_mono = time.monotonic()
         relay_state = self.service.valve_routing_service.apply_valve_states([])
 
+        self.service.a2_hooks.co2_sealed_route_no_vent_active = True
+        self.service.a2_hooks.co2_sealed_route_no_vent_context = {
+            "route": phase,
+            "point_index": sample_point.index,
+            "target_pressure_hpa": sample_point.target_pressure_hpa,
+            "reason": "CO2 ambient_open -> sealed pressure",
+            "activated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
         vent_off_to_route_close_s = round(max(0.0, route_close_mono - vent_off_mono), 3)
         limit_s = max(0.1, self._cfg_float("workflow.pressure.co2_vent_off_to_route_close_max_s", 1.5))
 
@@ -619,10 +631,14 @@ class Co2RouteRunner:
                 "positive_preseal_used": False,
                 "target_pressure_hpa": sample_point.target_pressure_hpa,
                 "relay_state": relay_state,
+                "sealed_no_vent_guard_active_before_set_pressure": True,
+                "vent_on_attempt_count_after_route_close": 0,
+                "vent_on_blocked_count_after_route_close": 0,
+                "vent_on_command_sent_after_route_close": False,
             },
             target={"pressure_hpa": sample_point.target_pressure_hpa, "vent_on": False},
             result="ok",
-            message="CO2 ambient_open to sealed pressure: minimal transition complete",
+            message="CO2 ambient_open to sealed pressure: minimal transition complete, no-vent guard armed",
         )
 
         return PressureWaitResult(

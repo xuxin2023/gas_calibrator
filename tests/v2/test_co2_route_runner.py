@@ -564,6 +564,10 @@ def test_co2_ambient_plus_800hpa_deferred_seal_uses_sample_point_not_source_poin
     assert actual["vent_reassert_between_vent_off_and_route_close"] is False
     assert actual["preseal_atmosphere_hold_used"] is False
     assert actual["positive_preseal_used"] is False
+    assert actual["sealed_no_vent_guard_active_before_set_pressure"] is True
+    assert actual["vent_on_attempt_count_after_route_close"] == 0
+    assert actual["vent_on_blocked_count_after_route_close"] == 0
+    assert actual["vent_on_command_sent_after_route_close"] is False
 
     assert len(set_pressure_to_target_calls) == 1, (
         "only the 800hPa point should call set_pressure_to_target"
@@ -741,3 +745,169 @@ def test_co2_ambient_to_sealed_transition_disables_conditioning_state() -> None:
     actual = transition_traces[0]["actual"]
     assert actual["preseal_atmosphere_hold_used"] is False
     assert actual["positive_preseal_used"] is False
+
+
+def test_co2_sealed_route_no_vent_guard_blocks_vent_on_after_route_close() -> None:
+    calls: list[str] = []
+    tracers: list[dict[str, object]] = []
+    vent_call_log: list[dict] = []
+    route_close_happened: bool = False
+    guard_active: bool = False
+    ambient_setup_vent_on_seen: bool = False
+
+    class MockPressureControlService:
+        def set_pressure_controller_vent(self, on, reason="", **kw):
+            nonlocal route_close_happened, guard_active, ambient_setup_vent_on_seen
+            phase = "after_route_close" if route_close_happened else "before_route_close"
+            entry = {
+                "vent_on": on,
+                "reason": reason,
+                "phase": phase,
+                "guard_active": guard_active,
+                "command_sent": False,
+            }
+            if on:
+                if guard_active:
+                    entry["command_sent"] = False
+                    entry["blocked"] = True
+                    vent_call_log.append(entry)
+                    tracers.append({
+                        "action": "sealed_route_vent_on_blocked",
+                        "target": {"vent_on": True},
+                        "actual": {
+                            "vent_command_blocked": True,
+                            "blocked_by": "co2_sealed_route_no_vent_guard",
+                            "attempted_vent_on_after_route_close": True,
+                            "vent_on_command_sent_after_route_close": False,
+                            "caller_reason": reason,
+                            "phase": phase,
+                        },
+                        "result": "blocked",
+                    })
+                    return {
+                        "vent_command_blocked": True,
+                        "blocked_by": "co2_sealed_route_no_vent_guard",
+                        "attempted_vent_on_after_route_close": True,
+                        "vent_on_command_sent_after_route_close": False,
+                    }
+                entry["command_sent"] = True
+                if not route_close_happened:
+                    ambient_setup_vent_on_seen = True
+            vent_call_log.append(entry)
+            return {}
+
+        def set_pressure_to_target(self, point):
+            nonlocal guard_active
+            calls.append(f"set_pressure_to_target:{point.index}")
+            self.set_pressure_controller_vent(
+                True, reason="redundant vent open during setpoint control"
+            )
+            return SimpleNamespace(ok=True)
+
+        def wait_after_pressure_stable_before_sampling(self, point):
+            return SimpleNamespace(ok=True)
+
+    a2_hooks = _make_a2_hooks()
+
+    def recording_apply_valve_states(open_valves):
+        nonlocal route_close_happened, guard_active
+        route_close_happened = True
+        guard_active = True
+        return {"relay_a": {}, "relay_b": {}}
+
+    service = SimpleNamespace(
+        event_bus=EventBus(),
+        route_context=RecordingRouteContext(),
+        a2_hooks=a2_hooks,
+        route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
+        status_service=_TraceStatusService(calls, tracers),
+        temperature_control_service=SimpleNamespace(
+            set_temperature_for_point=lambda point, phase="": SimpleNamespace(ok=True),
+            capture_temperature_calibration_snapshot=lambda point, route_type="": None,
+        ),
+        valve_routing_service=SimpleNamespace(
+            set_co2_route_baseline=lambda reason="": None,
+            set_valves_for_co2=lambda point: None,
+            cleanup_co2_route=lambda reason="": calls.append(f"cleanup:{reason}"),
+            apply_valve_states=recording_apply_valve_states,
+        ),
+        pressure_control_service=MockPressureControlService(),
+        sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (4, 15),
+            sample_point=lambda point, phase="", point_tag="": [
+                SimpleNamespace(point=point, point_tag=point_tag)
+            ],
+        ),
+        qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": None),
+        _wait_co2_route_soak_before_seal=lambda point: True,
+        _record_workflow_timing=lambda *a, **kw: None,
+        _cfg_get=lambda path, default=None: (
+            0.0 if path == "workflow.pressure.co2_ambient_to_sealed_vent_off_settle_s" else default
+        ),
+    )
+
+    source = CalibrationPoint(
+        index=130, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None,
+        pressure_mode="ambient_open", route="co2", co2_group="A",
+    )
+    ambient = CalibrationPoint(
+        index=131, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None,
+        pressure_mode="ambient_open", route="co2", co2_group="A",
+    )
+    hpa800 = CalibrationPoint(
+        index=132, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=800.0,
+        pressure_mode="sealed_controlled", route="co2", co2_group="A",
+    )
+
+    result = Co2RouteRunner(service, source, [ambient, hpa800]).execute()
+
+    assert result.success is True
+
+    assert ambient_setup_vent_on_seen is True, (
+        "ambient_open setup must include VENT=ON"
+    )
+
+    before_close_vent_on = [
+        e for e in vent_call_log
+        if e["vent_on"] is True and e["phase"] == "before_route_close"
+    ]
+    assert len(before_close_vent_on) == 1, (
+        "exactly 1 VENT=ON before route close: ambient_open setup"
+    )
+    assert before_close_vent_on[0]["command_sent"] is True
+
+    after_close_vent_on = [
+        e for e in vent_call_log
+        if e["vent_on"] is True and e["phase"] == "after_route_close"
+    ]
+    assert len(after_close_vent_on) >= 1, (
+        "set_pressure_to_target must attempt VENT=ON after route close"
+    )
+    assert all(e["blocked"] is True for e in after_close_vent_on), (
+        "all VENT=ON attempts after route close must be blocked"
+    )
+    assert all(e["command_sent"] is False for e in after_close_vent_on), (
+        "no VENT=ON command must be sent after route close"
+    )
+
+    blocked_traces = [
+        t for t in tracers
+        if t.get("action") == "sealed_route_vent_on_blocked"
+    ]
+    assert len(blocked_traces) >= 1, (
+        "at least 1 sealed_route_vent_on_blocked trace must be recorded"
+    )
+    assert blocked_traces[0]["result"] == "blocked"
+
+    assert "cleanup:after CO2 source complete" in calls
+    assert a2_hooks.co2_sealed_route_no_vent_active is False, (
+        "guard must be disarmed after cleanup_co2_route"
+    )
+
+    transition_traces = [
+        t for t in tracers
+        if t.get("action") == "co2_ambient_to_sealed_transition"
+    ]
+    assert len(transition_traces) == 1
+    actual = transition_traces[0]["actual"]
+    assert actual["sealed_no_vent_guard_active_before_set_pressure"] is True
