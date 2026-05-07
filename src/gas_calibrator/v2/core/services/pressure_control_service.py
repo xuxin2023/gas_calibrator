@@ -6403,6 +6403,8 @@ class PressureControlService:
         vent_off_command_sent_at: Optional[str] = None
         vent_off_monotonic_s: Optional[float] = None
         pressure_read_between_vent_off_and_route_close = False
+        positive_preseal_skipped = False
+        positive_preseal_skip_reason = ""
         timing_recorder = getattr(self.host, "_record_workflow_timing", None)
         if callable(timing_recorder):
             timing_recorder(
@@ -6478,6 +6480,24 @@ class PressureControlService:
                     route=route_text,
                     measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
                 )
+                if positive_preseal:
+                    _tgt = self.host._as_float(point.target_pressure_hpa)
+                    _amb = measured_atmospheric_pressure_hpa
+                    _margin = float(
+                        self.host._cfg_get(
+                            "workflow.pressure.co2_preseal_sub_atmospheric_margin_hpa", 50.0
+                        )
+                    )
+                    _sub_skip = False
+                    if _tgt is not None:
+                        if _amb is not None and float(_tgt) + abs(_margin) < float(_amb):
+                            _sub_skip = True
+                        elif _amb is None and float(_tgt) < 1000.0:
+                            _sub_skip = True
+                    if _sub_skip:
+                        positive_preseal = False
+                        positive_preseal_skipped = True
+                        positive_preseal_skip_reason = "target_below_atmosphere_direct_pressure_control"
             if positive_preseal:
                 positive_result = self._positive_preseal_pressurization(
                     controller,
@@ -6552,7 +6572,10 @@ class PressureControlService:
                 controller = refreshed_controller
                 preseal_controller_refreshed_after_vent_off = True
         if not positive_preseal:
-            if wait_after_vent_off_s > 0:
+            if positive_preseal_skipped:
+                preseal_trigger_source = "positive_preseal_skipped_direct_pressure_control"
+                pressure_read_between_vent_off_and_route_close = False
+            elif wait_after_vent_off_s > 0:
                 start = time.time()
                 sample_interval_s = min(0.5, wait_after_vent_off_s)
                 pressure_read_between_vent_off_and_route_close = True
@@ -6795,6 +6818,8 @@ class PressureControlService:
                     "positive_preseal_peak_after_vent_off_s": None,
                     "pressure_read_between_vent_off_and_route_close": bool(pressure_read_between_vent_off_and_route_close),
                     "pressure_read_blocked_route_close": False,
+                    "positive_preseal_skipped": bool(positive_preseal_skipped),
+                    "positive_preseal_skip_reason": positive_preseal_skip_reason,
                 }
                 self._record_route_trace(
                     action="co2_seal_transition_evidence",

@@ -381,6 +381,15 @@ class ConditioningService:
         )
         return max(0.1, float(1.5 if value is None else value))
 
+    def _a2_co2_preseal_sub_atmospheric_margin_hpa(self) -> float:
+        value = self.host._as_float(
+            self.host._cfg_get(
+                "workflow.pressure.co2_preseal_sub_atmospheric_margin_hpa",
+                50.0,
+            )
+        )
+        return max(0.0, float(50.0 if value is None else value))
+
     def _begin_a2_co2_route_conditioning_at_atmosphere(
         self,
         point: "CalibrationPoint",
