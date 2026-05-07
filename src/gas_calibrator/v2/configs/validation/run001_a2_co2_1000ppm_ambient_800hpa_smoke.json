@@ -1,8 +1,8 @@
 {
   "run001_a2": {
     "run_id": "Run-001/A2",
-    "scenario": "Run-001/A2 CO2-only seven-pressure no-write real-machine validation",
-    "scope": "run001_a2_co2_no_write_pressure_sweep",
+    "scenario": "Run-001/A2 CO2-only ambient+800hPa no-write engineering smoke",
+    "scope": "run001_a2_co2_no_write_pressure_profile",
     "guard_scope": "run001_a2",
     "mode": "real_machine_dry_run",
     "no_write": true,

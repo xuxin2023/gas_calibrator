@@ -19,6 +19,17 @@ from .run001_a1_dry_run import (
     load_point_rows,
     write_run001_a1_artifacts,
 )
+from .run001_a2_pressure_profile_gate import (
+    completed_profile_from_trace,
+    normalize_pressure_profile,
+    normalize_pressure_profile_numeric_only,
+    planned_pressure_profile,
+    planned_pressure_point_count,
+    resolve_acceptance_mode,
+    scope_for_mode,
+    validate_completed_profile,
+    validate_configured_profile,
+)
 from .services.timing_monitor_service import (
     TIMING_EVENT_FIELDS,
     WORKFLOW_TIMING_SUMMARY_FILENAME,
@@ -511,7 +522,10 @@ def is_run001_a2_no_write_pressure_sweep(raw_cfg: Optional[Mapping[str, Any]]) -
         return False
     mode = str(policy.get("mode", raw_cfg.get("mode", "")) or "").strip().lower()
     scope = str(policy.get("scope", "") or "").strip().lower()
-    return mode == "real_machine_dry_run" and scope == "run001_a2_co2_no_write_pressure_sweep"
+    return mode == "real_machine_dry_run" and scope in {
+        "run001_a2_co2_no_write_pressure_sweep",
+        "run001_a2_co2_no_write_pressure_profile",
+    }
 
 
 def _a1_compatible_raw_cfg(raw_cfg: Mapping[str, Any]) -> dict[str, Any]:
@@ -866,7 +880,10 @@ def evaluate_run001_a2_readiness(
 
     if not policy:
         reasons.append("run001_a2_policy_missing")
-    if str(policy.get("scope") or "").strip() != "run001_a2_co2_no_write_pressure_sweep":
+    a2_scope = str(policy.get("scope") or "").strip()
+    acceptance_mode = resolve_acceptance_mode(raw_cfg)
+    expected_scope = scope_for_mode(acceptance_mode)
+    if a2_scope != expected_scope:
         reasons.append("run001_a2_scope_mismatch")
     if not _as_bool(policy.get("no_write")):
         reasons.append("a2_no_write_not_true")
@@ -882,12 +899,9 @@ def evaluate_run001_a2_readiness(
         if isinstance(device, Mapping) and _as_bool(device.get("enabled")):
             reasons.append(f"a2_{key}_enabled")
 
-    configured_pressures = _as_float_list(policy.get("authorized_pressure_points_hpa"))
-    if not _same_pressure_list(configured_pressures, A2_AUTHORIZED_PRESSURE_POINTS_HPA):
-        reasons.append("a2_authorized_pressure_points_mismatch")
-    point_pressures = _pressure_points_from_rows(rows)
-    if not _same_pressure_list(point_pressures, A2_AUTHORIZED_PRESSURE_POINTS_HPA):
-        reasons.append("a2_point_pressure_list_mismatch")
+    profile_ok, profile_reasons = validate_configured_profile(raw_cfg)
+    if not profile_ok:
+        reasons.extend(profile_reasons)
     point_routes = {str(row.get("route", "") or "").strip().lower() for row in rows}
     if point_routes != {"co2"}:
         reasons.append("a2_points_not_co2_only")
@@ -899,7 +913,7 @@ def evaluate_run001_a2_readiness(
         "final_decision": RUN001_PASS if not deduped else RUN001_FAIL,
         "hard_stop_reasons": deduped,
         "a2_authorized_pressure_points_hpa": list(A2_AUTHORIZED_PRESSURE_POINTS_HPA),
-        "a2_point_pressure_points_hpa": point_pressures,
+        "a2_point_pressure_points_hpa": _pressure_points_from_rows(rows),
         "a2_scope": "co2_single_route_full_pressure_no_write",
     }
 
@@ -5039,24 +5053,31 @@ def build_run001_a2_evidence_payload(
         require_runtime_artifacts=require_runtime_artifacts,
     )
     runtime_expected = bool(require_runtime_artifacts or service_summary or service_status)
-    completed_pressures = _completed_pressure_points_from_trace(run_dir)
+    completed_profile = completed_profile_from_trace(run_dir)
+    completed_pressures = [float(c) for c in completed_profile if isinstance(c, (int, float))] if completed_profile else []
     reasons = list(readiness.get("hard_stop_reasons") or [])
     a1_reasons = list(payload.get("a1_decision_reasons") or [])
     if runtime_expected:
         if payload.get("a1_final_decision") != RUN001_PASS:
             reasons.extend(a1_reasons or ["runtime_execution_failed"])
-        if not _same_pressure_list(completed_pressures, A2_AUTHORIZED_PRESSURE_POINTS_HPA):
-            reasons.append("planned_pressure_points_not_completed")
-        if int(payload.get("points_completed", 0) or 0) != len(A2_AUTHORIZED_PRESSURE_POINTS_HPA):
-            reasons.append("points_completed_not_7")
+        acceptance_mode = resolve_acceptance_mode(raw_cfg)
+        planned = planned_pressure_profile(raw_cfg)
+        profile_ok, profile_reasons = validate_completed_profile(
+            planned, completed_profile, acceptance_mode
+        )
+        if not profile_ok:
+            reasons.extend(profile_reasons)
     deduped = list(dict.fromkeys(reasons))
     a2_decision = RUN001_NOT_EXECUTED if not runtime_expected else (RUN001_PASS if not deduped else RUN001_FAIL)
+    planned_profile = planned_pressure_profile(raw_cfg)
+    acceptance_mode = resolve_acceptance_mode(raw_cfg)
     payload.update(
         {
             "schema_version": "run001_a2.no_write_pressure_sweep.1",
             "artifact_type": "run001_a2_no_write_pressure_sweep_evidence",
-            "a2_scope": "co2_single_route_full_pressure_no_write",
-            "a2_authorized_pressure_points_hpa": list(A2_AUTHORIZED_PRESSURE_POINTS_HPA),
+            "a2_scope": scope_for_mode(acceptance_mode),
+            "a2_acceptance_mode": acceptance_mode,
+            "a2_authorized_pressure_points_hpa": list(planned_profile),
             "a2_point_pressure_points_hpa": _pressure_points_from_rows(rows),
             "continuous_atmosphere_hold": _as_bool(pressure_cfg.get("continuous_atmosphere_hold")),
             "vent_hold_interval_s": _as_float(pressure_cfg.get("vent_hold_interval_s")),
@@ -5124,7 +5145,7 @@ def build_run001_a2_evidence_payload(
             "high_pressure_first_point_first_target_pressure_hpa": _first_pressure_hpa(rows),
             **preseal_timing_thresholds,
             "planned_pressure_points_completed": completed_pressures,
-            "planned_pressure_point_count": len(A2_AUTHORIZED_PRESSURE_POINTS_HPA),
+            "planned_pressure_point_count": planned_pressure_point_count(planned_profile),
             "a2_final_decision": a2_decision,
             "a2_execution_result": "completed" if a2_decision == RUN001_PASS else ("preflight_only" if not runtime_expected else "failed"),
             "a2_fail_reason": "" if a2_decision in {RUN001_PASS, RUN001_NOT_EXECUTED} else "; ".join(deduped),

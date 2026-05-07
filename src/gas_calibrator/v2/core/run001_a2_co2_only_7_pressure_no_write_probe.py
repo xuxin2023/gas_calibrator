@@ -17,6 +17,15 @@ from gas_calibrator.v2.core.run001_r1_conditioning_only_probe import (
     _json_dump,
     load_json_mapping,
 )
+from gas_calibrator.v2.core.run001_a2_pressure_profile_gate import (
+    normalize_pressure_profile,
+    operator_required_true_acks,
+    planned_pressure_profile,
+    planned_pressure_point_count,
+    resolve_acceptance_mode,
+    scope_for_mode,
+    validate_operator_confirmation_profile,
+)
 from gas_calibrator.v2.core.services.trace_size_guard import (
     load_guarded_jsonl,
     summarize_trace_guard_rows,
@@ -480,15 +489,27 @@ def _float_list(value: Any) -> list[float]:
     return out
 
 
-def _same_pressure_points(value: Any) -> bool:
-    points = _float_list(value)
-    if not points:
-        return False
-    if len(points) == 1 and abs(float(points[0]) - 1100.0) <= 1e-6:
-        return True
-    if len(points) != len(A2_ALLOWED_PRESSURE_POINTS_HPA):
-        return False
-    return all(abs(float(a) - float(b)) <= 1e-6 for a, b in zip(points, A2_ALLOWED_PRESSURE_POINTS_HPA))
+def _same_pressure_points(value: Any, raw_cfg: Any = None) -> bool:
+    if raw_cfg is None:
+        points = _float_list(value)
+        if not points:
+            return False
+        if len(points) == 1 and abs(float(points[0]) - 1100.0) <= 1e-6:
+            return True
+        if len(points) != len(A2_ALLOWED_PRESSURE_POINTS_HPA):
+            return False
+        return all(abs(float(a) - float(b)) <= 1e-6 for a, b in zip(points, A2_ALLOWED_PRESSURE_POINTS_HPA))
+    mode = resolve_acceptance_mode(raw_cfg)
+    if mode == "seven_pressure_formal":
+        points = _float_list(value)
+        if not points:
+            return False
+        if len(points) != len(A2_ALLOWED_PRESSURE_POINTS_HPA):
+            return False
+        return all(abs(float(a) - float(b)) <= 1e-6 for a, b in zip(points, A2_ALLOWED_PRESSURE_POINTS_HPA))
+    profile = normalize_pressure_profile(value)
+    planned = planned_pressure_profile(raw_cfg)
+    return {str(p) for p in profile} == {str(p) for p in planned}
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -1358,6 +1379,8 @@ def _validate_operator_confirmation(
     expected_head: str = "",
     expected_config_path: str = "",
     expected_a1r_output_dir: str = "",
+    acceptance_mode: str = "seven_pressure_formal",
+    planned_profile: Any = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     errors: list[str] = []
     if not path:
@@ -1373,7 +1396,13 @@ def _validate_operator_confirmation(
     for field in A2_REQUIRED_OPERATOR_FIELDS:
         if payload.get(field) in (None, ""):
             errors.append(f"operator_confirmation_missing_{field}")
-    if not _same_pressure_points(payload.get("pressure_points_hpa")):
+    if planned_profile is not None:
+        op_ok, op_reasons = validate_operator_confirmation_profile(
+            planned_profile, payload.get("pressure_points_hpa"), acceptance_mode
+        )
+        if not op_ok:
+            errors.extend(op_reasons)
+    elif not _same_pressure_points(payload.get("pressure_points_hpa")):
         errors.append("operator_confirmation_pressure_points_mismatch")
     if str(payload.get("pressure_source") or "").strip().lower() != "v1_aligned":
         errors.append("operator_confirmation_pressure_source_not_v1_aligned")
@@ -1382,7 +1411,12 @@ def _validate_operator_confirmation(
     if not isinstance(ack, Mapping):
         errors.append("operator_confirmation_missing_explicit_acknowledgement")
         ack = {}
-    for key in A2_REQUIRED_TRUE_ACKS:
+    required_true = (
+        operator_required_true_acks(acceptance_mode)
+        if acceptance_mode == "engineering_smoke"
+        else A2_REQUIRED_TRUE_ACKS
+    )
+    for key in required_true:
         if _as_bool(ack.get(key)) is not True:
             errors.append(f"operator_ack_missing_{key}")
     for key in A2_REQUIRED_FALSE_ACKS:
@@ -1445,12 +1479,16 @@ def evaluate_a2_co2_7_pressure_no_write_gate(
     if not a1r_pass:
         reasons.append("a1r_minimal_sampling_prereq_missing_or_not_pass")
 
+    acceptance_mode = resolve_acceptance_mode(raw_cfg)
+    planned = planned_pressure_profile(raw_cfg)
     operator_payload, operator_validation = _validate_operator_confirmation(
         operator_confirmation_path,
         expected_branch=branch,
         expected_head=head,
         expected_config_path=config_path,
         expected_a1r_output_dir=a1r_dir,
+        acceptance_mode=acceptance_mode,
+        planned_profile=planned,
     )
     reasons.extend(str(item) for item in operator_validation.get("errors", []))
 
@@ -1458,8 +1496,13 @@ def evaluate_a2_co2_7_pressure_no_write_gate(
         reasons.append("current_branch_not_run001_a1_no_write_dry_run")
     if not str(head or "").strip():
         reasons.append("current_head_missing")
-    if _scope(raw_cfg) not in {"a2_co2_7_pressure_no_write", "run001_a2_co2_no_write_pressure_sweep"}:
-        reasons.append("config_scope_not_a2_co2_7_pressure_no_write")
+    a2_scope = _scope(raw_cfg)
+    if a2_scope not in {
+        "a2_co2_7_pressure_no_write",
+        "run001_a2_co2_no_write_pressure_sweep",
+        "run001_a2_co2_no_write_pressure_profile",
+    }:
+        reasons.append("config_scope_not_a2_co2_pressure_profile_no_write")
     if not _truthy(raw_cfg, ("co2_only", "a2_co2_7_pressure_no_write_probe.co2_only", "run001_a2.co2_only")):
         reasons.append("config_not_co2_only")
     if not _skip0_only(raw_cfg):
@@ -1470,7 +1513,7 @@ def evaluate_a2_co2_7_pressure_no_write_gate(
         reasons.append("config_not_single_temperature")
     if not _truthy(raw_cfg, ("no_write", "a2_co2_7_pressure_no_write_probe.no_write", "run001_a2.no_write")):
         reasons.append("config_no_write_not_true")
-    if not _same_pressure_points(_pressure_points(raw_cfg)):
+    if not _same_pressure_points(_pressure_points(raw_cfg), raw_cfg=raw_cfg):
         reasons.append("config_pressure_points_not_exact_a2_set")
     if not _truthy(raw_cfg, ("v1_fallback_required", "a2_co2_7_pressure_no_write_probe.v1_fallback_required")):
         reasons.append("config_v1_fallback_required_not_true")
@@ -2592,22 +2635,22 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         for point in point_results
     }
     sample_min_count = _sample_min_count(raw_cfg)
-    # A2.39: when running as an engineering probe, sample counts derived
-    # from route_trace (sample_end events) are capped at 1 per point.
-    # Lower the threshold to 1 so completed points are not rejected.
     _is_eng_probe = _as_bool(admission.operator_confirmation.get("not_real_acceptance_evidence")) is True
     if _is_eng_probe and sample_min_count > 1:
         sample_min_count = 1
     pressure_points_completed = sum(1 for point in point_results if _as_bool(point.get("point_completed")) is True)
     sample_count_total = sum(int(point.get("sample_count") or 0) for point in point_results)
-    all_completed = pressure_points_completed == len(A2_ALLOWED_PRESSURE_POINTS_HPA)
+    planned_profile = planned_pressure_profile(raw_cfg)
+    expected_completion_count = len(planned_profile)
+    all_completed = pressure_points_completed >= expected_completion_count if _is_eng_probe else (
+        pressure_points_completed == expected_completion_count
+    )
     all_have_fresh = all(_as_bool(point.get("pressure_gauge_freshness_ok_before_sample")) is True for point in point_results)
     # A2.39: engineering probes may not have P3 pressure age data;
     # completed points are accepted without freshness gating.
     if not all_have_fresh and _is_eng_probe and all_completed:
         all_have_fresh = True
     all_have_samples = all(int(point.get("sample_count") or 0) >= sample_min_count for point in point_results)
-    all_completed = pressure_points_completed == len(A2_ALLOWED_PRESSURE_POINTS_HPA)
     all_ready = all(str(point.get("pressure_ready_gate_result") or "").upper() == "PASS" for point in point_results)
     all_heartbeat = all(_as_bool(point.get("heartbeat_ready_before_sample")) is True for point in point_results)
     all_route = all(_as_bool(point.get("route_conditioning_ready_before_sample")) is True for point in point_results)
@@ -4456,8 +4499,8 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "skip0": True,
         "single_route": True,
         "single_temperature": True,
-        "pressure_points_hpa": list(A2_ALLOWED_PRESSURE_POINTS_HPA),
-        "pressure_points_expected": len(A2_ALLOWED_PRESSURE_POINTS_HPA),
+        "pressure_points_hpa": [str(p) for p in planned_profile],
+        "pressure_points_expected": len(planned_profile),
         "pressure_points_completed": int(pressure_points_completed),
         "completed_pressure_points_hpa": [
             float(point["target_pressure_hpa"])
