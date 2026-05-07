@@ -292,10 +292,12 @@ class Co2RouteRunner:
                         pace = self.service._device("pressure_controller")
                         if pace is not None:
                             pace.send_command(":SOUR:PRES:LEV:IMM:AMPL:VENT 1")
-                            time.sleep(0.5)
-                            self.service.status_service.log("CO2 ambient point: direct hardware VENT:ON sent, bypassed vent guard")
                     except Exception as _exc:
-                        self.service.status_service.log(f"CO2 ambient point: direct VENT:ON failed: {_exc}")
+                        pass
+                    self.service.status_service.log(
+                        "CO2 ambient point: forcing 300s atmosphere flush with hardware VENT:ON"
+                    )
+                    time.sleep(300)
                 else:
                     if seal_deferred:
                         if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
