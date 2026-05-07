@@ -187,6 +187,10 @@ class Co2RouteRunner:
                     pressure_hpa=route_open_pressure,
                     route_state=route_open_state,
                 )
+            self.service.status_service.log(
+                f"CO2 {point.co2_ppm:.0f} ppm route: 300s gas flush with VENT open"
+            )
+            time.sleep(300)
             route_soak_ok = self._wait_route_soak_before_seal(point)
             route_soak_actual = dict(getattr(self.service, "_last_co2_route_dewpoint_gate_summary", {}) or {})
             end_conditioning = getattr(self.service, "_end_a2_co2_route_conditioning_at_atmosphere", None)
@@ -288,16 +292,6 @@ class Co2RouteRunner:
                         message="CO2 ambient pressure point: vent stays open, set_pressure bypassed, P3 ambient read used",
                     )
                     self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
-                    try:
-                        pace = self.service._device("pressure_controller")
-                        if pace is not None:
-                            pace.send_command(":SOUR:PRES:LEV:IMM:AMPL:VENT 1")
-                    except Exception as _exc:
-                        pass
-                    self.service.status_service.log(
-                        "CO2 ambient point: forcing 300s atmosphere flush with hardware VENT:ON"
-                    )
-                    time.sleep(300)
                 else:
                     if seal_deferred:
                         if not self.service.pressure_control_service.pressurize_and_hold(point, route=phase).ok:
