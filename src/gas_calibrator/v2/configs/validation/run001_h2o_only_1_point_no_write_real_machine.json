@@ -9,6 +9,7 @@
     "single_temperature_group": true,
     "allow_real_route": true,
     "allow_real_pressure": true,
+    "pressure_points_hpa": [1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0],
     "allow_real_wait": true,
     "allow_real_sample": true,
     "allow_artifact": true,
@@ -22,6 +23,10 @@
     "h2o_single_route_readiness": "probe",
     "full_single_temperature_h2o_co2_group_readiness": "yellow",
     "not_real_acceptance_evidence": true,
+    "allowed_branches": [
+      "codex/run001-a1-no-write-dry-run",
+      "codex/v2-golden-recovery-cdb82111"
+    ],
     "enabled_analyzer_list_source": "analyzer_id_truth_audit_20260425_122251_after_mode2_preparation",
     "mode2_truth_audit_path": "../../output/run001_a1/co2_only_skip0_no_write/analyzer_id_truth_audit_20260425_122251/analyzer_id_truth_audit.json",
     "duplicate_device_id_detected": false,
@@ -249,12 +254,12 @@
     },
     "precheck": {
       "enabled": true,
-      "pressure_leak_test": true,
+      "pressure_leak_test": false,
       "sensor_check": false,
       "device_connection": true
     },
     "pressure": {
-      "pressurize_high_hpa": 1100,
+      "pressurize_high_hpa": 1100.0,
       "pressurize_wait_after_vent_off_s": 3,
       "pressurize_timeout_s": 120,
       "post_stable_sample_delay_s": 0,
@@ -295,17 +300,17 @@
       "humidity_generator": {
         "enabled": true,
         "temp_tol_c": 1.0,
-        "rh_tol_pct": 4.5,
+        "rh_tol_pct": 1.6,
         "rh_stable_window_s": 60,
-        "rh_stable_span_pct": 0.3,
+        "rh_stable_span_pct": 0.6,
         "reach_confirm_count": 3,
         "window_s": 60,
-        "timeout_s": 600,
+        "timeout_s": 1800,
         "poll_s": 1.0
       },
       "h2o_route": {
         "preseal_soak_s": 30,
-        "humidity_timeout_policy": "warn"
+        "humidity_timeout_policy": "continue_after_timeout"
       },
       "co2_route": {
         "preseal_soak_s": 180,
@@ -326,19 +331,21 @@
       },
       "dewpoint": {
         "target_tol_c": 0.2,
-        "temp_match_tol_c": 0.55,
+        "temp_match_tol_c": 0.3,
         "rh_match_tol_pct": 4.0,
-        "window_s": 40,
-        "stability_tol_c": 0.06,
-        "timeout_s": 600,
+        "window_s": 60,
+        "stability_tol_c": 0.05,
+        "timeout_s": 1800,
         "poll_s": 1.0
       }
     },
     "water_first_all_temps": false,
-    "water_first_temp_gte": 100
+    "water_first_temp_gte": 100,
+    "h2o_fast_test_mode": false,
+    "h2o_force_conditioning": true
   },
   "paths": {
-    "points_excel": "run001_h2o_only_1_point_no_write_points.json",
+    "points_excel": "../../../../../configs/points_real_smoke_h2o_fasttrace.xlsx",
     "output_dir": "../../output/run001_h2o/1_point_no_write"
   },
   "coefficients": {
