@@ -237,11 +237,38 @@ class DewpointAlignmentService:
         )
 
     def open_h2o_route_and_wait_ready(self, point: CalibrationPoint) -> bool:
-        self.host._set_pressure_controller_vent(True, reason="during H2O route pre-seal preparation")
-        self.host._set_h2o_path(True, point)
+        self._set_pressure_controller_vent(True, reason="during H2O route pre-seal preparation")
+        if not self._set_h2o_path(True, point):
+            return False
         if not self.ensure_dewpoint_meter_ready():
             return False
         return self.wait_h2o_route_soak_before_seal(point)
+
+    def _set_pressure_controller_vent(self, on: bool, *, reason: str) -> None:
+        legacy = getattr(self.host, "_set_pressure_controller_vent", None)
+        if callable(legacy):
+            legacy(on, reason=reason)
+            return
+        pcs = getattr(self.host, "pressure_control_service", None)
+        if pcs is not None:
+            setter = getattr(pcs, "set_pressure_controller_vent", None)
+            if callable(setter):
+                setter(on, reason=reason)
+                return
+        self.host._log("DewpointAlignmentService: cannot set pressure controller vent (no adapter)")
+
+    def _set_h2o_path(self, is_open: bool, point: CalibrationPoint) -> bool:
+        legacy = getattr(self.host, "_set_h2o_path", None)
+        if callable(legacy):
+            return bool(legacy(is_open, point))
+        vrs = getattr(self.host, "valve_routing_service", None)
+        if vrs is not None:
+            setter = getattr(vrs, "set_h2o_path", None)
+            if callable(setter):
+                setter(is_open, point)
+                return True
+        self.host._log("DewpointAlignmentService: cannot set H2O path (no adapter)")
+        return False
 
     def _set_preseal_dewpoint_snapshot(self, value: Optional[dict[str, Any]]) -> None:
         self.run_state.humidity.preseal_dewpoint_snapshot = value
