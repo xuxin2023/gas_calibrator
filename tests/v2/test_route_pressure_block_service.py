@@ -83,6 +83,8 @@ def _make_service(overrides=None):
             set_pressure_to_target=lambda point: calls.append(f"set_pressure_to_target:{point.index}") or SimpleNamespace(ok=True),
             wait_after_pressure_stable_before_sampling=lambda point: calls.append(f"wait_after_stable:{point.index}") or SimpleNamespace(ok=True),
             set_pressure_controller_vent=lambda on, reason="", **kw: calls.append(f"vent:{on}:{reason}"),
+            _current_pressure=lambda: overrides.get("_current_pressure_hpa", 1013.25),
+            _coerce_float=lambda v: float(v) if v is not None else None,
         ),
         sampling_service=SimpleNamespace(
             sampling_params=lambda phase="": (4, 15),
@@ -404,3 +406,172 @@ def test_pressurize_and_hold_failure_returns_all_skipped() -> None:
     assert result.completed_point_indices == []
     assert result.skipped_point_indices == [11]
     assert "pressurize_and_hold_fail" in calls
+
+
+# ── A: ambient heartbeat ──
+
+def test_ambient_block_vent_tick_count_gt_one():
+    service, calls, payloads, context = _make_service({"_current_pressure_hpa": 1013.25})
+    blocks = RoutePressureBlockService(service)
+
+    source = CalibrationPoint(index=10, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None, route="co2")
+    ambient = CalibrationPoint(index=11, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None,
+                               pressure_mode="ambient_open", route="co2")
+
+    result = blocks.run_co2_ambient_block(source, [ambient])
+
+    assert result.skipped_point_indices == []
+    vent_calls = [c for c in calls if c.startswith("vent:True:")]
+    assert len(vent_calls) >= 2, f"vent tick count should be > 1, got {len(vent_calls)}"
+
+    gate_traces = [p for p in payloads if p.get("action") == "ambient_atmosphere_gate"]
+    assert len(gate_traces) >= 1
+    assert gate_traces[0]["result"] == "PASS"
+    actual = gate_traces[0]["actual"]
+    assert actual["vent_tick_count"] >= 1
+    assert actual["near_atmosphere"] is True
+
+
+# ── B: ambient sampling heartbeat ──
+
+def test_ambient_sampling_continues_vent_heartbeat():
+    service, calls, payloads, context = _make_service({"_current_pressure_hpa": 1013.25})
+    blocks = RoutePressureBlockService(service)
+
+    source = CalibrationPoint(index=10, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None, route="co2")
+    ambient = CalibrationPoint(index=11, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None,
+                               pressure_mode="ambient_open", route="co2")
+
+    result = blocks.run_co2_ambient_block(source, [ambient])
+    assert result.skipped_point_indices == []
+
+    sample_start_idx = next((i for i, c in enumerate(calls) if c.startswith("trace:sample_start")), -1)
+    sample_end_idx = next((i for i, c in enumerate(calls) if c.startswith("trace:sample_end")), -1)
+    assert sample_start_idx >= 0
+    assert sample_end_idx > sample_start_idx
+
+    sample_vent_calls = [
+        c for c in calls[sample_start_idx:sample_end_idx]
+        if c.startswith("vent:True:CO2 ambient sampling")
+    ]
+    assert len(sample_vent_calls) >= 1, "vent must be called during sampling phase"
+
+
+# ── C: ambient pressure gate fail ──
+
+def test_ambient_pressure_gate_fails_above_atmosphere():
+    service, calls, payloads, context = _make_service({
+        "_current_pressure_hpa": 1418.0,
+        "workflow.pressure.ambient_atmosphere_wait_s": 0.1,
+        "workflow.pressure.atmosphere_vent_heartbeat_interval_s": 0.05,
+    })
+    blocks = RoutePressureBlockService(service)
+
+    source = CalibrationPoint(index=10, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None, route="co2")
+    ambient = CalibrationPoint(index=11, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None,
+                               pressure_mode="ambient_open", route="co2")
+
+    result = blocks.run_co2_ambient_block(source, [ambient])
+
+    assert result.completed_point_indices == []
+    assert result.skipped_point_indices == [10]
+
+    gate_traces = [p for p in payloads if p.get("action") == "ambient_atmosphere_gate"]
+    assert len(gate_traces) >= 1
+    assert gate_traces[0]["result"] == "FAIL"
+
+    sample_calls = [c for c in calls if c.startswith("sample:")]
+    assert len(sample_calls) == 0, "must not call sample_point when atmosphere gate fails"
+
+
+# ── D: transition order ──
+
+def test_transition_order_vent_off_wait_close_then_sealed():
+    service, calls, payloads, context = _make_service({"_current_pressure_hpa": 1013.25})
+    blocks = RoutePressureBlockService(service)
+
+    source = CalibrationPoint(index=10, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None, route="co2")
+    ambient = CalibrationPoint(index=11, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None,
+                               pressure_mode="ambient_open", route="co2")
+    sealed_point = CalibrationPoint(index=12, temperature_c=20.0, co2_ppm=1000.0,
+                                     pressure_hpa=800.0, pressure_mode="sealed_controlled", route="co2")
+
+    ambient_result = blocks.run_co2_ambient_block(source, [ambient])
+    assert ambient_result.skipped_point_indices == []
+
+    trans_result = blocks.transition_co2_ambient_to_sealed(source, sealed_point)
+    assert trans_result.ok is True
+
+    sample_end_idx = next((i for i, c in enumerate(calls) if c.startswith("trace:sample_end:")), -1)
+    assert sample_end_idx >= 0
+
+    vent_off_idx = next((i for i, c in enumerate(calls) if c.startswith("vent:False:CO2 ambient")), -1)
+    assert vent_off_idx > sample_end_idx
+
+    apply_valves_idx = next((i for i, c in enumerate(calls) if c.startswith("apply_valves")), -1)
+    assert apply_valves_idx > vent_off_idx, f"no apply_valves after vent_off; calls near vent_off: {calls[max(0, vent_off_idx-2):vent_off_idx+10]}"
+
+    vent_off_call = calls[vent_off_idx]
+    assert "vent:False:" in vent_off_call
+
+    # Guard arm verified via trace
+    transition_traces = [p for p in payloads if p.get("action") == "co2_ambient_to_sealed_transition"]
+    assert len(transition_traces) == 1
+    assert transition_traces[0]["result"] == "ok"
+    actual = transition_traces[0]["actual"]
+    assert actual["sealed_no_vent_guard_active_before_set_pressure"] is True
+
+
+# ── E: sealed-only regression ──
+
+def test_sealed_only_no_vent_during_pressure_points():
+    service, calls, payloads, context = _make_service()
+    blocks = RoutePressureBlockService(service)
+
+    source = CalibrationPoint(index=10, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=1100.0, route="co2")
+    sealed = [
+        CalibrationPoint(index=11, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=1100.0,
+                         pressure_mode="sealed_controlled", route="co2"),
+        CalibrationPoint(index=12, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=1000.0,
+                         pressure_mode="sealed_controlled", route="co2"),
+    ]
+
+    result = blocks.run_co2_sealed_block(source, sealed, already_sealed=False)
+
+    assert result.skipped_point_indices == []
+    assert len([c for c in calls if c == "pressurize_and_hold"]) == 1
+    set_pressure_calls = [c for c in calls if c.startswith("set_pressure_to_target:")]
+    assert len(set_pressure_calls) == 2
+
+    sample_range_start = next((i for i, c in enumerate(calls) if c.startswith("trace:sample_start")), 0)
+    sample_range_end = next((i for i, c in enumerate(calls) if c.startswith("trace:sample_end")
+                              and i > sample_range_start), len(calls))
+    vent_on_during_sealed = [
+        c for c in calls[sample_range_start:sample_range_end]
+        if c.startswith("vent:True:")
+    ]
+    assert len(vent_on_during_sealed) == 0, "no vent=ON during sealed sampling"
+
+
+# ── F: cleanup guard lifecycle ──
+
+def test_cleanup_guard_disarmed_before_cleanup():
+    service, calls, payloads, context = _make_service({"_current_pressure_hpa": 1013.25})
+    blocks = RoutePressureBlockService(service)
+
+    source = CalibrationPoint(index=10, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None, route="co2")
+    ambient = CalibrationPoint(index=11, temperature_c=20.0, co2_ppm=1000.0, pressure_hpa=None,
+                               pressure_mode="ambient_open", route="co2")
+    sealed = CalibrationPoint(index=12, temperature_c=20.0, co2_ppm=1000.0,
+                               pressure_hpa=800.0, pressure_mode="sealed_controlled", route="co2")
+
+    ambient_result = blocks.run_co2_ambient_block(source, [ambient])
+    assert ambient_result.skipped_point_indices == []
+
+    ambient_end_idx = len(calls)
+    sealed_result = blocks.run_co2_sealed_block(source, [sealed], already_sealed=False)
+    assert sealed_result.skipped_point_indices == []
+
+    sealed_calls = calls[ambient_end_idx:]
+    sealed_vent_on = [c for c in sealed_calls if c.startswith("vent:True:")]
+    assert len(sealed_vent_on) == 0, "no vent=ON during sealed block"

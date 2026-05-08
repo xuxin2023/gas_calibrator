@@ -75,6 +75,28 @@ class RoutePressureBlockService:
                 },
             )
             svc.status_service.begin_point_timing(sample_point, phase=phase, point_tag=point_tag)
+
+            atmosphere_gate = self._maintain_ambient_vent_and_verify_atmosphere(
+                sample_point, phase=phase
+            )
+            if atmosphere_gate.get("gate_result") != "PASS":
+                svc.status_service.log(
+                    f"CO2 ambient point {sample_point.index} skipped: "
+                    f"pressure {atmosphere_gate.get('pressure_hpa')} hPa "
+                    f"not near atmosphere {atmosphere_gate.get('atmosphere_reference_hpa')} hPa"
+                )
+                svc.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                result.skipped_point_indices.append(sample_point.index)
+                svc._record_workflow_timing(
+                    "pressure_point_end",
+                    "warning",
+                    stage="pressure_point",
+                    point=sample_point,
+                    target_pressure_hpa=sample_point.target_pressure_hpa,
+                    decision="ambient_atmosphere_fail",
+                )
+                continue
+
             svc.status_service.record_route_trace(
                 action="pressure_skip",
                 route=phase,
@@ -116,7 +138,13 @@ class RoutePressureBlockService:
                 result="ok",
                 message="CO2 sampling start",
             )
+            svc.pressure_control_service.set_pressure_controller_vent(
+                True, reason="CO2 ambient sampling: keep vent open"
+            )
             results = svc.sampling_service.sample_point(sample_point, phase=phase, point_tag=point_tag)
+            svc.pressure_control_service.set_pressure_controller_vent(
+                True, reason="CO2 ambient sampling: vent heartbeat after sample"
+            )
             if not results:
                 svc._record_workflow_timing(
                     "sample_end",
@@ -494,3 +522,92 @@ class RoutePressureBlockService:
             return int(getter(path, default))
         except Exception:
             return default
+
+    def _get_atmosphere_reference_hpa(self) -> float:
+        svc = self._service
+        atmosphere = None
+        try:
+            atmosphere = svc.pressure_control_service._coerce_float(
+                getattr(
+                    getattr(svc, "conditioning_service", None),
+                    "_last_measured_atmospheric_pressure_hpa",
+                    None,
+                )
+            )
+        except Exception:
+            pass
+        if atmosphere is None:
+            try:
+                state = getattr(getattr(svc, "run_state", None), "pressure", None)
+                atmosphere = getattr(state, "measured_atmospheric_pressure_hpa", None)
+            except Exception:
+                pass
+        if atmosphere is None:
+            atmosphere = self._cfg_float("workflow.pressure.default_atmosphere_hpa", 1013.25)
+        return float(atmosphere)
+
+    def _read_current_pressure_hpa(self) -> float | None:
+        try:
+            return self._service.pressure_control_service._current_pressure()
+        except Exception:
+            return None
+
+    def _maintain_ambient_vent_and_verify_atmosphere(
+        self,
+        sample_point: CalibrationPoint,
+        *,
+        phase: str = "co2",
+    ) -> dict[str, Any]:
+        svc = self._service
+        atmosphere_hpa = self._get_atmosphere_reference_hpa()
+        margin_hpa = self._cfg_float("workflow.pressure.ambient_atmosphere_margin_hpa", 20.0)
+        max_wait_s = self._cfg_float("workflow.pressure.ambient_atmosphere_wait_s", 30.0)
+        vent_interval_s = max(0.1, self._cfg_float(
+            "workflow.pressure.atmosphere_vent_heartbeat_interval_s", 0.5
+        ))
+
+        vent_count = 0
+        start = time.monotonic()
+        final_pressure = None
+        near_atmosphere = False
+
+        while time.monotonic() - start < max_wait_s:
+            svc.status_service.check_stop()
+            svc.pressure_control_service.set_pressure_controller_vent(
+                True, reason="CO2 ambient atmosphere verification"
+            )
+            vent_count += 1
+            current = self._read_current_pressure_hpa()
+            if current is not None:
+                final_pressure = current
+                if abs(current - atmosphere_hpa) <= margin_hpa:
+                    near_atmosphere = True
+                    break
+            time.sleep(vent_interval_s)
+
+        gate_result = "PASS" if near_atmosphere else "FAIL"
+        svc.status_service.record_route_trace(
+            action="ambient_atmosphere_gate",
+            route=phase,
+            point=sample_point,
+            target={"pressure_hpa": atmosphere_hpa, "margin_hpa": margin_hpa},
+            actual={
+                "pressure_hpa": final_pressure,
+                "atmosphere_reference_hpa": atmosphere_hpa,
+                "margin_hpa": margin_hpa,
+                "vent_tick_count": vent_count,
+                "near_atmosphere": near_atmosphere,
+                "wait_s": round(time.monotonic() - start, 3),
+            },
+            result=gate_result,
+            message="Atmosphere verified before ambient sampling" if near_atmosphere
+            else f"Pressure {final_pressure} too far from atmosphere {atmosphere_hpa}",
+        )
+        return {
+            "gate_result": gate_result,
+            "pressure_hpa": final_pressure,
+            "atmosphere_reference_hpa": atmosphere_hpa,
+            "margin_hpa": margin_hpa,
+            "vent_count": vent_count,
+            "near_atmosphere": near_atmosphere,
+        }

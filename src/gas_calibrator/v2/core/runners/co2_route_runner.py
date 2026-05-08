@@ -292,8 +292,8 @@ class Co2RouteRunner:
                 sampled_point_indices.extend(sealed_block_result.sampled_point_indices)
                 skipped_point_indices.extend(sealed_block_result.skipped_point_indices)
 
-            self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 source complete")
             self._disarm_co2_sealed_no_vent_guard()
+            self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 source complete")
             return RouteRunResult(
                 success=bool(completed_point_indices) and not skipped_point_indices,
                 completed_points=completed_points,

@@ -331,6 +331,8 @@ def test_co2_ambient_first_point_calls_set_pressure_controller_vent_on_and_logs_
             set_pressure_to_target=lambda point: calls.append(f"set_pressure_to_target:{point.index}") or SimpleNamespace(ok=True),
             wait_after_pressure_stable_before_sampling=lambda point: SimpleNamespace(ok=True),
             set_pressure_controller_vent=set_pressure_controller_vent,
+            _current_pressure=lambda: 1013.25,
+            _coerce_float=lambda v: float(v) if v is not None else None,
         ),
         sampling_service=SimpleNamespace(sampling_params=lambda phase="": (4, 15),
             sample_point=lambda point, phase="", point_tag="": [SimpleNamespace(point=point, point_tag=point_tag)],
@@ -500,6 +502,8 @@ def test_co2_ambient_plus_800hpa_deferred_seal_uses_sample_point_not_source_poin
             set_pressure_to_target=recording_set_pressure_to_target,
             wait_after_pressure_stable_before_sampling=lambda point: SimpleNamespace(ok=True),
             set_pressure_controller_vent=recording_set_pressure_controller_vent,
+            _current_pressure=lambda: 1013.25,
+            _coerce_float=lambda v: float(v) if v is not None else None,
         ),
         sampling_service=SimpleNamespace(
             sampling_params=lambda phase="": (4, 15),
@@ -605,6 +609,8 @@ def test_co2_ambient_plus_800hpa_deferred_seal_logs_correctly() -> None:
             set_pressure_to_target=lambda point: SimpleNamespace(ok=True),
             wait_after_pressure_stable_before_sampling=lambda point: SimpleNamespace(ok=True),
             set_pressure_controller_vent=lambda on, reason="", **kw: None,
+            _current_pressure=lambda: 1013.25,
+            _coerce_float=lambda v: float(v) if v is not None else None,
         ),
         sampling_service=SimpleNamespace(
             sampling_params=lambda phase="": (4, 15),
@@ -696,6 +702,8 @@ def test_co2_ambient_to_sealed_transition_disables_conditioning_state() -> None:
             set_pressure_to_target=lambda point: SimpleNamespace(ok=True),
             wait_after_pressure_stable_before_sampling=lambda point: SimpleNamespace(ok=True),
             set_pressure_controller_vent=lambda on, reason="", **kw: None,
+            _current_pressure=lambda: 1013.25,
+            _coerce_float=lambda v: float(v) if v is not None else None,
         ),
         sampling_service=SimpleNamespace(
             sampling_params=lambda phase="": (4, 15),
@@ -756,6 +764,12 @@ def test_co2_sealed_route_no_vent_guard_blocks_vent_on_after_route_close() -> No
     ambient_setup_vent_on_seen: bool = False
 
     class MockPressureControlService:
+        def _current_pressure(self):
+            return 1013.25
+
+        def _coerce_float(self, v):
+            return float(v) if v is not None else None
+
         def set_pressure_controller_vent(self, on, reason="", **kw):
             nonlocal route_close_happened, guard_active, ambient_setup_vent_on_seen
             phase = "after_route_close" if route_close_happened else "before_route_close"
@@ -871,10 +885,10 @@ def test_co2_sealed_route_no_vent_guard_blocks_vent_on_after_route_close() -> No
         e for e in vent_call_log
         if e["vent_on"] is True and e["phase"] == "before_route_close"
     ]
-    assert len(before_close_vent_on) == 1, (
-        "exactly 1 VENT=ON before route close: ambient_open setup"
+    assert len(before_close_vent_on) >= 1, (
+        "at least 1 VENT=ON before route close: ambient_open setup + atmosphere verification"
     )
-    assert before_close_vent_on[0]["command_sent"] is True
+    assert all(e["command_sent"] is True for e in before_close_vent_on)
 
     after_close_vent_on = [
         e for e in vent_call_log
