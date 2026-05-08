@@ -34,6 +34,11 @@
     "duplicate_device_id_ports": [],
     "duplicate_device_id_policy": "not_applicable"
   },
+  "run001": {
+    "mode": "real_machine_dry_run",
+    "no_write": true,
+    "guard_scope": "run001_h2o_1_point"
+  },
   "features": {
     "use_v2": true,
     "simulation_mode": false
@@ -287,15 +292,15 @@
       "temperature": {
         "tol": 0.2,
         "window_s": 40,
-        "soak_after_reach_s": 1800,
+        "soak_after_reach_s": 0,
         "timeout_s": 1800,
-        "analyzer_chamber_temp_enabled": true,
+        "analyzer_chamber_temp_enabled": false,
         "analyzer_chamber_temp_window_s": 60,
         "analyzer_chamber_temp_span_c": 0.08,
         "analyzer_chamber_temp_timeout_s": 3600,
         "analyzer_chamber_temp_first_valid_timeout_s": 120,
         "analyzer_chamber_temp_poll_s": 1.0,
-        "wait_for_target_before_continue": true
+        "wait_for_target_before_continue": false
       },
       "humidity_generator": {
         "enabled": true,
