@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any, Sequence
 
 from ...exceptions import WorkflowInterruptedError
 from ..event_bus import EventType
 from ..models import CalibrationPhase, CalibrationPoint
+from ..services.coefficient_service import dry_air_corrected_co2_ppm, saturation_vapor_pressure_hpa
 from .route_run_result import RouteRunResult
 
 
@@ -15,6 +18,8 @@ class H2oRouteRunner:
         self.service = service
         self.points = list(points)
         self.pressure_points = list(pressure_points)
+        self._vent_keepalive_stop = threading.Event()
+        self._vent_keepalive_thread = None  # type: threading.Thread | None
 
     def execute(self) -> RouteRunResult:
         if not self.points:
@@ -48,7 +53,7 @@ class H2oRouteRunner:
                 message=f"H2O route for point {lead.index}",
             )
 
-            self.service.valve_routing_service.set_h2o_path(False, lead)
+            self.service.valve_routing_service.apply_route_baseline_valves()
             self.service.pressure_control_service.prepare_pressure_for_h2o(lead)
             self.service.humidity_generator_service.prepare_humidity_generator(lead)
             temperature_wait = self.service.temperature_control_service.set_temperature_for_point(lead, phase=phase)
@@ -117,6 +122,7 @@ class H2oRouteRunner:
                     skipped_point_indices=skipped_point_indices,
                     error="H2O route readiness failed",
                 )
+            self._start_h2o_vent_keepalive()
             dewpoint_ok = self.service.dewpoint_alignment_service.wait_dewpoint_alignment_stable(lead)
             self.service.status_service.record_route_trace(
                 action="wait_dewpoint",
@@ -135,34 +141,128 @@ class H2oRouteRunner:
                 )
             self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": lead, "stability_type": "dewpoint"})
             self.service.valve_routing_service.mark_post_h2o_co2_zero_flush_pending()
-            if not self.service.pressure_control_service.pressurize_and_hold(lead, route=phase).ok:
-                self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O pressure-seal failure")
-                skipped_point_indices.extend(expected_indices)
-                return RouteRunResult(
-                    success=False,
-                    skipped_point_indices=skipped_point_indices,
-                    error="H2O pressure seal failed",
+
+            if effective_pressure_points and not getattr(effective_pressure_points[0], "is_ambient_pressure_point", False):
+                ambient_ref = CalibrationPoint(
+                    index=lead.index,
+                    temperature_c=lead.temperature_c,
+                    humidity_pct=lead.hgen_rh_pct,
+                    pressure_hpa=None,
+                    route="h2o",
+                    humidity_generator_temp_c=lead.hgen_temp_c,
+                    dewpoint_c=lead.dewpoint_c,
+                    h2o_mmol=lead.h2o_mmol,
+                    raw_h2o=lead.raw_h2o,
+                    pressure_selection_token="ambient_open",
+                )
+                effective_pressure_points = [ambient_ref] + list(effective_pressure_points)
+
+            first_point_is_ambient = bool(
+                effective_pressure_points
+                and getattr(effective_pressure_points[0], "is_ambient_pressure_point", False)
+            )
+            seal_deferred = False
+
+            if not first_point_is_ambient:
+                if not self.service.pressure_control_service.pressurize_and_hold(lead, route=phase).ok:
+                    self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O pressure-seal failure")
+                    skipped_point_indices.extend(expected_indices)
+                    return RouteRunResult(
+                        success=False,
+                        skipped_point_indices=skipped_point_indices,
+                        error="H2O pressure seal failed",
+                    )
+            else:
+                seal_deferred = True
+                self.service.pressure_control_service.set_pressure_controller_vent(
+                    True, reason="H2O first point ambient: keep atmosphere open, seal deferred"
+                )
+                self.service.status_service.log("Pressure controller kept at atmosphere for H2O ambient first point (seal deferred)")
+                self.service.status_service.record_route_trace(
+                    action="pressure_skip",
+                    route=phase,
+                    point=lead,
+                    target={"pressure_hpa": None, "vent_on": True},
+                    result="skipped",
+                    message="H2O first point ambient: seal/pressurize bypassed, vent stays open",
                 )
 
             for pressure_point in effective_pressure_points:
                 self.service.status_service.check_stop()
                 sample_point = self.service.route_planner.build_h2o_pressure_point(lead, pressure_point)
                 point_tag = self.service.route_planner.h2o_point_tag(sample_point)
+                is_current_ambient = bool(getattr(sample_point, "is_ambient_pressure_point", False))
                 route_context.update(current_point=sample_point, route_state={"sample_point_index": sample_point.index})
                 self.service.status_service.begin_point_timing(sample_point, phase=phase, point_tag=point_tag)
-                if not self.service.pressure_control_service.set_pressure_to_target(sample_point).ok:
-                    self.service.status_service.log(f"H2O row {sample_point.index} skipped: pressure did not stabilize")
-                    self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
-                    skipped_point_indices.append(sample_point.index)
-                    continue
-                self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
-                if not self.service.pressure_control_service.wait_after_pressure_stable_before_sampling(sample_point).ok:
-                    self.service.status_service.log(
-                        f"H2O row {sample_point.index} skipped: post-pressure hold before sampling interrupted"
+                if is_current_ambient:
+                    self.service.status_service.record_route_trace(
+                        action="pressure_skip",
+                        route=phase,
+                        point=sample_point,
+                        target={"pressure_hpa": None, "vent_on": True},
+                        result="skipped",
+                        message="H2O ambient pressure point: vent stays open, set_pressure bypassed, P3 ambient read used",
                     )
-                    self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
-                    skipped_point_indices.append(sample_point.index)
-                    continue
+                    self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
+                else:
+                    if seal_deferred:
+                        self._stop_h2o_vent_keepalive()
+                        controller = self.service.device_manager.get_device("pressure_controller")
+                        if controller is not None:
+                            controller.vent(False)
+                            self.service.status_service.log(
+                                "H2O route: keepalive stopped, vent=OFF bare command sent before seal"
+                            )
+                        time.sleep(1.5)
+                        gauge = self.service.device_manager.get_device("pressure_gauge")
+                        gauge_pressure = None
+                        if gauge is not None:
+                            reader = getattr(gauge, "read_pressure", None)
+                            if callable(reader):
+                                try:
+                                    gauge_pressure = reader()
+                                except Exception:
+                                    pass
+                        if gauge_pressure is not None:
+                            self.service.status_service.log(
+                                f"vent closed, waiting for natural pressure rise; current pressure={gauge_pressure:.1f} hPa"
+                            )
+                        else:
+                            self.service.status_service.log(
+                                "vent closed, waiting for natural pressure rise; gauge reading unavailable"
+                            )
+                        self.service.valve_routing_service.set_h2o_path(False, lead)
+                        self.service.status_service.log(
+                            "H2O route: water path valve closed before seal"
+                        )
+                        if not self.service.pressure_control_service.pressurize_and_hold(
+                            lead, route=phase, prefer_direct_vent_close=True
+                        ).ok:
+                            self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O deferred pressure-seal failure")
+                            skipped_point_indices.extend(expected_indices)
+                            return RouteRunResult(
+                                success=False,
+                                skipped_point_indices=skipped_point_indices,
+                                error="H2O deferred pressure seal failed",
+                            )
+                        seal_deferred = False
+                        self.service.pressure_control_service.run_state.pressure.preseal_watchlist_status_accepted = True
+                        self.service.status_service.log(
+                            "H2O seal accepted: watchlist status=3 allowed for sealed pressure sweep"
+                        )
+                    if not self.service.pressure_control_service.set_pressure_to_target(sample_point).ok:
+                        self.service.status_service.log(f"H2O row {sample_point.index} skipped: pressure did not stabilize")
+                        self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                        skipped_point_indices.append(sample_point.index)
+                        continue
+                    self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
+                    if not self.service.pressure_control_service.wait_after_pressure_stable_before_sampling(sample_point).ok:
+                        self.service.status_service.log(
+                            f"H2O row {sample_point.index} skipped: post-pressure hold before sampling interrupted"
+                        )
+                        self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                        skipped_point_indices.append(sample_point.index)
+                        continue
                 self.service.status_service.mark_point_stable_for_sampling(sample_point, phase=phase, point_tag=point_tag)
                 self.service.status_service.update_status(
                     phase=CalibrationPhase.SAMPLING,
@@ -192,6 +292,24 @@ class H2oRouteRunner:
                     self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
                     continue
                 for result in results:
+                    if result.h2o_mmol is not None and result.h2o_mmol > 0:
+                        sample_pressure = (
+                            getattr(result, "pressure_hpa", None)
+                            or sample_point.target_pressure_hpa
+                            or float(
+                                getattr(
+                                    getattr(self.service, "route_context", None),
+                                    "route_state",
+                                    {},
+                                ).get("pressure_hpa", 1013.25)
+                            )
+                        )
+                        corrected = dry_air_corrected_co2_ppm(
+                            cylinder_co2_ppm=round(float(result.h2o_mmol) * 1000.0, 4),
+                            pressure_p3_hpa=float(sample_pressure),
+                            temp_c=float(sample_point.temperature_c or getattr(result, "temperature_c", None) or 20.0),
+                        )
+                        object.__setattr__(result, "dry_air_corrected_h2o_ppm", corrected)
                     self.service.event_bus.publish(EventType.SAMPLE_COLLECTED, result)
                 self.service.status_service.record_route_trace(
                     action="sample_end",
@@ -207,6 +325,11 @@ class H2oRouteRunner:
                 sampled_point_indices.append(sample_point.index)
                 completed_points.append(sample_point)
                 completed_point_indices.append(sample_point.index)
+                if is_current_ambient:
+                    self.service.status_service.log(
+                        "H2O ambient complete: daemon keeps vent open through remaining pressure sweep, "
+                        "seal deferred for upcoming pressure control"
+                    )
 
             self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O group complete")
             return RouteRunResult(
@@ -234,7 +357,45 @@ class H2oRouteRunner:
                 error=str(exc),
             )
         finally:
+            self._stop_h2o_vent_keepalive()
             route_context.clear()
+
+    def _start_h2o_vent_keepalive(self) -> None:
+        if self._vent_keepalive_thread is not None:
+            return
+        self._vent_keepalive_stop.clear()
+        svc = self.service
+        interval_s = 1.0
+
+        def _keepalive() -> None:
+            self.service.status_service.log("[h2o-vent-keepalive] thread started")
+            controller = svc.device_manager.get_device("pressure_controller")
+            if controller is None:
+                self.service.status_service.log("[h2o-vent-keepalive] FATAL: pressure_controller device not found, daemon cannot operate")
+                return
+            tick = 0
+            while not self._vent_keepalive_stop.wait(interval_s):
+                tick += 1
+                try:
+                    controller.vent(True)
+                    command_result = "ok"
+                except Exception as exc:
+                    command_result = f"error:{exc}"
+                if tick == 1 or tick % 60 == 0:
+                    self.service.status_service.log(
+                        f"[h2o-vent-keepalive] tick={tick} direct_vent result={command_result}"
+                    )
+
+        t = threading.Thread(target=_keepalive, daemon=True, name="h2o-vent-keepalive")
+        t.start()
+        self._vent_keepalive_thread = t
+
+    def _stop_h2o_vent_keepalive(self) -> None:
+        self._vent_keepalive_stop.set()
+        t = self._vent_keepalive_thread
+        if t is not None and t.is_alive():
+            t.join(timeout=5.0)
+        self._vent_keepalive_thread = None
 
     def _continue_after_humidity_timeout(self, result: Any) -> bool:
         if bool(getattr(result, "ok", False)):
