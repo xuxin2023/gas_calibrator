@@ -5152,7 +5152,7 @@ class PressureControlService:
                 }
             )
             return diagnostics
-        if vent_on:
+        if vent_on and not prefer_direct_command:
             guard = getattr(self.host, "_guard_a2_conditioning_vent_command", None)
             if callable(guard):
                 blocked = guard(reason=reason)
@@ -5339,7 +5339,7 @@ class PressureControlService:
             )
         if vent_on and emergency_abort_relief:
             vent_classification = "emergency_abort_relief"
-        if vent_on:
+        if vent_on and not prefer_direct_command:
             guard = getattr(self.host, "_guard_a2_conditioning_vent_command", None)
             if callable(guard):
                 try:
@@ -5366,7 +5366,7 @@ class PressureControlService:
         # A2.37: during post-seal pressure control, vent=ON must be unconditionally blocked
         # to prevent atmosphere ingress that would destroy the sealed pressure state.
         _post_seal_vent_blocked = False
-        if vent_on and not emergency_abort_relief:
+        if vent_on and not emergency_abort_relief and not prefer_direct_command:
             _cond_ctx = self.host.a2_hooks.co2_route_conditioning_at_atmosphere_context
             if isinstance(_cond_ctx, dict) and str(_cond_ctx.get("route_conditioning_phase") or "") == "post_seal_pressure_control":
                 _post_seal_vent_blocked = True
@@ -5392,6 +5392,7 @@ class PressureControlService:
         if (
             vent_on
             and not emergency_abort_relief
+            and not prefer_direct_command
             and self._a2_preseal_state_machine_enforced()
             and pressure_points_started
         ):
@@ -5465,12 +5466,10 @@ class PressureControlService:
                         self._log_pressure_controller_io("RX", "ok")
             else:
                 if prefer_direct_command:
-                    self.host._call_first(controller, ("set_output",), False)
-                    direct_vent_ok = bool(self.host._call_first(controller, ("vent",), False))
+                    controller.vent(False)
                     self.host._call_first(controller, ("set_isolation_open",), True)
-                    if direct_vent_ok:
-                        command_method = "set_output_false_vent_false_set_isolation_open_fast"
-                        command_return_status = 0
+                    command_method = "set_output_false_vent_false_set_isolation_open_fast"
+                    command_return_status = 0
                 exit_mode = getattr(controller, "exit_atmosphere_mode", None)
                 if not command_method and callable(exit_mode):
                     command_method = "exit_atmosphere_mode"
@@ -5697,8 +5696,8 @@ class PressureControlService:
 
     def prepare_pressure_for_h2o(self, point: CalibrationPoint) -> None:
         self._set_h2o_prepared_target(None)
-        self.host._set_pressure_controller_vent(True, reason="H2O route precondition")
-        self.host._log("Pressure controller kept at atmosphere for H2O route conditioning")
+        self.host._set_pressure_controller_vent(False, reason="H2O idle precondition", prefer_direct_command=True)
+        self.host._log("Pressure controller isolated from atmosphere while waiting for H2O route conditioning")
 
     def safe_stop_after_run(self, *, reason: str = "") -> dict[str, Any]:
         summary: dict[str, Any] = {}
@@ -6397,7 +6396,7 @@ class PressureControlService:
             )
         return result
 
-    def pressurize_and_hold(self, point: CalibrationPoint, route: str = "co2") -> PressureWaitResult:
+    def pressurize_and_hold(self, point: CalibrationPoint, route: str = "co2", *, prefer_direct_vent_close: bool = False) -> PressureWaitResult:
         route_text = str(route or "").strip().lower()
         timing_recorder = getattr(self.host, "_record_workflow_timing", None)
         if callable(timing_recorder):
@@ -6517,6 +6516,7 @@ class PressureControlService:
                     self.host._set_pressure_controller_vent(
                         False,
                         reason=f"before {route_text.upper()} pressure seal",
+                        prefer_direct_command=prefer_direct_vent_close,
                     )
                     or {}
                 )
@@ -6532,6 +6532,7 @@ class PressureControlService:
                 self.host._set_pressure_controller_vent(
                     False,
                     reason=f"before {route_text.upper()} pressure seal",
+                    prefer_direct_command=prefer_direct_vent_close,
                 )
                 or {}
             )
