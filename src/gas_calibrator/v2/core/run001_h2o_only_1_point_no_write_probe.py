@@ -222,6 +222,35 @@ def _pressure_points(raw_cfg: Mapping[str, Any]) -> list[float]:
     return _float_list(value)
 
 
+def _string_list(value: Any) -> list[str]:
+    raw = value if isinstance(value, list) else [value]
+    out: list[str] = []
+    for item in raw:
+        text = str(item or "").strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _allowed_branches(raw_cfg: Mapping[str, Any]) -> list[str]:
+    value = _first_value(
+        raw_cfg,
+        (
+            "run001_h2o_1_point.allowed_branches",
+            "h2o_only_1_point_no_write_probe.allowed_branches",
+            "allowed_branches",
+        ),
+    )
+    branches = _string_list(value)
+    return branches or ["codex/run001-a1-no-write-dry-run"]
+
+
+def _branch_allowed(branch: str, allowed_branches: list[str]) -> bool:
+    if not str(branch or "").strip():
+        return True
+    return str(branch).strip() in allowed_branches
+
+
 def _skip0_only(raw_cfg: Mapping[str, Any]) -> bool:
     skip = _first_value(raw_cfg, ("workflow.skip_co2_ppm", "skip_co2_ppm"))
     if skip is None:
@@ -749,8 +778,10 @@ def evaluate_h2o_1_point_no_write_gate(
     )
     reasons.extend(str(item) for item in operator_validation.get("errors", []))
 
-    if branch and branch != "codex/run001-a1-no-write-dry-run":
-        reasons.append("current_branch_not_run001_a1_no_write_dry_run")
+    allowed_branches = _allowed_branches(raw_cfg)
+    branch_allowed = _branch_allowed(branch, allowed_branches)
+    if not branch_allowed:
+        reasons.append("current_branch_not_allowed_for_h2o_1_point_no_write")
     if not str(head or "").strip():
         reasons.append("current_head_missing")
     if _scope(raw_cfg) not in {"run001_h2o_1_point", "h2o_only_1_point_no_write"}:
@@ -792,7 +823,21 @@ def evaluate_h2o_1_point_no_write_gate(
         "mode_switch_enabled": ("mode_switch_enabled",),
         "analyzer_id_write_enabled": ("analyzer_id_write_enabled",),
         "senco_write_enabled": ("senco_write_enabled",),
-        "calibration_write_enabled": ("calibration_write_enabled",),
+        "calibration_write_enabled": (
+            "calibration_write_enabled",
+            "allow_write_coefficients",
+            "allow_write_zero",
+            "allow_write_span",
+            "allow_write_calibration_parameters",
+            "run001_h2o_1_point.allow_write_coefficients",
+            "run001_h2o_1_point.allow_write_zero",
+            "run001_h2o_1_point.allow_write_span",
+            "run001_h2o_1_point.allow_write_calibration_parameters",
+            "h2o_only_1_point_no_write_probe.allow_write_coefficients",
+            "h2o_only_1_point_no_write_probe.allow_write_zero",
+            "h2o_only_1_point_no_write_probe.allow_write_span",
+            "h2o_only_1_point_no_write_probe.allow_write_calibration_parameters",
+        ),
         "chamber_set_temperature_enabled": ("chamber_set_temperature_enabled",),
         "chamber_start_enabled": ("chamber_start_enabled",),
         "chamber_stop_enabled": ("chamber_stop_enabled",),
@@ -812,6 +857,9 @@ def evaluate_h2o_1_point_no_write_gate(
         **H2O_EVIDENCE_MARKERS,
         "admission_approved": approved,
         "a3_allowed": False,
+        "current_branch": str(branch or ""),
+        "allowed_branches": list(allowed_branches),
+        "branch_allowed": bool(branch_allowed),
         **H2O_SAFETY_ASSERTION_DEFAULTS,
         "rejection_reasons": reasons,
     }

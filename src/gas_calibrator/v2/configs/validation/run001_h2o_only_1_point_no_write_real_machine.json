@@ -13,6 +13,10 @@
     "allow_real_wait": true,
     "allow_real_sample": true,
     "allow_artifact": true,
+    "allowed_branches": [
+      "codex/run001-a1-no-write-dry-run",
+      "codex/v2-h2o-v210-pristine-verify"
+    ],
     "allow_write_coefficients": false,
     "allow_write_zero": false,
     "allow_write_span": false,
