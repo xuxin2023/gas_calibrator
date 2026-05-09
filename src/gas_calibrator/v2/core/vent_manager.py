@@ -55,10 +55,17 @@ class VentManager:
         on: bool,
         reason: str = "",
         source: str = "",
+        ambient_block_enabled: bool = False,
     ) -> VentPolicyResult:
         normalized_route = _normalize_route(route)
         normalized_state = _normalize_state(state)
-        allowed, blocked_reason, severity = self._policy_decision(normalized_route, normalized_state, bool(on), reason)
+        allowed, blocked_reason, severity = self._policy_decision(
+            normalized_route,
+            normalized_state,
+            bool(on),
+            reason,
+            ambient_block_enabled=ambient_block_enabled,
+        )
         return VentPolicyResult(
             route=normalized_route,
             state=normalized_state,
@@ -78,8 +85,16 @@ class VentManager:
         on: bool,
         reason: str = "",
         source: str = "",
+        ambient_block_enabled: bool = False,
     ) -> VentPolicyResult:
-        result = self.assert_vent_allowed(route, state, on, reason=reason, source=source)
+        result = self.assert_vent_allowed(
+            route,
+            state,
+            on,
+            reason=reason,
+            source=source,
+            ambient_block_enabled=ambient_block_enabled,
+        )
         return VentPolicyResult(
             **{
                 **result.as_dict(),
@@ -201,7 +216,15 @@ class VentManager:
             observation_only=True,
         )
 
-    def _policy_decision(self, route: str, state: str, on: bool, reason: str) -> tuple[bool, str, str]:
+    def _policy_decision(
+        self,
+        route: str,
+        state: str,
+        on: bool,
+        reason: str,
+        *,
+        ambient_block_enabled: bool = False,
+    ) -> tuple[bool, str, str]:
         if route not in {VentRoute.CO2.value, VentRoute.H2O.value}:
             return (False, "unknown_route", "blocked" if on else "warning")
         if state == ShadowState.UNKNOWN.value:
@@ -216,6 +239,10 @@ class VentManager:
         if route == VentRoute.CO2.value:
             if state == ShadowState.OPEN_CONDITIONING.value and on:
                 return (True, "", "ok")
+            if state == ShadowState.AMBIENT_OPEN_SAMPLING.value and on:
+                if ambient_block_enabled:
+                    return (True, "", "ok")
+                return (False, "co2_ambient_block_not_explicitly_enabled", "blocked")
         if state in {ShadowState.CLEANUP.value, ShadowState.EMERGENCY_SAFE_STOP.value}:
             if reason:
                 return (True, "", "warning")
@@ -231,8 +258,16 @@ def assert_vent_allowed(
     on: bool,
     reason: str = "",
     source: str = "",
+    ambient_block_enabled: bool = False,
 ) -> VentPolicyResult:
-    return VentManager().assert_vent_allowed(route, state, on, reason=reason, source=source)
+    return VentManager().assert_vent_allowed(
+        route,
+        state,
+        on,
+        reason=reason,
+        source=source,
+        ambient_block_enabled=ambient_block_enabled,
+    )
 
 
 def request_vent(
@@ -241,8 +276,16 @@ def request_vent(
     on: bool,
     reason: str = "",
     source: str = "",
+    ambient_block_enabled: bool = False,
 ) -> VentPolicyResult:
-    return VentManager().request_vent(route, state, on, reason=reason, source=source)
+    return VentManager().request_vent(
+        route,
+        state,
+        on,
+        reason=reason,
+        source=source,
+        ambient_block_enabled=ambient_block_enabled,
+    )
 
 
 def start_vent_keepalive(

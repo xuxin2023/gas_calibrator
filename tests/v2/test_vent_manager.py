@@ -50,6 +50,43 @@ def test_co2_open_conditioning_allows_vent_on() -> None:
     assert result.vent_on_requested is True
 
 
+def test_co2_explicit_ambient_block_requires_caller_enablement() -> None:
+    default_result = _manager().assert_vent_allowed(
+        "co2",
+        ShadowState.AMBIENT_OPEN_SAMPLING,
+        True,
+        reason="co2 ambient without route policy",
+    )
+    disabled_result = _manager().assert_vent_allowed(
+        "co2",
+        ShadowState.AMBIENT_OPEN_SAMPLING,
+        True,
+        reason="co2 ambient explicitly disabled",
+        ambient_block_enabled=False,
+    )
+    enabled_result = _manager().assert_vent_allowed(
+        "co2",
+        ShadowState.AMBIENT_OPEN_SAMPLING,
+        True,
+        reason="co2 ambient route policy enabled",
+        ambient_block_enabled=True,
+    )
+    h2o_result = _manager().assert_vent_allowed(
+        "h2o",
+        ShadowState.AMBIENT_OPEN_SAMPLING,
+        True,
+        reason="h2o ambient remains scoped",
+    )
+
+    assert default_result.allowed is False
+    assert default_result.blocked_reason == "co2_ambient_block_not_explicitly_enabled"
+    assert disabled_result.allowed is False
+    assert disabled_result.blocked_reason == "co2_ambient_block_not_explicitly_enabled"
+    assert enabled_result.allowed is True
+    assert enabled_result.blocked_reason == ""
+    assert h2o_result.allowed is True
+
+
 def test_co2_sealed_pressure_control_blocks_vent_on() -> None:
     result = _manager().assert_vent_allowed("co2", ShadowState.SEALED_PRESSURE_CONTROL, True, reason="sealed")
 
@@ -96,6 +133,24 @@ def test_h2o_exception_does_not_allow_co2_sealed_vent_on() -> None:
     assert h2o_open.allowed is True
     assert co2_sealed.allowed is False
     assert co2_sealed.blocked_reason == "sealed_pressure_control_vent_on_blocked"
+
+
+def test_co2_sealed_pressure_control_blocks_h2o_keepalive_vent_on() -> None:
+    result = _manager().request_vent(
+        "co2",
+        ShadowState.SEALED_PRESSURE_CONTROL,
+        True,
+        reason="h2o residual keepalive tick attempted after route switch",
+        source="h2o-vent-keepalive residual",
+    )
+    payload = result.as_dict()
+
+    assert result.allowed is False
+    assert result.blocked_reason == "sealed_pressure_control_vent_on_blocked"
+    assert payload["hardware_command_sent"] is False
+    assert payload["behavior_changed"] is False
+    assert payload["fail_closed_applied"] is False
+    assert payload["not_real_acceptance_evidence"] is True
 
 
 def test_request_vent_is_policy_only_and_sends_no_hardware_command() -> None:
