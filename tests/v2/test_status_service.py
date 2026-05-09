@@ -17,6 +17,7 @@ from gas_calibrator.v2.core.result_store import ResultStore
 from gas_calibrator.v2.core.run_logger import RunLogger
 from gas_calibrator.v2.core.run_state import RunState
 from gas_calibrator.v2.core.services import StatusService
+import gas_calibrator.v2.core.services.status_service as status_service_module
 from gas_calibrator.v2.core.session import RunSession
 from gas_calibrator.v2.core.stability_checker import StabilityChecker
 from gas_calibrator.v2.core.state_manager import StateManager
@@ -59,6 +60,34 @@ def _build_service(tmp_path: Path) -> tuple[StatusService, OrchestrationContext,
         ),
     )
     return StatusService(context, run_state, host=host), context, run_state, host
+
+
+def _route_trace_payload(context: OrchestrationContext) -> dict[str, object]:
+    trace_path = context.result_store.run_dir / "route_trace.jsonl"
+    return json.loads(trace_path.read_text(encoding="utf-8").strip())
+
+
+def _shadow_trace_payload(context: OrchestrationContext) -> dict[str, object]:
+    shadow_path = context.result_store.run_dir / "shadow_route_trace.jsonl"
+    return json.loads(shadow_path.read_text(encoding="utf-8").strip())
+
+
+def _record_sample_trace(service: StatusService, host: SimpleNamespace) -> None:
+    point = CalibrationPoint(index=3, temperature_c=25.0, pressure_hpa=1000.0, route="co2", co2_ppm=400.0)
+    host.route_context = SimpleNamespace(current_route="co2", active_point=point, current_point=point, source_point=point, point_tag="")
+    host.route_planner = SimpleNamespace(
+        co2_point_tag=lambda item: f"co2_groupa_{int(item.co2_ppm)}ppm_{int(item.target_pressure_hpa)}hpa",
+        h2o_point_tag=lambda item: f"h2o_{int(item.temp_chamber_c)}c",
+    )
+    service.record_route_trace(
+        action="sample_start",
+        point=point,
+        target={"pressure_hpa": 1000.0},
+        actual={"pressure_hpa": 999.8},
+        relay_state={"relay_a": {"3": True}},
+        result="ok",
+        message="sampling",
+    )
 
 
 def test_status_service_updates_status_logs_and_tracks_timing(tmp_path: Path) -> None:
@@ -120,26 +149,11 @@ def test_status_service_check_stop_and_pause_semantics(tmp_path: Path) -> None:
 
 def test_status_service_record_route_trace_writes_jsonl_and_tracks_artifact(tmp_path: Path) -> None:
     service, context, run_state, host = _build_service(tmp_path)
-    point = CalibrationPoint(index=3, temperature_c=25.0, pressure_hpa=1000.0, route="co2", co2_ppm=400.0)
-    host.route_context = SimpleNamespace(current_route="co2", active_point=point, current_point=point, source_point=point, point_tag="")
-    host.route_planner = SimpleNamespace(
-        co2_point_tag=lambda item: f"co2_groupa_{int(item.co2_ppm)}ppm_{int(item.target_pressure_hpa)}hpa",
-        h2o_point_tag=lambda item: f"h2o_{int(item.temp_chamber_c)}c",
-    )
-
-    service.record_route_trace(
-        action="sample_start",
-        point=point,
-        target={"pressure_hpa": 1000.0},
-        actual={"pressure_hpa": 999.8},
-        relay_state={"relay_a": {"3": True}},
-        result="ok",
-        message="sampling",
-    )
+    _record_sample_trace(service, host)
 
     trace_path = context.result_store.run_dir / "route_trace.jsonl"
     assert trace_path.exists()
-    payload = json.loads(trace_path.read_text(encoding="utf-8").strip())
+    payload = _route_trace_payload(context)
     assert payload["run_id"] == context.session.run_id
     assert payload["route"] == "co2"
     assert payload["point_index"] == 3
@@ -151,4 +165,152 @@ def test_status_service_record_route_trace_writes_jsonl_and_tracks_artifact(tmp_
     assert payload["result"] == "ok"
     assert str(trace_path) in run_state.artifacts.output_files
 
+    context.run_logger.finalize()
+
+
+def test_status_service_record_route_trace_payload_unchanged_with_shadow_enabled(tmp_path: Path) -> None:
+    service, context, _, host = _build_service(tmp_path)
+    _record_sample_trace(service, host)
+
+    payload = _route_trace_payload(context)
+    assert set(payload) == {
+        "ts",
+        "run_id",
+        "route",
+        "point_index",
+        "point_tag",
+        "action",
+        "target",
+        "actual",
+        "relay_state",
+        "result",
+        "message",
+        "trace_guard_applied_to_route_trace",
+        "trace_guard_schema_version",
+    }
+    assert payload["route"] == "co2"
+    assert payload["action"] == "sample_start"
+    assert "shadow_state" not in payload
+    assert "observation_only" not in payload
+    context.run_logger.finalize()
+
+
+def test_shadow_route_trace_written_to_separate_artifact(tmp_path: Path) -> None:
+    service, context, _, host = _build_service(tmp_path)
+    _record_sample_trace(service, host)
+
+    trace_path = context.result_store.run_dir / "route_trace.jsonl"
+    shadow_path = context.result_store.run_dir / "shadow_route_trace.jsonl"
+    assert trace_path.exists()
+    assert shadow_path.exists()
+    assert "shadow_state" not in _route_trace_payload(context)
+    assert _shadow_trace_payload(context)["shadow_state"] == "SEALED_PRESSURE_CONTROL"
+    context.run_logger.finalize()
+
+
+def test_shadow_inference_error_does_not_fail_record_route_trace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    service, context, _, host = _build_service(tmp_path)
+
+    def fail_inference(source: object) -> dict[str, object]:
+        raise RuntimeError("shadow unavailable")
+
+    monkeypatch.setattr(status_service_module, "build_shadow_event", fail_inference)
+    _record_sample_trace(service, host)
+
+    assert (context.result_store.run_dir / "route_trace.jsonl").exists()
+    assert not (context.result_store.run_dir / "shadow_route_trace.jsonl").exists()
+    context.run_logger.finalize()
+
+
+def test_shadow_write_failure_does_not_fail_record_route_trace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    service, context, _, host = _build_service(tmp_path)
+    original_open = status_service_module.Path.open
+
+    def guarded_open(self: Path, *args: object, **kwargs: object):
+        if self.name == "shadow_route_trace.jsonl":
+            raise OSError("shadow write blocked")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(status_service_module.Path, "open", guarded_open)
+    _record_sample_trace(service, host)
+
+    assert (context.result_store.run_dir / "route_trace.jsonl").exists()
+    assert not (context.result_store.run_dir / "shadow_route_trace.jsonl").exists()
+    context.run_logger.finalize()
+
+
+def test_shadow_observe_only_flags_are_written(tmp_path: Path) -> None:
+    service, context, _, host = _build_service(tmp_path)
+    _record_sample_trace(service, host)
+
+    payload = _shadow_trace_payload(context)
+    assert payload["observation_only"] is True
+    assert payload["behavior_changed"] is False
+    assert payload["gate_applied"] is False
+    assert payload["fail_closed_applied"] is False
+    assert payload["not_real_acceptance_evidence"] is True
+    context.run_logger.finalize()
+
+
+def test_shadow_unknown_state_does_not_fail_route_trace(tmp_path: Path) -> None:
+    service, context, _, _ = _build_service(tmp_path)
+    service.record_route_trace(action="unmapped_status_probe")
+
+    assert _route_trace_payload(context)["action"] == "unmapped_status_probe"
+    shadow = _shadow_trace_payload(context)
+    assert shadow["route"] == "unknown"
+    assert shadow["shadow_state"] == "UNKNOWN"
+    assert "vent_state_observed" in shadow["unknown_fields"]
+    context.run_logger.finalize()
+
+
+def test_shadow_does_not_modify_manifest_required_artifacts(tmp_path: Path) -> None:
+    service, context, run_state, host = _build_service(tmp_path)
+    before = tuple(getattr(run_state.artifacts, "required_artifacts", ()))
+
+    _record_sample_trace(service, host)
+
+    after = tuple(getattr(run_state.artifacts, "required_artifacts", ()))
+    assert after == before
+    context.run_logger.finalize()
+
+
+def test_h2o_bare_vent_observed_not_replaced(tmp_path: Path) -> None:
+    service, context, _, _ = _build_service(tmp_path)
+    service.record_route_trace(
+        action="bare_controller_vent_false",
+        route="h2o",
+        actual={"vent_on": False, "direct_vent_call_observed": True, "architecture_debt_observed": True},
+    )
+
+    shadow = _shadow_trace_payload(context)
+    assert shadow["shadow_state"] == "SEAL_TRANSITION"
+    assert shadow["behavior_changed"] is False
+    assert shadow["gate_applied"] is False
+    assert not hasattr(service, "vent_manager")
+    context.run_logger.finalize()
+
+
+def test_shadow_does_not_emit_vent_or_pressure_or_sample_commands(tmp_path: Path) -> None:
+    service, context, _, host = _build_service(tmp_path)
+    host.controller = SimpleNamespace(vent=lambda *_args, **_kwargs: pytest.fail("vent command emitted"))
+    host.pressure_controller = SimpleNamespace(set_pressure=lambda *_args, **_kwargs: pytest.fail("pressure command emitted"))
+    host.sampling_service = SimpleNamespace(sample=lambda *_args, **_kwargs: pytest.fail("sample command emitted"))
+
+    _record_sample_trace(service, host)
+
+    assert _shadow_trace_payload(context)["sample_seen"] is True
+    context.run_logger.finalize()
+
+
+def test_shadow_disabled_or_unavailable_keeps_status_service_behavior(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    service, context, _, host = _build_service(tmp_path)
+    monkeypatch.setattr(status_service_module, "build_shadow_event", None)
+
+    _record_sample_trace(service, host)
+
+    payload = _route_trace_payload(context)
+    assert payload["action"] == "sample_start"
+    assert payload["result"] == "ok"
+    assert not (context.result_store.run_dir / "shadow_route_trace.jsonl").exists()
     context.run_logger.finalize()

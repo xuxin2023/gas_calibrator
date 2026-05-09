@@ -9,6 +9,7 @@ from typing import Any, Optional
 from ..event_bus import EventType
 from ..models import CalibrationPhase, CalibrationPoint
 from ..orchestration_context import OrchestrationContext
+from ..route_state_shadow import build_shadow_event
 from ..run_state import RunState
 from ...exceptions import WorkflowInterruptedError
 from .trace_size_guard import guard_trace_event
@@ -108,11 +109,36 @@ class StatusService:
             with trace_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(guarded_payload, ensure_ascii=False, separators=(",", ":")) + "\n")
             self.remember_output_file(str(trace_path))
+            self._record_shadow_route_trace(guarded_payload)
         except Exception as exc:
             try:
                 self.context.data_writer.write_log("WARNING", f"Route trace write failed: {exc}")
             except Exception:
                 pass
+
+    def _record_shadow_route_trace(self, payload: dict[str, Any]) -> None:
+        try:
+            source = dict(payload)
+            source["source_action"] = source.get("action", "")
+            source["source_trace_action"] = source.get("action", "")
+            source["source_function"] = "StatusService.record_route_trace"
+            event = build_shadow_event(source)
+        except Exception as exc:
+            self._log_shadow_route_trace_warning(f"Shadow route trace inference failed: {exc}")
+            return
+        try:
+            shadow_path = Path(self.context.result_store.run_dir) / "shadow_route_trace.jsonl"
+            with shadow_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+            self.remember_output_file(str(shadow_path))
+        except Exception as exc:
+            self._log_shadow_route_trace_warning(f"Shadow route trace write failed: {exc}")
+
+    def _log_shadow_route_trace_warning(self, message: str) -> None:
+        try:
+            self.context.data_writer.write_log("WARNING", message)
+        except Exception:
+            pass
 
     def begin_point_timing(self, point: CalibrationPoint, *, phase: str = "", point_tag: str = "") -> None:
         self.run_state.timing.point_contexts[self.host._timing_key(point, phase=phase, point_tag=point_tag)] = {
