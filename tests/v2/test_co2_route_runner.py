@@ -43,6 +43,40 @@ class RecordingRouteContext(RouteContext):
         }
 
 
+def _a2_hooks() -> SimpleNamespace:
+    return SimpleNamespace(
+        callbacks={},
+        co2_route_open_monotonic_s=None,
+        co2_route_open_pressure_hpa=None,
+        co2_route_conditioning_at_atmosphere_active=False,
+        co2_route_conditioning_at_atmosphere_context={},
+        co2_route_conditioning_completed=False,
+        co2_route_conditioning_completed_at="",
+        high_pressure_first_point_mode_enabled=False,
+        high_pressure_first_point_context={},
+        high_pressure_first_point_vent_preclosed=False,
+        high_pressure_first_point_initial_decision="",
+        preseal_analyzer_gate_passed=False,
+        preseal_vent_close_arm_context=None,
+        preseal_last_pressure_hpa=None,
+        preseal_pressure_rise_detected=False,
+        pressure_points_started=False,
+        pressure_control_active=False,
+        seal_allowed=False,
+        seal_trigger_reason="",
+        route_open_pressure_first_sample_recorded=False,
+        co2_sealed_route_no_vent_active=False,
+        co2_sealed_route_no_vent_context={},
+    )
+
+
+def _record_workflow_timing(calls: list[str]):
+    def record(name: str, result: str, **kwargs) -> None:
+        calls.append(f"timing:{name}:{result}")
+
+    return record
+
+
 def test_co2_route_runner_executes_runner_mainline_and_tracks_route_context() -> None:
     calls: list[str] = []
     context = RecordingRouteContext()
@@ -64,6 +98,7 @@ def test_co2_route_runner_executes_runner_mainline_and_tracks_route_context() ->
         event_bus=event_bus,
         route_context=context,
         route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
+        a2_hooks=_a2_hooks(),
         status_service=StatusService(),
         temperature_control_service=SimpleNamespace(
             set_temperature_for_point=lambda point, phase="": calls.append("temperature_wait") or SimpleNamespace(ok=True),
@@ -80,10 +115,12 @@ def test_co2_route_runner_executes_runner_mainline_and_tracks_route_context() ->
             wait_after_pressure_stable_before_sampling=lambda point: calls.append(f"sample_hold:{point.index}") or SimpleNamespace(ok=True),
         ),
         sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (4, 0.0),
             sample_point=lambda point, phase="", point_tag="": calls.append(f"sample:{point_tag}") or [SimpleNamespace(point=point, point_tag=point_tag)],
         ),
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": calls.append(f"qc:{point_tag}")),
         _wait_co2_route_soak_before_seal=lambda point: calls.append("route_soak") or True,
+        _record_workflow_timing=_record_workflow_timing(calls),
         _cfg_get=lambda path, default=None: {"workflow.pressure.co2_reseal_retry_count": 1}.get(path, default),
     )
     source = CalibrationPoint(index=10, temperature_c=25.0, co2_ppm=800.0, pressure_hpa=900.0, route="co2", co2_group="A")
@@ -136,6 +173,7 @@ def test_co2_route_runner_reasserts_route_after_post_h2o_zero_flush_and_clears_a
         event_bus=event_bus,
         route_context=context,
         route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
+        a2_hooks=_a2_hooks(),
         status_service=StatusService(),
         run_state=SimpleNamespace(humidity=humidity_state),
         _active_post_h2o_co2_zero_flush=True,
@@ -153,9 +191,13 @@ def test_co2_route_runner_reasserts_route_after_post_h2o_zero_flush_and_clears_a
             set_pressure_to_target=lambda point: calls.append(f"target_pressure:{point.index}") or SimpleNamespace(ok=True),
             wait_after_pressure_stable_before_sampling=lambda point: calls.append(f"sample_hold:{point.index}") or SimpleNamespace(ok=True),
         ),
-        sampling_service=SimpleNamespace(sample_point=lambda point, phase="", point_tag="": calls.append(f"sample:{point_tag}") or []),
+        sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (4, 0.0),
+            sample_point=lambda point, phase="", point_tag="": calls.append(f"sample:{point_tag}") or [],
+        ),
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": None),
         _wait_co2_route_soak_before_seal=lambda point: calls.append("route_soak") or True,
+        _record_workflow_timing=_record_workflow_timing(calls),
         _has_special_co2_zero_flush_pending=lambda: True,
         _is_zero_co2_point=lambda point: True,
         _cfg_get=lambda path, default=None: default,
@@ -196,6 +238,7 @@ def test_co2_route_runner_preserves_v1_ordering_contract() -> None:
         event_bus=event_bus,
         route_context=context,
         route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
+        a2_hooks=_a2_hooks(),
         status_service=StatusService(),
         temperature_control_service=SimpleNamespace(
             set_temperature_for_point=lambda point, phase="": calls.append("temperature_wait") or SimpleNamespace(ok=True),
@@ -212,10 +255,12 @@ def test_co2_route_runner_preserves_v1_ordering_contract() -> None:
             wait_after_pressure_stable_before_sampling=lambda point: calls.append(f"sample_hold:{point.index}") or SimpleNamespace(ok=True),
         ),
         sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (4, 0.0),
             sample_point=lambda point, phase="", point_tag="": calls.append(f"sample:{point_tag}") or [SimpleNamespace(point=point, point_tag=point_tag)],
         ),
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": calls.append(f"qc:{point_tag}")),
         _wait_co2_route_soak_before_seal=lambda point: calls.append("route_soak") or True,
+        _record_workflow_timing=_record_workflow_timing(calls),
         _cfg_get=lambda path, default=None: {"workflow.pressure.co2_reseal_retry_count": 1}.get(path, default),
     )
     source = CalibrationPoint(index=10, temperature_c=25.0, co2_ppm=800.0, pressure_hpa=900.0, route="co2", co2_group="A")
@@ -268,6 +313,7 @@ def test_co2_route_runner_records_shared_dewpoint_gate_fields_when_enabled() -> 
         event_bus=event_bus,
         route_context=context,
         route_planner=RoutePlanner(AppConfig.from_dict({}), PointParser()),
+        a2_hooks=_a2_hooks(),
         status_service=StatusService(),
         temperature_control_service=SimpleNamespace(
             set_temperature_for_point=lambda point, phase="": SimpleNamespace(ok=True),
@@ -284,9 +330,11 @@ def test_co2_route_runner_records_shared_dewpoint_gate_fields_when_enabled() -> 
             wait_after_pressure_stable_before_sampling=lambda point: SimpleNamespace(ok=True),
         ),
         sampling_service=SimpleNamespace(
+            sampling_params=lambda phase="": (4, 0.0),
             sample_point=lambda point, phase="", point_tag="": [SimpleNamespace(point=point, point_tag=point_tag)],
         ),
         qc_service=SimpleNamespace(run_point_qc=lambda point, phase="", point_tag="": None),
+        _record_workflow_timing=_record_workflow_timing(calls),
         _cfg_get=lambda path, default=None: default,
         _gas_route_dewpoint_gate_enabled=lambda: True,
     )
