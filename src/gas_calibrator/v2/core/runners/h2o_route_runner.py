@@ -6,7 +6,9 @@ from typing import Any, Sequence
 
 from ...exceptions import WorkflowInterruptedError
 from ..event_bus import EventType
+from ..h2o_vent_adapter import H2OVentAdapter
 from ..models import CalibrationPhase, CalibrationPoint
+from ..route_state_shadow import ShadowState
 from ..services.coefficient_service import dry_air_corrected_co2_ppm, saturation_vapor_pressure_hpa
 from .route_run_result import RouteRunResult
 
@@ -374,16 +376,35 @@ class H2oRouteRunner:
                 self.service.status_service.log("[h2o-vent-keepalive] FATAL: pressure_controller device not found, daemon cannot operate")
                 return
             tick = 0
+            heartbeat_count = 0
+            failure_count = 0
+            last_result = "not_started"
+            adapter = H2OVentAdapter(vent_command=controller.vent)
             while not self._vent_keepalive_stop.wait(interval_s):
                 tick += 1
                 try:
-                    controller.vent(True)
-                    command_result = "ok"
+                    result = adapter.request_vent(
+                        route="h2o",
+                        state=ShadowState.OPEN_CONDITIONING,
+                        on=True,
+                        reason="H2O keepalive vent on",
+                        source="H2oRouteRunner._start_h2o_vent_keepalive",
+                    )
+                    if result.hardware_command_sent:
+                        heartbeat_count += 1
+                        command_result = "ok"
+                    else:
+                        failure_count += 1
+                        command_result = f"blocked:{result.blocked_reason or 'policy_denied'}"
+                    last_result = command_result
                 except Exception as exc:
+                    failure_count += 1
                     command_result = f"error:{exc}"
-                if tick == 1 or tick % 60 == 0:
+                    last_result = command_result
+                if tick == 1 or tick % 60 == 0 or command_result.startswith(("blocked:", "error:")):
                     self.service.status_service.log(
-                        f"[h2o-vent-keepalive] tick={tick} direct_vent result={command_result}"
+                        f"[h2o-vent-keepalive] tick={tick} adapter_policy result={command_result} "
+                        f"heartbeat_count={heartbeat_count} failure_count={failure_count} last_result={last_result}"
                     )
 
         t = threading.Thread(target=_keepalive, daemon=True, name="h2o-vent-keepalive")

@@ -205,7 +205,9 @@ def test_h2o_open_route_requires_vent_on_before_h2o_path_open() -> None:
 def test_h2o_keepalive_current_interval_is_legacy_1s_behavior() -> None:
     source = inspect.getsource(H2oRouteRunner._start_h2o_vent_keepalive)
     assert "interval_s = 1.0" in source
-    assert "controller.vent(True)" in source
+    assert "H2OVentAdapter(vent_command=controller.vent)" in source
+    assert ".request_vent(" in source
+    assert "controller.vent(True)" not in source
 
 
 def test_h2o_keepalive_allowed_only_in_open_or_ambient_state() -> None:
