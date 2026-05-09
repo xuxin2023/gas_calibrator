@@ -9,6 +9,7 @@ import re
 import signal
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
@@ -95,12 +96,33 @@ H2O_SAFETY_ASSERTION_DEFAULTS = {
     "run_app_py_untouched": True,
 }
 H2O_INTERRUPTED_FAIL_CLOSED_REASON = "probe_execution_interrupted_required_artifacts_incomplete"
-H2O_REQUIRED_ARTIFACT_KEYS = (
+H2O_HANDOFF_REQUIRED_ARTIFACT_KEYS = (
     "probe_admission_record",
     "operator_confirmation_record",
     "summary",
     "safety_assertions",
     "process_exit_record",
+)
+H2O_DOWNSTREAM_BRIDGED_ARTIFACT_KEYS = (
+    "route_trace",
+    "pressure_trace_like",
+    "point_results_json",
+    "point_results_csv",
+    "samples_runtime",
+    "run_log",
+    "downstream_summary",
+)
+H2O_OPTIONAL_DOWNSTREAM_ARTIFACT_KEYS = (
+    "pressure_ready_trace_like",
+    "heartbeat_trace_like",
+    "analyzer_sampling_rows_like",
+)
+H2O_REQUIRED_ARTIFACT_KEYS = (
+    *H2O_HANDOFF_REQUIRED_ARTIFACT_KEYS,
+    *H2O_DOWNSTREAM_BRIDGED_ARTIFACT_KEYS,
+)
+H2O_LEGACY_REQUIRED_ARTIFACT_KEYS = (
+    *H2O_HANDOFF_REQUIRED_ARTIFACT_KEYS,
     "route_trace",
     "pressure_trace",
     "pressure_ready_trace",
@@ -478,18 +500,175 @@ def _validate_operator_confirmation(
     return payload, {"valid": not errors, "errors": errors, "path": str(confirmation_path.resolve())}
 
 
+def _artifact_map_entry(key: str, path: Path, *, role: str, source: str, hard_required: bool) -> dict[str, Any]:
+    exists = path.exists()
+    return {
+        "key": key,
+        "role": role,
+        "source": source,
+        "source_path": str(path),
+        "exists": exists,
+        "status": "linked" if exists else "missing",
+        "hard_required": bool(hard_required),
+        "reason": "" if exists else "source_artifact_missing",
+    }
+
+
+def _missing_artifact_entry(key: str, *, role: str, source: str, hard_required: bool, reason: str) -> dict[str, Any]:
+    return {
+        "key": key,
+        "role": role,
+        "source": source,
+        "source_path": "",
+        "exists": False,
+        "status": "missing" if hard_required else "not_available_or_not_generated",
+        "hard_required": bool(hard_required),
+        "reason": reason,
+    }
+
+
+def _first_existing_artifact(
+    run_dir: Path,
+    filenames: tuple[str, ...],
+    *,
+    key: str,
+    role: str,
+    source: str,
+    hard_required: bool,
+) -> dict[str, Any]:
+    candidates = [run_dir / filename for filename in filenames]
+    for candidate in candidates:
+        if candidate.exists():
+            return _artifact_map_entry(key, candidate, role=role, source=source, hard_required=hard_required)
+    entry = _missing_artifact_entry(
+        key,
+        role=role,
+        source=source,
+        hard_required=hard_required,
+        reason="candidate_artifacts_missing",
+    )
+    entry["candidate_paths"] = [str(candidate) for candidate in candidates]
+    return entry
+
+
+def _build_downstream_artifact_map(execution: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    run_dir_text = str(execution.get("execution_run_dir") or "").strip()
+    if not run_dir_text:
+        return {
+            key: _missing_artifact_entry(
+                key,
+                role="downstream_runtime_artifact",
+                source="downstream_run_dir",
+                hard_required=key in H2O_DOWNSTREAM_BRIDGED_ARTIFACT_KEYS,
+                reason="downstream_run_dir_missing",
+            )
+            for key in (*H2O_DOWNSTREAM_BRIDGED_ARTIFACT_KEYS, *H2O_OPTIONAL_DOWNSTREAM_ARTIFACT_KEYS)
+        }
+    run_dir = Path(run_dir_text)
+    return {
+        "route_trace": _artifact_map_entry(
+            "route_trace",
+            run_dir / "route_trace.jsonl",
+            role="route_trace",
+            source="downstream_route_trace_jsonl",
+            hard_required=True,
+        ),
+        "run_log": _artifact_map_entry(
+            "run_log",
+            run_dir / "run.log",
+            role="run_log",
+            source="downstream_run_log",
+            hard_required=True,
+        ),
+        "downstream_summary": _artifact_map_entry(
+            "downstream_summary",
+            run_dir / "summary.json",
+            role="downstream_summary",
+            source="downstream_summary_json",
+            hard_required=True,
+        ),
+        "point_results_json": _first_existing_artifact(
+            run_dir,
+            ("results.json", "point_summaries.json"),
+            key="point_results_json",
+            role="point_results_json",
+            source="downstream_results_or_point_summaries_json",
+            hard_required=True,
+        ),
+        "point_results_csv": _first_existing_artifact(
+            run_dir,
+            ("points.csv", "points_readable.csv"),
+            key="point_results_csv",
+            role="point_results_csv",
+            source="downstream_points_or_points_readable_csv",
+            hard_required=True,
+        ),
+        "samples_runtime": _first_existing_artifact(
+            run_dir,
+            ("samples.csv", "samples_runtime.csv"),
+            key="samples_runtime",
+            role="samples_runtime",
+            source="downstream_samples_csv_or_samples_runtime_csv",
+            hard_required=True,
+        ),
+        "pressure_trace_like": _first_existing_artifact(
+            run_dir,
+            ("route_pressure_sample_trace.json", "io_log.csv", "route_trace.jsonl"),
+            key="pressure_trace_like",
+            role="pressure_trace_like",
+            source="downstream_route_pressure_sample_trace_or_io_log_or_route_trace",
+            hard_required=True,
+        ),
+        "pressure_ready_trace_like": _first_existing_artifact(
+            run_dir,
+            ("route_pressure_sample_trace.json", "route_trace.jsonl"),
+            key="pressure_ready_trace_like",
+            role="pressure_ready_trace_like",
+            source="downstream_route_pressure_sample_trace_or_route_trace",
+            hard_required=False,
+        ),
+        "heartbeat_trace_like": _missing_artifact_entry(
+            "heartbeat_trace_like",
+            role="heartbeat_trace_like",
+            source="no_dedicated_downstream_heartbeat_trace",
+            hard_required=False,
+            reason="not_available_or_not_generated",
+        ),
+        "analyzer_sampling_rows_like": _first_existing_artifact(
+            run_dir,
+            ("samples.csv", "samples_runtime.csv"),
+            key="analyzer_sampling_rows_like",
+            role="analyzer_sampling_rows_like",
+            source="downstream_samples_csv_or_samples_runtime_csv_no_jsonl_source",
+            hard_required=False,
+        ),
+    }
+
+
+def _downstream_artifact_paths(artifact_map: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
+    return {
+        str(key): str(value.get("source_path") or "")
+        for key, value in artifact_map.items()
+        if str(value.get("source_path") or "")
+    }
+
+
 def _artifact_completeness(
     artifact_paths: Mapping[str, str],
     *,
     assume_present_keys: Optional[set[str]] = None,
+    downstream_artifact_map: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> dict[str, Any]:
     assumed = assume_present_keys or set()
+    linked = downstream_artifact_map or {}
     expected: list[str] = []
     present: list[str] = []
     missing: list[str] = []
     present_keys: list[str] = []
     missing_keys: list[str] = []
-    for key in H2O_REQUIRED_ARTIFACT_KEYS:
+    linked_keys: list[str] = []
+    missing_reasons: dict[str, str] = {}
+    for key in H2O_HANDOFF_REQUIRED_ARTIFACT_KEYS:
         path_text = artifact_paths.get(key, "")
         if not path_text:
             continue
@@ -501,14 +680,39 @@ def _artifact_completeness(
         else:
             missing.append(filename)
             missing_keys.append(key)
+            missing_reasons[key] = "handoff_required_artifact_missing"
+    for key in H2O_DOWNSTREAM_BRIDGED_ARTIFACT_KEYS:
+        entry = linked.get(key, {}) if isinstance(linked, Mapping) else {}
+        source_path = str(entry.get("source_path") or "") if isinstance(entry, Mapping) else ""
+        expected_name = Path(source_path).name if source_path else key
+        expected.append(expected_name)
+        if isinstance(entry, Mapping) and entry.get("exists") and source_path and Path(source_path).exists():
+            present.append(expected_name)
+            present_keys.append(key)
+            linked_keys.append(key)
+        else:
+            missing.append(expected_name)
+            missing_keys.append(key)
+            reason = str(entry.get("reason") or "artifact_contract_missing") if isinstance(entry, Mapping) else "artifact_contract_missing"
+            missing_reasons[key] = reason
+    if not missing:
+        fail_reason = ""
+    elif any(missing_reasons.get(key) == "downstream_run_dir_missing" for key in missing_keys):
+        fail_reason = "downstream_run_dir_missing"
+    elif any(key in H2O_DOWNSTREAM_BRIDGED_ARTIFACT_KEYS for key in missing_keys):
+        fail_reason = "artifact_bridge_incomplete"
+    else:
+        fail_reason = "artifact_contract_missing"
     return {
         "required_artifacts_expected": expected,
         "required_artifacts_present": present,
         "required_artifacts_missing": missing,
         "required_artifact_keys_present": present_keys,
         "required_artifact_keys_missing": missing_keys,
+        "downstream_linked_artifact_keys_present": linked_keys,
+        "required_artifact_missing_reasons": missing_reasons,
         "artifact_completeness_pass": not missing,
-        "artifact_completeness_fail_reason": "" if not missing else "required_artifacts_missing",
+        "artifact_completeness_fail_reason": fail_reason,
     }
 
 
@@ -609,10 +813,15 @@ def _write_process_exit_record(
     any_write_command_sent: Any,
     safe_stop_triggered: Any,
     no_write_assertion_status: str,
+    downstream_diagnostics: Optional[Mapping[str, Any]] = None,
+    downstream_artifact_map: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> None:
+    diagnostics = dict(downstream_diagnostics or {})
+    bridge_map = downstream_artifact_map or {}
     completeness = _artifact_completeness(
         artifact_paths,
         assume_present_keys={"process_exit_record", "summary"},
+        downstream_artifact_map=bridge_map,
     )
     payload = {
         "schema_version": H2O_SCHEMA_VERSION,
@@ -632,6 +841,9 @@ def _write_process_exit_record(
         "safe_stop_triggered": safe_stop_triggered,
         "no_write_assertion_status": no_write_assertion_status,
         "artifact_paths": dict(artifact_paths),
+        **diagnostics,
+        "downstream_artifact_map": dict(bridge_map),
+        "downstream_artifact_paths": _downstream_artifact_paths(bridge_map),
         **completeness,
         **H2O_EVIDENCE_MARKERS,
     }
@@ -1120,6 +1332,9 @@ def write_h2o_1_point_no_write_probe_artifacts(
     execution_error = ""
     execution: dict[str, Any] = {}
     points_alignment: dict[str, Any] = {}
+    downstream_exception_class = ""
+    downstream_exception_message = ""
+    downstream_exception_traceback = ""
 
     _write_interrupted_guard_artifacts(
         run_dir,
@@ -1189,22 +1404,63 @@ def write_h2o_1_point_no_write_probe_artifacts(
                 interruption_source = "KeyboardInterrupt"
                 interruption_stage = "downstream_executor_keyboard_interrupt"
                 execution_error = "KeyboardInterrupt"
+                downstream_exception_class = "KeyboardInterrupt"
+                downstream_exception_message = "KeyboardInterrupt"
+                downstream_exception_traceback = traceback.format_exc()
                 rejection_reasons.append(H2O_INTERRUPTED_FAIL_CLOSED_REASON)
             except TimeoutError as exc:
                 execution_interrupted = True
                 interruption_source = "TimeoutError"
                 interruption_stage = "downstream_executor_timeout"
                 execution_error = str(exc)
+                downstream_exception_class = exc.__class__.__name__
+                downstream_exception_message = str(exc)
+                downstream_exception_traceback = traceback.format_exc()
                 rejection_reasons.append(H2O_INTERRUPTED_FAIL_CLOSED_REASON)
             except Exception as exc:
                 execution_interrupted = True
                 interruption_source = exc.__class__.__name__
                 interruption_stage = "downstream_executor_exception"
                 execution_error = str(exc)
+                downstream_exception_class = exc.__class__.__name__
+                downstream_exception_message = str(exc)
+                downstream_exception_traceback = traceback.format_exc()
                 rejection_reasons.append(H2O_INTERRUPTED_FAIL_CLOSED_REASON)
                 rejection_reasons.append(f"execution_error:{exc}")
 
     service_summary = dict(execution.get("service_summary") or {}) if isinstance(execution, dict) else {}
+    downstream_artifact_map = _build_downstream_artifact_map(execution if isinstance(execution, Mapping) else {})
+    downstream_run_dir = str(execution.get("execution_run_dir") or "") if isinstance(execution, Mapping) else ""
+    downstream_config_path = str(execution.get("underlying_config_path") or "") if isinstance(execution, Mapping) else ""
+    downstream_run_id = str(service_summary.get("run_id") or (Path(downstream_run_dir).name if downstream_run_dir else ""))
+    downstream_final_decision = str(service_summary.get("final_decision") or "")
+    downstream_failure_reason = str(
+        service_summary.get("fail_closed_reason")
+        or service_summary.get("failure_reason")
+        or service_summary.get("error")
+        or ""
+    )
+    downstream_run_log_path = str(downstream_artifact_map.get("run_log", {}).get("source_path") or "")
+    downstream_run_log_tail = str(execution.get("run_log_tail") or "") if isinstance(execution, Mapping) else ""
+    downstream_completed = bool(execution_started and not execution_interrupted and execution)
+    downstream_diagnostics = {
+        "downstream_execution_started": bool(execution_started),
+        "downstream_execution_completed": downstream_completed,
+        "downstream_execution_run_dir": downstream_run_dir,
+        "execution_run_dir": downstream_run_dir,
+        "downstream_config_path": downstream_config_path,
+        "downstream_run_id": downstream_run_id,
+        "downstream_final_decision": downstream_final_decision,
+        "downstream_fail_closed_reason": str(service_summary.get("fail_closed_reason") or ""),
+        "downstream_failure_reason": downstream_failure_reason,
+        "downstream_run_log_path": downstream_run_log_path,
+        "downstream_run_log_tail": downstream_run_log_tail,
+        "downstream_service_summary": service_summary,
+        "downstream_artifact_paths": _downstream_artifact_paths(downstream_artifact_map),
+        "downstream_exception_class": downstream_exception_class,
+        "downstream_exception_message": downstream_exception_message,
+        "downstream_exception_traceback": downstream_exception_traceback,
+    }
 
     real_probe_executed = bool(execution_started and not execution_interrupted)
     real_com_opened: Any = False if not execution_started else ("unknown" if execution_interrupted else True)
@@ -1221,12 +1477,18 @@ def write_h2o_1_point_no_write_probe_artifacts(
             final_decision = "PASS"
         else:
             final_decision = "FAIL_CLOSED"
+            if "downstream_business_failed" not in rejection_reasons:
+                rejection_reasons.append("downstream_business_failed")
             rejection_reasons.append(f"service_final_decision_{service_final.lower()}")
     elif execution_interrupted:
         final_decision = "FAIL_CLOSED"
     else:
         final_decision = "PASS" if admission.approved else "FAIL_CLOSED"
-    completeness = _artifact_completeness(artifact_paths)
+    completeness = _artifact_completeness(artifact_paths, downstream_artifact_map=downstream_artifact_map)
+    if not completeness.get("artifact_completeness_pass"):
+        reason = str(completeness.get("artifact_completeness_fail_reason") or "artifact_contract_missing")
+        if reason not in rejection_reasons:
+            rejection_reasons.append(reason)
     summary = {
         "schema_version": H2O_SCHEMA_VERSION,
         **H2O_EVIDENCE_MARKERS,
@@ -1247,9 +1509,37 @@ def write_h2o_1_point_no_write_probe_artifacts(
         "a3_allowed": False,
         "real_primary_latest_refresh": False,
         "artifact_paths": dict(artifact_paths),
+        **downstream_diagnostics,
+        "downstream_artifact_map": downstream_artifact_map,
+        "downstream_artifact_paths": _downstream_artifact_paths(downstream_artifact_map),
         **completeness,
     }
+    fail_closed_reason = ""
+    if final_decision == "FAIL_CLOSED":
+        if "downstream_business_failed" in rejection_reasons:
+            fail_closed_reason = "downstream_business_failed"
+        else:
+            fail_closed_reason = str(completeness.get("artifact_completeness_fail_reason") or execution_error or H2O_INTERRUPTED_FAIL_CLOSED_REASON)
     _json_dump(run_dir / "summary.json", summary)
+    _write_process_exit_record(
+        run_dir,
+        artifact_paths=artifact_paths,
+        process_state="completed" if not execution_interrupted else "interrupted",
+        final_decision=final_decision,
+        interrupted_execution=bool(execution_interrupted),
+        interruption_source=interruption_source,
+        interruption_stage=interruption_stage,
+        fail_closed_reason=fail_closed_reason,
+        execution_error=execution_error,
+        real_probe_executed=real_probe_executed,
+        real_com_opened=real_com_opened,
+        any_device_command_sent=any_device_command_sent,
+        any_write_command_sent=any_write_command_sent,
+        safe_stop_triggered=safe_stop_triggered,
+        no_write_assertion_status=no_write_assertion,
+        downstream_diagnostics=downstream_diagnostics,
+        downstream_artifact_map=downstream_artifact_map,
+    )
     try:
         from gas_calibrator.v2.storage.indexer import index_run
         index_run(str(run_dir))
