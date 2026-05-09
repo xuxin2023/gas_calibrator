@@ -176,15 +176,16 @@ def test_h2o_runner_keepalive_preserves_legacy_1s_interval() -> None:
 
 def test_h2o_runner_vent_off_path_not_modified_in_D2_scope() -> None:
     source = _execute_source()
-    vent_off_index = source.index("controller.vent(False)")
+    adapter_index = source.index("vent_off_adapter.request_vent")
     stop_index = source.index("self._stop_h2o_vent_keepalive()")
     settle_index = source.index("time.sleep(1.5)")
+    pre_settle_segment = source[stop_index:settle_index]
 
-    assert stop_index < vent_off_index < settle_index
-    assert "controller.vent(False)" in source
-    assert "request_vent(\n                            \"h2o\"" not in source
-    assert "request_vent(\"h2o\"" not in source
-    assert "on=False" not in source
+    assert stop_index < adapter_index < settle_index
+    assert "H2OVentAdapter(vent_command=controller.vent)" in pre_settle_segment
+    assert "route=\"h2o\"" in pre_settle_segment
+    assert "state=ShadowState.SEAL_TRANSITION" in pre_settle_segment
+    assert "on=False" in pre_settle_segment
 
 
 def test_h2o_runner_ambient_to_sealed_order_contract() -> None:
@@ -194,7 +195,7 @@ def test_h2o_runner_ambient_to_sealed_order_contract() -> None:
         source,
         [
             "self._stop_h2o_vent_keepalive()",
-            "controller.vent(False)",
+            "vent_off_adapter.request_vent",
             "time.sleep(1.5)",
             "read_pressure",
             "self.service.valve_routing_service.set_h2o_path(False, lead)",

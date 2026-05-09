@@ -211,9 +211,43 @@ class H2oRouteRunner:
                         self._stop_h2o_vent_keepalive()
                         controller = self.service.device_manager.get_device("pressure_controller")
                         if controller is not None:
-                            controller.vent(False)
+                            try:
+                                vent_off_adapter = H2OVentAdapter(vent_command=controller.vent)
+                                vent_off_result = vent_off_adapter.request_vent(
+                                    route="h2o",
+                                    state=ShadowState.SEAL_TRANSITION,
+                                    on=False,
+                                    reason="H2O seal transition vent off",
+                                    source="H2oRouteRunner.seal_transition",
+                                )
+                            except Exception as exc:
+                                self.service.status_service.log(
+                                    f"H2O route: seal transition vent=OFF adapter error; route=h2o state={ShadowState.SEAL_TRANSITION.value} "
+                                    f"source=H2oRouteRunner.seal_transition error={exc} not_real_acceptance_evidence=True"
+                                )
+                                self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O vent-off adapter error")
+                                skipped_point_indices.extend(expected_indices)
+                                return RouteRunResult(
+                                    success=False,
+                                    skipped_point_indices=skipped_point_indices,
+                                    error="H2O seal transition vent-off adapter error",
+                                )
+                            if not vent_off_result.hardware_command_sent:
+                                self.service.status_service.log(
+                                    f"H2O route: seal transition vent_off blocked; route={vent_off_result.route} state={vent_off_result.state} "
+                                    f"blocked_reason={vent_off_result.blocked_reason or 'policy_denied'} "
+                                    f"hardware_command_sent={vent_off_result.hardware_command_sent} source={vent_off_result.source} "
+                                    f"not_real_acceptance_evidence={vent_off_result.not_real_acceptance_evidence}"
+                                )
+                                self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O vent-off policy blocked")
+                                skipped_point_indices.extend(expected_indices)
+                                return RouteRunResult(
+                                    success=False,
+                                    skipped_point_indices=skipped_point_indices,
+                                    error="H2O seal transition vent-off blocked by policy",
+                                )
                             self.service.status_service.log(
-                                "H2O route: keepalive stopped, vent=OFF bare command sent before seal"
+                                "H2O route: keepalive stopped, vent=OFF adapter policy allowed before seal"
                             )
                         time.sleep(1.5)
                         gauge = self.service.device_manager.get_device("pressure_gauge")
