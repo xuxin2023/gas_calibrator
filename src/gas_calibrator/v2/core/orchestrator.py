@@ -1285,8 +1285,8 @@ class WorkflowOrchestrator:
     def _set_temperature_for_point(self, point: CalibrationPoint, *, phase: str) -> bool:
         return self.temperature_control_service.set_temperature_for_point(point, phase=phase).ok
 
-    def _set_h2o_path(self, is_open: bool, point: Optional[CalibrationPoint] = None) -> None:
-        self.valve_routing_service.set_h2o_path(is_open, point)
+    def _set_h2o_path(self, is_open: bool, point: Optional[CalibrationPoint] = None) -> bool:
+        return self.valve_routing_service.set_h2o_path(is_open, point)
 
     def _capture_temperature_calibration_snapshot(self, point: CalibrationPoint, *, route_type: str) -> bool:
         return self.temperature_control_service.capture_temperature_calibration_snapshot(point, route_type=route_type)
