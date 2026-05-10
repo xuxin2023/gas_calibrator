@@ -332,9 +332,9 @@ class HumidityGenerator:
     def safe_stop(self) -> Dict[str, Any]:
         result: Dict[str, Any] = {
             "flow_off": "not_attempted",
-            "ctrl_off": "not_attempted",
-            "cool_off": "not_attempted",
             "heat_off": "not_attempted",
+            "cool_off": "not_attempted",
+            "ctrl_off": "not_attempted",
         }
         try:
             self.set_flow_target(0.0)
@@ -343,11 +343,11 @@ class HumidityGenerator:
             result["flow_off"] = "failed"
             result["flow_off_error"] = str(exc)
         try:
-            self.enable_control(False)
-            result["ctrl_off"] = "ok"
+            self.heat_off()
+            result["heat_off"] = "ok"
         except Exception as exc:
-            result["ctrl_off"] = "failed"
-            result["ctrl_off_error"] = str(exc)
+            result["heat_off"] = "failed"
+            result["heat_off_error"] = str(exc)
         try:
             self.cool_off()
             result["cool_off"] = "ok"
@@ -355,11 +355,11 @@ class HumidityGenerator:
             result["cool_off"] = "failed"
             result["cool_off_error"] = str(exc)
         try:
-            self.heat_off()
-            result["heat_off"] = "ok"
+            self.enable_control(False)
+            result["ctrl_off"] = "ok"
         except Exception as exc:
-            result["heat_off"] = "failed"
-            result["heat_off_error"] = str(exc)
+            result["ctrl_off"] = "failed"
+            result["ctrl_off_error"] = str(exc)
         return result
 
     def wait_stopped(

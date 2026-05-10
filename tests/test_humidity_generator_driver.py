@@ -39,7 +39,7 @@ def test_humidity_generator_safe_stop_ignores_failures(monkeypatch) -> None:
     assert result["heat_off"] == "failed"
 
 
-def test_humidity_generator_safe_stop_sets_zero_flow_before_ctrl_off() -> None:
+def test_humidity_generator_safe_stop_orders_heat_cool_before_ctrl_off() -> None:
     replay = ReplaySerial()
     dev = humidity_generator.HumidityGenerator("COM1", serial_factory=lambda **_: replay)
 
@@ -50,14 +50,14 @@ def test_humidity_generator_safe_stop_sets_zero_flow_before_ctrl_off() -> None:
     writes = [payload.decode("ascii", errors="ignore").strip() for payload in replay.writes]
     assert writes[:4] == [
         "Target:FA=0.0",
-        "Target:CTRL=OFF",
-        "Target:COOL=OFF",
         "Target:HEAT=OFF",
+        "Target:COOL=OFF",
+        "Target:CTRL=OFF",
     ]
     assert result["flow_off"] == "ok"
-    assert result["ctrl_off"] == "ok"
-    assert result["cool_off"] == "ok"
     assert result["heat_off"] == "ok"
+    assert result["cool_off"] == "ok"
+    assert result["ctrl_off"] == "ok"
 
 
 def test_humidity_generator_fetch_tag_value_keeps_raw_text() -> None:
