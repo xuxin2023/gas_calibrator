@@ -19,6 +19,7 @@ class DewpointAlignmentService:
         self.context = context
         self.run_state = run_state
         self.host = host
+        self.last_h2o_route_ready_evidence: list[dict[str, Any]] = []
 
     def ensure_dewpoint_meter_ready(self) -> bool:
         dewpoint = self.host._device("dewpoint_meter")
@@ -237,12 +238,225 @@ class DewpointAlignmentService:
         )
 
     def open_h2o_route_and_wait_ready(self, point: CalibrationPoint) -> bool:
-        self._set_pressure_controller_vent(True, reason="during H2O route pre-seal preparation")
-        if not self._set_h2o_path(True, point):
+        self.last_h2o_route_ready_evidence = []
+        try:
+            self._set_pressure_controller_vent(True, reason="during H2O route pre-seal preparation")
+            self._record_h2o_route_ready_step(
+                point,
+                step="vent_on_before_h2o_path",
+                result="ok",
+                reason="pressure_controller_vent_on_requested",
+            )
+        except Exception as exc:
+            self._record_h2o_route_ready_step(
+                point,
+                step="vent_on_before_h2o_path",
+                result="fail",
+                reason="vent_on_failed",
+                error=exc,
+            )
+            raise
+        try:
+            h2o_path_opened = self._set_h2o_path(True, point)
+        except Exception as exc:
+            self._record_h2o_route_ready_step(
+                point,
+                step="set_h2o_path_open",
+                result="fail",
+                reason="h2o_path_open_exception",
+                error=exc,
+            )
+            raise
+        self._record_h2o_route_ready_step(
+            point,
+            step="set_h2o_path_open",
+            result="ok" if h2o_path_opened else "fail",
+            reason="h2o_path_opened" if h2o_path_opened else "h2o_path_open_failed",
+        )
+        if not h2o_path_opened:
             return False
-        if not self.ensure_dewpoint_meter_ready():
+        if not self._ensure_dewpoint_meter_ready_for_h2o_route(point):
             return False
-        return self.wait_h2o_route_soak_before_seal(point)
+        try:
+            preseal_ok = self.wait_h2o_route_soak_before_seal(point)
+        except Exception as exc:
+            self._record_h2o_route_ready_step(
+                point,
+                step="preseal_soak",
+                result="fail",
+                reason="preseal_soak_exception",
+                error=exc,
+            )
+            raise
+        self._record_h2o_route_ready_step(
+            point,
+            step="preseal_soak",
+            result="ok" if preseal_ok else "fail",
+            reason="preseal_soak_complete" if preseal_ok else "preseal_soak_failed",
+        )
+        return bool(preseal_ok)
+
+    def _ensure_dewpoint_meter_ready_for_h2o_route(self, point: CalibrationPoint) -> bool:
+        dewpoint = self.host._device("dewpoint_meter")
+        collect_only = self.host._collect_only_fast_path_enabled()
+        if dewpoint is None:
+            if collect_only:
+                self._record_h2o_route_ready_step(
+                    point,
+                    step="dewpoint_meter_available",
+                    result="skipped",
+                    reason="collect_only_dewpoint_meter_unavailable_ignored",
+                )
+                self._record_h2o_route_ready_step(
+                    point,
+                    step="dewpoint_meter_open",
+                    result="skipped",
+                    reason="collect_only_dewpoint_meter_unavailable_ignored",
+                )
+                self._record_h2o_route_ready_step(
+                    point,
+                    step="dewpoint_initial_read",
+                    result="skipped",
+                    reason="collect_only_dewpoint_meter_unavailable_ignored",
+                )
+                self.host._log("Collect-only mode: dewpoint meter unavailable, continue without readiness check")
+                return True
+            self._record_h2o_route_ready_step(
+                point,
+                step="dewpoint_meter_available",
+                result="fail",
+                reason="dewpoint_meter_unavailable",
+            )
+            self._record_h2o_route_ready_step(
+                point,
+                step="dewpoint_meter_open",
+                result="skipped",
+                reason="dewpoint_meter_unavailable",
+            )
+            self._record_h2o_route_ready_step(
+                point,
+                step="dewpoint_initial_read",
+                result="skipped",
+                reason="dewpoint_meter_unavailable",
+            )
+            self.host._log("Dewpoint meter unavailable")
+            return False
+        self._record_h2o_route_ready_step(
+            point,
+            step="dewpoint_meter_available",
+            result="ok",
+            reason="dewpoint_meter_available",
+        )
+        opener = getattr(dewpoint, "open", None)
+        if callable(opener):
+            try:
+                opener()
+            except Exception as exc:
+                if collect_only:
+                    self._record_h2o_route_ready_step(
+                        point,
+                        step="dewpoint_meter_open",
+                        result="skipped",
+                        reason="collect_only_dewpoint_open_failed_ignored",
+                        error=exc,
+                    )
+                    self._record_h2o_route_ready_step(
+                        point,
+                        step="dewpoint_initial_read",
+                        result="skipped",
+                        reason="collect_only_dewpoint_open_failed_ignored",
+                    )
+                    self.host._log(f"Collect-only mode: dewpoint meter open failed but ignored: {exc}")
+                    return True
+                self._record_h2o_route_ready_step(
+                    point,
+                    step="dewpoint_meter_open",
+                    result="fail",
+                    reason="dewpoint_open_failed",
+                    error=exc,
+                )
+                self._record_h2o_route_ready_step(
+                    point,
+                    step="dewpoint_initial_read",
+                    result="skipped",
+                    reason="dewpoint_open_failed",
+                )
+                self.host._log(f"Dewpoint meter open failed: {exc}")
+                return False
+        self._record_h2o_route_ready_step(
+            point,
+            step="dewpoint_meter_open",
+            result="ok",
+            reason="dewpoint_meter_opened" if callable(opener) else "dewpoint_meter_open_not_required",
+        )
+        try:
+            snapshot = self._read_dewpoint_snapshot(
+                dewpoint,
+                context="dewpoint meter initial read",
+                log_failures=True,
+            )
+        except Exception as exc:
+            if collect_only:
+                self._record_h2o_route_ready_step(
+                    point,
+                    step="dewpoint_initial_read",
+                    result="skipped",
+                    reason="collect_only_dewpoint_initial_read_failed_ignored",
+                    error=exc,
+                )
+                self.host._log(f"Collect-only mode: dewpoint meter initial read failed but ignored: {exc}")
+                return True
+            self._record_h2o_route_ready_step(
+                point,
+                step="dewpoint_initial_read",
+                result="fail",
+                reason="dewpoint_initial_read_failed",
+                error=exc,
+            )
+            self.host._log(f"Dewpoint meter initial read failed: {exc}")
+            return False
+        self._record_h2o_route_ready_step(
+            point,
+            step="dewpoint_initial_read",
+            result="ok",
+            reason="dewpoint_initial_read_ok",
+        )
+        self.host._log(f"Dewpoint meter ready: dewpoint={snapshot.get('dewpoint_c')} temp={snapshot.get('temp_c')}")
+        return True
+
+    def _record_h2o_route_ready_step(
+        self,
+        point: CalibrationPoint,
+        *,
+        step: str,
+        result: str,
+        reason: str,
+        error: Optional[BaseException] = None,
+    ) -> None:
+        evidence: dict[str, Any] = {
+            "route": "h2o",
+            "point_index": getattr(point, "index", None),
+            "step": str(step),
+            "result": str(result),
+            "reason": str(reason),
+            "not_real_acceptance_evidence": True,
+        }
+        if error is not None:
+            evidence["error_class"] = type(error).__name__
+            evidence["error_message"] = str(error)
+        self.last_h2o_route_ready_evidence.append(evidence)
+        recorder = getattr(getattr(self.host, "status_service", None), "record_route_trace", None)
+        if callable(recorder):
+            recorder(
+                action="h2o_route_ready_step",
+                route="h2o",
+                point=point,
+                point_index=getattr(point, "index", None),
+                result=str(result),
+                target={"step": str(step)},
+                actual=evidence,
+                message=str(reason),
+            )
 
     def _set_pressure_controller_vent(self, on: bool, *, reason: str) -> None:
         legacy = getattr(self.host, "_set_pressure_controller_vent", None)

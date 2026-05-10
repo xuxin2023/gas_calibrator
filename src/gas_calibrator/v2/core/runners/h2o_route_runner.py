@@ -108,13 +108,14 @@ class H2oRouteRunner:
             if humidity_wait.ok:
                 self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": lead, "stability_type": "humidity"})
             self.service.temperature_control_service.capture_temperature_calibration_snapshot(lead, route_type=phase)
+            self._start_h2o_vent_keepalive()
             route_ready = self.service.dewpoint_alignment_service.open_h2o_route_and_wait_ready(lead)
             self.service.status_service.record_route_trace(
                 action="wait_route_ready",
                 route=phase,
                 point=lead,
                 result="ok" if route_ready else "timeout",
-                message="H2O route open/ready check",
+                message=self._h2o_route_ready_message(route_ready),
             )
             if not route_ready:
                 self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O route timeout")
@@ -124,7 +125,6 @@ class H2oRouteRunner:
                     skipped_point_indices=skipped_point_indices,
                     error="H2O route readiness failed",
                 )
-            self._start_h2o_vent_keepalive()
             dewpoint_ok = self.service.dewpoint_alignment_service.wait_dewpoint_alignment_stable(lead)
             self.service.status_service.record_route_trace(
                 action="wait_dewpoint",
@@ -395,6 +395,20 @@ class H2oRouteRunner:
         finally:
             self._stop_h2o_vent_keepalive()
             route_context.clear()
+
+    def _h2o_route_ready_message(self, route_ready: bool) -> str:
+        base = "H2O route open/ready check"
+        if route_ready:
+            return base
+        evidence = getattr(self.service.dewpoint_alignment_service, "last_h2o_route_ready_evidence", []) or []
+        failures = [item for item in evidence if str(item.get("result", "")).lower() == "fail"]
+        if not failures:
+            return f"{base}; failure_step=unknown reason=unknown"
+        failure = failures[-1]
+        return (
+            f"{base}; failure_step={failure.get('step', 'unknown')} "
+            f"reason={failure.get('reason', 'unknown')}"
+        )
 
     def _start_h2o_vent_keepalive(self) -> None:
         if self._vent_keepalive_thread is not None:
