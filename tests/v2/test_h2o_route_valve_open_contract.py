@@ -117,3 +117,68 @@ def test_set_h2o_path_open_does_not_treat_none_as_ok_without_evidence() -> None:
     assert evidence["relay_command_result"] == "not_sent"
     assert evidence["h2o_path_open_verified"] is False
     assert host.traces[-1]["result"] == "fail"
+
+
+class CoilListRelay:
+    def __init__(self, *, fail_channels: set[int] | None = None) -> None:
+        self.fail_channels = fail_channels or set()
+        self._states: list[bool] = [False] * 32
+        self.calls: list[tuple[int, bool]] = []
+
+    def set_valve(self, channel: int, state: bool) -> bool:
+        self.calls.append((channel, state))
+        if channel not in self.fail_channels:
+            self._states[int(channel) - 1] = bool(state)
+        return True
+
+    def read_coils(self, start: int, count: int = 1):
+        end = start + count
+        return list(self._states[start:end])
+
+
+def _service_coil_list(relay_b: CoilListRelay) -> tuple[ValveRoutingService, Host]:
+    host = Host(FakeRelay(), h2o_path=8, hold=9)
+    host.relay_b = relay_b
+    host.cfg["valves"]["relay_map"] = {
+        "8": {"device": "relay_8", "channel": 8},
+        "9": {"device": "relay_8", "channel": 1},
+        "10": {"device": "relay_8", "channel": 2},
+    }
+    service = ValveRoutingService(SimpleNamespace(), SimpleNamespace(), host=host)
+    service._record_route_trace = lambda **kwargs: host.traces.append(kwargs)
+    return service, host
+
+
+def test_set_h2o_path_open_ok_when_read_coils_returns_true_list() -> None:
+    relay = CoilListRelay()
+    service, host = _service_coil_list(relay)
+
+    assert service.set_h2o_path(True, _point()) is True
+
+    evidence = service.last_h2o_path_evidence
+    assert evidence["relay_command_sent"] is True
+    assert evidence["relay_command_result"] == "sent"
+    assert evidence["h2o_path_return_value"] is True
+    assert evidence["route_physical_state_match"] is True
+    assert evidence["relay_physical_mismatch"] is False
+    assert evidence["mismatched_channels"] == []
+    assert evidence["h2o_path_open_verified"] is True
+    assert host.traces[-1]["result"] == "ok"
+    assert host.traces[-1]["message"] == "H2O route path set"
+
+
+def test_set_h2o_path_open_fail_when_read_coils_returns_false_list() -> None:
+    relay = CoilListRelay(fail_channels={8})
+    service, host = _service_coil_list(relay)
+
+    assert service.set_h2o_path(True, _point()) is False
+
+    evidence = service.last_h2o_path_evidence
+    assert evidence["relay_command_sent"] is True
+    assert evidence["relay_command_result"] == "sent"
+    assert evidence["h2o_path_return_value"] is False
+    assert evidence["route_physical_state_match"] is False
+    assert evidence["relay_physical_mismatch"] is True
+    assert len(evidence["mismatched_channels"]) >= 1
+    assert evidence["h2o_path_open_failure_reason"] == "relay_physical_mismatch"
+    assert host.traces[-1]["result"] == "fail"

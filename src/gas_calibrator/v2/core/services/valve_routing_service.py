@@ -617,10 +617,13 @@ class ValveRoutingService:
                 )
                 if reader is not None:
                     try:
-                        response = reader(max(0, int(channel) - 1), 1)
-                        bits = getattr(response, "bits", None)
-                        if isinstance(bits, list) and bits:
-                            actual = bool(bits[0])
+                        raw = reader(max(0, int(channel) - 1), 1)
+                        if isinstance(raw, list) and raw:
+                            actual = bool(raw[0])
+                        else:
+                            bits = getattr(raw, "bits", None)
+                            if isinstance(bits, list) and bits:
+                                actual = bool(bits[0])
                     except Exception:
                         actual = False
                 else:
@@ -632,7 +635,11 @@ class ValveRoutingService:
                             snapshot = None
                         if isinstance(snapshot, dict):
                             coils = snapshot.get("coils")
-                            if isinstance(coils, dict) and str(channel) in coils:
+                            if isinstance(coils, list):
+                                coil_index = max(0, int(channel) - 1)
+                                if coil_index < len(coils):
+                                    actual = bool(coils[coil_index])
+                            elif isinstance(coils, dict) and str(channel) in coils:
                                 actual = bool(coils.get(str(channel)))
                     else:
                         states = getattr(relay, "states", None)
