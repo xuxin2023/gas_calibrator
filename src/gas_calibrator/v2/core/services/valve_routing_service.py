@@ -153,14 +153,24 @@ class ValveRoutingService:
         if is_open:
             for key in ("h2o_path", "hold"):
                 value = self.host._as_int(self.host._cfg_get(f"valves.{key}"))
-                if value is not None:
+                if value is not None and value > 0:
                     open_list.append(value)
-        relay_state = self.apply_valve_states(open_list)
+        relay_state = {} if is_open and not open_list else self.apply_valve_states(open_list)
         physical = self._physical_route_evidence(open_list, relay_state)
         command_sent = bool(relay_state)
         command_result = "sent" if command_sent else "not_sent"
-        verified = bool(physical["route_physical_state_match"])
-        failure_reason = "" if verified else "relay_physical_mismatch"
+        route_match = physical.get("route_physical_state_match") is True
+        relay_mismatch = physical.get("relay_physical_mismatch") is True
+        mismatched_channels = list(physical.get("mismatched_channels") or [])
+        verified = bool(command_sent and route_match and not relay_mismatch and not mismatched_channels)
+        if verified:
+            failure_reason = ""
+        elif not command_sent:
+            failure_reason = "relay_command_not_sent"
+        elif relay_mismatch or mismatched_channels or physical.get("route_physical_state_match") is False:
+            failure_reason = "relay_physical_mismatch"
+        else:
+            failure_reason = "h2o_path_open_evidence_missing"
         evidence = {
             "relay_command_sent": command_sent,
             "relay_command_result": command_result,
@@ -168,7 +178,7 @@ class ValveRoutingService:
             "route_physical_state_match": physical["route_physical_state_match"],
             "relay_physical_mismatch": physical["relay_physical_mismatch"],
             "mismatched_valves": physical["mismatched_valves"],
-            "mismatched_channels": physical["mismatched_channels"],
+            "mismatched_channels": mismatched_channels,
             "h2o_path_open_verified": verified if is_open else bool(physical["route_physical_state_match"]),
             "h2o_path_open_failure_reason": failure_reason,
         }
@@ -596,7 +606,7 @@ class ValveRoutingService:
     def _relay_state_payload(self, physical_states: dict[tuple[str, int], bool]) -> dict[str, dict[str, bool]]:
         payload: dict[str, dict[str, bool]] = {}
         for (relay_name, channel), desired in sorted(physical_states.items()):
-            actual = bool(desired)
+            actual = False
             relay = self.host._device(relay_name)
             if relay is not None:
                 method_finder = getattr(self.host, "_first_method", None)
@@ -612,7 +622,7 @@ class ValveRoutingService:
                         if isinstance(bits, list) and bits:
                             actual = bool(bits[0])
                     except Exception:
-                        actual = bool(desired)
+                        actual = False
                 else:
                     status = getattr(relay, "status", None)
                     if callable(status):
@@ -624,6 +634,10 @@ class ValveRoutingService:
                             coils = snapshot.get("coils")
                             if isinstance(coils, dict) and str(channel) in coils:
                                 actual = bool(coils.get(str(channel)))
+                    else:
+                        states = getattr(relay, "states", None)
+                        if isinstance(states, dict) and int(channel) in states:
+                            actual = bool(states.get(int(channel)))
             payload.setdefault(str(relay_name), {})[str(channel)] = actual
         return payload
 
