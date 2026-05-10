@@ -156,6 +156,16 @@ def _dewpoint_service(
         _log=lambda message: events.append(f"log:{message}"),
         _set_pressure_controller_vent=lambda on, reason="": events.append(f"vent:{bool(on)}:{reason}"),
         _set_h2o_path=lambda is_open, point: events.append(f"h2o_path:{bool(is_open)}") or h2o_path_ok,
+        _last_h2o_path_evidence={
+            "relay_command_sent": True,
+            "relay_command_result": "sent",
+            "h2o_path_return_value": h2o_path_ok,
+            "route_physical_state_match": h2o_path_ok,
+            "relay_physical_mismatch": not h2o_path_ok,
+            "mismatched_channels": [] if h2o_path_ok else [{"logical_valve": 8, "relay": "relay_b", "channel": 8, "target": True, "actual": False}],
+            "h2o_path_open_verified": h2o_path_ok,
+            "h2o_path_open_failure_reason": "" if h2o_path_ok else "relay_physical_mismatch",
+        },
         _cfg_get=lambda path, default=None: 0.0 if path == "workflow.stability.h2o_route.preseal_soak_s" else default,
         _check_stop=lambda: events.append("check_stop"),
         _normalize_snapshot=lambda value: dict(value),
@@ -217,7 +227,16 @@ def test_h2o_route_ready_records_h2o_path_open_step() -> None:
     assert service.open_h2o_route_and_wait_ready(_point()) is False
 
     steps = _trace_steps(status)
-    assert any(payload["actual"]["step"] == "set_h2o_path_open" and payload["result"] == "fail" for payload in steps)
+    failure = [payload for payload in steps if payload["actual"]["step"] == "set_h2o_path_open"][-1]
+    assert failure["result"] == "fail"
+    assert failure["actual"]["relay_command_sent"] is True
+    assert failure["actual"]["relay_command_result"] == "sent"
+    assert failure["actual"]["h2o_path_return_value"] is False
+    assert failure["actual"]["route_physical_state_match"] is False
+    assert failure["actual"]["relay_physical_mismatch"] is True
+    assert failure["actual"]["mismatched_channels"]
+    assert failure["actual"]["h2o_path_open_verified"] is False
+    assert failure["actual"]["h2o_path_open_failure_reason"] == "relay_physical_mismatch"
 
 
 def test_h2o_route_ready_records_dewpoint_unavailable() -> None:

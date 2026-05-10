@@ -653,11 +653,54 @@ def _downstream_artifact_paths(artifact_map: Mapping[str, Mapping[str, Any]]) ->
     }
 
 
+def _downstream_failed_before_sampling(service_summary: Optional[Mapping[str, Any]]) -> bool:
+    if not isinstance(service_summary, Mapping):
+        return False
+    if int(service_summary.get("sample_count") or 0) > 0:
+        return False
+    if bool(service_summary.get("sample_completed")):
+        return False
+    reason = " ".join(
+        str(service_summary.get(key) or "")
+        for key in ("failure_reason", "a1_fail_reason", "service_status_error", "service_status_message")
+    ).lower()
+    if "route readiness failed" in reason or "route_ready" in reason or "before_sampling" in reason:
+        return True
+    if service_summary.get("pressure_completed") is False and int(service_summary.get("points_completed") or 0) == 0:
+        return True
+    return False
+
+
+def _route_ready_failure(service_summary: Optional[Mapping[str, Any]], route_trace_rows: Optional[list[Mapping[str, Any]]] = None) -> dict[str, str]:
+    rows = route_trace_rows if isinstance(route_trace_rows, list) else []
+    for row in reversed(rows):
+        message = str(row.get("message") or "")
+        actual = row.get("actual") if isinstance(row.get("actual"), Mapping) else {}
+        step = str(actual.get("step") or "")
+        reason = str(actual.get("reason") or "")
+        if row.get("action") == "wait_route_ready" or step:
+            if "failure_step=" in message:
+                step = message.split("failure_step=", 1)[1].split()[0].strip(";, ")
+            if "reason=" in message:
+                reason = message.split("reason=", 1)[1].split()[0].strip(";, ")
+            if step or reason:
+                return {"route_ready_failure_step": step, "route_ready_failure_reason": reason}
+    reason_text = " ".join(
+        str((service_summary or {}).get(key) or "")
+        for key in ("failure_reason", "a1_fail_reason", "service_status_error", "service_status_message")
+    )
+    return {
+        "route_ready_failure_step": "route_ready" if "route readiness failed" in reason_text.lower() else "",
+        "route_ready_failure_reason": "H2O route readiness failed" if "route readiness failed" in reason_text else "",
+    }
+
+
 def _artifact_completeness(
     artifact_paths: Mapping[str, str],
     *,
     assume_present_keys: Optional[set[str]] = None,
     downstream_artifact_map: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    before_sampling_failure: bool = False,
 ) -> dict[str, Any]:
     assumed = assume_present_keys or set()
     linked = downstream_artifact_map or {}
@@ -686,6 +729,10 @@ def _artifact_completeness(
         source_path = str(entry.get("source_path") or "") if isinstance(entry, Mapping) else ""
         expected_name = Path(source_path).name if source_path else key
         expected.append(expected_name)
+        if before_sampling_failure and key in {"samples_runtime", "point_results_json"}:
+            present_keys.append(key)
+            missing_reasons[key] = "expected_missing_due_to_before_sampling_failure"
+            continue
         if isinstance(entry, Mapping) and entry.get("exists") and source_path and Path(source_path).exists():
             present.append(expected_name)
             present_keys.append(key)
@@ -697,6 +744,8 @@ def _artifact_completeness(
             missing_reasons[key] = reason
     if not missing:
         fail_reason = ""
+    elif before_sampling_failure and not any(key not in {"samples_runtime", "point_results_json"} for key in missing_keys):
+        fail_reason = "downstream_business_failed_before_sampling"
     elif any(missing_reasons.get(key) == "downstream_run_dir_missing" for key in missing_keys):
         fail_reason = "downstream_run_dir_missing"
     elif any(key in H2O_DOWNSTREAM_BRIDGED_ARTIFACT_KEYS for key in missing_keys):
@@ -713,6 +762,7 @@ def _artifact_completeness(
         "required_artifact_missing_reasons": missing_reasons,
         "artifact_completeness_pass": not missing,
         "artifact_completeness_fail_reason": fail_reason,
+        "missing_artifacts_expected_due_to_before_sampling": bool(before_sampling_failure),
     }
 
 
@@ -796,6 +846,38 @@ def _partial_safety_assertions(
     }
 
 
+def _final_safety_assertions(no_write_guard: Mapping[str, Any], *, real_probe_executed: bool, real_com_opened: Any, safe_stop_triggered: Any) -> dict[str, Any]:
+    attempted = int(no_write_guard.get("attempted_write_count") or 0)
+    identity = bool(no_write_guard.get("identity_write_command_sent", False))
+    persistent = bool(no_write_guard.get("persistent_write_command_sent", False))
+    blocked = list(no_write_guard.get("blocked_write_events") or []) if isinstance(no_write_guard.get("blocked_write_events"), list) else []
+    any_write = bool(attempted or identity or persistent or blocked)
+    safe = bool(no_write_guard.get("no_write") is True and not any_write)
+    return {
+        **H2O_EVIDENCE_MARKERS,
+        **H2O_SAFETY_ASSERTION_DEFAULTS,
+        "record_type": "h2o_safety_assertions_final",
+        "safety_assertions_complete": True,
+        "real_probe_executed": bool(real_probe_executed),
+        "real_com_opened": real_com_opened,
+        "any_device_command_sent": True,
+        "attempted_write_count": attempted,
+        "blocked_write_events": blocked,
+        "any_write_command_sent": any_write,
+        "identity_write_command_sent": identity,
+        "persistent_write_command_sent": persistent,
+        "no_write": safe,
+        "no_write_assertion_status": "pass_engineering_evidence" if safe else "fail_write_evidence",
+        "device_command_audit_complete": True,
+        "must_not_claim_no_write_pass": False if safe else True,
+        "safe_stop_triggered": safe_stop_triggered,
+        "engineering_probe_only": True,
+        "not_real_acceptance_evidence": True,
+        "promotion_state": "blocked",
+        "real_primary_latest_refresh": False,
+    }
+
+
 def _write_process_exit_record(
     run_dir: Path,
     *,
@@ -815,6 +897,7 @@ def _write_process_exit_record(
     no_write_assertion_status: str,
     downstream_diagnostics: Optional[Mapping[str, Any]] = None,
     downstream_artifact_map: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    before_sampling_failure: bool = False,
 ) -> None:
     diagnostics = dict(downstream_diagnostics or {})
     bridge_map = downstream_artifact_map or {}
@@ -822,6 +905,7 @@ def _write_process_exit_record(
         artifact_paths,
         assume_present_keys={"process_exit_record", "summary"},
         downstream_artifact_map=bridge_map,
+        before_sampling_failure=before_sampling_failure,
     )
     payload = {
         "schema_version": H2O_SCHEMA_VERSION,
@@ -1479,6 +1563,9 @@ def write_h2o_1_point_no_write_probe_artifacts(
     )
     downstream_run_log_path = str(downstream_artifact_map.get("run_log", {}).get("source_path") or "")
     downstream_run_log_tail = str(execution.get("run_log_tail") or "") if isinstance(execution, Mapping) else ""
+    route_trace_rows = list(execution.get("route_trace_rows") or []) if isinstance(execution, Mapping) else []
+    before_sampling_failure = bool(_downstream_failed_before_sampling(service_summary))
+    route_ready_details = _route_ready_failure(service_summary, route_trace_rows)
     downstream_completed = bool(execution_started and not execution_interrupted and execution)
     downstream_diagnostics = {
         "downstream_execution_started": bool(execution_started),
@@ -1494,6 +1581,8 @@ def write_h2o_1_point_no_write_probe_artifacts(
         "downstream_run_log_tail": downstream_run_log_tail,
         "downstream_service_summary": service_summary,
         "downstream_artifact_paths": _downstream_artifact_paths(downstream_artifact_map),
+        "missing_artifacts_expected_due_to_before_sampling": before_sampling_failure,
+        **route_ready_details,
         "downstream_exception_class": downstream_exception_class,
         "downstream_exception_message": downstream_exception_message,
         "downstream_exception_traceback": downstream_exception_traceback,
@@ -1508,6 +1597,19 @@ def write_h2o_1_point_no_write_probe_artifacts(
     device_command_audit: bool = True if not execution_started else (False if execution_interrupted else True)
     must_not_claim: bool = False if not execution_started else (True if execution_interrupted else False)
 
+    no_write_guard = dict(execution.get("no_write_guard") or {}) if isinstance(execution, Mapping) else {}
+    if execution_started and not execution_interrupted and no_write_guard:
+        final_safety = _final_safety_assertions(
+            no_write_guard,
+            real_probe_executed=True,
+            real_com_opened=True,
+            safe_stop_triggered=safe_stop_triggered,
+        )
+        _json_dump(run_dir / "safety_assertions.json", final_safety)
+        any_write_command_sent = final_safety["any_write_command_sent"]
+        no_write_assertion = final_safety["no_write_assertion_status"]
+        device_command_audit = final_safety["device_command_audit_complete"]
+        must_not_claim = final_safety["must_not_claim_no_write_pass"]
     service_final = str(service_summary.get("final_decision") or "").upper()
     if execution_started and not execution_interrupted:
         if service_final == "PASS":
@@ -1521,7 +1623,11 @@ def write_h2o_1_point_no_write_probe_artifacts(
         final_decision = "FAIL_CLOSED"
     else:
         final_decision = "PASS" if admission.approved else "FAIL_CLOSED"
-    completeness = _artifact_completeness(artifact_paths, downstream_artifact_map=downstream_artifact_map)
+    completeness = _artifact_completeness(
+        artifact_paths,
+        downstream_artifact_map=downstream_artifact_map,
+        before_sampling_failure=before_sampling_failure,
+    )
     if not completeness.get("artifact_completeness_pass"):
         reason = str(completeness.get("artifact_completeness_fail_reason") or "artifact_contract_missing")
         if reason not in rejection_reasons:
@@ -1576,6 +1682,7 @@ def write_h2o_1_point_no_write_probe_artifacts(
         no_write_assertion_status=no_write_assertion,
         downstream_diagnostics=downstream_diagnostics,
         downstream_artifact_map=downstream_artifact_map,
+        before_sampling_failure=before_sampling_failure,
     )
     try:
         from gas_calibrator.v2.storage.indexer import index_run

@@ -271,7 +271,8 @@ class DewpointAlignmentService:
             point,
             step="set_h2o_path_open",
             result="ok" if h2o_path_opened else "fail",
-            reason="h2o_path_opened" if h2o_path_opened else "h2o_path_open_failed",
+            reason="h2o_path_opened" if h2o_path_opened else self._h2o_path_failure_reason(),
+            details=self._h2o_path_evidence(h2o_path_opened),
         )
         if not h2o_path_opened:
             return False
@@ -432,6 +433,7 @@ class DewpointAlignmentService:
         result: str,
         reason: str,
         error: Optional[BaseException] = None,
+        details: Optional[dict[str, Any]] = None,
     ) -> None:
         evidence: dict[str, Any] = {
             "route": "h2o",
@@ -441,6 +443,8 @@ class DewpointAlignmentService:
             "reason": str(reason),
             "not_real_acceptance_evidence": True,
         }
+        if details:
+            evidence.update(details)
         if error is not None:
             evidence["error_class"] = type(error).__name__
             evidence["error_message"] = str(error)
@@ -458,6 +462,36 @@ class DewpointAlignmentService:
                 message=str(reason),
             )
 
+    def _h2o_path_evidence(self, h2o_path_opened: bool) -> dict[str, Any]:
+        legacy_evidence = getattr(self.host, "_last_h2o_path_evidence", None)
+        if isinstance(legacy_evidence, dict) and legacy_evidence:
+            return dict(legacy_evidence)
+        vrs = getattr(self.host, "valve_routing_service", None)
+        evidence = getattr(vrs, "last_h2o_path_evidence", None) if vrs is not None else None
+        if isinstance(evidence, dict) and evidence:
+            return dict(evidence)
+        return {
+            "relay_command_sent": "unknown",
+            "relay_command_result": "unknown",
+            "h2o_path_return_value": bool(h2o_path_opened),
+            "route_physical_state_match": "unknown",
+            "relay_physical_mismatch": "unknown",
+            "mismatched_channels": [],
+            "h2o_path_open_verified": bool(h2o_path_opened),
+            "h2o_path_open_failure_reason": "missing_h2o_path_evidence" if not h2o_path_opened else "",
+        }
+
+    def _h2o_path_failure_reason(self) -> str:
+        evidence = self._h2o_path_evidence(False)
+        reason = str(evidence.get("h2o_path_open_failure_reason") or "").strip()
+        if reason:
+            return reason
+        if evidence.get("relay_physical_mismatch") is True:
+            return "relay_physical_mismatch"
+        if evidence.get("relay_command_sent") is False:
+            return "relay_command_not_sent"
+        return "h2o_path_open_failed"
+
     def _set_pressure_controller_vent(self, on: bool, *, reason: str) -> None:
         legacy = getattr(self.host, "_set_pressure_controller_vent", None)
         if callable(legacy):
@@ -474,13 +508,13 @@ class DewpointAlignmentService:
     def _set_h2o_path(self, is_open: bool, point: CalibrationPoint) -> bool:
         legacy = getattr(self.host, "_set_h2o_path", None)
         if callable(legacy):
-            return bool(legacy(is_open, point))
+            result = legacy(is_open, point)
+            return bool(result)
         vrs = getattr(self.host, "valve_routing_service", None)
         if vrs is not None:
             setter = getattr(vrs, "set_h2o_path", None)
             if callable(setter):
-                setter(is_open, point)
-                return True
+                return bool(setter(is_open, point))
         self.host._log("DewpointAlignmentService: cannot set H2O path (no adapter)")
         return False
 

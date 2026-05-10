@@ -52,24 +52,45 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _make_downstream_run(tmp_path: Path, *, final_decision: str = "PASS") -> Path:
+def _make_downstream_run(tmp_path: Path, *, final_decision: str = "PASS", before_sampling: bool = False) -> Path:
     run_dir = tmp_path / "downstream" / "run_20260510_012103"
     run_dir.mkdir(parents=True)
+    failure_reason = "H2O route readiness failed" if final_decision != "PASS" else ""
     _write_json(
         run_dir / "summary.json",
         {
             "run_id": "run_20260510_012103",
             "final_decision": final_decision,
-            "failure_reason": "H2O route readiness failed" if final_decision != "PASS" else "",
+            "failure_reason": failure_reason,
+            "a1_fail_reason": failure_reason,
+            "service_status_error": failure_reason,
+            "points_completed": 0 if before_sampling else 1,
+            "sample_count": 0 if before_sampling else 1,
+            "pressure_completed": False if before_sampling else True,
+            "sample_completed": False if before_sampling else True,
             "no_write": True,
         },
     )
     (run_dir / "run.log").write_text("start\nroute readiness failed\nfinal safe stop\n", encoding="utf-8")
-    (run_dir / "route_trace.jsonl").write_text('{"event":"wait_route_ready","result":"timeout"}\n', encoding="utf-8")
-    _write_json(run_dir / "results.json", {"points": []})
+    (run_dir / "route_trace.jsonl").write_text(
+        '{"action":"wait_route_ready","result":"timeout","message":"H2O route open/ready check; failure_step=set_h2o_path_open reason=relay_physical_mismatch"}\n',
+        encoding="utf-8",
+    )
+    if not before_sampling:
+        _write_json(run_dir / "results.json", {"points": []})
+        (run_dir / "samples.csv").write_text("ts,value\n1,2\n", encoding="utf-8")
     (run_dir / "points.csv").write_text("point,result\n1,fail\n", encoding="utf-8")
-    (run_dir / "samples.csv").write_text("ts,value\n1,2\n", encoding="utf-8")
     _write_json(run_dir / "route_pressure_sample_trace.json", {"samples": []})
+    _write_json(
+        run_dir / "no_write_guard.json",
+        {
+            "no_write": True,
+            "attempted_write_count": 0,
+            "blocked_write_events": [],
+            "identity_write_command_sent": False,
+            "persistent_write_command_sent": False,
+        },
+    )
     return run_dir
 
 
@@ -86,6 +107,8 @@ def _patch_common(monkeypatch, downstream_run_dir: Path, *, final_decision: str 
             "execution_run_dir": str(downstream_run_dir),
             "underlying_config_path": str(config_path),
             "service_summary": _read_json(downstream_run_dir / "summary.json"),
+            "no_write_guard": _read_json(downstream_run_dir / "no_write_guard.json"),
+            "route_trace_rows": [json.loads(line) for line in (downstream_run_dir / "route_trace.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()],
             "run_log_tail": (downstream_run_dir / "run.log").read_text(encoding="utf-8")[-20000:],
         }
 
@@ -232,12 +255,64 @@ def test_fake_execution_exception_records_traceback_without_com(tmp_path, monkey
     assert process_exit["any_write_command_sent"] == "unknown"
 
 
-def test_no_write_not_real_acceptance_and_primary_latest_markers_unchanged(tmp_path, monkeypatch):
+def test_safety_assertions_finalize_from_downstream_no_write_guard(tmp_path, monkeypatch):
     downstream = _make_downstream_run(tmp_path)
-    summary, process_exit, _ = _run_probe(tmp_path, monkeypatch, downstream)
+    summary, process_exit, handoff = _run_probe(tmp_path, monkeypatch, downstream)
+    safety = _read_json(handoff / "safety_assertions.json")
 
+    assert safety["record_type"] == "h2o_safety_assertions_final"
+    assert safety["attempted_write_count"] == 0
+    assert safety["any_write_command_sent"] is False
+    assert safety["device_command_audit_complete"] is True
+    assert safety["no_write_assertion_status"] == "pass_engineering_evidence"
+    assert safety["must_not_claim_no_write_pass"] is False
+    assert summary["no_write_assertion_status"] == "pass_engineering_evidence"
+    assert process_exit["no_write_assertion_status"] == "pass_engineering_evidence"
+
+
+def test_route_ready_fail_before_sampling_does_not_require_samples_as_hard_artifacts(tmp_path, monkeypatch):
+    downstream = _make_downstream_run(tmp_path, final_decision="FAIL", before_sampling=True)
+    summary, process_exit, _ = _run_probe(tmp_path, monkeypatch, downstream, final_decision="FAIL")
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert summary["missing_artifacts_expected_due_to_before_sampling"] is True
+    assert summary["artifact_completeness_fail_reason"] == ""
+    assert "samples_runtime" in summary["required_artifact_keys_present"]
+    assert "point_results_json" in summary["required_artifact_keys_present"]
+    assert "samples_runtime" not in summary["required_artifact_keys_missing"]
+    assert "point_results_json" not in summary["required_artifact_keys_missing"]
+    assert process_exit["missing_artifacts_expected_due_to_before_sampling"] is True
+
+
+def test_probe_summary_preserves_downstream_business_failure_before_sampling(tmp_path, monkeypatch):
+    downstream = _make_downstream_run(tmp_path, final_decision="FAIL", before_sampling=True)
+    summary, _, _ = _run_probe(tmp_path, monkeypatch, downstream, final_decision="FAIL")
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert "downstream_business_failed" in summary["rejection_reasons"]
+    assert summary["downstream_failure_reason"] == "H2O route readiness failed"
+    assert summary["downstream_final_decision"] == "FAIL"
+
+
+def test_process_exit_records_route_ready_failure_step_and_reason(tmp_path, monkeypatch):
+    downstream = _make_downstream_run(tmp_path, final_decision="FAIL", before_sampling=True)
+    _, process_exit, _ = _run_probe(tmp_path, monkeypatch, downstream, final_decision="FAIL")
+
+    assert process_exit["route_ready_failure_step"] == "set_h2o_path_open"
+    assert process_exit["route_ready_failure_reason"] == "relay_physical_mismatch"
+
+
+def test_no_write_finalization_still_blocks_real_acceptance(tmp_path, monkeypatch):
+    downstream = _make_downstream_run(tmp_path)
+    summary, process_exit, handoff = _run_probe(tmp_path, monkeypatch, downstream)
+    safety = _read_json(handoff / "safety_assertions.json")
+
+    assert safety["not_real_acceptance_evidence"] is True
+    assert safety["promotion_state"] == "blocked"
+    assert safety["real_primary_latest_refresh"] is False
+    assert safety["engineering_probe_only"] is True
     assert summary["any_write_command_sent"] is False
-    assert summary["no_write_assertion_status"] == "pass"
+    assert summary["no_write_assertion_status"] == "pass_engineering_evidence"
     assert summary["not_real_acceptance_evidence"] is True
     assert summary["promotion_state"] == "blocked"
     assert summary["real_primary_latest_refresh"] is False

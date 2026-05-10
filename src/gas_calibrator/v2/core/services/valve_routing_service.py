@@ -14,6 +14,7 @@ class ValveRoutingService:
         self.context = context
         self.run_state = run_state
         self.host = host
+        self.last_h2o_path_evidence: dict[str, Any] = {}
 
     def managed_valves(self) -> list[int]:
         valves_cfg = self.host._cfg_get("valves", {})
@@ -147,7 +148,7 @@ class ValveRoutingService:
     def apply_route_baseline_valves(self) -> None:
         self.apply_valve_states([])
 
-    def set_h2o_path(self, is_open: bool, point: Optional[CalibrationPoint] = None) -> None:
+    def set_h2o_path(self, is_open: bool, point: Optional[CalibrationPoint] = None) -> bool:
         open_list: list[int] = []
         if is_open:
             for key in ("h2o_path", "hold"):
@@ -156,6 +157,22 @@ class ValveRoutingService:
                     open_list.append(value)
         relay_state = self.apply_valve_states(open_list)
         physical = self._physical_route_evidence(open_list, relay_state)
+        command_sent = bool(relay_state)
+        command_result = "sent" if command_sent else "not_sent"
+        verified = bool(physical["route_physical_state_match"])
+        failure_reason = "" if verified else "relay_physical_mismatch"
+        evidence = {
+            "relay_command_sent": command_sent,
+            "relay_command_result": command_result,
+            "h2o_path_return_value": verified,
+            "route_physical_state_match": physical["route_physical_state_match"],
+            "relay_physical_mismatch": physical["relay_physical_mismatch"],
+            "mismatched_valves": physical["mismatched_valves"],
+            "mismatched_channels": physical["mismatched_channels"],
+            "h2o_path_open_verified": verified if is_open else bool(physical["route_physical_state_match"]),
+            "h2o_path_open_failure_reason": failure_reason,
+        }
+        self.last_h2o_path_evidence = evidence
         self._record_route_trace(
             action="set_h2o_path",
             route="h2o",
@@ -169,15 +186,13 @@ class ValveRoutingService:
             actual={
                 "actual_open_valves": physical["actual_open_valves"],
                 "actual_relay_state": physical["actual_relay_state"],
-                "route_physical_state_match": physical["route_physical_state_match"],
-                "relay_physical_mismatch": physical["relay_physical_mismatch"],
-                "mismatched_valves": physical["mismatched_valves"],
-                "mismatched_channels": physical["mismatched_channels"],
+                **evidence,
             },
             relay_state=relay_state,
-            result="ok",
-            message="H2O route path set",
+            result="ok" if verified else "fail",
+            message="H2O route path set" if verified else failure_reason,
         )
+        return verified
 
     def co2_maps_for_point(self, point: CalibrationPoint) -> list[dict[str, Any]]:
         map_a = self.host._cfg_get("valves.co2_map", {})
