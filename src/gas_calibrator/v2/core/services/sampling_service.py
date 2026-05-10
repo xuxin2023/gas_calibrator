@@ -978,8 +978,12 @@ class SamplingService:
         timing = self.host._finish_point_timing(point, phase=phase, point_tag=point_tag)
         stability_time_s = self.host._as_float(timing.get("stability_time_s"))
         total_time_s = self.host._as_float(timing.get("total_time_s"))
-        analyzer_labels = [label for label, _, _ in self.host._all_gas_analyzers()]
+        analyzer_labels = [label for label, _, _ in self.host._active_gas_analyzers()]
+        skipped_analyzers = sorted(getattr(self.run_state.analyzers, "disabled", set()))
         integrity = self.summarize_analyzer_integrity(final_rows, analyzer_labels=analyzer_labels)
+        integrity["analyzer_skipped_labels"] = ",".join(str(label).upper() for label in skipped_analyzers)
+        integrity["disabled_analyzers"] = skipped_analyzers
+        integrity["disabled_analyzer_reasons"] = dict(getattr(self.run_state.analyzers, "disabled_reasons", {}) or {})
         for row in final_rows:
             row.update(integrity)
             row["stability_time_s"] = stability_time_s

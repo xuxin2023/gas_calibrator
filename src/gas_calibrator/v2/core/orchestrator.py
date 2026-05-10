@@ -467,27 +467,45 @@ class WorkflowOrchestrator:
 
         critical = list(policy.get("critical_devices_failed") or [])
         optional_failed = list(policy.get("optional_context_devices_failed") or [])
+        analyzer_failed_nonblocking = list(policy.get("analyzer_failed_nonblocking") or [])
+        disabled_analyzer_labels = list(policy.get("disabled_analyzer_labels") or [])
+        if analyzer_failed_nonblocking:
+            self._disable_analyzers(disabled_analyzer_labels or analyzer_failed_nonblocking, "analyzer_unavailable")
+            policy = self._classify_device_failures(failed, all_devices=all_devices, stage=stage)
+            self._record_device_failure_policy(policy, stage=stage)
+            critical = list(policy.get("critical_devices_failed") or [])
+            optional_failed = list(policy.get("optional_context_devices_failed") or [])
+            analyzer_failed_nonblocking = list(policy.get("analyzer_failed_nonblocking") or [])
+            disabled_analyzer_labels = list(policy.get("disabled_analyzer_labels") or [])
         self.event_bus.publish(
             EventType.DEVICE_ERROR,
             {
                 "failed_devices": failed,
                 "critical_devices_failed": critical,
                 "optional_context_devices_failed": optional_failed,
+                "analyzer_failed_nonblocking": analyzer_failed_nonblocking,
+                "disabled_analyzers": disabled_analyzer_labels,
                 "device_policy_stage": stage,
             },
         )
         if critical:
-            raise WorkflowValidationError(
-                error_message,
-                details={
+            details = dict(policy)
+            details.update(
+                {
                     "failed_devices": critical,
                     "critical_devices_failed": critical,
                     "optional_context_devices_failed": optional_failed,
                     "critical_device_init_failure_blocks_probe": True,
-                },
+                }
             )
+            raise WorkflowValidationError(error_message, details=details)
 
-        if optional_failed and set(optional_failed) == set(failed):
+        if analyzer_failed_nonblocking:
+            warning = (
+                f"Analyzer devices unavailable during {stage}: {', '.join(analyzer_failed_nonblocking)}; "
+                "workflow continues with active analyzers"
+            )
+        elif optional_failed and set(optional_failed) == set(failed):
             warning = f"Optional context devices unavailable during {stage}: {', '.join(optional_failed)}"
         elif optional_failed:
             warning = f"{warning_prefix}: {', '.join(failed)}; optional_context_devices_failed={optional_failed}"
@@ -516,23 +534,48 @@ class WorkflowOrchestrator:
         failed = sorted({str(name) for name in failed_devices if str(name or "").strip()})
         known = sorted({str(name) for name in (all_devices or []) if str(name or "").strip()} | set(failed))
         gas_devices = sorted({name for name in known if name.startswith("gas_analyzer_")})
+        failed_gas_devices = [name for name in failed if name.startswith("gas_analyzer_")]
+        disabled_analyzers = sorted(str(name) for name in getattr(self.run_state.analyzers, "disabled", set()) if str(name).strip())
         a2_probe = self._a2_pressure_sweep_mode()
+        analyzer_isolation_probe = self._analyzer_failure_isolation_mode()
         skip_temp_probe = self._a2_skip_temp_wait_engineering_probe_mode()
 
         route_pressure_devices = ["pressure_controller", "pressure_meter", "relay_a", "relay_b"]
         if a2_probe:
             critical_required = list(route_pressure_devices)
-            critical_required.extend(gas_devices)
             optional_context_devices = ["temperature_chamber"] if skip_temp_probe else []
             if not skip_temp_probe:
                 critical_required.append("temperature_chamber")
-        else:
-            critical_required = ["temperature_chamber", *gas_devices]
+        elif analyzer_isolation_probe:
+            critical_required = [
+                "dewpoint_meter",
+                "humidity_generator",
+                "pressure_controller",
+                "pressure_gauge",
+                "pressure_meter",
+                "relay_a",
+                "relay_b",
+                "temperature_chamber",
+            ]
             optional_context_devices = []
+        else:
+            critical_required = ["temperature_chamber"]
+            optional_context_devices = []
+        if not analyzer_isolation_probe:
+            critical_required.extend(gas_devices)
         critical_required = sorted(dict.fromkeys(critical_required))
         optional_context_devices = sorted(dict.fromkeys(optional_context_devices))
 
-        critical_failed = [name for name in failed if name in critical_required or name.startswith("gas_analyzer_")]
+        available_gas_devices = [name for name in gas_devices if name not in set(failed_gas_devices) | set(disabled_analyzers)]
+        all_analyzers_unavailable = bool(gas_devices and failed_gas_devices and not available_gas_devices)
+        analyzer_failed_nonblocking = failed_gas_devices if analyzer_isolation_probe and not all_analyzers_unavailable else []
+        critical_failed = [
+            name
+            for name in failed
+            if name in critical_required
+            or (name.startswith("gas_analyzer_") and not analyzer_isolation_probe)
+            or (name.startswith("gas_analyzer_") and all_analyzers_unavailable)
+        ]
         optional_failed = [name for name in failed if name in optional_context_devices and name not in critical_failed]
         temp_attempted = "temperature_chamber" in known or "temperature_chamber" in failed
         temp_failed_at_stage = "temperature_chamber" in failed
@@ -592,6 +635,30 @@ class WorkflowOrchestrator:
             "critical_devices_failed": critical_failed,
             "optional_context_devices": optional_context_devices,
             "optional_context_devices_failed": optional_failed,
+            "analyzer_failure_isolation_enabled": bool(analyzer_isolation_probe),
+            "gas_analyzers_known": gas_devices,
+            "failed_analyzers": failed_gas_devices,
+            "analyzer_failed_nonblocking": analyzer_failed_nonblocking,
+            "disabled_analyzers": sorted(set(disabled_analyzers) | set(analyzer_failed_nonblocking)),
+            "disabled_analyzer_labels": analyzer_failed_nonblocking,
+            "disabled_analyzer_reasons": {
+                name: "analyzer_unavailable"
+                for name in sorted(set(disabled_analyzers) | set(analyzer_failed_nonblocking))
+            },
+            "active_analyzers": available_gas_devices,
+            "analyzer_failure_blocks_probe": bool(all_analyzers_unavailable),
+            "all_analyzers_unavailable": bool(all_analyzers_unavailable),
+            "reference_devices_ready": not any(not name.startswith("gas_analyzer_") for name in critical_failed),
+            "device_precheck_result": (
+                "FAIL"
+                if critical_failed
+                else ("DEGRADED_CONTINUE" if analyzer_failed_nonblocking or optional_failed else "OK")
+            ),
+            "device_failure_policy_result": (
+                "all_analyzers_unavailable"
+                if all_analyzers_unavailable
+                else ("analyzer_failed_nonblocking" if analyzer_failed_nonblocking else "ok")
+            ),
             "critical_device_init_failure_blocks_probe": bool(critical_failed),
             "optional_context_failure_blocks_probe": False,
         }
@@ -612,6 +679,14 @@ class WorkflowOrchestrator:
             current.update({key: value for key, value in preserved.items() if value is not None})
         else:
             current.update(dict(policy))
+        current["disabled_analyzers"] = sorted(getattr(self.run_state.analyzers, "disabled", set()))
+        current["disabled_analyzer_reasons"] = dict(getattr(self.run_state.analyzers, "disabled_reasons", {}) or {})
+        if current.get("failed_analyzers") and not current.get("critical_devices_failed"):
+            active = [name for name in current.get("gas_analyzers_known", []) if name not in set(current["disabled_analyzers"])]
+            current["active_analyzers"] = active
+            current["device_precheck_result"] = "DEGRADED_CONTINUE"
+            current["analyzer_failure_blocks_probe"] = False
+            current["all_analyzers_unavailable"] = False
         self._device_init_policy_evidence = current
         self._record_workflow_timing(
             "device_init_policy",
@@ -652,6 +727,25 @@ class WorkflowOrchestrator:
     def _is_critical_device(self, name: str) -> bool:
         policy = self._classify_device_failures([name], all_devices=[name], stage="classification")
         return str(name or "") in set(policy.get("critical_devices_failed") or [])
+
+    def _analyzer_failure_isolation_mode(self) -> bool:
+        if self._collect_only_mode():
+            return True
+        route_mode = str(self._cfg_get("workflow.route_mode", "") or "").strip().lower()
+        h2o_scope = str(self._cfg_get("run001_h2o_1_point.scope", "") or "").strip()
+        h2o_probe_scope = str(self._cfg_get("h2o_only_1_point_no_write_probe.scope", "") or "").strip()
+        return bool(
+            route_mode in {"h2o_only", "h2o"}
+            or h2o_scope
+            or h2o_probe_scope
+            or self._cfg_bool_any(
+                (
+                    "run001_h2o_1_point.no_write",
+                    "h2o_only_1_point_no_write_probe.no_write",
+                ),
+                default=False,
+            )
+        )
 
     def _a2_pressure_sweep_mode(self) -> bool:
         run001_scope = str(self._cfg_get("run001_a2.scope", "") or "").strip()
