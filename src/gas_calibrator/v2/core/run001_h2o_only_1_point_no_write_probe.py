@@ -993,7 +993,15 @@ def evaluate_h2o_1_point_no_write_gate(
         reasons.append("config_not_single_route")
     if not _single_temperature(raw_cfg):
         reasons.append("config_not_single_temperature")
-    if not _truthy(raw_cfg, ("no_write", "run001_h2o_1_point.no_write")):
+    config_no_write = _truthy(
+        raw_cfg,
+        (
+            "no_write",
+            "run001_h2o_1_point.no_write",
+            "h2o_only_1_point_no_write_probe.no_write",
+        ),
+    )
+    if not config_no_write:
         reasons.append("config_no_write_not_true")
     if not _same_pressure_points(_pressure_points(raw_cfg)):
         reasons.append("config_pressure_points_not_exact_h2o_set")
@@ -1037,12 +1045,41 @@ def evaluate_h2o_1_point_no_write_gate(
             reasons.append(f"config_{name}_not_disabled")
 
     reasons = list(dict.fromkeys(reasons))
+    safety_evidence = dict(H2O_SAFETY_ASSERTION_DEFAULTS)
+    operator_ack = operator_payload.get("explicit_acknowledgement")
+    operator_no_write_ack = (
+        _as_bool(operator_ack.get("no_write")) is True
+        if isinstance(operator_ack, Mapping)
+        else False
+    )
+    write_flags_safe = (
+        safety_evidence.get("attempted_write_count") == 0
+        and safety_evidence.get("any_write_command_sent") is False
+        and safety_evidence.get("identity_write_command_sent") is False
+        and safety_evidence.get("mode_switch_command_sent") is False
+        and safety_evidence.get("senco_write_command_sent") is False
+        and safety_evidence.get("calibration_write_command_sent") is False
+        and safety_evidence.get("chamber_write_register_command_sent") is False
+        and safety_evidence.get("chamber_set_temperature_command_sent") is False
+        and safety_evidence.get("chamber_start_command_sent") is False
+        and safety_evidence.get("chamber_stop_command_sent") is False
+        and safety_evidence.get("real_primary_latest_refresh") is False
+    )
+    no_write = bool(config_no_write and operator_no_write_ack and write_flags_safe)
+    if not write_flags_safe:
+        reasons.append("no_write_write_flags_not_safe")
+    reasons = list(dict.fromkeys(reasons))
     approved = not reasons
     evidence = {
         **H2O_EVIDENCE_MARKERS,
         "admission_approved": approved,
         "a3_allowed": False,
-        **H2O_SAFETY_ASSERTION_DEFAULTS,
+        **safety_evidence,
+        "config_no_write": bool(config_no_write),
+        "operator_no_write_ack": bool(operator_no_write_ack),
+        "write_flags_safe_for_no_write": bool(write_flags_safe),
+        "no_write": no_write,
+        "no_write_contract_source": "config_no_write && operator_no_write_ack && write_flags_safe_for_no_write",
         "rejection_reasons": reasons,
         "current_branch": branch,
         "allowed_branches": allowed_branches,
