@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import sys
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +15,21 @@ from gas_calibrator.v2.core.route_planner import RoutePlanner
 from gas_calibrator.v2.core.route_state_shadow import ShadowState
 from gas_calibrator.v2.core.runners import h2o_route_runner
 from gas_calibrator.v2.core.runners.h2o_route_runner import H2oRouteRunner
+
+
+def _h2o_runner_module_source() -> str:
+    return inspect.getsource(h2o_route_runner)
+
+
+def _assert_h2o_contract_does_not_import_co2_runner() -> None:
+    module_globals = set(globals())
+    source = _h2o_runner_module_source()
+
+    assert "Co2RouteRunner" not in module_globals
+    assert "Co2RouteRunner" not in source
+    assert "co2_route_runner" not in source
+    assert "gas_calibrator.v2.core.runners.co2" not in source
+    assert "from gas_calibrator.v2.core.runners.co2" not in source
 
 
 class _BlockedVentOffAdapter:
@@ -445,17 +459,9 @@ def test_h2o_vent_off_adapter_does_not_affect_keepalive_vent_on() -> None:
     assert "vent_off_adapter.request_vent" in execute_source
 
 
-def test_co2_golden_still_passes_after_d31_evidence_review() -> None:
-    module_globals = set(globals())
-    loaded_co2_modules = [name for name in sys.modules if name.startswith("gas_calibrator.v2.core.runners.co2")]
-
-    assert "Co2RouteRunner" not in module_globals
-    assert not loaded_co2_modules
+def test_h2o_vent_off_contract_does_not_import_co2_runner() -> None:
+    _assert_h2o_contract_does_not_import_co2_runner()
 
 
 def test_co2_runtime_not_in_scope_for_h2o_vent_off_contract() -> None:
-    module_globals = set(globals())
-    loaded_co2_modules = [name for name in sys.modules if name.startswith("gas_calibrator.v2.core.runners.co2")]
-
-    assert "Co2RouteRunner" not in module_globals
-    assert not loaded_co2_modules
+    _assert_h2o_contract_does_not_import_co2_runner()

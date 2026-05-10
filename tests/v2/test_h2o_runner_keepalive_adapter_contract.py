@@ -2,14 +2,29 @@ from __future__ import annotations
 
 import ast
 import inspect
-import sys
 import textwrap
 from types import SimpleNamespace
 
 import pytest
 
 from gas_calibrator.v2.core.h2o_vent_adapter import H2OVentAdapter
+from gas_calibrator.v2.core.runners import h2o_route_runner
 from gas_calibrator.v2.core.runners.h2o_route_runner import H2oRouteRunner
+
+
+def _h2o_runner_module_source() -> str:
+    return inspect.getsource(h2o_route_runner)
+
+
+def _assert_h2o_keepalive_contract_does_not_import_co2_runner() -> None:
+    module_globals = set(globals())
+    source = _h2o_runner_module_source()
+
+    assert "Co2RouteRunner" not in module_globals
+    assert "Co2RouteRunner" not in source
+    assert "co2_route_runner" not in source
+    assert "gas_calibrator.v2.core.runners.co2" not in source
+    assert "from gas_calibrator.v2.core.runners.co2" not in source
 
 
 def _start_keepalive_source() -> str:
@@ -227,9 +242,5 @@ def test_h2o_runner_keepalive_records_blocked_or_failure_evidence() -> None:
     assert "error:" in source
 
 
-def test_co2_golden_guard_not_in_scope_for_h2o_d2() -> None:
-    module_globals = set(globals())
-    loaded_gas_modules = [name for name in sys.modules if name.startswith("gas_calibrator.v2.core.runners.co2")]
-
-    assert "Co2RouteRunner" not in module_globals
-    assert not loaded_gas_modules
+def test_h2o_keepalive_contract_does_not_import_co2_runner() -> None:
+    _assert_h2o_keepalive_contract_does_not_import_co2_runner()
