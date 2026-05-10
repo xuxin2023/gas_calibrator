@@ -189,17 +189,27 @@ class SettlingCoilRelay(CoilListRelay):
         super().__init__()
         self.settle_channels = settle_channels or set()
         self._read_count: dict[int, int] = {}
+        self._rewrite_count: dict[int, int] = {}
+
+    def set_valve(self, channel: int, state: bool) -> bool:
+        self.calls.append((channel, state))
+        cnt = self._rewrite_count.get(channel, 0) + 1
+        self._rewrite_count[channel] = cnt
+        if channel in self.settle_channels and cnt == 1:
+            return True
+        if channel not in self.fail_channels:
+            self._states[int(channel) - 1] = bool(state)
+        return True
 
     def read_coils(self, start: int, count: int = 1):
         end = start + count
-        first = list(self._states[start:end])
         ch = int(start) + 1
         if ch in self.settle_channels:
             cnt = self._read_count.get(ch, 0) + 1
             self._read_count[ch] = cnt
             if cnt == 1:
-                return [not bool(first[0])] if first else [True]
-        return first
+                return [not bool(self._states[start])] if self._states[start:end] else [True]
+        return list(self._states[start:end])
 
 
 def test_set_h2o_path_open_ok_after_first_readback_mismatch_retry() -> None:

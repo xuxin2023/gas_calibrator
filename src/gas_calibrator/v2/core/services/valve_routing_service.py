@@ -626,7 +626,17 @@ class ValveRoutingService:
                             if isinstance(bits, list) and bits:
                                 actual = bool(bits[0])
                         if actual != bool(desired):
-                            time.sleep(0.08)
+                            writer = (
+                                method_finder(relay, ("set_valve",))
+                                if callable(method_finder)
+                                else getattr(relay, "set_valve", None)
+                            )
+                            if writer is not None:
+                                try:
+                                    writer(int(channel), bool(desired))
+                                except Exception:
+                                    pass
+                            time.sleep(0.15)
                             raw2 = reader(max(0, int(channel) - 1), 1)
                             if isinstance(raw2, list) and raw2:
                                 actual = bool(raw2[0])
