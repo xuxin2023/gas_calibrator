@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Iterable, Mapping, Optional
 
 from ..models import CalibrationPoint
@@ -624,6 +625,15 @@ class ValveRoutingService:
                             bits = getattr(raw, "bits", None)
                             if isinstance(bits, list) and bits:
                                 actual = bool(bits[0])
+                        if actual != bool(desired):
+                            time.sleep(0.08)
+                            raw2 = reader(max(0, int(channel) - 1), 1)
+                            if isinstance(raw2, list) and raw2:
+                                actual = bool(raw2[0])
+                            else:
+                                bits2 = getattr(raw2, "bits", None)
+                                if isinstance(bits2, list) and bits2:
+                                    actual = bool(bits2[0])
                     except Exception:
                         actual = False
                 else:

@@ -182,3 +182,36 @@ def test_set_h2o_path_open_fail_when_read_coils_returns_false_list() -> None:
     assert len(evidence["mismatched_channels"]) >= 1
     assert evidence["h2o_path_open_failure_reason"] == "relay_physical_mismatch"
     assert host.traces[-1]["result"] == "fail"
+
+
+class SettlingCoilRelay(CoilListRelay):
+    def __init__(self, *, settle_channels: set[int] | None = None) -> None:
+        super().__init__()
+        self.settle_channels = settle_channels or set()
+        self._read_count: dict[int, int] = {}
+
+    def read_coils(self, start: int, count: int = 1):
+        end = start + count
+        first = list(self._states[start:end])
+        ch = int(start) + 1
+        if ch in self.settle_channels:
+            cnt = self._read_count.get(ch, 0) + 1
+            self._read_count[ch] = cnt
+            if cnt == 1:
+                return [not bool(first[0])] if first else [True]
+        return first
+
+
+def test_set_h2o_path_open_ok_after_first_readback_mismatch_retry() -> None:
+    relay = SettlingCoilRelay(settle_channels={3})
+    service, host = _service_coil_list(relay)
+
+    assert service.set_h2o_path(True, _point()) is True
+
+    evidence = service.last_h2o_path_evidence
+    assert evidence["relay_command_sent"] is True
+    assert evidence["h2o_path_return_value"] is True
+    assert evidence["route_physical_state_match"] is True
+    assert evidence["relay_physical_mismatch"] is False
+    assert evidence["mismatched_channels"] == []
+    assert host.traces[-1]["result"] == "ok"
