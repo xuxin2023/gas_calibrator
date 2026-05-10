@@ -618,13 +618,14 @@ class ValveRoutingService:
                 )
                 if reader is not None:
                     try:
-                        raw = reader(max(0, int(channel) - 1), 1)
+                        idx = max(0, int(channel) - 1)
+                        raw = reader(idx, 1)
                         if isinstance(raw, list) and raw:
-                            actual = bool(raw[0])
+                            actual = bool(raw[idx] if len(raw) > 1 else raw[0])
                         else:
                             bits = getattr(raw, "bits", None)
                             if isinstance(bits, list) and bits:
-                                actual = bool(bits[0])
+                                actual = bool(bits[idx] if len(bits) > 1 and idx < len(bits) else bits[0])
                         if actual != bool(desired):
                             writer = (
                                 method_finder(relay, ("set_valve",))
@@ -637,13 +638,13 @@ class ValveRoutingService:
                                 except Exception:
                                     pass
                             time.sleep(0.15)
-                            raw2 = reader(max(0, int(channel) - 1), 1)
+                            raw2 = reader(idx, 1)
                             if isinstance(raw2, list) and raw2:
-                                actual = bool(raw2[0])
+                                actual = bool(raw2[idx] if len(raw2) > 1 else raw2[0])
                             else:
                                 bits2 = getattr(raw2, "bits", None)
                                 if isinstance(bits2, list) and bits2:
-                                    actual = bool(bits2[0])
+                                    actual = bool(bits2[idx] if len(bits2) > 1 and idx < len(bits2) else bits2[0])
                     except Exception:
                         actual = False
                 else:

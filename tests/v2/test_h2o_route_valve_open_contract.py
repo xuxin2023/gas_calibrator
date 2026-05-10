@@ -132,8 +132,7 @@ class CoilListRelay:
         return True
 
     def read_coils(self, start: int, count: int = 1):
-        end = start + count
-        return list(self._states[start:end])
+        return list(self._states[:8])
 
 
 def _service_coil_list(relay_b: CoilListRelay) -> tuple[ValveRoutingService, Host]:
@@ -202,14 +201,14 @@ class SettlingCoilRelay(CoilListRelay):
         return True
 
     def read_coils(self, start: int, count: int = 1):
-        end = start + count
+        all8 = list(self._states[:8])
         ch = int(start) + 1
         if ch in self.settle_channels:
             cnt = self._read_count.get(ch, 0) + 1
             self._read_count[ch] = cnt
             if cnt == 1:
-                return [not bool(self._states[start])] if self._states[start:end] else [True]
-        return list(self._states[start:end])
+                all8[int(start)] = not bool(all8[int(start)])
+        return all8
 
 
 def test_set_h2o_path_open_ok_after_first_readback_mismatch_retry() -> None:
