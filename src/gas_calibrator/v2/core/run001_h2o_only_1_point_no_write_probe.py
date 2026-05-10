@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import contextlib
 import hashlib
+import io
 import json
 import os
 import re
@@ -651,6 +653,114 @@ def _downstream_artifact_paths(artifact_map: Mapping[str, Mapping[str, Any]]) ->
         for key, value in artifact_map.items()
         if str(value.get("source_path") or "")
     }
+
+
+def _extract_downstream_run_dir_from_text(text: str) -> str:
+    if not text:
+        return ""
+    patterns = (
+        r"(?:downstream_execution_run_dir|execution_run_dir|run_dir|output_dir)\s*[:=]\s*[\"']?([^\"'\r\n]+)",
+        r"(D:\\[^\r\n\"']*run_\d{8}[^\r\n\"']*)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            candidate = match.group(1).strip().strip(",; ")
+            if candidate:
+                return candidate
+    return ""
+
+
+def _downstream_search_roots(probe_dir: Path) -> list[Path]:
+    roots = [
+        Path(r"D:\gas_calibrator\output\run001_h2o\1_point_no_write"),
+        Path(r"D:\gas_calibrator\_handoff"),
+        probe_dir,
+    ]
+    return list(dict.fromkeys(path.resolve() for path in roots))
+
+
+def _is_downstream_candidate(path: Path, *, started_at: float) -> bool:
+    if not path.is_dir():
+        return False
+    try:
+        if path.stat().st_mtime < started_at - 5.0:
+            return False
+    except Exception:
+        return False
+    key_files = ("run.log", "summary.json", "route_trace.jsonl", "readiness.json", "no_write_guard.json")
+    return any((path / name).exists() for name in key_files)
+
+
+def _locate_downstream_run_dir(
+    *,
+    probe_dir: Path,
+    started_at: float,
+    stdout_text: str = "",
+    stderr_text: str = "",
+    execution: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    search_roots = _downstream_search_roots(probe_dir)
+    candidates: list[Path] = []
+    checked: list[str] = []
+    for value in (
+        str((execution or {}).get("execution_run_dir") or "") if isinstance(execution, Mapping) else "",
+        _extract_downstream_run_dir_from_text(stdout_text),
+        _extract_downstream_run_dir_from_text(stderr_text),
+    ):
+        if value:
+            candidates.append(Path(value).expanduser())
+    for root in search_roots:
+        checked.append(str(root))
+        if not root.exists():
+            continue
+        glob_patterns = ("run_*", "**/run_*")
+        for pattern in glob_patterns:
+            for candidate in root.glob(pattern):
+                if _is_downstream_candidate(candidate, started_at=started_at):
+                    candidates.append(candidate)
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            resolved = candidate
+        key = str(resolved).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(resolved)
+    valid = [candidate for candidate in unique if candidate.exists() and candidate.is_dir()]
+    valid.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0, reverse=True)
+    selected = valid[0] if valid else None
+    return {
+        "downstream_run_dir_locator_search_roots": checked,
+        "downstream_run_dir_locator_candidates": [str(candidate) for candidate in unique],
+        "downstream_run_dir_locator_selected": str(selected) if selected else "",
+        "downstream_run_dir_locator_started_at": started_at,
+        "downstream_run_dir_locator_completed_at": time.time(),
+    }
+
+
+def _hydrate_execution_from_run_dir(execution: Mapping[str, Any], run_dir: Path) -> dict[str, Any]:
+    hydrated = dict(execution)
+    hydrated["execution_run_dir"] = str(run_dir)
+    hydrated.setdefault("run_manifest", _load_json_dict(run_dir / "run_manifest.json"))
+    hydrated.setdefault("no_write_guard", _load_json_dict(run_dir / "no_write_guard.json"))
+    hydrated.setdefault("workflow_timing_summary", _load_json_dict(run_dir / "workflow_timing_summary.json"))
+    hydrated.setdefault("service_summary", _load_json_dict(run_dir / "summary.json"))
+    hydrated.setdefault("route_trace_rows", _load_jsonl(run_dir / "route_trace.jsonl"))
+    hydrated.setdefault("timing_trace_rows", _load_jsonl(run_dir / "workflow_timing_trace.jsonl"))
+    hydrated.setdefault("io_log_rows", _load_csv_dicts(run_dir / "io_log.csv"))
+    hydrated.setdefault("sample_rows", _load_csv_dicts(run_dir / "samples.csv"))
+    run_log_path = run_dir / "run.log"
+    if not hydrated.get("run_log_tail") and run_log_path.exists():
+        try:
+            hydrated["run_log_tail"] = run_log_path.read_text(encoding="utf-8", errors="ignore")[-20000:]
+        except Exception:
+            hydrated["run_log_tail"] = ""
+    return hydrated
 
 
 def _downstream_failed_before_sampling(service_summary: Optional[Mapping[str, Any]]) -> bool:
@@ -1456,6 +1566,15 @@ def write_h2o_1_point_no_write_probe_artifacts(
     downstream_exception_class = ""
     downstream_exception_message = ""
     downstream_exception_traceback = ""
+    downstream_start_time = 0.0
+    downstream_completed_at = 0.0
+    downstream_stdout_text = ""
+    downstream_stderr_text = ""
+    downstream_process_record: dict[str, Any] = {}
+    downstream_locator: dict[str, Any] = {}
+    downstream_stdout_path = str(run_dir / "downstream_stdout.log")
+    downstream_stderr_path = str(run_dir / "downstream_stderr.log")
+    downstream_process_record_path = str(run_dir / "downstream_process_record.json")
 
     _write_interrupted_guard_artifacts(
         run_dir,
@@ -1518,8 +1637,29 @@ def write_h2o_1_point_no_write_probe_artifacts(
                 must_not_claim_no_write_pass=True,
             )
             execution_started = True
+            downstream_start_time = time.time()
+            downstream_process_record = {
+                "schema_version": H2O_SCHEMA_VERSION,
+                "record_type": "h2o_downstream_process_record",
+                "downstream_start_time": downstream_start_time,
+                "downstream_start_time_iso": _now(),
+                "executor_type": "function_call",
+                "callable": "execute_h2o_single_point_probe",
+                "command": "execute_h2o_single_point_probe(aligned_config_path)",
+                "cwd": str(Path.cwd()),
+                "env_allow_flag": str((env or os.environ).get(H2O_ENV_VAR, "")),
+                "output_dir": str(run_dir),
+                "aligned_config_path": str(aligned_config_path),
+                "expected_output_roots": [str(path) for path in _downstream_search_roots(run_dir)],
+                "stdout_path": downstream_stdout_path,
+                "stderr_path": downstream_stderr_path,
+            }
+            _json_dump(run_dir / "downstream_process_record.json", downstream_process_record)
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
             try:
-                execution = execute_h2o_single_point_probe(aligned_config_path)
+                with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+                    execution = execute_h2o_single_point_probe(aligned_config_path)
             except KeyboardInterrupt:
                 execution_interrupted = True
                 interruption_source = "KeyboardInterrupt"
@@ -1548,6 +1688,35 @@ def write_h2o_1_point_no_write_probe_artifacts(
                 downstream_exception_traceback = traceback.format_exc()
                 rejection_reasons.append(H2O_INTERRUPTED_FAIL_CLOSED_REASON)
                 rejection_reasons.append(f"execution_error:{exc}")
+            finally:
+                downstream_completed_at = time.time()
+                downstream_stdout_text = stdout_buffer.getvalue()
+                downstream_stderr_text = stderr_buffer.getvalue()
+                Path(downstream_stdout_path).write_text(downstream_stdout_text, encoding="utf-8")
+                Path(downstream_stderr_path).write_text(downstream_stderr_text, encoding="utf-8")
+                downstream_locator = _locate_downstream_run_dir(
+                    probe_dir=run_dir,
+                    started_at=downstream_start_time,
+                    stdout_text=downstream_stdout_text,
+                    stderr_text=downstream_stderr_text,
+                    execution=execution if isinstance(execution, Mapping) else {},
+                )
+                selected_run_dir = str(downstream_locator.get("downstream_run_dir_locator_selected") or "")
+                if selected_run_dir:
+                    execution = _hydrate_execution_from_run_dir(execution if isinstance(execution, Mapping) else {}, Path(selected_run_dir))
+                downstream_process_record.update(
+                    {
+                        "downstream_completed_at": downstream_completed_at,
+                        "downstream_completed_at_iso": _now(),
+                        "execution_interrupted": bool(execution_interrupted),
+                        "execution_error": execution_error,
+                        "downstream_exception_class": downstream_exception_class,
+                        "downstream_exception_message": downstream_exception_message,
+                        "execution_returned_mapping": isinstance(execution, Mapping) and bool(execution),
+                        **downstream_locator,
+                    }
+                )
+                _json_dump(run_dir / "downstream_process_record.json", downstream_process_record)
 
     service_summary = dict(execution.get("service_summary") or {}) if isinstance(execution, dict) else {}
     downstream_artifact_map = _build_downstream_artifact_map(execution if isinstance(execution, Mapping) else {})
@@ -1563,6 +1732,8 @@ def write_h2o_1_point_no_write_probe_artifacts(
     )
     downstream_run_log_path = str(downstream_artifact_map.get("run_log", {}).get("source_path") or "")
     downstream_run_log_tail = str(execution.get("run_log_tail") or "") if isinstance(execution, Mapping) else ""
+    if execution_started and not downstream_run_dir:
+        rejection_reasons.append("downstream_run_dir_missing_after_executor")
     route_trace_rows = list(execution.get("route_trace_rows") or []) if isinstance(execution, Mapping) else []
     before_sampling_failure = bool(_downstream_failed_before_sampling(service_summary))
     route_ready_details = _route_ready_failure(service_summary, route_trace_rows)
@@ -1581,6 +1752,12 @@ def write_h2o_1_point_no_write_probe_artifacts(
         "downstream_run_log_tail": downstream_run_log_tail,
         "downstream_service_summary": service_summary,
         "downstream_artifact_paths": _downstream_artifact_paths(downstream_artifact_map),
+        "downstream_stdout_path": downstream_stdout_path if execution_started else "",
+        "downstream_stderr_path": downstream_stderr_path if execution_started else "",
+        "downstream_process_record_path": downstream_process_record_path if execution_started else "",
+        "downstream_stdout_tail": downstream_stdout_text[-20000:],
+        "downstream_stderr_tail": downstream_stderr_text[-20000:],
+        **downstream_locator,
         "missing_artifacts_expected_due_to_before_sampling": before_sampling_failure,
         **route_ready_details,
         "downstream_exception_class": downstream_exception_class,
@@ -1659,10 +1836,13 @@ def write_h2o_1_point_no_write_probe_artifacts(
     }
     fail_closed_reason = ""
     if final_decision == "FAIL_CLOSED":
-        if "downstream_business_failed" in rejection_reasons:
+        if "downstream_run_dir_missing_after_executor" in rejection_reasons:
+            fail_closed_reason = "downstream_run_dir_missing_after_executor"
+        elif "downstream_business_failed" in rejection_reasons:
             fail_closed_reason = "downstream_business_failed"
         else:
             fail_closed_reason = str(completeness.get("artifact_completeness_fail_reason") or execution_error or H2O_INTERRUPTED_FAIL_CLOSED_REASON)
+    summary["fail_closed_reason"] = fail_closed_reason
     _json_dump(run_dir / "summary.json", summary)
     _write_process_exit_record(
         run_dir,

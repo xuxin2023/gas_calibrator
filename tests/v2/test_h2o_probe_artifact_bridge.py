@@ -302,6 +302,109 @@ def test_process_exit_records_route_ready_failure_step_and_reason(tmp_path, monk
     assert process_exit["route_ready_failure_reason"] == "relay_physical_mismatch"
 
 
+def test_downstream_stdout_run_dir_locator_bridges_artifacts(tmp_path, monkeypatch):
+    downstream = _make_downstream_run(tmp_path)
+    monkeypatch.setattr(probe, "evaluate_h2o_1_point_no_write_gate", lambda *args, **kwargs: _approved_admission())
+    monkeypatch.setattr(
+        probe,
+        "prepare_h2o_downstream_points_config",
+        lambda raw_cfg, *, config_path, output_dir: (Path(output_dir) / "fake_downstream_config.json", {"points_config_alignment_ready": True}),
+    )
+
+    def fake_execute(config_path):
+        print(f"downstream_execution_run_dir={downstream}")
+        return {}
+
+    monkeypatch.setattr(probe, "execute_h2o_single_point_probe", fake_execute)
+    handoff = tmp_path / "handoff_stdout_locator"
+    summary = probe.write_h2o_1_point_no_write_probe_artifacts(
+        _minimal_cfg(),
+        output_dir=handoff,
+        config_path=tmp_path / "config.json",
+        operator_confirmation_path=tmp_path / "operator.json",
+        branch="codex/v2-golden-recovery-cdb82111",
+        head="fake-head",
+        cli_allow=True,
+        env={probe.H2O_ENV_VAR: probe.H2O_ENV_VALUE},
+        execute_probe=True,
+        run_app_py_untouched=True,
+    )
+    process_exit = _read_json(handoff / "process_exit_record.json")
+
+    assert summary["downstream_execution_run_dir"] == str(downstream)
+    assert summary["downstream_artifact_map"]["run_log"]["exists"] is True
+    assert summary["downstream_stdout_path"] == str(handoff / "downstream_stdout.log")
+    assert "downstream_execution_run_dir=" in (handoff / "downstream_stdout.log").read_text(encoding="utf-8")
+    assert process_exit["downstream_process_record_path"] == str(handoff / "downstream_process_record.json")
+
+
+def test_downstream_locator_finds_new_run_dir_under_probe_output_when_stdout_missing(tmp_path, monkeypatch):
+    handoff = tmp_path / "handoff_probe_root_locator"
+    downstream = _make_downstream_run(handoff)
+    monkeypatch.setattr(probe, "evaluate_h2o_1_point_no_write_gate", lambda *args, **kwargs: _approved_admission())
+    monkeypatch.setattr(
+        probe,
+        "prepare_h2o_downstream_points_config",
+        lambda raw_cfg, *, config_path, output_dir: (Path(output_dir) / "fake_downstream_config.json", {"points_config_alignment_ready": True}),
+    )
+    monkeypatch.setattr(probe, "execute_h2o_single_point_probe", lambda config_path: {})
+
+    summary = probe.write_h2o_1_point_no_write_probe_artifacts(
+        _minimal_cfg(),
+        output_dir=handoff,
+        config_path=tmp_path / "config.json",
+        operator_confirmation_path=tmp_path / "operator.json",
+        branch="codex/v2-golden-recovery-cdb82111",
+        head="fake-head",
+        cli_allow=True,
+        env={probe.H2O_ENV_VAR: probe.H2O_ENV_VALUE},
+        execute_probe=True,
+        run_app_py_untouched=True,
+    )
+
+    assert summary["downstream_execution_run_dir"] == str(downstream.resolve())
+    assert summary["downstream_artifact_map"]["downstream_summary"]["exists"] is True
+    assert str(handoff.resolve()) in summary["downstream_run_dir_locator_search_roots"]
+
+
+def test_downstream_run_dir_missing_preserves_stdout_stderr_and_locator_details(tmp_path, monkeypatch):
+    monkeypatch.setattr(probe, "evaluate_h2o_1_point_no_write_gate", lambda *args, **kwargs: _approved_admission())
+    monkeypatch.setattr(
+        probe,
+        "prepare_h2o_downstream_points_config",
+        lambda raw_cfg, *, config_path, output_dir: (Path(output_dir) / "fake_downstream_config.json", {"points_config_alignment_ready": True}),
+    )
+
+    def fake_execute(config_path):
+        print("downstream started without run dir")
+        print("stderr diagnostic without run dir", file=__import__("sys").stderr)
+        return {}
+
+    monkeypatch.setattr(probe, "execute_h2o_single_point_probe", fake_execute)
+    handoff = tmp_path / "handoff_missing_locator"
+    summary = probe.write_h2o_1_point_no_write_probe_artifacts(
+        _minimal_cfg(),
+        output_dir=handoff,
+        config_path=tmp_path / "config.json",
+        operator_confirmation_path=tmp_path / "operator.json",
+        branch="codex/v2-golden-recovery-cdb82111",
+        head="fake-head",
+        cli_allow=True,
+        env={probe.H2O_ENV_VAR: probe.H2O_ENV_VALUE},
+        execute_probe=True,
+        run_app_py_untouched=True,
+    )
+    process_exit = _read_json(handoff / "process_exit_record.json")
+
+    assert summary["fail_closed_reason"] == "downstream_run_dir_missing_after_executor"
+    assert process_exit["fail_closed_reason"] == "downstream_run_dir_missing_after_executor"
+    assert (handoff / "downstream_stdout.log").exists()
+    assert (handoff / "downstream_stderr.log").exists()
+    assert "downstream started without run dir" in (handoff / "downstream_stdout.log").read_text(encoding="utf-8")
+    assert "stderr diagnostic without run dir" in (handoff / "downstream_stderr.log").read_text(encoding="utf-8")
+    assert process_exit["downstream_run_dir_locator_candidates"] == []
+
+
 def test_no_write_finalization_still_blocks_real_acceptance(tmp_path, monkeypatch):
     downstream = _make_downstream_run(tmp_path)
     summary, process_exit, handoff = _run_probe(tmp_path, monkeypatch, downstream)
