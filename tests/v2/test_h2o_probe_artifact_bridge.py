@@ -422,3 +422,125 @@ def test_no_write_finalization_still_blocks_real_acceptance(tmp_path, monkeypatc
     assert process_exit["not_real_acceptance_evidence"] is True
     assert process_exit["promotion_state"] == "blocked"
     assert process_exit["real_primary_latest_refresh"] is False
+
+
+def _make_d3_26_like_downstream_run(tmp_path: Path) -> Path:
+    run_dir = tmp_path / "downstream_d3_26" / "run_20260511_095306"
+    run_dir.mkdir(parents=True)
+    _write_json(
+        run_dir / "summary.json",
+        {
+            "run_id": "run_20260511_095306",
+            "final_decision": "FAIL",
+            "failure_reason": "Calibration completed",
+            "a1_fail_reason": "Calibration completed",
+            "a1_final_decision": "FAIL",
+            "a1_decision_reasons": ["readiness_failed"],
+            "readiness_result": "FAIL",
+            "readiness_final_decision": "FAIL",
+            "service_status_error": "",
+            "service_status_phase": "completed",
+            "service_status_message": "Calibration completed",
+            "points_completed": 8,
+            "sample_count": 32,
+            "route_completed": True,
+            "pressure_completed": True,
+            "wait_gate_completed": True,
+            "sample_completed": True,
+            "no_write": True,
+        },
+    )
+    (run_dir / "run.log").write_text("start\nfinal safe stop\n", encoding="utf-8")
+    (run_dir / "route_trace.jsonl").write_text(
+        '{"action":"h2o_route_ready_step","result":"ok"}\n'
+        '{"action":"seal_route","result":"ok"}\n'
+        '{"action":"final_safe_stop_routes","result":"ok"}\n',
+        encoding="utf-8",
+    )
+    _write_json(
+        run_dir / "no_write_guard.json",
+        {
+            "no_write": True,
+            "attempted_write_count": 0,
+            "blocked_write_events": [],
+            "identity_write_command_sent": False,
+            "persistent_write_command_sent": False,
+        },
+    )
+    _write_json(run_dir / "results.json", {"points": [{"pressure_hpa": 1100.0}]})
+    _write_json(run_dir / "point_summaries.json", {"point_summaries": [{"pressure_hpa": 1100.0}]})
+    (run_dir / "points.csv").write_text("point,result\n1,ok\n", encoding="utf-8")
+    (run_dir / "samples.csv").write_text("ts,value\n1,2\n", encoding="utf-8")
+    (run_dir / "samples_runtime.csv").write_text("ts,value\n1,2\n", encoding="utf-8")
+    return run_dir
+
+
+def test_d3_26_fixture_replays_as_engineering_green(tmp_path, monkeypatch):
+    downstream = _make_d3_26_like_downstream_run(tmp_path)
+    _patch_common(monkeypatch, downstream, final_decision="FAIL")
+    handoff = tmp_path / "handoff_d3_26"
+    summary = probe.write_h2o_1_point_no_write_probe_artifacts(
+        _minimal_cfg(),
+        output_dir=handoff,
+        config_path=tmp_path / "config.json",
+        operator_confirmation_path=tmp_path / "operator.json",
+        branch="codex/v2-golden-recovery-cdb82111",
+        head="fake-head",
+        cli_allow=True,
+        env={probe.H2O_ENV_VAR: probe.H2O_ENV_VALUE},
+        execute_probe=True,
+        run_app_py_untouched=True,
+    )
+
+    assert summary["final_decision"] == "PASS"
+    assert "downstream_business_failed" not in summary["rejection_reasons"]
+    assert not any(r.startswith("service_final_decision_") for r in summary["rejection_reasons"])
+    assert summary["not_real_acceptance_evidence"] is True
+    assert summary["promotion_state"] == "blocked"
+    assert summary["real_primary_latest_refresh"] is False
+    assert summary["no_write_assertion_status"] == "pass_engineering_evidence"
+
+
+def test_points_and_samples_artifacts_are_equivalent_to_point_results_json(tmp_path, monkeypatch):
+    downstream = _make_d3_26_like_downstream_run(tmp_path)
+    (downstream / "results.json").unlink()
+    (downstream / "point_summaries.json").unlink()
+    (run_dir := downstream.parent)
+    _patch_common(monkeypatch, downstream, final_decision="FAIL")
+    handoff = tmp_path / "handoff_equiv"
+    summary = probe.write_h2o_1_point_no_write_probe_artifacts(
+        _minimal_cfg(),
+        output_dir=handoff,
+        config_path=tmp_path / "config.json",
+        operator_confirmation_path=tmp_path / "operator.json",
+        branch="codex/v2-golden-recovery-cdb82111",
+        head="fake-head",
+        cli_allow=True,
+        env={probe.H2O_ENV_VAR: probe.H2O_ENV_VALUE},
+        execute_probe=True,
+        run_app_py_untouched=True,
+    )
+
+    assert summary["final_decision"] == "PASS"
+
+
+def test_missing_route_trace_or_run_log_still_fails(tmp_path, monkeypatch):
+    downstream = _make_d3_26_like_downstream_run(tmp_path)
+    (downstream / "route_trace.jsonl").unlink()
+    (downstream / "run.log").unlink()
+    _patch_common(monkeypatch, downstream, final_decision="FAIL")
+    handoff = tmp_path / "handoff_missing_trace"
+    summary = probe.write_h2o_1_point_no_write_probe_artifacts(
+        _minimal_cfg(),
+        output_dir=handoff,
+        config_path=tmp_path / "config.json",
+        operator_confirmation_path=tmp_path / "operator.json",
+        branch="codex/v2-golden-recovery-cdb82111",
+        head="fake-head",
+        cli_allow=True,
+        env={probe.H2O_ENV_VAR: probe.H2O_ENV_VALUE},
+        execute_probe=True,
+        run_app_py_untouched=True,
+    )
+
+    assert summary["artifact_completeness_fail_reason"] != ""

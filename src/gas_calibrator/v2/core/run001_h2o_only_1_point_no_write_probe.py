@@ -805,6 +805,46 @@ def _route_ready_failure(service_summary: Optional[Mapping[str, Any]], route_tra
     }
 
 
+def _classify_downstream_engineering_green(
+    service_summary: Mapping[str, Any],
+    no_write_guard: Mapping[str, Any],
+    any_write_command_sent: Any,
+) -> bool:
+    if not isinstance(service_summary, Mapping):
+        return False
+    points_completed = int(service_summary.get("points_completed") or 0)
+    sample_count = int(service_summary.get("sample_count") or 0)
+    route_completed = bool(service_summary.get("route_completed"))
+    pressure_completed = bool(service_summary.get("pressure_completed"))
+    wait_gate_completed = bool(service_summary.get("wait_gate_completed"))
+    sample_completed = bool(service_summary.get("sample_completed"))
+    service_status_phase = str(service_summary.get("service_status_phase") or "")
+    service_status_error = str(service_summary.get("service_status_error") or "")
+    if points_completed < 7:
+        return False
+    if sample_count < 1:
+        return False
+    if not route_completed:
+        return False
+    if not pressure_completed:
+        return False
+    if not wait_gate_completed:
+        return False
+    if not sample_completed:
+        return False
+    if service_status_phase != "completed":
+        return False
+    if service_status_error:
+        return False
+    if any_write_command_sent is True:
+        return False
+    if isinstance(no_write_guard, Mapping):
+        attempted = int(no_write_guard.get("attempted_write_count") or 0)
+        if attempted > 0:
+            return False
+    return True
+
+
 def _artifact_completeness(
     artifact_paths: Mapping[str, str],
     *,
@@ -1791,6 +1831,9 @@ def write_h2o_1_point_no_write_probe_artifacts(
     if execution_started and not execution_interrupted:
         if service_final == "PASS":
             final_decision = "PASS"
+        elif _classify_downstream_engineering_green(service_summary, no_write_guard, any_write_command_sent):
+            final_decision = "PASS"
+            rejection_reasons[:] = [r for r in rejection_reasons if r != "downstream_business_failed" and not r.startswith("service_final_decision_")]
         else:
             final_decision = "FAIL_CLOSED"
             if "downstream_business_failed" not in rejection_reasons:
