@@ -213,6 +213,7 @@
     "skip_co2_ppm": [],
     "humidity_generator": {
       "ensure_run": true,
+      "flow_lpm": 1.5,
       "min_flow_lpm": 0.1,
       "tries": 3,
       "wait_s": 5.0,
@@ -337,7 +338,7 @@
       "dewpoint": {
         "target_tol_c": 0.2,
         "temp_match_tol_c": 0.3,
-        "rh_match_tol_pct": 4.0,
+        "rh_match_tol_pct": 5.0,
         "window_s": 60,
         "stability_tol_c": 0.05,
         "timeout_s": 2400,

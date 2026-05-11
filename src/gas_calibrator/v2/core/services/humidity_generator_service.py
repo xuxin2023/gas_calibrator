@@ -87,9 +87,17 @@ class HumidityGeneratorService:
                     method(*args)
                 except Exception as exc:
                     self.host._log(f"Humidity generator {method_name} failed: {exc}")
+        flow_lpm = self.host._as_float(self.host._cfg_get("workflow.humidity_generator.flow_lpm"))
+        if flow_lpm is not None:
+            setter = getattr(generator, "set_flow_target", None)
+            if callable(setter):
+                try:
+                    setter(float(flow_lpm))
+                except Exception as exc:
+                    self.host._log(f"Humidity generator set_flow_target failed: {exc}")
         state = "updated" if target_changed else "unchanged"
         self.host._log(
-            f"Humidity generator target {state}: temp={target_temp}C rh={target_rh}% ctrl=on heat=on cool=on"
+            f"Humidity generator target {state}: temp={target_temp}C rh={target_rh}% flow={flow_lpm}L/min ctrl=on heat=on cool=on"
         )
         if target_changed:
             verify_readback = getattr(generator, "verify_target_readback", None)
