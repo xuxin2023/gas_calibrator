@@ -208,68 +208,30 @@ class H2oRouteRunner:
                     self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
                 else:
                     if seal_deferred:
+                        self.service.status_service.record_route_trace(
+                            action="h2o_ambient_sample_complete",
+                            route=phase,
+                            point=lead,
+                            result="ok",
+                            message="H2O ambient sample complete, entering seal transition",
+                        )
                         self._stop_h2o_vent_keepalive()
-                        controller = self.service.device_manager.get_device("pressure_controller")
-                        if controller is not None:
-                            try:
-                                vent_off_adapter = H2OVentAdapter(vent_command=controller.vent)
-                                vent_off_result = vent_off_adapter.request_vent(
-                                    route="h2o",
-                                    state=ShadowState.SEAL_TRANSITION,
-                                    on=False,
-                                    reason="H2O seal transition vent off",
-                                    source="H2oRouteRunner.seal_transition",
-                                )
-                            except Exception as exc:
-                                self.service.status_service.log(
-                                    f"H2O route: seal transition vent=OFF adapter error; route=h2o state={ShadowState.SEAL_TRANSITION.value} "
-                                    f"source=H2oRouteRunner.seal_transition error={exc} not_real_acceptance_evidence=True"
-                                )
-                                self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O vent-off adapter error")
-                                skipped_point_indices.extend(expected_indices)
-                                return RouteRunResult(
-                                    success=False,
-                                    skipped_point_indices=skipped_point_indices,
-                                    error="H2O seal transition vent-off adapter error",
-                                )
-                            if not vent_off_result.hardware_command_sent:
-                                self.service.status_service.log(
-                                    f"H2O route: seal transition vent_off blocked; route={vent_off_result.route} state={vent_off_result.state} "
-                                    f"blocked_reason={vent_off_result.blocked_reason or 'policy_denied'} "
-                                    f"hardware_command_sent={vent_off_result.hardware_command_sent} source={vent_off_result.source} "
-                                    f"not_real_acceptance_evidence={vent_off_result.not_real_acceptance_evidence}"
-                                )
-                                self.service.valve_routing_service.cleanup_h2o_route(lead, reason="after H2O vent-off policy blocked")
-                                skipped_point_indices.extend(expected_indices)
-                                return RouteRunResult(
-                                    success=False,
-                                    skipped_point_indices=skipped_point_indices,
-                                    error="H2O seal transition vent-off blocked by policy",
-                                )
-                            self.service.status_service.log(
-                                "H2O route: keepalive stopped, vent=OFF adapter policy allowed before seal"
-                            )
-                        time.sleep(1.5)
-                        gauge = self.service.device_manager.get_device("pressure_gauge")
-                        gauge_pressure = None
-                        if gauge is not None:
-                            reader = getattr(gauge, "read_pressure", None)
-                            if callable(reader):
-                                try:
-                                    gauge_pressure = reader()
-                                except Exception:
-                                    pass
-                        if gauge_pressure is not None:
-                            self.service.status_service.log(
-                                f"vent closed, waiting for natural pressure rise; current pressure={gauge_pressure:.1f} hPa"
-                            )
-                        else:
-                            self.service.status_service.log(
-                                "vent closed, waiting for natural pressure rise; gauge reading unavailable"
-                            )
-                        self.service.valve_routing_service.set_h2o_path(False, lead)
                         self.service.status_service.log(
-                            "H2O route: water path valve closed before seal"
+                            "H2O route: keepalive stopped before ambient-to-sealed transition"
+                        )
+                        self.service.status_service.record_route_trace(
+                            action="h2o_seal_transition_start",
+                            route=phase,
+                            point=lead,
+                            result="ok",
+                            message="H2O ambient-to-sealed transition initiated by pressure_control_service",
+                        )
+                        self.service.status_service.record_route_trace(
+                            action="h2o_vent_keepalive_stopped",
+                            route=phase,
+                            point=lead,
+                            result="ok",
+                            message="H2O vent keepalive stopped before seal transition",
                         )
                         if not self.service.pressure_control_service.pressurize_and_hold(
                             lead, route=phase, prefer_direct_vent_close=True

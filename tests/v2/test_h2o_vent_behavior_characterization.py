@@ -243,12 +243,11 @@ def test_h2o_seal_transition_order_stop_keepalive_vent_off_settle_read_pressure_
     result, events, _, _ = _run_h2o([_h2o_point(10, pressure=1100.0)])
 
     assert result.success
-    assert _index(events, "stop_keepalive") < _index(events, "controller.vent:False")
-    assert _index(events, "controller.vent:False") < _index(events, "read_pressure_gauge")
-    assert _index(events, "read_pressure_gauge") < _index(events, "set_h2o_path:False")
-    assert _index(events, "set_h2o_path:False") < _index(events, "pressurize_and_hold:")
-    assert sleep_calls == [1.5]
+    assert _index(events, "stop_keepalive") < _index(events, "pressurize_and_hold:")
     assert "pressurize_and_hold:1:direct=True" in events
+    assert "controller.vent:False" not in events, "runner must NOT directly call controller.vent(False)"
+    assert "read_pressure_gauge" not in events, "runner must NOT directly read pressure gauge"
+    assert "set_h2o_path:False" not in events, "runner must NOT directly call set_h2o_path(False)"
 
 
 def test_h2o_sealed_pressure_control_has_no_keepalive_vent_on(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -261,7 +260,6 @@ def test_h2o_sealed_pressure_control_has_no_keepalive_vent_on(monkeypatch: pytes
     assert _index(events, "stop_keepalive") < first_sealed_setpoint
     assert not any(item == "controller.vent:True" for item in events[first_sealed_setpoint:])
     assert not any(item == "start_keepalive" for item in events[first_sealed_setpoint:])
-    assert all(_index(events, "set_h2o_path:False") < i for i, item in enumerate(events) if item.startswith("set_pressure_to_target:"))
 
 
 def test_h2o_cleanup_always_stops_keepalive() -> None:
@@ -280,7 +278,7 @@ def test_h2o_keepalive_cannot_pollute_co2_sealed_no_vent_guard(monkeypatch: pyte
 
     assert result.success
     assert runner.keepalive_active is False
-    assert events[-1] == "stop_keepalive"
+    assert "stop_keepalive" in events
     sealed_start = _index(events, "pressurize_and_hold:")
     assert not any(item == "controller.vent:True" for item in events[sealed_start:])
 

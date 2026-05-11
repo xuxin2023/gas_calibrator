@@ -6536,12 +6536,73 @@ class PressureControlService:
                 )
                 or {}
             )
+            self._record_route_trace(
+                action="pressure_controller_vent_off_command_sent",
+                route=route_text,
+                point=point,
+                result="ok",
+                message=f"vent=OFF command sent before {route_text.upper()} pressure seal",
+            )
             refreshed_controller = self.host._device("pressure_controller")
             if refreshed_controller is not None:
                 controller = refreshed_controller
                 preseal_controller_refreshed_after_vent_off = True
         if not positive_preseal:
-            if wait_after_vent_off_s > 0:
+            if route_text == "h2o" and prefer_direct_vent_close:
+                vent_verify_timeout_s = float(
+                    self.host._cfg_get("workflow.pressure.h2o_vent_closed_verify_timeout_s", 30.0)
+                )
+                vent_verify_poll_s = float(
+                    self.host._cfg_get("workflow.pressure.h2o_vent_closed_verify_poll_s", 0.25)
+                )
+                vent_verify_start = time.time()
+                vent_closed = False
+                while True:
+                    self.host._check_stop()
+                    current_vent_status = self._pressure_controller_vent_status(controller)
+                    if current_vent_status != 1:
+                        vent_closed = True
+                        break
+                    if time.time() - vent_verify_start >= vent_verify_timeout_s:
+                        break
+                    time.sleep(vent_verify_poll_s)
+                if not vent_closed:
+                    result = PressureWaitResult(
+                        ok=False,
+                        diagnostics={"vent_closed_verified": False, "vent_status": current_vent_status},
+                        error="H2O vent closed verification failed before seal transition",
+                    )
+                    self._record_route_trace(
+                        action="pressure_controller_vent_closed_verified",
+                        route=route_text,
+                        point=point,
+                        result="fail",
+                        message="vent closed verification failed: vent not closed before seal",
+                    )
+                    return result
+                self._record_route_trace(
+                    action="pressure_controller_vent_closed_verified",
+                    route=route_text,
+                    point=point,
+                    result="ok",
+                    message="Pressure controller vent physically closed verified",
+                )
+                self._record_route_trace(
+                    action="post_vent_closed_wait_started",
+                    route=route_text,
+                    point=point,
+                    result="ok",
+                    message="Post-vent-closed wait 1.5s started",
+                )
+                time.sleep(1.5)
+                self._record_route_trace(
+                    action="post_vent_closed_wait_completed",
+                    route=route_text,
+                    point=point,
+                    result="ok",
+                    message="Post-vent-closed wait 1.5s completed",
+                )
+            elif wait_after_vent_off_s > 0:
                 start = time.time()
                 sample_interval_s = min(0.5, wait_after_vent_off_s)
                 while True:
@@ -6702,7 +6763,21 @@ class PressureControlService:
                     "" if atmosphere_exit_ok else "atmosphere_vent_not_closed_before_seal"
                 )
             if route_text == "h2o":
+                self._record_route_trace(
+                    action="h2o_path_close_command_sent",
+                    route=route_text,
+                    point=point,
+                    result="ok",
+                    message="H2O path close commanded after vent closed verified",
+                )
                 self.host._set_h2o_path(False, point)
+                self._record_route_trace(
+                    action="h2o_path_closed_after_vent_closed",
+                    route=route_text,
+                    point=point,
+                    result="ok",
+                    message="H2O path closed after vent closed verified",
+                )
                 relay_state = {}
             else:
                 ready_to_seal_command_s: Optional[float] = None
