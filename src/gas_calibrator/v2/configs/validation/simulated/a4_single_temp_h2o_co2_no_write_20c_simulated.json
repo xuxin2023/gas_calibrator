@@ -89,7 +89,7 @@
     "water_first_all_temps": true,
     "water_first_temp_gte": 10,
     "a4_notes": {
-      "stage": "A4-P6 point schema & route-planner alignment",
+      "stage": "A4-P7 route-scoped pressure ref guard",
       "single_temperature": true,
       "h2o_co2_group": true,
       "no_write": true,
@@ -107,6 +107,7 @@
       "ambient_open_vs_1000hpa": "ambient_open is current atmospheric open point; 1000hPa is sealed pressure-control point",
       "point_parser_alignment": "ambient_open uses pressure_mode=ambient_open and pressure_selection_token=ambient",
       "route_planner_alignment": "PointParser/RoutePlanner must treat H2O ambient_open as ambient reference, not sealed 1013.25hPa",
+      "route_scoped_pressure_references": "auto-detected by RoutePlanner when H2O ambient + CO2 coexist; no explicit config flag required in WorkflowConfig",
       "future_matrix_goal": "future V2 should support flexible temperature/gas/pressure point combinations like V1, with no-write gates and physical constraints"
     },
     "production": {

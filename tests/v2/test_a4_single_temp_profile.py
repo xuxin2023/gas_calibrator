@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 
 from gas_calibrator.v2.core.point_parser import PointParser
+from gas_calibrator.v2.core.route_planner import RoutePlanner
+from gas_calibrator.v2.config import AppConfig
 
 PROFILE_PATH = (
     Path(__file__).resolve().parents[2]
@@ -291,6 +293,64 @@ def test_all_points_have_pressure_mode_field():
         assert p.pressure_mode in ("ambient_open", "sealed_controlled"), (
             f"point {p.index} pressure_mode={p.pressure_mode}"
         )
+
+
+def test_a4_profile_has_route_scoped_ambient_semantics():
+    notes = _profile()["workflow"]["a4_notes"]
+    assert "route_scoped_pressure_references" in notes
+
+
+# ── RoutePlanner-level tests ──────────────────────────────
+
+
+def _a4_route_planner():
+    config = AppConfig.from_dict({
+        "workflow": {"route_mode": "h2o_then_co2"},
+    })
+    return RoutePlanner(config, PointParser())
+
+
+def _a4_parsed():
+    points_path = PROFILE_PATH.parent / "a4_20c_h2o_co2_points_simulated.json"
+    return PointParser().parse(str(points_path))
+
+
+def test_route_planner_h2o_pressure_refs_are_ambient_plus_7():
+    planner = _a4_route_planner()
+    points = _a4_parsed()
+    refs = planner.h2o_pressure_points(points)
+    ambient = [p for p in refs if p.is_ambient_pressure_point]
+    sealed = [p for p in refs if not p.is_ambient_pressure_point]
+    assert len(ambient) == 1, f"expected 1 ambient, got {len(ambient)}"
+    assert ambient[0].pressure_hpa is None
+    assert len(sealed) == 7, f"expected 7 sealed, got {len(sealed)}"
+    sealed_pressures = sorted([p.target_pressure_hpa for p in sealed])
+    assert sealed_pressures == [500.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0]
+
+
+def test_route_planner_co2_pressure_refs_are_7_sealed_no_ambient():
+    planner = _a4_route_planner()
+    points = _a4_parsed()
+    sources = planner.co2_sources(points)
+    assert len(sources) >= 1, "expected at least one CO2 source point"
+    for source in sources:
+        refs = planner.co2_pressure_points(source, points)
+        ambient = [p for p in refs if p.is_ambient_pressure_point]
+        assert len(ambient) == 0, f"CO2 route must have 0 ambient, got {len(ambient)}"
+        sealed_pressures = sorted([p.target_pressure_hpa for p in refs if not p.is_ambient_pressure_point])
+        assert sealed_pressures == [500.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0], (
+            f"CO2 pressures={sealed_pressures}"
+        )
+
+
+def test_route_planner_default_behavior_no_auto_scoping_without_mixed_routes():
+    planner = _a4_route_planner()
+    co2_only = [
+        p for p in _a4_parsed() if not p.is_h2o_point and p.co2_ppm is not None
+    ]
+    refs = planner.h2o_pressure_points(co2_only)
+    assert isinstance(refs, list)
+    assert len(refs) >= 1
 
 
 def test_points_indices_start_from_1():

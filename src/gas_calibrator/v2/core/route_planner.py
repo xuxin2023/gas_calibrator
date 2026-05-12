@@ -34,6 +34,27 @@ class RoutePlanner:
             return 0.0
         return float(raw)
 
+    def _route_scoped_pressure_references(self, points: list[CalibrationPoint]) -> bool:
+        if bool(getattr(self.config.workflow, "route_scoped_pressure_references", False)):
+            return True
+        has_h2o_ambient = any(
+            p.is_h2o_point and p.is_ambient_pressure_point for p in points
+        )
+        has_co2 = any(
+            not p.is_h2o_point and p.co2_ppm is not None for p in points
+        )
+        return has_h2o_ambient and has_co2
+
+    def _points_for_pressure_references(self, points: list[CalibrationPoint], *, route: str) -> list[CalibrationPoint]:
+        if not self._route_scoped_pressure_references(points):
+            return list(points)
+        route = route.strip().lower()
+        if route == "h2o":
+            return [p for p in points if p.is_h2o_point]
+        if route == "co2":
+            return [p for p in points if not p.is_h2o_point and p.co2_ppm is not None]
+        return list(points)
+
     def should_run_h2o(self, points: list[CalibrationPoint]) -> bool:
         if not points:
             return False
@@ -71,7 +92,7 @@ class RoutePlanner:
         return []
 
     def h2o_pressure_points(self, points: list[CalibrationPoint]) -> list[CalibrationPoint]:
-        return self._pressure_reference_points(points)
+        return self._pressure_reference_points(self._points_for_pressure_references(points, route="h2o"))
 
     def co2_sources(self, points: list[CalibrationPoint]) -> list[CalibrationPoint]:
         selected: dict[tuple[int, str], CalibrationPoint] = {}
@@ -104,7 +125,7 @@ class RoutePlanner:
         return out
 
     def co2_pressure_points(self, source: Optional[CalibrationPoint], points: list[CalibrationPoint]) -> list[CalibrationPoint]:
-        pressure_points = self._pressure_reference_points(points)
+        pressure_points = self._pressure_reference_points(self._points_for_pressure_references(points, route="co2"))
         if source is None or not pressure_points or not self._carry_forward_pressure_mode():
             return pressure_points
 
