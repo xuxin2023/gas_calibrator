@@ -89,7 +89,7 @@
     "water_first_all_temps": true,
     "water_first_temp_gte": 10,
     "a4_notes": {
-      "stage": "A4-P5 simulation point matrix draft",
+      "stage": "A4-P6 point schema & route-planner alignment",
       "single_temperature": true,
       "h2o_co2_group": true,
       "no_write": true,
@@ -105,6 +105,8 @@
       "co2_sealed_pressure_points": [1100, 1000, 900, 800, 700, 600, 500],
       "co2_ambient_open_point": "not included in this round; deferred risk item",
       "ambient_open_vs_1000hpa": "ambient_open is current atmospheric open point; 1000hPa is sealed pressure-control point",
+      "point_parser_alignment": "ambient_open uses pressure_mode=ambient_open and pressure_selection_token=ambient",
+      "route_planner_alignment": "PointParser/RoutePlanner must treat H2O ambient_open as ambient reference, not sealed 1013.25hPa",
       "future_matrix_goal": "future V2 should support flexible temperature/gas/pressure point combinations like V1, with no-write gates and physical constraints"
     },
     "production": {

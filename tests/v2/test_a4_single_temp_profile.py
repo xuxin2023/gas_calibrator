@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from gas_calibrator.v2.core.point_parser import PointParser
+
 PROFILE_PATH = (
     Path(__file__).resolve().parents[2]
     / "src"
@@ -160,10 +162,10 @@ def test_h2o_ambient_open_vent_expected_is_open():
     assert p["vent_expected"] == "open"
 
 
-def test_h2o_ambient_open_pressure_is_1013():
+def test_h2o_ambient_open_pressure_is_null():
     p = [p for p in _points() if p["point_kind"] == "ambient_open"][0]
-    assert p["pressure_hpa"] == 1013.25
-    assert "ambient_open" in str(p.get("pressure_hpa_role", ""))
+    assert p["pressure_hpa"] is None
+    assert p["pressure_hpa_role"] == "ambient_open_measured_at_runtime"
 
 
 def test_h2o_sealed_pressure_count_is_7():
@@ -225,6 +227,70 @@ def test_profile_notes_ambient_open_vs_1000hpa():
     notes = _profile()["workflow"]["a4_notes"]
     assert "ambient_open_vs_1000hpa" in notes
     assert "1000hPa" in str(notes["ambient_open_vs_1000hpa"])
+
+
+def test_profile_notes_parser_planner_alignment():
+    notes = _profile()["workflow"]["a4_notes"]
+    assert "point_parser_alignment" in notes
+    assert "route_planner_alignment" in notes
+
+
+# ── PointParser-level tests ──────────────────────────────
+
+
+def _parsed_points():
+    points_path = PROFILE_PATH.parent / "a4_20c_h2o_co2_points_simulated.json"
+    return PointParser().parse(str(points_path))
+
+
+def test_point_parser_recognizes_h2o_ambient_open():
+    points = _parsed_points()
+    ambient = [p for p in points if p.is_h2o_point and p.is_ambient_pressure_point]
+    assert len(ambient) == 1, f"expected 1 H2O ambient point, got {len(ambient)}"
+    a = ambient[0]
+    assert a.pressure_hpa is None
+    assert a.pressure_target_label == "当前大气压"
+
+
+def test_point_parser_treats_1000hpa_as_sealed():
+    points = _parsed_points()
+    for p in points:
+        if p.target_pressure_hpa == 1000.0:
+            assert p.is_ambient_pressure_point is False, (
+                f"point {p.index} 1000hPa must NOT be ambient"
+            )
+            assert p.pressure_mode == "sealed_controlled", (
+                f"point {p.index} pressure_mode={p.pressure_mode}"
+            )
+
+
+def test_point_parser_h2o_pressure_refs_ambient_plus_7_numeric():
+    points = _parsed_points()
+    h2o_points = [p for p in points if p.is_h2o_point]
+    ambient = [p for p in h2o_points if p.is_ambient_pressure_point]
+    sealed = [p for p in h2o_points if not p.is_ambient_pressure_point]
+    assert len(ambient) == 1
+    assert len(sealed) == 7
+    h2o_pressures = sorted([p.target_pressure_hpa for p in sealed])
+    assert h2o_pressures == [500.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0]
+
+
+def test_point_parser_co2_has_7_sealed_no_ambient():
+    points = _parsed_points()
+    co2_points = [p for p in points if not p.is_h2o_point]
+    assert len(co2_points) == 7
+    ambient = [p for p in co2_points if p.is_ambient_pressure_point]
+    assert len(ambient) == 0
+    co2_pressures = sorted([p.target_pressure_hpa for p in co2_points])
+    assert co2_pressures == [500.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0]
+
+
+def test_all_points_have_pressure_mode_field():
+    points = _parsed_points()
+    for p in points:
+        assert p.pressure_mode in ("ambient_open", "sealed_controlled"), (
+            f"point {p.index} pressure_mode={p.pressure_mode}"
+        )
 
 
 def test_points_indices_start_from_1():
