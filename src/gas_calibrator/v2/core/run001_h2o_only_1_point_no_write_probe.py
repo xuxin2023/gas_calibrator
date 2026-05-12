@@ -1405,12 +1405,13 @@ def _shutdown_humidity_generator(service: Any) -> None:
     ser = getattr(generator, "ser", None)
     if ser is not None and not getattr(getattr(ser, "_ser", None), "is_open", True):
         return
-    stopper = getattr(generator, "safe_stop", None)
-    if callable(stopper):
-        try:
-            stopper()
-        except Exception:
-            pass
+    try:
+        for method_name, args in (("heat_off", ()), ("cool_off", ()), ("enable_control", (False,))):
+            method = getattr(generator, method_name, None)
+            if callable(method):
+                method(*args)
+    except Exception:
+        pass
     waiter = getattr(generator, "wait_stopped", None)
     if callable(waiter):
         try:

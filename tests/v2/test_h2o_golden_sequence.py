@@ -151,12 +151,14 @@ class TestH2oRouteGoldenSequence:
         pts = [_h2o_point(10, pressure=1100.0)]
         runner = H2oRouteRunner(service, [lead], pts)
         runner.execute()
-        vent_off_idx = next((i for i, c in enumerate(dc) if c == "controller.vent:False"), -1)
-        assert vent_off_idx >= 0, "controller.vent(False) must be called"
         pressurize_idx = next((i for i, c in enumerate(calls) if c.startswith("pressurize_and_hold:")), -1)
         assert pressurize_idx >= 0, "pressurize_and_hold must be called"
-        set_h2o_idx = next((i for i, c in enumerate(calls) if c.startswith("set_h2o_path:False")), -1)
-        assert set_h2o_idx >= 0, "set_h2o_path(False) must be called to close water valve"
+        direct_call = [c for c in calls if c.startswith("pressurize_and_hold:") and "direct=True" in c]
+        assert len(direct_call) >= 1, "pressurize_and_hold must be called with prefer_direct_vent_close=True"
+        vent_off_runner = [c for c in dc if c == "controller.vent:False"]
+        assert len(vent_off_runner) == 0, "h2o_route_runner must NOT directly call controller.vent(False)"
+        set_h2o_runner = [c for c in calls if c.startswith("set_h2o_path:False")]
+        assert len(set_h2o_runner) == 0, "h2o_route_runner must NOT directly call set_h2o_path(False)"
 
     def test_sealed_points_call_set_pressure_to_target(self):
         service, calls, dc, _ = _make_service()

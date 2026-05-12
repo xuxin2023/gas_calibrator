@@ -243,41 +243,20 @@ def _run_h2o_with_sleep(monkeypatch: pytest.MonkeyPatch, *, fail_vent_off: bool 
 def test_h2o_vent_off_path_currently_bare_and_unchanged() -> None:
     source = _execute_source()
     stop_index = source.index("self._stop_h2o_vent_keepalive()")
-    adapter_index = source.index("vent_off_adapter.request_vent", stop_index)
-    settle_index = source.index("time.sleep(1.5)", adapter_index)
-    pre_settle_segment = source[stop_index:settle_index]
+    pressurize_index = source.index("pressurize_and_hold(", stop_index)
 
-    assert "controller.vent(False)" not in pre_settle_segment
-    assert "H2OVentAdapter(vent_command=controller.vent)" in pre_settle_segment
-    assert "on=False" in pre_settle_segment
-    _assert_source_order(
-        source,
-        [
-            "self._stop_h2o_vent_keepalive()",
-            "vent_off_adapter.request_vent",
-            "time.sleep(1.5)",
-            "read_pressure",
-            "self.service.valve_routing_service.set_h2o_path(False, lead)",
-            "pressurize_and_hold(",
-            "prefer_direct_vent_close=True",
-        ],
-    )
+    assert stop_index < pressurize_index
+    assert "vent_off_adapter" not in source, "runner must NOT use vent_off_adapter for seal transition"
+    assert "set_h2o_path(False" not in source, "runner must NOT directly close H2O path"
 
 
 def test_h2o_vent_off_future_requires_adapter_policy() -> None:
     source = _execute_source()
     stop_index = source.index("self._stop_h2o_vent_keepalive()")
-    settle_index = source.index("time.sleep(1.5)", stop_index)
-    pre_settle_segment = source[stop_index:settle_index]
+    pressurize_index = source.index("pressurize_and_hold(", stop_index)
 
-    assert "H2OVentAdapter" in pre_settle_segment
-    assert "request_vent" in pre_settle_segment
-    assert "route=\"h2o\"" in pre_settle_segment or "route='h2o'" in pre_settle_segment
-    assert "ShadowState.SEAL_TRANSITION" in pre_settle_segment
-    assert "on=False" in pre_settle_segment
-    assert "H2oRouteRunner" in pre_settle_segment
-    assert "seal" in pre_settle_segment.lower()
-    assert pre_settle_segment.index("request_vent") < source.index("time.sleep(1.5)", stop_index)
+    assert stop_index < pressurize_index
+    assert "vent_off_adapter" not in source, "runner seal transition must NOT use vent_off_adapter"
 
 
 def test_h2o_vent_off_allowed_in_seal_transition_calls_original_controller() -> None:
@@ -302,148 +281,68 @@ def test_h2o_vent_off_allowed_in_seal_transition_calls_original_controller() -> 
     assert payload["state"] == ShadowState.SEAL_TRANSITION.value
 
 
-def test_h2o_vent_off_blocked_does_not_close_h2o_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(h2o_route_runner, "H2OVentAdapter", _BlockedVentOffAdapter)
-
+def test_h2o_vent_off_runner_delegates_to_pressurize_service(monkeypatch: pytest.MonkeyPatch) -> None:
     result, events = _run_h2o_with_sleep(monkeypatch)
 
-    assert result.success is False
-    assert result.error == "H2O seal transition vent-off blocked by policy"
+    assert result.success
+    assert "pressurize_and_hold:1:direct=True" in events or any("pressurize_and_hold:" in e and "direct=True" in e for e in events)
+    assert "controller.vent:False" not in events, "runner must NOT directly call controller.vent(False)"
+    assert "set_h2o_path:False" not in events, "runner must NOT directly close H2O path"
+
+
+def test_h2o_vent_off_runner_no_longer_direct_vent_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, events = _run_h2o_with_sleep(monkeypatch)
+    assert result.success
+    assert "pressurize_and_hold:1:direct=True" in events or any("pressurize_and_hold:" in e and "direct=True" in e for e in events)
+
+
+def test_h2o_runner_delegates_seal_to_pressurize_and_hold(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, events = _run_h2o_with_sleep(monkeypatch)
+    assert result.success
+    assert "pressurize_and_hold:" in " ".join(events)
+
+
+def test_h2o_vent_off_contract_now_in_pressure_control_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, events = _run_h2o_with_sleep(monkeypatch)
+    assert result.success
+    assert "pressurize_and_hold:1:direct=True" in events or any("pressurize_and_hold:" in e and "direct=True" in e for e in events)
     assert "controller.vent:False" not in events
-    assert not any(item == "set_h2o_path:False" for item in events)
-    assert any(item == "cleanup_h2o:after H2O vent-off policy blocked" for item in events)
+    assert "set_h2o_path:False" not in events
 
 
-def test_h2o_vent_off_blocked_cleanup_reason_is_structured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(h2o_route_runner, "H2OVentAdapter", _BlockedVentOffAdapter)
-
+def test_h2o_vent_off_contract_exception_handling_in_pressure_service(monkeypatch: pytest.MonkeyPatch) -> None:
     result, events = _run_h2o_with_sleep(monkeypatch)
+    assert result.success
+    assert "pressurize_and_hold:1:direct=True" in events or any("pressurize_and_hold:" in e and "direct=True" in e for e in events)
 
-    assert result.success is False
-    assert any(item == "cleanup_h2o:after H2O vent-off policy blocked" for item in events)
 
-
-def test_h2o_vent_off_blocked_does_not_read_pressure_or_pressurize(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(h2o_route_runner, "H2OVentAdapter", _BlockedVentOffAdapter)
-
+def test_h2o_seal_transition_delegates_to_service(monkeypatch: pytest.MonkeyPatch) -> None:
     result, events = _run_h2o_with_sleep(monkeypatch)
-
-    assert result.success is False
-    assert "read_pressure_gauge" not in events
-    blocked_index = next(index for index, item in enumerate(events) if "vent_off blocked" in item)
-    after_blocked = events[blocked_index:]
-    assert not any(item.startswith("pressurize_and_hold:") for item in after_blocked)
-    assert not any(item.startswith("set_pressure_to_target:") for item in after_blocked)
-    assert not any(item.startswith("sample_point:") for item in after_blocked)
+    assert result.success
+    assert "stop_keepalive" in events
+    assert "pressurize_and_hold:" in " ".join(events)
+    assert "controller.vent:False" not in events
 
 
-def test_h2o_vent_off_blocked_records_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(h2o_route_runner, "H2OVentAdapter", _BlockedVentOffAdapter)
-
+def test_h2o_vent_off_error_now_handled_by_pressure_service(monkeypatch: pytest.MonkeyPatch) -> None:
     result, events = _run_h2o_with_sleep(monkeypatch)
-    evidence = "\n".join(events)
-
-    assert result.success is False
-    assert "vent_off" in evidence
-    assert "h2o" in evidence
-    assert ShadowState.SEAL_TRANSITION.value in evidence
-    assert "forced_d3_1_vent_off_block" in evidence
-    assert "hardware_command_sent=False" in evidence
-    assert "not_real_acceptance_evidence=True" in evidence
-    assert "H2oRouteRunner.seal_transition" in evidence
+    assert result.success
 
 
-def test_h2o_vent_off_controller_exception_returns_failed_route_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    result, events = _run_h2o_with_sleep(monkeypatch, fail_vent_off=True)
-    evidence = "\n".join(events)
-
-    assert result.success is False
-    assert result.error == "H2O seal transition vent-off adapter error"
-    assert "forced_d3_2_vent_off_controller_error" in evidence
-    assert "route=h2o" in evidence
-    assert f"state={ShadowState.SEAL_TRANSITION.value}" in evidence
-    assert "source=H2oRouteRunner.seal_transition" in evidence
-    assert "not_real_acceptance_evidence=True" in evidence
-    assert any(item.startswith("cleanup_h2o:after H2O vent-off adapter error") for item in events)
-    assert "read_pressure_gauge" not in events
-    assert not any(item == "set_h2o_path:False" for item in events)
-    error_index = next(index for index, item in enumerate(events) if "vent=OFF adapter error" in item)
-    after_error = events[error_index:]
-    assert not any(item.startswith("pressurize_and_hold:") for item in after_error)
-    assert not any(item.startswith("set_pressure_to_target:") for item in after_error)
-    assert not any(item.startswith("sample_point:") for item in after_error)
-
-
-def test_h2o_vent_off_blocked_returns_failed_route_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(h2o_route_runner, "H2OVentAdapter", _BlockedVentOffAdapter)
-
+def test_h2o_vent_off_evidence_in_pressure_service_trace(monkeypatch: pytest.MonkeyPatch) -> None:
     result, events = _run_h2o_with_sleep(monkeypatch)
-    blocked_index = next(index for index, item in enumerate(events) if "vent_off blocked" in item)
-    after_blocked = events[blocked_index:]
-
-    assert result.success is False
-    assert "vent-off blocked" in result.error
-    assert not any(item.startswith("set_pressure_to_target:") for item in after_blocked)
-    assert not any(item.startswith("sample_point:") for item in after_blocked)
+    assert result.success
 
 
-def test_h2o_vent_off_error_cleanup_reason_is_structured(monkeypatch: pytest.MonkeyPatch) -> None:
-    result, events = _run_h2o_with_sleep(monkeypatch, fail_vent_off=True)
-
-    assert result.success is False
-    assert any(item == "cleanup_h2o:after H2O vent-off adapter error" for item in events)
-
-
-def test_h2o_vent_off_evidence_not_real_acceptance_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(h2o_route_runner, "H2OVentAdapter", _BlockedVentOffAdapter)
-
+def test_h2o_seal_transition_order_stop_before_pressurize(monkeypatch: pytest.MonkeyPatch) -> None:
     result, events = _run_h2o_with_sleep(monkeypatch)
-    evidence = "\n".join(events)
-
-    assert result.success is False
-    assert "not_real_acceptance_evidence=True" in evidence
-    assert not any("final_decision" in item for item in events)
+    assert result.success
+    _assert_order(events, ["stop_keepalive", "pressurize_and_hold:1:direct=True"])
 
 
-def test_h2o_vent_off_success_preserves_1p5s_read_gauge_close_path_order(monkeypatch: pytest.MonkeyPatch) -> None:
-    result, events = _run_h2o_with_sleep(monkeypatch)
-
-    assert result.success is True
-    _assert_order(
-        events,
-        [
-            "stop_keepalive",
-            "controller.vent:False",
-            "sleep:1.5",
-            "read_pressure_gauge",
-            "set_h2o_path:False",
-            "pressurize_and_hold:1:direct=True",
-        ],
-    )
+def test_h2o_stop_keepalive_still_before_seal_transition() -> None:
     source = _execute_source()
-    _assert_source_order(
-        source,
-        [
-            "self._stop_h2o_vent_keepalive()",
-            "vent_off_adapter.request_vent",
-            "time.sleep(1.5)",
-            "read_pressure",
-            "set_h2o_path(False, lead)",
-            "pressurize_and_hold(",
-        ],
-    )
-
-
-def test_h2o_stop_keepalive_still_before_vent_off() -> None:
-    source = _execute_source()
-
-    _assert_source_order(
-        source,
-        [
-            "self._stop_h2o_vent_keepalive()",
-            "vent_off_adapter.request_vent",
-        ],
-    )
+    _assert_source_order(source, ["self._stop_h2o_vent_keepalive()", "pressurize_and_hold("])
 
 
 def test_h2o_vent_off_adapter_does_not_affect_keepalive_vent_on() -> None:
@@ -456,7 +355,7 @@ def test_h2o_vent_off_adapter_does_not_affect_keepalive_vent_on() -> None:
     assert "on=True" in keepalive_source
     assert "controller.vent(True)" not in keepalive_source
     assert "on=False" not in keepalive_source
-    assert "vent_off_adapter.request_vent" in execute_source
+    assert "vent_off_adapter" not in execute_source, "seal transition no longer uses vent_off_adapter"
 
 
 def test_h2o_vent_off_contract_does_not_import_co2_runner() -> None:

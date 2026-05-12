@@ -213,7 +213,6 @@
     "skip_co2_ppm": [],
     "humidity_generator": {
       "ensure_run": true,
-      "flow_lpm": 1.5,
       "min_flow_lpm": 0.1,
       "tries": 3,
       "wait_s": 5.0,
