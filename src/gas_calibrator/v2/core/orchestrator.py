@@ -3196,6 +3196,12 @@ class WorkflowOrchestrator:
     def _a2_mark_preseal_capture_pressure(self, *args, **kwargs):
         return self.conditioning_service._a2_mark_preseal_capture_pressure(*args, **kwargs)
 
+    def _verify_co2_preseal_atmosphere_hold_pressure(self, point):
+        return self.conditioning_service._verify_co2_preseal_atmosphere_hold_pressure(point)
+
+    def _refresh_live_analyzer_snapshots(self, *, force: bool = False, reason: str = "") -> bool:
+        return True
+
     def _get_latest_pressure_hpa(self) -> Optional[float]:
         return self.pressure_control_service._get_latest_pressure_hpa()
 
