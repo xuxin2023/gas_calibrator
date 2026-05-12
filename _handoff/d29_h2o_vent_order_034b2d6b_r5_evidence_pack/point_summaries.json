@@ -1,0 +1,696 @@
+[
+  {
+    "point": {
+      "index": 1,
+      "temperature_c": 20.0,
+      "co2_ppm": null,
+      "humidity_pct": null,
+      "pressure_hpa": null,
+      "route": "h2o",
+      "humidity_generator_temp_c": 20.0,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": null,
+      "co2_group": null,
+      "cylinder_nominal_ppm": null,
+      "pressure_mode": "ambient_open",
+      "pressure_target_label": "当前大气压",
+      "pressure_selection_token": "ambient"
+    },
+    "stats": {
+      "point_phase": "h2o",
+      "point_tag": "h2o_20c_0rh_ambient",
+      "usable_sample_count": 4,
+      "outlier_ratio": 0.0,
+      "quality_score": 0.4799999999999999,
+      "point_quality_score": 0.4799999999999999,
+      "valid": false,
+      "recommendation": "exclude",
+      "reason": "usable_sample_count_insufficient,sample_count<5,missing_count=1,time_not_continuous,signal_span_too_wide",
+      "failed_checks": [
+        {
+          "rule_name": "usable_sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Usable sample count is below the minimum requirement"
+        },
+        {
+          "rule_name": "sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Collected sample count is lower than expected"
+        },
+        {
+          "rule_name": "missing_count",
+          "actual": 1,
+          "threshold": 0,
+          "message": "Sample stream contains missing records"
+        },
+        {
+          "rule_name": "time_continuity",
+          "actual": 0,
+          "threshold": 1,
+          "message": "Timestamps are not continuous"
+        },
+        {
+          "rule_name": "signal_span",
+          "actual": 4235.0,
+          "threshold": 529.49875,
+          "message": "Signal span is wider than the stable range"
+        }
+      ],
+      "ai_explanation": "",
+      "raw_sample_count": 4,
+      "cleaned_sample_count": 4,
+      "removed_sample_count": 0,
+      "stability_time_s": 0.0006225999677553773,
+      "total_time_s": 22.26315379992593,
+      "co2_postseal_quality_guards_enabled": false,
+      "postseal_guard_scope": "simulation_offline_review",
+      "postseal_guard_status": "skipped",
+      "postseal_guard_flags": "",
+      "postseal_guard_reason": "guard_disabled",
+      "postseal_rebound_veto": false,
+      "preseal_dewpoint_c": null,
+      "preseal_pressure_hpa": null,
+      "postseal_expected_dewpoint_c": null,
+      "postseal_actual_dewpoint_c": 10.44,
+      "postseal_physical_delta_c": null,
+      "postseal_physical_qc_status": "skipped",
+      "postseal_physical_qc_reason": "",
+      "dewpoint_gate_pass_live_c": null,
+      "first_effective_sample_dewpoint_c": 10.44,
+      "postgate_to_first_effective_dewpoint_rise_c": null,
+      "postsample_late_rebound_status": "skipped",
+      "postsample_late_rebound_reason": "",
+      "pressure_gauge_stale_count": 0,
+      "pressure_gauge_total_count": 0,
+      "pressure_gauge_stale_ratio": null
+    }
+  },
+  {
+    "point": {
+      "index": 1,
+      "temperature_c": 20.0,
+      "co2_ppm": null,
+      "humidity_pct": null,
+      "pressure_hpa": 1100.0,
+      "route": "h2o",
+      "humidity_generator_temp_c": 20.0,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": null,
+      "co2_group": null,
+      "cylinder_nominal_ppm": null,
+      "pressure_mode": "sealed_controlled",
+      "pressure_target_label": "1100hPa",
+      "pressure_selection_token": ""
+    },
+    "stats": {
+      "point_phase": "h2o",
+      "point_tag": "h2o_20c_0rh_1100hpa",
+      "usable_sample_count": 4,
+      "outlier_ratio": 0.0,
+      "quality_score": 0.4799999999999999,
+      "point_quality_score": 0.4799999999999999,
+      "valid": false,
+      "recommendation": "exclude",
+      "reason": "usable_sample_count_insufficient,sample_count<5,missing_count=1,time_not_continuous,signal_span_too_wide",
+      "failed_checks": [
+        {
+          "rule_name": "usable_sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Usable sample count is below the minimum requirement"
+        },
+        {
+          "rule_name": "sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Collected sample count is lower than expected"
+        },
+        {
+          "rule_name": "missing_count",
+          "actual": 1,
+          "threshold": 0,
+          "message": "Sample stream contains missing records"
+        },
+        {
+          "rule_name": "time_continuity",
+          "actual": 0,
+          "threshold": 1,
+          "message": "Timestamps are not continuous"
+        },
+        {
+          "rule_name": "signal_span",
+          "actual": 4187.0,
+          "threshold": 523.49875,
+          "message": "Signal span is wider than the stable range"
+        }
+      ],
+      "ai_explanation": "",
+      "raw_sample_count": 4,
+      "cleaned_sample_count": 4,
+      "removed_sample_count": 0,
+      "stability_time_s": 45.145774099975824,
+      "total_time_s": 59.11566520004999,
+      "co2_postseal_quality_guards_enabled": false,
+      "postseal_guard_scope": "simulation_offline_review",
+      "postseal_guard_status": "skipped",
+      "postseal_guard_flags": "",
+      "postseal_guard_reason": "guard_disabled",
+      "postseal_rebound_veto": false,
+      "preseal_dewpoint_c": null,
+      "preseal_pressure_hpa": null,
+      "postseal_expected_dewpoint_c": null,
+      "postseal_actual_dewpoint_c": 10.83,
+      "postseal_physical_delta_c": null,
+      "postseal_physical_qc_status": "skipped",
+      "postseal_physical_qc_reason": "",
+      "dewpoint_gate_pass_live_c": null,
+      "first_effective_sample_dewpoint_c": 10.83,
+      "postgate_to_first_effective_dewpoint_rise_c": null,
+      "postsample_late_rebound_status": "skipped",
+      "postsample_late_rebound_reason": "",
+      "pressure_gauge_stale_count": 0,
+      "pressure_gauge_total_count": 0,
+      "pressure_gauge_stale_ratio": null
+    }
+  },
+  {
+    "point": {
+      "index": 2,
+      "temperature_c": 20.0,
+      "co2_ppm": null,
+      "humidity_pct": null,
+      "pressure_hpa": 1000.0,
+      "route": "h2o",
+      "humidity_generator_temp_c": 20.0,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": null,
+      "co2_group": null,
+      "cylinder_nominal_ppm": null,
+      "pressure_mode": "sealed_controlled",
+      "pressure_target_label": "1000hPa",
+      "pressure_selection_token": ""
+    },
+    "stats": {
+      "point_phase": "h2o",
+      "point_tag": "h2o_20c_0rh_1000hpa",
+      "usable_sample_count": 4,
+      "outlier_ratio": 0.0,
+      "quality_score": 0.6799999999999999,
+      "point_quality_score": 0.6799999999999999,
+      "valid": false,
+      "recommendation": "review",
+      "reason": "usable_sample_count_insufficient,sample_count<5,missing_count=1,signal_span_too_wide",
+      "failed_checks": [
+        {
+          "rule_name": "usable_sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Usable sample count is below the minimum requirement"
+        },
+        {
+          "rule_name": "sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Collected sample count is lower than expected"
+        },
+        {
+          "rule_name": "missing_count",
+          "actual": 1,
+          "threshold": 0,
+          "message": "Sample stream contains missing records"
+        },
+        {
+          "rule_name": "signal_span",
+          "actual": 4239.0,
+          "threshold": 529.99875,
+          "message": "Signal span is wider than the stable range"
+        }
+      ],
+      "ai_explanation": "",
+      "raw_sample_count": 4,
+      "cleaned_sample_count": 4,
+      "removed_sample_count": 0,
+      "stability_time_s": 23.015603400068358,
+      "total_time_s": 37.06634000001941,
+      "co2_postseal_quality_guards_enabled": false,
+      "postseal_guard_scope": "simulation_offline_review",
+      "postseal_guard_status": "skipped",
+      "postseal_guard_flags": "",
+      "postseal_guard_reason": "guard_disabled",
+      "postseal_rebound_veto": false,
+      "preseal_dewpoint_c": null,
+      "preseal_pressure_hpa": null,
+      "postseal_expected_dewpoint_c": null,
+      "postseal_actual_dewpoint_c": 9.04,
+      "postseal_physical_delta_c": null,
+      "postseal_physical_qc_status": "skipped",
+      "postseal_physical_qc_reason": "",
+      "dewpoint_gate_pass_live_c": null,
+      "first_effective_sample_dewpoint_c": 9.04,
+      "postgate_to_first_effective_dewpoint_rise_c": null,
+      "postsample_late_rebound_status": "skipped",
+      "postsample_late_rebound_reason": "",
+      "pressure_gauge_stale_count": 0,
+      "pressure_gauge_total_count": 0,
+      "pressure_gauge_stale_ratio": null
+    }
+  },
+  {
+    "point": {
+      "index": 3,
+      "temperature_c": 20.0,
+      "co2_ppm": null,
+      "humidity_pct": null,
+      "pressure_hpa": 900.0,
+      "route": "h2o",
+      "humidity_generator_temp_c": 20.0,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": null,
+      "co2_group": null,
+      "cylinder_nominal_ppm": null,
+      "pressure_mode": "sealed_controlled",
+      "pressure_target_label": "900hPa",
+      "pressure_selection_token": ""
+    },
+    "stats": {
+      "point_phase": "h2o",
+      "point_tag": "h2o_20c_0rh_900hpa",
+      "usable_sample_count": 4,
+      "outlier_ratio": 0.0,
+      "quality_score": 0.4799999999999999,
+      "point_quality_score": 0.4799999999999999,
+      "valid": false,
+      "recommendation": "exclude",
+      "reason": "usable_sample_count_insufficient,sample_count<5,missing_count=1,time_not_continuous,signal_span_too_wide",
+      "failed_checks": [
+        {
+          "rule_name": "usable_sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Usable sample count is below the minimum requirement"
+        },
+        {
+          "rule_name": "sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Collected sample count is lower than expected"
+        },
+        {
+          "rule_name": "missing_count",
+          "actual": 1,
+          "threshold": 0,
+          "message": "Sample stream contains missing records"
+        },
+        {
+          "rule_name": "time_continuity",
+          "actual": 0,
+          "threshold": 1,
+          "message": "Timestamps are not continuous"
+        },
+        {
+          "rule_name": "signal_span",
+          "actual": 4285.0,
+          "threshold": 535.74875,
+          "message": "Signal span is wider than the stable range"
+        }
+      ],
+      "ai_explanation": "",
+      "raw_sample_count": 4,
+      "cleaned_sample_count": 4,
+      "removed_sample_count": 0,
+      "stability_time_s": 24.649851899943314,
+      "total_time_s": 38.61210959998425,
+      "co2_postseal_quality_guards_enabled": false,
+      "postseal_guard_scope": "simulation_offline_review",
+      "postseal_guard_status": "skipped",
+      "postseal_guard_flags": "",
+      "postseal_guard_reason": "guard_disabled",
+      "postseal_rebound_veto": false,
+      "preseal_dewpoint_c": null,
+      "preseal_pressure_hpa": null,
+      "postseal_expected_dewpoint_c": null,
+      "postseal_actual_dewpoint_c": 7.86,
+      "postseal_physical_delta_c": null,
+      "postseal_physical_qc_status": "skipped",
+      "postseal_physical_qc_reason": "",
+      "dewpoint_gate_pass_live_c": null,
+      "first_effective_sample_dewpoint_c": 7.86,
+      "postgate_to_first_effective_dewpoint_rise_c": null,
+      "postsample_late_rebound_status": "skipped",
+      "postsample_late_rebound_reason": "",
+      "pressure_gauge_stale_count": 0,
+      "pressure_gauge_total_count": 0,
+      "pressure_gauge_stale_ratio": null
+    }
+  },
+  {
+    "point": {
+      "index": 4,
+      "temperature_c": 20.0,
+      "co2_ppm": null,
+      "humidity_pct": null,
+      "pressure_hpa": 800.0,
+      "route": "h2o",
+      "humidity_generator_temp_c": 20.0,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": null,
+      "co2_group": null,
+      "cylinder_nominal_ppm": null,
+      "pressure_mode": "sealed_controlled",
+      "pressure_target_label": "800hPa",
+      "pressure_selection_token": ""
+    },
+    "stats": {
+      "point_phase": "h2o",
+      "point_tag": "h2o_20c_0rh_800hpa",
+      "usable_sample_count": 4,
+      "outlier_ratio": 0.0,
+      "quality_score": 0.4799999999999999,
+      "point_quality_score": 0.4799999999999999,
+      "valid": false,
+      "recommendation": "exclude",
+      "reason": "usable_sample_count_insufficient,sample_count<5,missing_count=1,time_not_continuous,signal_span_too_wide",
+      "failed_checks": [
+        {
+          "rule_name": "usable_sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Usable sample count is below the minimum requirement"
+        },
+        {
+          "rule_name": "sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Collected sample count is lower than expected"
+        },
+        {
+          "rule_name": "missing_count",
+          "actual": 1,
+          "threshold": 0,
+          "message": "Sample stream contains missing records"
+        },
+        {
+          "rule_name": "time_continuity",
+          "actual": 0,
+          "threshold": 1,
+          "message": "Timestamps are not continuous"
+        },
+        {
+          "rule_name": "signal_span",
+          "actual": 4328.0,
+          "threshold": 541.12375,
+          "message": "Signal span is wider than the stable range"
+        }
+      ],
+      "ai_explanation": "",
+      "raw_sample_count": 4,
+      "cleaned_sample_count": 4,
+      "removed_sample_count": 0,
+      "stability_time_s": 24.603441999992356,
+      "total_time_s": 38.56506399996579,
+      "co2_postseal_quality_guards_enabled": false,
+      "postseal_guard_scope": "simulation_offline_review",
+      "postseal_guard_status": "skipped",
+      "postseal_guard_flags": "",
+      "postseal_guard_reason": "guard_disabled",
+      "postseal_rebound_veto": false,
+      "preseal_dewpoint_c": null,
+      "preseal_pressure_hpa": null,
+      "postseal_expected_dewpoint_c": null,
+      "postseal_actual_dewpoint_c": 7.36,
+      "postseal_physical_delta_c": null,
+      "postseal_physical_qc_status": "skipped",
+      "postseal_physical_qc_reason": "",
+      "dewpoint_gate_pass_live_c": null,
+      "first_effective_sample_dewpoint_c": 7.36,
+      "postgate_to_first_effective_dewpoint_rise_c": null,
+      "postsample_late_rebound_status": "skipped",
+      "postsample_late_rebound_reason": "",
+      "pressure_gauge_stale_count": 0,
+      "pressure_gauge_total_count": 0,
+      "pressure_gauge_stale_ratio": null
+    }
+  },
+  {
+    "point": {
+      "index": 5,
+      "temperature_c": 20.0,
+      "co2_ppm": null,
+      "humidity_pct": null,
+      "pressure_hpa": 700.0,
+      "route": "h2o",
+      "humidity_generator_temp_c": 20.0,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": null,
+      "co2_group": null,
+      "cylinder_nominal_ppm": null,
+      "pressure_mode": "sealed_controlled",
+      "pressure_target_label": "700hPa",
+      "pressure_selection_token": ""
+    },
+    "stats": {
+      "point_phase": "h2o",
+      "point_tag": "h2o_20c_0rh_700hpa",
+      "usable_sample_count": 4,
+      "outlier_ratio": 0.0,
+      "quality_score": 0.6799999999999999,
+      "point_quality_score": 0.6799999999999999,
+      "valid": false,
+      "recommendation": "review",
+      "reason": "usable_sample_count_insufficient,sample_count<5,missing_count=1,signal_span_too_wide",
+      "failed_checks": [
+        {
+          "rule_name": "usable_sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Usable sample count is below the minimum requirement"
+        },
+        {
+          "rule_name": "sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Collected sample count is lower than expected"
+        },
+        {
+          "rule_name": "missing_count",
+          "actual": 1,
+          "threshold": 0,
+          "message": "Sample stream contains missing records"
+        },
+        {
+          "rule_name": "signal_span",
+          "actual": 4378.0,
+          "threshold": 547.37375,
+          "message": "Signal span is wider than the stable range"
+        }
+      ],
+      "ai_explanation": "",
+      "raw_sample_count": 4,
+      "cleaned_sample_count": 4,
+      "removed_sample_count": 0,
+      "stability_time_s": 24.565133000025526,
+      "total_time_s": 38.517957400064915,
+      "co2_postseal_quality_guards_enabled": false,
+      "postseal_guard_scope": "simulation_offline_review",
+      "postseal_guard_status": "skipped",
+      "postseal_guard_flags": "",
+      "postseal_guard_reason": "guard_disabled",
+      "postseal_rebound_veto": false,
+      "preseal_dewpoint_c": null,
+      "preseal_pressure_hpa": null,
+      "postseal_expected_dewpoint_c": null,
+      "postseal_actual_dewpoint_c": 7.07,
+      "postseal_physical_delta_c": null,
+      "postseal_physical_qc_status": "skipped",
+      "postseal_physical_qc_reason": "",
+      "dewpoint_gate_pass_live_c": null,
+      "first_effective_sample_dewpoint_c": 7.07,
+      "postgate_to_first_effective_dewpoint_rise_c": null,
+      "postsample_late_rebound_status": "skipped",
+      "postsample_late_rebound_reason": "",
+      "pressure_gauge_stale_count": 0,
+      "pressure_gauge_total_count": 0,
+      "pressure_gauge_stale_ratio": null
+    }
+  },
+  {
+    "point": {
+      "index": 6,
+      "temperature_c": 20.0,
+      "co2_ppm": null,
+      "humidity_pct": null,
+      "pressure_hpa": 600.0,
+      "route": "h2o",
+      "humidity_generator_temp_c": 20.0,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": null,
+      "co2_group": null,
+      "cylinder_nominal_ppm": null,
+      "pressure_mode": "sealed_controlled",
+      "pressure_target_label": "600hPa",
+      "pressure_selection_token": ""
+    },
+    "stats": {
+      "point_phase": "h2o",
+      "point_tag": "h2o_20c_0rh_600hpa",
+      "usable_sample_count": 4,
+      "outlier_ratio": 0.0,
+      "quality_score": 0.6799999999999999,
+      "point_quality_score": 0.6799999999999999,
+      "valid": false,
+      "recommendation": "review",
+      "reason": "usable_sample_count_insufficient,sample_count<5,missing_count=1,signal_span_too_wide",
+      "failed_checks": [
+        {
+          "rule_name": "usable_sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Usable sample count is below the minimum requirement"
+        },
+        {
+          "rule_name": "sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Collected sample count is lower than expected"
+        },
+        {
+          "rule_name": "missing_count",
+          "actual": 1,
+          "threshold": 0,
+          "message": "Sample stream contains missing records"
+        },
+        {
+          "rule_name": "signal_span",
+          "actual": 4430.0,
+          "threshold": 553.87375,
+          "message": "Signal span is wider than the stable range"
+        }
+      ],
+      "ai_explanation": "",
+      "raw_sample_count": 4,
+      "cleaned_sample_count": 4,
+      "removed_sample_count": 0,
+      "stability_time_s": 24.65386059996672,
+      "total_time_s": 38.6834604999749,
+      "co2_postseal_quality_guards_enabled": false,
+      "postseal_guard_scope": "simulation_offline_review",
+      "postseal_guard_status": "skipped",
+      "postseal_guard_flags": "",
+      "postseal_guard_reason": "guard_disabled",
+      "postseal_rebound_veto": false,
+      "preseal_dewpoint_c": null,
+      "preseal_pressure_hpa": null,
+      "postseal_expected_dewpoint_c": null,
+      "postseal_actual_dewpoint_c": 6.61,
+      "postseal_physical_delta_c": null,
+      "postseal_physical_qc_status": "skipped",
+      "postseal_physical_qc_reason": "",
+      "dewpoint_gate_pass_live_c": null,
+      "first_effective_sample_dewpoint_c": 6.61,
+      "postgate_to_first_effective_dewpoint_rise_c": null,
+      "postsample_late_rebound_status": "skipped",
+      "postsample_late_rebound_reason": "",
+      "pressure_gauge_stale_count": 0,
+      "pressure_gauge_total_count": 0,
+      "pressure_gauge_stale_ratio": null
+    }
+  },
+  {
+    "point": {
+      "index": 7,
+      "temperature_c": 20.0,
+      "co2_ppm": null,
+      "humidity_pct": null,
+      "pressure_hpa": 500.0,
+      "route": "h2o",
+      "humidity_generator_temp_c": 20.0,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": null,
+      "co2_group": null,
+      "cylinder_nominal_ppm": null,
+      "pressure_mode": "sealed_controlled",
+      "pressure_target_label": "500hPa",
+      "pressure_selection_token": ""
+    },
+    "stats": {
+      "point_phase": "h2o",
+      "point_tag": "h2o_20c_0rh_500hpa",
+      "usable_sample_count": 4,
+      "outlier_ratio": 0.0,
+      "quality_score": 0.4799999999999999,
+      "point_quality_score": 0.4799999999999999,
+      "valid": false,
+      "recommendation": "exclude",
+      "reason": "usable_sample_count_insufficient,sample_count<5,missing_count=1,time_not_continuous,signal_span_too_wide",
+      "failed_checks": [
+        {
+          "rule_name": "usable_sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Usable sample count is below the minimum requirement"
+        },
+        {
+          "rule_name": "sample_count",
+          "actual": 4,
+          "threshold": 5,
+          "message": "Collected sample count is lower than expected"
+        },
+        {
+          "rule_name": "missing_count",
+          "actual": 1,
+          "threshold": 0,
+          "message": "Sample stream contains missing records"
+        },
+        {
+          "rule_name": "time_continuity",
+          "actual": 0,
+          "threshold": 1,
+          "message": "Timestamps are not continuous"
+        },
+        {
+          "rule_name": "signal_span",
+          "actual": 4478.0,
+          "threshold": 559.87375,
+          "message": "Signal span is wider than the stable range"
+        }
+      ],
+      "ai_explanation": "",
+      "raw_sample_count": 4,
+      "cleaned_sample_count": 4,
+      "removed_sample_count": 0,
+      "stability_time_s": 32.596580599900335,
+      "total_time_s": 46.56323689990677,
+      "co2_postseal_quality_guards_enabled": false,
+      "postseal_guard_scope": "simulation_offline_review",
+      "postseal_guard_status": "skipped",
+      "postseal_guard_flags": "",
+      "postseal_guard_reason": "guard_disabled",
+      "postseal_rebound_veto": false,
+      "preseal_dewpoint_c": null,
+      "preseal_pressure_hpa": null,
+      "postseal_expected_dewpoint_c": null,
+      "postseal_actual_dewpoint_c": 6.04,
+      "postseal_physical_delta_c": null,
+      "postseal_physical_qc_status": "skipped",
+      "postseal_physical_qc_reason": "",
+      "dewpoint_gate_pass_live_c": null,
+      "first_effective_sample_dewpoint_c": 6.04,
+      "postgate_to_first_effective_dewpoint_rise_c": null,
+      "postsample_late_rebound_status": "skipped",
+      "postsample_late_rebound_reason": "",
+      "pressure_gauge_stale_count": 0,
+      "pressure_gauge_total_count": 0,
+      "pressure_gauge_stale_ratio": null
+    }
+  }
+]

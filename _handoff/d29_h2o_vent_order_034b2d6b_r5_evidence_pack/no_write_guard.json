@@ -1,0 +1,14 @@
+{
+  "run_id": "run_20260512_085322",
+  "no_write": true,
+  "attempted_write_count": 0,
+  "blocked_write_events": [],
+  "identity_write_command_sent": false,
+  "persistent_write_command_sent": false,
+  "final_decision": "FAIL",
+  "readiness_result": "FAIL",
+  "a1_final_decision": "FAIL",
+  "a1_execution_result": "failed",
+  "a1_fail_reason": "Calibration completed",
+  "real_machine_acceptance_evidence": false
+}

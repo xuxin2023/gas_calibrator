@@ -1,0 +1,1 @@
+﻿3dde1e25 fix(v2): align dewpoint timeout_s to V1 2400s

@@ -1,0 +1,17 @@
+# no-flow check
+
+## Primary R5 run (085322)
+- real-machine config contains no `workflow.humidity_generator.flow_lpm`
+- `humidity_generator_service.py` still contains compatibility logic for `flow_lpm` → `set_flow_target`
+- `run.log` confirms: `flow=NoneL/min` (no flow target was set)
+- `io_log.csv` contains no `set_flow_target` calls
+- `route_trace.jsonl` contains no `set_flow_target` events
+- In `safe_stop`, the generator readback showed `flow_lpm=0.6` (physical pump was running), `max_flow_lpm=0.05` (expected <0.05). This is a readback, not a setpoint -- V2 did not command flow.
+
+## Duplicate-start run (091713)
+- Same config, same no-flow behavior
+- Failed at device init, never reached humidity generator control
+
+## Conclusion
+- This run did not control humidity generator flow.
+- `set_flow_target` was never called.

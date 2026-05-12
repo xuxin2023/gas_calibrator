@@ -1,0 +1,134 @@
+{
+  "operator_name": "h2o_1r_engineering_probe_034b2d6b",
+  "timestamp": "2026-05-11T20:00:00+08:00",
+  "branch": "codex/v2-golden-recovery-cdb82111",
+  "HEAD": "034b2d6bf3321ebc40b078b6c8bd9f97eb6ab2ef",
+  "config_path": "D:\\gas_calibrator\\src\\gas_calibrator\\v2\\configs\\validation\\run001_h2o_only_1_point_no_write_real_machine.json",
+  "promotion_state": "blocked",
+  "engineering_probe_only": true,
+  "not_real_acceptance_evidence": true,
+  "do_not_refresh_real_primary_latest": true,
+  "controlled_pressure_scope": "GR-H2O-1 controlled pressure set",
+  "controlled_pressure_points_hpa": [
+    1100.0,
+    1000.0,
+    900.0,
+    800.0,
+    700.0,
+    600.0,
+    500.0
+  ],
+  "full_route_acceptance": false,
+  "port_manifest": {
+    "humidity_generator": {
+      "port": "COM16",
+      "status": "operator_confirmed_ready",
+      "ready": true
+    },
+    "dewpoint_meter": {
+      "port": "COM17",
+      "status": "operator_confirmed_ready",
+      "ready": true
+    },
+    "pressure_gauge": {
+      "port": "COM22",
+      "status": "operator_confirmed_ready",
+      "ready": true
+    },
+    "pressure_controller": {
+      "port": "COM23",
+      "status": "operator_confirmed_ready_initial_ambient_open_controllable",
+      "ready": true,
+      "initial_ambient_open_controllable": true
+    },
+    "analyzers": {
+      "ga01": "COM35",
+      "ga02": "COM37",
+      "ga03": "COM41",
+      "ga04": "COM42"
+    },
+    "h2o_route_valves": {
+      "status": "operator_confirmed_controllable_for_h2o_only_single_route_no_write_probe",
+      "ready": true,
+      "controllable": true
+    },
+    "v1_fallback": {
+      "status": "operator_confirmed_available",
+      "available": true,
+      "required": true
+    },
+    "humidity_generator_ready": true,
+    "dewpoint_meter_ready": true,
+    "pressure_gauge_ready": true,
+    "pressure_controller_ready": true,
+    "h2o_route_valve_controllable": true,
+    "pressure_controller_initial_atmosphere_controllable": true,
+    "v1_fallback_available": true,
+    "v1_fallback_required": true,
+    "analyzer_details": {
+      "ga01": { "port": "COM35", "ready": true, "status": "operator_confirmed_ready" },
+      "ga02": { "port": "COM37", "ready": true, "status": "operator_confirmed_ready" },
+      "ga03": { "port": "COM41", "ready": true, "status": "operator_confirmed_ready" },
+      "ga04": { "port": "COM42", "ready": true, "status": "operator_confirmed_ready" }
+    }
+  },
+  "explicit_acknowledgement": {
+    "h2o_only": true,
+    "only_h2o_1_point_no_write": true,
+    "single_route": true,
+    "single_temperature": true,
+    "single_pressure_point": true,
+    "skip0": true,
+    "no_write": true,
+    "no_id_write": true,
+    "no_senco_write": true,
+    "no_calibration_write": true,
+    "no_chamber_sv_write": true,
+    "no_chamber_set_temperature": true,
+    "no_chamber_start": true,
+    "no_chamber_stop": true,
+    "no_mode_switch": true,
+    "engineering_probe_only": true,
+    "not_real_acceptance": true,
+    "v1_fallback_required": true,
+    "do_not_refresh_real_primary_latest": true,
+    "a3_enabled": false,
+    "co2_enabled": false,
+    "full_group_enabled": false,
+    "multi_temperature_enabled": false,
+    "real_primary_latest_refresh": false
+  },
+  "single_pressure_point_retained_as_legacy_field": true,
+  "single_run_only": true,
+  "do_not_repeat": true,
+  "operator_confirmation_source": "D29-R5 repeatability verification",
+  "probe_scope": "H2O-only no-write engineering probe; single route; single temperature; GR-H2O-1 controlled pressure set; vent/valve order repeatability verification",
+  "acceptance_level": "engineering_probe_only",
+  "real_primary_latest_refresh": false,
+  "required_acknowledgements": {
+    "h2o_only": true,
+    "only_h2o_1_point_no_write": true,
+    "single_route": true,
+    "single_temperature": true,
+    "single_pressure_point": true,
+    "skip0": true,
+    "no_write": true,
+    "no_id_write": true,
+    "no_senco_write": true,
+    "no_calibration_write": true,
+    "no_chamber_sv_write": true,
+    "no_chamber_set_temperature": true,
+    "no_chamber_start": true,
+    "no_chamber_stop": true,
+    "no_mode_switch": true,
+    "engineering_probe_only": true,
+    "not_real_acceptance": true,
+    "v1_fallback_required": true,
+    "do_not_refresh_real_primary_latest": true,
+    "a3_enabled": false,
+    "co2_enabled": false,
+    "full_group_enabled": false,
+    "multi_temperature_enabled": false,
+    "real_primary_latest_refresh": false
+  }
+}

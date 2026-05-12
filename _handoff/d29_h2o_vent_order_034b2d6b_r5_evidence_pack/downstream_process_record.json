@@ -1,0 +1,38 @@
+{
+  "schema_version": "v2.run001.h2o_only_1_point_no_write_probe.1",
+  "record_type": "h2o_downstream_process_record",
+  "downstream_start_time": 1778548632.9361973,
+  "downstream_start_time_iso": "2026-05-12T01:17:12.936+00:00",
+  "executor_type": "function_call",
+  "callable": "execute_h2o_single_point_probe",
+  "command": "execute_h2o_single_point_probe(aligned_config_path)",
+  "cwd": "D:\\gas_calibrator",
+  "env_allow_flag": "1",
+  "output_dir": "D:\\gas_calibrator\\_handoff\\d29_h2o_vent_order_034b2d6b_r5_repeatability",
+  "aligned_config_path": "D:\\gas_calibrator\\_handoff\\d29_h2o_vent_order_034b2d6b_r5_repeatability\\h2o_1r_v1_aligned_downstream_config.json",
+  "expected_output_roots": [
+    "D:\\gas_calibrator\\output\\run001_h2o\\1_point_no_write",
+    "D:\\gas_calibrator\\_handoff",
+    "D:\\gas_calibrator\\_handoff\\d29_h2o_vent_order_034b2d6b_r5_repeatability"
+  ],
+  "stdout_path": "D:\\gas_calibrator\\_handoff\\d29_h2o_vent_order_034b2d6b_r5_repeatability\\downstream_stdout.log",
+  "stderr_path": "D:\\gas_calibrator\\_handoff\\d29_h2o_vent_order_034b2d6b_r5_repeatability\\downstream_stderr.log",
+  "downstream_completed_at": 1778548642.6938422,
+  "downstream_completed_at_iso": "2026-05-12T01:17:22.863+00:00",
+  "execution_interrupted": false,
+  "execution_error": "",
+  "downstream_exception_class": "",
+  "downstream_exception_message": "",
+  "execution_returned_mapping": true,
+  "downstream_run_dir_locator_search_roots": [
+    "D:\\gas_calibrator\\output\\run001_h2o\\1_point_no_write",
+    "D:\\gas_calibrator\\_handoff",
+    "D:\\gas_calibrator\\_handoff\\d29_h2o_vent_order_034b2d6b_r5_repeatability"
+  ],
+  "downstream_run_dir_locator_candidates": [
+    "D:\\gas_calibrator\\output\\run001_h2o\\1_point_no_write\\run_20260512_091713"
+  ],
+  "downstream_run_dir_locator_selected": "D:\\gas_calibrator\\output\\run001_h2o\\1_point_no_write\\run_20260512_091713",
+  "downstream_run_dir_locator_started_at": 1778548632.9361973,
+  "downstream_run_dir_locator_completed_at": 1778548642.8525474
+}

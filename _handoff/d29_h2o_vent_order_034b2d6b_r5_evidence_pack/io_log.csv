@@ -1,0 +1,210 @@
+timestamp,device,direction,data
+2026-05-12T08:53:26.159,NoWriteDeviceProxy,TX,"set_in_limits(0.02, 1.0)"
+2026-05-12T08:53:28.310,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.246,NoWriteDeviceProxy,TX,"set_valve(1, False)"
+2026-05-12T08:53:37.262,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.264,NoWriteDeviceProxy,TX,"set_valve(2, False)"
+2026-05-12T08:53:37.280,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.281,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T08:53:37.296,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.298,NoWriteDeviceProxy,TX,"set_valve(4, False)"
+2026-05-12T08:53:37.313,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.315,NoWriteDeviceProxy,TX,"set_valve(5, False)"
+2026-05-12T08:53:37.330,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.332,NoWriteDeviceProxy,TX,"set_valve(6, False)"
+2026-05-12T08:53:37.347,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.349,NoWriteDeviceProxy,TX,"set_valve(7, False)"
+2026-05-12T08:53:37.362,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.364,NoWriteDeviceProxy,TX,"set_valve(8, False)"
+2026-05-12T08:53:37.378,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.380,NoWriteDeviceProxy,TX,"set_valve(9, False)"
+2026-05-12T08:53:37.397,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.398,NoWriteDeviceProxy,TX,"set_valve(10, False)"
+2026-05-12T08:53:37.414,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.416,NoWriteDeviceProxy,TX,"set_valve(11, False)"
+2026-05-12T08:53:37.430,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.432,NoWriteDeviceProxy,TX,"set_valve(12, False)"
+2026-05-12T08:53:37.447,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.449,NoWriteDeviceProxy,TX,"set_valve(15, False)"
+2026-05-12T08:53:37.464,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.466,NoWriteDeviceProxy,TX,"set_valve(16, False)"
+2026-05-12T08:53:37.480,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.482,NoWriteDeviceProxy,TX,"set_valve(1, False)"
+2026-05-12T08:53:37.497,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.499,NoWriteDeviceProxy,TX,"set_valve(2, False)"
+2026-05-12T08:53:37.513,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.515,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T08:53:37.531,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:37.532,NoWriteDeviceProxy,TX,"set_valve(8, False)"
+2026-05-12T08:53:37.546,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:38.888,NoWriteDeviceProxy,TX,set_isolation_open(True)
+2026-05-12T08:53:39.960,NoWriteDeviceProxy,RX,ok
+2026-05-12T08:53:47.699,NoWriteDeviceProxy,TX,set_target_temp(20.0)
+2026-05-12T08:53:48.111,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:01.379,NoWriteDeviceProxy,TX,set_output(False)
+2026-05-12T09:20:02.444,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:02.446,NoWriteDeviceProxy,TX,set_isolation_open(True)
+2026-05-12T09:20:04.662,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:04.663,NoWriteDeviceProxy,TX,vent(True)
+2026-05-12T09:20:06.863,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.676,NoWriteDeviceProxy,TX,"set_valve(1, False)"
+2026-05-12T09:20:21.691,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.693,NoWriteDeviceProxy,TX,"set_valve(2, False)"
+2026-05-12T09:20:21.708,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.710,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T09:20:21.724,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.727,NoWriteDeviceProxy,TX,"set_valve(4, False)"
+2026-05-12T09:20:21.742,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.744,NoWriteDeviceProxy,TX,"set_valve(5, False)"
+2026-05-12T09:20:21.759,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.761,NoWriteDeviceProxy,TX,"set_valve(6, False)"
+2026-05-12T09:20:21.777,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.779,NoWriteDeviceProxy,TX,"set_valve(7, False)"
+2026-05-12T09:20:21.794,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.795,NoWriteDeviceProxy,TX,"set_valve(8, False)"
+2026-05-12T09:20:21.809,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.810,NoWriteDeviceProxy,TX,"set_valve(9, False)"
+2026-05-12T09:20:21.826,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.828,NoWriteDeviceProxy,TX,"set_valve(10, False)"
+2026-05-12T09:20:21.843,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.844,NoWriteDeviceProxy,TX,"set_valve(11, False)"
+2026-05-12T09:20:21.859,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.861,NoWriteDeviceProxy,TX,"set_valve(12, False)"
+2026-05-12T09:20:21.876,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.877,NoWriteDeviceProxy,TX,"set_valve(15, False)"
+2026-05-12T09:20:21.891,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.893,NoWriteDeviceProxy,TX,"set_valve(16, False)"
+2026-05-12T09:20:21.909,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.910,NoWriteDeviceProxy,TX,"set_valve(1, True)"
+2026-05-12T09:20:21.924,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.926,NoWriteDeviceProxy,TX,"set_valve(2, True)"
+2026-05-12T09:20:21.942,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.943,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T09:20:21.959,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:20:21.961,NoWriteDeviceProxy,TX,"set_valve(8, True)"
+2026-05-12T09:20:21.976,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:24:30.296,NoWriteDeviceProxy,TX,set_output(False)
+2026-05-12T09:24:31.632,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:24:31.635,NoWriteDeviceProxy,TX,set_isolation_open(True)
+2026-05-12T09:24:33.783,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:24:33.789,NoWriteDeviceProxy,TX,vent(True)
+2026-05-12T09:24:35.959,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:16.498,NoWriteDeviceProxy,TX,set_isolation_open(True)
+2026-05-12T09:25:17.575,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.312,NoWriteDeviceProxy,TX,"set_valve(1, False)"
+2026-05-12T09:25:29.326,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.327,NoWriteDeviceProxy,TX,"set_valve(2, False)"
+2026-05-12T09:25:29.342,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.344,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T09:25:29.358,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.361,NoWriteDeviceProxy,TX,"set_valve(4, False)"
+2026-05-12T09:25:29.377,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.379,NoWriteDeviceProxy,TX,"set_valve(5, False)"
+2026-05-12T09:25:29.395,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.397,NoWriteDeviceProxy,TX,"set_valve(6, False)"
+2026-05-12T09:25:29.412,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.413,NoWriteDeviceProxy,TX,"set_valve(7, False)"
+2026-05-12T09:25:29.430,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.431,NoWriteDeviceProxy,TX,"set_valve(8, False)"
+2026-05-12T09:25:29.446,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.447,NoWriteDeviceProxy,TX,"set_valve(9, False)"
+2026-05-12T09:25:29.462,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.464,NoWriteDeviceProxy,TX,"set_valve(10, False)"
+2026-05-12T09:25:29.478,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.479,NoWriteDeviceProxy,TX,"set_valve(11, False)"
+2026-05-12T09:25:29.493,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.494,NoWriteDeviceProxy,TX,"set_valve(12, False)"
+2026-05-12T09:25:29.509,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.510,NoWriteDeviceProxy,TX,"set_valve(15, False)"
+2026-05-12T09:25:29.525,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.527,NoWriteDeviceProxy,TX,"set_valve(16, False)"
+2026-05-12T09:25:29.543,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.545,NoWriteDeviceProxy,TX,"set_valve(1, False)"
+2026-05-12T09:25:29.560,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.561,NoWriteDeviceProxy,TX,"set_valve(2, False)"
+2026-05-12T09:25:29.578,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.580,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T09:25:29.594,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:29.596,NoWriteDeviceProxy,TX,"set_valve(8, False)"
+2026-05-12T09:25:29.612,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:25:44.397,NoWriteDeviceProxy,TX,enable_control_output()
+2026-05-12T09:26:19.847,NoWriteDeviceProxy,TX,enable_control_output()
+2026-05-12T09:26:56.924,NoWriteDeviceProxy,TX,enable_control_output()
+2026-05-12T09:27:35.535,NoWriteDeviceProxy,TX,enable_control_output()
+2026-05-12T09:28:14.083,NoWriteDeviceProxy,TX,enable_control_output()
+2026-05-12T09:28:52.652,NoWriteDeviceProxy,TX,enable_control_output()
+2026-05-12T09:29:31.368,NoWriteDeviceProxy,TX,enable_control_output()
+2026-05-12T09:30:10.260,NoWriteDeviceProxy,TX,"set_valve(1, False)"
+2026-05-12T09:30:10.279,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.282,NoWriteDeviceProxy,TX,"set_valve(2, False)"
+2026-05-12T09:30:10.299,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.302,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T09:30:10.327,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.330,NoWriteDeviceProxy,TX,"set_valve(4, False)"
+2026-05-12T09:30:10.347,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.351,NoWriteDeviceProxy,TX,"set_valve(5, False)"
+2026-05-12T09:30:10.373,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.380,NoWriteDeviceProxy,TX,"set_valve(6, False)"
+2026-05-12T09:30:10.398,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.401,NoWriteDeviceProxy,TX,"set_valve(7, False)"
+2026-05-12T09:30:10.423,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.430,NoWriteDeviceProxy,TX,"set_valve(8, False)"
+2026-05-12T09:30:10.447,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.450,NoWriteDeviceProxy,TX,"set_valve(9, False)"
+2026-05-12T09:30:10.468,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.476,NoWriteDeviceProxy,TX,"set_valve(10, False)"
+2026-05-12T09:30:10.496,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.500,NoWriteDeviceProxy,TX,"set_valve(11, False)"
+2026-05-12T09:30:10.518,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.525,NoWriteDeviceProxy,TX,"set_valve(12, False)"
+2026-05-12T09:30:10.544,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.547,NoWriteDeviceProxy,TX,"set_valve(15, False)"
+2026-05-12T09:30:10.564,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.567,NoWriteDeviceProxy,TX,"set_valve(16, False)"
+2026-05-12T09:30:10.585,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.593,NoWriteDeviceProxy,TX,"set_valve(1, False)"
+2026-05-12T09:30:10.610,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.614,NoWriteDeviceProxy,TX,"set_valve(2, False)"
+2026-05-12T09:30:10.629,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.632,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T09:30:10.648,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.651,NoWriteDeviceProxy,TX,"set_valve(8, False)"
+2026-05-12T09:30:10.671,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.978,NoWriteDeviceProxy,TX,"set_valve(1, False)"
+2026-05-12T09:30:10.996,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:10.999,NoWriteDeviceProxy,TX,"set_valve(2, False)"
+2026-05-12T09:30:11.016,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.018,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T09:30:11.039,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.046,NoWriteDeviceProxy,TX,"set_valve(4, False)"
+2026-05-12T09:30:11.065,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.071,NoWriteDeviceProxy,TX,"set_valve(5, False)"
+2026-05-12T09:30:11.098,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.103,NoWriteDeviceProxy,TX,"set_valve(6, False)"
+2026-05-12T09:30:11.125,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.130,NoWriteDeviceProxy,TX,"set_valve(7, False)"
+2026-05-12T09:30:11.148,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.151,NoWriteDeviceProxy,TX,"set_valve(8, False)"
+2026-05-12T09:30:11.172,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.179,NoWriteDeviceProxy,TX,"set_valve(9, False)"
+2026-05-12T09:30:11.197,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.201,NoWriteDeviceProxy,TX,"set_valve(10, False)"
+2026-05-12T09:30:11.224,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.230,NoWriteDeviceProxy,TX,"set_valve(11, False)"
+2026-05-12T09:30:11.248,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.251,NoWriteDeviceProxy,TX,"set_valve(12, False)"
+2026-05-12T09:30:11.272,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.280,NoWriteDeviceProxy,TX,"set_valve(15, False)"
+2026-05-12T09:30:11.297,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.301,NoWriteDeviceProxy,TX,"set_valve(16, False)"
+2026-05-12T09:30:11.323,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.330,NoWriteDeviceProxy,TX,"set_valve(1, False)"
+2026-05-12T09:30:11.347,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.351,NoWriteDeviceProxy,TX,"set_valve(2, False)"
+2026-05-12T09:30:11.372,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.378,NoWriteDeviceProxy,TX,"set_valve(3, False)"
+2026-05-12T09:30:11.395,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.398,NoWriteDeviceProxy,TX,"set_valve(8, False)"
+2026-05-12T09:30:11.413,NoWriteDeviceProxy,RX,ok
+2026-05-12T09:30:11.676,NoWriteDeviceProxy,TX,set_output(False)
+2026-05-12T09:30:13.823,NoWriteDeviceProxy,RX,ok
