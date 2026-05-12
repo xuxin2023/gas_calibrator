@@ -70,6 +70,7 @@
   },
   "workflow": {
     "collect_only": true,
+    "no_write_guard_active": true,
     "collect_only_fast_path": false,
     "route_mode": "co2_only",
     "selected_temps_c": [20.0],
