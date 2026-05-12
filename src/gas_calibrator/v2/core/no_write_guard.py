@@ -117,6 +117,20 @@ IDENTITY_WRITE_METHODS = {
     "assign_device_id",
     "set_id",
 }
+RUNTIME_SETUP_METHODS = {
+    "set_mode",
+    "set_mode_with_ack",
+    "set_comm_way",
+    "set_comm_way_with_ack",
+    "set_active_freq",
+    "set_active_freq_with_ack",
+    "set_average_filter",
+    "set_average_filter_with_ack",
+    "set_average_filter_channel",
+    "set_average_filter_channel_with_ack",
+    "set_average",
+    "set_average_with_ack",
+}
 
 
 def _normalize_bool(value: Any) -> bool:
@@ -158,6 +172,16 @@ def is_blocked_write_method(method_name: str, *, device_type: str = "") -> bool:
     )
     has_calibration_term = any(term in name for term in CALIBRATION_TERMS)
     return bool(has_verb and has_calibration_term)
+
+
+def is_runtime_setup_method(method_name: str, *, device_type: str = "") -> bool:
+    name = str(method_name or "").strip().lower()
+    normalized_type = str(device_type or "").strip().lower()
+    if not name:
+        return False
+    if normalized_type not in ANALYZER_RAW_DEVICE_TYPES:
+        return False
+    return name in RUNTIME_SETUP_METHODS
 
 
 def _raw_write_method_needs_payload_check(method_name: str, *, device_type: str = "") -> bool:
@@ -202,10 +226,15 @@ class NoWriteGuard:
     scope: str = "run001_a1"
     enabled: bool = True
     blocked_events: list[dict[str, Any]] = field(default_factory=list)
+    runtime_setup_events: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def attempted_write_count(self) -> int:
         return len(self.blocked_events)
+
+    @property
+    def runtime_setup_command_count(self) -> int:
+        return len(self.runtime_setup_events)
 
     def guard_device(self, device: Any, *, device_name: str = "", device_type: str = "") -> Any:
         if not self.enabled or device is None:
@@ -256,9 +285,39 @@ class NoWriteGuard:
             f"{event['device_name'] or event['device_type']}.{event['method_name']}"
         )
 
+    def record_runtime_setup(
+        self,
+        *,
+        device_name: str,
+        device_type: str,
+        method_name: str,
+        args: tuple[Any, ...],
+        kwargs: Mapping[str, Any],
+        success: bool | None = None,
+        error: str = "",
+    ) -> None:
+        event = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "scope": self.scope,
+            "device_name": str(device_name or ""),
+            "device_type": str(device_type or ""),
+            "method_name": str(method_name or ""),
+            "args_preview": [self._preview(value) for value in args[:4]],
+            "kwargs_keys": sorted(str(key) for key in dict(kwargs).keys()),
+            "command_category": "analyzer_runtime_setup",
+            "calibration_write_command_sent": False,
+            "identity_write_command_sent": False,
+            "persistent_write_command_sent": False,
+            "reason": "allowed_runtime_setup_under_no_write_guard",
+            "success": success if success is not None else (not bool(error)),
+            "error": str(error or ""),
+        }
+        self.runtime_setup_events.append(event)
+
     def to_artifact(self) -> dict[str, Any]:
         identity_write = any(bool(event.get("identity_write_command_sent")) for event in self.blocked_events)
         persistent_write = any(bool(event.get("persistent_write_command_sent")) for event in self.blocked_events)
+        runtime_setup_sent = bool(self.runtime_setup_events)
         return {
             "guard_enabled": bool(self.enabled),
             "scope": self.scope,
@@ -266,9 +325,13 @@ class NoWriteGuard:
             "blocked_write_events": list(self.blocked_events),
             "identity_write_command_sent": identity_write,
             "persistent_write_command_sent": persistent_write,
+            "runtime_setup_command_count": self.runtime_setup_command_count,
+            "runtime_setup_events": list(self.runtime_setup_events),
+            "runtime_setup_command_sent": runtime_setup_sent,
             "blocked_method_policy": {
                 "exact": sorted(EXACT_BLOCKED_METHODS),
                 "identity_methods": sorted(IDENTITY_WRITE_METHODS),
+                "runtime_setup_methods": sorted(RUNTIME_SETUP_METHODS),
                 "terms": list(CALIBRATION_TERMS),
                 "verbs": list(WRITE_VERBS),
                 "raw_write_methods": list(RAW_WRITE_METHODS),
@@ -276,6 +339,10 @@ class NoWriteGuard:
                 "raw_identity_command_prefixes": list(RAW_IDENTITY_COMMAND_PREFIXES),
                 "gas_analyzer_raw_write_blocked": "calibration_and_identity_payloads",
             },
+            "no_write_semantics": (
+                "no calibration/identity/persistent parameter write; "
+                "analyzer runtime setup may be allowed and recorded"
+            ),
             "final_decision": "FAIL" if self.attempted_write_count > 0 else "PASS",
         }
 
@@ -329,6 +396,32 @@ class NoWriteDeviceProxy:
                 return value(*args, **kwargs)
 
             return _checked_raw_write
+        if callable(value) and is_runtime_setup_method(name, device_type=device_type):
+            def _runtime_setup_wrapper(*args: Any, **kwargs: Any) -> Any:
+                try:
+                    result = value(*args, **kwargs)
+                except Exception as exc:
+                    guard.record_runtime_setup(
+                        device_name=device_name,
+                        device_type=device_type,
+                        method_name=name,
+                        args=args,
+                        kwargs=kwargs,
+                        success=False,
+                        error=str(exc),
+                    )
+                    raise
+                guard.record_runtime_setup(
+                    device_name=device_name,
+                    device_type=device_type,
+                    method_name=name,
+                    args=args,
+                    kwargs=kwargs,
+                    success=True,
+                )
+                return result
+
+            return _runtime_setup_wrapper
         if name == "ser" and str(device_type).strip().lower() in {"gas_analyzer", "analyzer"}:
             return guard.guard_device(value, device_name=f"{device_name}.ser", device_type="gas_analyzer_serial")
         return value
