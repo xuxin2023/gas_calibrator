@@ -93,8 +93,79 @@ def test_not_production_ready_declared():
     assert prod["formal_switch"] is False
 
 
-def test_points_excel_field_exists():
-    assert "points_excel" in _profile()["paths"]
+def test_profile_points_excel_is_dedicated_20c_file():
+    assert _profile()["paths"]["points_excel"] == "./a4_20c_h2o_co2_points_simulated.json"
+
+
+def test_dedicated_points_file_exists():
+    points_path = (
+        PROFILE_PATH.parent / "a4_20c_h2o_co2_points_simulated.json"
+    )
+    assert points_path.exists(), f"points file missing: {points_path}"
+
+
+def test_dedicated_points_is_list():
+    points = json.loads(
+        (PROFILE_PATH.parent / "a4_20c_h2o_co2_points_simulated.json")
+        .read_text(encoding="utf-8")
+    )
+    assert isinstance(points, list), f"expected list, got {type(points)}"
+
+
+def test_all_points_temperature_is_20c():
+    points = json.loads(
+        (PROFILE_PATH.parent / "a4_20c_h2o_co2_points_simulated.json")
+        .read_text(encoding="utf-8")
+    )
+    for p in points:
+        assert p["temperature_c"] == 20.0, (
+            f"point index={p['index']} has temperature_c={p['temperature_c']}"
+        )
+
+
+def test_points_routes_are_only_h2o_and_co2():
+    points = json.loads(
+        (PROFILE_PATH.parent / "a4_20c_h2o_co2_points_simulated.json")
+        .read_text(encoding="utf-8")
+    )
+    routes = {p["route"] for p in points}
+    assert routes == {"h2o", "co2"}, f"unexpected routes: {routes}"
+
+
+def test_no_10c_points():
+    points = json.loads(
+        (PROFILE_PATH.parent / "a4_20c_h2o_co2_points_simulated.json")
+        .read_text(encoding="utf-8")
+    )
+    for p in points:
+        assert p["temperature_c"] != 10.0, (
+            f"found 10C at index={p['index']}"
+        )
+
+
+def test_co2_pressures_are_not_seven_pressure_baseline():
+    points = json.loads(
+        (PROFILE_PATH.parent / "a4_20c_h2o_co2_points_simulated.json")
+        .read_text(encoding="utf-8")
+    )
+    co2_pressures = sorted(
+        {p["pressure_hpa"] for p in points if p["route"] == "co2"}
+    )
+    assert len(co2_pressures) == 3, (
+        f"CO2 has {len(co2_pressures)} unique pressures, not 3-point subset"
+    )
+    assert co2_pressures != [500.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0], (
+        "CO2 pressures must not declare full seven-pressure baseline"
+    )
+
+
+def test_points_indices_start_from_1():
+    points = json.loads(
+        (PROFILE_PATH.parent / "a4_20c_h2o_co2_points_simulated.json")
+        .read_text(encoding="utf-8")
+    )
+    for i, p in enumerate(points, start=1):
+        assert p["index"] == i, f"expected index={i}, got {p['index']}"
 
 
 def test_output_dir_matches_a4_single_temp():

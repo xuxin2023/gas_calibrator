@@ -97,7 +97,7 @@
       "not_production_ready": true,
       "not_real_machine": true,
       "gas_ambient_point_gap": "recorded, NOT addressed in this profile; CO2 baseline [1100..500] intact",
-      "NEED_USER_DECISION_points_file": "full_route_points_simulated.json reused as placeholder; dedicated 20C H2O+CO2 points file may be needed",
+      "NEED_USER_DECISION_points_file": "dedicated 20C points draft created in a4_20c_h2o_co2_points_simulated.json; review before simulation run",
       "NEED_USER_DECISION_ambient_point": "gas ambient point not in current CO2 seven-pressure baseline; to be addressed as A4 risk item",
       "B1_R1_not_seven_pressure": "B1-R1 6-points simulation is NOT seven-pressure baseline; do not confuse"
     },
@@ -109,8 +109,8 @@
     }
   },
   "paths": {
-    "points_excel": "./full_route_points_simulated.json",
-    "_NEED_USER_DECISION": "points_excel currently reuses full_route_points_simulated.json; a dedicated a4_20c_h2o_co2_points_simulated.json may be needed",
+    "points_excel": "./a4_20c_h2o_co2_points_simulated.json",
+    "_NEED_USER_DECISION": "dedicated A4 20C H2O+CO2 points draft created; gas ambient point gap still NOT addressed in points or runtime",
     "output_dir": "../../../output/v1_v2_compare/simulated/a4_single_temp_20c"
   }
 }
