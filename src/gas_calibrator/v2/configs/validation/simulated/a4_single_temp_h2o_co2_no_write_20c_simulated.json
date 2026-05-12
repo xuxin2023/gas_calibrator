@@ -89,17 +89,23 @@
     "water_first_all_temps": true,
     "water_first_temp_gte": 10,
     "a4_notes": {
-      "stage": "A4-P3 simulation-only profile draft",
+      "stage": "A4-P5 simulation point matrix draft",
       "single_temperature": true,
       "h2o_co2_group": true,
       "no_write": true,
       "simulation_only": true,
       "not_production_ready": true,
       "not_real_machine": true,
-      "gas_ambient_point_gap": "recorded, NOT addressed in this profile; CO2 baseline [1100..500] intact",
-      "NEED_USER_DECISION_points_file": "dedicated 20C points draft created in a4_20c_h2o_co2_points_simulated.json; review before simulation run",
-      "NEED_USER_DECISION_ambient_point": "gas ambient point not in current CO2 seven-pressure baseline; to be addressed as A4 risk item",
-      "B1_R1_not_seven_pressure": "B1-R1 6-points simulation is NOT seven-pressure baseline; do not confuse"
+      "gas_ambient_point_gap": "recorded, NOT addressed in this profile; CO2 ambient open point still deferred",
+      "NEED_USER_DECISION_points_file": "dedicated 20C points draft created in a4_20c_h2o_co2_points_simulated.json; 15-point matrix; review before simulation run",
+      "NEED_USER_DECISION_ambient_point": "CO2 ambient open point not included in this round; deferred risk item",
+      "B1_R1_not_seven_pressure": "B1-R1 6-points simulation is NOT seven-pressure baseline; do not confuse",
+      "h2o_ambient_open_point": "included as open atmospheric point, not sealed pressure control",
+      "h2o_sealed_pressure_points": [1100, 1000, 900, 800, 700, 600, 500],
+      "co2_sealed_pressure_points": [1100, 1000, 900, 800, 700, 600, 500],
+      "co2_ambient_open_point": "not included in this round; deferred risk item",
+      "ambient_open_vs_1000hpa": "ambient_open is current atmospheric open point; 1000hPa is sealed pressure-control point",
+      "future_matrix_goal": "future V2 should support flexible temperature/gas/pressure point combinations like V1, with no-write gates and physical constraints"
     },
     "production": {
       "enabled": false,
