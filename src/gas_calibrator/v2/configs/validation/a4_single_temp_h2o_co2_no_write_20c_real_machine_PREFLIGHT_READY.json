@@ -1,0 +1,211 @@
+{
+  "_comment": "A4-P16 preflight-ready real-machine no-write config. NOT executable. Draft unlocked but all execution gates OFF. A4-P17 required for actual probe.",
+  "profile_stage": "A4_P16_PREFLIGHT_READY",
+  "real_machine_config": true,
+  "draft_locked": false,
+  "preflight_ready": true,
+  "operator_approval_required": true,
+  "operator_approval_phrase_required": "APPROVE_A4_SINGLE_TEMP_H2O_CO2_NO_WRITE_PREFLIGHT",
+  "operator_approval_phrase_entered": true,
+  "operator_decisions": {
+    "co2_ppm_confirmed": true,
+    "co2_ppm_value": 1000.0,
+    "temperature_confirmed": true,
+    "selected_temps_c_confirmed": [20.0],
+    "route_confirmed": true,
+    "route_mode_confirmed": "h2o_then_co2",
+    "points_confirmed": true,
+    "no_write_confirmed": true,
+    "no_parameter_write_confirmed": true,
+    "v1_fallback_confirmed": true,
+    "safe_stop_confirmed": true,
+    "operator_approval_phrase_confirmed": true,
+    "operator_approval_phrase_entered": true,
+    "operator_approval_phrase_entered_value": "APPROVE_A4_SINGLE_TEMP_H2O_CO2_NO_WRITE_PREFLIGHT",
+    "operator_signature": "USER_CONFIRMED_2026-05-13",
+    "operator_date": "2026-05-13",
+    "operator_notes": "All preflight values confirmed; ready for A4-P17 real no-write probe execution after operator physical presence verified.",
+    "valve_mapping_confirmed": true,
+    "valve_mapping_status": "REPO_BACKED_FROM_RUN001_A2_REAL_CONFIG",
+    "valve_mapping_source": "run001_a2_co2_only_7_pressure_no_write_real_machine.json valves",
+    "valve_mapping": {
+      "relay_ports": {"relay": "COM20", "relay_8": "COM21"},
+      "logical_valves": {
+        "co2_path": 7, "co2_path_group2": 16, "gas_main": 11,
+        "h2o_path": 8, "flow_switch": 10, "hold": 9
+      },
+      "relay_map": {
+        "1": {"device": "relay", "channel": 7}, "2": {"device": "relay", "channel": 8},
+        "3": {"device": "relay", "channel": 9}, "4": {"device": "relay", "channel": 10},
+        "5": {"device": "relay", "channel": 11}, "6": {"device": "relay", "channel": 12},
+        "7": {"device": "relay", "channel": 15}, "8": {"device": "relay_8", "channel": 8},
+        "9": {"device": "relay_8", "channel": 1}, "10": {"device": "relay_8", "channel": 2},
+        "11": {"device": "relay_8", "channel": 3}, "16": {"device": "relay", "channel": 16},
+        "21": {"device": "relay", "channel": 6}, "22": {"device": "relay", "channel": 5},
+        "23": {"device": "relay", "channel": 4}, "24": {"device": "relay", "channel": 3},
+        "25": {"device": "relay", "channel": 2}, "26": {"device": "relay", "channel": 1}
+      },
+      "co2_map": {"0": 1, "200": 2, "400": 3, "600": 4, "800": 5, "1000": 6},
+      "co2_map_group2": {"0": 21, "100": 22, "300": 23, "500": 24, "700": 25, "900": 26}
+    },
+    "device_ports": {
+      "analyzers_confirmed": true,
+      "analyzer_ports": [
+        {"port": "COM35", "device_id": "ID001", "name": "ga01"},
+        {"port": "COM37", "device_id": "ID029", "name": "ga02"},
+        {"port": "COM41", "device_id": "ID003", "name": "ga03"},
+        {"port": "COM42", "device_id": "ID004", "name": "ga04"}
+      ],
+      "duplicate_device_id": false,
+      "analyzer_mode": "MODE2",
+      "active_send": true,
+      "humidity_generator": "COM16",
+      "dewpoint_meter": "COM17",
+      "thermometer": "COM18",
+      "temperature_chamber": "COM19",
+      "relay": "COM20",
+      "relay_8": "COM21",
+      "pressure_gauge": "COM22",
+      "pressure_controller": "COM23",
+      "advantech_com_shift_note": "COM remapped from COM24-31 to COM16-23 (delta=-8)"
+    },
+    "device_ports_evidence": "run001_a2_co2_only_7_pressure_no_write_real_machine.json + run001_h2o_only_1_point_no_write_real_machine.json cross-verified",
+    "pressure_controller_ready": "CONFIRMED_BY_REPO_EVIDENCE",
+    "pressure_controller_ready_evidence": "A2+H2O real probes verified COM23"
+  },
+  "security_locking": {
+    "execute_probe": false,
+    "real_com_enabled": false,
+    "real_machine_probe_enabled": false,
+    "production_enabled": false,
+    "controlled_write": false,
+    "formal_switch": false,
+    "v2_replaces_v1": false,
+    "disable_v1": false,
+    "default_cutover_to_v2": false
+  },
+  "preflight_command_preview": {
+    "command_type": "preview_only",
+    "execute_allowed_in_this_commit": false,
+    "execution_allowed_only_in": "A4_P17",
+    "entrypoint_status": "NEED_CLI_ENTRYPOINT_REVIEW",
+    "note": "Real CLI entry point not yet confirmed for A4 h2o+co2 15-point no-write route. Must be reviewed before A4-P17."
+  },
+  "real_run_unlock_requirements": {
+    "allowed_in_phase": "A4-P17 only",
+    "operator_physically_present": true,
+    "emergency_stop_available": true,
+    "v1_fallback_verified": true,
+    "all_devices_powered_and_connected": true,
+    "pressure_line_safe": true,
+    "gas_water_route_physically_checked": true,
+    "no_write_guard_artifact_path_defined": true,
+    "execute_probe_requires_separate_p17_command": true,
+    "p16_must_not_execute": true
+  },
+  "features": {
+    "use_v2": true,
+    "simulation_mode": false
+  },
+  "devices": {
+    "pressure_controller": {
+      "enabled": true,
+      "port": "COM23",
+      "baud": 9600,
+      "timeout": 1.0,
+      "line_ending": "LF",
+      "query_line_endings": ["LF", "CRLF", "CR"],
+      "pressure_queries": [":SENS:PRES:INL?", ":SENS:PRES:CONT?", ":SENS:PRES?", ":MEAS:PRES?"],
+      "in_limits_pct": 0.02,
+      "in_limits_time_s": 3
+    },
+    "pressure_gauge": {
+      "enabled": true,
+      "port": "COM22",
+      "baud": 9600,
+      "timeout": 1.0,
+      "response_timeout_s": 2.2,
+      "dest_id": "01"
+    },
+    "dewpoint_meter": {"enabled": true, "port": "COM17", "baud": 9600, "station": "001"},
+    "humidity_generator": {"enabled": true, "port": "COM16", "baud": 9600},
+    "gas_analyzers": [
+      {"name": "ga01", "enabled": true, "port": "COM35", "baud": 115200, "device_id": "001", "mode": 2, "active_send": true, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
+      {"name": "ga02", "enabled": true, "port": "COM37", "baud": 115200, "device_id": "029", "mode": 2, "active_send": true, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
+      {"name": "ga03", "enabled": true, "port": "COM41", "baud": 115200, "device_id": "003", "mode": 2, "active_send": true, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
+      {"name": "ga04", "enabled": true, "port": "COM42", "baud": 115200, "device_id": "004", "mode": 2, "active_send": true, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1}
+    ],
+    "temperature_chamber": {"enabled": true, "port": "COM19", "baud": 9600, "addr": 1},
+    "thermometer": {"enabled": true, "port": "COM18", "baud": 2400, "bytesize": 8, "parity": "N", "stopbits": 1, "timeout": 1.2},
+    "relay": {"enabled": true, "port": "COM20", "baud": 38400, "addr": 1},
+    "relay_8": {"enabled": true, "port": "COM21", "baud": 38400, "addr": 1}
+  },
+  "valves": {
+    "co2_path": 7, "co2_path_group2": 16, "gas_main": 11,
+    "h2o_path": 8, "flow_switch": 10, "hold": 9,
+    "relay_map": {
+      "1": {"device": "relay", "channel": 7}, "2": {"device": "relay", "channel": 8},
+      "3": {"device": "relay", "channel": 9}, "4": {"device": "relay", "channel": 10},
+      "5": {"device": "relay", "channel": 11}, "6": {"device": "relay", "channel": 12},
+      "7": {"device": "relay", "channel": 15}, "8": {"device": "relay_8", "channel": 8},
+      "9": {"device": "relay_8", "channel": 1}, "10": {"device": "relay_8", "channel": 2},
+      "11": {"device": "relay_8", "channel": 3}, "16": {"device": "relay", "channel": 16},
+      "21": {"device": "relay", "channel": 6}, "22": {"device": "relay", "channel": 5},
+      "23": {"device": "relay", "channel": 4}, "24": {"device": "relay", "channel": 3},
+      "25": {"device": "relay", "channel": 2}, "26": {"device": "relay", "channel": 1}
+    },
+    "co2_map": {"0": 1, "200": 2, "400": 3, "600": 4, "800": 5, "1000": 6},
+    "co2_map_group2": {"0": 21, "100": 22, "300": 23, "500": 24, "700": 25, "900": 26}
+  },
+  "workflow": {
+    "collect_only": true,
+    "no_write_guard_active": true,
+    "no_write": true,
+    "allow_write_coefficients": false,
+    "allow_write_zero": false,
+    "allow_write_span": false,
+    "allow_write_calibration_parameters": false,
+    "apply_device_id": false,
+    "apply_senco_id": false,
+    "route_mode": "h2o_then_co2",
+    "selected_temps_c": [20.0],
+    "temperature_descending": false,
+    "h2o_points": "ambient_open + 7 sealed pressure",
+    "co2_points": "7 sealed pressure only",
+    "total_points": 15,
+    "co2_ambient_open": "deferred",
+    "simulation_profile_source": "a4_single_temp_h2o_co2_no_write_20c_simulated.json",
+    "simulation_config_must_not_be_used_as_real_config": true,
+    "production": {
+      "enabled": false,
+      "controlled_write": false,
+      "formal_switch": false,
+      "v2_replaces_v1": false
+    },
+    "stability": {"h2o_route": {"humidity_timeout_policy": "abort_like_v1"}},
+    "a4_notes": {
+      "stage": "A4_P16_PREFLIGHT_READY",
+      "preflight_ready": true,
+      "draft_unlocked": true,
+      "not_yet_executable": true,
+      "co2_ambient_open_point": "deferred, not included in this round",
+      "co2_ppm": 1000.0,
+      "co2_ppm_source": "user confirmed 2026-05-13",
+      "co2_1000ppm_valve": "co2_map.1000 -> logical valve 6 -> relay channel 12",
+      "h2o_path_valve": "logical valve 8 -> relay_8 channel 8",
+      "com_and_valve_mapping": "fully confirmed from repo evidence",
+      "v1_fallback": "retained, run_app.py unchanged"
+    }
+  },
+  "safe_stop": {
+    "valves_baseline_on_abort": true,
+    "vent_on_abort": true,
+    "pressure_control_stop_on_abort": true,
+    "chamber_safe_stop": true,
+    "humidity_generator_safe_stop": true,
+    "v1_fallback_retained": true
+  },
+  "paths": {
+    "points_excel": "./a4_20c_h2o_co2_points_simulated.json"
+  }
+}
