@@ -184,9 +184,23 @@ def test_pressure_controller_ready_is_candidate_from_repo():
     assert ops["pressure_controller_ready"] == "CANDIDATE_CONFIRMED_BY_REPO_EVIDENCE"
 
 
-def test_valve_mapping_needs_user_decision():
+def test_valve_mapping_is_repo_backed():
     ops = _config()["operator_decisions"]
-    assert ops["valve_mapping_confirmed"] is False
+    assert ops["valve_mapping_confirmed"] is True
+    assert ops["valve_mapping_status"] == "REPO_BACKED_FROM_RUN001_A2_REAL_CONFIG"
+    assert "run001_a2_co2_only_7_pressure_no_write_real_machine.json" in ops["valve_mapping_source"]
+    vm = ops["valve_mapping"]
+    assert vm["relay_ports"]["relay"] == "COM20"
+    assert vm["relay_ports"]["relay_8"] == "COM21"
+    assert vm["logical_valves"]["co2_path"] == 7
+    assert vm["logical_valves"]["co2_path_group2"] == 16
+    assert vm["logical_valves"]["gas_main"] == 11
+    assert vm["logical_valves"]["h2o_path"] == 8
+    assert vm["logical_valves"]["flow_switch"] == 10
+    assert vm["logical_valves"]["hold"] == 9
+    assert vm["relay_map"]["6"]["channel"] == 12
+    assert vm["co2_map"]["1000"] == 6
+    assert vm["co2_map"]["0"] == 1
 
 
 # ═══════════════════════════════════════════════════════════
