@@ -149,21 +149,39 @@ def test_co2_ambient_open_is_deferred():
 # ═══════════════════════════════════════════════════════════
 
 
-def test_co2_ppm_needs_user_decision():
+def test_co2_ppm_is_confirmed():
     ops = _config()["operator_decisions"]
-    assert ops["co2_ppm_confirmed"] is False
-    assert "NEED_USER_DECISION_CO2_PPM" in ops["co2_ppm_value"]
+    assert ops["co2_ppm_confirmed"] is True
+    assert ops["co2_ppm_value"] == 1000.0
 
 
-def test_com_mapping_needs_user_decision():
+def test_device_ports_are_populated_from_repo_evidence():
     ops = _config()["operator_decisions"]
-    assert ops["com_mapping_confirmed"] is False
-    assert "NEED_USER_DECISION_COM_MAPPING" in ops["device_ports"]
+    ports = ops["device_ports"]
+    assert isinstance(ports, dict)
+    assert ports["analyzers_confirmed"] is True
+    assert len(ports["analyzer_ports"]) == 4
+    port_ids = {(a["port"], a["device_id"]) for a in ports["analyzer_ports"]}
+    assert ("COM35", "ID001") in port_ids
+    assert ("COM37", "ID029") in port_ids
+    assert ("COM41", "ID003") in port_ids
+    assert ("COM42", "ID004") in port_ids
+    assert ports["duplicate_device_id"] is False
+    assert ports["analyzer_mode"] == "MODE2"
+    assert ports["active_send"] is True
+    assert ports["pressure_controller"]["port"] == "COM23"
+    assert ports["humidity_generator"]["port"] == "COM16"
+    assert ports["dewpoint_meter"]["port"] == "COM17"
+    assert ports["temperature_chamber"]["port"] == "COM19"
+    assert ports["pressure_gauge"]["port"] == "COM22"
+    assert ports["relay"]["port"] == "COM20"
+    assert ports["relay_8"]["port"] == "COM21"
+    assert ports["thermometer"]["port"] == "COM18"
 
 
-def test_pressure_controller_needs_user_decision():
+def test_pressure_controller_ready_is_candidate_from_repo():
     ops = _config()["operator_decisions"]
-    assert "NEED_USER_DECISION" in ops["pressure_controller_ready"]
+    assert ops["pressure_controller_ready"] == "CANDIDATE_CONFIRMED_BY_REPO_EVIDENCE"
 
 
 def test_valve_mapping_needs_user_decision():
