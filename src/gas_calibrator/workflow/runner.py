@@ -29329,6 +29329,59 @@ class CalibrationRunner:
                 return False
         else:
             self._apply_valve_states(open_valves)
+            route_key = self._source_stage_key_for_point(point, phase=phase) or str(phase or "").strip().lower()
+            open_valves_label = "|".join(str(int(valve)) for valve in list(open_valves or []))
+            enter_state = self.enter_continuous_atmosphere_flowthrough(
+                route_key,
+                point=point,
+                phase=phase,
+                point_tag=point_tag,
+                phase_name="ContinuousAtmosphereFlowThrough",
+                reason=(
+                    "route handoff opened without guard; initiate atmosphere flowthrough "
+                    f"open_valves={open_valves_label}"
+                ),
+                stage_label=open_valves_label,
+            )
+            if not bool(enter_state.get("active")) or not bool(enter_state.get("route_flow_active")):
+                abort_reason = str(
+                    enter_state.get("abort_reason") or "HandoffContinuousAtmosphereEnterFailed"
+                )
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    handoff_route_open_failed=True,
+                    abort_reason=abort_reason,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    point_tag=point_tag,
+                    trace_stage="handoff_continuous_atmosphere_enter_failed",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    pressure_gauge_hpa=safe_state.get("pressure_gauge_hpa"),
+                    refresh_pace_state=False,
+                    handoff_sample_to_vent_ms=sample_to_vent_ms,
+                    handoff_vent_to_safe_open_ms=vent_to_safe_open_ms,
+                    handoff_mode="gas_change_route_handoff",
+                    atmosphere_reference_hpa=safe_state.get("atmosphere_reference_hpa"),
+                    handoff_safe_open_delta_hpa=safe_state.get("safe_open_delta_hpa"),
+                    deferred_export_queue_len=len(self._deferred_point_exports),
+                    event_ts=time.time(),
+                    note=(
+                        f"abort_reason={abort_reason} route_key={route_key} "
+                        f"open_valves={open_valves_label}"
+                    ),
+                )
+                try:
+                    self._apply_route_baseline_valves()
+                except Exception as exc:
+                    self.log(f"Handoff continuous atmosphere fail-closed baseline restore failed: {exc}")
+                self._stop_pressure_transition_fast_signal_context(
+                    reason="handoff continuous atmosphere enter failed"
+                )
+                return False
         self._set_point_runtime_fields(point, phase=phase, handoff_route_open_failed=False)
         open_done_ts = time.time()
         safe_open_to_route_open_ms = round((open_done_ts - open_begin_ts) * 1000.0, 3)

@@ -170,6 +170,155 @@ def test_h2o_final_stage_false_blocks_fast_handoff_full_open(tmp_path: Path) -> 
     assert state["handoff_source_stage_block_reason"] == "HandoffSourceStageBlockedUntilVerified"
 
 
+def test_co2_fast_handoff_no_guard_enters_continuous_atmosphere_keepalive(tmp_path: Path) -> None:
+    def _handoff_runner(route_open_guard_enabled: bool) -> tuple[CalibrationRunner, RunLogger, CalibrationPoint]:
+        logger = RunLogger(tmp_path)
+        runner = CalibrationRunner(
+            {
+                "workflow": {
+                    "pressure": {
+                        "route_open_guard_enabled": route_open_guard_enabled,
+                        "handoff_use_pressure_gauge": False,
+                    }
+                },
+                "valves": {"h2o_path": 8, "gas_main": 11, "co2_path": 7, "co2_map": {"600": 4}},
+            },
+            {},
+            logger,
+            lambda *_: None,
+            lambda *_: None,
+        )
+        point = _co2_point()
+        runner._pending_route_handoff = {
+            "next_phase": "co2",
+            "next_point_tag": runner._co2_point_tag(point),
+            "next_point": point,
+            "sample_done_ts": 1.0,
+            "vent_command_ts": 1.1,
+        }
+        runner._wait_until_safe_to_open_next_route = lambda *_args, **_kwargs: {  # type: ignore[method-assign]
+            "safe_open_ts": 1.2,
+            "pressure_gauge_hpa": None,
+            "atmosphere_reference_hpa": 1013.0,
+            "safe_open_delta_hpa": 3.0,
+            "safe_open_baseline_source": "unit",
+            "safe_open_baseline_hpa": 1013.0,
+        }
+        runner._stop_pressure_transition_fast_signal_context = lambda *args, **kwargs: None  # type: ignore[method-assign]
+        return runner, logger, point
+
+    runner, logger, point = _handoff_runner(route_open_guard_enabled=False)
+    applied_valves: list[list[int]] = []
+    enter_calls: list[dict] = []
+
+    def _apply_valves(open_valves):
+        applied_valves.append([int(value) for value in open_valves])
+
+    def _enter(route_key, **kwargs):
+        enter_calls.append({"route_key": route_key, **kwargs})
+        return {
+            "active": True,
+            "route_flow_active": True,
+            "route_key": str(route_key),
+            "phase_name": kwargs.get("phase_name"),
+        }
+
+    runner._apply_valve_states = _apply_valves  # type: ignore[method-assign]
+    runner.enter_continuous_atmosphere_flowthrough = _enter  # type: ignore[method-assign]
+
+    assert runner._complete_pending_route_handoff(
+        point,
+        phase="co2",
+        point_tag=runner._co2_point_tag(point),
+        open_valves=[8, 11, 7, 4],
+    ) is True
+    logger.close()
+
+    assert applied_valves == [[8, 11, 7, 4]]
+    assert len(enter_calls) == 1
+    assert enter_calls[0]["route_key"] in {"co2_a", "co2"}
+    assert enter_calls[0]["phase"] == "co2"
+    assert enter_calls[0]["point"] is point
+    assert enter_calls[0]["point_tag"] == runner._co2_point_tag(point)
+    assert enter_calls[0]["phase_name"] == "ContinuousAtmosphereFlowThrough"
+    assert "route handoff" in enter_calls[0]["reason"]
+    assert "atmosphere flowthrough" in enter_calls[0]["reason"]
+    assert enter_calls[0]["stage_label"] == "8|11|7|4"
+
+    runner, logger, point = _handoff_runner(route_open_guard_enabled=False)
+    runner._apply_valve_states = lambda open_valves: None  # type: ignore[method-assign]
+    runner.enter_continuous_atmosphere_flowthrough = lambda *args, **kwargs: {  # type: ignore[method-assign]
+        "active": False,
+        "route_flow_active": False,
+        "abort_reason": "UnitEnterFailed",
+    }
+
+    assert runner._complete_pending_route_handoff(
+        point,
+        phase="co2",
+        point_tag=runner._co2_point_tag(point),
+        open_valves=[8, 11, 7, 4],
+    ) is False
+    logger.close()
+
+    failed_state = runner._point_runtime_state(point, phase="co2") or {}
+    assert failed_state["handoff_route_open_failed"] is True
+    assert failed_state["abort_reason"] == "UnitEnterFailed"
+
+    runner, logger, point = _handoff_runner(route_open_guard_enabled=False)
+    runner._apply_valve_states = lambda open_valves: None  # type: ignore[method-assign]
+    runner._activate_sealed_no_vent_guard(
+        point=point,
+        phase="co2",
+        guard_phase="PressureSetpointHold",
+        reason="unit sealed guard blocks handoff enter",
+    )
+
+    assert runner._complete_pending_route_handoff(
+        point,
+        phase="co2",
+        point_tag=runner._co2_point_tag(point),
+        open_valves=[8, 11, 7, 4],
+    ) is False
+    logger.close()
+
+    sealed_state = runner._continuous_atmosphere_state_snapshot()
+    sealed_runtime = runner._point_runtime_state(point, phase="co2") or {}
+    assert sealed_state["active"] is False
+    assert sealed_state["route_flow_active"] is False
+    assert sealed_runtime["handoff_route_open_failed"] is True
+    assert sealed_runtime["abort_reason"] == "HandoffContinuousAtmosphereEnterFailed"
+
+    runner, logger, point = _handoff_runner(route_open_guard_enabled=True)
+    guarded_calls: list[dict] = []
+    direct_enter_calls: list[dict] = []
+    runner._source_stage_safety["co2_a"] = True
+
+    def _guarded_open(*args, **kwargs):
+        guarded_calls.append(dict(kwargs))
+        return True
+
+    runner._open_route_with_pressure_guard = _guarded_open  # type: ignore[method-assign]
+    runner.enter_continuous_atmosphere_flowthrough = lambda *args, **kwargs: direct_enter_calls.append(  # type: ignore[method-assign]
+        {"args": args, "kwargs": kwargs}
+    ) or {
+        "active": True,
+        "route_flow_active": True,
+    }
+
+    assert runner._complete_pending_route_handoff(
+        point,
+        phase="co2",
+        point_tag=runner._co2_point_tag(point),
+        open_valves=[8, 11, 7, 4],
+    ) is True
+    logger.close()
+
+    assert len(guarded_calls) == 1
+    assert guarded_calls[0]["open_valves"] == [8, 11, 7, 4]
+    assert direct_enter_calls == []
+
+
 def test_source_stage_safe_false_blocks_dewpoint_gate(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(
