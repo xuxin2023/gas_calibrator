@@ -6456,14 +6456,35 @@ class CalibrationRunner:
                 read_system_error=quick_read_system_error,
             )
         else:
-            summary = self._route_stage_fresh_vent_refresh(
-                point,
-                phase=phase_text,
-                point_tag=point_tag,
-                stage_label=stage_label,
-                log_context=reason or f"{phase_name_text} keepalive",
-                recovery_attempt=int(state.get("keepalive_count") or 0),
+            auto_quick = (
+                bool(state.get("background_keepalive_active"))
+                and bool(state.get("active"))
+                and bool(state.get("route_flow_active"))
+                and str(state.get("pressure_mode") or "") == self._PRESSURE_MODE_ATMOSPHERE_FLUSH
+                and not bool(self._sealed_no_vent_guard_snapshot().get("active"))
             )
+            if auto_quick:
+                summary = self._continuous_atmosphere_quick_vent1_refresh(
+                    point,
+                    phase=phase_text,
+                    point_tag=point_tag,
+                    stage_label=stage_label,
+                    log_context=reason or f"{phase_name_text} keepalive",
+                    recovery_attempt=int(state.get("keepalive_count") or 0),
+                    pressure_before=sample_before,
+                    sample_pressure_after=quick_sample_after,
+                    query_vent_status=quick_query_vent_status,
+                    read_system_error=quick_read_system_error,
+                )
+            else:
+                summary = self._route_stage_fresh_vent_refresh(
+                    point,
+                    phase=phase_text,
+                    point_tag=point_tag,
+                    stage_label=stage_label,
+                    log_context=reason or f"{phase_name_text} keepalive",
+                    recovery_attempt=int(state.get("keepalive_count") or 0),
+                )
         vent_sequence = list(summary.get("vent_status_sequence") or [])
         vent_status = self._as_int(vent_sequence[-1] if vent_sequence else None)
         pressure_after_hpa = self._as_float(summary.get("pressure_hpa"))
