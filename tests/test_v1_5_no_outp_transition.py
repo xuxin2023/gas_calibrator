@@ -457,3 +457,138 @@ class TestH2oAndSafeStop:
         runner, _, _, _ = _make_runner(_no_outp_cfg())
         runner._set_co2_route_baseline = lambda *a, **kw: None
         runner._cleanup_co2_route(reason="test")
+
+
+# ═══════════════════════════════════════════════════════════════
+# P0-1: output verify failure must not set_output(False)
+# ═══════════════════════════════════════════════════════════════
+
+class TestOutputVerifyFailure:
+    def test_no_outp_output_verify_failure_does_not_set_output_false(self):
+        pace = _make_fake_pace()
+        pace.get_vent_status = MagicMock(return_value=3)  # TRAPPED_PRESSURE
+        runner, _, _, _ = _make_runner(_no_outp_cfg(), pace=pace)
+
+        runner._pressure_controller_output_on_failures = lambda *a, **kw: ["output_state=1"]
+        runner._attempt_pressure_controller_output_on_recovery = lambda *a, **kw: False
+
+        ok = runner._verify_pressure_controller_output_on(
+            _co2_point(), phase="co2", pressure_target_hpa=1100.0,
+            allow_recovery=True,
+        )
+        assert ok is False
+        pace.set_output.assert_not_called()
+
+
+# ═══════════════════════════════════════════════════════════════
+# P0-2: soft recovery blocked in no-OUTP
+# ═══════════════════════════════════════════════════════════════
+
+class TestSoftRecoveryBlocked:
+    def test_no_outp_soft_recovery_blocked(self):
+        runner, pace, _, _ = _make_runner(_no_outp_cfg())
+
+        ok = runner._soft_recover_pressure_controller(reason="test timeout")
+        assert ok is False
+        pace.set_output.assert_not_called()
+
+    def test_normal_mode_soft_recovery_allowed(self):
+        runner, pace, _, _ = _make_runner()
+        # Normal mode should enter the main path — mock to avoid real calls
+        pace.close = MagicMock()
+        pace.open = MagicMock()
+        pace.get_output_state = MagicMock(return_value=1)
+        pace.get_isolation_state = MagicMock(return_value=1)
+        pace.get_vent_status = MagicMock(return_value=0)
+
+        ok = runner._soft_recover_pressure_controller(reason="test")
+        # Not asserting True — the point is it didn't short-circuit
+        pace.set_output.assert_called()  # expected in normal mode
+
+
+# ═══════════════════════════════════════════════════════════════
+# P0-3: route handoff fast path disabled in no-OUTP
+# ═══════════════════════════════════════════════════════════════
+
+class TestRouteHandoffBlocked:
+    def test_no_outp_disables_pending_route_handoff_fast_path(self):
+        pace = _make_fake_pace()
+        pace.begin_atmosphere_handoff = MagicMock()
+        runner, _, _, _ = _make_runner(
+            _no_outp_cfg({"atmosphere_hold_strategy": "legacy_hold_thread"}),
+            pace=pace,
+        )
+        runner._handoff_fast_enabled = lambda: True
+        runner._last_sample_completion = {"sample_done_ts": 0}
+
+        ok = runner._begin_pending_route_handoff(
+            current_point=_co2_point(3, pressure=1100.0),
+            current_phase="co2", current_point_tag="test",
+            next_point=_co2_point(4, pressure=1000.0),
+            next_phase="co2", next_point_tag="test2",
+            next_open_valves=[1, 2, 3],
+        )
+        assert ok is False
+        pace.begin_atmosphere_handoff.assert_not_called()
+        pace.set_output.assert_not_called()
+
+    def test_normal_mode_handoff_allowed(self):
+        pace = _make_fake_pace()
+        pace.begin_atmosphere_handoff = MagicMock()
+        runner, _, _, _ = _make_runner(pace=pace)
+        runner._handoff_fast_enabled = lambda: True
+        runner._last_sample_completion = {"sample_done_ts": 0}
+        runner._start_pressure_transition_fast_signal_context = MagicMock()
+        runner._append_pressure_trace_row = MagicMock()
+        runner._last_sample_completion_pace_state = lambda c: {}
+
+        ok = runner._begin_pending_route_handoff(
+            current_point=_co2_point(3, pressure=1100.0),
+            current_phase="co2", current_point_tag="test",
+            next_point=_co2_point(4, pressure=1000.0),
+            next_phase="co2", next_point_tag="test2",
+            next_open_valves=[1, 2, 3],
+        )
+        assert ok is True
+        pace.begin_atmosphere_handoff.assert_called_once()
+
+
+# ═══════════════════════════════════════════════════════════════
+# P1: ready gate relaxes output_state in no-OUTP mode
+# ═══════════════════════════════════════════════════════════════
+
+class TestReadyGateOutputState:
+    def test_no_outp_ready_gate_does_not_require_output_state_zero(self):
+        pace = _make_fake_pace()
+        pace.get_vent_status = MagicMock(return_value=0)
+        pace.get_output_state = MagicMock(return_value=1)  # not 0!
+        pace.get_isolation_state = MagicMock(return_value=1)
+        runner, _, _, _ = _make_runner(_no_outp_cfg(), pace=pace)
+        runner._pressure_controller_hold_thread_active = lambda p: False
+        runner._pressure_atmosphere_hold_strategy = "legacy_hold_thread"
+        runner._pace_vent_status_allows_control = lambda p, v: True
+        runner._strict_control_ready_check_enabled = lambda: False
+
+        snapshot = runner._pressure_controller_ready_snapshot(pace)
+        failures = runner._pressure_controller_ready_failures(snapshot, pace)
+
+        assert "output_state=1" not in failures, (
+            f"no-OUTP mode should not flag output_state=1: {failures}"
+        )
+
+    def test_normal_mode_still_requires_output_state_zero(self):
+        pace = _make_fake_pace()
+        pace.get_vent_status = MagicMock(return_value=0)
+        pace.get_output_state = MagicMock(return_value=1)  # not 0!
+        pace.get_isolation_state = MagicMock(return_value=1)
+        runner, _, _, _ = _make_runner(pace=pace)
+        runner._pressure_controller_hold_thread_active = lambda p: False
+        runner._pressure_atmosphere_hold_strategy = "legacy_hold_thread"
+        runner._pace_vent_status_allows_control = lambda p, v: True
+
+        snapshot = runner._pressure_controller_ready_snapshot(pace)
+        failures = runner._pressure_controller_ready_failures(snapshot, pace)
+
+        assert "output_state=1" in failures, (
+            "normal mode should require output_state=0"
+        )

@@ -8623,6 +8623,13 @@ class CalibrationRunner:
         return False
 
     def _soft_recover_pressure_controller(self, *, reason: str = "") -> bool:
+        if self._no_outp_transition():
+            self.log(
+                f"Pressure controller soft recovery blocked in no-OUTP mode "
+                f"({'reason: ' + reason if reason else 'no reason given'}). "
+                f"Soft recovery would cycle OUTP0/OUTP1 which is prohibited."
+            )
+            return False
         pace = self.devices.get("pace")
         if not pace:
             return False
@@ -8930,8 +8937,10 @@ class CalibrationRunner:
             failures.append(f"vent_status={vent_status}")
         if output_state is None:
             failures.append("output_state_unavailable")
-        elif output_state != 0:
+        elif not self._no_outp_transition() and output_state != 0:
             failures.append(f"output_state={output_state}")
+        elif self._no_outp_transition():
+            pass
         if isolation_state is None:
             failures.append("isolation_state_unavailable")
         elif isolation_state != 1:
@@ -9584,12 +9593,19 @@ class CalibrationRunner:
             note=note,
         ):
             return True
-        set_output = getattr(pace, "set_output", None)
-        if callable(set_output):
-            try:
-                set_output(False)
-            except Exception as exc:
-                self.log(f"Pressure controller output-off after verification failure failed: {exc}")
+        if not self._no_outp_transition():
+            set_output = getattr(pace, "set_output", None)
+            if callable(set_output):
+                try:
+                    set_output(False)
+                except Exception as exc:
+                    self.log(f"Pressure controller output-off after verification failure failed: {exc}")
+        else:
+            self.log(
+                "Pressure controller output-on verification failed in no-OUTP mode; "
+                "skipping output-off as no-OUTP mode does not control output state. "
+                "Returning False for caller to fail-closed."
+            )
         return False
 
     def _wait_primary_sensor_stable(
@@ -15320,6 +15336,12 @@ class CalibrationRunner:
     ) -> bool:
         pace = self.devices.get("pace")
         if not pace or not self._handoff_fast_enabled() or not next_open_valves:
+            return False
+        if self._no_outp_transition():
+            self.log(
+                "Route handoff fast-path disabled in no-OUTP mode "
+                "(begin_atmosphere_handoff may send OUTP0)."
+            )
             return False
         completion = dict(self._last_sample_completion or {})
         sample_done_ts = float(completion.get("sample_done_ts") or time.time())
