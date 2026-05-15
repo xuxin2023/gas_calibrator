@@ -304,6 +304,7 @@ class CalibrationRunner:
         self._point_runtime_summary: Dict[Tuple[str, int], Dict[str, Any]] = {}
         self._lead_in_transition_stage_ts: Dict[str, float] = {}
         self._last_preseal_pressure_control_ready_invalidation: Optional[Dict[str, Any]] = None
+        self._active_co2_sealed_sweep = False
         self._active_route_requires_preseal_topoff = True
         self._no_write_guard_enabled = True
         self._attempted_write_count = 0
@@ -8377,50 +8378,71 @@ class CalibrationRunner:
                     else "vent off command completed; controller ready before setpoint"
                 ),
             )
-            pace.set_setpoint(target)
-            self._append_pressure_trace_row(
-                point=point,
-                route=phase,
-                point_phase=phase,
-                trace_stage="control_output_on_begin",
-                pressure_target_hpa=target,
-                refresh_pace_state=False,
-                note="before output on after setpoint update",
-            )
-            if not self._enable_pressure_controller_output(reason="after setpoint update"):
+
+            if reused_preseal_ready and self._active_co2_sealed_sweep:
+                pace.set_setpoint(target)
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
                     point_phase=phase,
-                    trace_stage="control_output_on_failed",
+                    trace_stage="sealed_sweep_setpoint_update",
                     pressure_target_hpa=target,
-                    read_pace_pressure=True,
-                    read_pressure_gauge=True,
-                    note="output enable command failed",
+                    refresh_pace_state=False,
+                    note=f"sealed sweep reuse: setpoint={target:.1f}hPa without OUTP cycling",
                 )
-                return False
-            self._append_pressure_trace_row(
-                point=point,
-                route=phase,
-                point_phase=phase,
-                trace_stage="control_output_on_command_sent",
-                pressure_target_hpa=target,
-                refresh_pace_state=False,
-                note="output enable command sent after setpoint update",
-            )
-            if not self._verify_pressure_controller_output_on(
-                point,
-                phase=phase,
-                pressure_target_hpa=target,
-                note="after output on after setpoint update",
-            ):
-                return False
+                if not self._verify_pressure_controller_output_on(
+                    point,
+                    phase=phase,
+                    pressure_target_hpa=target,
+                    note="sealed sweep reuse: verify output remains on after setpoint update",
+                ):
+                    return False
+            else:
+                pace.set_setpoint(target)
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="control_output_on_begin",
+                    pressure_target_hpa=target,
+                    refresh_pace_state=False,
+                    note="before output on after setpoint update",
+                )
+                if not self._enable_pressure_controller_output(reason="after setpoint update"):
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="control_output_on_failed",
+                        pressure_target_hpa=target,
+                        read_pace_pressure=True,
+                        read_pressure_gauge=True,
+                        note="output enable command failed",
+                    )
+                    return False
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="control_output_on_command_sent",
+                    pressure_target_hpa=target,
+                    refresh_pace_state=False,
+                    note="output enable command sent after setpoint update",
+                )
+                if not self._verify_pressure_controller_output_on(
+                    point,
+                    phase=phase,
+                    pressure_target_hpa=target,
+                    note="after output on after setpoint update",
+                ):
+                    return False
 
-        self._clear_preseal_pressure_control_ready_state(
-            reason="control_sequence_completed",
-            point=point,
-            phase=phase,
-        )
+        if not self._active_co2_sealed_sweep:
+            self._clear_preseal_pressure_control_ready_state(
+                reason="control_sequence_completed",
+                point=point,
+                phase=phase,
+            )
 
         timeout_s = float(self._wf("workflow.pressure.stabilize_timeout_s", 120))
         retry_count = int(self._wf("workflow.pressure.restabilize_retries", 2))
@@ -8760,8 +8782,9 @@ class CalibrationRunner:
         phase_text = str(phase or "").strip().lower()
         if str(state.get("phase") or "") != phase_text:
             return None, "phase_mismatch"
-        if self._as_int(state.get("point_row")) != int(point.index):
-            return None, "point_row_mismatch"
+        if not self._active_co2_sealed_sweep:
+            if self._as_int(state.get("point_row")) != int(point.index):
+                return None, "point_row_mismatch"
         target_pressure_hpa = self._as_float(getattr(point, "target_pressure_hpa", None))
         snapshot_target_hpa = self._as_float(state.get("target_pressure_hpa"))
         target_delta_hpa = None
@@ -8769,6 +8792,7 @@ class CalibrationRunner:
             target_delta_hpa = abs(target_pressure_hpa - snapshot_target_hpa)
         if (
             target_delta_hpa is not None
+            and not self._active_co2_sealed_sweep
             and target_delta_hpa > self._preseal_ready_target_tolerance_hpa()
         ):
             return None, f"target_pressure_mismatch:{target_delta_hpa:.3f}hPa"
@@ -8780,6 +8804,8 @@ class CalibrationRunner:
             return None, "snapshot_not_route_sealed"
         if state.get("atmosphere_hold_stopped") is not True:
             return None, "atmosphere_hold_not_stopped"
+        if self._active_co2_sealed_sweep:
+            return state, "sealed_sweep_reuse"
         return state, ""
 
     def _pressure_controller_ready_snapshot_requires_aux_refresh(self) -> bool:
@@ -11300,6 +11326,7 @@ class CalibrationRunner:
                     reason=f"after CO2 route sealed {seal_point.index}:{self._co2_point_tag(seal_point)}"
                 )
                 seal_start_index = idx
+                self._active_co2_sealed_sweep = True
                 break
             self.log(
                 f"CO2 {seal_point.co2_ppm} ppm @ {seal_point.target_pressure_hpa} hPa skipped: "
@@ -11406,6 +11433,7 @@ class CalibrationRunner:
         self.log("CO2 route baseline applied: gas_main=OFF flow_switch=OFF h2o_path=OFF hold=OFF")
 
     def _cleanup_co2_route(self, *, reason: str = "") -> None:
+        self._active_co2_sealed_sweep = False
         self._set_co2_route_baseline(reason=reason)
 
     def _apply_idle_route_isolation(self, *, reason: str = "") -> None:
