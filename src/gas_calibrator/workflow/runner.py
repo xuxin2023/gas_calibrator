@@ -1,4 +1,4 @@
-﻿"""Calibration workflow runner."""
+"""Calibration workflow runner."""
 
 from __future__ import annotations
 
@@ -305,6 +305,41 @@ class CalibrationRunner:
         self._lead_in_transition_stage_ts: Dict[str, float] = {}
         self._last_preseal_pressure_control_ready_invalidation: Optional[Dict[str, Any]] = None
         self._active_route_requires_preseal_topoff = True
+        self._no_write_guard_enabled = True
+        self._attempted_write_count = 0
+        self._identity_write_command_sent = False
+        self._calibration_write_command_sent = False
+        self._coefficient_write_command_sent = False
+        self._coefficient_write_blocked = False
+        self._coefficient_write_blocked_count = 0
+        self._no_write_guard_blocked_count = 0
+        self._no_write_guard_blocked_reasons: List[str] = []
+
+    def _check_no_write_guard(self, operation: str) -> bool:
+        if self._no_write_guard_enabled:
+            self._no_write_guard_blocked_count += 1
+            reason = f"[no-write-guard] BLOCKED {operation}"
+            self._no_write_guard_blocked_reasons.append(reason)
+            self.log(
+                f"{reason} "
+                f"(no_write_guard_blocked_count={self._no_write_guard_blocked_count})"
+            )
+            return True
+        return False
+
+    def _emit_no_write_audit_summary(self) -> None:
+        reasons_text = "; ".join(self._no_write_guard_blocked_reasons) if self._no_write_guard_blocked_reasons else "none"
+        self.log(
+            "[no-write-audit] "
+            f"attempted_write_count={self._attempted_write_count} "
+            f"identity_write_command_sent={str(self._identity_write_command_sent).lower()} "
+            f"calibration_write_command_sent={str(self._calibration_write_command_sent).lower()} "
+            f"coefficient_write_command_sent={str(self._coefficient_write_command_sent).lower()} "
+            f"coefficient_write_blocked={str(self._coefficient_write_blocked).lower()} "
+            f"coefficient_write_blocked_count={self._coefficient_write_blocked_count} "
+            f"no_write_guard_blocked_count={self._no_write_guard_blocked_count} "
+            f"no_write_guard_blocked_reasons={reasons_text}"
+        )
 
     def _log_run_event(self, command: Any = None, response: Any = None, error: Any = None) -> None:
         try:
@@ -4771,6 +4806,7 @@ class CalibrationRunner:
             self.log(f"Run aborted: {exc}")
             self._log_run_event(command="run-aborted", error=exc)
         finally:
+            self._emit_no_write_audit_summary()
             self._finalize_temperature_calibration_outputs()
             self._log_run_event(command="run-cleanup", response="cleanup begin")
             self._cleanup()
@@ -7407,17 +7443,27 @@ class CalibrationRunner:
         try:
             from ..tools import run_v1_corrected_autodelivery
 
+            no_write_enabled = self._no_write_guard_enabled
+            if no_write_enabled:
+                self._check_no_write_guard("postrun_corrected_delivery_write")
+                self._coefficient_write_blocked = True
+                self._coefficient_write_blocked_count += 1
+                self.log(
+                    "[no-write-guard] postrun_corrected_delivery: "
+                    "forcing write_devices=False, write_pressure_coefficients=False"
+                )
+
             short_verify_cfg = cfg.get("verify_short_run", {})
             result = run_v1_corrected_autodelivery.run_from_cli(
                 run_dir=str(run_dir),
                 config_path=str(config_snapshot),
                 output_dir=str(target_dir),
-                write_devices=bool(cfg.get("write_devices", False)),
+                write_devices=False if no_write_enabled else bool(cfg.get("write_devices", False)),
                 verify_report=bool(cfg.get("verify_report", False)),
                 verification_template=str(cfg.get("verification_template") or ""),
                 fallback_pressure_to_controller=bool(cfg.get("fallback_pressure_to_controller", False)),
                 pressure_row_source=str(cfg.get("pressure_row_source") or "startup_calibration"),
-                write_pressure_coefficients=bool(cfg.get("write_pressure_coefficients", False)),
+                write_pressure_coefficients=False if no_write_enabled else bool(cfg.get("write_pressure_coefficients", False)),
                 verify_short_run_cfg=short_verify_cfg if isinstance(short_verify_cfg, dict) else {},
             )
             short_verify_outputs = result.get("short_verify_outputs") if isinstance(result, dict) else {}
@@ -17133,6 +17179,10 @@ class CalibrationRunner:
     def _maybe_write_coefficients(self) -> None:
         cfg = self.cfg.get("coefficients", {})
         if not cfg or not cfg.get("enabled"):
+            return
+        if self._check_no_write_guard("coefficient_write"):
+            self._coefficient_write_blocked = True
+            self._coefficient_write_blocked_count += 1
             return
         ga = self.devices.get("gas_analyzer")
         if not ga:
