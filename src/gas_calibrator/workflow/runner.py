@@ -4775,7 +4775,12 @@ class CalibrationRunner:
             self.set_status("初始化：配置设备")
             self._emit_stage_event(current="初始化", wait_reason="配置设备")
             self._configure_devices()
-            self._check_pressure_output_preflight()
+            no_outp_error = self._check_pressure_output_preflight()
+            if no_outp_error:
+                self.log(f"FATAL: {no_outp_error}")
+                self.set_status(f"初始化失败: {no_outp_error}")
+                self._run_error = no_outp_error
+                return
             self.set_status("初始化：恢复初始状态")
             self._emit_stage_event(current="初始化", wait_reason="恢复初始状态")
             self._startup_preflight_reset()
@@ -8131,12 +8136,21 @@ class CalibrationRunner:
                 isolation_info = str(int(get_is()))
         except Exception:
             pass
-        if output_state is not None:
-            self.log(
-                f"[no-outp-preflight] output_state={output_state} "
-                f"vent_status={vent_status_info} isolation={isolation_info} "
-                f"(no-OUTP mode active; output will not be changed by calibration)"
+        self.log(
+            f"[no-outp-preflight] output_state={output_state} "
+            f"vent_status={vent_status_info} isolation={isolation_info} "
+            f"(no-OUTP mode active; output will not be changed by calibration)"
+        )
+        if output_state is None:
+            return "no-outp-preflight: cannot read PACE output_state — operator must verify"
+        if output_state != 1:
+            fail_msg = (
+                f"no-outp-preflight: PACE output_state={output_state} (expected=1). "
+                f"In no-OUTP mode the calibration cannot auto-set output. "
+                f"Operator must manually confirm PACE output is ON before starting."
             )
+            self.log(fail_msg)
+            return fail_msg
         return None
 
     def _close_atmosphere_without_output_toggle(self, pace: Any, *, reason: str = "") -> None:
@@ -9078,6 +9092,21 @@ class CalibrationRunner:
         return False
 
     def _enter_pressure_controller_atmosphere_with_legacy_hold(self, pace: Any, *, timeout_s: float) -> None:
+        if self._no_outp_transition():
+            stop_hold = getattr(pace, "stop_atmosphere_hold", None)
+            if callable(stop_hold):
+                stop_hold()
+            set_isolation_open = getattr(pace, "set_isolation_open", None)
+            if callable(set_isolation_open):
+                set_isolation_open(True)
+            pace.vent(True)
+            start_hold = getattr(pace, "start_atmosphere_hold", None)
+            if callable(start_hold):
+                start_hold(interval_s=self._vent_hold_interval_s())
+            self._pace_vent_after_valve_supported = False
+            self._pace_vent_after_valve_open = False
+            return
+
         enter_atmosphere = getattr(pace, "enter_atmosphere_mode", None)
         if callable(enter_atmosphere):
             try:
@@ -9109,6 +9138,9 @@ class CalibrationRunner:
         self._pace_vent_after_valve_open = False
 
     def _enter_pressure_controller_atmosphere_with_open_vent_valve(self, pace: Any, *, timeout_s: float) -> None:
+        if self._no_outp_transition():
+            self._enter_pressure_controller_atmosphere_with_legacy_hold(pace, timeout_s=timeout_s)
+            return
         popup_ack_enabled = self._vent_popup_ack_override()
         enter_atmosphere = getattr(pace, "enter_atmosphere_mode_with_open_vent_valve", None)
         if not callable(enter_atmosphere):
@@ -9229,10 +9261,7 @@ class CalibrationRunner:
                         aux_restore_failed = True
                         self.log(f"Pressure controller vent auxiliary restore failed ({state}): {exc}")
                         raise
-                exit_atmosphere = getattr(pace, "exit_atmosphere_mode", None)
-                if callable(exit_atmosphere) and not fast_preseal_vent_off:
-                    exit_atmosphere(timeout_s=vent_transition_timeout_s)
-                elif fast_preseal_vent_off and self._no_outp_transition():
+                if self._no_outp_transition():
                     self._close_atmosphere_without_output_toggle(
                         pace, reason=reason,
                     )
@@ -9240,13 +9269,17 @@ class CalibrationRunner:
                     if callable(set_isolation_open):
                         set_isolation_open(True)
                 else:
-                    set_output = getattr(pace, "set_output", None)
-                    if callable(set_output):
-                        set_output(False)
-                    pace.vent(False)
-                    set_isolation_open = getattr(pace, "set_isolation_open", None)
-                    if callable(set_isolation_open):
-                        set_isolation_open(True)
+                    exit_atmosphere = getattr(pace, "exit_atmosphere_mode", None)
+                    if callable(exit_atmosphere) and not fast_preseal_vent_off:
+                        exit_atmosphere(timeout_s=vent_transition_timeout_s)
+                    else:
+                        set_output = getattr(pace, "set_output", None)
+                        if callable(set_output):
+                            set_output(False)
+                        pace.vent(False)
+                        set_isolation_open = getattr(pace, "set_isolation_open", None)
+                        if callable(set_isolation_open):
+                            set_isolation_open(True)
             extra = f" ({reason})" if reason else ""
             self.log(f"Pressure controller vent={state}{extra}")
             self._pressure_atmosphere_hold_enabled = bool(vent_on)
@@ -9404,12 +9437,13 @@ class CalibrationRunner:
                 f"output_state={output_state} isolation_state={isolation_state} "
                 f"target_hpa={pressure_target_hpa}"
             )
-            set_output = getattr(pace, "set_output", None)
-            if callable(set_output):
-                try:
-                    set_output(False)
-                except Exception as exc:
-                    self.log(f"Pressure controller output-on recovery output-off failed: {exc}")
+            if not self._no_outp_transition():
+                set_output = getattr(pace, "set_output", None)
+                if callable(set_output):
+                    try:
+                        set_output(False)
+                    except Exception as exc:
+                        self.log(f"Pressure controller output-on recovery output-off failed: {exc}")
             set_isolation_open = getattr(pace, "set_isolation_open", None)
             if callable(set_isolation_open):
                 try:
@@ -14068,11 +14102,13 @@ class CalibrationRunner:
 
             if self._no_outp_transition() and route_name == "co2":
                 pace = self.devices.get("pace")
+                gauge_dev = self.devices.get("pressure_gauge")
                 if pace:
                     rise_timeout_s = max(5.0, float(pcfg.get("no_outp_pressure_rise_timeout_s", 10.0)))
                     rise_min_hpa = max(1.0, float(pcfg.get("no_outp_pressure_rise_min_hpa", 5.0)))
                     rise_start = time.time()
-                    rise_baseline: Optional[float] = None
+                    gauge_baseline: Optional[float] = None
+                    pace_baseline: Optional[float] = None
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
@@ -14080,6 +14116,7 @@ class CalibrationRunner:
                         trace_stage="no_outp_pressure_rise_gate_begin",
                         pressure_target_hpa=point.target_pressure_hpa,
                         refresh_pace_state=True,
+                        read_pressure_gauge=True,
                         note=f"timeout_s={rise_timeout_s:.1f} min_rise_hpa={rise_min_hpa:.1f}",
                     )
                     while time.time() - rise_start < rise_timeout_s:
@@ -14089,21 +14126,38 @@ class CalibrationRunner:
                             pace_pressure = self._as_float(pace.read_pressure())
                         except Exception:
                             pace_pressure = None
-                        if pace_pressure is not None and math.isfinite(pace_pressure):
-                            if rise_baseline is None:
-                                rise_baseline = pace_pressure
-                            elif pace_pressure - rise_baseline >= rise_min_hpa:
-                                self._append_pressure_trace_row(
-                                    point=point,
-                                    route=phase,
-                                    point_phase=phase,
-                                    trace_stage="no_outp_pressure_rise_gate_pass",
-                                    pressure_target_hpa=point.target_pressure_hpa,
-                                    pace_pressure_hpa=pace_pressure,
-                                    refresh_pace_state=True,
-                                    note=f"rise_hpa={pace_pressure - rise_baseline:.2f} baseline={rise_baseline:.2f}",
-                                )
-                                break
+                        gauge_pressure: Optional[float] = None
+                        if gauge_dev:
+                            try:
+                                gauge_pressure = self._as_float(gauge_dev.read_pressure())
+                            except Exception:
+                                gauge_pressure = None
+                        gauge_ok = False
+                        if gauge_pressure is not None and math.isfinite(gauge_pressure):
+                            if gauge_baseline is None:
+                                gauge_baseline = gauge_pressure
+                            elif gauge_pressure - gauge_baseline >= rise_min_hpa:
+                                gauge_ok = True
+                        if pace_pressure is not None and math.isfinite(pace_pressure) and pace_baseline is None:
+                            pace_baseline = pace_pressure
+                        if gauge_ok:
+                            gauge_rise = gauge_pressure - gauge_baseline if gauge_baseline is not None else 0.0
+                            pace_rise = pace_pressure - pace_baseline if pace_baseline is not None and pace_pressure is not None else 0.0
+                            self._append_pressure_trace_row(
+                                point=point,
+                                route=phase,
+                                point_phase=phase,
+                                trace_stage="no_outp_pressure_rise_gate_pass",
+                                pressure_target_hpa=point.target_pressure_hpa,
+                                pace_pressure_hpa=pace_pressure,
+                                pressure_gauge_hpa=gauge_pressure,
+                                refresh_pace_state=True,
+                                note=(
+                                    f"gauge_rise={gauge_rise:.2f}hPa baseline={gauge_baseline:.2f} "
+                                    f"pace_rise={pace_rise:.2f}hPa pace_baseline={pace_baseline:.2f}"
+                                ),
+                            )
+                            break
                         self._append_pressure_trace_row(
                             point=point,
                             route=phase,
@@ -14111,12 +14165,12 @@ class CalibrationRunner:
                             trace_stage="preseal_wait",
                             pressure_target_hpa=point.target_pressure_hpa,
                             pace_pressure_hpa=pace_pressure,
+                            pressure_gauge_hpa=gauge_pressure,
                             refresh_pace_state=False,
                             note=(
-                                f"no_outp_pressure_rise_gate baseline={rise_baseline:.1f} "
-                                f"current={pace_pressure:.1f} elapsed_s={time.time()-rise_start:.1f}"
-                                if pace_pressure is not None
-                                else "no_outp_pressure_rise_gate waiting for first pressure reading"
+                                f"no_outp_rise_gate gauge_baseline={gauge_baseline} "
+                                f"gauge_now={gauge_pressure} pace_now={pace_pressure} "
+                                f"elapsed_s={time.time()-rise_start:.1f}"
                             ),
                         )
                         time.sleep(0.2)
@@ -14128,12 +14182,14 @@ class CalibrationRunner:
                             trace_stage="no_outp_pressure_rise_gate_fail",
                             pressure_target_hpa=point.target_pressure_hpa,
                             pace_pressure_hpa=pace_pressure,
+                            pressure_gauge_hpa=gauge_pressure,
                             refresh_pace_state=True,
-                            note=f"timeout after {rise_timeout_s:.1f}s baseline={rise_baseline}",
+                            note=f"timeout after {rise_timeout_s:.1f}s gauge_baseline={gauge_baseline} pace_baseline={pace_baseline}",
                         )
                         self.log(
                             f"CO2 preseal pressure-rise gate FAIL: no pressure rise detected "
-                            f"within {rise_timeout_s:.1f}s (min_rise={rise_min_hpa:.1f}hPa). "
+                            f"on COM22 pressure gauge within {rise_timeout_s:.1f}s "
+                            f"(min_rise={rise_min_hpa:.1f}hPa). "
                             f"VENT0 may not have physically closed the vent. Aborting."
                         )
                         self._cleanup_co2_route(reason="preseal pressure-rise gate failure")
