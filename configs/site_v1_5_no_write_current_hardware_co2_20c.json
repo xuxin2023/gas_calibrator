@@ -359,7 +359,8 @@
     ],
     "postrun_corrected_delivery": {
       "enabled": false,
-      "write_devices": false
+      "write_devices": false,
+      "write_pressure_coefficients": false
     },
     "startup_pressure_sensor_calibration": {
       "enabled": false,
