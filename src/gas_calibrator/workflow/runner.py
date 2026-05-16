@@ -8159,6 +8159,12 @@ class CalibrationRunner:
             float(self._wf("workflow.pressure.controlled_exit_wait_for_vent_idle_poll_s", 0.2) or 0.2),
         )
 
+    def _require_operator_window_clear_after_vent0(self) -> bool:
+        return bool(self._wf("workflow.pressure.require_operator_window_clear_after_vent0", False))
+
+    def _operator_window_clear_timeout_s(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.operator_window_clear_timeout_s", 5.0) or 0.0))
+
     def _build_co2_sealed_sweep_key(self, point: CalibrationPoint) -> Tuple[Any, ...]:
         temp = self._as_float(point.temp_chamber_c)
         ppm = self._as_float(point.co2_ppm)
@@ -8387,25 +8393,88 @@ class CalibrationRunner:
         *,
         result: str,
         snapshot: Mapping[str, Any],
+        exit_method: str,
         reason: str = "",
         failures: Optional[List[str]] = None,
         wait_status: Any = None,
         wait_error: str = "",
-        window_state_unverified_by_software: bool = False,
+        operator_window_cleared_after_vent0: str = "unknown",
+        operator_window_note: str = "",
+        final_decision: str = "",
     ) -> str:
         parts = [
             f"result={result}",
+            f"exit_method={exit_method}",
             f"reason={reason or 'unspecified'}",
             f"wait_status={wait_status}",
-            f"output_mode={snapshot.get('pace_output_mode', '')}",
-            f"system_error={snapshot.get('pace_system_error', '')}",
-            f"window_state_unverified_by_software={str(window_state_unverified_by_software).lower()}",
+            f"VENT?={snapshot.get('pace_vent_status', '')}",
+            f"OUTP:STAT={snapshot.get('pace_output_state', '')}",
+            f"OUTP:MODE={snapshot.get('pace_output_mode', '')}",
+            f"ISOL:STAT={snapshot.get('pace_isolation_state', '')}",
+            f"SYST:ERR?={snapshot.get('pace_system_error', '')}",
+            f"operator_window_cleared_after_vent0={operator_window_cleared_after_vent0}",
+            f"operator_window_note={operator_window_note}",
         ]
         if wait_error:
             parts.append(f"wait_error={wait_error}")
         if failures:
             parts.append(f"failures={','.join(str(one) for one in failures)}")
+        if final_decision:
+            parts.append(f"final_decision={final_decision}")
         return "; ".join(parts)
+
+    def _controlled_operator_window_record(self) -> Tuple[str, str]:
+        raw_value = self._wf("workflow.pressure.operator_window_cleared_after_vent0", "unknown")
+        note = str(self._wf("workflow.pressure.operator_window_note", "") or "")
+        if isinstance(raw_value, bool):
+            return ("true" if raw_value else "false"), note
+        text = str(raw_value or "").strip().lower()
+        if text in {"1", "true", "yes", "y", "cleared", "clear"}:
+            return "true", note
+        if text in {"0", "false", "no", "n", "not_cleared", "not cleared", "uncleared"}:
+            return "false", note
+        return "unknown", note
+
+    def _controlled_operator_window_failure_decision(self, state: str) -> str:
+        if str(state or "").strip().lower() == "false":
+            return "FAIL_CLOSED_ATMOSPHERE_WINDOW_NOT_CLEARED"
+        return "FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING"
+
+    def _controlled_exit_atmosphere_command(
+        self,
+        pace: Any,
+        *,
+        timeout_s: float,
+        poll_s: float,
+    ) -> Tuple[str, Any, str]:
+        exit_atmosphere = getattr(pace, "exit_atmosphere_mode", None)
+        if callable(exit_atmosphere):
+            try:
+                return "pace.exit_atmosphere_mode", exit_atmosphere(timeout_s=timeout_s, poll_s=poll_s), ""
+            except TypeError:
+                return "pace.exit_atmosphere_mode", exit_atmosphere(timeout_s=timeout_s), ""
+
+        if not self._stop_pressure_controller_atmosphere_hold(
+            pace,
+            reason="before controlled CO2 preseal verified atmosphere exit",
+        ):
+            raise RuntimeError("ATMOSPHERE_HOLD_STOP_FAILED")
+        set_output = getattr(pace, "set_output", None)
+        if callable(set_output):
+            set_output(False)
+        pace.vent(False)
+        set_isolation_open = getattr(pace, "set_isolation_open", None)
+        if callable(set_isolation_open):
+            set_isolation_open(True)
+        wait_status: Any = ""
+        wait_error = ""
+        wait_for_vent_idle = getattr(pace, "wait_for_vent_idle", None)
+        if callable(wait_for_vent_idle):
+            try:
+                wait_status = wait_for_vent_idle(timeout_s=timeout_s, poll_s=poll_s)
+            except Exception as exc:
+                wait_error = str(exc)
+        return "manual_fallback", wait_status, wait_error
 
     def _verified_exit_atmosphere_for_controlled_co2_preseal(
         self,
@@ -8436,21 +8505,36 @@ class CalibrationRunner:
             note=reason or "controlled CO2 preseal atmosphere exit begin",
         )
 
+        timeout_s = self._controlled_exit_wait_for_vent_idle_timeout_s()
+        poll_s = self._controlled_exit_wait_for_vent_idle_poll_s()
+        driver_available = callable(getattr(pace, "exit_atmosphere_mode", None))
+        planned_exit_method = "pace.exit_atmosphere_mode" if driver_available else "manual_fallback"
+        self._append_pressure_trace_row(
+            point=point,
+            route=route_name,
+            point_phase=route_name,
+            trace_stage="controlled_exit_atmosphere_driver_exit_begin",
+            pressure_target_hpa=pressure_target_hpa,
+            refresh_pace_state=True,
+            note=(
+                f"exit_method={planned_exit_method}; timeout_s={timeout_s:.3f}; "
+                f"poll_s={poll_s:.3f}; reason={reason or 'unspecified'}"
+            ),
+        )
+
+        exit_method = planned_exit_method
+        wait_status: Any = ""
+        wait_error = ""
         try:
-            if not self._stop_pressure_controller_atmosphere_hold(
+            exit_method, wait_status, wait_error = self._controlled_exit_atmosphere_command(
                 pace,
-                reason="before controlled CO2 preseal verified atmosphere exit",
-            ):
-                raise RuntimeError("ATMOSPHERE_HOLD_STOP_FAILED")
-            set_output = getattr(pace, "set_output", None)
-            if callable(set_output):
-                set_output(False)
-            pace.vent(False)
-            set_isolation_open = getattr(pace, "set_isolation_open", None)
-            if callable(set_isolation_open):
-                set_isolation_open(True)
+                timeout_s=timeout_s,
+                poll_s=poll_s,
+            )
         except Exception as exc:
             snapshot = self._controlled_exit_atmosphere_snapshot(pace)
+            final_decision = "FAIL_CLOSED_ATMOSPHERE_EXIT_COMMAND_FAILED"
+            self._controlled_exit_final_decision = final_decision
             self._append_pressure_trace_row(
                 point=point,
                 route=route_name,
@@ -8464,8 +8548,12 @@ class CalibrationRunner:
                 note=self._controlled_exit_atmosphere_note(
                     result="command_failed",
                     snapshot=snapshot,
+                    exit_method=exit_method,
                     reason=reason,
                     failures=[str(exc)],
+                    wait_status=wait_status,
+                    wait_error=wait_error,
+                    final_decision=final_decision,
                 ),
             )
             self._pressure_atmosphere_hold_enabled = False
@@ -8476,35 +8564,26 @@ class CalibrationRunner:
         self._pressure_atmosphere_hold_enabled = False
         self._last_pressure_atmosphere_refresh_ts = 0.0
         self._pressure_atmosphere_refresh_error_logged = False
-        command_snapshot = self._controlled_exit_atmosphere_snapshot(pace)
+        done_snapshot = self._controlled_exit_atmosphere_snapshot(pace)
         self._append_pressure_trace_row(
             point=point,
             route=route_name,
             point_phase=route_name,
-            trace_stage="controlled_exit_atmosphere_command_sent",
+            trace_stage="controlled_exit_atmosphere_driver_exit_done",
             pressure_target_hpa=pressure_target_hpa,
-            pace_output_state=command_snapshot.get("pace_output_state"),
-            pace_isolation_state=command_snapshot.get("pace_isolation_state"),
-            pace_vent_status=command_snapshot.get("pace_vent_status"),
+            pace_output_state=done_snapshot.get("pace_output_state"),
+            pace_isolation_state=done_snapshot.get("pace_isolation_state"),
+            pace_vent_status=done_snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
             note=self._controlled_exit_atmosphere_note(
-                result="command_sent",
-                snapshot=command_snapshot,
+                result="driver_exit_done",
+                snapshot=done_snapshot,
+                exit_method=exit_method,
                 reason=reason,
+                wait_status=wait_status,
+                wait_error=wait_error,
             ),
         )
-
-        wait_status: Any = ""
-        wait_error = ""
-        wait_for_vent_idle = getattr(pace, "wait_for_vent_idle", None)
-        if callable(wait_for_vent_idle):
-            try:
-                wait_status = wait_for_vent_idle(
-                    timeout_s=self._controlled_exit_wait_for_vent_idle_timeout_s(),
-                    poll_s=self._controlled_exit_wait_for_vent_idle_poll_s(),
-                )
-            except Exception as exc:
-                wait_error = str(exc)
 
         verify_snapshot = self._controlled_exit_atmosphere_snapshot(pace)
         vent_status = self._as_int(verify_snapshot.get("pace_vent_status"))
@@ -8526,7 +8605,6 @@ class CalibrationRunner:
         system_error = verify_snapshot.get("pace_system_error")
         if not self._pressure_controller_system_error_allows_continue(system_error):
             failures.append(f"system_error={system_error}")
-        window_state_unverified = bool(vent_status is not None and vent_status != 0 and not failures)
 
         self._append_pressure_trace_row(
             point=point,
@@ -8541,15 +8619,69 @@ class CalibrationRunner:
             note=self._controlled_exit_atmosphere_note(
                 result="verify",
                 snapshot=verify_snapshot,
+                exit_method=exit_method,
                 reason=reason,
                 failures=failures,
                 wait_status=wait_status,
                 wait_error=wait_error,
-                window_state_unverified_by_software=window_state_unverified,
             ),
         )
 
+        operator_window_state = "not_required"
+        operator_window_note = ""
+        operator_final_decision = ""
+        if not failures:
+            self._append_pressure_trace_row(
+                point=point,
+                route=route_name,
+                point_phase=route_name,
+                trace_stage="operator_window_check_begin",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=verify_snapshot.get("pace_output_state"),
+                pace_isolation_state=verify_snapshot.get("pace_isolation_state"),
+                pace_vent_status=verify_snapshot.get("pace_vent_status"),
+                refresh_pace_state=False,
+                note=(
+                    f"require_operator_window_clear_after_vent0="
+                    f"{str(self._require_operator_window_clear_after_vent0()).lower()}; "
+                    f"operator_window_clear_timeout_s={self._operator_window_clear_timeout_s():.3f}; "
+                    f"exit_method={exit_method}"
+                ),
+            )
+            if self._require_operator_window_clear_after_vent0():
+                operator_window_state, operator_window_note = self._controlled_operator_window_record()
+                if operator_window_state != "true":
+                    operator_final_decision = self._controlled_operator_window_failure_decision(operator_window_state)
+                    failures.append(operator_final_decision)
+            self._append_pressure_trace_row(
+                point=point,
+                route=route_name,
+                point_phase=route_name,
+                trace_stage="operator_window_check_result",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=verify_snapshot.get("pace_output_state"),
+                pace_isolation_state=verify_snapshot.get("pace_isolation_state"),
+                pace_vent_status=verify_snapshot.get("pace_vent_status"),
+                refresh_pace_state=False,
+                note=self._controlled_exit_atmosphere_note(
+                    result="operator_window_check",
+                    snapshot=verify_snapshot,
+                    exit_method=exit_method,
+                    reason=reason,
+                    failures=failures,
+                    wait_status=wait_status,
+                    wait_error=wait_error,
+                    operator_window_cleared_after_vent0=operator_window_state,
+                    operator_window_note=operator_window_note,
+                    final_decision=operator_final_decision,
+                ),
+            )
+
         final_stage = "controlled_exit_atmosphere_fail" if failures else "controlled_exit_atmosphere_pass"
+        final_decision = operator_final_decision if failures and operator_final_decision else ""
+        if failures and not final_decision:
+            final_decision = "FAIL_CLOSED_ATMOSPHERE_EXIT_NOT_VERIFIED"
+        self._controlled_exit_final_decision = final_decision or "ENGINEERING_EXIT_ATMOSPHERE_PASS"
         self._append_pressure_trace_row(
             point=point,
             route=route_name,
@@ -8563,11 +8695,14 @@ class CalibrationRunner:
             note=self._controlled_exit_atmosphere_note(
                 result="fail" if failures else "pass",
                 snapshot=verify_snapshot,
+                exit_method=exit_method,
                 reason=reason,
                 failures=failures,
                 wait_status=wait_status,
                 wait_error=wait_error,
-                window_state_unverified_by_software=window_state_unverified,
+                operator_window_cleared_after_vent0=operator_window_state,
+                operator_window_note=operator_window_note,
+                final_decision=final_decision,
             ),
         )
         if failures:
