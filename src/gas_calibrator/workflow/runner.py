@@ -308,6 +308,7 @@ class CalibrationRunner:
         self._active_co2_sealed_sweep_context: Optional[Dict[str, Any]] = None
         self._co2_sealed_no_vent_guard_active = False
         self._co2_sealed_no_vent_guard_context: Optional[Dict[str, Any]] = None
+        self._controlled_outp_sealed_output_enabled = False
         self._no_write_guard_enabled = True
         self._attempted_write_count = 0
         self._identity_write_command_sent = False
@@ -8112,7 +8113,31 @@ class CalibrationRunner:
     def _no_outp_transition(self) -> bool:
         return bool(self._wf("workflow.pressure.no_outp_transition_mode", False))
 
+    def _controlled_outp_transition(self) -> bool:
+        return bool(self._wf("workflow.pressure.controlled_outp_transition_mode", False))
+
+    def _open_flow_output_off_mode(self) -> bool:
+        return bool(self._wf("workflow.pressure.open_flow_output_off_mode", False))
+
+    def _open_flow_output_off_for_reason(self, reason: str = "") -> bool:
+        if not self._open_flow_output_off_mode():
+            return False
+        reason_text = str(reason or "").strip().lower()
+        return "co2" in reason_text
+
+    def _pressure_rise_gate_blocks_seal(self) -> bool:
+        return bool(self._wf("workflow.pressure.pressure_rise_gate_blocks_seal", True))
+
+    def _controlled_outp_seal_transition_enabled(self, route_name: str) -> bool:
+        return (
+            str(route_name or "").strip().lower() == "co2"
+            and self._no_outp_transition()
+            and self._controlled_outp_transition()
+        )
+
     def _co2_no_outp_vent0_to_seal_wait_s(self) -> float:
+        if self._controlled_outp_transition():
+            return max(0.0, float(self._wf("workflow.pressure.vent0_to_seal_fixed_wait_s", 1.5) or 0.0))
         return 1.5
 
     def _build_co2_sealed_sweep_key(self, point: CalibrationPoint) -> Tuple[Any, ...]:
@@ -8168,6 +8193,7 @@ class CalibrationRunner:
         self._active_co2_sealed_sweep_context = None
         self._co2_sealed_no_vent_guard_active = False
         self._co2_sealed_no_vent_guard_context = None
+        self._controlled_outp_sealed_output_enabled = False
 
     def _begin_active_co2_sealed_sweep_context(self, point: CalibrationPoint) -> None:
         key = self._build_co2_sealed_sweep_key(point)
@@ -8277,6 +8303,13 @@ class CalibrationRunner:
         )
         if output_state is None:
             return "no-outp-preflight: cannot read PACE output_state — operator must verify"
+        if self._controlled_outp_transition() and self._open_flow_output_off_mode():
+            self.log(
+                "[controlled-outp-preflight] "
+                f"output_state={output_state} accepted because open-flow will run with OUTP0; "
+                "control output will be enabled only after sealed"
+            )
+            return None
         if output_state != 1:
             fail_msg = (
                 f"no-outp-preflight: PACE output_state={output_state} (expected=1). "
@@ -8570,44 +8603,54 @@ class CalibrationRunner:
                     else "vent off command completed; controller ready before setpoint"
                 ),
             )
+            controlled_outp_enabled_before_setpoint = False
+            if phase == "co2" and self._controlled_outp_transition():
+                if not self._enable_controlled_outp_after_seal(
+                    point,
+                    phase=phase,
+                    pressure_target_hpa=target,
+                ):
+                    return False
+                controlled_outp_enabled_before_setpoint = True
             pace.set_setpoint(target)
-            self._append_pressure_trace_row(
-                point=point,
-                route=phase,
-                point_phase=phase,
-                trace_stage="control_output_on_begin",
-                pressure_target_hpa=target,
-                refresh_pace_state=False,
-                note="before output on after setpoint update",
-            )
-            if not self._enable_pressure_controller_output(reason="after setpoint update"):
+            if not controlled_outp_enabled_before_setpoint:
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
                     point_phase=phase,
-                    trace_stage="control_output_on_failed",
+                    trace_stage="control_output_on_begin",
                     pressure_target_hpa=target,
-                    read_pace_pressure=True,
-                    read_pressure_gauge=True,
-                    note="output enable command failed",
+                    refresh_pace_state=False,
+                    note="before output on after setpoint update",
                 )
-                return False
-            self._append_pressure_trace_row(
-                point=point,
-                route=phase,
-                point_phase=phase,
-                trace_stage="control_output_on_command_sent",
-                pressure_target_hpa=target,
-                refresh_pace_state=False,
-                note="output enable command sent after setpoint update",
-            )
-            if not self._verify_pressure_controller_output_on(
-                point,
-                phase=phase,
-                pressure_target_hpa=target,
-                note="after output on after setpoint update",
-            ):
-                return False
+                if not self._enable_pressure_controller_output(reason="after setpoint update"):
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="control_output_on_failed",
+                        pressure_target_hpa=target,
+                        read_pace_pressure=True,
+                        read_pressure_gauge=True,
+                        note="output enable command failed",
+                    )
+                    return False
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="control_output_on_command_sent",
+                    pressure_target_hpa=target,
+                    refresh_pace_state=False,
+                    note="output enable command sent after setpoint update",
+                )
+                if not self._verify_pressure_controller_output_on(
+                    point,
+                    phase=phase,
+                    pressure_target_hpa=target,
+                    note="after output on after setpoint update",
+                ):
+                    return False
 
         self._clear_preseal_pressure_control_ready_state(
             reason="control_sequence_completed",
@@ -9360,11 +9403,28 @@ class CalibrationRunner:
         )
         return False
 
-    def _enter_pressure_controller_atmosphere_with_legacy_hold(self, pace: Any, *, timeout_s: float) -> None:
+    def _enter_pressure_controller_atmosphere_with_legacy_hold(
+        self,
+        pace: Any,
+        *,
+        timeout_s: float,
+        reason: str = "",
+    ) -> None:
         if self._no_outp_transition():
             stop_hold = getattr(pace, "stop_atmosphere_hold", None)
             if callable(stop_hold):
                 stop_hold()
+            if self._open_flow_output_off_for_reason(reason):
+                set_output = getattr(pace, "set_output", None)
+                if callable(set_output):
+                    set_output(False)
+                    self._append_pressure_trace_row(
+                        point=None,
+                        route="pressure",
+                        trace_stage="open_flow_output_off",
+                        refresh_pace_state=False,
+                        note="open_flow_output_off=true",
+                    )
             set_isolation_open = getattr(pace, "set_isolation_open", None)
             if callable(set_isolation_open):
                 set_isolation_open(True)
@@ -9406,9 +9466,19 @@ class CalibrationRunner:
         self._pace_vent_after_valve_supported = False
         self._pace_vent_after_valve_open = False
 
-    def _enter_pressure_controller_atmosphere_with_open_vent_valve(self, pace: Any, *, timeout_s: float) -> None:
+    def _enter_pressure_controller_atmosphere_with_open_vent_valve(
+        self,
+        pace: Any,
+        *,
+        timeout_s: float,
+        reason: str = "",
+    ) -> None:
         if self._no_outp_transition():
-            self._enter_pressure_controller_atmosphere_with_legacy_hold(pace, timeout_s=timeout_s)
+            self._enter_pressure_controller_atmosphere_with_legacy_hold(
+                pace,
+                timeout_s=timeout_s,
+                reason=reason,
+            )
             return
         popup_ack_enabled = self._vent_popup_ack_override()
         enter_atmosphere = getattr(pace, "enter_atmosphere_mode_with_open_vent_valve", None)
@@ -9470,6 +9540,7 @@ class CalibrationRunner:
                         self._enter_pressure_controller_atmosphere_with_open_vent_valve(
                             pace,
                             timeout_s=vent_transition_timeout_s,
+                            reason=reason,
                         )
                     except Exception as exc:
                         strategy_used = "legacy_hold_thread"
@@ -9488,6 +9559,7 @@ class CalibrationRunner:
                         self._enter_pressure_controller_atmosphere_with_legacy_hold(
                             pace,
                             timeout_s=vent_transition_timeout_s,
+                            reason=reason,
                         )
                 else:
                     if requested_strategy != "legacy_hold_thread":
@@ -9506,6 +9578,7 @@ class CalibrationRunner:
                     self._enter_pressure_controller_atmosphere_with_legacy_hold(
                         pace,
                         timeout_s=vent_transition_timeout_s,
+                        reason=reason,
                     )
                 self._pressure_atmosphere_hold_strategy = strategy_used
                 self._refresh_pressure_controller_aux_state(pace)
@@ -9599,7 +9672,7 @@ class CalibrationRunner:
             return
 
         try:
-            if not self._no_outp_transition():
+            if (not self._no_outp_transition()) or self._open_flow_output_off_for_reason(reason):
                 set_output = getattr(pace, "set_output", None)
                 if callable(set_output):
                     set_output(False)
@@ -9621,8 +9694,12 @@ class CalibrationRunner:
             return True
         if self._no_outp_transition():
             extra = f" ({reason})" if reason else ""
-            self.log(f"Pressure controller output=ON skipped (no-OUTP mode){extra}")
-            return True
+            if not (self._controlled_outp_transition() and self._co2_sealed_no_vent_guard_active):
+                self.log(f"Pressure controller output=ON skipped (no-OUTP mode){extra}")
+                return True
+            if self._controlled_outp_sealed_output_enabled:
+                self.log(f"Pressure controller output=ON already enabled for sealed CO2 control{extra}")
+                return True
         try:
             enable_output = getattr(pace, "enable_control_output", None)
             if callable(enable_output):
@@ -9638,6 +9715,142 @@ class CalibrationRunner:
         except Exception as exc:
             self.log(f"Pressure controller output enable failed: {exc}")
             return False
+
+    def _controlled_output_confirm_timeout_s(self) -> float:
+        return max(
+            0.0,
+            float(self._wf("workflow.pressure.controlled_output_confirm_timeout_s", 3.0) or 3.0),
+        )
+
+    def _controlled_output_confirm_poll_s(self) -> float:
+        return max(
+            0.05,
+            float(self._wf("workflow.pressure.controlled_output_confirm_poll_s", 0.2) or 0.2),
+        )
+
+    def _enable_controlled_outp_after_seal(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        pressure_target_hpa: Optional[float],
+    ) -> bool:
+        if not self._controlled_outp_transition() or phase != "co2":
+            return True
+        if self._controlled_outp_sealed_output_enabled:
+            return True
+        if not self._co2_sealed_no_vent_guard_active:
+            self.log("Controlled OUTP seal enable blocked: CO2 sealed no-vent guard is not active")
+            return False
+
+        timeout_s = self._controlled_output_confirm_timeout_s()
+        poll_s = self._controlled_output_confirm_poll_s()
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="sealed_control_output_enable_begin",
+            pressure_target_hpa=pressure_target_hpa,
+            read_pace_pressure=True,
+            read_pressure_gauge=True,
+            note=f"timeout_s={timeout_s:.3f} poll_s={poll_s:.3f}",
+        )
+        if not self._enable_pressure_controller_output(reason="after CO2 route sealed before first setpoint"):
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="sealed_control_output_enable_fail",
+                pressure_target_hpa=pressure_target_hpa,
+                read_pace_pressure=True,
+                read_pressure_gauge=True,
+                note="enable_control_output command failed",
+            )
+            return False
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="sealed_control_output_enable_command_sent",
+            pressure_target_hpa=pressure_target_hpa,
+            refresh_pace_state=False,
+            note="enable_control_output/OUTP1 sent once after seal",
+        )
+
+        pace = self.devices.get("pace")
+        if not pace:
+            self._controlled_outp_sealed_output_enabled = True
+            return True
+        values: List[Any] = []
+        first_one_elapsed_s: Optional[float] = None
+        start = time.time()
+        while True:
+            output_state: Any = None
+            try:
+                get_os = getattr(pace, "get_output_state", None)
+                if callable(get_os):
+                    output_state = int(get_os())
+            except Exception as exc:
+                output_state = f"error:{exc}"
+            values.append(output_state)
+            if output_state == 1:
+                first_one_elapsed_s = max(0.0, time.time() - start)
+                break
+            elapsed_s = max(0.0, time.time() - start)
+            if elapsed_s >= timeout_s:
+                break
+            time.sleep(min(poll_s, max(0.0, timeout_s - elapsed_s)))
+
+        snapshot = self._pressure_controller_ready_snapshot(pace)
+        elapsed_s = max(0.0, time.time() - start)
+        values_text = ",".join(str(value) for value in values)
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="sealed_control_output_enable_poll",
+            pressure_target_hpa=pressure_target_hpa,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            refresh_pace_state=False,
+            note=(
+                f"poll_values={values_text} poll_count={len(values)} "
+                f"elapsed_s={elapsed_s:.3f} first_one_elapsed_s="
+                f"{first_one_elapsed_s if first_one_elapsed_s is not None else 'NA'}"
+            ),
+        )
+        if first_one_elapsed_s is None:
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="sealed_control_output_enable_fail",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                read_pace_pressure=True,
+                read_pressure_gauge=True,
+                refresh_pace_state=False,
+                note="output_state did not become 1 before timeout",
+            )
+            return False
+
+        self._controlled_outp_sealed_output_enabled = True
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="sealed_control_output_enable_pass",
+            pressure_target_hpa=pressure_target_hpa,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            refresh_pace_state=False,
+            note="output_state confirmed 1 after sealed route close",
+        )
+        return True
 
     def _pressure_controller_output_on_failures(self, snapshot: Dict[str, Any], pace: Any = None) -> List[str]:
         failures: List[str] = []
@@ -14324,6 +14537,39 @@ class CalibrationRunner:
             return self._as_int(self.cfg.get("valves", {}).get("h2o_path"))
         return None
 
+    def _read_controlled_outp_preseal_pressures(self) -> Dict[str, Optional[float]]:
+        pace_pressure: Optional[float] = None
+        gauge_pressure: Optional[float] = None
+        pace = self.devices.get("pace")
+        if pace:
+            try:
+                pace_pressure = self._as_float(pace.read_pressure())
+            except Exception:
+                pace_pressure = None
+        gauge = self.devices.get("pressure_gauge")
+        if gauge:
+            try:
+                gauge_pressure = self._as_float(gauge.read_pressure())
+            except Exception:
+                gauge_pressure = None
+        return {
+            "pace_pressure_hpa": pace_pressure,
+            "pressure_gauge_hpa": gauge_pressure,
+        }
+
+    def _controlled_outp_pressure_rise_observed(
+        self,
+        baseline: Optional[float],
+        after: Optional[float],
+    ) -> bool:
+        if baseline is None or after is None:
+            return False
+        try:
+            delta = float(after) - float(baseline)
+        except Exception:
+            return False
+        return delta >= max(0.0, float(self._wf("workflow.pressure.no_outp_pressure_rise_min_hpa", 5.0) or 5.0))
+
     def _pressurize_and_hold(self, point: CalibrationPoint, route: str = "co2") -> bool:
         pace = self.devices.get("pace")
         if not pace:
@@ -14348,12 +14594,18 @@ class CalibrationRunner:
             route_sealed = False
             use_preseal_topoff = bool(getattr(self, "_active_route_requires_preseal_topoff", True))
             vent0_wall_ts: Optional[float] = None
+            controlled_fixed_wait_completed = False
 
             def _seal_route_now() -> None:
                 nonlocal route_sealed
                 if route_sealed:
                     return
-                if route_name == "co2" and self._no_outp_transition() and vent0_wall_ts is not None:
+                if (
+                    route_name == "co2"
+                    and self._no_outp_transition()
+                    and vent0_wall_ts is not None
+                    and not controlled_fixed_wait_completed
+                ):
                     min_wait_s = self._co2_no_outp_vent0_to_seal_wait_s()
                     elapsed_s = max(0.0, time.time() - vent0_wall_ts)
                     remaining_s = max(0.0, min_wait_s - elapsed_s)
@@ -14415,6 +14667,101 @@ class CalibrationRunner:
                 refresh_pace_state=False,
                 note="vent off command issued; immediate pre-seal threshold monitoring begins",
             )
+
+            if (
+                self._controlled_outp_seal_transition_enabled(route_name)
+                and not self._pressure_rise_gate_blocks_seal()
+            ):
+                fixed_wait_s = self._co2_no_outp_vent0_to_seal_wait_s()
+                baseline_pressures = self._read_controlled_outp_preseal_pressures()
+                elapsed_s = max(0.0, time.time() - vent0_wall_ts)
+                remaining_s = max(0.0, fixed_wait_s - elapsed_s)
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="controlled_outp_vent0_fixed_wait_before_seal",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    pace_pressure_hpa=baseline_pressures.get("pace_pressure_hpa"),
+                    pressure_gauge_hpa=baseline_pressures.get("pressure_gauge_hpa"),
+                    refresh_pace_state=False,
+                    note=(
+                        f"fixed_wait_s={fixed_wait_s:.3f} elapsed_s={elapsed_s:.3f} "
+                        f"remaining_s={remaining_s:.3f}; route valves remain open after VENT0"
+                    ),
+                )
+                if remaining_s > 0:
+                    time.sleep(remaining_s)
+                controlled_fixed_wait_completed = True
+                after_pressures = self._read_controlled_outp_preseal_pressures()
+                com22_baseline = baseline_pressures.get("pressure_gauge_hpa")
+                com22_after = after_pressures.get("pressure_gauge_hpa")
+                pace_baseline = baseline_pressures.get("pace_pressure_hpa")
+                pace_after = after_pressures.get("pace_pressure_hpa")
+                pressure_rise_delta_hpa: Optional[float] = None
+                if com22_baseline is not None and com22_after is not None:
+                    pressure_rise_delta_hpa = float(com22_after) - float(com22_baseline)
+                pressure_rise_observed = self._controlled_outp_pressure_rise_observed(
+                    com22_baseline,
+                    com22_after,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="controlled_outp_pressure_rise_diagnostic",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    pace_pressure_hpa=pace_after,
+                    pressure_gauge_hpa=com22_after,
+                    refresh_pace_state=True,
+                    note=(
+                        f"pressure_rise_observed={str(pressure_rise_observed).lower()} "
+                        f"com22_baseline={com22_baseline} com22_after_1p5s={com22_after} "
+                        f"pace_baseline={pace_baseline} pace_after_1p5s={pace_after} "
+                        f"pressure_rise_delta_hpa={pressure_rise_delta_hpa}; "
+                        "pressure-rise is diagnostic only and does not block route seal"
+                    ),
+                )
+                preseal_trigger_source = "controlled_fixed_wait_after_vent0"
+                _seal_route_now()
+                trace_values = self._cached_ready_check_trace_values(point=point)
+                pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
+                if pace_pressure_now is None:
+                    pace_pressure_now = pace_after
+                self.log(
+                    f"{route.upper()} route sealed after fixed VENT0 wait "
+                    f"{fixed_wait_s:.3f}s; pressure-rise diagnostic observed={pressure_rise_observed}"
+                )
+                self._record_preseal_pressure_control_ready_state(
+                    point,
+                    phase=phase,
+                    defer_live_check=True,
+                )
+                ready_state = dict(self._preseal_pressure_control_ready_state or {})
+                ready_failures = list(ready_state.get("failures") or [])
+                ready_verification_pending = bool(ready_state.get("ready_verification_pending"))
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="route_sealed",
+                    trigger_reason=preseal_trigger_source,
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    pace_pressure_hpa=pace_pressure_now,
+                    pressure_gauge_hpa=com22_after,
+                    refresh_pace_state=False,
+                    note=(
+                        "controlled OUTP route sealed for pressure control; "
+                        + (
+                            "preseal_ready=deferred_live_check"
+                            if ready_verification_pending
+                            else "preseal_ready=ok"
+                            if not ready_failures
+                            else f"preseal_ready_failures={','.join(ready_failures)}"
+                        )
+                    ),
+                )
+                return True
 
             pcfg = self.cfg.get("workflow", {}).get("pressure", {})
 
