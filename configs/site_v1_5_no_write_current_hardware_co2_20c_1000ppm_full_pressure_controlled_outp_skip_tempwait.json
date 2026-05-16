@@ -276,7 +276,8 @@
       "controlled_exit_wait_for_vent_idle_timeout_s": 3.0,
       "controlled_exit_wait_for_vent_idle_poll_s": 0.2,
       "require_operator_window_clear_after_vent0": true,
-      "operator_window_clear_timeout_s": 5.0,
+      "operator_window_confirm_mode": "console",
+      "operator_window_clear_timeout_s": 30.0,
       "pressure_rise_gate_blocks_seal": false
     },
     "sampling": {

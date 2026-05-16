@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import os
+import queue
+import sys
 import threading
 import time
 import re
@@ -8163,7 +8165,10 @@ class CalibrationRunner:
         return bool(self._wf("workflow.pressure.require_operator_window_clear_after_vent0", False))
 
     def _operator_window_clear_timeout_s(self) -> float:
-        return max(0.0, float(self._wf("workflow.pressure.operator_window_clear_timeout_s", 5.0) or 0.0))
+        return max(0.0, float(self._wf("workflow.pressure.operator_window_clear_timeout_s", 30.0) or 0.0))
+
+    def _operator_window_confirm_mode(self) -> str:
+        return str(self._wf("workflow.pressure.operator_window_confirm_mode", "console") or "console").strip().lower()
 
     def _build_co2_sealed_sweep_key(self, point: CalibrationPoint) -> Tuple[Any, ...]:
         temp = self._as_float(point.temp_chamber_c)
@@ -8398,8 +8403,11 @@ class CalibrationRunner:
         failures: Optional[List[str]] = None,
         wait_status: Any = None,
         wait_error: str = "",
+        operator_window_confirm_mode: str = "",
+        operator_window_clear_timeout_s: Any = "",
         operator_window_cleared_after_vent0: str = "unknown",
         operator_window_note: str = "",
+        operator_window_response_raw: str = "",
         final_decision: str = "",
     ) -> str:
         parts = [
@@ -8412,8 +8420,11 @@ class CalibrationRunner:
             f"OUTP:MODE={snapshot.get('pace_output_mode', '')}",
             f"ISOL:STAT={snapshot.get('pace_isolation_state', '')}",
             f"SYST:ERR?={snapshot.get('pace_system_error', '')}",
+            f"operator_window_confirm_mode={operator_window_confirm_mode}",
+            f"operator_window_clear_timeout_s={operator_window_clear_timeout_s}",
             f"operator_window_cleared_after_vent0={operator_window_cleared_after_vent0}",
             f"operator_window_note={operator_window_note}",
+            f"operator_window_response_raw={operator_window_response_raw}",
         ]
         if wait_error:
             parts.append(f"wait_error={wait_error}")
@@ -8423,17 +8434,75 @@ class CalibrationRunner:
             parts.append(f"final_decision={final_decision}")
         return "; ".join(parts)
 
-    def _controlled_operator_window_record(self) -> Tuple[str, str]:
-        raw_value = self._wf("workflow.pressure.operator_window_cleared_after_vent0", "unknown")
-        note = str(self._wf("workflow.pressure.operator_window_note", "") or "")
-        if isinstance(raw_value, bool):
-            return ("true" if raw_value else "false"), note
+    @staticmethod
+    def _parse_operator_window_response(raw_value: Any) -> str:
         text = str(raw_value or "").strip().lower()
         if text in {"1", "true", "yes", "y", "cleared", "clear"}:
-            return "true", note
+            return "true"
         if text in {"0", "false", "no", "n", "not_cleared", "not cleared", "uncleared"}:
-            return "false", note
-        return "unknown", note
+            return "false"
+        return "unknown"
+
+    @staticmethod
+    def _controlled_operator_window_prompt_text() -> str:
+        return (
+            "[operator-confirm] PACE VENT0 已完成。请观察压力控制器通大气小窗口是否消失。"
+            "输入 YES 继续封路；输入 NO fail closed。"
+        )
+
+    @staticmethod
+    def _print_operator_window_prompt(prompt: str) -> str:
+        try:
+            print(prompt, flush=True)
+            return ""
+        except Exception as exc:
+            return f"prompt_print_error:{exc}"
+
+    def _read_operator_window_console_response(self, timeout_s: float) -> Tuple[str, str]:
+        stdin = getattr(sys, "stdin", None)
+        isatty = getattr(stdin, "isatty", None)
+        try:
+            interactive = bool(isatty()) if callable(isatty) else False
+        except Exception:
+            interactive = False
+        if not interactive:
+            return "", "stdin_non_interactive"
+
+        responses: "queue.Queue[Any]" = queue.Queue(maxsize=1)
+
+        def _reader() -> None:
+            try:
+                responses.put(input(), block=False)
+            except Exception as exc:
+                try:
+                    responses.put(exc, block=False)
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=_reader, name="operator-window-confirm", daemon=True)
+        thread.start()
+        try:
+            item = responses.get(timeout=max(0.0, float(timeout_s)))
+        except queue.Empty:
+            return "", "timeout"
+        if isinstance(item, Exception):
+            return "", f"input_error:{item}"
+        return str(item or ""), ""
+
+    def _controlled_operator_window_record(self) -> Tuple[str, str, str, str]:
+        mode = self._operator_window_confirm_mode()
+        if mode == "console":
+            raw_response, read_note = self._read_operator_window_console_response(
+                self._operator_window_clear_timeout_s()
+            )
+            state = self._parse_operator_window_response(raw_response)
+            note = read_note or ("empty_response" if not str(raw_response or "").strip() else "console_response")
+            return state, note, str(raw_response or ""), mode
+        if mode == "test_config":
+            raw_value = self._wf("workflow.pressure.operator_window_cleared_after_vent0", "unknown")
+            note = str(self._wf("workflow.pressure.operator_window_note", "") or "")
+            return self._parse_operator_window_response(raw_value), note, str(raw_value), mode
+        return "unknown", f"unsupported_confirm_mode:{mode}", "", mode
 
     def _controlled_operator_window_failure_decision(self, state: str) -> str:
         if str(state or "").strip().lower() == "false":
@@ -8629,6 +8698,9 @@ class CalibrationRunner:
 
         operator_window_state = "not_required"
         operator_window_note = ""
+        operator_window_response_raw = ""
+        operator_window_mode = self._operator_window_confirm_mode()
+        operator_window_timeout_s = self._operator_window_clear_timeout_s()
         operator_final_decision = ""
         if not failures:
             self._append_pressure_trace_row(
@@ -8644,12 +8716,37 @@ class CalibrationRunner:
                 note=(
                     f"require_operator_window_clear_after_vent0="
                     f"{str(self._require_operator_window_clear_after_vent0()).lower()}; "
-                    f"operator_window_clear_timeout_s={self._operator_window_clear_timeout_s():.3f}; "
+                    f"operator_window_confirm_mode={operator_window_mode}; "
+                    f"operator_window_clear_timeout_s={operator_window_timeout_s:.3f}; "
                     f"exit_method={exit_method}"
                 ),
             )
             if self._require_operator_window_clear_after_vent0():
-                operator_window_state, operator_window_note = self._controlled_operator_window_record()
+                if operator_window_mode == "console":
+                    prompt = self._controlled_operator_window_prompt_text()
+                    prompt_error = self._print_operator_window_prompt(prompt)
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=route_name,
+                        point_phase=route_name,
+                        trace_stage="operator_window_prompt_printed",
+                        pressure_target_hpa=pressure_target_hpa,
+                        pace_output_state=verify_snapshot.get("pace_output_state"),
+                        pace_isolation_state=verify_snapshot.get("pace_isolation_state"),
+                        pace_vent_status=verify_snapshot.get("pace_vent_status"),
+                        refresh_pace_state=False,
+                        note=(
+                            f"operator_window_confirm_mode={operator_window_mode}; "
+                            f"operator_window_clear_timeout_s={operator_window_timeout_s:.3f}; "
+                            f"prompt={prompt}; prompt_error={prompt_error}"
+                        ),
+                    )
+                (
+                    operator_window_state,
+                    operator_window_note,
+                    operator_window_response_raw,
+                    operator_window_mode,
+                ) = self._controlled_operator_window_record()
                 if operator_window_state != "true":
                     operator_final_decision = self._controlled_operator_window_failure_decision(operator_window_state)
                     failures.append(operator_final_decision)
@@ -8671,8 +8768,11 @@ class CalibrationRunner:
                     failures=failures,
                     wait_status=wait_status,
                     wait_error=wait_error,
+                    operator_window_confirm_mode=operator_window_mode,
+                    operator_window_clear_timeout_s=f"{operator_window_timeout_s:.3f}",
                     operator_window_cleared_after_vent0=operator_window_state,
                     operator_window_note=operator_window_note,
+                    operator_window_response_raw=operator_window_response_raw,
                     final_decision=operator_final_decision,
                 ),
             )
@@ -8700,8 +8800,11 @@ class CalibrationRunner:
                 failures=failures,
                 wait_status=wait_status,
                 wait_error=wait_error,
+                operator_window_confirm_mode=operator_window_mode,
+                operator_window_clear_timeout_s=f"{operator_window_timeout_s:.3f}",
                 operator_window_cleared_after_vent0=operator_window_state,
                 operator_window_note=operator_window_note,
+                operator_window_response_raw=operator_window_response_raw,
                 final_decision=final_decision,
             ),
         )

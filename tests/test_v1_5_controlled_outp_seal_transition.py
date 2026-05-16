@@ -135,6 +135,22 @@ class DriverNoPollPace(FakePace):
         return self.vent_status
 
 
+class FakeStdin:
+    def __init__(self, text: str = "", *, interactive: bool = True) -> None:
+        self.text = text
+        self.interactive = interactive
+        self.read_count = 0
+
+    def isatty(self) -> bool:
+        return self.interactive
+
+    def readline(self) -> str:
+        self.read_count += 1
+        if self.read_count == 1:
+            return self.text
+        return ""
+
+
 class FakeGauge:
     def __init__(self, values=None) -> None:
         self.values = list(values or [1013.0])
@@ -159,7 +175,8 @@ def _controlled_cfg(pressure_overrides: dict | None = None) -> dict:
         "controlled_exit_wait_for_vent_idle_timeout_s": 3.0,
         "controlled_exit_wait_for_vent_idle_poll_s": 0.2,
         "require_operator_window_clear_after_vent0": True,
-        "operator_window_clear_timeout_s": 5.0,
+        "operator_window_confirm_mode": "test_config",
+        "operator_window_clear_timeout_s": 30.0,
         "operator_window_cleared_after_vent0": True,
         "operator_window_note": "unit-test-confirmed",
         "pressure_rise_gate_blocks_seal": False,
@@ -339,16 +356,31 @@ def test_verified_exit_active_vent_fails_before_close_valves(monkeypatch) -> Non
     assert "controlled_exit_atmosphere_fail" in _trace_stages(runner)
 
 
-def test_operator_window_not_cleared_blocks_seal(monkeypatch) -> None:
+def test_operator_window_console_yes_allows_fixed_1p5_close(monkeypatch) -> None:
     runner, _, _, _ = _runner(
         gauge=FakeGauge([1013.0, 1013.0]),
-        pressure_overrides={
-            "operator_window_cleared_after_vent0": False,
-            "operator_window_note": "operator still sees atmosphere window",
-        },
+        pressure_overrides={"operator_window_confirm_mode": "console"},
+    )
+    events: list[str] = []
+    runner._apply_valve_states = MagicMock(side_effect=lambda _valves: events.append("close_valves"))
+    monkeypatch.setattr("time.sleep", lambda seconds: events.append(f"sleep:{seconds:.1f}"))
+    monkeypatch.setattr("sys.stdin", FakeStdin("YES\n", interactive=True))
+
+    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
+
+    assert runner._controlled_exit_final_decision == "ENGINEERING_EXIT_ATMOSPHERE_PASS"
+    assert events[0].startswith("sleep:1.5")
+    assert events[1] == "close_valves"
+
+
+def test_operator_window_console_no_blocks_seal(monkeypatch) -> None:
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={"operator_window_confirm_mode": "console"},
     )
     runner._apply_valve_states = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("sys.stdin", FakeStdin("NO\n", interactive=True))
 
     assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()]) is False
 
@@ -357,16 +389,14 @@ def test_operator_window_not_cleared_blocks_seal(monkeypatch) -> None:
     assert "operator_window_check_result" in _trace_stages(runner)
 
 
-def test_operator_window_unknown_blocks_pass(monkeypatch) -> None:
+def test_operator_window_console_unknown_blocks_pass(monkeypatch) -> None:
     runner, _, _, _ = _runner(
         gauge=FakeGauge([1013.0, 1013.0]),
-        pressure_overrides={
-            "operator_window_cleared_after_vent0": "unknown",
-            "operator_window_note": "",
-        },
+        pressure_overrides={"operator_window_confirm_mode": "console"},
     )
     runner._apply_valve_states = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("sys.stdin", FakeStdin("", interactive=False))
 
     assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()]) is False
 
@@ -375,17 +405,72 @@ def test_operator_window_unknown_blocks_pass(monkeypatch) -> None:
     assert "controlled_exit_atmosphere_pass" not in _trace_stages(runner)
 
 
-def test_operator_window_cleared_allows_fixed_1p5_close(monkeypatch) -> None:
-    runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
-    events: list[str] = []
-    runner._apply_valve_states = MagicMock(side_effect=lambda _valves: events.append("close_valves"))
-    monkeypatch.setattr("time.sleep", lambda seconds: events.append(f"sleep:{seconds:.1f}"))
+def test_operator_window_config_true_not_used_for_engineering_bypass(monkeypatch) -> None:
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={
+            "operator_window_confirm_mode": "console",
+            "operator_window_cleared_after_vent0": True,
+        },
+    )
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("sys.stdin", FakeStdin("", interactive=False))
+
+    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()]) is False
+
+    runner._apply_valve_states.assert_not_called()
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING"
+
+
+def test_operator_window_prompt_after_driver_exit_before_fixed_wait(monkeypatch) -> None:
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={"operator_window_confirm_mode": "console"},
+    )
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("sys.stdin", FakeStdin("YES\n", interactive=True))
 
     assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
 
-    assert runner._controlled_exit_final_decision == "ENGINEERING_EXIT_ATMOSPHERE_PASS"
-    assert events[0].startswith("sleep:1.5")
-    assert events[1] == "close_valves"
+    stages = _trace_stages(runner)
+    assert stages.index("controlled_exit_atmosphere_driver_exit_done") < stages.index("operator_window_prompt_printed")
+    assert stages.index("operator_window_prompt_printed") < stages.index("controlled_outp_vent0_fixed_wait_before_seal")
+
+
+def test_operator_window_trace_records_raw_response(monkeypatch) -> None:
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={"operator_window_confirm_mode": "console"},
+    )
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("sys.stdin", FakeStdin("YES\n", interactive=True))
+
+    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
+
+    result_notes = [
+        str(call.kwargs.get("note") or "")
+        for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "operator_window_check_result"
+    ]
+    assert result_notes
+    assert "operator_window_response_raw=YES" in result_notes[-1]
+
+
+def test_window_not_cleared_still_no_close_valves(monkeypatch) -> None:
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={"operator_window_confirm_mode": "console"},
+    )
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("sys.stdin", FakeStdin("NOT_CLEARED\n", interactive=True))
+
+    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()]) is False
+
+    runner._apply_valve_states.assert_not_called()
 
 
 def test_window_ui_residual_suspected_removed() -> None:
@@ -587,7 +672,9 @@ def test_config_guard_controlled_outp_skip_tempwait() -> None:
     assert pressure["controlled_exit_wait_for_vent_idle_timeout_s"] == 3.0
     assert pressure["controlled_exit_wait_for_vent_idle_poll_s"] == 0.2
     assert pressure["require_operator_window_clear_after_vent0"] is True
-    assert pressure["operator_window_clear_timeout_s"] == 5.0
+    assert pressure["operator_window_confirm_mode"] == "console"
+    assert pressure["operator_window_clear_timeout_s"] == 30.0
+    assert "operator_window_cleared_after_vent0" not in pressure
     assert pressure["pressure_rise_gate_blocks_seal"] is False
     assert workflow["collect_only"] is True
     assert cfg["coefficients"]["enabled"] is False
@@ -628,4 +715,6 @@ def test_config_requires_operator_window_clear() -> None:
     pressure = cfg["workflow"]["pressure"]
 
     assert pressure["require_operator_window_clear_after_vent0"] is True
-    assert pressure["operator_window_clear_timeout_s"] == 5.0
+    assert pressure["operator_window_confirm_mode"] == "console"
+    assert pressure["operator_window_clear_timeout_s"] == 30.0
+    assert "operator_window_cleared_after_vent0" not in pressure
