@@ -7,6 +7,7 @@ import csv
 import json
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Optional
@@ -169,8 +170,70 @@ def _run_output_prearm_sequence(pace: Any, summary: Dict[str, Any]) -> None:
     set_output_mode_active = getattr(pace, "set_output_mode_active", None)
     if callable(set_output_mode_active):
         set_output_mode_active()
+        time.sleep(0.2)
 
     pace.set_output(True)
+
+
+def _read_optional_text(obj: Any, method_name: str) -> Optional[str]:
+    method = getattr(obj, method_name, None)
+    if not callable(method):
+        return None
+    try:
+        return str(method())
+    except Exception:
+        return None
+
+
+def _query_optional(obj: Any, command: str) -> Optional[str]:
+    query = getattr(obj, "query", None)
+    if not callable(query):
+        return None
+    try:
+        return str(query(command)).strip()
+    except Exception:
+        return None
+
+
+def _confirm_output_state(
+    pace: Any,
+    *,
+    timeout_s: float,
+    poll_s: float,
+    summary: Dict[str, Any],
+) -> int:
+    timeout = max(0.0, float(timeout_s))
+    poll = max(0.01, float(poll_s))
+    start = time.monotonic()
+    deadline = start + timeout
+    values: list[int | str] = []
+    final_state: int | str = ""
+    first_one_elapsed: Optional[float] = None
+
+    while True:
+        try:
+            state = int(pace.get_output_state())
+        except Exception as exc:
+            state = f"ERROR:{exc}"
+        values.append(state)
+        final_state = state
+        elapsed = time.monotonic() - start
+        if state == 1:
+            first_one_elapsed = elapsed
+            break
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(min(poll, max(0.0, deadline - time.monotonic())))
+
+    elapsed_total = time.monotonic() - start
+    summary["output_confirm_poll_count"] = len(values)
+    summary["output_confirm_elapsed_s"] = round(elapsed_total, 3)
+    summary["output_state_poll_values"] = values
+    summary["output_state_first_one_elapsed_s"] = (
+        round(first_one_elapsed, 3) if first_one_elapsed is not None else None
+    )
+    summary["output_confirmed_after_poll"] = first_one_elapsed is not None
+    return int(final_state) if isinstance(final_state, int) else -1
 
 
 def _read_optional_int(obj: Any, method_name: str) -> Optional[int]:
@@ -270,6 +333,8 @@ def run_prearm(
     pace_factory: Callable[..., Any] = Pace5000,
     relay_factory: Callable[..., Any] = RelayController,
     cwd: str | Path | None = None,
+    output_confirm_timeout_s: float = 3.0,
+    output_confirm_poll_s: float = 0.2,
 ) -> tuple[int, Dict[str, Any]]:
     cwd_path = Path(cwd or Path.cwd())
     cfg_path = Path(config_path)
@@ -311,6 +376,17 @@ def run_prearm(
         "pace_isolation_after": None,
         "pace_vent_status_before": None,
         "pace_vent_status_after": None,
+        "output_confirm_timeout_s": float(output_confirm_timeout_s),
+        "output_confirm_poll_s": float(output_confirm_poll_s),
+        "output_confirm_poll_count": 0,
+        "output_confirm_elapsed_s": 0.0,
+        "output_state_poll_values": [],
+        "output_state_first_one_elapsed_s": None,
+        "output_confirmed_after_poll": False,
+        "syst_err_after_output_confirm": None,
+        "vent_status_after_output_confirm": None,
+        "output_mode_after_output_confirm": None,
+        "isolation_after_output_confirm": None,
         "outp1_sent_count": 0,
         "outp0_sent_count": 0,
         "vent0_sent_count": 0,
@@ -375,7 +451,12 @@ def run_prearm(
         _run_output_prearm_sequence(pace, summary)
 
         try:
-            summary["pace_output_after"] = int(pace.get_output_state())
+            summary["pace_output_after"] = _confirm_output_state(
+                pace,
+                timeout_s=output_confirm_timeout_s,
+                poll_s=output_confirm_poll_s,
+                summary=summary,
+            )
             summary["pace_pressure_after"] = float(pace.read_pressure())
         except Exception as exc:
             summary["pace_error"] = str(exc)
@@ -383,6 +464,10 @@ def run_prearm(
             return exit_code, summary
         summary["pace_isolation_after"] = _read_optional_int(pace, "get_isolation_state")
         summary["pace_vent_status_after"] = _read_optional_int(pace, "get_vent_status")
+        summary["syst_err_after_output_confirm"] = _query_optional(pace, ":SYST:ERR?")
+        summary["vent_status_after_output_confirm"] = summary["pace_vent_status_after"]
+        summary["output_mode_after_output_confirm"] = _read_optional_text(pace, "get_output_mode")
+        summary["isolation_after_output_confirm"] = summary["pace_isolation_after"]
 
         counts = _count_commands(io_path)
         summary.update(counts)
@@ -396,7 +481,7 @@ def run_prearm(
             summary["final_decision"] = BLOCKED_COMMAND_VIOLATION
             return exit_code, summary
 
-        if summary["pace_output_after"] != 1:
+        if not summary["output_confirmed_after_poll"]:
             summary["final_decision"] = BLOCKED_OUTPUT
             return exit_code, summary
 
@@ -417,6 +502,8 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--config", required=True)
     parser.add_argument("--confirm-route-closed", action="store_true")
     parser.add_argument("--confirm-no-calibration-running", action="store_true")
+    parser.add_argument("--output-confirm-timeout-s", type=float, default=3.0)
+    parser.add_argument("--output-confirm-poll-s", type=float, default=0.2)
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -426,6 +513,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         config_path=args.config,
         confirm_route_closed=args.confirm_route_closed,
         confirm_no_calibration_running=args.confirm_no_calibration_running,
+        output_confirm_timeout_s=args.output_confirm_timeout_s,
+        output_confirm_poll_s=args.output_confirm_poll_s,
     )
     print(f"run_dir={summary.get('run_dir', '')}", flush=True)
     print(f"final_decision={summary.get('final_decision', '')}", flush=True)

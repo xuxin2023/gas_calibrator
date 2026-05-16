@@ -44,10 +44,12 @@ def _write_config(tmp_path: Path, cfg: dict) -> Path:
 class FakePace:
     instances = []
 
-    def __init__(self, *args, io_logger=None, output_after=1, **kwargs):
+    def __init__(self, *args, io_logger=None, output_after=1, output_poll_values=None, **kwargs):
         self.io_logger = io_logger
         self.output_state = 0
         self.output_after = output_after
+        self.output_poll_values = list(output_poll_values or [])
+        self.outp1_sent = False
         self.closed = False
         self.setpoint_calls = 0
         self.vent_calls = []
@@ -79,6 +81,8 @@ class FakePace:
         return 1012.5
 
     def get_output_state(self):
+        if self.outp1_sent and self.output_poll_values:
+            self.output_state = int(self.output_poll_values.pop(0))
         self._log("TX", ":OUTP:STAT?")
         self._log("RX", response=f":OUTP:STAT {self.output_state}")
         return self.output_state
@@ -113,7 +117,9 @@ class FakePace:
     def set_output(self, on):
         self._log("TX", f":OUTP {1 if on else 0}")
         if on:
-            self.output_state = self.output_after
+            self.outp1_sent = True
+            if not self.output_poll_values:
+                self.output_state = self.output_after
         else:
             self.output_state = 0
 
@@ -201,7 +207,15 @@ class FakeRelay:
         self._log("RX", response="ok")
 
 
-def _run(tmp_path: Path, cfg: dict, *, pace_factory=FakePace, relay_factory=FakeRelay):
+def _run(
+    tmp_path: Path,
+    cfg: dict,
+    *,
+    pace_factory=FakePace,
+    relay_factory=FakeRelay,
+    output_confirm_timeout_s=0.05,
+    output_confirm_poll_s=0.001,
+):
     FakePace.instances = []
     FakeRelay.instances = []
     FakeRelay.states_by_port = {"COM20": [False] * 16, "COM21": [False] * 8}
@@ -214,6 +228,8 @@ def _run(tmp_path: Path, cfg: dict, *, pace_factory=FakePace, relay_factory=Fake
         pace_factory=pace_factory,
         relay_factory=relay_factory,
         cwd=Path(__file__).resolve().parents[1],
+        output_confirm_timeout_s=output_confirm_timeout_s,
+        output_confirm_poll_s=output_confirm_poll_s,
     )
 
 
@@ -332,6 +348,34 @@ def test_prearm_fallback_sets_mode_active_then_output(tmp_path):
     assert FakePace.instances[0].output_mode_active_calls == 1
 
 
+def test_prearm_polls_output_state_until_one(tmp_path):
+    cfg = _base_config()
+
+    def pace_factory(*args, **kwargs):
+        return FakePace(*args, output_poll_values=[0, 0, 1], **kwargs)
+
+    code, summary = _run(tmp_path, cfg, pace_factory=pace_factory)
+
+    assert code == 0
+    assert summary["final_decision"] == prearm.FINAL_PASS
+    assert summary["output_confirmed_after_poll"] is True
+    assert summary["output_state_poll_values"] == [0, 0, 1]
+    assert summary["output_confirm_poll_count"] == 3
+
+
+def test_prearm_does_not_fail_on_initial_output_zero(tmp_path):
+    cfg = _base_config()
+
+    def pace_factory(*args, **kwargs):
+        return FakePace(*args, output_poll_values=[0, 1], **kwargs)
+
+    code, summary = _run(tmp_path, cfg, pace_factory=pace_factory)
+
+    assert code == 0
+    assert summary["output_state_poll_values"][0] == 0
+    assert summary["pace_output_after"] == 1
+
+
 def test_prearm_passes_when_output_state_after_is_one(tmp_path):
     cfg = _base_config()
 
@@ -342,18 +386,59 @@ def test_prearm_passes_when_output_state_after_is_one(tmp_path):
     assert summary["pace_output_after"] == 1
 
 
-def test_prearm_fails_when_output_state_still_zero(tmp_path):
+def test_prearm_fails_when_output_never_becomes_one(tmp_path):
     cfg = _base_config()
 
     def pace_factory(*args, **kwargs):
         return FakePace(*args, output_after=0, **kwargs)
 
-    code, summary = _run(tmp_path, cfg, pace_factory=pace_factory)
+    code, summary = _run(
+        tmp_path,
+        cfg,
+        pace_factory=pace_factory,
+        output_confirm_timeout_s=0.01,
+        output_confirm_poll_s=0.001,
+    )
 
     assert code == 1
     assert summary["final_decision"] == prearm.BLOCKED_OUTPUT
     assert summary["outp1_sent_count"] == 1
     assert summary["pace_output_after"] == 0
+    assert summary["output_confirmed_after_poll"] is False
+
+
+def test_prearm_records_output_poll_values(tmp_path):
+    cfg = _base_config()
+
+    def pace_factory(*args, **kwargs):
+        return FakePace(*args, output_poll_values=[0, 1], **kwargs)
+
+    code, summary = _run(tmp_path, cfg, pace_factory=pace_factory)
+
+    assert code == 0
+    assert summary["output_state_poll_values"] == [0, 1]
+    assert summary["output_confirm_poll_count"] == 2
+    assert summary["output_state_first_one_elapsed_s"] is not None
+    assert summary["output_confirm_elapsed_s"] >= summary["output_state_first_one_elapsed_s"]
+
+
+def test_prearm_does_not_send_second_outp1_by_default(tmp_path):
+    cfg = _base_config()
+
+    def pace_factory(*args, **kwargs):
+        return FakePace(*args, output_poll_values=[0, 1], **kwargs)
+
+    code, summary = _run(tmp_path, cfg, pace_factory=pace_factory)
+
+    assert code == 0
+    assert summary["outp1_sent_count"] == 1
+    run_dir = Path(summary["run_dir"])
+    with (run_dir / "prearm_io_log.csv").open(newline="", encoding="utf-8") as handle:
+        outp1_commands = [
+            row for row in csv.DictReader(handle)
+            if row["direction"] == "TX" and row["command"].strip().upper().startswith(":OUTP 1")
+        ]
+    assert len(outp1_commands) == 1
 
 
 def test_prearm_writes_summary_and_io_log(tmp_path):
