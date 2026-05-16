@@ -214,6 +214,9 @@ class NoOutpProbe:
         self.pace_max: Optional[float] = None
         self.dewpoint_baseline: Optional[float] = None
         self.dewpoint_max_delta: Optional[float] = None
+        self.valid_dewpoint_data: bool = False
+        self.dewpoint_read_error: Optional[str] = None
+        self.dewpoint_samples_count: int = 0
 
     # ── config ────────────────────────────────────────────────────
 
@@ -330,6 +333,7 @@ class NoOutpProbe:
             self.devices["dewpoint"] = DewpointMeter(
                 dm["port"], dm.get("baud", 115200),
                 station=dm.get("station", 1),
+                io_logger=self.io_logger,
             )
             self.devices["dewpoint"].open()
             _log("Dewpoint meter opened")
@@ -421,12 +425,74 @@ class NoOutpProbe:
         except Exception:
             return None
 
-    def _read_dewpoint(self) -> Optional[float]:
-        try:
-            val = float(self.devices["dewpoint"].read_dewpoint())
-            return val if val == val else None
-        except Exception:
+    @staticmethod
+    def _extract_dewpoint_value(data: Any) -> Optional[float]:
+        if data is None:
             return None
+        if isinstance(data, (int, float)):
+            val = float(data)
+            return val if val == val else None
+        if isinstance(data, dict):
+            for key in ("dewpoint_c", "dewpoint", "dew_point", "dp", "td", "value"):
+                if key not in data:
+                    continue
+                try:
+                    val = float(data.get(key))
+                except Exception:
+                    continue
+                return val if val == val else None
+        return None
+
+    def _read_dewpoint(self) -> Optional[float]:
+        dew = self.devices.get("dewpoint")
+        if dew is None:
+            self.dewpoint_read_error = "dewpoint_device_missing"
+            return None
+
+        attempts = 4
+        last_error: Optional[str] = None
+        readers = []
+        fast_reader = getattr(dew, "get_current_fast", None)
+        if callable(fast_reader):
+            def _fast_read(reader=fast_reader):
+                try:
+                    return reader(timeout_s=0.35)
+                except TypeError:
+                    return reader()
+            readers.append(_fast_read)
+        current_reader = getattr(dew, "get_current", None)
+        if callable(current_reader):
+            def _current_read(reader=current_reader):
+                try:
+                    return reader(timeout_s=0.5, attempts=1)
+                except TypeError:
+                    return reader()
+            readers.append(_current_read)
+        for name in ("read_dewpoint", "read", "status"):
+            reader = getattr(dew, name, None)
+            if callable(reader):
+                readers.append(reader)
+
+        if not readers:
+            self.dewpoint_read_error = "dewpoint_reader_missing"
+            return None
+
+        for attempt in range(attempts):
+            for reader in readers:
+                try:
+                    value = self._extract_dewpoint_value(reader())
+                except Exception as exc:
+                    last_error = f"{type(exc).__name__}: {exc}"
+                    continue
+                if value is not None:
+                    self.dewpoint_read_error = None
+                    return value
+                last_error = "dewpoint_value_missing"
+            if attempt < attempts - 1:
+                time.sleep(0.05)
+
+        self.dewpoint_read_error = last_error or "dewpoint_value_missing"
+        return None
 
     def _record_obs(self, phase: str) -> None:
         pp = self._read_pace_pressure()
@@ -450,6 +516,8 @@ class NoOutpProbe:
                 self.pace_baseline = pp
             self.pace_max = max(self.pace_max or pp, pp)
         if dp is not None:
+            self.valid_dewpoint_data = True
+            self.dewpoint_samples_count += 1
             if self.dewpoint_baseline is None:
                 self.dewpoint_baseline = dp
             if self.dewpoint_max_delta is None:
@@ -679,6 +747,9 @@ class NoOutpProbe:
         _log(f"PACE max:                 {self.pace_max}")
         _log(f"Dewpoint baseline:        {self.dewpoint_baseline}")
         _log(f"Dewpoint max delta:       {self.dewpoint_max_delta}")
+        _log(f"Dewpoint valid:           {self.valid_dewpoint_data}")
+        _log(f"Dewpoint samples:         {self.dewpoint_samples_count}")
+        _log(f"Dewpoint read error:      {self.dewpoint_read_error}")
         _log(f"Decision:                 {self._final_decision}")
 
         if failures:
@@ -755,6 +826,9 @@ class NoOutpProbe:
             "pace_pressure_max_hpa": self.pace_max,
             "dewpoint_baseline": self.dewpoint_baseline,
             "dewpoint_max_delta": self.dewpoint_max_delta,
+            "valid_dewpoint_data": self.valid_dewpoint_data,
+            "dewpoint_read_error": self.dewpoint_read_error,
+            "dewpoint_samples_count": self.dewpoint_samples_count,
             "operator_pace_vent_popup_observed": None,
             "operator_dewpoint_air_ingress_observed": None,
             "cleanup_completed": True,

@@ -473,6 +473,81 @@ class TestPressureRiseDecide:
 
 # ═══════════════════════════════════════════════════════════════
 
+class TestDewpointReader:
+    def test_dewpoint_reader_accepts_float(self, monkeypatch):
+        cfg = _sample_config()
+        probe = _setup_probe(cfg, monkeypatch)
+        dewpoint = MagicMock()
+        dewpoint.read_dewpoint.return_value = -24.5
+        _inject_devices(probe, FakePace(), FakeGauge(), dewpoint, relay=FakeRelay(), monkeypatch=monkeypatch)
+
+        probe._record_obs("openflow")
+
+        assert probe.dewpoint_baseline == -24.5
+        assert probe.valid_dewpoint_data is True
+        assert probe.dewpoint_samples_count == 1
+
+    @pytest.mark.parametrize("key", ["dewpoint", "dew_point", "dp", "td", "value", "dewpoint_c"])
+    def test_dewpoint_reader_accepts_dict_common_keys(self, monkeypatch, key):
+        cfg = _sample_config()
+        probe = _setup_probe(cfg, monkeypatch)
+        dewpoint = MagicMock()
+        dewpoint.get_current.return_value = {key: 1.23}
+        _inject_devices(probe, FakePace(), FakeGauge(), dewpoint, relay=FakeRelay(), monkeypatch=monkeypatch)
+
+        assert probe._read_dewpoint() == 1.23
+
+    def test_dewpoint_reader_retries_until_valid(self, monkeypatch):
+        cfg = _sample_config()
+        probe = _setup_probe(cfg, monkeypatch)
+        calls = {"n": 0}
+
+        class RetryDewpoint:
+            def get_current(self, *args, **kwargs):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return None
+                if calls["n"] == 2:
+                    raise RuntimeError("warmup")
+                return {"dewpoint_c": -31.25}
+
+        _inject_devices(probe, FakePace(), FakeGauge(), RetryDewpoint(), relay=FakeRelay(), monkeypatch=monkeypatch)
+
+        assert probe._read_dewpoint() == -31.25
+        assert calls["n"] == 3
+        assert probe.dewpoint_read_error is None
+
+    def test_dewpoint_reader_records_error_when_missing(self, monkeypatch):
+        cfg = _sample_config()
+        probe = _setup_probe(cfg, monkeypatch)
+        dewpoint = MagicMock()
+        dewpoint.get_current.return_value = {}
+        _inject_devices(probe, FakePace(), FakeGauge(), dewpoint, relay=FakeRelay(), monkeypatch=monkeypatch)
+
+        assert probe._read_dewpoint() is None
+        assert probe.dewpoint_read_error == "dewpoint_value_missing"
+        assert probe.valid_dewpoint_data is False
+
+    def test_probe_summary_contains_valid_dewpoint_data(self, monkeypatch):
+        cfg = _sample_config()
+        probe = _setup_probe(cfg, monkeypatch)
+        dewpoint = MagicMock()
+        dewpoint.get_current.return_value = {"dewpoint_c": -20.0}
+        _inject_devices(probe, FakePace(), FakeGauge(), dewpoint, relay=FakeRelay(), monkeypatch=monkeypatch)
+
+        probe._record_obs("openflow")
+        probe._write_summary()
+
+        summary = json.loads(probe.summary_path.read_text())
+        assert summary["valid_dewpoint_data"] is True
+        assert summary["dewpoint_baseline"] == -20.0
+        assert summary["dewpoint_max_delta"] == 0.0
+        assert summary["dewpoint_samples_count"] == 1
+        assert "dewpoint_read_error" in summary
+
+
+# ═══════════════════════════════════════════════════════════════
+
 class TestIoLog:
     def test_probe_writes_io_log(self, monkeypatch):
         cfg = _sample_config()
