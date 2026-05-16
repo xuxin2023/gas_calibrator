@@ -123,6 +123,8 @@ def _count_commands(io_path: Path) -> Dict[str, int]:
         "vent0_sent_count": 0,
         "vent1_sent_count": 0,
         "setpoint_sent_count": 0,
+        "output_mode_active_sent_count": 0,
+        "isolation_open_sent_count": 0,
     }
     if not io_path.exists():
         return counts
@@ -135,6 +137,10 @@ def _count_commands(io_path: Path) -> Dict[str, int]:
                 counts["outp1_sent_count"] += 1
             elif cmd.startswith(":OUTP 0"):
                 counts["outp0_sent_count"] += 1
+            elif cmd.startswith(":OUTP:MODE ACT"):
+                counts["output_mode_active_sent_count"] += 1
+            elif cmd.startswith(":OUTP:ISOL:STAT 1"):
+                counts["isolation_open_sent_count"] += 1
             elif cmd.startswith(":SOUR:PRES:LEV:IMM:AMPL:VENT 0"):
                 counts["vent0_sent_count"] += 1
             elif cmd.startswith(":SOUR:PRES:LEV:IMM:AMPL:VENT 1"):
@@ -142,6 +148,29 @@ def _count_commands(io_path: Path) -> Dict[str, int]:
             elif cmd.startswith(":SOUR:PRES:LEV:IMM:AMPL "):
                 counts["setpoint_sent_count"] += 1
     return counts
+
+
+def _run_output_prearm_sequence(pace: Any, summary: Dict[str, Any]) -> None:
+    enable_control_output = getattr(pace, "enable_control_output", None)
+    if callable(enable_control_output):
+        summary["enable_control_output_used"] = True
+        enable_control_output()
+        return
+
+    summary["fallback_output_sequence_used"] = True
+    set_isolation_open = getattr(pace, "set_isolation_open", None)
+    if callable(set_isolation_open):
+        set_isolation_open(True)
+
+    wait_for_vent_idle = getattr(pace, "wait_for_vent_idle", None)
+    if callable(wait_for_vent_idle):
+        wait_for_vent_idle()
+
+    set_output_mode_active = getattr(pace, "set_output_mode_active", None)
+    if callable(set_output_mode_active):
+        set_output_mode_active()
+
+    pace.set_output(True)
 
 
 def _read_optional_int(obj: Any, method_name: str) -> Optional[int]:
@@ -287,6 +316,10 @@ def run_prearm(
         "vent0_sent_count": 0,
         "vent1_sent_count": 0,
         "setpoint_sent_count": 0,
+        "output_mode_active_sent_count": 0,
+        "isolation_open_sent_count": 0,
+        "enable_control_output_used": False,
+        "fallback_output_sequence_used": False,
         "calibration_path_started": False,
         "allowed_prearm_only": True,
         "real_primary_latest_refresh": False,
@@ -339,7 +372,7 @@ def run_prearm(
         summary["pace_isolation_before"] = _read_optional_int(pace, "get_isolation_state")
         summary["pace_vent_status_before"] = _read_optional_int(pace, "get_vent_status")
 
-        pace.set_output(True)
+        _run_output_prearm_sequence(pace, summary)
 
         try:
             summary["pace_output_after"] = int(pace.get_output_state())

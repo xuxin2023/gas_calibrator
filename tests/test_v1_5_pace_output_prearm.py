@@ -51,6 +51,10 @@ class FakePace:
         self.closed = False
         self.setpoint_calls = 0
         self.vent_calls = []
+        self.enable_control_output_called = False
+        self.output_mode_active_calls = 0
+        self.isolation_open_calls = 0
+        self.wait_for_vent_idle_calls = 0
         FakePace.instances.append(self)
 
     def _log(self, direction, command=None, response=None):
@@ -89,12 +93,37 @@ class FakePace:
         self._log("RX", response=":SOUR:PRES:LEV:IMM:AMPL:VENT 2")
         return 2
 
+    def set_isolation_open(self, is_open):
+        self.isolation_open_calls += 1
+        self._log("TX", f":OUTP:ISOL:STAT {1 if is_open else 0}")
+
+    def wait_for_vent_idle(self, *args, **kwargs):
+        self.wait_for_vent_idle_calls += 1
+        self.get_vent_status()
+
+    def set_output_mode_active(self):
+        self.output_mode_active_calls += 1
+        self._log("TX", ":OUTP:MODE ACT")
+
+    def get_output_mode(self):
+        self._log("TX", ":OUTP:MODE?")
+        self._log("RX", response=":OUTP:MODE ACT")
+        return "ACT"
+
     def set_output(self, on):
         self._log("TX", f":OUTP {1 if on else 0}")
         if on:
             self.output_state = self.output_after
         else:
             self.output_state = 0
+
+    def enable_control_output(self):
+        self.enable_control_output_called = True
+        self.set_isolation_open(True)
+        self.wait_for_vent_idle()
+        self.set_output_mode_active()
+        self.get_output_mode()
+        self.set_output(True)
 
     def set_setpoint(self, value):
         self.setpoint_calls += 1
@@ -103,6 +132,32 @@ class FakePace:
     def vent(self, on=True):
         self.vent_calls.append(bool(on))
         self._log("TX", f":SOUR:PRES:LEV:IMM:AMPL:VENT {1 if on else 0}")
+
+
+class FakePaceFallback(FakePace):
+    enable_control_output = None
+
+
+class FakePaceBadOutp0(FakePace):
+    def enable_control_output(self):
+        self.enable_control_output_called = True
+        self.set_output(False)
+        self.set_output(True)
+
+
+class FakePaceBadVent(FakePace):
+    def enable_control_output(self):
+        self.enable_control_output_called = True
+        self.vent(True)
+        self.vent(False)
+        self.set_output(True)
+
+
+class FakePaceBadSetpoint(FakePace):
+    def enable_control_output(self):
+        self.enable_control_output_called = True
+        self.set_setpoint(1100)
+        self.set_output(True)
 
 
 class FakeRelay:
@@ -205,21 +260,79 @@ def test_prearm_refuses_or_baselines_when_route_not_closed(tmp_path):
     assert not FakePace.instances
 
 
-def test_prearm_sends_only_outp1(tmp_path):
+def test_prearm_uses_enable_control_output_when_available(tmp_path):
     cfg = _base_config()
 
     code, summary = _run(tmp_path, cfg)
 
     assert code == 0
     assert summary["final_decision"] == prearm.FINAL_PASS
+    assert summary["enable_control_output_used"] is True
+    assert summary["fallback_output_sequence_used"] is False
+    assert FakePace.instances[0].enable_control_output_called is True
+
+
+def test_prearm_enable_control_output_sequence_allows_mode_active_and_isolation(tmp_path):
+    cfg = _base_config()
+
+    code, summary = _run(tmp_path, cfg)
+
+    assert code == 0
     assert summary["outp1_sent_count"] == 1
     assert summary["outp0_sent_count"] == 0
     assert summary["vent0_sent_count"] == 0
     assert summary["vent1_sent_count"] == 0
     assert summary["setpoint_sent_count"] == 0
+    assert summary["output_mode_active_sent_count"] == 1
+    assert summary["isolation_open_sent_count"] == 1
 
 
-def test_prearm_confirms_output_state_on(tmp_path):
+def test_prearm_still_blocks_outp0(tmp_path):
+    cfg = _base_config()
+
+    code, summary = _run(tmp_path, cfg, pace_factory=FakePaceBadOutp0)
+
+    assert code == 1
+    assert summary["final_decision"] == prearm.BLOCKED_COMMAND_VIOLATION
+    assert summary["outp0_sent_count"] == 1
+
+
+def test_prearm_still_blocks_vent0_vent1(tmp_path):
+    cfg = _base_config()
+
+    code, summary = _run(tmp_path, cfg, pace_factory=FakePaceBadVent)
+
+    assert code == 1
+    assert summary["final_decision"] == prearm.BLOCKED_COMMAND_VIOLATION
+    assert summary["vent0_sent_count"] == 1
+    assert summary["vent1_sent_count"] == 1
+
+
+def test_prearm_still_blocks_setpoint(tmp_path):
+    cfg = _base_config()
+
+    code, summary = _run(tmp_path, cfg, pace_factory=FakePaceBadSetpoint)
+
+    assert code == 1
+    assert summary["final_decision"] == prearm.BLOCKED_COMMAND_VIOLATION
+    assert summary["setpoint_sent_count"] == 1
+
+
+def test_prearm_fallback_sets_mode_active_then_output(tmp_path):
+    cfg = _base_config()
+
+    code, summary = _run(tmp_path, cfg, pace_factory=FakePaceFallback)
+
+    assert code == 0
+    assert summary["enable_control_output_used"] is False
+    assert summary["fallback_output_sequence_used"] is True
+    assert summary["output_mode_active_sent_count"] == 1
+    assert summary["isolation_open_sent_count"] == 1
+    assert summary["outp1_sent_count"] == 1
+    assert FakePace.instances[0].output_mode_active_calls == 1
+
+
+def test_prearm_passes_when_output_state_after_is_one(tmp_path):
     cfg = _base_config()
 
     code, summary = _run(tmp_path, cfg)
@@ -229,7 +342,7 @@ def test_prearm_confirms_output_state_on(tmp_path):
     assert summary["pace_output_after"] == 1
 
 
-def test_prearm_fails_when_output_state_still_off(tmp_path):
+def test_prearm_fails_when_output_state_still_zero(tmp_path):
     cfg = _base_config()
 
     def pace_factory(*args, **kwargs):
