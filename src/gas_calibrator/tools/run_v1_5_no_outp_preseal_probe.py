@@ -18,18 +18,21 @@ Usage (offline only — no real hardware unless explicitly authorized):
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..config import load_config
 from ..devices import (
     DewpointMeter,
     Pace5000,
     ParoscientificGauge,
+    RelayController,
 )
 
 
@@ -38,7 +41,6 @@ def _log(msg: str) -> None:
 
 
 def _now_ts() -> str:
-    from datetime import datetime
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
@@ -49,13 +51,140 @@ def _write_json(path: Path, obj: Dict[str, Any]) -> None:
 
 
 def _csv_row(path: Path, header: List[str], row: List[Any]) -> None:
-    import csv
     write_header = not path.exists()
     with open(path, "a", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         if write_header:
             w.writerow(header)
         w.writerow(row)
+
+
+def _as_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+class ProbeIoLogger:
+    """Minimal CSV IO logger for probe-level device IO capture.
+
+    Matches the V1 RunLogger.log_io signature so devices can write through it."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = self.path.open("w", newline="", encoding="utf-8")
+        self._writer = csv.DictWriter(
+            self._handle,
+            fieldnames=["timestamp", "port", "device", "direction", "command", "response", "error"],
+        )
+        self._writer.writeheader()
+        self._handle.flush()
+
+    def log_io(
+        self,
+        *args: Any,
+        port: str = "",
+        device: str = "",
+        direction: str = "",
+        command: Any = None,
+        response: Any = None,
+        error: Any = None,
+    ) -> None:
+        if args:
+            if len(args) >= 1:
+                device = args[0]
+            if len(args) >= 2:
+                direction = args[1]
+            if len(args) >= 3:
+                command = args[2]
+            if len(args) >= 4:
+                response = args[3]
+            if len(args) >= 5:
+                error = args[4]
+        self._writer.writerow({
+            "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+            "port": str(port or ""),
+            "device": str(device or ""),
+            "direction": str(direction or ""),
+            "command": "" if command is None else str(command),
+            "response": "" if response is None else str(response),
+            "error": "" if error is None else str(error),
+        })
+        self._handle.flush()
+
+    def close(self) -> None:
+        try:
+            self._handle.close()
+        except Exception:
+            pass
+
+
+def _managed_logical_valves(cfg: Mapping[str, Any]) -> List[int]:
+    valves_cfg = cfg.get("valves", {}) if isinstance(cfg.get("valves"), dict) else {}
+    managed: set = set()
+    for key in ("co2_path", "co2_path_group2", "gas_main", "h2o_path", "hold", "flow_switch"):
+        value = _as_int(valves_cfg.get(key))
+        if value is not None:
+            managed.add(value)
+    for key in ("co2_map", "co2_map_group2"):
+        one_map = valves_cfg.get(key, {})
+        if isinstance(one_map, dict):
+            for value in one_map.values():
+                numeric = _as_int(value)
+                if numeric is not None:
+                    managed.add(numeric)
+    return sorted(managed)
+
+
+def _resolve_valve_target(cfg: Mapping[str, Any], logical_valve: int) -> Tuple[str, int]:
+    valves_cfg = cfg.get("valves", {}) if isinstance(cfg.get("valves"), dict) else {}
+    relay_map = valves_cfg.get("relay_map", {}) if isinstance(valves_cfg, dict) else {}
+    entry = relay_map.get(str(logical_valve)) if isinstance(relay_map, dict) else None
+    relay_name = "relay"
+    channel = logical_valve
+    if isinstance(entry, dict):
+        relay_name = str(entry.get("device") or "relay")
+        mapped = _as_int(entry.get("channel"))
+        if mapped is not None:
+            channel = mapped
+    return relay_name, channel
+
+
+def _apply_logical_valves(
+    cfg: Mapping[str, Any],
+    devices: Mapping[str, Any],
+    open_logical_valves: Sequence[int],
+) -> None:
+    open_set = {int(value) for value in open_logical_valves}
+    grouped: Dict[str, List[Tuple[int, bool]]] = {}
+    for logical_valve in _managed_logical_valves(cfg):
+        relay_name, channel = _resolve_valve_target(cfg, logical_valve)
+        grouped.setdefault(relay_name, []).append((channel, logical_valve in open_set))
+    for relay_name, updates in grouped.items():
+        relay = devices.get(relay_name)
+        if relay is None:
+            raise RuntimeError(f"Relay '{relay_name}' is required but unavailable")
+        bulk = getattr(relay, "set_valves_bulk", None)
+        if callable(bulk):
+            bulk(updates)
+            continue
+        for channel, state in updates:
+            relay.set_valve(channel, state)
+
+
+def _close_all_relay_valves(cfg: Mapping[str, Any], devices: Mapping[str, Any]) -> None:
+    for logical_valve in _managed_logical_valves(cfg):
+        relay_name, channel = _resolve_valve_target(cfg, logical_valve)
+        relay = devices.get(relay_name)
+        if relay is not None:
+            try:
+                relay.set_valve(channel, False)
+            except Exception:
+                pass
 
 
 class NoOutpProbe:
@@ -76,9 +205,8 @@ class NoOutpProbe:
         self._outp1_count: int = 0
         self._vent1_count: int = 0
         self._vent0_count: int = 0
-        self._cleanup_outp0: int = 0
-        self._cleanup_vent1: int = 0
         self._observations: List[Dict[str, Any]] = []
+        self.io_logger: Optional[ProbeIoLogger] = None
 
         self.com22_baseline: Optional[float] = None
         self.com22_max: Optional[float] = None
@@ -117,16 +245,26 @@ class NoOutpProbe:
 
     _WRITE_RISK_KEYS: List[str] = [
         "coefficients.enabled",
+        "coefficients.sencos",
         "postrun_corrected_delivery.enabled",
         "postrun_corrected_delivery.write_devices",
         "postrun_corrected_delivery.write_pressure_coefficients",
-        "postrun.write_devices",
-        "postrun.write_pressure_coefficients",
+        "workflow.postrun_corrected_delivery.enabled",
+        "workflow.postrun_corrected_delivery.write_devices",
+        "workflow.postrun_corrected_delivery.write_pressure_coefficients",
         "startup_pressure_sensor_calibration.enabled",
         "startup_pressure_sensor_calibration.apply_write",
-        "workflow.startup_pressure_precheck.enabled",
-        "spc.apply_write",
+        "workflow.startup_pressure_sensor_calibration.enabled",
+        "workflow.startup_pressure_sensor_calibration.apply_write",
+        "postrun.write_devices",
+        "postrun.write_pressure_coefficients",
+        "workflow.postrun.write_devices",
+        "workflow.postrun.write_pressure_coefficients",
         "spc.enabled",
+        "spc.apply_write",
+        "workflow.spc.enabled",
+        "workflow.spc.apply_write",
+        "workflow.startup_pressure_precheck.enabled",
     ]
 
     def _no_write_preflight(self) -> Optional[str]:
@@ -136,11 +274,13 @@ class NoOutpProbe:
             is_bad = (isinstance(val, bool) and val is True)
             if is_bad:
                 failures.append(f"{key}={val}")
-
-        spc = self._deep_get(self.cfg, "startup_pressure_sensor_calibration", {})
-        if isinstance(spc, dict) and spc.get("apply_write"):
-            failures.append("startup_pressure_sensor_calibration.apply_write=True")
-
+        for key, label in (
+            ("coefficients.sencos", "coefficients.sencos_non_empty"),
+            ("workflow.coefficients.sencos", "workflow.coefficients.sencos_non_empty"),
+        ):
+            val = self._deep_get(self.cfg, key)
+            if isinstance(val, (dict, list, tuple, set)) and bool(val):
+                failures.append(label)
         if failures:
             return f"NO_WRITE_PREFLIGHT_FAIL: {', '.join(failures)}"
         return None
@@ -159,12 +299,7 @@ class NoOutpProbe:
         self.trace_path = out_dir / "probe_trace.csv"
         self.summary_path = out_dir / "probe_summary.json"
 
-        self._io_lines: List[Tuple[str, str, str]] = []
-
-        def io_log(tag: str, direction: str, payload: str) -> None:
-            self._io_lines.append((tag, direction, payload))
-
-        io_log("PROBE", "event", "probe_start")
+        self.io_logger = ProbeIoLogger(self.io_log_path)
 
         pc = dcfg.get("pressure_controller", {})
         if pc.get("enabled"):
@@ -174,6 +309,7 @@ class NoOutpProbe:
                 line_ending=pc.get("line_ending"),
                 query_line_endings=pc.get("query_line_endings"),
                 pressure_queries=pc.get("pressure_queries"),
+                io_logger=self.io_logger,
             )
             self.devices["pace"].open()
             _log("PACE opened")
@@ -198,6 +334,28 @@ class NoOutpProbe:
             self.devices["dewpoint"].open()
             _log("Dewpoint meter opened")
 
+        relay_cfg = dcfg.get("relay", {}) if isinstance(dcfg, dict) else {}
+        if relay_cfg.get("enabled"):
+            self.devices["relay"] = RelayController(
+                relay_cfg["port"],
+                relay_cfg.get("baud", 38400),
+                addr=relay_cfg.get("addr", 1),
+                io_logger=self.io_logger,
+            )
+            self.devices["relay"].open()
+            _log("Relay opened")
+
+        relay8_cfg = dcfg.get("relay_8", {}) if isinstance(dcfg, dict) else {}
+        if relay8_cfg.get("enabled"):
+            self.devices["relay_8"] = RelayController(
+                relay8_cfg["port"],
+                relay8_cfg.get("baud", 38400),
+                addr=relay8_cfg.get("addr", 1),
+                io_logger=self.io_logger,
+            )
+            self.devices["relay_8"].open()
+            _log("Relay_8 opened")
+
         if not self.devices:
             raise RuntimeError("No devices enabled — cannot probe")
 
@@ -209,20 +367,23 @@ class NoOutpProbe:
             volts[key] = int(val) if val is not None else None
         return volts
 
-    def _source_valve_for_ppm(self, ppm: float) -> Optional[int]:
+    def _source_valve_for_ppm(self, ppm: float) -> Tuple[Optional[int], Optional[str]]:
         v = self.cfg.get("valves", {}) if isinstance(self.cfg.get("valves"), dict) else {}
         map_a = v.get("co2_map", {}) if isinstance(v.get("co2_map"), dict) else {}
         map_b = v.get("co2_map_group2", {}) if isinstance(v.get("co2_map_group2"), dict) else {}
         key = str(int(ppm))
         if key in map_a:
-            return int(map_a[key])
+            return int(map_a[key]), "A"
         if key in map_b:
-            return int(map_b[key])
-        return None
+            return int(map_b[key]), "B"
+        return None, None
 
     def _co2_open_valves(self) -> List[int]:
         vc = self._valve_configs()
-        source = self._source_valve_for_ppm(float(self.args.co2_ppm))
+        source, group = self._source_valve_for_ppm(float(self.args.co2_ppm))
+        self._co2_group = group
+        if group == "B":
+            raise RuntimeError("BLOCKED_GROUP2_UNSUPPORTED")
         open_list: List[int] = []
         for v in (vc.get("h2o_path"), vc.get("gas_main"), vc.get("co2_path"), source):
             if v is not None:
@@ -231,14 +392,18 @@ class NoOutpProbe:
 
     def _close_valves(self) -> None:
         _log("Closing CO2 route valves")
-        relay = self.devices.get("relay")
-        if relay is not None:
-            try:
-                close = getattr(relay, "close", None)
-                if callable(close):
-                    close()
-            except Exception:
-                pass
+        _close_all_relay_valves(self.cfg, self.devices)
+
+    def _log_probe_io(self, device: str, direction: str, payload: str) -> None:
+        try:
+            self.io_logger.log_io(
+                port="PROBE",
+                device=device,
+                direction=direction,
+                command=payload,
+            )
+        except Exception:
+            pass
 
     # ── probe phases ───────────────────────────────────────────────
 
@@ -317,15 +482,15 @@ class NoOutpProbe:
             SafeStopTool.run_immediate(self.cfg)
         except Exception as exc:
             _log(f"safe_stop after failed: {exc}")
-        finally:
-            self._cleanup_outp0 = self._outp0_count
-            self._cleanup_vent1 = self._vent1_count
 
     # ── main probe ─────────────────────────────────────────────────
 
     def run(self) -> int:
         _log("=== V1.5 no-OUTP preseal physical probe ===")
         _log(f"  branch: codex/v1.5-pace-no-outp-transition-research")
+        _log(f"  safe_stop_before={self.args.safe_stop_before}")
+        _log(f"  safe_stop_after={self.args.safe_stop_after}")
+        _log("  operator must decide safe_stop")
 
         # 1. no-write preflight
         err = self._no_write_preflight()
@@ -346,32 +511,51 @@ class NoOutpProbe:
         self._build_devices()
         _log(f"Output dir: {self.output_dir}")
 
+        # 3a. relay presence check for real mode
+        if not self.devices.get("relay") and not self.devices.get("relay_8"):
+            _log("BLOCKED: no relay device built — cannot open CO2 route")
+            self._final_decision = "BLOCKED_RELAY_MISSING"
+            self._write_summary()
+            self._close_devices_safe()
+            return 4
+
         try:
-            return self._probe()
+            result = self._probe()
+            return result
         finally:
             self._safe_stop_after()
             self._close_devices_safe()
             self._write_summary()
+            self._write_io_log_evidence()
             _log(f"Probe complete. Results: {self.summary_path}")
 
     def _probe(self) -> int:
-        open_valves = self._co2_open_valves()
+        try:
+            open_valves = self._co2_open_valves()
+        except RuntimeError as exc:
+            if "BLOCKED_GROUP2_UNSUPPORTED" in str(exc):
+                _log("BLOCKED: Group B / co2_map_group2 is not supported by this minimal probe")
+                self._final_decision = "BLOCKED_GROUP2_UNSUPPORTED"
+                return 7
+            raise
         _log(f"CO2 route open valves: {open_valves}")
 
         # ── Open CO2 route ──
         relay = self.devices.get("relay")
-        if relay is None:
-            _log("WARNING: no relay device — skipping CO2 route valve open (mock/test mode)")
-        else:
-            try:
-                activate = getattr(relay, "activate", None)
-                if callable(activate):
-                    activate(open_valves)
-                else:
-                    _log("WARNING: relay has no activate method — skipping valve open")
-            except Exception as exc:
-                _log(f"Relay activate failed (continuing): {exc}")
-        _log("CO2 route valves opened")
+        relay_8 = self.devices.get("relay_8")
+        if relay is None and relay_8 is None:
+            _log("BLOCKED: no relay device — cannot open CO2 route")
+            self._final_decision = "BLOCKED_RELAY_MISSING"
+            return 4
+
+        try:
+            _apply_logical_valves(self.cfg, self.devices, open_valves)
+            self._log_probe_io("relay", "PROBE", f"open_valves={open_valves}")
+            _log("CO2 route valves opened via RelayController.set_valve/set_valves_bulk")
+        except Exception as exc:
+            _log(f"BLOCKED: CO2 route open failed: {exc}")
+            self._final_decision = f"BLOCKED_ROUTE_OPEN_FAIL: {exc}"
+            return 5
 
         # ── Phase 1: open-flow VENT1 (no OUTP0) ──
         pace = self.devices["pace"]
@@ -386,6 +570,7 @@ class NoOutpProbe:
 
         pace.vent(True)
         self._vent1_count += 1
+        self._log_probe_io("pace", "PROBE", "VENT1 open-flow start")
         try:
             start_hold = getattr(pace, "start_atmosphere_hold", None)
             if callable(start_hold):
@@ -410,10 +595,12 @@ class NoOutpProbe:
 
         pace.vent(False)
         self._vent0_count += 1
+        self._log_probe_io("pace", "PROBE", "VENT0 close")
 
         iso = getattr(pace, "set_isolation_open", None)
         if callable(iso):
             iso(True)
+            self._log_probe_io("pace", "PROBE", "isolation_open=True")
 
         _log(f"VENT0 sent. Observing for {self.args.observe_s}s...")
 
@@ -437,6 +624,7 @@ class NoOutpProbe:
 
         pace.vent(True)
         self._vent1_count += 1
+        self._log_probe_io("pace", "PROBE", "VENT1 restore atmosphere")
         try:
             start_hold3 = getattr(pace, "start_atmosphere_hold", None)
             if callable(start_hold3):
@@ -458,20 +646,30 @@ class NoOutpProbe:
 
         min_rise = float(self.args.min_rise_hpa) if self.args.min_rise_hpa else 5.0
 
+        io_outp0, io_outp1, io_vent0, io_vent1 = self._count_outp_from_io_log()
+
         failures: List[str] = []
-        if self._outp0_count > 0:
-            failures.append(f"OUTP0_count={self._outp0_count}")
-        if self._outp1_count > 0:
-            failures.append(f"OUTP1_count={self._outp1_count}")
+        if io_outp0 is not None and io_outp0 > 0:
+            failures.append(f"OUTP0_from_io_log={io_outp0}")
+            self._outp0_count = io_outp0
+        if io_outp1 is not None and io_outp1 > 0:
+            failures.append(f"OUTP1_from_io_log={io_outp1}")
+            self._outp1_count = io_outp1
         if com22_rise is None or com22_rise < min_rise:
             failures.append(f"COM22_rise={com22_rise:.2f} < {min_rise}" if com22_rise is not None
                             else "COM22_rise=no_data")
 
-        self._final_decision: str = "PASS" if not failures else f"FAIL: {'; '.join(failures)}"
+        if io_outp0 is None and io_outp1 is None:
+            self._final_decision = "BLOCKED_IO_LOG_MISSING"
+            _log("BLOCKED: no io_log.csv available — cannot verify OUTP/VENT")
+            return 6
+
+        self._final_decision = "PASS" if not failures else f"FAIL: {'; '.join(failures)}"
 
         _log("")
-        _log(f"OUTP0 count (probe phase): {self._outp0_count}")
-        _log(f"OUTP1 count (probe phase): {self._outp1_count}")
+        _log(f"OUTP0 (from io_log):       {io_outp0}")
+        _log(f"OUTP1 (from io_log):       {io_outp1}")
+        _log(f"VENT0 (from io_log):       {io_vent0}")
         _log(f"VENT1 count (openflow):    {self._vent1_count}")
         _log(f"VENT0 count (close):      {self._vent0_count}")
         _log(f"COM22 baseline:           {self.com22_baseline}")
@@ -487,12 +685,47 @@ class NoOutpProbe:
             return 1
         return 0
 
+    def _count_outp_from_io_log(self) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]:
+        path = self.io_log_path
+        if not path or not path.exists():
+            return None, None, None, None
+        outp0 = 0
+        outp1 = 0
+        vent0 = 0
+        vent1 = 0
+        try:
+            with path.open("r", encoding="utf-8", newline="") as f:
+                for row in csv.DictReader(f):
+                    cmd = str(row.get("command", "") or "")
+                    if ":OUTP 0" in cmd or ":OUTP0" in cmd.replace(" ", ""):
+                        outp0 += 1
+                    if ":OUTP 1" in cmd or ":OUTP1" in cmd.replace(" ", ""):
+                        outp1 += 1
+                    if "VENT 0" in cmd or "VENT0" in cmd.replace(" ", ""):
+                        vent0 += 1
+                    if "VENT 1" in cmd or "VENT1" in cmd.replace(" ", ""):
+                        vent1 += 1
+        except Exception:
+            return None, None, None, None
+        return outp0, outp1, vent0, vent1
+
+    def _write_io_log_evidence(self) -> None:
+        if not self.io_log_path or not self.io_log_path.exists():
+            _log("WARNING: io_log.csv not generated — BLOCKED_IO_LOG_MISSING")
+            return
+        io_outp0, io_outp1, io_vent0, io_vent1 = self._count_outp_from_io_log()
+        _log(f"IO log evidence: OUTP0={io_outp0} OUTP1={io_outp1} VENT0={io_vent0} VENT1={io_vent1}")
+
     def _write_summary(self) -> None:
         if not self.summary_path:
             return
         com22_rise = None
         if self.com22_baseline is not None and self.com22_max is not None:
             com22_rise = self.com22_max - self.com22_baseline
+
+        io_outp0, io_outp1, io_vent0, io_vent1 = self._count_outp_from_io_log()
+
+        io_log_exists = bool(self.io_log_path and self.io_log_path.exists())
 
         summary: Dict[str, Any] = {
             "final_decision": getattr(self, "_final_decision", "UNKNOWN"),
@@ -501,10 +734,20 @@ class NoOutpProbe:
             "no_outp_transition_mode": True,
             "no_write_preflight": "PASS" if self._no_write_preflight() is None else "FAIL",
             "startup_hold_check_disabled": True,
+            "co2_group": getattr(self, "_co2_group", "A") or "A",
+            "group2_supported": False,
+            "safe_stop_before": bool(self.args.safe_stop_before),
+            "safe_stop_after": bool(self.args.safe_stop_after),
             "outp0_count_probe_phase": self._outp0_count,
             "outp1_count_probe_phase": self._outp1_count,
+            "outp0_from_io_log": io_outp0,
+            "outp1_from_io_log": io_outp1,
+            "vent0_from_io_log": io_vent0,
+            "vent1_from_io_log": io_vent1,
             "vent1_count_openflow": self._vent1_count,
             "vent0_count_close": self._vent0_count,
+            "io_log_exists": io_log_exists,
+            "outp_counting_source": "io_log.csv" if io_log_exists else "internal_counter_only",
             "com22_pressure_baseline_hpa": self.com22_baseline,
             "com22_pressure_max_hpa": self.com22_max,
             "com22_pressure_rise_hpa": com22_rise,
@@ -515,6 +758,9 @@ class NoOutpProbe:
             "operator_pace_vent_popup_observed": None,
             "operator_dewpoint_air_ingress_observed": None,
             "cleanup_completed": True,
+            "not_real_acceptance_evidence": True,
+            "engineering_probe_only": True,
+            "promotion_state": "blocked",
         }
         _write_json(self.summary_path, summary)
 
@@ -534,6 +780,12 @@ class NoOutpProbe:
             f"   - VENT0 后露点变化：___ (expected: 稳定，无突跳)\n\n"
             f"3. COM22 压力是否在 VENT0 后上升？\n"
             f"   - baseline={self.com22_baseline} max={self.com22_max} rise={com22_rise}\n\n"
+            f"4. safe_stop 决策：\n"
+            f"   - safe_stop_before={self.args.safe_stop_before}\n"
+            f"   - safe_stop_after={self.args.safe_stop_after}\n\n"
+            f"5. OUTP 统计来源：\n"
+            f"   - io_log_exists={io_log_exists}\n"
+            f"   - OUTP0(io_log)={io_outp0} OUTP1(io_log)={io_outp1}\n\n"
             f"Trace: {tp}\n",
             encoding="utf-8",
         )
