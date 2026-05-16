@@ -272,6 +272,9 @@
       "open_flow_output_off_mode": true,
       "controlled_outp_transition_mode": true,
       "vent0_to_seal_fixed_wait_s": 1.5,
+      "controlled_verified_exit_atmosphere": true,
+      "controlled_exit_wait_for_vent_idle_timeout_s": 3.0,
+      "controlled_exit_wait_for_vent_idle_poll_s": 0.2,
       "pressure_rise_gate_blocks_seal": false
     },
     "sampling": {
