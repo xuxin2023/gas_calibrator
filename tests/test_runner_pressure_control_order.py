@@ -688,7 +688,7 @@ def test_set_pressure_to_target_aborts_when_controller_not_ready_after_vent_off(
     assert any(row["trace_stage"] == "control_ready_failed" for row in trace_rows)
 
 
-def test_set_pressure_to_target_rejects_trapped_pressure_before_setpoint_control(tmp_path: Path) -> None:
+def test_set_pressure_to_target_treats_trapped_pressure_as_diagnostic_before_setpoint_control(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -714,19 +714,24 @@ def test_set_pressure_to_target_rejects_trapped_pressure_before_setpoint_control
     pace = _FakePaceTrappedPressureReady()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    assert runner._set_pressure_to_target(point) is False
+    assert runner._set_pressure_to_target(point) is True
     logger.close()
 
-    assert pace.calls == [
-        ("vent_off", 12.0),
-        ("vent_off", 12.0),
-    ]
+    assert ("vent_off", 12.0) in pace.calls
+    assert ("setpoint", 1000.0) in pace.calls
+    assert ("output_on",) in pace.calls
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "control_ready_failed" for row in trace_rows)
-    assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
+    assert not any(row["trace_stage"] == "control_ready_failed" for row in trace_rows)
+    assert any(
+        row["trace_stage"] == "control_ready_verified"
+        and row.get("vent_status_watchlist") == "True"
+        and row.get("vent_status_gate_effect") == "none"
+        for row in trace_rows
+    )
+    assert any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_rejects_legacy_trapped_pressure_before_setpoint_control(tmp_path: Path) -> None:
+def test_set_pressure_to_target_treats_legacy_trapped_pressure_as_diagnostic_before_setpoint_control(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -752,19 +757,24 @@ def test_set_pressure_to_target_rejects_legacy_trapped_pressure_before_setpoint_
     pace = _FakePaceLegacyVentTrapped()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    assert runner._set_pressure_to_target(point) is False
+    assert runner._set_pressure_to_target(point) is True
     logger.close()
 
-    assert pace.calls == [
-        ("vent_off", 12.0),
-        ("vent_off", 12.0),
-    ]
+    assert ("vent_off", 12.0) in pace.calls
+    assert ("setpoint", 500.0) in pace.calls
+    assert ("output_on",) in pace.calls
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "control_ready_failed" for row in trace_rows)
-    assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
+    assert not any(row["trace_stage"] == "control_ready_failed" for row in trace_rows)
+    assert any(
+        row["trace_stage"] == "control_output_on_verified"
+        and row.get("vent_status_watchlist") == "True"
+        and row.get("vent_status_gate_effect") == "none"
+        for row in trace_rows
+    )
+    assert any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_path: Path) -> None:
+def test_set_pressure_to_target_recovery_still_requires_pressure_evidence_with_vent3_watchlist(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -805,7 +815,7 @@ def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_blocks_output_recovery_when_legacy_trapped_ready(tmp_path: Path) -> None:
+def test_set_pressure_to_target_blocks_output_recovery_without_pressure_evidence_when_vent3_watchlist(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {

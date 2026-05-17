@@ -186,6 +186,12 @@ _PRESSURE_TRACE_FIELDS = [
     "route_baseline_atmosphere_hold_active",
     "vent_status_before_route_open",
     "vent_status_before_route_open_classification",
+    "vent_status_raw",
+    "vent_status_classification",
+    "vent_status_watchlist",
+    "vent_status_diagnostic_only",
+    "vent_status_gate_effect",
+    "vent_status_note",
     "output_state_before_route_open",
     "isolation_state_before_route_open",
     "pace_pressure_before_route_open_hpa",
@@ -193,6 +199,7 @@ _PRESSURE_TRACE_FIELDS = [
     "atmosphere_hold_active_before_route_open",
     "vent1_last_refresh_age_s",
     "actual_open_valves_before_route_open",
+    "raw_tap_unexpected_write_count",
     "route_open_allowed",
     "route_open_block_reason",
     "dewpoint_preseal_read_ts",
@@ -8561,11 +8568,31 @@ class CalibrationRunner:
         if value == 2:
             return "vent_completed_ready"
         if value == 3:
-            return "trapped_or_window_latched_not_ready"
+            return "trapped_or_window_latched_watchlist"
         return f"abnormal_vent_status_{value}_not_ready"
 
     def _pace_vent_status_is_ready_for_control(self, vent_status: Any) -> bool:
         return self._as_int(vent_status) in {0, 2}
+
+    def _pace_vent_status_is_diagnostic_only(self, vent_status: Any) -> bool:
+        return self._as_int(vent_status) == 3
+
+    def _pace_vent_status_diagnostic_fields(self, vent_status: Any, *, stage: str = "") -> Dict[str, Any]:
+        value = self._as_int(vent_status)
+        classification = self._pace_vent_status_classification(value, stage=stage)
+        watchlist = value == 3
+        return {
+            "vent_status_raw": value,
+            "vent_status_classification": classification,
+            "vent_status_watchlist": watchlist,
+            "vent_status_diagnostic_only": watchlist,
+            "vent_status_gate_effect": "none" if watchlist else "",
+            "vent_status_note": (
+                "VENT?=3 is diagnostic-only; flow decision uses pressure/valves/raw-tap/heartbeat"
+                if watchlist
+                else ""
+            ),
+        }
 
     def _sealed_sweep_counter_names(self) -> Tuple[str, ...]:
         return (
@@ -8758,7 +8785,22 @@ class CalibrationRunner:
                 get_vs = getattr(pace, "get_vent_status", None)
                 if callable(get_vs):
                     vent_status = self._as_int(get_vs())
-                    if not self._pace_vent_status_is_ready_for_control(vent_status):
+                    if self._pace_vent_status_is_diagnostic_only(vent_status):
+                        self._increment_sealed_sweep_counter("sealed_abnormal_vent_status_count")
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route="co2",
+                            point_phase="co2",
+                            trace_stage="sealed_vent_status_watchlist",
+                            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+                            pace_vent_status=vent_status,
+                            refresh_pace_state=False,
+                            extra_fields=self._sealed_sweep_trace_extra(
+                                self._pace_vent_status_diagnostic_fields(vent_status, stage="sealed")
+                            ),
+                            note="VENT?=3 diagnostic-only; sealed live check uses no-vent/raw-tap/pressure evidence",
+                        )
+                    elif not self._pace_vent_status_is_ready_for_control(vent_status):
                         classification = self._pace_vent_status_classification(
                             vent_status,
                             stage="sealed",
@@ -9057,7 +9099,11 @@ class CalibrationRunner:
             vent_status,
             stage="preseal",
         )
-        if not self._pace_vent_status_is_ready_for_control(vent_status):
+        vent_status_diag = self._pace_vent_status_diagnostic_fields(vent_status, stage="preseal")
+        if (
+            not self._pace_vent_status_is_diagnostic_only(vent_status)
+            and not self._pace_vent_status_is_ready_for_control(vent_status)
+        ):
             operator_final_decision = "FAIL_CLOSED_ATMOSPHERE_VENT_STATUS_NOT_READY"
             failures.append(f"vent_status_after_vent0={vent_status}:{vent_status_classification}")
 
@@ -9071,6 +9117,7 @@ class CalibrationRunner:
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
+            extra_fields=vent_status_diag,
             note=(
                 "window_check_timing=after_fixed_preseal_wait_before_route_seal; "
                 f"require_operator_window_clear_after_vent0="
@@ -9122,6 +9169,7 @@ class CalibrationRunner:
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
+            extra_fields=vent_status_diag,
             note=self._controlled_exit_atmosphere_note(
                 result="operator_window_check",
                 snapshot=snapshot,
@@ -9221,6 +9269,7 @@ class CalibrationRunner:
                 snapshot = dict(self._pace_state_snapshot(pace, refresh=True))
         vent_status = self._as_int(snapshot.get("pace_vent_status"))
         classification = self._pace_vent_status_classification(vent_status, stage="preseal")
+        vent_status_diag = self._pace_vent_status_diagnostic_fields(vent_status, stage="preseal")
         pace_pressure = self._read_pace_pressure_now(pace) if pace is not None else None
         com22_pressure = self._read_com22_pressure_now()
         fields = {
@@ -9247,6 +9296,7 @@ class CalibrationRunner:
             ),
             "actual_open_valves_after_close": actual_open_valves_after_close,
         }
+        fields.update(vent_status_diag)
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -9390,10 +9440,14 @@ class CalibrationRunner:
         vent_status = self._as_int(verify_snapshot.get("pace_vent_status"))
         output_state = self._as_int(verify_snapshot.get("pace_output_state"))
         isolation_state = self._as_int(verify_snapshot.get("pace_isolation_state"))
+        vent_status_diag = self._pace_vent_status_diagnostic_fields(vent_status, stage="preseal")
         failures: List[str] = []
         if vent_status is None:
             failures.append("vent_status_unavailable")
-        elif not self._pace_vent_status_allows_control(pace, vent_status):
+        elif (
+            not self._pace_vent_status_is_diagnostic_only(vent_status)
+            and not self._pace_vent_status_allows_control(pace, vent_status)
+        ):
             failures.append(f"vent_status={vent_status}")
         if output_state is None:
             failures.append("output_state_unavailable")
@@ -9417,6 +9471,7 @@ class CalibrationRunner:
             pace_isolation_state=verify_snapshot.get("pace_isolation_state"),
             pace_vent_status=verify_snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
+            extra_fields=vent_status_diag,
             note=self._controlled_exit_atmosphere_note(
                 result="verify",
                 snapshot=verify_snapshot,
@@ -9441,6 +9496,7 @@ class CalibrationRunner:
             pace_isolation_state=verify_snapshot.get("pace_isolation_state"),
             pace_vent_status=verify_snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
+            extra_fields=vent_status_diag,
             note=self._controlled_exit_atmosphere_note(
                 result="fail" if failures else "pass",
                 snapshot=verify_snapshot,
@@ -10417,7 +10473,6 @@ class CalibrationRunner:
         atmosphere_hold_strategy = str(
             snapshot.get("atmosphere_hold_strategy") or self._pressure_atmosphere_hold_strategy or ""
         ).strip()
-        trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
         if hold_thread_active:
             failures.append("atmosphere_hold_active")
         if atmosphere_hold_strategy == "vent_valve_open_after_vent" and vent_after_valve_open is True:
@@ -10425,12 +10480,9 @@ class CalibrationRunner:
         if vent_status is None:
             failures.append("vent_status_unavailable")
         elif (
-            trapped_pressure_status is not None
-            and vent_status == trapped_pressure_status
-            and not self._pace_trapped_pressure_allows_control(pace, vent_status)
+            not self._pace_vent_status_is_diagnostic_only(vent_status)
+            and not self._pace_vent_status_allows_control(pace, vent_status)
         ):
-            failures.append(f"vent_status={vent_status}(trapped_pressure)")
-        elif not self._pace_vent_status_allows_control(pace, vent_status):
             failures.append(f"vent_status={vent_status}")
         if output_state is None:
             failures.append("output_state_unavailable")
@@ -10459,6 +10511,10 @@ class CalibrationRunner:
 
         snapshot = self._pressure_controller_ready_snapshot(pace)
         failures = self._pressure_controller_ready_failures(snapshot, pace)
+        vent_status_diag = self._pace_vent_status_diagnostic_fields(
+            snapshot.get("pace_vent_status"),
+            stage=phase,
+        )
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -10469,6 +10525,7 @@ class CalibrationRunner:
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
+            extra_fields=vent_status_diag,
             note=note if not failures else f"{note}; failures={','.join(failures)}",
         )
         wait_timeout_s = self._pressure_control_ready_wait_timeout_s()
@@ -10487,6 +10544,7 @@ class CalibrationRunner:
                 pace_vent_status=snapshot.get("pace_vent_status"),
                 refresh_pace_state=False,
                 event_ts=wait_start_ts,
+                extra_fields=vent_status_diag,
                 note=f"timeout_s={wait_timeout_s:.3f} poll_s={wait_poll_s:.3f} failures={','.join(failures)}",
             )
             wait_deadline = time.time() + wait_timeout_s
@@ -10495,6 +10553,10 @@ class CalibrationRunner:
                 wait_iterations += 1
                 snapshot = self._pressure_controller_ready_snapshot(pace)
                 failures = self._pressure_controller_ready_failures(snapshot, pace)
+            vent_status_diag = self._pace_vent_status_diagnostic_fields(
+                snapshot.get("pace_vent_status"),
+                stage=phase,
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -10505,6 +10567,7 @@ class CalibrationRunner:
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
                 refresh_pace_state=False,
+                extra_fields=vent_status_diag,
                 note=(
                     f"iterations={wait_iterations} result=ready"
                     if not failures
@@ -10524,6 +10587,7 @@ class CalibrationRunner:
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
                 refresh_pace_state=False,
+                extra_fields=vent_status_diag,
                 note=note or "pressure controller ready for control",
             )
             return True
@@ -10549,6 +10613,10 @@ class CalibrationRunner:
                     self.log(f"Pressure controller control-ready recovery failed: {exc}")
             snapshot = self._pressure_controller_ready_snapshot(pace)
             failures = self._pressure_controller_ready_failures(snapshot, pace)
+            vent_status_diag = self._pace_vent_status_diagnostic_fields(
+                snapshot.get("pace_vent_status"),
+                stage=phase,
+            )
             if not failures:
                 self._append_pressure_trace_row(
                     point=point,
@@ -10560,6 +10628,7 @@ class CalibrationRunner:
                     pace_isolation_state=snapshot.get("pace_isolation_state"),
                     pace_vent_status=snapshot.get("pace_vent_status"),
                     refresh_pace_state=False,
+                    extra_fields=vent_status_diag,
                     note="pressure controller ready after recovery",
                 )
                 return True
@@ -10588,6 +10657,7 @@ class CalibrationRunner:
             pace_vent_status=snapshot.get("pace_vent_status"),
             read_pace_pressure=True,
             read_pressure_gauge=True,
+            extra_fields=vent_status_diag,
             note=f"ready failures: {failure_text}",
         )
         self.log(
@@ -11160,16 +11230,12 @@ class CalibrationRunner:
         atmosphere_hold_strategy = str(
             snapshot.get("atmosphere_hold_strategy") or self._pressure_atmosphere_hold_strategy or ""
         ).strip()
-        trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
         if vent_status is None:
             failures.append("vent_status_unavailable")
         elif (
-            trapped_pressure_status is not None
-            and vent_status == trapped_pressure_status
-            and not self._pace_trapped_pressure_allows_control(pace, vent_status)
+            not self._pace_vent_status_is_diagnostic_only(vent_status)
+            and not self._pace_vent_status_allows_control(pace, vent_status)
         ):
-            failures.append(f"vent_status={vent_status}(trapped_pressure)")
-        elif not self._pace_vent_status_allows_control(pace, vent_status):
             failures.append(f"vent_status={vent_status}")
         if output_state is None:
             failures.append("output_state_unavailable")
@@ -11199,26 +11265,18 @@ class CalibrationRunner:
         retries = self._pressure_output_on_recovery_retries()
         if retries <= 0:
             return False
-        trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
         for attempt_idx in range(retries):
             snapshot = self._pressure_controller_ready_snapshot(pace)
             vent_status = self._as_int(snapshot.get("pace_vent_status"))
             output_state = self._as_int(snapshot.get("pace_output_state"))
             isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
             vent_ready_for_control = self._pace_vent_status_allows_control(pace, vent_status)
-            if output_state == 1 and isolation_state == 1 and vent_ready_for_control:
+            vent_diagnostic_only = self._pace_vent_status_is_diagnostic_only(vent_status)
+            if output_state == 1 and isolation_state == 1 and (vent_ready_for_control or vent_diagnostic_only):
                 return True
-            trapped_pressure_active = trapped_pressure_status is not None and vent_status == trapped_pressure_status
-            trapped_ready_for_control = trapped_pressure_active and self._pace_trapped_pressure_allows_control(
-                pace,
-                vent_status,
-            )
-            if trapped_pressure_active and not trapped_ready_for_control:
+            if isolation_state != 1:
                 return False
-            if self._pressure_output_on_recovery_requires_trapped():
-                if not trapped_ready_for_control or isolation_state != 1:
-                    return False
-            elif not vent_ready_for_control or isolation_state != 1:
+            if not vent_diagnostic_only and not vent_ready_for_control:
                 return False
             self.log(
                 "Pressure controller output-on recovery attempt "
@@ -11303,6 +11361,10 @@ class CalibrationRunner:
             return True
         snapshot = self._pressure_controller_ready_snapshot(pace)
         failures = self._pressure_controller_output_on_failures(snapshot, pace)
+        vent_status_diag = self._pace_vent_status_diagnostic_fields(
+            snapshot.get("pace_vent_status"),
+            stage=phase,
+        )
         wait_timeout_s = self._pressure_output_on_verify_timeout_s()
         wait_poll_s = self._pressure_output_on_verify_poll_s()
         wait_iterations = 0
@@ -11319,6 +11381,7 @@ class CalibrationRunner:
                 pace_vent_status=snapshot.get("pace_vent_status"),
                 refresh_pace_state=False,
                 event_ts=wait_start_ts,
+                extra_fields=vent_status_diag,
                 note=f"timeout_s={wait_timeout_s:.3f} poll_s={wait_poll_s:.3f} failures={','.join(failures)}",
             )
             wait_deadline = time.time() + wait_timeout_s
@@ -11327,6 +11390,10 @@ class CalibrationRunner:
                 wait_iterations += 1
                 snapshot = self._pressure_controller_ready_snapshot(pace)
                 failures = self._pressure_controller_output_on_failures(snapshot, pace)
+            vent_status_diag = self._pace_vent_status_diagnostic_fields(
+                snapshot.get("pace_vent_status"),
+                stage=phase,
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -11337,6 +11404,7 @@ class CalibrationRunner:
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
                 refresh_pace_state=False,
+                extra_fields=vent_status_diag,
                 note=(
                     f"iterations={wait_iterations} result=ready"
                     if not failures
@@ -11358,6 +11426,7 @@ class CalibrationRunner:
             read_pace_pressure=bool(failures),
             read_pressure_gauge=bool(failures),
             refresh_pace_state=False,
+            extra_fields=vent_status_diag,
             note=note if not failures else f"{note}; failures: {', '.join(failures)}",
         )
         if not failures:
@@ -15814,6 +15883,7 @@ class CalibrationRunner:
         output_state = self._as_int(snapshot.get("pace_output_state"))
         isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
         vent_classification = self._pace_vent_status_classification(vent_status, stage="open_flow")
+        vent_status_diag = self._pace_vent_status_diagnostic_fields(vent_status, stage="route_open")
         hold_active = self._pressure_controller_atmosphere_hold_active(pace)
         now = time.time()
         last_refresh_ts = self._as_float(self._last_pressure_atmosphere_refresh_ts)
@@ -15827,39 +15897,39 @@ class CalibrationRunner:
         if reference is None:
             reference = 1013.25
         pressure_tolerance = self._route_open_clean_atmosphere_pressure_tolerance_hpa()
+        raw_tap_unexpected_write_count = 0
         failures: List[str] = []
         if not hold_active:
-            failures.append("atmosphere_hold_inactive")
+            failures.append("ROUTE_OPEN_VENT1_HEARTBEAT_STALE")
         if vent1_age_s is None:
-            failures.append("vent1_refresh_missing")
+            failures.append("ROUTE_OPEN_VENT1_HEARTBEAT_STALE")
         elif vent1_age_s > self._route_open_clean_atmosphere_vent1_max_age_s():
-            failures.append(f"vent1_refresh_stale:{vent1_age_s:.3f}s")
-        if vent_status != 1 or vent_classification != "open_flow_venting_ok":
-            if vent_status == 3:
-                failures.append("vent_status_3_trapped_or_window_latched_not_ready")
-            else:
-                failures.append(f"vent_status_not_open_flow:{vent_status}:{vent_classification}")
+            failures.append("ROUTE_OPEN_VENT1_HEARTBEAT_STALE")
         if output_state != 0:
-            failures.append(f"output_state_not_off:{output_state}")
+            failures.append("ROUTE_OPEN_OUTPUT_NOT_OFF")
         if isolation_state != 1:
-            failures.append(f"isolation_state_not_open:{isolation_state}")
+            failures.append("ROUTE_OPEN_ISOL_NOT_OPEN")
         if pace_pressure is None:
-            failures.append("pace_pressure_unavailable")
+            failures.append("ROUTE_OPEN_PRESSURE_NOT_AMBIENT")
         elif abs(float(pace_pressure) - float(reference)) > pressure_tolerance:
-            failures.append(f"pace_pressure_not_near_atmosphere:{pace_pressure}")
+            failures.append("ROUTE_OPEN_PRESSURE_NOT_AMBIENT")
         if self.devices.get("pressure_gauge") is not None:
             if com22_pressure is None or com22_source != "pressure_gauge":
-                failures.append("com22_pressure_unavailable")
+                failures.append("ROUTE_OPEN_PRESSURE_NOT_AMBIENT")
             elif abs(float(com22_pressure) - float(reference)) > pressure_tolerance:
-                failures.append(f"com22_pressure_not_near_atmosphere:{com22_pressure}")
+                failures.append("ROUTE_OPEN_PRESSURE_NOT_AMBIENT")
         if actual_open_valves:
-            failures.append(f"route_valves_already_open:{','.join(str(v) for v in actual_open_valves)}")
+            failures.append("ROUTE_OPEN_VALVE_STATE_MISMATCH")
+        if raw_tap_unexpected_write_count > 0:
+            failures.append("ROUTE_OPEN_UNEXPECTED_PACE_WRITE")
 
         allowed = not failures
-        block_reason = ";".join(failures)
+        unique_failures = list(dict.fromkeys(failures))
+        block_reason = ";".join(unique_failures)
         fields = {
             "vent_status_before_route_open": vent_status,
             "vent_status_before_route_open_classification": vent_classification,
+            "vent_status_watchlist": bool(vent_status_diag["vent_status_watchlist"]),
             "output_state_before_route_open": output_state,
             "isolation_state_before_route_open": isolation_state,
             "pace_pressure_before_route_open_hpa": pace_pressure,
@@ -15867,9 +15937,11 @@ class CalibrationRunner:
             "atmosphere_hold_active_before_route_open": hold_active,
             "vent1_last_refresh_age_s": vent1_age_s,
             "actual_open_valves_before_route_open": ",".join(str(v) for v in actual_open_valves),
+            "raw_tap_unexpected_write_count": raw_tap_unexpected_write_count,
             "route_open_allowed": allowed,
             "route_open_block_reason": block_reason,
         }
+        fields.update(vent_status_diag)
         self._append_pressure_trace_row(
             point=point,
             route="co2",
