@@ -292,6 +292,7 @@ def _prepare_analyzer_gate_dewpoint_runner(
     *,
     dewpoints: list[float],
     gate_value: float = -32.47,
+    tail_reference: float | None = None,
     raw_tap_enabled: bool = False,
 ) -> tuple[CalibrationRunner, RunLogger, _FakePace, _FakeDewpoint, CalibrationPoint]:
     monitor_cfg = {
@@ -328,6 +329,7 @@ def _prepare_analyzer_gate_dewpoint_runner(
         flush_gate_status="pass",
         dewpoint_gate_pass_ts=time.time(),
         dewpoint_gate_pass_value_c=gate_value,
+        dewpoint_gate_tail_reference_c=gate_value if tail_reference is None else tail_reference,
     )
     return runner, logger, pace, dewpoint, point
 
@@ -545,6 +547,28 @@ def test_analyzer_gate_dewpoint_monitor_does_not_change_pace_commands(tmp_path: 
     assert pace.calls == []
 
 
+def test_analyzer_rebound_uses_tail_reference_not_pass_snapshot(tmp_path: Path) -> None:
+    runner, logger, _pace, _dewpoint, point = _prepare_analyzer_gate_dewpoint_runner(
+        tmp_path,
+        dewpoints=[-25.00],
+        gate_value=-24.89,
+        tail_reference=-30.00,
+    )
+
+    def _fail_against_tail_reference(*_args, **kwargs):
+        assert kwargs["loop_callback"]() is False
+        return False
+
+    runner._wait_primary_sensor_stable = MagicMock(side_effect=_fail_against_tail_reference)
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(point) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["analyzer_gate_dewpoint_delta_since_gate_c"] == pytest.approx(5.0, abs=0.001)
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE"
+
+
 def test_raw_tap_still_records_analyzer_gate_vent1_only(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path, cfg=_tap_cfg(tmp_path))
     logger.set_workflow_stage("co2_precondition_analyzer_gate")
@@ -634,6 +658,7 @@ def test_dewpoint_freshness_fail_does_not_send_vent0(tmp_path: Path) -> None:
         flush_gate_status="pass",
         dewpoint_gate_pass_ts=1000.0,
         dewpoint_gate_pass_value_c=-31.51,
+        dewpoint_gate_tail_reference_c=-31.51,
     )
     runner._preseal_dewpoint_snapshot = {"sample_wall_ts": 1065.0, "dewpoint_c": -23.38}
 
@@ -659,6 +684,7 @@ def test_dewpoint_freshness_fail_does_not_enter_sealed_control(tmp_path: Path) -
         flush_gate_status="pass",
         dewpoint_gate_pass_ts=1000.0,
         dewpoint_gate_pass_value_c=-31.51,
+        dewpoint_gate_tail_reference_c=-31.51,
     )
     runner._preseal_dewpoint_snapshot = {"sample_wall_ts": 1065.0, "dewpoint_c": -23.38}
 

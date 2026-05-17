@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta
-from statistics import pstdev
+from statistics import median, pstdev
 from typing import Any, Dict, Mapping, Optional, Sequence
 
 
@@ -152,6 +152,14 @@ def duration_seconds(rows: Sequence[Mapping[str, Any]]) -> float:
     if elapsed_values:
         return max(0.0, max(elapsed_values) - min(elapsed_values))
     return 0.0
+
+
+def max_timestamp_gap_s(rows: Sequence[Mapping[str, Any]]) -> Optional[float]:
+    timestamps = [parse_timestamp(row.get("timestamp")) for row in ordered_rows(rows)]
+    timestamps = [item for item in timestamps if item is not None]
+    if len(timestamps) < 2:
+        return None
+    return max((curr - prev).total_seconds() for prev, curr in zip(timestamps, timestamps[1:]))
 
 
 def phase_duration_s(rows: Sequence[Mapping[str, Any]]) -> float:
@@ -351,13 +359,34 @@ def evaluate_dewpoint_flush_gate(
     rebound_require_no_new_actuation: bool = True,
     include_rebound_in_gate: bool = True,
     require_vent_on: bool = False,
+    min_tail_samples: int = 2,
+    min_tail_coverage_ratio: float = 0.0,
+    max_tail_gap_s: Optional[float] = None,
+    tail_reference_method: str = "median",
 ) -> Dict[str, Any]:
     ordered = ordered_rows(rows)
     duration_s = phase_duration_s(ordered)
-    tail = tail_rows(ordered, gate_window_s)
+    tail_window_s = max(1.0, float(gate_window_s))
+    tail = tail_rows(ordered, tail_window_s)
     dewpoint_values = series(tail, "dewpoint_c")
     dewpoint_slope = slope_per_s(tail, "dewpoint_c")
     dewpoint_span = (max(dewpoint_values) - min(dewpoint_values)) if len(dewpoint_values) >= 2 else None
+    dewpoint_tail_count = len(dewpoint_values)
+    dewpoint_tail_coverage_s = duration_seconds(tail)
+    dewpoint_tail_max_gap_s = max_timestamp_gap_s(tail)
+    dewpoint_tail_mean_c = sum(dewpoint_values) / len(dewpoint_values) if dewpoint_values else None
+    dewpoint_tail_median_c = median(dewpoint_values) if dewpoint_values else None
+    dewpoint_tail_min_c = min(dewpoint_values) if dewpoint_values else None
+    dewpoint_tail_max_c = max(dewpoint_values) if dewpoint_values else None
+    method = str(tail_reference_method or "median").strip().lower()
+    reference_by_method = {
+        "last": safe_float(ordered_rows(tail)[-1].get("dewpoint_c")) if tail else None,
+        "mean": dewpoint_tail_mean_c,
+        "median": dewpoint_tail_median_c,
+    }
+    if method not in reference_by_method:
+        method = "median"
+    dewpoint_tail_reference_c = reference_by_method.get(method)
     latest = ordered[-1] if ordered else {}
     vent_states = [str(row.get("controller_vent_state") or "").strip().upper() for row in ordered]
     vent_on = bool(vent_states) and all(state == "VENT_ON" for state in vent_states)
@@ -370,10 +399,24 @@ def evaluate_dewpoint_flush_gate(
         rebound_require_no_new_actuation=rebound_require_no_new_actuation,
     )
     reasons: list[str] = []
+    min_samples = max(2, int(min_tail_samples or 2))
+    min_coverage_s = tail_window_s * max(0.0, min(1.0, float(min_tail_coverage_ratio)))
     if require_vent_on and not vent_on:
         reasons.append("flush_not_all_vent_on")
     if duration_s < float(min_flush_s):
         reasons.append("flush_duration_below_min")
+    if dewpoint_tail_count < min_samples:
+        reasons.append("dewpoint_tail_sample_count_insufficient")
+    if dewpoint_tail_coverage_s < min_coverage_s:
+        reasons.append("dewpoint_tail_coverage_insufficient")
+    if (
+        max_tail_gap_s is not None
+        and dewpoint_tail_max_gap_s is not None
+        and dewpoint_tail_max_gap_s > float(max_tail_gap_s)
+    ):
+        reasons.append("dewpoint_tail_gap_too_large")
+    if dewpoint_tail_reference_c is None:
+        reasons.append("dewpoint_tail_reference_missing")
     if dewpoint_slope is None:
         reasons.append("dewpoint_tail_window_missing")
     elif abs(dewpoint_slope) > float(max_abs_tail_slope_c_per_s):
@@ -399,6 +442,21 @@ def evaluate_dewpoint_flush_gate(
         "dewpoint_tail_value_60s": safe_float(latest.get("dewpoint_c")),
         "dewpoint_tail_span_60s": dewpoint_span,
         "dewpoint_tail_slope_60s": dewpoint_slope,
+        "dewpoint_gate_tail_window_s": tail_window_s,
+        "dewpoint_gate_tail_coverage_s": dewpoint_tail_coverage_s,
+        "dewpoint_gate_tail_sample_count": dewpoint_tail_count,
+        "dewpoint_gate_tail_last_c": safe_float(ordered_rows(tail)[-1].get("dewpoint_c")) if tail else None,
+        "dewpoint_gate_tail_mean_c": dewpoint_tail_mean_c,
+        "dewpoint_gate_tail_median_c": dewpoint_tail_median_c,
+        "dewpoint_gate_tail_min_c": dewpoint_tail_min_c,
+        "dewpoint_gate_tail_max_c": dewpoint_tail_max_c,
+        "dewpoint_gate_tail_span_c": dewpoint_span,
+        "dewpoint_gate_tail_slope_c_per_min": (
+            dewpoint_slope * 60.0 if dewpoint_slope is not None else None
+        ),
+        "dewpoint_gate_tail_max_gap_s": dewpoint_tail_max_gap_s,
+        "dewpoint_gate_tail_reference_method": method,
+        "dewpoint_gate_tail_reference_c": dewpoint_tail_reference_c,
         "pressure_tail_std_60s": pressure_std,
         "pressure_tail_span_60s": pressure_span,
         "vent_state_during_flush": "VENT_ON" if vent_on else "NOT_ALL_VENT_ON",

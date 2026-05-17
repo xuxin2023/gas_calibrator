@@ -150,6 +150,23 @@ _PRESSURE_TRACE_FIELDS = [
     "dew_rh_live_pct",
     "dewpoint_gate_pass_ts",
     "dewpoint_gate_pass_value_c",
+    "co2_route_base_soak_s",
+    "co2_route_base_soak_completed",
+    "dewpoint_gate_coverage_s",
+    "dewpoint_gate_phase_elapsed_includes_base_soak",
+    "dewpoint_gate_tail_window_s",
+    "dewpoint_gate_tail_coverage_s",
+    "dewpoint_gate_tail_sample_count",
+    "dewpoint_gate_tail_last_c",
+    "dewpoint_gate_tail_mean_c",
+    "dewpoint_gate_tail_median_c",
+    "dewpoint_gate_tail_min_c",
+    "dewpoint_gate_tail_max_c",
+    "dewpoint_gate_tail_span_c",
+    "dewpoint_gate_tail_slope_c_per_min",
+    "dewpoint_gate_tail_max_gap_s",
+    "dewpoint_gate_tail_reference_method",
+    "dewpoint_gate_tail_reference_c",
     "analyzer_gate_begin_ts",
     "analyzer_gate_end_ts",
     "analyzer_gate_elapsed_s",
@@ -9127,6 +9144,7 @@ class CalibrationRunner:
             "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE",
             "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL",
             "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED",
+            "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE",
             "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_ANALYZER_GATE",
             "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED",
             "FAIL_CLOSED_ROUTE_OPEN_PACE_ATMOSPHERE_NOT_CLEAN",
@@ -13411,7 +13429,13 @@ class CalibrationRunner:
             return
         if not self._wait_co2_route_soak_before_seal(point):
             self.log(f"CO2 row {point.index} skipped: route precondition failed before sealing")
-            self._cleanup_co2_route(reason="after CO2 route soak interrupted")
+            decision_text = str(self._controlled_exit_final_decision or "")
+            if self._controlled_exit_failure_is_route_terminal() and "DEWPOINT" in decision_text:
+                self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
+                    point,
+                    sealed_control_refs,
+                )
+            self._cleanup_co2_route(reason=decision_text or "after CO2 route soak interrupted")
             return
 
         if self._gas_route_dewpoint_gate_enabled():
@@ -13742,15 +13766,55 @@ class CalibrationRunner:
         return normalized
 
     def _gas_route_dewpoint_gate_cfg(self) -> Dict[str, Any]:
+        poll_s = max(0.2, float(self._wf("workflow.stability.gas_route_dewpoint_gate_poll_s", 2.0) or 2.0))
+        window_s = max(5.0, float(self._wf("workflow.stability.gas_route_dewpoint_gate_window_s", 60.0) or 60.0))
+        tail_min_samples_default = max(3, int(math.floor((window_s / poll_s) * 0.5)))
         return {
             "enabled": self._gas_route_dewpoint_gate_enabled(),
             "policy": self._gas_route_dewpoint_gate_policy(),
-            "window_s": max(5.0, float(self._wf("workflow.stability.gas_route_dewpoint_gate_window_s", 60.0) or 60.0)),
+            "window_s": window_s,
             "max_total_wait_s": max(
                 0.0,
                 float(self._wf("workflow.stability.gas_route_dewpoint_gate_max_total_wait_s", 300.0) or 300.0),
             ),
-            "poll_s": max(0.2, float(self._wf("workflow.stability.gas_route_dewpoint_gate_poll_s", 2.0) or 2.0)),
+            "poll_s": poll_s,
+            "tail_min_samples": max(
+                3,
+                int(
+                    self._wf(
+                        "workflow.stability.gas_route_dewpoint_gate_tail_min_samples",
+                        tail_min_samples_default,
+                    )
+                    or tail_min_samples_default
+                ),
+            ),
+            "tail_min_coverage_ratio": max(
+                0.0,
+                min(
+                    1.0,
+                    float(
+                        self._wf(
+                            "workflow.stability.gas_route_dewpoint_gate_tail_min_coverage_ratio",
+                            0.8,
+                        )
+                        or 0.8
+                    ),
+                ),
+            ),
+            "tail_max_gap_s": max(
+                poll_s,
+                float(
+                    self._wf(
+                        "workflow.stability.gas_route_dewpoint_gate_tail_max_gap_s",
+                        max(15.0, poll_s * 3.0),
+                    )
+                    or max(15.0, poll_s * 3.0)
+                ),
+            ),
+            "tail_reference_method": str(
+                self._wf("workflow.stability.gas_route_dewpoint_gate_tail_reference_method", "median")
+                or "median"
+            ).strip().lower(),
             "tail_span_max_c": max(
                 0.0,
                 float(self._wf("workflow.stability.gas_route_dewpoint_gate_tail_span_max_c", 0.45) or 0.45),
@@ -13931,6 +13995,29 @@ class CalibrationRunner:
             "dewpoint_rh_percent": snapshot.get("rh_pct"),
         }
 
+    def _dewpoint_gate_tail_trace_fields(self, gate_eval: Mapping[str, Any]) -> Dict[str, Any]:
+        keys = (
+            "dewpoint_gate_coverage_s",
+            "dewpoint_gate_phase_elapsed_includes_base_soak",
+            "dewpoint_gate_tail_window_s",
+            "dewpoint_gate_tail_coverage_s",
+            "dewpoint_gate_tail_sample_count",
+            "dewpoint_gate_tail_last_c",
+            "dewpoint_gate_tail_mean_c",
+            "dewpoint_gate_tail_median_c",
+            "dewpoint_gate_tail_min_c",
+            "dewpoint_gate_tail_max_c",
+            "dewpoint_gate_tail_span_c",
+            "dewpoint_gate_tail_slope_c_per_min",
+            "dewpoint_gate_tail_max_gap_s",
+            "dewpoint_gate_tail_reference_method",
+            "dewpoint_gate_tail_reference_c",
+        )
+        fields = {key: gate_eval.get(key) for key in keys}
+        fields["dewpoint_gate_coverage_s"] = gate_eval.get("dewpoint_gate_tail_coverage_s")
+        fields["dewpoint_gate_phase_elapsed_includes_base_soak"] = False
+        return fields
+
     def _build_h2o_route_dewpoint_gate_row(
         self,
         *,
@@ -13960,6 +14047,11 @@ class CalibrationRunner:
 
         gate_begin_ts = time.time()
         gate_rows: List[Dict[str, Any]] = []
+        base_soak_fields = {
+            "co2_route_base_soak_s": float(base_soak_s),
+            "co2_route_base_soak_completed": True,
+            "dewpoint_gate_phase_elapsed_includes_base_soak": False,
+        }
         last_log_ts = 0.0
         consecutive_read_missing = 0
         max_transient_read_missing = 3
@@ -13970,6 +14062,7 @@ class CalibrationRunner:
             trace_stage="co2_precondition_dewpoint_gate_begin",
             pressure_target_hpa=point.target_pressure_hpa,
             refresh_pace_state=False,
+            extra_fields=base_soak_fields,
             note=(
                 f"base_soak_s={float(base_soak_s):.3f} "
                 f"window_s={float(cfg['window_s']):.3f} "
@@ -13985,7 +14078,7 @@ class CalibrationRunner:
                 snapshot = self._read_precondition_dewpoint_gate_snapshot()
             except Exception as exc:
                 reason = str(exc) or "dewpoint_gate_read_failed"
-                total_elapsed_s = float(base_soak_s) + max(0.0, time.time() - gate_begin_ts)
+                total_elapsed_s = max(0.0, time.time() - gate_begin_ts)
                 if reason == "dewpoint_gate_read_missing":
                     consecutive_read_missing += 1
                     if consecutive_read_missing < max_transient_read_missing:
@@ -14003,10 +14096,12 @@ class CalibrationRunner:
                 self._set_point_runtime_fields(
                     point,
                     phase="co2",
+                    dewpoint_gate_elapsed_s=round(total_elapsed_s, 3),
                     dewpoint_time_to_gate=round(total_elapsed_s, 3),
                     dewpoint_tail_span_60s=None,
                     dewpoint_tail_slope_60s=None,
                     dewpoint_rebound_detected=None,
+                    **base_soak_fields,
                     flush_gate_status="fail",
                     flush_gate_reason=reason,
                 )
@@ -14017,9 +14112,11 @@ class CalibrationRunner:
                     trace_stage="co2_precondition_dewpoint_gate_end",
                     pressure_target_hpa=point.target_pressure_hpa,
                     refresh_pace_state=False,
+                    dewpoint_gate_elapsed_s=round(total_elapsed_s, 3),
                     dewpoint_time_to_gate=round(total_elapsed_s, 3),
                     flush_gate_status="fail",
                     flush_gate_reason=reason,
+                    extra_fields=base_soak_fields,
                     note="CO2 route precondition dewpoint gate failed before seal",
                 )
                 self.log(
@@ -14030,7 +14127,7 @@ class CalibrationRunner:
 
             consecutive_read_missing = 0
             gate_elapsed_after_soak_s = max(0.0, time.time() - gate_begin_ts)
-            total_elapsed_s = float(base_soak_s) + gate_elapsed_after_soak_s
+            total_elapsed_s = gate_elapsed_after_soak_s
             gate_rows.append(
                 self._build_co2_route_dewpoint_gate_row(
                     total_elapsed_s=total_elapsed_s,
@@ -14039,30 +14136,49 @@ class CalibrationRunner:
             )
             gate_eval = evaluate_dewpoint_flush_gate(
                 gate_rows,
-                min_flush_s=float(base_soak_s),
+                min_flush_s=float(cfg["window_s"]) * float(cfg["tail_min_coverage_ratio"]),
                 gate_window_s=float(cfg["window_s"]),
                 max_tail_span_c=float(cfg["tail_span_max_c"]),
                 max_abs_tail_slope_c_per_s=float(cfg["tail_slope_abs_max_c_per_s"]),
                 rebound_window_s=float(cfg["rebound_window_s"]),
                 rebound_min_rise_c=float(cfg["rebound_min_rise_c"]),
                 include_rebound_in_gate=True,
+                min_tail_samples=int(cfg["tail_min_samples"]),
+                min_tail_coverage_ratio=float(cfg["tail_min_coverage_ratio"]),
+                max_tail_gap_s=float(cfg["tail_max_gap_s"]),
+                tail_reference_method=str(cfg["tail_reference_method"] or "median"),
             )
             dewpoint_tail_span_60s = self._as_float(gate_eval.get("dewpoint_tail_span_60s"))
             dewpoint_tail_slope_60s = self._as_float(gate_eval.get("dewpoint_tail_slope_60s"))
             dewpoint_rebound_detected = bool(gate_eval.get("dewpoint_rebound_detected"))
             dewpoint_time_to_gate = self._as_float(gate_eval.get("dewpoint_time_to_gate"))
+            tail_fields = self._dewpoint_gate_tail_trace_fields(gate_eval)
+            coverage_reasons = {
+                "dewpoint_tail_sample_count_insufficient",
+                "dewpoint_tail_coverage_insufficient",
+                "dewpoint_tail_gap_too_large",
+                "dewpoint_tail_reference_missing",
+            }
+            failing_reasons = {
+                item.strip()
+                for item in str(gate_eval.get("gate_reason") or "").split(";")
+                if item.strip()
+            }
             if bool(gate_eval.get("gate_pass")):
                 dewpoint_gate_pass_ts = time.time()
                 dewpoint_gate_pass_value_c = self._as_float(snapshot.get("dewpoint_c"))
                 self._set_point_runtime_fields(
                     point,
                     phase="co2",
+                    dewpoint_gate_elapsed_s=dewpoint_time_to_gate,
                     dewpoint_time_to_gate=dewpoint_time_to_gate,
                     dewpoint_tail_span_60s=dewpoint_tail_span_60s,
                     dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
                     dewpoint_rebound_detected=dewpoint_rebound_detected,
                     dewpoint_gate_pass_ts=dewpoint_gate_pass_ts,
                     dewpoint_gate_pass_value_c=dewpoint_gate_pass_value_c,
+                    **base_soak_fields,
+                    **tail_fields,
                     flush_gate_status="pass",
                     flush_gate_reason="",
                 )
@@ -14076,6 +14192,7 @@ class CalibrationRunner:
                     dewpoint_c=snapshot.get("dewpoint_c"),
                     dew_temp_c=snapshot.get("temp_c"),
                     dew_rh_pct=snapshot.get("rh_pct"),
+                    dewpoint_gate_elapsed_s=dewpoint_time_to_gate,
                     dewpoint_time_to_gate=dewpoint_time_to_gate,
                     dewpoint_tail_span_60s=dewpoint_tail_span_60s,
                     dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
@@ -14087,6 +14204,8 @@ class CalibrationRunner:
                             float(dewpoint_gate_pass_ts)
                         ).isoformat(timespec="milliseconds"),
                         "dewpoint_gate_pass_value_c": dewpoint_gate_pass_value_c,
+                        **base_soak_fields,
+                        **tail_fields,
                     },
                     note=f"context={log_context} result=pass",
                 )
@@ -14106,10 +14225,13 @@ class CalibrationRunner:
                 self._set_point_runtime_fields(
                     point,
                     phase="co2",
+                    dewpoint_gate_elapsed_s=round(total_elapsed_s, 3),
                     dewpoint_time_to_gate=round(total_elapsed_s, 3),
                     dewpoint_tail_span_60s=dewpoint_tail_span_60s,
                     dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
                     dewpoint_rebound_detected=dewpoint_rebound_detected,
+                    **base_soak_fields,
+                    **tail_fields,
                     flush_gate_status="timeout",
                     flush_gate_reason=reason,
                 )
@@ -14123,14 +14245,31 @@ class CalibrationRunner:
                     dewpoint_c=snapshot.get("dewpoint_c"),
                     dew_temp_c=snapshot.get("temp_c"),
                     dew_rh_pct=snapshot.get("rh_pct"),
+                    dewpoint_gate_elapsed_s=round(total_elapsed_s, 3),
                     dewpoint_time_to_gate=round(total_elapsed_s, 3),
                     dewpoint_tail_span_60s=dewpoint_tail_span_60s,
                     dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
                     dewpoint_rebound_detected=dewpoint_rebound_detected,
                     flush_gate_status="timeout",
                     flush_gate_reason=reason,
+                    extra_fields={
+                        **base_soak_fields,
+                        **tail_fields,
+                    },
                     note=f"context={log_context} result=timeout policy={cfg['policy']}",
                 )
+                if coverage_reasons.intersection(failing_reasons):
+                    self._mark_co2_route_terminal_failure(
+                        final_decision="FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE",
+                        reason=reason,
+                        point=point,
+                        phase="co2",
+                    )
+                    self.log(
+                        "CO2 route precondition failed: dewpoint gate coverage insufficient "
+                        f"after fixed purge; row={point.index} reason={reason}"
+                    )
+                    return False
                 if str(cfg["policy"]) in {"warn", "pass"}:
                     self.log(
                         "CO2 route precondition dewpoint gate timed out after fixed purge; "
@@ -14432,6 +14571,12 @@ class CalibrationRunner:
                     countdown_s=remain,
                 )
             time.sleep(min(1.0, max(0.05, remain)))
+        base_soak_fields = {
+            "co2_route_base_soak_s": soak_s,
+            "co2_route_base_soak_completed": True,
+            "dewpoint_gate_phase_elapsed_includes_base_soak": False,
+        }
+        self._set_point_runtime_fields(point, phase="co2", **base_soak_fields)
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -14439,6 +14584,7 @@ class CalibrationRunner:
             trace_stage="soak_end",
             pressure_target_hpa=point.target_pressure_hpa,
             refresh_pace_state=False,
+            extra_fields=base_soak_fields,
             note=f"configured_route_soak_s={soak_s:.3f} context={log_context}",
         )
         if special_flush:
@@ -14488,11 +14634,17 @@ class CalibrationRunner:
         runtime_state = dict(self._point_runtime_state(point, phase="co2") or {})
         gate_ts = self._as_float(runtime_state.get("dewpoint_gate_pass_ts"))
         gate_value_c = self._as_float(runtime_state.get("dewpoint_gate_pass_value_c"))
+        tail_reference_c = self._as_float(runtime_state.get("dewpoint_gate_tail_reference_c"))
+        reference_value_c = tail_reference_c
+        reference_missing = bool(
+            str(runtime_state.get("flush_gate_status") or "").strip().lower() == "pass"
+            and reference_value_c is None
+        )
         enabled = (
             self._analyzer_gate_dewpoint_monitor_enabled()
             and self.devices.get("dewpoint") is not None
             and gate_ts is not None
-            and gate_value_c is not None
+            and reference_value_c is not None
             and str(runtime_state.get("flush_gate_status") or "").strip().lower() == "pass"
         )
         return {
@@ -14504,7 +14656,10 @@ class CalibrationRunner:
             "begin_ts": float(analyzer_gate_begin_ts),
             "end_ts": None,
             "gate_ts": gate_ts,
-            "gate_value_c": gate_value_c,
+            "gate_value_c": reference_value_c,
+            "gate_pass_value_c": gate_value_c,
+            "tail_reference_c": tail_reference_c,
+            "tail_reference_missing": reference_missing,
             "last_poll_mono_s": None,
             "samples": [],
             "read_error_count": 0,
@@ -14593,6 +14748,8 @@ class CalibrationRunner:
             final_decision = "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE"
         elif reason_text == "dewpoint_live_sample_gap_exceeded":
             final_decision = "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED"
+        elif reason_text == "dewpoint_gate_tail_reference_missing":
+            final_decision = "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE"
         self._mark_co2_route_terminal_failure(
             final_decision=final_decision,
             reason=state["failure_reason"],
@@ -14734,6 +14891,27 @@ class CalibrationRunner:
                 f"read_interval_s={read_interval_s:.3f}"
             ),
         )
+        if bool(dewpoint_monitor.get("tail_reference_missing")):
+            self._fail_analyzer_gate_dewpoint_monitor(
+                point,
+                dewpoint_monitor,
+                reason="dewpoint_gate_tail_reference_missing",
+            )
+            raw_tap_summary = {}
+            raw_tap_end_fn = getattr(self.logger, "end_pace_raw_tap_analyzer_gate", None)
+            if callable(raw_tap_end_fn):
+                try:
+                    raw_tap_summary = dict(raw_tap_end_fn() or {})
+                except Exception:
+                    raw_tap_summary = {}
+            self._emit_pressure_controller_runtime_audit(
+                stage="analyzer_gate_end",
+                point=point,
+                route="co2",
+                extra_fields=raw_tap_summary,
+            )
+            self._restore_logger_workflow_stage(previous_workflow_stage)
+            return False
         stable = self._wait_primary_sensor_stable(
             point,
             value_key="co2_ratio_f",
@@ -16557,6 +16735,7 @@ class CalibrationRunner:
 
         gate_ts = self._as_float(runtime_state.get("dewpoint_gate_pass_ts"))
         gate_value_c = self._as_float(runtime_state.get("dewpoint_gate_pass_value_c"))
+        tail_reference_c = self._as_float(runtime_state.get("dewpoint_gate_tail_reference_c"))
         snapshot = dict(self._preseal_dewpoint_snapshot or {})
         preseal_ts = self._as_float(snapshot.get("sample_wall_ts"))
         preseal_value_c = self._as_float(snapshot.get("dewpoint_c"))
@@ -16576,8 +16755,8 @@ class CalibrationRunner:
         if freshness_reference_ts is not None and preseal_ts is not None:
             age_s = max(0.0, float(preseal_ts) - float(freshness_reference_ts))
         delta_c = None
-        if gate_value_c is not None and preseal_value_c is not None:
-            delta_c = float(preseal_value_c) - float(gate_value_c)
+        if tail_reference_c is not None and preseal_value_c is not None:
+            delta_c = float(preseal_value_c) - float(tail_reference_c)
         max_age_s = self._preseal_dewpoint_freshness_max_age_s()
         rebound_limit_c = self._preseal_dewpoint_freshness_max_delta_c()
         max_gap_s = self._analyzer_gate_dewpoint_monitor_max_gap_s()
@@ -16591,8 +16770,9 @@ class CalibrationRunner:
         read_errors_exceeded = bool(
             monitor_enabled and int(monitor_read_error_count) > int(monitor_max_read_errors)
         )
+        reference_missing = tail_reference_c is None
         sample_expired = bool(age_expired or no_live_sample or gap_expired or read_errors_exceeded)
-        rebound_exceeded = bool(delta_c is None or float(delta_c) > rebound_limit_c)
+        rebound_exceeded = bool(reference_missing or delta_c is None or float(delta_c) > rebound_limit_c)
         if delta_c is None:
             dewpoint_trend = "unknown"
         elif float(delta_c) > 0.05:
@@ -16607,7 +16787,11 @@ class CalibrationRunner:
         decision = "fail_closed" if expired else "pass"
         final_decision = ""
         if rebound_exceeded:
-            final_decision = "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
+            final_decision = (
+                "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE"
+                if reference_missing
+                else "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
+            )
         elif gap_expired:
             final_decision = "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED"
         elif sample_expired:
@@ -16619,6 +16803,7 @@ class CalibrationRunner:
                 else ""
             ),
             "dewpoint_gate_pass_value_c": gate_value_c,
+            "dewpoint_gate_tail_reference_c": tail_reference_c,
             "dewpoint_preseal_read_ts": (
                 datetime.fromtimestamp(float(preseal_ts)).isoformat(timespec="milliseconds")
                 if preseal_ts is not None
