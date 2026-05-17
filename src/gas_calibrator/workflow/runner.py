@@ -13998,7 +13998,6 @@ class CalibrationRunner:
     def _dewpoint_gate_tail_trace_fields(self, gate_eval: Mapping[str, Any]) -> Dict[str, Any]:
         keys = (
             "dewpoint_gate_coverage_s",
-            "dewpoint_gate_phase_elapsed_includes_base_soak",
             "dewpoint_gate_tail_window_s",
             "dewpoint_gate_tail_coverage_s",
             "dewpoint_gate_tail_sample_count",
@@ -14015,7 +14014,6 @@ class CalibrationRunner:
         )
         fields = {key: gate_eval.get(key) for key in keys}
         fields["dewpoint_gate_coverage_s"] = gate_eval.get("dewpoint_gate_tail_coverage_s")
-        fields["dewpoint_gate_phase_elapsed_includes_base_soak"] = False
         return fields
 
     def _build_h2o_route_dewpoint_gate_row(

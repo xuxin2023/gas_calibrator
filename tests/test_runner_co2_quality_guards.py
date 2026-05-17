@@ -416,6 +416,165 @@ def test_no_tail_reference_fails_closed(tmp_path: Path) -> None:
     assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE"
 
 
+class _FakeDewpointGateMeter:
+    def __init__(self, values: list[float]):
+        self.values = list(values)
+        self.index = 0
+
+    def get_current_fast(self, *_, **__) -> dict[str, float]:
+        if self.index < len(self.values):
+            value = self.values[self.index]
+            self.index += 1
+        else:
+            value = self.values[-1]
+        return {"dewpoint_c": value, "temp_c": 20.0, "rh_pct": 5.0}
+
+
+class _FakeClock:
+    def __init__(self, start: float = 1000.0):
+        self.current = float(start)
+
+    def time(self) -> float:
+        return self.current
+
+    def sleep(self, seconds: float) -> None:
+        self.current += max(0.0, float(seconds))
+
+
+def _patch_runner_clock(monkeypatch: pytest.MonkeyPatch, clock: _FakeClock) -> None:
+    class _PatchedDateTime:
+        @classmethod
+        def now(cls, *_, **__) -> datetime:
+            return datetime.fromtimestamp(clock.time())
+
+        @classmethod
+        def fromtimestamp(cls, value: float, *_, **__) -> datetime:
+            return datetime.fromtimestamp(float(value))
+
+    monkeypatch.setattr(runner_module.time, "time", clock.time)
+    monkeypatch.setattr(runner_module.time, "sleep", clock.sleep)
+    monkeypatch.setattr(runner_module, "datetime", _PatchedDateTime)
+
+
+def _dewpoint_gate_runner(
+    tmp_path: Path,
+    *,
+    dewpoints: list[float],
+    max_total_wait_s: float = 120.0,
+) -> tuple[CalibrationRunner, RunLogger, CalibrationPoint]:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "gas_route_dewpoint_gate_enabled": True,
+                    "gas_route_dewpoint_gate_window_s": 30.0,
+                    "gas_route_dewpoint_gate_poll_s": 1.0,
+                    "gas_route_dewpoint_gate_max_total_wait_s": max_total_wait_s,
+                    "gas_route_dewpoint_gate_log_interval_s": 999.0,
+                    "gas_route_dewpoint_gate_tail_min_coverage_ratio": 0.8,
+                    "gas_route_dewpoint_gate_tail_max_gap_s": 5.0,
+                    "gas_route_dewpoint_gate_tail_reference_method": "median",
+                }
+            }
+        },
+        {"dewpoint": _FakeDewpointGateMeter(dewpoints)},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    return runner, logger, _point_co2_low_pressure()
+
+
+def test_dewpoint_gate_runtime_fields_no_duplicate_kwargs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, logger, point = _dewpoint_gate_runner(
+        tmp_path,
+        dewpoints=[-24.81, -24.89],
+        max_total_wait_s=1.0,
+    )
+    clock = _FakeClock()
+    _patch_runner_clock(monkeypatch, clock)
+
+    assert (
+        runner._wait_co2_route_dewpoint_gate_before_seal(
+            point,
+            base_soak_s=300.0,
+            log_context="unit test insufficient coverage",
+        )
+        is False
+    )
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["co2_route_base_soak_s"] == pytest.approx(300.0)
+    assert state["co2_route_base_soak_completed"] is True
+    assert state["dewpoint_gate_phase_elapsed_includes_base_soak"] is False
+    assert state["dewpoint_gate_coverage_s"] < 24.0
+    assert state["flush_gate_status"] == "timeout"
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE"
+
+
+def test_dewpoint_gate_phase_elapsed_includes_base_soak_recorded_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, logger, point = _dewpoint_gate_runner(
+        tmp_path,
+        dewpoints=[-30.0] * 40,
+        max_total_wait_s=120.0,
+    )
+    clock = _FakeClock()
+    _patch_runner_clock(monkeypatch, clock)
+
+    assert runner._wait_co2_route_dewpoint_gate_before_seal(
+        point,
+        base_soak_s=300.0,
+        log_context="unit test pass",
+    )
+    logger.close()
+
+    import csv
+
+    path = logger.run_dir / "pressure_transition_trace.csv"
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        assert reader.fieldnames is not None
+        assert reader.fieldnames.count("dewpoint_gate_phase_elapsed_includes_base_soak") == 1
+        rows = list(reader)
+    gate_end = [row for row in rows if row["trace_stage"] == "co2_precondition_dewpoint_gate_end"][-1]
+    assert gate_end["dewpoint_gate_phase_elapsed_includes_base_soak"] == "False"
+
+
+def test_dewpoint_gate_waiting_with_many_samples_does_not_abort(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, logger, point = _dewpoint_gate_runner(
+        tmp_path,
+        dewpoints=[-30.0] * 40,
+        max_total_wait_s=120.0,
+    )
+    clock = _FakeClock()
+    _patch_runner_clock(monkeypatch, clock)
+
+    assert runner._wait_co2_route_dewpoint_gate_before_seal(
+        point,
+        base_soak_s=300.0,
+        log_context="unit test many samples",
+    )
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["flush_gate_status"] == "pass"
+    assert state["dewpoint_gate_elapsed_s"] >= 24.0
+    assert state["dewpoint_gate_coverage_s"] >= 24.0
+    assert state["dewpoint_gate_phase_elapsed_includes_base_soak"] is False
+    assert state["dewpoint_gate_tail_reference_c"] == pytest.approx(-30.0)
+
+
 @pytest.mark.parametrize(
     ("policy", "expected_allowed", "expected_blocked"),
     [
