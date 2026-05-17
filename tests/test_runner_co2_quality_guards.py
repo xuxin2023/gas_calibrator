@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import types
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -484,6 +485,113 @@ def _dewpoint_gate_runner(
         lambda *_: None,
     )
     return runner, logger, _point_co2_low_pressure()
+
+
+def _base_soak_runner(
+    tmp_path: Path,
+    *,
+    dewpoints: list[float],
+    gate_enabled: bool = False,
+) -> tuple[CalibrationRunner, RunLogger, CalibrationPoint]:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "co2_route": {"first_point_preseal_soak_s": 5.0},
+                    "co2_route_base_soak_dewpoint_trace_enabled": True,
+                    "co2_route_base_soak_dewpoint_sample_interval_s": 1.0,
+                    "gas_route_dewpoint_gate_enabled": gate_enabled,
+                    "gas_route_dewpoint_gate_window_s": 30.0,
+                    "gas_route_dewpoint_gate_poll_s": 1.0,
+                    "gas_route_dewpoint_gate_max_total_wait_s": 120.0,
+                    "gas_route_dewpoint_gate_log_interval_s": 999.0,
+                    "gas_route_dewpoint_gate_tail_min_coverage_ratio": 0.8,
+                    "gas_route_dewpoint_gate_tail_max_gap_s": 5.0,
+                    "gas_route_dewpoint_gate_tail_reference_method": "median",
+                }
+            }
+        },
+        {"dewpoint": _FakeDewpointGateMeter(dewpoints)},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    return runner, logger, _point_co2_low_pressure()
+
+
+def test_base_soak_records_dewpoint_timeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, logger, point = _base_soak_runner(
+        tmp_path,
+        dewpoints=[-24.8, -25.0, -25.3, -25.2, -25.1, -25.0],
+        gate_enabled=False,
+    )
+    clock = _FakeClock()
+    _patch_runner_clock(monkeypatch, clock)
+
+    assert runner._wait_co2_route_soak_before_seal(point)
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["co2_route_base_soak_completed"] is True
+    assert state["co2_route_base_soak_dewpoint_trace_enabled"] is True
+    assert state["co2_route_base_soak_dewpoint_sample_count"] >= 4
+    assert state["co2_route_base_soak_dewpoint_min_c"] == pytest.approx(-25.3)
+    timeline_path = Path(state["co2_route_base_soak_dewpoint_timeline_csv"])
+    assert timeline_path.exists()
+    with timeline_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows
+    assert {"ts", "elapsed_since_route_open_s", "dewpoint_c", "read_ok"}.issubset(rows[0])
+
+
+def test_base_soak_dewpoint_not_counted_as_gate_coverage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, logger, point = _base_soak_runner(
+        tmp_path,
+        dewpoints=[-25.0] * 80,
+        gate_enabled=True,
+    )
+    clock = _FakeClock()
+    _patch_runner_clock(monkeypatch, clock)
+
+    assert runner._wait_co2_route_soak_before_seal(point)
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["co2_route_base_soak_dewpoint_sample_count"] > 0
+    assert state["dewpoint_gate_phase_elapsed_includes_base_soak"] is False
+    assert state["dewpoint_gate_coverage_s"] >= 24.0
+    assert state["dewpoint_gate_coverage_s"] < 30.0
+    assert state["dewpoint_gate_elapsed_s"] < 120.0
+
+
+def test_base_soak_dewpoint_timeline_csv_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, logger, point = _base_soak_runner(
+        tmp_path,
+        dewpoints=[-24.8, -24.9, -25.0, -24.7, -24.6],
+        gate_enabled=False,
+    )
+    clock = _FakeClock()
+    _patch_runner_clock(monkeypatch, clock)
+
+    assert runner._wait_co2_route_soak_before_seal(point)
+    logger.close()
+
+    timeline_path = logger.run_dir / "co2_route_base_soak_dewpoint_timeline.csv"
+    assert timeline_path.exists()
+    with timeline_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) >= 4
+    assert rows[0]["source"] == "co2_route_base_soak_dewpoint_trace"
 
 
 def test_dewpoint_gate_runtime_fields_no_duplicate_kwargs(

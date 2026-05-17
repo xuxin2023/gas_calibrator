@@ -14,7 +14,7 @@ import json
 from collections import Counter, deque
 from datetime import datetime, timedelta
 from pathlib import Path
-from statistics import mean, stdev
+from statistics import mean, median, stdev
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from ..config import (
@@ -151,7 +151,57 @@ _PRESSURE_TRACE_FIELDS = [
     "dewpoint_gate_pass_ts",
     "dewpoint_gate_pass_value_c",
     "co2_route_base_soak_s",
+    "co2_route_base_soak_begin_ts",
+    "co2_route_base_soak_end_ts",
     "co2_route_base_soak_completed",
+    "co2_route_base_soak_dewpoint_trace_enabled",
+    "co2_route_base_soak_dewpoint_sample_interval_s",
+    "co2_route_base_soak_dewpoint_sample_count",
+    "co2_route_base_soak_dewpoint_first_ts",
+    "co2_route_base_soak_dewpoint_first_c",
+    "co2_route_base_soak_dewpoint_last_ts",
+    "co2_route_base_soak_dewpoint_last_c",
+    "co2_route_base_soak_dewpoint_min_c",
+    "co2_route_base_soak_dewpoint_min_ts",
+    "co2_route_base_soak_dewpoint_max_c",
+    "co2_route_base_soak_dewpoint_max_ts",
+    "co2_route_base_soak_dewpoint_mean_c",
+    "co2_route_base_soak_dewpoint_median_c",
+    "co2_route_base_soak_dewpoint_span_c",
+    "co2_route_base_soak_dewpoint_slope_c_per_min",
+    "co2_route_base_soak_dewpoint_max_gap_s",
+    "co2_route_base_soak_dewpoint_trend",
+    "co2_route_base_soak_dewpoint_read_error_count",
+    "co2_route_base_soak_dewpoint_first_rebound_ts",
+    "co2_route_base_soak_dewpoint_first_rebound_c",
+    "co2_route_base_soak_dewpoint_first_rebound_delta_c",
+    "co2_route_base_soak_dewpoint_timeline_csv",
+    "co2_base_soak_boundary_window_label",
+    "co2_base_soak_boundary_window_begin_ts",
+    "co2_base_soak_boundary_window_end_ts",
+    "co2_base_soak_boundary_pace_write_count",
+    "co2_base_soak_boundary_vent1_count",
+    "co2_base_soak_boundary_readonly_query_count",
+    "co2_base_soak_boundary_vent0_count",
+    "co2_base_soak_boundary_outp0_count",
+    "co2_base_soak_boundary_outp1_count",
+    "co2_base_soak_boundary_isol_command_count",
+    "co2_base_soak_boundary_mode_range_command_count",
+    "co2_base_soak_boundary_setpoint_sour_pres_count",
+    "co2_base_soak_boundary_unexpected_state_changing_write_count",
+    "co2_base_soak_boundary_first_unexpected_state_changing_write",
+    "co2_base_soak_boundary_first_unexpected_call_stack",
+    "co2_base_soak_boundary_first_unexpected_thread",
+    "co2_base_soak_boundary_relay_valve_write_count",
+    "co2_base_soak_boundary_actual_open_valves",
+    "co2_base_soak_boundary_pace_pressure_hpa",
+    "co2_base_soak_boundary_com22_pressure_hpa",
+    "co2_base_soak_boundary_dewpoint_first_c",
+    "co2_base_soak_boundary_dewpoint_last_c",
+    "co2_base_soak_boundary_dewpoint_min_c",
+    "co2_base_soak_boundary_dewpoint_max_c",
+    "co2_base_soak_boundary_dewpoint_trend",
+    "base_soak_end_pressure_controller_state_unchanged",
     "dewpoint_gate_coverage_s",
     "dewpoint_gate_phase_elapsed_includes_base_soak",
     "dewpoint_gate_tail_window_s",
@@ -14012,8 +14062,10 @@ class CalibrationRunner:
         total_elapsed_s: float,
         snapshot: Dict[str, Any],
     ) -> Dict[str, Any]:
+        sample_wall_ts = time.time()
         return {
             "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+            "sample_wall_ts": sample_wall_ts,
             "phase_elapsed_s": max(0.0, float(total_elapsed_s)),
             "phase": "co2_route_precondition",
             "controller_vent_state": "VENT_ON",
@@ -14021,6 +14073,350 @@ class CalibrationRunner:
             "dewpoint_temp_c": snapshot.get("temp_c"),
             "dewpoint_rh_percent": snapshot.get("rh_pct"),
         }
+
+    def _co2_route_base_soak_dewpoint_trace_enabled(self) -> bool:
+        return bool(self._wf("workflow.stability.co2_route_base_soak_dewpoint_trace_enabled", True))
+
+    def _co2_route_base_soak_dewpoint_sample_interval_s(self) -> float:
+        fallback = self._wf("workflow.stability.gas_route_dewpoint_gate_poll_s", 5.0)
+        return max(
+            0.5,
+            float(
+                self._wf(
+                    "workflow.stability.co2_route_base_soak_dewpoint_sample_interval_s",
+                    fallback,
+                )
+                or fallback
+                or 5.0
+            ),
+        )
+
+    def _co2_route_base_soak_dewpoint_timeline_path(self) -> Optional[Path]:
+        run_dir = getattr(self.logger, "run_dir", None)
+        if run_dir is None:
+            return None
+        try:
+            return Path(run_dir) / "co2_route_base_soak_dewpoint_timeline.csv"
+        except Exception:
+            return None
+
+    def _read_co2_route_base_soak_dewpoint_trace_sample(
+        self,
+        *,
+        route_open_wall_s: float,
+    ) -> Dict[str, Any]:
+        sample_wall_ts = time.time()
+        row: Dict[str, Any] = {
+            "ts": self._iso_ts_from_wall(sample_wall_ts),
+            "sample_wall_ts": sample_wall_ts,
+            "elapsed_since_route_open_s": max(0.0, sample_wall_ts - float(route_open_wall_s)),
+            "dewpoint_c": None,
+            "source": "co2_route_base_soak_dewpoint_trace",
+            "read_ok": False,
+            "error": "",
+            "pace_vent_status_nearest": "",
+            "pace_pressure_nearest_hpa": None,
+            "com22_pressure_nearest_hpa": None,
+            "vent1_last_refresh_age_nearest_s": None,
+        }
+        try:
+            snapshot = self._read_precondition_dewpoint_gate_snapshot()
+            row["dewpoint_c"] = self._as_float(snapshot.get("dewpoint_c"))
+            row["read_ok"] = row["dewpoint_c"] is not None
+        except Exception as exc:
+            row["error"] = str(exc) or "dewpoint_read_failed"
+        pace = self.devices.get("pace")
+        try:
+            row["pace_vent_status_nearest"] = self._pace_state_snapshot(pace, refresh=False).get(
+                "pace_vent_status",
+                "",
+            )
+        except Exception:
+            row["pace_vent_status_nearest"] = ""
+        try:
+            row["pace_pressure_nearest_hpa"] = self._read_pace_pressure_now(pace) if pace is not None else None
+        except Exception:
+            row["pace_pressure_nearest_hpa"] = None
+        try:
+            row["com22_pressure_nearest_hpa"] = self._read_com22_pressure_now()
+        except Exception:
+            row["com22_pressure_nearest_hpa"] = None
+        try:
+            freshness = self._route_open_vent1_freshness_evidence(
+                pace,
+                now_wall_s=time.time(),
+                now_monotonic_s=time.monotonic(),
+            )
+            row["vent1_last_refresh_age_nearest_s"] = self._as_float(
+                freshness.get("vent1_last_refresh_age_s")
+            )
+        except Exception:
+            row["vent1_last_refresh_age_nearest_s"] = None
+        return row
+
+    def _write_co2_route_base_soak_dewpoint_timeline_csv(
+        self,
+        point: CalibrationPoint,
+        rows: List[Dict[str, Any]],
+    ) -> str:
+        path = self._co2_route_base_soak_dewpoint_timeline_path()
+        if path is None or not rows:
+            return str(path or "")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fieldnames = [
+            "point_row",
+            "pressure_target_hpa",
+            "ts",
+            "elapsed_since_route_open_s",
+            "dewpoint_c",
+            "source",
+            "read_ok",
+            "error",
+            "pace_vent_status_nearest",
+            "pace_pressure_nearest_hpa",
+            "com22_pressure_nearest_hpa",
+            "vent1_last_refresh_age_nearest_s",
+        ]
+        needs_header = not path.exists() or path.stat().st_size <= 0
+        with path.open("a", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+            if needs_header:
+                writer.writeheader()
+            for row in rows:
+                out = dict(row)
+                out["point_row"] = int(point.index)
+                out["pressure_target_hpa"] = self._as_float(getattr(point, "target_pressure_hpa", None))
+                writer.writerow(out)
+        return str(path)
+
+    def _summarize_dewpoint_trace_rows(
+        self,
+        rows: List[Dict[str, Any]],
+        *,
+        prefix: str,
+        timeline_csv: str = "",
+    ) -> Dict[str, Any]:
+        valid = [
+            row
+            for row in rows
+            if bool(row.get("read_ok")) and self._as_float(row.get("dewpoint_c")) is not None
+        ]
+        values = [float(self._as_float(row.get("dewpoint_c"))) for row in valid]
+        wall_values = [
+            (float(self._as_float(row.get("sample_wall_ts"))), float(self._as_float(row.get("dewpoint_c"))))
+            for row in valid
+            if self._as_float(row.get("sample_wall_ts")) is not None
+        ]
+        wall_values.sort(key=lambda item: item[0])
+        fields: Dict[str, Any] = {
+            f"{prefix}_sample_count": len(valid),
+            f"{prefix}_read_error_count": sum(1 for row in rows if not bool(row.get("read_ok"))),
+            f"{prefix}_timeline_csv": timeline_csv,
+        }
+        if not valid or not values or not wall_values:
+            fields.update(
+                {
+                    f"{prefix}_first_ts": "",
+                    f"{prefix}_first_c": None,
+                    f"{prefix}_last_ts": "",
+                    f"{prefix}_last_c": None,
+                    f"{prefix}_min_c": None,
+                    f"{prefix}_min_ts": "",
+                    f"{prefix}_max_c": None,
+                    f"{prefix}_max_ts": "",
+                    f"{prefix}_mean_c": None,
+                    f"{prefix}_median_c": None,
+                    f"{prefix}_span_c": None,
+                    f"{prefix}_slope_c_per_min": None,
+                    f"{prefix}_max_gap_s": None,
+                    f"{prefix}_trend": "unavailable",
+                    f"{prefix}_first_rebound_ts": "",
+                    f"{prefix}_first_rebound_c": None,
+                    f"{prefix}_first_rebound_delta_c": None,
+                }
+            )
+            return fields
+
+        first_ts, first_value = wall_values[0]
+        last_ts, last_value = wall_values[-1]
+        min_ts, min_value = min(wall_values, key=lambda item: item[1])
+        max_ts, max_value = max(wall_values, key=lambda item: item[1])
+        gaps = [max(0.0, curr[0] - prev[0]) for prev, curr in zip(wall_values, wall_values[1:])]
+        duration_s = max(0.0, last_ts - first_ts)
+        slope_c_per_min = ((last_value - first_value) / duration_s * 60.0) if duration_s > 0 else 0.0
+        change = last_value - first_value
+        if len(wall_values) == 1:
+            trend = "single_sample"
+        elif change > 0.05:
+            trend = "rising"
+        elif change < -0.05:
+            trend = "falling"
+        else:
+            trend = "stable"
+        first_rebound_ts = ""
+        first_rebound_c = None
+        first_rebound_delta_c = None
+        running_min = wall_values[0][1]
+        running_min_ts = wall_values[0][0]
+        for ts, value in wall_values[1:]:
+            if value < running_min:
+                running_min = value
+                running_min_ts = ts
+                continue
+            delta = value - running_min
+            if delta > 0.20:
+                first_rebound_ts = self._iso_ts_from_wall(ts)
+                first_rebound_c = value
+                first_rebound_delta_c = delta
+                break
+        fields.update(
+            {
+                f"{prefix}_first_ts": self._iso_ts_from_wall(first_ts),
+                f"{prefix}_first_c": first_value,
+                f"{prefix}_last_ts": self._iso_ts_from_wall(last_ts),
+                f"{prefix}_last_c": last_value,
+                f"{prefix}_min_c": min_value,
+                f"{prefix}_min_ts": self._iso_ts_from_wall(min_ts),
+                f"{prefix}_max_c": max_value,
+                f"{prefix}_max_ts": self._iso_ts_from_wall(max_ts),
+                f"{prefix}_mean_c": mean(values),
+                f"{prefix}_median_c": median(values),
+                f"{prefix}_span_c": max(values) - min(values),
+                f"{prefix}_slope_c_per_min": slope_c_per_min,
+                f"{prefix}_max_gap_s": max(gaps) if gaps else 0.0,
+                f"{prefix}_trend": trend,
+                f"{prefix}_first_rebound_ts": first_rebound_ts,
+                f"{prefix}_first_rebound_c": first_rebound_c,
+                f"{prefix}_first_rebound_delta_c": first_rebound_delta_c,
+            }
+        )
+        return fields
+
+    def _count_relay_valve_writes_between(self, begin_ts: str, end_ts: str) -> int:
+        path = getattr(self.logger, "io_path", None)
+        if not path:
+            return 0
+        try:
+            io_path = Path(path)
+        except Exception:
+            return 0
+        if not io_path.exists():
+            return 0
+        count = 0
+        try:
+            with io_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    ts = str(row.get("timestamp") or "").strip()
+                    if not ts or ts < begin_ts or ts > end_ts:
+                        continue
+                    device = str(row.get("device") or "").lower()
+                    direction = str(row.get("direction") or "").strip().upper()
+                    command = str(row.get("command") or "").lower()
+                    if "relay" not in device and "valve" not in device:
+                        continue
+                    if direction not in {"TX", "WRITE"}:
+                        continue
+                    if "write" in command or "open" in command or "close" in command:
+                        count += 1
+        except Exception:
+            return 0
+        return count
+
+    def _record_co2_base_soak_boundary_audit(
+        self,
+        point: CalibrationPoint,
+        *,
+        base_soak_end_wall_s: Any,
+        dewpoint_rows: List[Dict[str, Any]],
+    ) -> None:
+        end_wall = self._as_float(base_soak_end_wall_s)
+        if end_wall is None or end_wall <= 0:
+            return
+        windows = (
+            ("pre30", -30.0, 0.0),
+            ("post30", 0.0, 30.0),
+            ("plusminus10", -10.0, 10.0),
+        )
+        summarize_fn = getattr(self.logger, "summarize_pace_raw_tap_window", None)
+        pace = self.devices.get("pace")
+        pace_pressure = self._read_pace_pressure_now(pace) if pace is not None else None
+        com22_pressure = self._read_com22_pressure_now()
+        actual_open_valves = ",".join(str(v) for v in self._cached_actual_open_valves())
+        for label, start_offset_s, end_offset_s in windows:
+            begin_wall = end_wall + start_offset_s
+            finish_wall = end_wall + end_offset_s
+            begin_ts = self._iso_ts_from_wall(begin_wall)
+            finish_ts = self._iso_ts_from_wall(finish_wall)
+            raw_summary = dict(summarize_fn(begin_ts, finish_ts) or {}) if callable(summarize_fn) else {}
+            window_rows = [
+                row
+                for row in dewpoint_rows
+                if self._as_float(row.get("sample_wall_ts")) is not None
+                and begin_wall <= float(self._as_float(row.get("sample_wall_ts"))) <= finish_wall
+            ]
+            dew_summary = self._summarize_dewpoint_trace_rows(
+                window_rows,
+                prefix="co2_base_soak_boundary_dewpoint",
+            )
+            unexpected_count = self._as_int(raw_summary.get("unexpected_state_changing_write_count")) or 0
+            boundary_fields = {
+                "co2_base_soak_boundary_window_label": label,
+                "co2_base_soak_boundary_window_begin_ts": begin_ts,
+                "co2_base_soak_boundary_window_end_ts": finish_ts,
+                "co2_base_soak_boundary_pace_write_count": raw_summary.get("pace_write_count", 0),
+                "co2_base_soak_boundary_vent1_count": raw_summary.get("vent1_count", 0),
+                "co2_base_soak_boundary_readonly_query_count": raw_summary.get("readonly_query_count", 0),
+                "co2_base_soak_boundary_vent0_count": raw_summary.get("vent0_count", 0),
+                "co2_base_soak_boundary_outp0_count": raw_summary.get("outp0_count", 0),
+                "co2_base_soak_boundary_outp1_count": raw_summary.get("outp1_count", 0),
+                "co2_base_soak_boundary_isol_command_count": raw_summary.get("isol_command_count", 0),
+                "co2_base_soak_boundary_mode_range_command_count": raw_summary.get(
+                    "mode_range_command_count",
+                    0,
+                ),
+                "co2_base_soak_boundary_setpoint_sour_pres_count": raw_summary.get(
+                    "setpoint_sour_pres_count",
+                    0,
+                ),
+                "co2_base_soak_boundary_unexpected_state_changing_write_count": unexpected_count,
+                "co2_base_soak_boundary_first_unexpected_state_changing_write": raw_summary.get(
+                    "first_unexpected_state_changing_write",
+                    "",
+                ),
+                "co2_base_soak_boundary_first_unexpected_call_stack": raw_summary.get(
+                    "first_unexpected_call_stack",
+                    "",
+                ),
+                "co2_base_soak_boundary_first_unexpected_thread": raw_summary.get(
+                    "first_unexpected_thread",
+                    "",
+                ),
+                "co2_base_soak_boundary_relay_valve_write_count": self._count_relay_valve_writes_between(
+                    begin_ts,
+                    finish_ts,
+                ),
+                "co2_base_soak_boundary_actual_open_valves": actual_open_valves,
+                "co2_base_soak_boundary_pace_pressure_hpa": pace_pressure,
+                "co2_base_soak_boundary_com22_pressure_hpa": com22_pressure,
+                "base_soak_end_pressure_controller_state_unchanged": (
+                    label == "plusminus10" and unexpected_count == 0
+                ),
+                **dew_summary,
+            }
+            self._set_point_runtime_fields(point, phase="co2", **boundary_fields)
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="co2_base_soak_boundary_audit",
+                pressure_target_hpa=point.target_pressure_hpa,
+                pace_pressure_hpa=pace_pressure,
+                pressure_gauge_hpa=com22_pressure,
+                refresh_pace_state=False,
+                extra_fields=boundary_fields,
+                note=f"base_soak_end_boundary_window={label}",
+            )
 
     def _dewpoint_gate_tail_trace_fields(self, gate_eval: Mapping[str, Any]) -> Dict[str, Any]:
         keys = (
@@ -14065,6 +14461,9 @@ class CalibrationRunner:
         *,
         base_soak_s: float,
         log_context: str,
+        base_soak_begin_wall_s: Any = None,
+        base_soak_end_wall_s: Any = None,
+        base_soak_dewpoint_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
         cfg = self._gas_route_dewpoint_gate_cfg()
         if not bool(cfg.get("enabled")):
@@ -14072,8 +14471,11 @@ class CalibrationRunner:
 
         gate_begin_ts = time.time()
         gate_rows: List[Dict[str, Any]] = []
+        base_soak_dewpoint_rows = list(base_soak_dewpoint_rows or [])
         base_soak_fields = {
             "co2_route_base_soak_s": float(base_soak_s),
+            "co2_route_base_soak_begin_ts": self._iso_ts_from_wall(base_soak_begin_wall_s),
+            "co2_route_base_soak_end_ts": self._iso_ts_from_wall(base_soak_end_wall_s),
             "co2_route_base_soak_completed": True,
             "dewpoint_gate_phase_elapsed_includes_base_soak": False,
         }
@@ -14147,6 +14549,11 @@ class CalibrationRunner:
                 self.log(
                     "CO2 route precondition dewpoint gate failed before seal: "
                     f"row={point.index} reason={reason}"
+                )
+                self._record_co2_base_soak_boundary_audit(
+                    point,
+                    base_soak_end_wall_s=base_soak_end_wall_s,
+                    dewpoint_rows=[*base_soak_dewpoint_rows, *gate_rows],
                 )
                 return False
 
@@ -14241,6 +14648,11 @@ class CalibrationRunner:
                     f"tail_slope_60s={dewpoint_tail_slope_60s} "
                     f"rebound={dewpoint_rebound_detected}"
                 )
+                self._record_co2_base_soak_boundary_audit(
+                    point,
+                    base_soak_end_wall_s=base_soak_end_wall_s,
+                    dewpoint_rows=[*base_soak_dewpoint_rows, *gate_rows],
+                )
                 return True
 
             if float(cfg["max_total_wait_s"]) > 0 and gate_elapsed_after_soak_s >= float(cfg["max_total_wait_s"]):
@@ -14294,6 +14706,11 @@ class CalibrationRunner:
                         "CO2 route precondition failed: dewpoint gate coverage insufficient "
                         f"after fixed purge; row={point.index} reason={reason}"
                     )
+                    self._record_co2_base_soak_boundary_audit(
+                        point,
+                        base_soak_end_wall_s=base_soak_end_wall_s,
+                        dewpoint_rows=[*base_soak_dewpoint_rows, *gate_rows],
+                    )
                     return False
                 if str(cfg["policy"]) in {"warn", "pass"}:
                     self.log(
@@ -14302,11 +14719,21 @@ class CalibrationRunner:
                         f"gate_wait_after_soak_s={gate_elapsed_after_soak_s:.1f} "
                         f"total_wait_s={total_elapsed_s:.1f} reason={reason}"
                     )
+                    self._record_co2_base_soak_boundary_audit(
+                        point,
+                        base_soak_end_wall_s=base_soak_end_wall_s,
+                        dewpoint_rows=[*base_soak_dewpoint_rows, *gate_rows],
+                    )
                     return True
                 self.log(
                     "CO2 route precondition failed: dewpoint gate timeout after fixed purge; "
                     f"row={point.index} gate_wait_after_soak_s={gate_elapsed_after_soak_s:.1f} "
                     f"total_wait_s={total_elapsed_s:.1f} reason={reason}"
+                )
+                self._record_co2_base_soak_boundary_audit(
+                    point,
+                    base_soak_end_wall_s=base_soak_end_wall_s,
+                    dewpoint_rows=[*base_soak_dewpoint_rows, *gate_rows],
                 )
                 return False
 
@@ -14560,10 +14987,14 @@ class CalibrationRunner:
             point,
             reason=f"configured_route_soak_s={soak_s:.3f} context={log_context}",
         )
+        trace_dewpoint_enabled = self._co2_route_base_soak_dewpoint_trace_enabled()
+        trace_dewpoint_interval_s = self._co2_route_base_soak_dewpoint_sample_interval_s()
         self._set_point_runtime_fields(
             point,
             phase="co2",
             configured_route_soak_s=soak_s,
+            co2_route_base_soak_dewpoint_trace_enabled=trace_dewpoint_enabled,
+            co2_route_base_soak_dewpoint_sample_interval_s=trace_dewpoint_interval_s,
         )
         self._append_pressure_trace_row(
             point=point,
@@ -14572,6 +15003,10 @@ class CalibrationRunner:
             trace_stage="soak_begin",
             pressure_target_hpa=point.target_pressure_hpa,
             refresh_pace_state=False,
+            extra_fields={
+                "co2_route_base_soak_dewpoint_trace_enabled": trace_dewpoint_enabled,
+                "co2_route_base_soak_dewpoint_sample_interval_s": trace_dewpoint_interval_s,
+            },
             note=f"configured_route_soak_s={soak_s:.3f} context={log_context}",
         )
         self._emit_stage_event(
@@ -14586,10 +15021,19 @@ class CalibrationRunner:
             f"(row {point.index})"
         )
         start = time.time()
+        base_soak_dewpoint_rows: List[Dict[str, Any]] = []
+        next_dewpoint_sample_ts = start if trace_dewpoint_enabled else float("inf")
         while time.time() - start < soak_s:
             if self.stop_event.is_set():
                 return False
             self._check_pause()
+            if trace_dewpoint_enabled and time.time() >= next_dewpoint_sample_ts:
+                base_soak_dewpoint_rows.append(
+                    self._read_co2_route_base_soak_dewpoint_trace_sample(
+                        route_open_wall_s=start,
+                    )
+                )
+                next_dewpoint_sample_ts = time.time() + trace_dewpoint_interval_s
             remain = soak_s - (time.time() - start)
             if int(remain) in {0, int(soak_s), 30, 60, 90, 120}:
                 self._emit_stage_event(
@@ -14599,11 +15043,29 @@ class CalibrationRunner:
                     wait_reason=wait_reason,
                     countdown_s=remain,
                 )
-            time.sleep(min(1.0, max(0.05, remain)))
+            sleep_s = min(1.0, max(0.05, remain))
+            if trace_dewpoint_enabled:
+                sleep_s = min(sleep_s, max(0.05, next_dewpoint_sample_ts - time.time()))
+            time.sleep(sleep_s)
+        base_soak_end_wall_s = time.time()
+        timeline_csv = self._write_co2_route_base_soak_dewpoint_timeline_csv(
+            point,
+            base_soak_dewpoint_rows,
+        )
+        dewpoint_trace_summary = self._summarize_dewpoint_trace_rows(
+            base_soak_dewpoint_rows,
+            prefix="co2_route_base_soak_dewpoint",
+            timeline_csv=timeline_csv,
+        )
         base_soak_fields = {
             "co2_route_base_soak_s": soak_s,
+            "co2_route_base_soak_begin_ts": self._iso_ts_from_wall(start),
+            "co2_route_base_soak_end_ts": self._iso_ts_from_wall(base_soak_end_wall_s),
             "co2_route_base_soak_completed": True,
+            "co2_route_base_soak_dewpoint_trace_enabled": trace_dewpoint_enabled,
+            "co2_route_base_soak_dewpoint_sample_interval_s": trace_dewpoint_interval_s,
             "dewpoint_gate_phase_elapsed_includes_base_soak": False,
+            **dewpoint_trace_summary,
         }
         self._set_point_runtime_fields(point, phase="co2", **base_soak_fields)
         self._append_pressure_trace_row(
@@ -14627,6 +15089,9 @@ class CalibrationRunner:
             point,
             base_soak_s=soak_s,
             log_context=log_context,
+            base_soak_begin_wall_s=start,
+            base_soak_end_wall_s=base_soak_end_wall_s,
+            base_soak_dewpoint_rows=base_soak_dewpoint_rows,
         )
 
     def _begin_co2_open_flow_until_preseal_raw_tap_window(

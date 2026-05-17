@@ -2098,6 +2098,94 @@ class RunLogger:
                 ] = _utc_ts()
             return dict(self._pace_raw_tap_open_flow_until_preseal_summary)
 
+    @staticmethod
+    def _is_vent0_command(raw_text: Any) -> bool:
+        command = normalize_pace_command(raw_text).upper()
+        if "VENT" not in command:
+            return False
+        return re.search(r"VENT\s+(\+?0(?:\.0*)?)\s*$", command) is not None
+
+    @staticmethod
+    def _is_outp_value_command(raw_text: Any, value: int) -> bool:
+        command = normalize_pace_command(raw_text).upper()
+        if "?" in command or "OUTP" not in command:
+            return False
+        return re.search(r"(?:^|:)OUTP\s+(\+?%d(?:\.0*)?)\s*$" % int(value), command) is not None
+
+    def summarize_pace_raw_tap_window(self, begin_ts: Any, end_ts: Any) -> Dict[str, Any]:
+        summary: Dict[str, Any] = {
+            "pace_write_count": 0,
+            "vent1_count": 0,
+            "readonly_query_count": 0,
+            "vent0_count": 0,
+            "outp0_count": 0,
+            "outp1_count": 0,
+            "isol_command_count": 0,
+            "mode_range_command_count": 0,
+            "setpoint_sour_pres_count": 0,
+            "unexpected_state_changing_write_count": 0,
+            "first_unexpected_state_changing_write": "",
+            "first_unexpected_call_stack": "",
+            "first_unexpected_thread": "",
+        }
+        begin_text = str(begin_ts or "").strip()
+        end_text = str(end_ts or "").strip()
+        if not begin_text or not end_text:
+            return summary
+        if not self._pace_raw_tap_enabled:
+            return summary
+        with self._raw_tap_lock:
+            if self._raw_tap_file is not None:
+                self._raw_tap_file.flush()
+            path = self.raw_serial_tap_csv_path
+        if not path.exists():
+            return summary
+        try:
+            with path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    if str(row.get("direction") or "").strip().upper() != "WRITE":
+                        continue
+                    wall_ts = str(row.get("wall_ts") or "").strip()
+                    if not wall_ts or wall_ts < begin_text or wall_ts > end_text:
+                        continue
+                    decoded = normalize_pace_command(
+                        row.get("decoded_command") or row.get("raw_text_decoded") or ""
+                    )
+                    category = str(row.get("command_category") or classify_pace_command(decoded)).upper()
+                    state_changing = str(row.get("is_state_changing_command") or "").lower() == "true"
+                    if not state_changing:
+                        state_changing = is_state_changing_pace_command(decoded)
+
+                    summary["pace_write_count"] += 1
+                    if is_vent1_command(decoded):
+                        summary["vent1_count"] += 1
+                    if is_pace_query(decoded):
+                        summary["readonly_query_count"] += 1
+                    if self._is_vent0_command(decoded):
+                        summary["vent0_count"] += 1
+                    if self._is_outp_value_command(decoded, 0):
+                        summary["outp0_count"] += 1
+                    if self._is_outp_value_command(decoded, 1):
+                        summary["outp1_count"] += 1
+                    if category == "ISOL" and not is_pace_query(decoded):
+                        summary["isol_command_count"] += 1
+                    if category in {"MODE", "RANGE"} and not is_pace_query(decoded):
+                        summary["mode_range_command_count"] += 1
+                    if category == "SETPOINT" and not is_pace_query(decoded):
+                        summary["setpoint_sour_pres_count"] += 1
+                    if state_changing and not is_vent1_command(decoded):
+                        summary["unexpected_state_changing_write_count"] += 1
+                        if not summary["first_unexpected_state_changing_write"]:
+                            summary["first_unexpected_state_changing_write"] = decoded
+                            summary["first_unexpected_call_stack"] = str(
+                                row.get("python_call_stack_top10") or ""
+                            )
+                            summary["first_unexpected_thread"] = str(row.get("thread_name") or "")
+        except Exception:
+            return summary
+        return summary
+
     def pace_raw_tap_enabled(self) -> bool:
         return bool(self._pace_raw_tap_enabled)
 
