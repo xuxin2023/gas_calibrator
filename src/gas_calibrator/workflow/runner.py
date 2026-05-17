@@ -167,6 +167,15 @@ _PRESSURE_TRACE_FIELDS = [
     "dewpoint_gate_tail_max_gap_s",
     "dewpoint_gate_tail_reference_method",
     "dewpoint_gate_tail_reference_c",
+    "open_flow_until_preseal_window_begin_ts",
+    "open_flow_until_preseal_window_end_ts",
+    "pace_write_count_total",
+    "vent1_write_count",
+    "readonly_query_count",
+    "unexpected_state_changing_write_count",
+    "first_unexpected_state_changing_write",
+    "first_unexpected_call_stack",
+    "first_unexpected_thread",
     "analyzer_gate_begin_ts",
     "analyzer_gate_end_ts",
     "analyzer_gate_elapsed_s",
@@ -463,6 +472,7 @@ class CalibrationRunner:
         self._pressure_controller_serial_instance_id_seen: Optional[int] = None
         self._pressure_controller_runtime_conflict_decision = ""
         self._last_co2_route_baseline_fields: Dict[str, Any] = {}
+        self._co2_open_flow_until_preseal_raw_tap_window_active = False
 
     def _check_no_write_guard(self, operation: str) -> bool:
         if self._no_write_guard_enabled:
@@ -9146,6 +9156,7 @@ class CalibrationRunner:
             "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED",
             "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE",
             "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_ANALYZER_GATE",
+            "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_OPEN_FLOW_TO_PRESEAL",
             "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED",
             "FAIL_CLOSED_ROUTE_OPEN_PACE_ATMOSPHERE_NOT_CLEAN",
         }
@@ -13429,6 +13440,10 @@ class CalibrationRunner:
             return
         if not self._wait_co2_route_soak_before_seal(point):
             self.log(f"CO2 row {point.index} skipped: route precondition failed before sealing")
+            self._end_co2_open_flow_until_preseal_raw_tap_window(
+                point,
+                reason="CO2 route precondition failed before preseal",
+            )
             decision_text = str(self._controlled_exit_final_decision or "")
             if self._controlled_exit_failure_is_route_terminal() and "DEWPOINT" in decision_text:
                 self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
@@ -13451,6 +13466,10 @@ class CalibrationRunner:
             self.log("CO2 preseal dewpoint gate skipped by configuration")
         if not self._wait_co2_preseal_primary_sensor_gate(point):
             self.log(f"CO2 row {point.index} skipped: analyzer precondition failed before downstream sampling/seal")
+            self._end_co2_open_flow_until_preseal_raw_tap_window(
+                point,
+                reason="CO2 analyzer precondition failed before preseal",
+            )
             decision_text = str(self._controlled_exit_final_decision or "")
             if self._controlled_exit_failure_is_route_terminal() and "DEWPOINT" in decision_text:
                 self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
@@ -13461,6 +13480,10 @@ class CalibrationRunner:
             return
         if not self._wait_cold_co2_quality_gate(point):
             self.log(f"CO2 row {point.index} skipped: cold-group quality gate failed before downstream sampling/seal")
+            self._end_co2_open_flow_until_preseal_raw_tap_window(
+                point,
+                reason="CO2 cold-group quality gate failed before preseal",
+            )
             self._cleanup_co2_route(reason="after CO2 cold-group quality gate failure")
             return
 
@@ -13503,6 +13526,10 @@ class CalibrationRunner:
                     )
 
         if not sealed_control_refs:
+            self._end_co2_open_flow_until_preseal_raw_tap_window(
+                point,
+                reason="CO2 source has no sealed pressure points",
+            )
             self._cleanup_co2_route(reason="after CO2 source complete")
             return
 
@@ -14529,6 +14556,10 @@ class CalibrationRunner:
             self._first_co2_route_soak_pending = False
             return True
 
+        self._begin_co2_open_flow_until_preseal_raw_tap_window(
+            point,
+            reason=f"configured_route_soak_s={soak_s:.3f} context={log_context}",
+        )
         self._set_point_runtime_fields(
             point,
             phase="co2",
@@ -14597,6 +14628,66 @@ class CalibrationRunner:
             base_soak_s=soak_s,
             log_context=log_context,
         )
+
+    def _begin_co2_open_flow_until_preseal_raw_tap_window(
+        self,
+        point: CalibrationPoint,
+        *,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        if self._co2_open_flow_until_preseal_raw_tap_window_active:
+            return {}
+        begin_fn = getattr(self.logger, "begin_pace_raw_tap_open_flow_until_preseal", None)
+        fields = dict(begin_fn() or {}) if callable(begin_fn) else {}
+        self._co2_open_flow_until_preseal_raw_tap_window_active = True
+        if fields:
+            self._set_point_runtime_fields(point, phase="co2", **fields)
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="open_flow_until_preseal_raw_tap_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=reason or "CO2 open-flow raw tap audit window begin",
+        )
+        return fields
+
+    def _end_co2_open_flow_until_preseal_raw_tap_window(
+        self,
+        point: CalibrationPoint,
+        *,
+        reason: str = "",
+    ) -> bool:
+        if not self._co2_open_flow_until_preseal_raw_tap_window_active:
+            return True
+        end_fn = getattr(self.logger, "end_pace_raw_tap_open_flow_until_preseal", None)
+        fields = dict(end_fn() or {}) if callable(end_fn) else {}
+        self._co2_open_flow_until_preseal_raw_tap_window_active = False
+        if fields:
+            self._set_point_runtime_fields(point, phase="co2", **fields)
+        unexpected_count = self._as_int(fields.get("unexpected_state_changing_write_count")) or 0
+        first_unexpected = str(fields.get("first_unexpected_state_changing_write") or "")
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="open_flow_until_preseal_raw_tap_end",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=reason or "CO2 open-flow raw tap audit window end",
+        )
+        if unexpected_count > 0:
+            self._mark_co2_route_terminal_failure(
+                final_decision="FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_OPEN_FLOW_TO_PRESEAL",
+                reason=first_unexpected or "unexpected PACE state-changing WRITE during open-flow-to-preseal",
+                point=point,
+                phase="co2",
+            )
+            return False
+        return True
 
     def _analyzer_gate_dewpoint_monitor_enabled(self) -> bool:
         return bool(self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_enabled", True))
@@ -17105,6 +17196,15 @@ class CalibrationRunner:
             else:
                 self._capture_preseal_dewpoint_snapshot()
             if route_name == "co2" and not self._check_preseal_dewpoint_freshness(point, phase=phase):
+                self._end_co2_open_flow_until_preseal_raw_tap_window(
+                    point,
+                    reason="CO2 preseal dewpoint freshness failed before vent off",
+                )
+                return False
+            if route_name == "co2" and not self._end_co2_open_flow_until_preseal_raw_tap_window(
+                point,
+                reason="CO2 preseal vent off begin",
+            ):
                 return False
             self._append_pressure_trace_row(
                 point=point,

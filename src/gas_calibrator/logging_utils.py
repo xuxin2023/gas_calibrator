@@ -877,6 +877,10 @@ class RunLogger:
         self._pace_raw_tap_port = str(cfg_get(self.cfg, "devices.pressure_controller.port", "") or "").strip().upper()
         self._pace_raw_tap_analyzer_gate_active = False
         self._pace_raw_tap_analyzer_gate_summary = self._empty_pace_raw_tap_analyzer_gate_summary()
+        self._pace_raw_tap_open_flow_until_preseal_active = False
+        self._pace_raw_tap_open_flow_until_preseal_summary = (
+            self._empty_pace_raw_tap_open_flow_until_preseal_summary()
+        )
         self._pace_raw_tap_last_vent1_evidence: Dict[str, Any] = {}
         if self._pace_raw_tap_enabled:
             self._raw_tap_file = self.raw_serial_tap_csv_path.open("w", newline="", encoding="utf-8")
@@ -2044,6 +2048,20 @@ class RunLogger:
             "analyzer_gate_raw_tap_first_unexpected_thread": "",
         }
 
+    def _empty_pace_raw_tap_open_flow_until_preseal_summary(self) -> Dict[str, Any]:
+        return {
+            "raw_tap_enabled": bool(getattr(self, "_pace_raw_tap_enabled", False)),
+            "open_flow_until_preseal_window_begin_ts": "",
+            "open_flow_until_preseal_window_end_ts": "",
+            "pace_write_count_total": 0,
+            "vent1_write_count": 0,
+            "readonly_query_count": 0,
+            "unexpected_state_changing_write_count": 0,
+            "first_unexpected_state_changing_write": "",
+            "first_unexpected_call_stack": "",
+            "first_unexpected_thread": "",
+        }
+
     def begin_pace_raw_tap_analyzer_gate(self) -> Dict[str, Any]:
         with self._raw_tap_lock:
             self._pace_raw_tap_analyzer_gate_active = True
@@ -2057,6 +2075,28 @@ class RunLogger:
 
     def pace_raw_tap_fail_on_unexpected_analyzer_gate_write(self) -> bool:
         return bool(self._pace_raw_tap_fail_on_unexpected_analyzer_gate_write)
+
+    def begin_pace_raw_tap_open_flow_until_preseal(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            self._pace_raw_tap_open_flow_until_preseal_active = True
+            self._pace_raw_tap_open_flow_until_preseal_summary = (
+                self._empty_pace_raw_tap_open_flow_until_preseal_summary()
+            )
+            self._pace_raw_tap_open_flow_until_preseal_summary[
+                "open_flow_until_preseal_window_begin_ts"
+            ] = _utc_ts()
+            return dict(self._pace_raw_tap_open_flow_until_preseal_summary)
+
+    def end_pace_raw_tap_open_flow_until_preseal(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            self._pace_raw_tap_open_flow_until_preseal_active = False
+            if not self._pace_raw_tap_open_flow_until_preseal_summary.get(
+                "open_flow_until_preseal_window_end_ts"
+            ):
+                self._pace_raw_tap_open_flow_until_preseal_summary[
+                    "open_flow_until_preseal_window_end_ts"
+                ] = _utc_ts()
+            return dict(self._pace_raw_tap_open_flow_until_preseal_summary)
 
     def pace_raw_tap_enabled(self) -> bool:
         return bool(self._pace_raw_tap_enabled)
@@ -2151,6 +2191,19 @@ class RunLogger:
                         summary["analyzer_gate_raw_tap_first_unexpected_command"] = decoded
                         summary["analyzer_gate_raw_tap_first_unexpected_call_stack"] = stack_text
                         summary["analyzer_gate_raw_tap_first_unexpected_thread"] = threading.current_thread().name
+            if self._pace_raw_tap_open_flow_until_preseal_active and direction_text == "WRITE":
+                summary = self._pace_raw_tap_open_flow_until_preseal_summary
+                summary["pace_write_count_total"] += 1
+                if is_vent1_command(decoded):
+                    summary["vent1_write_count"] += 1
+                if is_pace_query(decoded):
+                    summary["readonly_query_count"] += 1
+                if state_changing and not is_vent1_command(decoded):
+                    summary["unexpected_state_changing_write_count"] += 1
+                    if not summary["first_unexpected_state_changing_write"]:
+                        summary["first_unexpected_state_changing_write"] = decoded
+                        summary["first_unexpected_call_stack"] = stack_text
+                        summary["first_unexpected_thread"] = threading.current_thread().name
 
     def get_io_count(self, *, device: str = "", port: str = "", direction: str = "") -> int:
         device_text = str(device or "").strip()

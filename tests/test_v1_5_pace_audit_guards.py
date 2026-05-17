@@ -206,6 +206,89 @@ def test_analyzer_gate_raw_tap_summary_blocks_outp_or_vent0(tmp_path: Path) -> N
     assert logger.pace_raw_tap_fail_on_unexpected_analyzer_gate_write() is True
 
 
+def test_open_flow_until_preseal_raw_tap_allows_vent1_and_queries(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path, cfg=_tap_cfg(tmp_path))
+    logger.set_workflow_stage("co2_open_flow")
+    begin = logger.begin_pace_raw_tap_open_flow_until_preseal()
+    logger.log_raw_serial_tap(
+        port="COM23",
+        device_label="pace5000",
+        direction="WRITE",
+        raw_bytes=b":SOUR:PRES:LEV:IMM:AMPL:VENT 1\n",
+    )
+    logger.log_raw_serial_tap(
+        port="COM23",
+        device_label="pace5000",
+        direction="WRITE",
+        raw_bytes=b":SENS:PRES?\n",
+    )
+    summary = logger.end_pace_raw_tap_open_flow_until_preseal()
+    logger.close()
+
+    assert begin["open_flow_until_preseal_window_begin_ts"]
+    assert summary["open_flow_until_preseal_window_end_ts"]
+    assert summary["pace_write_count_total"] == 2
+    assert summary["vent1_write_count"] == 1
+    assert summary["readonly_query_count"] == 1
+    assert summary["unexpected_state_changing_write_count"] == 0
+    assert summary["first_unexpected_state_changing_write"] == ""
+
+
+def test_open_flow_until_preseal_raw_tap_blocks_state_changes(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path, cfg=_tap_cfg(tmp_path))
+    logger.set_workflow_stage("co2_open_flow")
+    logger.begin_pace_raw_tap_open_flow_until_preseal()
+    logger.log_raw_serial_tap(
+        port="COM23",
+        device_label="pace5000",
+        direction="WRITE",
+        raw_bytes=b":SOUR:PRES:LEV:IMM:AMPL:VENT 1\n",
+    )
+    logger.log_raw_serial_tap(
+        port="COM23",
+        device_label="pace5000",
+        direction="WRITE",
+        raw_bytes=b":OUTP 1\n",
+    )
+    summary = logger.end_pace_raw_tap_open_flow_until_preseal()
+    logger.close()
+
+    assert summary["pace_write_count_total"] == 2
+    assert summary["vent1_write_count"] == 1
+    assert summary["unexpected_state_changing_write_count"] == 1
+    assert summary["first_unexpected_state_changing_write"] == ":OUTP 1"
+    assert "test_open_flow_until_preseal_raw_tap_blocks_state_changes" in summary["first_unexpected_call_stack"]
+    assert summary["first_unexpected_thread"]
+
+
+def test_open_flow_until_preseal_unexpected_write_blocks_preseal_vent0(tmp_path: Path) -> None:
+    cfg = _tap_cfg(tmp_path)
+    logger = RunLogger(tmp_path, cfg=cfg)
+    pace = _FakePace()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_args: None, lambda *_args: None)
+    point = _co2_point()
+    runner._clear_preseal_pressure_control_ready_state = MagicMock()
+    runner._start_pressure_transition_fast_signal_context = MagicMock()
+    runner._emit_stage_event = MagicMock()
+    runner._capture_preseal_dewpoint_snapshot = MagicMock()
+    runner._check_preseal_dewpoint_freshness = MagicMock(return_value=True)
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit open-flow")
+    logger.log_raw_serial_tap(
+        port="COM23",
+        device_label="pace5000",
+        direction="WRITE",
+        raw_bytes=b":SOUR:PRES:LEV:IMM:AMPL:VENT 0\n",
+    )
+
+    assert runner._pressurize_and_hold(point, route="co2") is False
+    logger.close()
+
+    assert runner._controlled_exit_final_decision == (
+        "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_OPEN_FLOW_TO_PRESEAL"
+    )
+    assert ("vent", False) not in pace.calls
+
+
 def test_analyzer_gate_raw_tap_blocks_outp_or_vent0(tmp_path: Path) -> None:
     cfg = _tap_cfg(tmp_path)
     logger = RunLogger(tmp_path, cfg=cfg)
