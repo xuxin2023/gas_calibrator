@@ -409,9 +409,7 @@ def test_analyzer_gate_dewpoint_rise_fails_closed(tmp_path: Path) -> None:
     logger.close()
 
     state = runner._point_runtime_state(point, phase="co2") or {}
-    assert runner._controlled_exit_final_decision == (
-        "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE"
-    )
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE"
     assert state["analyzer_gate_dewpoint_live_sample_count"] == 2
     assert state["analyzer_gate_dewpoint_delta_since_gate_c"] == pytest.approx(6.38, abs=0.01)
     assert state["analyzer_gate_dewpoint_first_rise_value_c"] == pytest.approx(-26.09)
@@ -523,9 +521,7 @@ def test_analyzer_gate_dewpoint_failure_final_decision_not_overwritten(tmp_path:
     assert runner._wait_co2_preseal_primary_sensor_gate(point) is False
     logger.close()
 
-    assert runner._controlled_exit_final_decision == (
-        "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE"
-    )
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE"
 
 
 def test_analyzer_gate_dewpoint_monitor_does_not_change_pace_commands(tmp_path: Path) -> None:
@@ -645,7 +641,7 @@ def test_dewpoint_freshness_fail_does_not_send_vent0(tmp_path: Path) -> None:
     logger.close()
 
     assert ("vent", False) not in pace.calls
-    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED"
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
 
 
 def test_dewpoint_freshness_fail_does_not_enter_sealed_control(tmp_path: Path) -> None:

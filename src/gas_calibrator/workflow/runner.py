@@ -235,6 +235,14 @@ _PRESSURE_TRACE_FIELDS = [
     "dewpoint_delta_since_gate_c",
     "dewpoint_freshness_expired",
     "dewpoint_freshness_decision",
+    "dewpoint_rebound_delta_c",
+    "dewpoint_rebound_limit_c",
+    "dewpoint_rebound_exceeded",
+    "dewpoint_rebound_decision",
+    "dewpoint_trend",
+    "dewpoint_fresh_sample_age_s",
+    "dewpoint_freshness_sample_decision",
+    "dewpoint_preseal_decision",
     "dewpoint_gate_window_s",
     "dewpoint_gate_elapsed_s",
     "dewpoint_gate_span_c",
@@ -9116,6 +9124,9 @@ class CalibrationRunner:
             "FAIL_CLOSED_VERIFIED_ATMOSPHERE_EXIT_FAILED",
             "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED",
             "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE",
+            "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE",
+            "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL",
+            "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED",
             "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_ANALYZER_GATE",
             "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED",
             "FAIL_CLOSED_ROUTE_OPEN_PACE_ATMOSPHERE_NOT_CLEAN",
@@ -13417,7 +13428,7 @@ class CalibrationRunner:
         if not self._wait_co2_preseal_primary_sensor_gate(point):
             self.log(f"CO2 row {point.index} skipped: analyzer precondition failed before downstream sampling/seal")
             decision_text = str(self._controlled_exit_final_decision or "")
-            if self._controlled_exit_failure_is_route_terminal() and "DEWPOINT_FRESHNESS" in decision_text:
+            if self._controlled_exit_failure_is_route_terminal() and "DEWPOINT" in decision_text:
                 self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
                     point,
                     sealed_control_refs,
@@ -13496,7 +13507,7 @@ class CalibrationRunner:
             if self._controlled_exit_failure_is_route_terminal():
                 _flush_co2_route_seal_deferred_exports(reason=str(self._controlled_exit_final_decision))
                 decision_text = str(self._controlled_exit_final_decision or "")
-                if "DEWPOINT_FRESHNESS" in decision_text:
+                if "DEWPOINT" in decision_text:
                     self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
                         point,
                         sealed_control_refs[idx + 1 :],
@@ -14576,8 +14587,14 @@ class CalibrationRunner:
         state["failure_reason"] = str(reason or "dewpoint_freshness_expired_during_analyzer_gate")
         fields = self._summarize_analyzer_gate_dewpoint_monitor(state)
         self._set_point_runtime_fields(point, phase="co2", **fields)
+        reason_text = str(state["failure_reason"])
+        final_decision = "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE"
+        if reason_text.startswith("dewpoint_rebound_delta_c="):
+            final_decision = "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE"
+        elif reason_text == "dewpoint_live_sample_gap_exceeded":
+            final_decision = "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED"
         self._mark_co2_route_terminal_failure(
-            final_decision="FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE",
+            final_decision=final_decision,
             reason=state["failure_reason"],
             point=point,
             phase="co2",
@@ -14652,7 +14669,7 @@ class CalibrationRunner:
                 return self._fail_analyzer_gate_dewpoint_monitor(
                     point,
                     state,
-                    reason=f"dewpoint_delta_since_gate_c={delta_c}",
+                    reason=f"dewpoint_rebound_delta_c={delta_c}",
                 )
         return True
 
@@ -16525,6 +16542,12 @@ class CalibrationRunner:
             float(self._wf("workflow.stability.dewpoint_preseal_freshness_max_delta_c", 0.20) or 0.20),
         )
 
+    def _analyzer_gate_dewpoint_monitor_max_read_errors(self) -> int:
+        return max(
+            0,
+            int(self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_max_read_errors", 0) or 0),
+        )
+
     def _check_preseal_dewpoint_freshness(self, point: CalibrationPoint, *, phase: str) -> bool:
         if str(phase or "").strip().lower() != "co2":
             return True
@@ -16541,6 +16564,9 @@ class CalibrationRunner:
         monitor_enabled = bool(runtime_state.get("analyzer_gate_dewpoint_monitor_enabled"))
         monitor_sample_count = self._as_int(runtime_state.get("analyzer_gate_dewpoint_live_sample_count")) or 0
         monitor_last_ts_text = str(runtime_state.get("analyzer_gate_dewpoint_live_last_ts") or "").strip()
+        monitor_max_gap_s = self._as_float(runtime_state.get("analyzer_gate_dewpoint_live_max_gap_s"))
+        monitor_read_error_count = self._as_int(runtime_state.get("analyzer_gate_dewpoint_read_error_count")) or 0
+        monitor_max_read_errors = self._analyzer_gate_dewpoint_monitor_max_read_errors()
         if monitor_enabled and monitor_sample_count > 0 and monitor_last_ts_text:
             try:
                 freshness_reference_ts = datetime.fromisoformat(monitor_last_ts_text).timestamp()
@@ -16551,11 +16577,41 @@ class CalibrationRunner:
             age_s = max(0.0, float(preseal_ts) - float(freshness_reference_ts))
         delta_c = None
         if gate_value_c is not None and preseal_value_c is not None:
-            delta_c = abs(float(preseal_value_c) - float(gate_value_c))
-        age_expired = age_s is None or age_s > self._preseal_dewpoint_freshness_max_age_s()
-        delta_expired = delta_c is None or delta_c > self._preseal_dewpoint_freshness_max_delta_c()
-        expired = bool(age_expired or delta_expired)
+            delta_c = float(preseal_value_c) - float(gate_value_c)
+        max_age_s = self._preseal_dewpoint_freshness_max_age_s()
+        rebound_limit_c = self._preseal_dewpoint_freshness_max_delta_c()
+        max_gap_s = self._analyzer_gate_dewpoint_monitor_max_gap_s()
+        no_live_sample = bool(monitor_enabled and monitor_sample_count <= 0)
+        age_expired = age_s is None or age_s > max_age_s
+        gap_expired = bool(
+            monitor_enabled
+            and monitor_max_gap_s is not None
+            and float(monitor_max_gap_s) > max_gap_s
+        )
+        read_errors_exceeded = bool(
+            monitor_enabled and int(monitor_read_error_count) > int(monitor_max_read_errors)
+        )
+        sample_expired = bool(age_expired or no_live_sample or gap_expired or read_errors_exceeded)
+        rebound_exceeded = bool(delta_c is None or float(delta_c) > rebound_limit_c)
+        if delta_c is None:
+            dewpoint_trend = "unknown"
+        elif float(delta_c) > 0.05:
+            dewpoint_trend = "rising"
+        elif float(delta_c) < -0.05:
+            dewpoint_trend = "falling"
+        else:
+            dewpoint_trend = "stable"
+        freshness_sample_decision = "fail_closed" if sample_expired else "pass"
+        rebound_decision = "fail_closed" if rebound_exceeded else "pass"
+        expired = bool(sample_expired or rebound_exceeded)
         decision = "fail_closed" if expired else "pass"
+        final_decision = ""
+        if rebound_exceeded:
+            final_decision = "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
+        elif gap_expired:
+            final_decision = "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED"
+        elif sample_expired:
+            final_decision = "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED"
         fields = {
             "dewpoint_gate_pass_ts": (
                 datetime.fromtimestamp(float(gate_ts)).isoformat(timespec="milliseconds")
@@ -16571,8 +16627,16 @@ class CalibrationRunner:
             "dewpoint_preseal_value_c": preseal_value_c,
             "dewpoint_freshness_age_s": age_s,
             "dewpoint_delta_since_gate_c": delta_c,
-            "dewpoint_freshness_expired": expired,
+            "dewpoint_freshness_expired": sample_expired,
             "dewpoint_freshness_decision": decision,
+            "dewpoint_rebound_delta_c": delta_c,
+            "dewpoint_rebound_limit_c": rebound_limit_c,
+            "dewpoint_rebound_exceeded": rebound_exceeded,
+            "dewpoint_rebound_decision": rebound_decision,
+            "dewpoint_trend": dewpoint_trend,
+            "dewpoint_fresh_sample_age_s": age_s,
+            "dewpoint_freshness_sample_decision": freshness_sample_decision,
+            "dewpoint_preseal_decision": decision,
         }
         self._set_point_runtime_fields(point, phase="co2", **fields)
         self._append_pressure_trace_row(
@@ -16585,18 +16649,24 @@ class CalibrationRunner:
             refresh_pace_state=False,
             extra_fields=fields,
             note=(
-                f"decision={decision} age_s={age_s if age_s is not None else 'NA'} "
+                f"decision={decision} sample_decision={freshness_sample_decision} "
+                f"rebound_decision={rebound_decision} "
+                f"age_s={age_s if age_s is not None else 'NA'} "
                 f"delta_c={delta_c if delta_c is not None else 'NA'} "
-                f"max_age_s={self._preseal_dewpoint_freshness_max_age_s():.3f} "
-                f"max_delta_c={self._preseal_dewpoint_freshness_max_delta_c():.3f}"
+                f"trend={dewpoint_trend} max_age_s={max_age_s:.3f} "
+                f"rebound_limit_c={rebound_limit_c:.3f} max_gap_s={max_gap_s:.3f} "
+                f"monitor_sample_count={monitor_sample_count} "
+                f"monitor_max_gap_s={monitor_max_gap_s if monitor_max_gap_s is not None else 'NA'} "
+                f"read_error_count={monitor_read_error_count}"
             ),
         )
         if expired:
             self._mark_co2_route_terminal_failure(
-                final_decision="FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED",
+                final_decision=final_decision or "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED",
                 reason=(
                     f"age_s={age_s if age_s is not None else 'NA'} "
-                    f"delta_c={delta_c if delta_c is not None else 'NA'}"
+                    f"delta_c={delta_c if delta_c is not None else 'NA'} "
+                    f"trend={dewpoint_trend}"
                 ),
                 point=point,
                 phase="co2",
@@ -16604,7 +16674,8 @@ class CalibrationRunner:
             self.log(
                 "CO2 preseal dewpoint freshness gate failed: "
                 f"age_s={age_s if age_s is not None else 'NA'} "
-                f"delta_c={delta_c if delta_c is not None else 'NA'}"
+                f"delta_c={delta_c if delta_c is not None else 'NA'} "
+                f"trend={dewpoint_trend} decision={final_decision or decision}"
             )
             return False
         return True

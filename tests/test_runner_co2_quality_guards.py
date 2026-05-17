@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import types
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -53,7 +54,7 @@ def test_dewpoint_freshness_expired_blocks_or_regates(tmp_path: Path) -> None:
     )
     runner._preseal_dewpoint_snapshot = {
         "sample_wall_ts": 1065.0,
-        "dewpoint_c": -19.70,
+        "dewpoint_c": -20.00,
         "temp_c": 20.0,
         "rh_pct": 5.0,
     }
@@ -65,6 +66,7 @@ def test_dewpoint_freshness_expired_blocks_or_regates(tmp_path: Path) -> None:
     assert state is not None
     assert state["dewpoint_freshness_expired"] is True
     assert state["dewpoint_freshness_decision"] == "fail_closed"
+    assert state["dewpoint_rebound_exceeded"] is False
     trace_rows = []
     path = logger.run_dir / "pressure_transition_trace.csv"
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -75,6 +77,175 @@ def test_dewpoint_freshness_expired_blocks_or_regates(tmp_path: Path) -> None:
     assert freshness_rows
     assert freshness_rows[-1]["dewpoint_freshness_expired"] == "True"
     assert freshness_rows[-1]["dewpoint_freshness_decision"] == "fail_closed"
+
+
+def _freshness_runner(tmp_path: Path) -> tuple[CalibrationRunner, RunLogger, CalibrationPoint]:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "dewpoint_preseal_freshness_max_age_s": 60.0,
+                    "dewpoint_preseal_freshness_max_delta_c": 0.20,
+                    "analyzer_gate_dewpoint_monitor_max_gap_s": 15.0,
+                    "analyzer_gate_dewpoint_monitor_max_read_errors": 0,
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    return runner, logger, _point_co2_low_pressure()
+
+
+def _set_fresh_monitor_state(
+    runner: CalibrationRunner,
+    point: CalibrationPoint,
+    *,
+    gate_ts: float = 1000.0,
+    gate_value_c: float = -24.89,
+    last_ts: float = 1005.0,
+    sample_count: int = 10,
+    max_gap_s: float = 5.0,
+    read_error_count: int = 0,
+) -> None:
+    runner._set_point_runtime_fields(
+        point,
+        phase="co2",
+        flush_gate_status="pass",
+        dewpoint_gate_pass_ts=gate_ts,
+        dewpoint_gate_pass_value_c=gate_value_c,
+        analyzer_gate_dewpoint_monitor_enabled=True,
+        analyzer_gate_dewpoint_live_sample_count=sample_count,
+        analyzer_gate_dewpoint_live_last_ts=(
+            datetime.fromtimestamp(float(last_ts)).isoformat(timespec="milliseconds")
+            if sample_count > 0
+            else ""
+        ),
+        analyzer_gate_dewpoint_live_max_gap_s=max_gap_s,
+        analyzer_gate_dewpoint_read_error_count=read_error_count,
+    )
+
+
+def test_dewpoint_falling_does_not_fail_freshness(tmp_path: Path) -> None:
+    runner, logger, point = _freshness_runner(tmp_path)
+    _set_fresh_monitor_state(runner, point, gate_value_c=-24.89)
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1010.0,
+        "dewpoint_c": -25.45,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["dewpoint_delta_since_gate_c"] == pytest.approx(-0.56, abs=0.001)
+    assert state["dewpoint_trend"] == "falling"
+    assert state["dewpoint_rebound_exceeded"] is False
+    assert state["dewpoint_freshness_sample_decision"] == "pass"
+    assert state["dewpoint_preseal_decision"] == "pass"
+
+
+def test_dewpoint_positive_rebound_fails(tmp_path: Path) -> None:
+    runner, logger, point = _freshness_runner(tmp_path)
+    _set_fresh_monitor_state(runner, point, gate_value_c=-31.30)
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1010.0,
+        "dewpoint_c": -24.89,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["dewpoint_rebound_delta_c"] == pytest.approx(6.41, abs=0.001)
+    assert state["dewpoint_rebound_exceeded"] is True
+    assert state["dewpoint_rebound_decision"] == "fail_closed"
+    assert state["dewpoint_freshness_sample_decision"] == "pass"
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
+
+
+def test_dewpoint_abs_delta_no_longer_used_for_falling(tmp_path: Path) -> None:
+    runner, logger, point = _freshness_runner(tmp_path)
+    _set_fresh_monitor_state(runner, point, gate_value_c=-24.89)
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1010.0,
+        "dewpoint_c": -31.30,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert abs(state["dewpoint_delta_since_gate_c"]) > 0.20
+    assert state["dewpoint_delta_since_gate_c"] < 0.0
+    assert state["dewpoint_rebound_exceeded"] is False
+    assert state["dewpoint_preseal_decision"] == "pass"
+
+
+def test_dewpoint_live_sample_gap_still_fails(tmp_path: Path) -> None:
+    runner, logger, point = _freshness_runner(tmp_path)
+    _set_fresh_monitor_state(runner, point, max_gap_s=16.0)
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1010.0,
+        "dewpoint_c": -24.90,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["dewpoint_freshness_sample_decision"] == "fail_closed"
+    assert state["dewpoint_rebound_exceeded"] is False
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED"
+
+
+def test_dewpoint_no_live_sample_still_fails(tmp_path: Path) -> None:
+    runner, logger, point = _freshness_runner(tmp_path)
+    _set_fresh_monitor_state(runner, point, sample_count=0, max_gap_s=0.0)
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1010.0,
+        "dewpoint_c": -24.90,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["dewpoint_freshness_sample_decision"] == "fail_closed"
+    assert state["dewpoint_rebound_exceeded"] is False
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED"
+
+
+def test_preseal_freshness_uses_positive_rebound_only(tmp_path: Path) -> None:
+    runner, logger, point = _freshness_runner(tmp_path)
+    _set_fresh_monitor_state(runner, point, gate_value_c=-24.89)
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1010.0,
+        "dewpoint_c": -25.45,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["dewpoint_delta_since_gate_c"] == pytest.approx(-0.56, abs=0.001)
+    assert state["dewpoint_rebound_decision"] == "pass"
+    assert state["dewpoint_preseal_decision"] == "pass"
 
 
 @pytest.mark.parametrize(
