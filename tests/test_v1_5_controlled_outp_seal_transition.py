@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -273,14 +274,31 @@ def _prepare_co2_group_runner_for_seal_failure_tests(runner: CalibrationRunner) 
     runner._flush_deferred_point_exports = MagicMock()
 
 
-def test_open_flow_sets_outp0_before_vent1() -> None:
+def test_co2_route_baseline_skips_redundant_outp0_when_output_already_off() -> None:
     runner, pace, _, _ = _runner()
 
     runner._set_pressure_controller_vent(True, reason="before CO2 route conditioning")
 
-    assert ("output", False) in pace.calls
+    assert ("output", False) not in pace.calls
     assert ("vent", True) in pace.calls
+
+
+def test_co2_route_baseline_sends_outp0_when_output_is_on() -> None:
+    runner, pace, _, _ = _runner()
+    pace.output_state = 1
+
+    runner._set_pressure_controller_vent(True, reason="before CO2 route conditioning")
+
+    assert ("output", False) in pace.calls
     assert pace.calls.index(("output", False)) < pace.calls.index(("vent", True))
+
+
+def test_co2_route_baseline_skips_redundant_isol1_when_isol_already_open() -> None:
+    runner, pace, _, _ = _runner()
+
+    runner._set_pressure_controller_vent(True, reason="before CO2 route conditioning")
+
+    assert ("isolation", True) not in pace.calls
 
 
 def test_open_flow_vent1_still_allowed() -> None:
@@ -290,6 +308,132 @@ def test_open_flow_vent1_still_allowed() -> None:
 
     assert pace.get_vent_status() == 1
     assert runner._pace_vent_status_classification(1, stage="open_flow") == "open_flow_venting_ok"
+
+
+def test_co2_pre_route_idle_isolation_does_not_send_vent0() -> None:
+    runner, pace, _, _ = _runner()
+
+    runner._apply_co2_pre_route_idle_baseline(reason="before CO2 chamber wait")
+
+    assert ("vent", False) not in pace.calls
+    assert any(
+        call.kwargs.get("trace_stage") == "co2_pre_route_idle_isolation_skipped"
+        and call.kwargs.get("extra_fields", {}).get("pace_vent0_before_route_open_suppressed") is True
+        for call in runner._append_pressure_trace_row.call_args_list
+    )
+
+
+def test_h2o_path_unchanged_by_co2_pre_route_fix() -> None:
+    runner, pace, _, _ = _runner()
+
+    runner._apply_idle_route_isolation(reason="before H2O point conditioning")
+
+    assert ("vent", False) in pace.calls
+
+
+def test_co2_route_conditioning_keeps_vent1_before_route_open() -> None:
+    runner, pace, _, _ = _runner()
+
+    assert runner._set_co2_route_baseline(reason="before CO2 route conditioning") is True
+
+    assert ("vent", True) in pace.calls
+    assert ("start_hold", 2.0) in pace.calls
+    assert runner._pressure_atmosphere_hold_enabled is True
+
+
+def test_co2_route_open_requires_clean_atmosphere_state() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point()
+    runner._complete_pending_route_handoff = MagicMock(return_value=False)
+    runner._set_valves_for_co2 = MagicMock()
+
+    assert runner._open_co2_route_for_conditioning(point, point_tag="co2-1000") is True
+
+    runner._set_valves_for_co2.assert_called_once_with(point)
+    gate_calls = [
+        call for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "route_open_clean_atmosphere_gate"
+    ]
+    assert gate_calls
+    fields = gate_calls[-1].kwargs.get("extra_fields", {})
+    assert fields["route_open_allowed"] is True
+    assert fields["vent_status_before_route_open"] == 1
+    assert fields["output_state_before_route_open"] == 0
+    assert fields["isolation_state_before_route_open"] == 1
+    assert ("vent", True) in pace.calls
+
+
+class Vent3LatchPace(FakePace):
+    def vent(self, on: bool = True) -> None:
+        self.calls.append(("vent", bool(on)))
+        self.vent_status = 3 if on else 2
+
+
+def test_co2_route_open_blocks_vent_status_3() -> None:
+    runner, _pace, _, _ = _runner(pace=Vent3LatchPace())
+    point = _co2_point()
+    runner._complete_pending_route_handoff = MagicMock(return_value=False)
+    runner._set_valves_for_co2 = MagicMock()
+
+    assert runner._open_co2_route_for_conditioning(point, point_tag="co2-1000") is False
+
+    runner._set_valves_for_co2.assert_not_called()
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_ROUTE_OPEN_PACE_ATMOSPHERE_NOT_CLEAN"
+    gate_calls = [
+        call for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "route_open_clean_atmosphere_gate"
+    ]
+    fields = gate_calls[-1].kwargs.get("extra_fields", {})
+    assert fields["vent_status_before_route_open"] == 3
+    assert fields["vent_status_before_route_open_classification"] == "trapped_or_window_latched_not_ready"
+    assert fields["route_open_allowed"] is False
+
+
+def test_co2_route_open_blocks_when_vent1_stale() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point()
+    runner._pressure_atmosphere_hold_enabled = True
+    runner._last_pressure_atmosphere_refresh_ts = time.time() - 10.0
+    pace.vent_status = 1
+
+    assert runner._co2_route_open_clean_atmosphere_gate(point, point_tag="co2-1000") is False
+
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_ROUTE_OPEN_PACE_ATMOSPHERE_NOT_CLEAN"
+    gate_calls = [
+        call for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "route_open_clean_atmosphere_gate"
+    ]
+    assert "vent1_refresh_stale" in gate_calls[-1].kwargs.get("extra_fields", {})["route_open_block_reason"]
+
+
+def test_raw_tap_route_open_precheck_records_clean_state() -> None:
+    runner, _pace, _, _ = _runner()
+    point = _co2_point()
+    runner._complete_pending_route_handoff = MagicMock(return_value=False)
+    runner._set_valves_for_co2 = MagicMock()
+
+    assert runner._open_co2_route_for_conditioning(point, point_tag="co2-1000") is True
+
+    gate_calls = [
+        call for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "route_open_clean_atmosphere_gate"
+    ]
+    assert gate_calls
+    fields = gate_calls[-1].kwargs.get("extra_fields", {})
+    assert set(
+        [
+            "vent_status_before_route_open",
+            "vent_status_before_route_open_classification",
+            "output_state_before_route_open",
+            "isolation_state_before_route_open",
+            "pace_pressure_before_route_open_hpa",
+            "com22_pressure_before_route_open_hpa",
+            "atmosphere_hold_active_before_route_open",
+            "vent1_last_refresh_age_s",
+            "actual_open_valves_before_route_open",
+            "route_open_allowed",
+        ]
+    ).issubset(fields)
 
 
 def test_run_start_allows_output_state_zero_in_controlled_mode() -> None:
