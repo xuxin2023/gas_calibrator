@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from gas_calibrator.data.points import CalibrationPoint
+from gas_calibrator.workflow import runner as runner_module
 from gas_calibrator.workflow.runner import CalibrationRunner
 
 
@@ -282,6 +283,15 @@ def test_open_flow_sets_outp0_before_vent1() -> None:
     assert pace.calls.index(("output", False)) < pace.calls.index(("vent", True))
 
 
+def test_open_flow_vent1_still_allowed() -> None:
+    runner, pace, _, _ = _runner()
+
+    assert runner._set_pressure_controller_vent(True, reason="before CO2 route conditioning") is True
+
+    assert pace.get_vent_status() == 1
+    assert runner._pace_vent_status_classification(1, stage="open_flow") == "open_flow_venting_ok"
+
+
 def test_run_start_allows_output_state_zero_in_controlled_mode() -> None:
     runner, pace, _, logs = _runner()
     pace.output_state = 0
@@ -399,19 +409,20 @@ def test_verified_exit_active_vent_fails_before_close_valves(monkeypatch) -> Non
     assert "controlled_exit_atmosphere_fail" in _trace_stages(runner)
 
 
-def test_legacy_vent3_passes_verified_exit_but_waits_for_operator(monkeypatch) -> None:
+def test_vent_status_3_not_ready_for_preseal_or_pressure_control(monkeypatch) -> None:
     runner, pace, _, _ = _runner(pace=LegacyTrappedVentAfterOffPace(), gauge=FakeGauge([1013.0, 1018.0]))
     runner._apply_valve_states = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
 
-    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
+    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()]) is False
 
     stages = _trace_stages(runner)
     assert ("exit_atmosphere_mode", 3.0, 0.2) in pace.calls
-    assert "controlled_exit_atmosphere_pass" in stages
-    assert "operator_window_check_result" in stages
-    assert stages.index("controlled_exit_atmosphere_pass") < stages.index("operator_window_check_result")
-    runner._apply_valve_states.assert_called_once_with([])
+    assert "vent0_state_evidence" in stages
+    assert "controlled_exit_atmosphere_fail" in stages
+    assert "controlled_exit_atmosphere_pass" not in stages
+    assert "operator_window_check_result" not in stages
+    runner._apply_valve_states.assert_not_called()
 
 
 def test_operator_window_console_yes_allows_fixed_1p5_close(monkeypatch) -> None:
@@ -575,6 +586,58 @@ def test_vent0_fixed_1p5_then_close_valves(monkeypatch) -> None:
     assert events.index(("close_valves", [])) < events.index(("guard", None))
 
 
+def test_vent0_state_trace_recorded_before_route_close(monkeypatch) -> None:
+    runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0, 1013.0]))
+    point = _co2_point()
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    evidence_calls = [
+        call.kwargs
+        for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "vent0_state_evidence"
+    ]
+    close_calls = [
+        call.kwargs
+        for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "route_valves_closed_after_vent0"
+    ]
+    assert evidence_calls
+    assert close_calls
+    fields = evidence_calls[-1]["extra_fields"]
+    assert fields["vent0_command_ts"]
+    assert fields["vent_status_after_vent0"] == 2
+    assert fields["vent_status_after_vent0_classification"] == "vent_completed_ready"
+    assert fields["outp_status_after_vent0"] == 0
+    assert fields["isol_status_after_vent0"] == 1
+    assert fields["syst_err_after_vent0"] == "0,No error"
+    assert fields["pace_pressure_after_vent0_hpa"] == 1013.0
+    assert fields["com22_pressure_after_vent0_hpa"] == 1013.0
+    assert fields["route_valves_still_open_during_wait"] is True
+    close_fields = close_calls[-1]["extra_fields"]
+    assert close_fields["fixed_wait_elapsed_s"] is not None
+    assert close_fields["route_valve_close_ts"]
+    assert "actual_open_valves_after_close" in close_fields
+
+
+def test_original_order_preserved(monkeypatch) -> None:
+    runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0, 1013.0]))
+    point = _co2_point()
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    stages = _trace_stages(runner)
+    assert stages.index("vent0_state_evidence") < stages.index("controlled_outp_vent0_fixed_wait_before_seal")
+    assert stages.index("controlled_outp_vent0_fixed_wait_before_seal") < stages.index(
+        "route_valves_closed_after_vent0"
+    )
+    assert stages.index("route_valves_closed_after_vent0") < stages.index("route_sealed")
+
+
 def test_verified_exit_then_fixed_1p5_close_valves(monkeypatch) -> None:
     runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
     events: list[str] = []
@@ -661,7 +724,7 @@ def test_sealed_guard_activates_immediately_after_close(monkeypatch) -> None:
     assert runner._co2_sealed_no_vent_guard_active is True
 
 
-def test_sealed_control_output_enabled_once_after_seal() -> None:
+def test_sealed_sweep_first_point_enables_output_once() -> None:
     runner, pace, _, _ = _runner()
     point = _co2_point(pressure=900.0)
     runner._activate_co2_sealed_no_vent_guard(point, reason="test")
@@ -671,6 +734,29 @@ def test_sealed_control_output_enabled_once_after_seal() -> None:
 
     assert pace.calls.count(("enable_control_output",)) == 1
     assert pace.calls.index(("enable_control_output",)) < pace.calls.index(("setpoint", 900.0))
+    pass_calls = [
+        call.kwargs
+        for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "sealed_control_output_enable_pass"
+    ]
+    assert pass_calls
+    assert pass_calls[-1]["extra_fields"]["sealed_outp1_count"] == 1
+    assert pass_calls[-1]["extra_fields"]["sealed_setpoint_count"] == 0
+
+
+def test_sealed_sweep_first_point_reuses_existing_output_on() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test")
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=True)
+    pace.output_state = 1
+
+    assert runner._set_pressure_to_target(point) is True
+
+    assert ("enable_control_output",) not in pace.calls
+    assert ("setpoint", 900.0) in pace.calls
+    stages = _trace_stages(runner)
+    assert "sealed_control_output_already_on" in stages
 
 
 def test_sealed_output_enable_after_verified_exit(monkeypatch) -> None:
@@ -701,7 +787,7 @@ def test_no_outp_after_first_sealed_control_enable() -> None:
     assert not any(call[0] in {"output", "vent", "enable_control_output"} for call in pace.calls)
 
 
-def test_subsequent_points_setpoint_only() -> None:
+def test_sealed_sweep_subsequent_points_setpoint_only() -> None:
     runner, pace, _, _ = _runner()
     first = _co2_point(pressure=1100.0)
     later = _co2_point(pressure=700.0)
@@ -711,6 +797,30 @@ def test_subsequent_points_setpoint_only() -> None:
 
     assert runner._set_pressure_to_target_in_active_co2_sealed_sweep(later) is True
     assert pace.calls == [("setpoint", 700.0)]
+    update_calls = [
+        call.kwargs
+        for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "sealed_sweep_setpoint_update"
+    ]
+    assert update_calls
+    assert update_calls[-1]["extra_fields"]["sealed_setpoint_count"] == 1
+    assert update_calls[-1]["extra_fields"]["sealed_outp1_count"] == 0
+    assert update_calls[-1]["extra_fields"]["sealed_vent1_count"] == 0
+
+
+def test_sealed_sweep_context_clears_on_failure() -> None:
+    runner, _, _, _ = _runner()
+    first = _co2_point(pressure=1100.0)
+    later = _co2_point(pressure=700.0)
+    runner._activate_co2_sealed_no_vent_guard(first, reason="test")
+    runner._begin_active_co2_sealed_sweep_context(first)
+    runner._co2_sealed_no_vent_guard_active = False
+
+    assert runner._set_pressure_to_target_in_active_co2_sealed_sweep(later) is False
+
+    assert runner._active_co2_sealed_sweep_context is None
+    assert runner._co2_sealed_no_vent_guard_active is False
+    assert "sealed_sweep_context_end" in _trace_stages(runner)
 
 
 def test_first_point_exit_fail_stops_co2_route() -> None:
@@ -810,6 +920,47 @@ def test_near_ambient_post_safe_stop_pressure_passes_relief_check() -> None:
     ) is None
 
 
+def test_safe_stop_verified_independent_from_residual_pressure_cleared(monkeypatch) -> None:
+    runner, _, _, _ = _runner(
+        pressure_overrides={
+            "engineering_safe_stop_pressure_relief_check": True,
+            "safe_stop_pressure_relief_threshold_hpa": 20.0,
+            "safe_stop_pressure_relief_reference_hpa": 1013.25,
+        }
+    )
+    events: list[dict] = []
+
+    class CaptureLogger:
+        run_dir = None
+
+        def log_io(self, **kwargs):
+            events.append(dict(kwargs))
+
+    runner.logger = CaptureLogger()
+    monkeypatch.setattr(
+        runner_module,
+        "_perform_safe_stop",
+        lambda *_args, **_kwargs: {
+            "safe_stop_verified": True,
+            "pace_pressure_hpa": 1076.0,
+            "gauge_pressure_hpa": 1015.0,
+            "safe_stop_issues": [],
+        },
+    )
+
+    runner._restore_baseline_after_run()
+
+    done = [event for event in events if event.get("command") == "baseline-restore-done"]
+    assert done
+    summary = json.loads(done[-1]["response"])
+    assert summary["safe_stop_verified"] is True
+    assert summary["residual_pressure_cleared"] is False
+    assert summary["residual_pressure_requires_manual_clearance"] is True
+    assert "SAFE_STOP_PRESSURE_REMAINS_HIGH" in summary["residual_pressure_high_reason"]
+    assert summary["safe_stop_pace_pressure_hpa"] == 1076.0
+    assert summary["safe_stop_com22_pressure_hpa"] == 1015.0
+
+
 def test_open_flow_outp0_not_allowed_after_sealed() -> None:
     runner, pace, _, _ = _runner()
     runner._activate_co2_sealed_no_vent_guard(_co2_point(), reason="test")
@@ -818,6 +969,15 @@ def test_open_flow_outp0_not_allowed_after_sealed() -> None:
     assert runner._set_pressure_controller_vent(True, reason="before CO2 route conditioning") is False
 
     assert pace.calls == []
+    blocked_calls = [
+        call.kwargs
+        for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "sealed_no_vent_guard_blocked"
+    ]
+    assert blocked_calls
+    assert blocked_calls[-1]["extra_fields"]["sealed_vent1_count"] == 1
+    assert blocked_calls[-1]["extra_fields"]["sealed_pressure_control_vent_on_count"] == 1
+    assert blocked_calls[-1]["extra_fields"]["no_vent_guard_blocked_count"] == 1
 
 
 def test_h2o_unchanged() -> None:
@@ -879,6 +1039,18 @@ def test_config_guard_controlled_outp_skip_tempwait() -> None:
     assert temp["analyzer_chamber_temp_timeout_s"] == 0
     assert temp["analyzer_chamber_temp_first_valid_timeout_s"] == 0
     assert cfg["paths"]["points_excel"].endswith("points_v1_5_co2_20c_1000ppm_full_pressure_nowait.xlsx")
+
+
+def test_no_write_guard_still_holds() -> None:
+    cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    workflow = cfg["workflow"]
+
+    assert cfg["coefficients"]["enabled"] is False
+    assert cfg["coefficients"]["sencos"] == {}
+    assert workflow["collect_only"] is True
+    assert workflow["startup_pressure_sensor_calibration"]["apply_write"] is False
+    assert workflow["postrun_corrected_delivery"]["write_devices"] is False
+    assert workflow["postrun_corrected_delivery"]["write_pressure_coefficients"] is False
 
 
 def test_config_enables_controlled_verified_exit() -> None:

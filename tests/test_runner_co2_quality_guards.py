@@ -27,6 +27,56 @@ def _point_co2_low_pressure() -> CalibrationPoint:
     )
 
 
+def test_dewpoint_freshness_expired_blocks_or_regates(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "dewpoint_preseal_freshness_max_age_s": 60.0,
+                    "dewpoint_preseal_freshness_max_delta_c": 0.20,
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2_low_pressure()
+    runner._set_point_runtime_fields(
+        point,
+        phase="co2",
+        flush_gate_status="pass",
+        dewpoint_gate_pass_ts=1000.0,
+        dewpoint_gate_pass_value_c=-20.00,
+    )
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1065.0,
+        "dewpoint_c": -19.70,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2")
+    assert state is not None
+    assert state["dewpoint_freshness_expired"] is True
+    assert state["dewpoint_freshness_decision"] == "fail_closed"
+    trace_rows = []
+    path = logger.run_dir / "pressure_transition_trace.csv"
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        import csv
+
+        trace_rows = list(csv.DictReader(handle))
+    freshness_rows = [row for row in trace_rows if row["trace_stage"] == "preseal_dewpoint_freshness_check"]
+    assert freshness_rows
+    assert freshness_rows[-1]["dewpoint_freshness_expired"] == "True"
+    assert freshness_rows[-1]["dewpoint_freshness_decision"] == "fail_closed"
+
+
 @pytest.mark.parametrize(
     ("policy", "expected_allowed", "expected_blocked"),
     [

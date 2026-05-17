@@ -726,7 +726,7 @@ def test_set_pressure_to_target_rejects_trapped_pressure_before_setpoint_control
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_accepts_legacy_trapped_pressure_before_setpoint_control(tmp_path: Path) -> None:
+def test_set_pressure_to_target_rejects_legacy_trapped_pressure_before_setpoint_control(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -752,17 +752,16 @@ def test_set_pressure_to_target_accepts_legacy_trapped_pressure_before_setpoint_
     pace = _FakePaceLegacyVentTrapped()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    assert runner._set_pressure_to_target(point) is True
+    assert runner._set_pressure_to_target(point) is False
     logger.close()
 
     assert pace.calls == [
         ("vent_off", 12.0),
-        ("setpoint", 500.0),
-        ("output_on",),
+        ("vent_off", 12.0),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "control_ready_verified" for row in trace_rows)
-    assert any(row["trace_stage"] == "control_output_on_verified" for row in trace_rows)
+    assert any(row["trace_stage"] == "control_ready_failed" for row in trace_rows)
+    assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
 def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_path: Path) -> None:
@@ -806,7 +805,7 @@ def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_allows_output_recovery_when_legacy_trapped_ready(tmp_path: Path) -> None:
+def test_set_pressure_to_target_blocks_output_recovery_when_legacy_trapped_ready(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -833,6 +832,80 @@ def test_set_pressure_to_target_allows_output_recovery_when_legacy_trapped_ready
     pace._in_limits_sequence = [(500.0, 1)]
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    assert pace.calls == [
+        ("vent_off", 12.0),
+        ("setpoint", 500.0),
+        ("output_on", "first"),
+        ("output", False),
+    ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(row["trace_stage"] == "control_output_on_failed" for row in trace_rows)
+    assert not any(row["trace_stage"] == "control_output_on_recovery_begin" for row in trace_rows)
+    assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
+
+
+def test_recovery_outp_requires_pressure_evidence(tmp_path: Path) -> None:
+    class _RecoveryPace(_FakePace):
+        def __init__(self):
+            super().__init__()
+            self.phase = "first"
+            self._in_limits_sequence = [(500.0, 1)]
+
+        def enable_control_output(self):
+            self.calls.append(("output_on", self.phase))
+            if self.phase == "first":
+                self.output_state = 0
+                self.vent_status = 0
+                self.phase = "second"
+                return
+            self.output_state = 1
+            self.vent_status = 0
+
+        def read_pressure(self):
+            return 1013.0
+
+    class _Gauge:
+        def read_pressure(self):
+            return 1013.5
+
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+                "stabilize_timeout_s": 0.1,
+                "output_on_verify_timeout_s": 0.0,
+                "output_recovery_settle_s": 0.0,
+                "output_on_recovery_requires_trapped": False,
+                "output_recovery_safe_delta_hpa": 20.0,
+                "safe_stop_pressure_relief_reference_hpa": 1013.25,
+            }
+        }
+    }
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=0.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=500.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    logger = RunLogger(tmp_path)
+    pace = _RecoveryPace()
+    runner = CalibrationRunner(
+        cfg,
+        {"pace": pace, "pressure_gauge": _Gauge()},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+
     assert runner._set_pressure_to_target(point) is True
     logger.close()
 
@@ -847,8 +920,12 @@ def test_set_pressure_to_target_allows_output_recovery_when_legacy_trapped_ready
         ("output_on", "second"),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "control_output_on_recovery_begin" for row in trace_rows)
-    assert any(row["trace_stage"] == "control_output_on_verified" for row in trace_rows)
+    stages = [row["trace_stage"] for row in trace_rows]
+    assert "control_output_on_recovery_pressure_evidence" in stages
+    assert "control_output_on_recovery_begin" in stages
+    assert stages.index("control_output_on_recovery_pressure_evidence") < stages.index(
+        "control_output_on_recovery_begin"
+    )
 
 
 def test_set_pressure_to_target_aborts_when_output_on_verification_detects_vent_window(tmp_path: Path) -> None:
