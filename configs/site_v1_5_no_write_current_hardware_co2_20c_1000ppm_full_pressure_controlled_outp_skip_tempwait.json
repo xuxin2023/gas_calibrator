@@ -278,7 +278,10 @@
       "require_operator_window_clear_after_vent0": true,
       "operator_window_confirm_mode": "console",
       "operator_window_clear_timeout_s": 30.0,
-      "pressure_rise_gate_blocks_seal": false
+      "pressure_rise_gate_blocks_seal": false,
+      "engineering_safe_stop_pressure_relief_check": true,
+      "safe_stop_pressure_relief_timeout_s": 30.0,
+      "safe_stop_pressure_relief_threshold_hpa": 20.0
     },
     "sampling": {
       "count": 10,

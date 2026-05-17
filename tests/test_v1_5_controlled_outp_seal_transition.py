@@ -122,6 +122,15 @@ class ActiveVentAfterOffPace(FakePace):
         return self.vent_status
 
 
+class LegacyTrappedVentAfterOffPace(FakePace):
+    def exit_atmosphere_mode(self, *, timeout_s: float = 30.0, poll_s: float = 0.25):
+        self.calls.append(("exit_atmosphere_mode", float(timeout_s), float(poll_s)))
+        self.output_state = 0
+        self.vent_status = 3
+        self.isolation_state = 1
+        return self.vent_status
+
+
 class ManualFallbackPace(FakePace):
     exit_atmosphere_mode = None
 
@@ -241,6 +250,28 @@ def _trace_stages(runner: CalibrationRunner) -> list[str]:
     ]
 
 
+def _prepare_co2_group_runner_for_seal_failure_tests(runner: CalibrationRunner) -> None:
+    runner._apply_idle_route_isolation = MagicMock()
+    runner._set_temperature_for_point = MagicMock(return_value=True)
+    runner._capture_temperature_calibration_snapshot = MagicMock()
+    runner._open_co2_route_for_conditioning = MagicMock()
+    runner._wait_co2_route_soak_before_seal = MagicMock(return_value=True)
+    runner._gas_route_dewpoint_gate_enabled = MagicMock(return_value=False)
+    runner._wait_co2_preseal_primary_sensor_gate = MagicMock(return_value=True)
+    runner._wait_cold_co2_quality_gate = MagicMock(return_value=True)
+    runner._sample_open_route_point = MagicMock()
+    runner._cleanup_co2_route = MagicMock()
+    runner._set_pressure_to_target = MagicMock()
+    runner._set_pressure_to_target_in_active_co2_sealed_sweep = MagicMock()
+    runner._sample_and_log = MagicMock()
+    runner._wait_after_pressure_stable_before_sampling = MagicMock(return_value=True)
+    runner._build_co2_pressure_point = MagicMock(side_effect=lambda _lead, ref: ref)
+    runner._request_sample_export_deferral = MagicMock(return_value=False)
+    runner._clear_requested_sample_export_deferral = MagicMock()
+    runner._flush_deferred_sample_exports = MagicMock()
+    runner._flush_deferred_point_exports = MagicMock()
+
+
 def test_open_flow_sets_outp0_before_vent1() -> None:
     runner, pace, _, _ = _runner()
 
@@ -345,6 +376,18 @@ def test_verified_exit_records_pace_state_snapshot() -> None:
     assert ("query", ":SYST:ERR?") in runner.devices["pace"].calls
 
 
+def test_system_error_zero_variants_allow_continue() -> None:
+    assert CalibrationRunner._pressure_controller_system_error_allows_continue("0, No error") is True
+    assert CalibrationRunner._pressure_controller_system_error_allows_continue(":SYST:ERR 0, No error") is True
+    assert CalibrationRunner._pressure_controller_system_error_allows_continue('+0,"No error"') is True
+    assert CalibrationRunner._pressure_controller_system_error_allows_continue("  :syst:err   0 , no error ") is True
+
+
+def test_system_error_nonzero_fails() -> None:
+    assert CalibrationRunner._pressure_controller_system_error_allows_continue("-113, Undefined header") is False
+    assert CalibrationRunner._pressure_controller_system_error_allows_continue(":SYST:ERR 101, Bad state") is False
+
+
 def test_verified_exit_active_vent_fails_before_close_valves(monkeypatch) -> None:
     runner, _, _, _ = _runner(pace=ActiveVentAfterOffPace(), gauge=FakeGauge([1013.0, 1013.0]))
     runner._apply_valve_states = MagicMock()
@@ -354,6 +397,21 @@ def test_verified_exit_active_vent_fails_before_close_valves(monkeypatch) -> Non
 
     runner._apply_valve_states.assert_not_called()
     assert "controlled_exit_atmosphere_fail" in _trace_stages(runner)
+
+
+def test_legacy_vent3_passes_verified_exit_but_waits_for_operator(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(pace=LegacyTrappedVentAfterOffPace(), gauge=FakeGauge([1013.0, 1018.0]))
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
+
+    stages = _trace_stages(runner)
+    assert ("exit_atmosphere_mode", 3.0, 0.2) in pace.calls
+    assert "controlled_exit_atmosphere_pass" in stages
+    assert "operator_window_check_result" in stages
+    assert stages.index("controlled_exit_atmosphere_pass") < stages.index("operator_window_check_result")
+    runner._apply_valve_states.assert_called_once_with([])
 
 
 def test_operator_window_console_yes_allows_fixed_1p5_close(monkeypatch) -> None:
@@ -379,6 +437,7 @@ def test_operator_window_console_no_blocks_seal(monkeypatch) -> None:
         pressure_overrides={"operator_window_confirm_mode": "console"},
     )
     runner._apply_valve_states = MagicMock()
+    runner._cleanup_co2_route = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     monkeypatch.setattr("sys.stdin", FakeStdin("NO\n", interactive=True))
 
@@ -395,6 +454,7 @@ def test_operator_window_console_unknown_blocks_pass(monkeypatch) -> None:
         pressure_overrides={"operator_window_confirm_mode": "console"},
     )
     runner._apply_valve_states = MagicMock()
+    runner._cleanup_co2_route = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     monkeypatch.setattr("sys.stdin", FakeStdin("", interactive=False))
 
@@ -402,7 +462,10 @@ def test_operator_window_console_unknown_blocks_pass(monkeypatch) -> None:
 
     runner._apply_valve_states.assert_not_called()
     assert runner._controlled_exit_final_decision == "FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING"
-    assert "controlled_exit_atmosphere_pass" not in _trace_stages(runner)
+    stages = _trace_stages(runner)
+    assert "controlled_exit_atmosphere_pass" in stages
+    assert "operator_window_check_result" in stages
+    assert "route_sealed" not in stages
 
 
 def test_operator_window_config_true_not_used_for_engineering_bypass(monkeypatch) -> None:
@@ -414,6 +477,7 @@ def test_operator_window_config_true_not_used_for_engineering_bypass(monkeypatch
         },
     )
     runner._apply_valve_states = MagicMock()
+    runner._cleanup_co2_route = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     monkeypatch.setattr("sys.stdin", FakeStdin("", interactive=False))
 
@@ -423,7 +487,7 @@ def test_operator_window_config_true_not_used_for_engineering_bypass(monkeypatch
     assert runner._controlled_exit_final_decision == "FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING"
 
 
-def test_operator_window_prompt_after_driver_exit_before_fixed_wait(monkeypatch) -> None:
+def test_operator_window_prompt_after_fixed_wait_before_close(monkeypatch) -> None:
     runner, _, _, _ = _runner(
         gauge=FakeGauge([1013.0, 1013.0]),
         pressure_overrides={"operator_window_confirm_mode": "console"},
@@ -436,7 +500,8 @@ def test_operator_window_prompt_after_driver_exit_before_fixed_wait(monkeypatch)
 
     stages = _trace_stages(runner)
     assert stages.index("controlled_exit_atmosphere_driver_exit_done") < stages.index("operator_window_prompt_printed")
-    assert stages.index("operator_window_prompt_printed") < stages.index("controlled_outp_vent0_fixed_wait_before_seal")
+    assert stages.index("controlled_outp_vent0_fixed_wait_before_seal") < stages.index("operator_window_prompt_printed")
+    assert stages.index("operator_window_check_result") < stages.index("route_sealed")
 
 
 def test_operator_window_trace_records_raw_response(monkeypatch) -> None:
@@ -465,6 +530,7 @@ def test_window_not_cleared_still_no_close_valves(monkeypatch) -> None:
         pressure_overrides={"operator_window_confirm_mode": "console"},
     )
     runner._apply_valve_states = MagicMock()
+    runner._cleanup_co2_route = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     monkeypatch.setattr("sys.stdin", FakeStdin("NOT_CLEARED\n", interactive=True))
 
@@ -519,6 +585,8 @@ def test_verified_exit_then_fixed_1p5_close_valves(monkeypatch) -> None:
 
     stages = _trace_stages(runner)
     assert stages.index("controlled_exit_atmosphere_pass") < stages.index("controlled_outp_vent0_fixed_wait_before_seal")
+    assert stages.index("controlled_outp_vent0_fixed_wait_before_seal") < stages.index("operator_window_check_begin")
+    assert stages.index("operator_window_check_result") < stages.index("route_sealed")
     assert events[0].startswith("sleep:1.5")
     assert events[1] == "close_valves"
 
@@ -545,6 +613,23 @@ def test_pressure_rise_still_diagnostic_only(monkeypatch) -> None:
 
     runner._cleanup_co2_route.assert_not_called()
     assert runner._apply_valve_states.called
+    assert "controlled_outp_pressure_rise_diagnostic" in _trace_stages(runner)
+
+
+def test_pressure_rise_cannot_replace_window_gate(monkeypatch) -> None:
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1045.0]),
+        pressure_overrides={"operator_window_confirm_mode": "console"},
+    )
+    runner._apply_valve_states = MagicMock()
+    runner._cleanup_co2_route = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("sys.stdin", FakeStdin("", interactive=False))
+
+    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()]) is False
+
+    runner._apply_valve_states.assert_not_called()
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING"
     assert "controlled_outp_pressure_rise_diagnostic" in _trace_stages(runner)
 
 
@@ -628,6 +713,103 @@ def test_subsequent_points_setpoint_only() -> None:
     assert pace.calls == [("setpoint", 700.0)]
 
 
+def test_first_point_exit_fail_stops_co2_route() -> None:
+    runner, _, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+
+    def fail_once(*_args, **_kwargs):
+        runner._controlled_exit_final_decision = "FAIL_CLOSED_ATMOSPHERE_EXIT_NOT_VERIFIED"
+        return False
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=fail_once)
+
+    runner._run_co2_point(
+        _co2_point(index=3, pressure=1100.0),
+        pressure_points=[
+            _co2_point(index=3, pressure=1100.0),
+            _co2_point(index=4, pressure=1000.0),
+            _co2_point(index=5, pressure=900.0),
+        ],
+    )
+
+    assert runner._pressurize_route_for_sealed_points.call_count == 1
+    runner._cleanup_co2_route.assert_called_once_with(reason="FAIL_CLOSED_ATMOSPHERE_EXIT_NOT_VERIFIED")
+    runner._set_pressure_to_target.assert_not_called()
+    runner._sample_and_log.assert_not_called()
+
+
+def test_first_point_window_no_stops_co2_route() -> None:
+    runner, _, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+
+    def fail_once(*_args, **_kwargs):
+        runner._controlled_exit_final_decision = "FAIL_CLOSED_ATMOSPHERE_WINDOW_NOT_CLEARED"
+        return False
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=fail_once)
+
+    runner._run_co2_point(
+        _co2_point(index=3, pressure=1100.0),
+        pressure_points=[_co2_point(index=3, pressure=1100.0), _co2_point(index=4, pressure=1000.0)],
+    )
+
+    assert runner._pressurize_route_for_sealed_points.call_count == 1
+    runner._cleanup_co2_route.assert_called_once_with(reason="FAIL_CLOSED_ATMOSPHERE_WINDOW_NOT_CLEARED")
+    runner._set_pressure_to_target.assert_not_called()
+
+
+def test_first_point_window_unknown_stops_co2_route() -> None:
+    runner, _, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+
+    def fail_once(*_args, **_kwargs):
+        runner._controlled_exit_final_decision = "FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING"
+        return False
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=fail_once)
+
+    runner._run_co2_point(
+        _co2_point(index=3, pressure=1100.0),
+        pressure_points=[_co2_point(index=3, pressure=1100.0), _co2_point(index=4, pressure=1000.0)],
+    )
+
+    assert runner._pressurize_route_for_sealed_points.call_count == 1
+    runner._cleanup_co2_route.assert_called_once_with(reason="FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING")
+    runner._sample_and_log.assert_not_called()
+
+
+def test_high_post_safe_stop_pressure_marks_relief_issue() -> None:
+    runner, _, _, _ = _runner(
+        pressure_overrides={
+            "engineering_safe_stop_pressure_relief_check": True,
+            "safe_stop_pressure_relief_threshold_hpa": 20.0,
+            "safe_stop_pressure_relief_reference_hpa": 1013.25,
+        }
+    )
+
+    issue = runner._engineering_safe_stop_pressure_relief_issue(
+        {"pace_pressure_hpa": 1076.0, "gauge_pressure_hpa": 1015.0}
+    )
+
+    assert issue is not None
+    assert issue.startswith("SAFE_STOP_PRESSURE_REMAINS_HIGH")
+    assert "pace_pressure_hpa=1076.000" in issue
+
+
+def test_near_ambient_post_safe_stop_pressure_passes_relief_check() -> None:
+    runner, _, _, _ = _runner(
+        pressure_overrides={
+            "engineering_safe_stop_pressure_relief_check": True,
+            "safe_stop_pressure_relief_threshold_hpa": 20.0,
+            "safe_stop_pressure_relief_reference_hpa": 1013.25,
+        }
+    )
+
+    assert runner._engineering_safe_stop_pressure_relief_issue(
+        {"pace_pressure_hpa": 1025.0, "gauge_pressure_hpa": 1020.0}
+    ) is None
+
+
 def test_open_flow_outp0_not_allowed_after_sealed() -> None:
     runner, pace, _, _ = _runner()
     runner._activate_co2_sealed_no_vent_guard(_co2_point(), reason="test")
@@ -676,6 +858,9 @@ def test_config_guard_controlled_outp_skip_tempwait() -> None:
     assert pressure["operator_window_clear_timeout_s"] == 30.0
     assert "operator_window_cleared_after_vent0" not in pressure
     assert pressure["pressure_rise_gate_blocks_seal"] is False
+    assert pressure["engineering_safe_stop_pressure_relief_check"] is True
+    assert pressure["safe_stop_pressure_relief_timeout_s"] == 30.0
+    assert pressure["safe_stop_pressure_relief_threshold_hpa"] == 20.0
     assert workflow["collect_only"] is True
     assert cfg["coefficients"]["enabled"] is False
     assert cfg["coefficients"]["sencos"] == {}
@@ -718,3 +903,4 @@ def test_config_requires_operator_window_clear() -> None:
     assert pressure["operator_window_confirm_mode"] == "console"
     assert pressure["operator_window_clear_timeout_s"] == 30.0
     assert "operator_window_cleared_after_vent0" not in pressure
+    assert pressure["engineering_safe_stop_pressure_relief_check"] is True

@@ -5848,6 +5848,44 @@ class CalibrationRunner:
         except Exception:
             pass
 
+    def _engineering_safe_stop_pressure_relief_check_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.engineering_safe_stop_pressure_relief_check", False))
+
+    def _safe_stop_pressure_relief_threshold_hpa(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.safe_stop_pressure_relief_threshold_hpa", 20.0) or 20.0))
+
+    def _safe_stop_pressure_relief_reference_hpa(self) -> float:
+        cfg_value = self._as_float(self._wf("workflow.pressure.safe_stop_pressure_relief_reference_hpa", None))
+        if cfg_value is not None:
+            return float(cfg_value)
+        if self._atmosphere_reference_hpa is not None:
+            return float(self._atmosphere_reference_hpa)
+        return 1013.25
+
+    def _engineering_safe_stop_pressure_relief_issue(self, result: Mapping[str, Any]) -> Optional[str]:
+        if not self._engineering_safe_stop_pressure_relief_check_enabled():
+            return None
+        reference_hpa = self._safe_stop_pressure_relief_reference_hpa()
+        threshold_hpa = self._safe_stop_pressure_relief_threshold_hpa()
+        limit_hpa = reference_hpa + threshold_hpa
+        readings = {
+            "pace_pressure_hpa": self._as_float(result.get("pace_pressure_hpa")),
+            "gauge_pressure_hpa": self._as_float(result.get("gauge_pressure_hpa")),
+        }
+        high = {
+            key: value
+            for key, value in readings.items()
+            if value is not None and float(value) > float(limit_hpa)
+        }
+        if not high:
+            return None
+        details = ",".join(f"{key}={float(value):.3f}" for key, value in sorted(high.items()))
+        return (
+            "SAFE_STOP_PRESSURE_REMAINS_HIGH"
+            f": reference_hpa={reference_hpa:.3f} threshold_hpa={threshold_hpa:.3f} "
+            f"limit_hpa={limit_hpa:.3f} {details}"
+        )
+
     def _restore_baseline_after_run(self) -> None:
         if not bool(self._wf("workflow.restore_baseline_on_finish", True)):
             self._log_run_event(command="baseline-restore-skip", response="disabled by config")
@@ -5894,6 +5932,11 @@ class CalibrationRunner:
         if "safe_stop_verified" in result:
             summary["safe_stop_verified"] = result.get("safe_stop_verified")
         issues = list(result.get("safe_stop_issues") or [])
+        pressure_relief_issue = self._engineering_safe_stop_pressure_relief_issue(result)
+        if pressure_relief_issue:
+            issues.append(pressure_relief_issue)
+            summary["safe_stop_pressure_relief_issue"] = pressure_relief_issue
+            summary["safe_stop_verified"] = False
         if issues:
             summary["safe_stop_issues"] = issues
             self.log(f"Baseline restore incomplete: {', '.join(issues)}")
@@ -8378,7 +8421,27 @@ class CalibrationRunner:
             return True
         if text.lower().startswith("unavailable:"):
             return True
-        return text.startswith("0")
+        match = re.search(r"[-+]?\d+", text)
+        if not match:
+            return False
+        try:
+            return int(match.group(0)) == 0
+        except Exception:
+            return False
+
+    @staticmethod
+    def _controlled_exit_fail_closed_decisions() -> set[str]:
+        return {
+            "FAIL_CLOSED_ATMOSPHERE_EXIT_COMMAND_FAILED",
+            "FAIL_CLOSED_ATMOSPHERE_EXIT_NOT_VERIFIED",
+            "FAIL_CLOSED_ATMOSPHERE_WINDOW_NOT_CLEARED",
+            "FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING",
+            "FAIL_CLOSED_VERIFIED_ATMOSPHERE_EXIT_FAILED",
+        }
+
+    def _controlled_exit_failure_is_route_terminal(self) -> bool:
+        decision = str(getattr(self, "_controlled_exit_final_decision", "") or "").strip()
+        return decision in self._controlled_exit_fail_closed_decisions()
 
     def _controlled_exit_atmosphere_snapshot(self, pace: Any) -> Dict[str, Any]:
         snapshot = dict(self._pace_state_snapshot(pace, refresh=True))
@@ -8508,6 +8571,109 @@ class CalibrationRunner:
         if str(state or "").strip().lower() == "false":
             return "FAIL_CLOSED_ATMOSPHERE_WINDOW_NOT_CLEARED"
         return "FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING"
+
+    def _controlled_operator_window_check_after_fixed_preseal_wait(
+        self,
+        point: CalibrationPoint,
+        *,
+        route: str,
+        snapshot: Mapping[str, Any],
+        exit_method: str,
+        reason: str = "",
+        wait_status: Any = None,
+        wait_error: str = "",
+    ) -> bool:
+        route_name = str(route or "co2").strip().lower()
+        pressure_target_hpa = getattr(point, "target_pressure_hpa", None)
+        operator_window_state = "not_required"
+        operator_window_note = ""
+        operator_window_response_raw = ""
+        operator_window_mode = self._operator_window_confirm_mode()
+        operator_window_timeout_s = self._operator_window_clear_timeout_s()
+        operator_final_decision = ""
+        failures: List[str] = []
+
+        self._append_pressure_trace_row(
+            point=point,
+            route=route_name,
+            point_phase=route_name,
+            trace_stage="operator_window_check_begin",
+            pressure_target_hpa=pressure_target_hpa,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            refresh_pace_state=False,
+            note=(
+                "window_check_timing=after_fixed_preseal_wait_before_route_seal; "
+                f"require_operator_window_clear_after_vent0="
+                f"{str(self._require_operator_window_clear_after_vent0()).lower()}; "
+                f"operator_window_confirm_mode={operator_window_mode}; "
+                f"operator_window_clear_timeout_s={operator_window_timeout_s:.3f}; "
+                f"exit_method={exit_method}"
+            ),
+        )
+        if self._require_operator_window_clear_after_vent0():
+            if operator_window_mode == "console":
+                prompt = self._controlled_operator_window_prompt_text()
+                prompt_error = self._print_operator_window_prompt(prompt)
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=route_name,
+                    point_phase=route_name,
+                    trace_stage="operator_window_prompt_printed",
+                    pressure_target_hpa=pressure_target_hpa,
+                    pace_output_state=snapshot.get("pace_output_state"),
+                    pace_isolation_state=snapshot.get("pace_isolation_state"),
+                    pace_vent_status=snapshot.get("pace_vent_status"),
+                    refresh_pace_state=False,
+                    note=(
+                        "window_check_timing=after_fixed_preseal_wait_before_route_seal; "
+                        f"operator_window_confirm_mode={operator_window_mode}; "
+                        f"operator_window_clear_timeout_s={operator_window_timeout_s:.3f}; "
+                        f"prompt={prompt}; prompt_error={prompt_error}"
+                    ),
+                )
+            (
+                operator_window_state,
+                operator_window_note,
+                operator_window_response_raw,
+                operator_window_mode,
+            ) = self._controlled_operator_window_record()
+            if operator_window_state != "true":
+                operator_final_decision = self._controlled_operator_window_failure_decision(operator_window_state)
+                failures.append(operator_final_decision)
+
+        self._append_pressure_trace_row(
+            point=point,
+            route=route_name,
+            point_phase=route_name,
+            trace_stage="operator_window_check_result",
+            pressure_target_hpa=pressure_target_hpa,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            refresh_pace_state=False,
+            note=self._controlled_exit_atmosphere_note(
+                result="operator_window_check",
+                snapshot=snapshot,
+                exit_method=exit_method,
+                reason=reason,
+                failures=failures,
+                wait_status=wait_status,
+                wait_error=wait_error,
+                operator_window_confirm_mode=operator_window_mode,
+                operator_window_clear_timeout_s=f"{operator_window_timeout_s:.3f}",
+                operator_window_cleared_after_vent0=operator_window_state,
+                operator_window_note=operator_window_note,
+                operator_window_response_raw=operator_window_response_raw,
+                final_decision=operator_final_decision,
+            ),
+        )
+        if operator_final_decision:
+            self._controlled_exit_final_decision = operator_final_decision
+            self.log(f"Controlled CO2 preseal operator window gate failed: {operator_final_decision}")
+            return False
+        return True
 
     def _controlled_exit_atmosphere_command(
         self,
@@ -8696,91 +8862,8 @@ class CalibrationRunner:
             ),
         )
 
-        operator_window_state = "not_required"
-        operator_window_note = ""
-        operator_window_response_raw = ""
-        operator_window_mode = self._operator_window_confirm_mode()
-        operator_window_timeout_s = self._operator_window_clear_timeout_s()
-        operator_final_decision = ""
-        if not failures:
-            self._append_pressure_trace_row(
-                point=point,
-                route=route_name,
-                point_phase=route_name,
-                trace_stage="operator_window_check_begin",
-                pressure_target_hpa=pressure_target_hpa,
-                pace_output_state=verify_snapshot.get("pace_output_state"),
-                pace_isolation_state=verify_snapshot.get("pace_isolation_state"),
-                pace_vent_status=verify_snapshot.get("pace_vent_status"),
-                refresh_pace_state=False,
-                note=(
-                    f"require_operator_window_clear_after_vent0="
-                    f"{str(self._require_operator_window_clear_after_vent0()).lower()}; "
-                    f"operator_window_confirm_mode={operator_window_mode}; "
-                    f"operator_window_clear_timeout_s={operator_window_timeout_s:.3f}; "
-                    f"exit_method={exit_method}"
-                ),
-            )
-            if self._require_operator_window_clear_after_vent0():
-                if operator_window_mode == "console":
-                    prompt = self._controlled_operator_window_prompt_text()
-                    prompt_error = self._print_operator_window_prompt(prompt)
-                    self._append_pressure_trace_row(
-                        point=point,
-                        route=route_name,
-                        point_phase=route_name,
-                        trace_stage="operator_window_prompt_printed",
-                        pressure_target_hpa=pressure_target_hpa,
-                        pace_output_state=verify_snapshot.get("pace_output_state"),
-                        pace_isolation_state=verify_snapshot.get("pace_isolation_state"),
-                        pace_vent_status=verify_snapshot.get("pace_vent_status"),
-                        refresh_pace_state=False,
-                        note=(
-                            f"operator_window_confirm_mode={operator_window_mode}; "
-                            f"operator_window_clear_timeout_s={operator_window_timeout_s:.3f}; "
-                            f"prompt={prompt}; prompt_error={prompt_error}"
-                        ),
-                    )
-                (
-                    operator_window_state,
-                    operator_window_note,
-                    operator_window_response_raw,
-                    operator_window_mode,
-                ) = self._controlled_operator_window_record()
-                if operator_window_state != "true":
-                    operator_final_decision = self._controlled_operator_window_failure_decision(operator_window_state)
-                    failures.append(operator_final_decision)
-            self._append_pressure_trace_row(
-                point=point,
-                route=route_name,
-                point_phase=route_name,
-                trace_stage="operator_window_check_result",
-                pressure_target_hpa=pressure_target_hpa,
-                pace_output_state=verify_snapshot.get("pace_output_state"),
-                pace_isolation_state=verify_snapshot.get("pace_isolation_state"),
-                pace_vent_status=verify_snapshot.get("pace_vent_status"),
-                refresh_pace_state=False,
-                note=self._controlled_exit_atmosphere_note(
-                    result="operator_window_check",
-                    snapshot=verify_snapshot,
-                    exit_method=exit_method,
-                    reason=reason,
-                    failures=failures,
-                    wait_status=wait_status,
-                    wait_error=wait_error,
-                    operator_window_confirm_mode=operator_window_mode,
-                    operator_window_clear_timeout_s=f"{operator_window_timeout_s:.3f}",
-                    operator_window_cleared_after_vent0=operator_window_state,
-                    operator_window_note=operator_window_note,
-                    operator_window_response_raw=operator_window_response_raw,
-                    final_decision=operator_final_decision,
-                ),
-            )
-
         final_stage = "controlled_exit_atmosphere_fail" if failures else "controlled_exit_atmosphere_pass"
-        final_decision = operator_final_decision if failures and operator_final_decision else ""
-        if failures and not final_decision:
-            final_decision = "FAIL_CLOSED_ATMOSPHERE_EXIT_NOT_VERIFIED"
+        final_decision = "FAIL_CLOSED_ATMOSPHERE_EXIT_NOT_VERIFIED" if failures else ""
         self._controlled_exit_final_decision = final_decision or "ENGINEERING_EXIT_ATMOSPHERE_PASS"
         self._append_pressure_trace_row(
             point=point,
@@ -8800,11 +8883,11 @@ class CalibrationRunner:
                 failures=failures,
                 wait_status=wait_status,
                 wait_error=wait_error,
-                operator_window_confirm_mode=operator_window_mode,
-                operator_window_clear_timeout_s=f"{operator_window_timeout_s:.3f}",
-                operator_window_cleared_after_vent0=operator_window_state,
-                operator_window_note=operator_window_note,
-                operator_window_response_raw=operator_window_response_raw,
+                operator_window_confirm_mode="deferred_after_fixed_preseal_wait",
+                operator_window_clear_timeout_s="",
+                operator_window_cleared_after_vent0="deferred",
+                operator_window_note="operator gate runs after fixed 1.5s preseal wait and before route seal",
+                operator_window_response_raw="",
                 final_decision=final_decision,
             ),
         )
@@ -12382,6 +12465,14 @@ class CalibrationRunner:
                 f"CO2 {seal_point.co2_ppm} ppm @ {seal_point.target_pressure_hpa} hPa skipped: "
                 f"route sealing failed"
             )
+            if self._controlled_exit_failure_is_route_terminal():
+                _flush_co2_route_seal_deferred_exports(reason=str(self._controlled_exit_final_decision))
+                self.log(
+                    "CO2 route aborted after fail-closed atmosphere/window gate: "
+                    f"{self._controlled_exit_final_decision}"
+                )
+                self._cleanup_co2_route(reason=str(self._controlled_exit_final_decision))
+                return
 
         if seal_start_index is None:
             _flush_co2_route_seal_deferred_exports(reason="after CO2 pressure-seal failure")
@@ -15221,6 +15312,22 @@ class CalibrationRunner:
                         "pressure-rise is diagnostic only and does not block route seal"
                     ),
                 )
+                window_snapshot = self._controlled_exit_atmosphere_snapshot(pace)
+                exit_method = "pace.exit_atmosphere_mode" if callable(getattr(pace, "exit_atmosphere_mode", None)) else "manual_fallback"
+                if not self._controlled_operator_window_check_after_fixed_preseal_wait(
+                    point,
+                    route=phase,
+                    snapshot=window_snapshot,
+                    exit_method=exit_method,
+                    reason=vent_off_reason,
+                    wait_status=window_snapshot.get("pace_vent_status"),
+                    wait_error="",
+                ):
+                    self._cleanup_co2_route(reason=str(self._controlled_exit_final_decision or "operator window gate failure"))
+                    self._stop_pressure_transition_fast_signal_context(
+                        reason=str(self._controlled_exit_final_decision or "operator window gate failure")
+                    )
+                    return False
                 preseal_trigger_source = "controlled_fixed_wait_after_vent0"
                 _seal_route_now()
                 trace_values = self._cached_ready_check_trace_values(point=point)
@@ -15357,7 +15464,7 @@ class CalibrationRunner:
                             f"VENT0 may not have physically closed the vent. Aborting."
                         )
                         self._cleanup_co2_route(reason="preseal pressure-rise gate failure")
-                        self._pressure_transition_fast_signal_stop(reason="preseal pressure-rise gate failure")
+                        self._stop_pressure_transition_fast_signal_context(reason="preseal pressure-rise gate failure")
                         return False
 
             pcfg = self.cfg.get("workflow", {}).get("pressure", {})
