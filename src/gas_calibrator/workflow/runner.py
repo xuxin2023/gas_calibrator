@@ -15,7 +15,7 @@ from collections import Counter, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import mean, stdev
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from ..config import (
     V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
@@ -161,6 +161,24 @@ _PRESSURE_TRACE_FIELDS = [
     "analyzer_gate_raw_tap_first_unexpected_command",
     "analyzer_gate_raw_tap_first_unexpected_call_stack",
     "analyzer_gate_raw_tap_first_unexpected_thread",
+    "analyzer_gate_dewpoint_monitor_enabled",
+    "analyzer_gate_dewpoint_monitor_interval_s",
+    "analyzer_gate_dewpoint_monitor_begin_ts",
+    "analyzer_gate_dewpoint_monitor_end_ts",
+    "analyzer_gate_dewpoint_live_sample_count",
+    "analyzer_gate_dewpoint_live_max_gap_s",
+    "analyzer_gate_dewpoint_live_first_ts",
+    "analyzer_gate_dewpoint_live_first_value_c",
+    "analyzer_gate_dewpoint_live_last_ts",
+    "analyzer_gate_dewpoint_live_last_value_c",
+    "analyzer_gate_dewpoint_live_min_c",
+    "analyzer_gate_dewpoint_live_max_c",
+    "analyzer_gate_dewpoint_delta_since_gate_c",
+    "analyzer_gate_dewpoint_age_since_gate_s",
+    "analyzer_gate_dewpoint_read_error_count",
+    "analyzer_gate_dewpoint_first_rise_ts",
+    "analyzer_gate_dewpoint_first_rise_value_c",
+    "analyzer_gate_dewpoint_trend",
     "raw_tap_enabled",
     "pressure_controller_port",
     "pressure_controller_instance_id",
@@ -11649,6 +11667,7 @@ class CalibrationRunner:
         read_interval_override: Optional[float] = None,
         pressure_fill_override: Optional[float] = None,
         pressure_window_cfg: Optional[Dict[str, Any]] = None,
+        loop_callback: Optional[Callable[[], bool]] = None,
     ) -> bool:
         cfg = self.cfg.get("workflow", {}).get("stability", {}).get("sensor", {})
         if cfg and not cfg.get("enabled", True):
@@ -11736,6 +11755,13 @@ class CalibrationRunner:
             if self.stop_event.is_set():
                 return False
             self._check_pause()
+            if callable(loop_callback):
+                try:
+                    if loop_callback() is False:
+                        return False
+                except Exception as exc:
+                    self.log(f"Sensor wait loop callback failed: {exc}")
+                    return False
 
             if require_pressure_in_limits and pace and point.target_pressure_hpa is not None:
                 try:
@@ -11897,6 +11923,7 @@ class CalibrationRunner:
                 read_interval_override=read_interval_override,
                 pressure_fill_override=pressure_fill_override,
                 pressure_window_cfg=pressure_window_cfg,
+                loop_callback=loop_callback,
             )
 
         timeout_msg = f"Sensor stability timeout on active analyzers key={key} last={tail}"
@@ -13389,7 +13416,13 @@ class CalibrationRunner:
             self.log("CO2 preseal dewpoint gate skipped by configuration")
         if not self._wait_co2_preseal_primary_sensor_gate(point):
             self.log(f"CO2 row {point.index} skipped: analyzer precondition failed before downstream sampling/seal")
-            self._cleanup_co2_route(reason="after CO2 preseal analyzer gate failure")
+            decision_text = str(self._controlled_exit_final_decision or "")
+            if self._controlled_exit_failure_is_route_terminal() and "DEWPOINT_FRESHNESS" in decision_text:
+                self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
+                    point,
+                    sealed_control_refs,
+                )
+            self._cleanup_co2_route(reason=decision_text or "after CO2 preseal analyzer gate failure")
             return
         if not self._wait_cold_co2_quality_gate(point):
             self.log(f"CO2 row {point.index} skipped: cold-group quality gate failed before downstream sampling/seal")
@@ -14410,6 +14443,219 @@ class CalibrationRunner:
             log_context=log_context,
         )
 
+    def _analyzer_gate_dewpoint_monitor_enabled(self) -> bool:
+        return bool(self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_enabled", True))
+
+    def _analyzer_gate_dewpoint_monitor_interval_s(self) -> float:
+        return max(
+            0.1,
+            float(self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_interval_s", 5.0) or 5.0),
+        )
+
+    def _analyzer_gate_dewpoint_monitor_max_gap_s(self) -> float:
+        return max(
+            0.1,
+            float(self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_max_gap_s", 15.0) or 15.0),
+        )
+
+    @staticmethod
+    def _iso_ts_from_wall(value: Any) -> str:
+        try:
+            parsed = float(value)
+        except Exception:
+            return ""
+        if parsed <= 0:
+            return ""
+        return datetime.fromtimestamp(parsed).isoformat(timespec="milliseconds")
+
+    def _analyzer_gate_dewpoint_monitor_state(
+        self,
+        point: CalibrationPoint,
+        *,
+        analyzer_gate_begin_ts: float,
+    ) -> Dict[str, Any]:
+        runtime_state = dict(self._point_runtime_state(point, phase="co2") or {})
+        gate_ts = self._as_float(runtime_state.get("dewpoint_gate_pass_ts"))
+        gate_value_c = self._as_float(runtime_state.get("dewpoint_gate_pass_value_c"))
+        enabled = (
+            self._analyzer_gate_dewpoint_monitor_enabled()
+            and self.devices.get("dewpoint") is not None
+            and gate_ts is not None
+            and gate_value_c is not None
+            and str(runtime_state.get("flush_gate_status") or "").strip().lower() == "pass"
+        )
+        return {
+            "enabled": bool(enabled),
+            "interval_s": self._analyzer_gate_dewpoint_monitor_interval_s(),
+            "max_gap_s": self._analyzer_gate_dewpoint_monitor_max_gap_s(),
+            "max_age_s": self._preseal_dewpoint_freshness_max_age_s(),
+            "max_delta_c": self._preseal_dewpoint_freshness_max_delta_c(),
+            "begin_ts": float(analyzer_gate_begin_ts),
+            "end_ts": None,
+            "gate_ts": gate_ts,
+            "gate_value_c": gate_value_c,
+            "last_poll_mono_s": None,
+            "samples": [],
+            "read_error_count": 0,
+            "first_rise_ts": None,
+            "first_rise_value_c": None,
+            "failed": False,
+            "failure_reason": "",
+        }
+
+    def _summarize_analyzer_gate_dewpoint_monitor(self, state: Mapping[str, Any]) -> Dict[str, Any]:
+        samples = list(state.get("samples") or [])
+        values = [float(sample["value_c"]) for sample in samples if self._as_float(sample.get("value_c")) is not None]
+        sample_count = len(values)
+        max_gap_s = None
+        if len(samples) >= 2:
+            gaps: List[float] = []
+            for prev, curr in zip(samples, samples[1:]):
+                prev_ts = self._as_float(prev.get("wall_ts"))
+                curr_ts = self._as_float(curr.get("wall_ts"))
+                if prev_ts is not None and curr_ts is not None:
+                    gaps.append(max(0.0, float(curr_ts) - float(prev_ts)))
+            if gaps:
+                max_gap_s = max(gaps)
+        first_sample = samples[0] if samples else {}
+        last_sample = samples[-1] if samples else {}
+        gate_ts = self._as_float(state.get("gate_ts"))
+        gate_value_c = self._as_float(state.get("gate_value_c"))
+        last_ts = self._as_float(last_sample.get("wall_ts"))
+        last_value_c = self._as_float(last_sample.get("value_c"))
+        delta_since_gate_c = None
+        if gate_value_c is not None and last_value_c is not None:
+            delta_since_gate_c = float(last_value_c) - float(gate_value_c)
+        age_since_gate_s = None
+        if gate_ts is not None and last_ts is not None:
+            age_since_gate_s = max(0.0, float(last_ts) - float(gate_ts))
+        elif gate_ts is not None:
+            age_since_gate_s = max(0.0, time.time() - float(gate_ts))
+        trend = "unavailable"
+        if sample_count == 1:
+            trend = "single_sample"
+        elif sample_count >= 2:
+            first_value = self._as_float(first_sample.get("value_c"))
+            if first_value is not None and last_value_c is not None:
+                change = float(last_value_c) - float(first_value)
+                if change > 0.05:
+                    trend = "rising"
+                elif change < -0.05:
+                    trend = "falling"
+                else:
+                    trend = "stable"
+        return {
+            "analyzer_gate_dewpoint_monitor_enabled": bool(state.get("enabled")),
+            "analyzer_gate_dewpoint_monitor_interval_s": state.get("interval_s"),
+            "analyzer_gate_dewpoint_monitor_begin_ts": self._iso_ts_from_wall(state.get("begin_ts")),
+            "analyzer_gate_dewpoint_monitor_end_ts": self._iso_ts_from_wall(state.get("end_ts") or time.time()),
+            "analyzer_gate_dewpoint_live_sample_count": sample_count,
+            "analyzer_gate_dewpoint_live_max_gap_s": max_gap_s,
+            "analyzer_gate_dewpoint_live_first_ts": self._iso_ts_from_wall(first_sample.get("wall_ts")),
+            "analyzer_gate_dewpoint_live_first_value_c": self._as_float(first_sample.get("value_c")),
+            "analyzer_gate_dewpoint_live_last_ts": self._iso_ts_from_wall(last_sample.get("wall_ts")),
+            "analyzer_gate_dewpoint_live_last_value_c": last_value_c,
+            "analyzer_gate_dewpoint_live_min_c": min(values) if values else None,
+            "analyzer_gate_dewpoint_live_max_c": max(values) if values else None,
+            "analyzer_gate_dewpoint_delta_since_gate_c": delta_since_gate_c,
+            "analyzer_gate_dewpoint_age_since_gate_s": age_since_gate_s,
+            "analyzer_gate_dewpoint_read_error_count": int(state.get("read_error_count") or 0),
+            "analyzer_gate_dewpoint_first_rise_ts": self._iso_ts_from_wall(state.get("first_rise_ts")),
+            "analyzer_gate_dewpoint_first_rise_value_c": self._as_float(state.get("first_rise_value_c")),
+            "analyzer_gate_dewpoint_trend": trend,
+        }
+
+    def _fail_analyzer_gate_dewpoint_monitor(
+        self,
+        point: CalibrationPoint,
+        state: Dict[str, Any],
+        *,
+        reason: str,
+    ) -> bool:
+        state["failed"] = True
+        state["failure_reason"] = str(reason or "dewpoint_freshness_expired_during_analyzer_gate")
+        fields = self._summarize_analyzer_gate_dewpoint_monitor(state)
+        self._set_point_runtime_fields(point, phase="co2", **fields)
+        self._mark_co2_route_terminal_failure(
+            final_decision="FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE",
+            reason=state["failure_reason"],
+            point=point,
+            phase="co2",
+        )
+        self.log(
+            "CO2 analyzer gate dewpoint freshness failed: "
+            f"{state['failure_reason']}"
+        )
+        return False
+
+    def _poll_analyzer_gate_dewpoint_monitor(
+        self,
+        point: CalibrationPoint,
+        state: Dict[str, Any],
+    ) -> bool:
+        if not bool(state.get("enabled")):
+            return True
+        if bool(state.get("failed")):
+            return False
+        now_mono = time.monotonic()
+        last_poll = self._as_float(state.get("last_poll_mono_s"))
+        interval_s = float(state.get("interval_s") or 5.0)
+        if last_poll is not None and (now_mono - float(last_poll)) < interval_s:
+            return True
+        state["last_poll_mono_s"] = now_mono
+
+        try:
+            snapshot = self._read_precondition_dewpoint_gate_snapshot()
+        except Exception as exc:
+            state["read_error_count"] = int(state.get("read_error_count") or 0) + 1
+            self.log(f"Analyzer gate dewpoint live monitor read failed: {exc}")
+            samples = list(state.get("samples") or [])
+            last_sample_ts = self._as_float(samples[-1].get("wall_ts")) if samples else None
+            if last_sample_ts is not None and (time.time() - last_sample_ts) > float(state.get("max_gap_s") or 15.0):
+                return self._fail_analyzer_gate_dewpoint_monitor(
+                    point,
+                    state,
+                    reason="dewpoint_live_sample_gap_exceeded",
+                )
+            gate_ts = self._as_float(state.get("gate_ts"))
+            if gate_ts is not None and not samples and (time.time() - gate_ts) > float(state.get("max_age_s") or 60.0):
+                return self._fail_analyzer_gate_dewpoint_monitor(
+                    point,
+                    state,
+                    reason="dewpoint_age_since_gate_exceeded_without_fresh_sample",
+                )
+            return True
+
+        sample_ts = time.time()
+        value_c = self._as_float(snapshot.get("dewpoint_c"))
+        sample = {"wall_ts": sample_ts, "value_c": value_c}
+        samples = list(state.get("samples") or [])
+        if samples:
+            prev_ts = self._as_float(samples[-1].get("wall_ts"))
+            if prev_ts is not None and (sample_ts - float(prev_ts)) > float(state.get("max_gap_s") or 15.0):
+                samples.append(sample)
+                state["samples"] = samples
+                return self._fail_analyzer_gate_dewpoint_monitor(
+                    point,
+                    state,
+                    reason="dewpoint_live_sample_gap_exceeded",
+                )
+        samples.append(sample)
+        state["samples"] = samples
+        gate_value_c = self._as_float(state.get("gate_value_c"))
+        if gate_value_c is not None and value_c is not None:
+            delta_c = float(value_c) - float(gate_value_c)
+            if delta_c > float(state.get("max_delta_c") or 0.20):
+                if state.get("first_rise_ts") is None:
+                    state["first_rise_ts"] = sample_ts
+                    state["first_rise_value_c"] = value_c
+                return self._fail_analyzer_gate_dewpoint_monitor(
+                    point,
+                    state,
+                    reason=f"dewpoint_delta_since_gate_c={delta_c}",
+                )
+        return True
+
     def _wait_co2_preseal_primary_sensor_gate(self, point: CalibrationPoint) -> bool:
         sensor_cfg = self.cfg.get("workflow", {}).get("stability", {}).get("sensor", {})
         if sensor_cfg and not sensor_cfg.get("enabled", True):
@@ -14424,6 +14670,11 @@ class CalibrationRunner:
             sensor_cfg.get("co2_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0))
         )
         analyzer_gate_begin_ts = time.time()
+        dewpoint_monitor = self._analyzer_gate_dewpoint_monitor_state(
+            point,
+            analyzer_gate_begin_ts=analyzer_gate_begin_ts,
+        )
+        dewpoint_monitor_begin = self._summarize_analyzer_gate_dewpoint_monitor(dewpoint_monitor)
         previous_workflow_stage = self._set_logger_workflow_stage("co2_precondition_analyzer_gate")
         raw_tap_begin = {}
         raw_tap_begin_fn = getattr(self.logger, "begin_pace_raw_tap_analyzer_gate", None)
@@ -14457,6 +14708,7 @@ class CalibrationRunner:
                 "analyzer_gate_begin_ts": datetime.fromtimestamp(
                     float(analyzer_gate_begin_ts)
                 ).isoformat(timespec="milliseconds"),
+                **dewpoint_monitor_begin,
                 **raw_tap_begin,
             },
             note=(
@@ -14474,9 +14726,12 @@ class CalibrationRunner:
             timeout_override=timeout_s,
             min_samples_override=min_samples,
             read_interval_override=read_interval_s,
+            loop_callback=lambda: self._poll_analyzer_gate_dewpoint_monitor(point, dewpoint_monitor),
         )
         analyzer_gate_end_ts = time.time()
         analyzer_gate_elapsed_s = max(0.0, analyzer_gate_end_ts - analyzer_gate_begin_ts)
+        dewpoint_monitor["end_ts"] = analyzer_gate_end_ts
+        dewpoint_monitor_summary = self._summarize_analyzer_gate_dewpoint_monitor(dewpoint_monitor)
         raw_tap_summary = {}
         raw_tap_end_fn = getattr(self.logger, "end_pace_raw_tap_analyzer_gate", None)
         if callable(raw_tap_end_fn):
@@ -14494,6 +14749,7 @@ class CalibrationRunner:
         if (
             int(raw_tap_summary.get("analyzer_gate_raw_tap_unexpected_write_count") or 0) > 0
             and getattr(self.logger, "pace_raw_tap_fail_on_unexpected_analyzer_gate_write", lambda: False)()
+            and not self._controlled_exit_failure_is_route_terminal()
         ):
             self._mark_co2_route_terminal_failure(
                 final_decision="FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_ANALYZER_GATE",
@@ -14509,6 +14765,7 @@ class CalibrationRunner:
             phase="co2",
             analyzer_gate_end_ts=analyzer_gate_end_ts,
             analyzer_gate_elapsed_s=analyzer_gate_elapsed_s,
+            **dewpoint_monitor_summary,
         )
         self._append_pressure_trace_row(
             point=point,
@@ -14525,6 +14782,7 @@ class CalibrationRunner:
                     float(analyzer_gate_end_ts)
                 ).isoformat(timespec="milliseconds"),
                 "analyzer_gate_elapsed_s": analyzer_gate_elapsed_s,
+                **dewpoint_monitor_summary,
                 **raw_tap_summary,
                 "final_decision": self._controlled_exit_final_decision
                 if not stable and getattr(self, "_controlled_exit_final_decision", "")
@@ -16279,9 +16537,18 @@ class CalibrationRunner:
         snapshot = dict(self._preseal_dewpoint_snapshot or {})
         preseal_ts = self._as_float(snapshot.get("sample_wall_ts"))
         preseal_value_c = self._as_float(snapshot.get("dewpoint_c"))
+        freshness_reference_ts = gate_ts
+        monitor_enabled = bool(runtime_state.get("analyzer_gate_dewpoint_monitor_enabled"))
+        monitor_sample_count = self._as_int(runtime_state.get("analyzer_gate_dewpoint_live_sample_count")) or 0
+        monitor_last_ts_text = str(runtime_state.get("analyzer_gate_dewpoint_live_last_ts") or "").strip()
+        if monitor_enabled and monitor_sample_count > 0 and monitor_last_ts_text:
+            try:
+                freshness_reference_ts = datetime.fromisoformat(monitor_last_ts_text).timestamp()
+            except Exception:
+                freshness_reference_ts = gate_ts
         age_s = None
-        if gate_ts is not None and preseal_ts is not None:
-            age_s = max(0.0, float(preseal_ts) - float(gate_ts))
+        if freshness_reference_ts is not None and preseal_ts is not None:
+            age_s = max(0.0, float(preseal_ts) - float(freshness_reference_ts))
         delta_c = None
         if gate_value_c is not None and preseal_value_c is not None:
             delta_c = abs(float(preseal_value_c) - float(gate_value_c))
