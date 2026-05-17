@@ -877,6 +877,7 @@ class RunLogger:
         self._pace_raw_tap_port = str(cfg_get(self.cfg, "devices.pressure_controller.port", "") or "").strip().upper()
         self._pace_raw_tap_analyzer_gate_active = False
         self._pace_raw_tap_analyzer_gate_summary = self._empty_pace_raw_tap_analyzer_gate_summary()
+        self._pace_raw_tap_last_vent1_evidence: Dict[str, Any] = {}
         if self._pace_raw_tap_enabled:
             self._raw_tap_file = self.raw_serial_tap_csv_path.open("w", newline="", encoding="utf-8")
             self._raw_tap_writer = csv.DictWriter(
@@ -2060,6 +2061,12 @@ class RunLogger:
     def pace_raw_tap_enabled(self) -> bool:
         return bool(self._pace_raw_tap_enabled)
 
+    def latest_pace_raw_tap_vent1_evidence(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            evidence = dict(self._pace_raw_tap_last_vent1_evidence)
+        evidence["raw_tap_enabled"] = bool(self._pace_raw_tap_enabled)
+        return evidence
+
     def _is_pace_raw_tap_device(self, *, device_label: Any, port: Any) -> bool:
         if not self._pace_raw_tap_enabled:
             return False
@@ -2119,6 +2126,16 @@ class RunLogger:
             if self._raw_tap_jsonl_file is not None:
                 self._raw_tap_jsonl_file.write(json.dumps(row, ensure_ascii=False) + "\n")
                 self._raw_tap_jsonl_file.flush()
+            if direction_text == "WRITE" and is_vent1_command(decoded):
+                self._pace_raw_tap_last_vent1_evidence = {
+                    "wall_ts": row["wall_ts"],
+                    "monotonic_ts": row["monotonic_ts"],
+                    "decoded_command": decoded,
+                    "thread_name": row["thread_name"],
+                    "workflow_stage": row["workflow_stage"],
+                    "port": row["port"],
+                    "device_label": row["device_label"],
+                }
             if self._pace_raw_tap_analyzer_gate_active and direction_text == "WRITE":
                 summary = self._pace_raw_tap_analyzer_gate_summary
                 summary["analyzer_gate_raw_tap_write_count"] += 1

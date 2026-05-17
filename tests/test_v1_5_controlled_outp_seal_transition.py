@@ -176,6 +176,26 @@ class FakeLogger:
     run_dir = None
 
 
+class RawTapLogger(FakeLogger):
+    def __init__(self, *, enabled: bool = True, vent1_age_s: float | None = None) -> None:
+        self.enabled = enabled
+        self.vent1_age_s = vent1_age_s
+
+    def pace_raw_tap_enabled(self) -> bool:
+        return self.enabled
+
+    def latest_pace_raw_tap_vent1_evidence(self) -> dict:
+        if self.vent1_age_s is None:
+            return {"raw_tap_enabled": self.enabled}
+        return {
+            "raw_tap_enabled": self.enabled,
+            "wall_ts": "2026-05-17T22:41:25.257",
+            "monotonic_ts": f"{time.monotonic() - float(self.vent1_age_s):.9f}",
+            "decoded_command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
+            "thread_name": "pace5000-vent-hold-COM23",
+        }
+
+
 def _controlled_cfg(pressure_overrides: dict | None = None) -> dict:
     pressure = {
         "no_outp_transition_mode": True,
@@ -219,6 +239,7 @@ def _runner(
     pace: FakePace | None = None,
     gauge: FakeGauge | None = None,
     pressure_overrides: dict | None = None,
+    logger: FakeLogger | None = None,
 ):
     logs: list[str] = []
     pace = pace or FakePace()
@@ -226,7 +247,7 @@ def _runner(
     runner = CalibrationRunner(
         _controlled_cfg(pressure_overrides),
         {"pace": pace, "pressure_gauge": gauge},
-        FakeLogger(),
+        logger or FakeLogger(),
         lambda message: logs.append(str(message)),
         lambda *_: None,
     )
@@ -250,6 +271,15 @@ def _trace_stages(runner: CalibrationRunner) -> list[str]:
         str(call.kwargs.get("trace_stage"))
         for call in runner._append_pressure_trace_row.call_args_list
     ]
+
+
+def _last_route_open_gate_fields(runner: CalibrationRunner) -> dict:
+    gate_calls = [
+        call for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "route_open_clean_atmosphere_gate"
+    ]
+    assert gate_calls
+    return gate_calls[-1].kwargs.get("extra_fields", {})
 
 
 def _prepare_co2_group_runner_for_seal_failure_tests(runner: CalibrationRunner) -> None:
@@ -388,6 +418,16 @@ class Vent3HighPressurePace(Vent3LatchPace):
         return 1100.0
 
 
+class HoldThreadEvidencePace(FakePace):
+    def __init__(self, *, age_s: float = 0.1) -> None:
+        super().__init__()
+        self.last_successful_vent1_monotonic_ts = time.monotonic() - float(age_s)
+        self.last_successful_vent1_ts = time.time() - float(age_s)
+
+    def is_atmosphere_hold_active(self) -> bool:
+        return True
+
+
 def test_route_open_allows_vent3_when_pressure_ambient_and_vent1_fresh() -> None:
     runner, _pace, _, _ = _runner(pace=Vent3LatchPace())
     point = _co2_point()
@@ -443,6 +483,84 @@ def test_co2_route_open_blocks_when_vent1_stale() -> None:
         if call.kwargs.get("trace_stage") == "route_open_clean_atmosphere_gate"
     ]
     assert gate_calls[-1].kwargs.get("extra_fields", {})["route_open_block_reason"] == "ROUTE_OPEN_VENT1_HEARTBEAT_STALE"
+
+
+def test_route_open_vent1_freshness_prefers_raw_tap() -> None:
+    runner, pace, _, _ = _runner(logger=RawTapLogger(enabled=True, vent1_age_s=0.047))
+    point = _co2_point()
+    runner._pressure_atmosphere_hold_enabled = True
+    runner._last_pressure_atmosphere_refresh_ts = time.time() - 11.0
+    pace.vent_status = 1
+
+    assert runner._co2_route_open_clean_atmosphere_gate(point, point_tag="co2-1000") is True
+
+    fields = _last_route_open_gate_fields(runner)
+    assert fields["route_open_allowed"] is True
+    assert fields["vent1_last_refresh_source"] == "raw_tap"
+    assert fields["vent1_freshness_decision"] == "fresh"
+    assert fields["vent1_last_refresh_age_s"] < 1.0
+
+
+def test_route_open_records_vent1_freshness_source_mismatch() -> None:
+    runner, pace, _, _ = _runner(logger=RawTapLogger(enabled=True, vent1_age_s=0.047))
+    point = _co2_point()
+    runner._pressure_atmosphere_hold_enabled = True
+    runner._last_pressure_atmosphere_refresh_ts = time.time() - 11.0
+    pace.vent_status = 1
+
+    assert runner._co2_route_open_clean_atmosphere_gate(point, point_tag="co2-1000") is True
+
+    fields = _last_route_open_gate_fields(runner)
+    assert fields["vent1_freshness_source_mismatch"] is True
+    assert fields["vent1_freshness_source_mismatch_delta_s"] > 1.0
+    assert fields["vent1_last_refresh_runner_ts"] is not None
+    assert fields["vent1_last_refresh_raw_tap_ts"] == "2026-05-17T22:41:25.257"
+
+
+def test_route_open_fails_when_raw_tap_vent1_really_stale() -> None:
+    runner, pace, _, _ = _runner(logger=RawTapLogger(enabled=True, vent1_age_s=5.0))
+    point = _co2_point()
+    runner._pressure_atmosphere_hold_enabled = True
+    runner._last_pressure_atmosphere_refresh_ts = time.time()
+    pace.vent_status = 1
+
+    assert runner._co2_route_open_clean_atmosphere_gate(point, point_tag="co2-1000") is False
+
+    fields = _last_route_open_gate_fields(runner)
+    assert fields["vent1_last_refresh_source"] == "raw_tap"
+    assert fields["vent1_freshness_decision"] == "stale"
+    assert fields["route_open_block_reason"] == "ROUTE_OPEN_VENT1_HEARTBEAT_STALE"
+
+
+def test_route_open_uses_hold_thread_when_raw_tap_disabled() -> None:
+    runner, pace, _, _ = _runner(
+        pace=HoldThreadEvidencePace(age_s=0.1),
+        logger=RawTapLogger(enabled=False, vent1_age_s=None),
+    )
+    point = _co2_point()
+    runner._last_pressure_atmosphere_refresh_ts = time.time() - 11.0
+    pace.vent_status = 1
+
+    assert runner._co2_route_open_clean_atmosphere_gate(point, point_tag="co2-1000") is True
+
+    fields = _last_route_open_gate_fields(runner)
+    assert fields["vent1_last_refresh_source"] == "atmosphere_hold_thread"
+    assert fields["vent1_freshness_decision"] == "fresh"
+    assert fields["vent1_last_refresh_hold_thread_ts"] != ""
+
+
+def test_route_open_fallback_runner_internal_marked() -> None:
+    runner, pace, _, _ = _runner(logger=RawTapLogger(enabled=False, vent1_age_s=None))
+    point = _co2_point()
+    runner._pressure_atmosphere_hold_enabled = True
+    runner._last_pressure_atmosphere_refresh_ts = time.time() - 0.1
+    pace.vent_status = 1
+
+    assert runner._co2_route_open_clean_atmosphere_gate(point, point_tag="co2-1000") is True
+
+    fields = _last_route_open_gate_fields(runner)
+    assert fields["vent1_last_refresh_source"] == "runner_internal"
+    assert fields["vent1_freshness_decision"] == "fresh"
 
 
 def test_raw_tap_route_open_precheck_records_clean_state() -> None:

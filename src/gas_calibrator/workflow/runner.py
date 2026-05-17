@@ -198,6 +198,15 @@ _PRESSURE_TRACE_FIELDS = [
     "com22_pressure_before_route_open_hpa",
     "atmosphere_hold_active_before_route_open",
     "vent1_last_refresh_age_s",
+    "vent1_last_refresh_ts",
+    "vent1_last_refresh_source",
+    "vent1_last_refresh_raw_tap_ts",
+    "vent1_last_refresh_hold_thread_ts",
+    "vent1_last_refresh_runner_ts",
+    "vent1_freshness_threshold_s",
+    "vent1_freshness_decision",
+    "vent1_freshness_source_mismatch",
+    "vent1_freshness_source_mismatch_delta_s",
     "actual_open_valves_before_route_open",
     "raw_tap_unexpected_write_count",
     "route_open_allowed",
@@ -8512,6 +8521,159 @@ class CalibrationRunner:
             float(self._wf("workflow.pressure.route_open_clean_atmosphere_pressure_tolerance_hpa", fallback) or fallback),
         )
 
+    def _route_open_hold_thread_vent1_evidence(
+        self,
+        pace: Any,
+        *,
+        now_wall_s: float,
+        now_monotonic_s: float,
+    ) -> Dict[str, Any]:
+        evidence: Dict[str, Any] = {}
+        for method_name in (
+            "latest_successful_vent1_evidence",
+            "get_latest_successful_vent1_evidence",
+            "last_successful_vent1_evidence",
+            "get_last_successful_vent1_evidence",
+        ):
+            getter = getattr(pace, method_name, None)
+            if not callable(getter):
+                continue
+            try:
+                value = getter()
+            except Exception:
+                continue
+            if isinstance(value, Mapping):
+                evidence.update(value)
+                break
+            parsed = self._as_float(value)
+            if parsed is not None:
+                evidence["wall_ts"] = parsed
+                break
+        for attr_name in (
+            "last_successful_vent1_ts",
+            "_last_successful_vent1_ts",
+            "last_atmosphere_hold_vent1_ts",
+            "_last_atmosphere_hold_vent1_ts",
+        ):
+            if "wall_ts" in evidence:
+                break
+            parsed = self._as_float(getattr(pace, attr_name, None))
+            if parsed is not None:
+                evidence["wall_ts"] = parsed
+                break
+        for attr_name in (
+            "last_successful_vent1_monotonic_ts",
+            "_last_successful_vent1_monotonic_ts",
+            "last_atmosphere_hold_vent1_monotonic_ts",
+            "_last_atmosphere_hold_vent1_monotonic_ts",
+        ):
+            if "monotonic_ts" in evidence:
+                break
+            parsed = self._as_float(getattr(pace, attr_name, None))
+            if parsed is not None:
+                evidence["monotonic_ts"] = parsed
+                break
+
+        monotonic_ts = self._as_float(evidence.get("monotonic_ts"))
+        wall_ts = self._as_float(evidence.get("wall_ts"))
+        age_s = None
+        if monotonic_ts is not None and monotonic_ts > 0:
+            age_s = max(0.0, now_monotonic_s - float(monotonic_ts))
+        elif wall_ts is not None and wall_ts > 0:
+            age_s = max(0.0, now_wall_s - float(wall_ts))
+        if age_s is None:
+            return {}
+        return {
+            "age_s": age_s,
+            "ts": evidence.get("wall_ts") or evidence.get("monotonic_ts") or "",
+        }
+
+    def _route_open_vent1_freshness_evidence(
+        self,
+        pace: Any,
+        *,
+        now_wall_s: float,
+        now_monotonic_s: float,
+    ) -> Dict[str, Any]:
+        threshold_s = self._route_open_clean_atmosphere_vent1_max_age_s()
+        runner_ts = self._as_float(self._last_pressure_atmosphere_refresh_ts)
+        runner_age_s = None
+        if runner_ts is not None and runner_ts > 0:
+            runner_age_s = max(0.0, now_wall_s - float(runner_ts))
+
+        raw_tap_enabled = False
+        raw_tap_ts: Any = ""
+        raw_tap_age_s = None
+        raw_enabled_fn = getattr(self.logger, "pace_raw_tap_enabled", None)
+        if callable(raw_enabled_fn):
+            try:
+                raw_tap_enabled = bool(raw_enabled_fn())
+            except Exception:
+                raw_tap_enabled = False
+        if raw_tap_enabled:
+            latest_raw_fn = getattr(self.logger, "latest_pace_raw_tap_vent1_evidence", None)
+            if callable(latest_raw_fn):
+                try:
+                    raw_evidence = dict(latest_raw_fn() or {})
+                except Exception:
+                    raw_evidence = {}
+                raw_mono = self._as_float(raw_evidence.get("monotonic_ts"))
+                raw_wall = str(raw_evidence.get("wall_ts") or "").strip()
+                raw_tap_ts = raw_wall
+                if raw_mono is not None and raw_mono > 0:
+                    raw_tap_age_s = max(0.0, now_monotonic_s - float(raw_mono))
+
+        hold_thread_ts: Any = ""
+        hold_thread_age_s = None
+        if not raw_tap_enabled:
+            hold_evidence = self._route_open_hold_thread_vent1_evidence(
+                pace,
+                now_wall_s=now_wall_s,
+                now_monotonic_s=now_monotonic_s,
+            )
+            hold_thread_age_s = self._as_float(hold_evidence.get("age_s"))
+            hold_thread_ts = hold_evidence.get("ts") or ""
+
+        selected_age_s = None
+        selected_ts: Any = ""
+        source = "unavailable"
+        if raw_tap_enabled:
+            if raw_tap_age_s is not None:
+                selected_age_s = raw_tap_age_s
+                selected_ts = raw_tap_ts
+                source = "raw_tap"
+        elif hold_thread_age_s is not None:
+            selected_age_s = hold_thread_age_s
+            selected_ts = hold_thread_ts
+            source = "atmosphere_hold_thread"
+        elif runner_age_s is not None:
+            selected_age_s = runner_age_s
+            selected_ts = runner_ts
+            source = "runner_internal"
+
+        decision = "unavailable"
+        if selected_age_s is not None:
+            decision = "fresh" if selected_age_s <= threshold_s else "stale"
+
+        mismatch = False
+        mismatch_delta_s = None
+        if source in {"raw_tap", "atmosphere_hold_thread"} and runner_age_s is not None and selected_age_s is not None:
+            mismatch_delta_s = abs(float(selected_age_s) - float(runner_age_s))
+            mismatch = mismatch_delta_s > 1.0
+
+        return {
+            "vent1_last_refresh_age_s": selected_age_s,
+            "vent1_last_refresh_ts": selected_ts,
+            "vent1_last_refresh_source": source,
+            "vent1_last_refresh_raw_tap_ts": raw_tap_ts,
+            "vent1_last_refresh_hold_thread_ts": hold_thread_ts,
+            "vent1_last_refresh_runner_ts": runner_ts,
+            "vent1_freshness_threshold_s": threshold_s,
+            "vent1_freshness_decision": decision,
+            "vent1_freshness_source_mismatch": mismatch,
+            "vent1_freshness_source_mismatch_delta_s": mismatch_delta_s,
+        }
+
     def _read_pressure_controller_int_state(self, pace: Any, getter_name: str) -> Optional[int]:
         getter = getattr(pace, getter_name, None)
         if not callable(getter):
@@ -15885,11 +16047,12 @@ class CalibrationRunner:
         vent_classification = self._pace_vent_status_classification(vent_status, stage="open_flow")
         vent_status_diag = self._pace_vent_status_diagnostic_fields(vent_status, stage="route_open")
         hold_active = self._pressure_controller_atmosphere_hold_active(pace)
-        now = time.time()
-        last_refresh_ts = self._as_float(self._last_pressure_atmosphere_refresh_ts)
-        vent1_age_s = None
-        if last_refresh_ts is not None and last_refresh_ts > 0:
-            vent1_age_s = max(0.0, now - float(last_refresh_ts))
+        freshness = self._route_open_vent1_freshness_evidence(
+            pace,
+            now_wall_s=time.time(),
+            now_monotonic_s=time.monotonic(),
+        )
+        vent1_age_s = self._as_float(freshness.get("vent1_last_refresh_age_s"))
         pace_pressure = self._read_pace_pressure_now(pace)
         com22_pressure, com22_source = self._read_preseal_pressure_gauge()
         actual_open_valves = self._cached_actual_open_valves()
@@ -15901,9 +16064,7 @@ class CalibrationRunner:
         failures: List[str] = []
         if not hold_active:
             failures.append("ROUTE_OPEN_VENT1_HEARTBEAT_STALE")
-        if vent1_age_s is None:
-            failures.append("ROUTE_OPEN_VENT1_HEARTBEAT_STALE")
-        elif vent1_age_s > self._route_open_clean_atmosphere_vent1_max_age_s():
+        if freshness.get("vent1_freshness_decision") != "fresh":
             failures.append("ROUTE_OPEN_VENT1_HEARTBEAT_STALE")
         if output_state != 0:
             failures.append("ROUTE_OPEN_OUTPUT_NOT_OFF")
@@ -15936,6 +16097,15 @@ class CalibrationRunner:
             "com22_pressure_before_route_open_hpa": com22_pressure,
             "atmosphere_hold_active_before_route_open": hold_active,
             "vent1_last_refresh_age_s": vent1_age_s,
+            "vent1_last_refresh_ts": freshness.get("vent1_last_refresh_ts"),
+            "vent1_last_refresh_source": freshness.get("vent1_last_refresh_source"),
+            "vent1_last_refresh_raw_tap_ts": freshness.get("vent1_last_refresh_raw_tap_ts"),
+            "vent1_last_refresh_hold_thread_ts": freshness.get("vent1_last_refresh_hold_thread_ts"),
+            "vent1_last_refresh_runner_ts": freshness.get("vent1_last_refresh_runner_ts"),
+            "vent1_freshness_threshold_s": freshness.get("vent1_freshness_threshold_s"),
+            "vent1_freshness_decision": freshness.get("vent1_freshness_decision"),
+            "vent1_freshness_source_mismatch": freshness.get("vent1_freshness_source_mismatch"),
+            "vent1_freshness_source_mismatch_delta_s": freshness.get("vent1_freshness_source_mismatch_delta_s"),
             "actual_open_valves_before_route_open": ",".join(str(v) for v in actual_open_valves),
             "raw_tap_unexpected_write_count": raw_tap_unexpected_write_count,
             "route_open_allowed": allowed,
