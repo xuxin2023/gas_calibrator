@@ -289,7 +289,16 @@
       "pressure_rise_gate_blocks_seal": false,
       "engineering_safe_stop_pressure_relief_check": true,
       "safe_stop_pressure_relief_timeout_s": 30.0,
-      "safe_stop_pressure_relief_threshold_hpa": 20.0
+      "safe_stop_pressure_relief_threshold_hpa": 20.0,
+      "raw_serial_tap": {
+        "enabled": true,
+        "device": "pressure_controller",
+        "fail_on_unexpected_analyzer_gate_write": true
+      },
+      "com_lock": {
+        "enabled": true,
+        "device": "pressure_controller"
+      }
     },
     "sampling": {
       "count": 10,

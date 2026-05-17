@@ -7,6 +7,7 @@ imports and use bridge/sidecar tooling only through offline workflows.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -29,6 +30,7 @@ from ..devices import (
 )
 from ..diagnostics import run_self_test
 from ..logging_utils import RunLogger
+from ..pace_audit import PressureControllerComLockExists, acquire_pressure_controller_com_lock
 from ..workflow import runner as runner_mod
 from ..workflow.runner import CalibrationRunner
 
@@ -86,9 +88,15 @@ def _enabled_failures(cfg: Dict[str, Any], results: Dict[str, Any]) -> List[Tupl
 def _build_devices(cfg: Dict[str, Any], io_logger: Optional[RunLogger] = None) -> Dict[str, Any]:
     dcfg = cfg["devices"]
     built: Dict[str, Any] = {}
+    pace_lock = None
 
     try:
         if dcfg["pressure_controller"]["enabled"]:
+            pace_lock = acquire_pressure_controller_com_lock(
+                cfg,
+                run_id=getattr(io_logger, "run_id", ""),
+                config_path=cfg.get("_runtime_config_path", ""),
+            )
             built["pace"] = Pace5000(
                 dcfg["pressure_controller"]["port"],
                 dcfg["pressure_controller"]["baud"],
@@ -99,6 +107,8 @@ def _build_devices(cfg: Dict[str, Any], io_logger: Optional[RunLogger] = None) -
                 io_logger=io_logger,
             )
             built["pace"].open()
+            if pace_lock is not None:
+                built["_pace_com_lock"] = pace_lock
 
         if dcfg["pressure_gauge"]["enabled"]:
             built["pressure_gauge"] = ParoscientificGauge(
@@ -196,6 +206,11 @@ def _build_devices(cfg: Dict[str, Any], io_logger: Optional[RunLogger] = None) -
             built["relay_8"].open()
     except Exception:
         _close_devices(built)
+        if pace_lock is not None and "_pace_com_lock" not in built:
+            try:
+                pace_lock.close()
+            except Exception:
+                pass
         raise
 
     return built
@@ -235,6 +250,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
     cfg = load_config(args.config)
+    cfg["_runtime_config_path"] = str(args.config)
     coeff_cfg = cfg.get("coefficients", {}) if isinstance(cfg.get("coefficients", {}), dict) else {}
     capability = v1_h2o_zero_span_capability(coeff_cfg)
     _log(
@@ -293,6 +309,38 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         runner = CalibrationRunner(cfg, devices, logger, _log, _log)
         runner.run()
         return 0
+    except PressureControllerComLockExists as exc:
+        decision = "BLOCKED_PRESSURE_CONTROLLER_COM_LOCK_EXISTS"
+        _log(f"{decision}: {exc.lock_path}")
+        _log(f"Existing lock: {exc.existing}")
+        try:
+            (logger.run_dir / "precheck_final_decision.json").write_text(
+                json.dumps(
+                    {
+                        "final_decision": decision,
+                        "lock_path": str(exc.lock_path),
+                        "existing_lock": exc.existing,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        try:
+            logger.log_io(
+                port="RUN",
+                device="run_headless",
+                direction="EVENT",
+                command=decision,
+                response=exc.existing,
+            )
+        except Exception:
+            pass
+        return 2
     except Exception as exc:
         _log(f"Headless run aborted: {exc}")
         return 1

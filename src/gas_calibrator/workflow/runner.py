@@ -153,6 +153,26 @@ _PRESSURE_TRACE_FIELDS = [
     "analyzer_gate_begin_ts",
     "analyzer_gate_end_ts",
     "analyzer_gate_elapsed_s",
+    "analyzer_gate_raw_tap_write_count",
+    "analyzer_gate_raw_tap_vent1_count",
+    "analyzer_gate_raw_tap_query_count",
+    "analyzer_gate_raw_tap_state_changing_count",
+    "analyzer_gate_raw_tap_unexpected_write_count",
+    "analyzer_gate_raw_tap_first_unexpected_command",
+    "analyzer_gate_raw_tap_first_unexpected_call_stack",
+    "analyzer_gate_raw_tap_first_unexpected_thread",
+    "raw_tap_enabled",
+    "pressure_controller_port",
+    "pressure_controller_instance_id",
+    "pressure_controller_serial_instance_id",
+    "pressure_controller_open_count",
+    "pressure_controller_close_count",
+    "atmosphere_hold_thread_name",
+    "active_thread_snapshot",
+    "pace_hold_thread_count",
+    "pressure_controller_runtime_audit_decision",
+    "final_decision",
+    "remaining_selected_pressure_points_skipped",
     "dewpoint_preseal_read_ts",
     "dewpoint_preseal_value_c",
     "dewpoint_freshness_age_s",
@@ -356,6 +376,11 @@ class CalibrationRunner:
         self._coefficient_write_blocked_count = 0
         self._no_write_guard_blocked_count = 0
         self._no_write_guard_blocked_reasons: List[str] = []
+        self._co2_route_terminal_failure_reason = ""
+        self._co2_route_terminal_failure_decision = ""
+        self._pressure_controller_instance_id_seen: Optional[int] = None
+        self._pressure_controller_serial_instance_id_seen: Optional[int] = None
+        self._pressure_controller_runtime_conflict_decision = ""
 
     def _check_no_write_guard(self, operation: str) -> bool:
         if self._no_write_guard_enabled:
@@ -395,6 +420,215 @@ class CalibrationRunner:
             )
         except Exception:
             pass
+
+    def _set_logger_workflow_stage(self, stage: str) -> str:
+        previous = ""
+        getter = getattr(self.logger, "get_workflow_stage", None)
+        if callable(getter):
+            try:
+                previous = str(getter() or "")
+            except Exception:
+                previous = ""
+        setter = getattr(self.logger, "set_workflow_stage", None)
+        if callable(setter):
+            try:
+                setter(stage)
+            except Exception:
+                pass
+        return previous
+
+    def _restore_logger_workflow_stage(self, stage: str) -> None:
+        setter = getattr(self.logger, "set_workflow_stage", None)
+        if callable(setter):
+            try:
+                setter(stage)
+            except Exception:
+                pass
+
+    def _pressure_controller_runtime_audit_snapshot(self) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        ser = getattr(pace, "ser", None) if pace is not None else None
+        port = getattr(ser, "port", "") or getattr(pace, "port", "")
+        port_text = str(port or "")
+        instance_id = id(pace) if pace is not None else ""
+        serial_instance_id = id(ser) if ser is not None else ""
+        open_count = 0
+        close_count = 0
+        counter = getattr(self.logger, "get_io_count", None)
+        if callable(counter):
+            try:
+                open_count = int(counter(device="pace5000", port=port_text, direction="OPEN"))
+                close_count = int(counter(device="pace5000", port=port_text, direction="CLOSE"))
+            except Exception:
+                open_count = 0
+                close_count = 0
+        hold_thread = getattr(pace, "_vent_hold_thread", None) if pace is not None else None
+        hold_thread_name = ""
+        if hold_thread is not None and getattr(hold_thread, "is_alive", lambda: False)():
+            hold_thread_name = str(getattr(hold_thread, "name", "") or "")
+        threads = threading.enumerate()
+        pace_hold_threads = [
+            thread
+            for thread in threads
+            if "pace5000-vent-hold" in str(getattr(thread, "name", ""))
+            and (not port_text or port_text in str(getattr(thread, "name", "")))
+        ]
+        thread_rows = [
+            {
+                "name": str(getattr(thread, "name", "") or ""),
+                "ident": getattr(thread, "ident", None),
+                "daemon": bool(getattr(thread, "daemon", False)),
+            }
+            for thread in threads
+        ]
+        return {
+            "pressure_controller_port": port_text,
+            "pressure_controller_instance_id": instance_id,
+            "pressure_controller_serial_instance_id": serial_instance_id,
+            "pressure_controller_open_count": open_count,
+            "pressure_controller_close_count": close_count,
+            "atmosphere_hold_thread_name": hold_thread_name,
+            "active_thread_snapshot": json.dumps(thread_rows, ensure_ascii=False),
+            "pace_hold_thread_count": len(pace_hold_threads),
+        }
+
+    def _pressure_controller_runtime_conflict(self, snapshot: Mapping[str, Any]) -> str:
+        instance_id = snapshot.get("pressure_controller_instance_id")
+        serial_instance_id = snapshot.get("pressure_controller_serial_instance_id")
+        if instance_id:
+            try:
+                normalized_instance_id = int(instance_id)
+            except Exception:
+                normalized_instance_id = None
+            if normalized_instance_id is not None:
+                if self._pressure_controller_instance_id_seen is None:
+                    self._pressure_controller_instance_id_seen = normalized_instance_id
+                elif self._pressure_controller_instance_id_seen != normalized_instance_id:
+                    return "second_pressure_controller_instance"
+        if serial_instance_id:
+            try:
+                normalized_serial_instance_id = int(serial_instance_id)
+            except Exception:
+                normalized_serial_instance_id = None
+            if normalized_serial_instance_id is not None:
+                if self._pressure_controller_serial_instance_id_seen is None:
+                    self._pressure_controller_serial_instance_id_seen = normalized_serial_instance_id
+                elif self._pressure_controller_serial_instance_id_seen != normalized_serial_instance_id:
+                    return "second_pressure_controller_serial_instance"
+        try:
+            if int(snapshot.get("pressure_controller_open_count") or 0) > 1:
+                return "second_pressure_controller_open"
+        except Exception:
+            pass
+        try:
+            if int(snapshot.get("pace_hold_thread_count") or 0) > 1:
+                return "multiple_atmosphere_hold_threads"
+        except Exception:
+            pass
+        return ""
+
+    def _emit_pressure_controller_runtime_audit(
+        self,
+        *,
+        stage: str,
+        point: Optional[CalibrationPoint] = None,
+        route: str = "co2",
+        extra_fields: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        snapshot = self._pressure_controller_runtime_audit_snapshot()
+        conflict = self._pressure_controller_runtime_conflict(snapshot)
+        fields = dict(snapshot)
+        fields.update(dict(extra_fields or {}))
+        if conflict:
+            self._pressure_controller_runtime_conflict_decision = conflict
+            fields["pressure_controller_runtime_audit_decision"] = conflict
+            fields["final_decision"] = "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED"
+            self._controlled_exit_final_decision = "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED"
+            self._co2_route_terminal_failure_decision = self._controlled_exit_final_decision
+            self._co2_route_terminal_failure_reason = conflict
+        else:
+            fields["pressure_controller_runtime_audit_decision"] = "pass"
+        self._log_run_event(
+            command=f"pressure-controller-runtime-audit:{stage}",
+            response=json.dumps(fields, ensure_ascii=False),
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=route,
+            point_phase=route,
+            trace_stage=f"pressure_controller_runtime_audit_{stage}",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=f"stage={stage} decision={fields.get('pressure_controller_runtime_audit_decision')}",
+        )
+        return fields
+
+    def _mark_co2_route_terminal_failure(
+        self,
+        *,
+        final_decision: str,
+        reason: str,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "co2",
+    ) -> None:
+        self._controlled_exit_final_decision = str(final_decision or "")
+        self._co2_route_terminal_failure_decision = str(final_decision or "")
+        self._co2_route_terminal_failure_reason = str(reason or "")
+        self._log_run_event(
+            command="co2-route-terminal-failure",
+            response=json.dumps(
+                {
+                    "final_decision": self._co2_route_terminal_failure_decision,
+                    "reason": self._co2_route_terminal_failure_reason,
+                    "point_row": getattr(point, "index", ""),
+                    "pressure_target_hpa": getattr(point, "target_pressure_hpa", ""),
+                },
+                ensure_ascii=False,
+            ),
+        )
+        if point is not None:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="co2_route_terminal_failure",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+                refresh_pace_state=False,
+                extra_fields={
+                    "final_decision": self._co2_route_terminal_failure_decision,
+                    "remaining_selected_pressure_points_skipped": "",
+                },
+                note=f"{self._co2_route_terminal_failure_decision}: {self._co2_route_terminal_failure_reason}",
+            )
+
+    def _record_remaining_pressure_points_skipped_for_dewpoint_failure(
+        self,
+        lead_point: CalibrationPoint,
+        remaining_refs: List[CalibrationPoint],
+    ) -> None:
+        skipped_targets: List[str] = []
+        for ref in remaining_refs:
+            try:
+                sample_point = self._build_co2_pressure_point(lead_point, ref)
+            except Exception:
+                sample_point = ref
+            target = getattr(sample_point, "target_pressure_hpa", None)
+            skipped_targets.append(str(target))
+            self._append_pressure_trace_row(
+                point=sample_point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="skipped_due_to_upstream_dewpoint_freshness_failure",
+                pressure_target_hpa=target,
+                refresh_pace_state=False,
+                extra_fields={
+                    "final_decision": self._co2_route_terminal_failure_decision
+                    or "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED",
+                    "remaining_selected_pressure_points_skipped": ",".join(skipped_targets),
+                },
+                note="remaining selected pressure point skipped due to upstream dewpoint freshness failure",
+            )
 
     def _log_data_quality_effective_config(self) -> None:
         frame_cfg = dict(cfg_get(self.cfg, "workflow.analyzer_frame_quality", {}) or {})
@@ -4783,6 +5017,7 @@ class CalibrationRunner:
         self._log_data_quality_effective_config()
         self._log_postrun_corrected_delivery_effective_config()
         self._log_run_event(command="run-start", response="CalibrationRunner.run entered")
+        self._emit_pressure_controller_runtime_audit(stage="run_start", point=None, route="run")
         completed_normally = False
         try:
             points_path = self.cfg["paths"]["points_excel"]
@@ -8594,6 +8829,10 @@ class CalibrationRunner:
             "FAIL_CLOSED_ATMOSPHERE_WINDOW_NOT_CLEARED",
             "FAIL_CLOSED_ATMOSPHERE_WINDOW_OBSERVATION_MISSING",
             "FAIL_CLOSED_VERIFIED_ATMOSPHERE_EXIT_FAILED",
+            "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED",
+            "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE",
+            "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_ANALYZER_GATE",
+            "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED",
         }
 
     def _controlled_exit_failure_is_route_terminal(self) -> bool:
@@ -12753,6 +12992,8 @@ class CalibrationRunner:
         next_route_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._h2o_pressure_prepared_target = None
+        self._co2_route_terminal_failure_reason = ""
+        self._co2_route_terminal_failure_decision = ""
         route_context = self._route_entry_context_for_co2_source(point, pressure_points=pressure_points)
         route_point_tag = str(route_context.get("point_tag") or self._co2_point_tag(point))
         self._apply_idle_route_isolation(reason="before CO2 chamber wait")
@@ -12868,8 +13109,14 @@ class CalibrationRunner:
             )
             if self._controlled_exit_failure_is_route_terminal():
                 _flush_co2_route_seal_deferred_exports(reason=str(self._controlled_exit_final_decision))
+                decision_text = str(self._controlled_exit_final_decision or "")
+                if "DEWPOINT_FRESHNESS" in decision_text:
+                    self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
+                        point,
+                        sealed_control_refs[idx + 1 :],
+                    )
                 self.log(
-                    "CO2 route aborted after fail-closed atmosphere/window gate: "
+                    "CO2 route aborted after fail-closed route gate: "
                     f"{self._controlled_exit_final_decision}"
                 )
                 self._cleanup_co2_route(reason=str(self._controlled_exit_final_decision))
@@ -13784,6 +14031,23 @@ class CalibrationRunner:
             sensor_cfg.get("co2_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0))
         )
         analyzer_gate_begin_ts = time.time()
+        previous_workflow_stage = self._set_logger_workflow_stage("co2_precondition_analyzer_gate")
+        raw_tap_begin = {}
+        raw_tap_begin_fn = getattr(self.logger, "begin_pace_raw_tap_analyzer_gate", None)
+        if callable(raw_tap_begin_fn):
+            try:
+                raw_tap_begin = dict(raw_tap_begin_fn() or {})
+            except Exception:
+                raw_tap_begin = {}
+        runtime_begin = self._emit_pressure_controller_runtime_audit(
+            stage="analyzer_gate_begin",
+            point=point,
+            route="co2",
+            extra_fields=raw_tap_begin,
+        )
+        if str(runtime_begin.get("final_decision") or "") == "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED":
+            self._restore_logger_workflow_stage(previous_workflow_stage)
+            return False
         self._set_point_runtime_fields(
             point,
             phase="co2",
@@ -13800,6 +14064,7 @@ class CalibrationRunner:
                 "analyzer_gate_begin_ts": datetime.fromtimestamp(
                     float(analyzer_gate_begin_ts)
                 ).isoformat(timespec="milliseconds"),
+                **raw_tap_begin,
             },
             note=(
                 f"key=co2_ratio_f tol={tol:.6f} window_s={window_s:.3f} "
@@ -13819,6 +14084,33 @@ class CalibrationRunner:
         )
         analyzer_gate_end_ts = time.time()
         analyzer_gate_elapsed_s = max(0.0, analyzer_gate_end_ts - analyzer_gate_begin_ts)
+        raw_tap_summary = {}
+        raw_tap_end_fn = getattr(self.logger, "end_pace_raw_tap_analyzer_gate", None)
+        if callable(raw_tap_end_fn):
+            try:
+                raw_tap_summary = dict(raw_tap_end_fn() or {})
+            except Exception:
+                raw_tap_summary = {}
+        runtime_end = self._emit_pressure_controller_runtime_audit(
+            stage="analyzer_gate_end",
+            point=point,
+            route="co2",
+            extra_fields=raw_tap_summary,
+        )
+        self._restore_logger_workflow_stage(previous_workflow_stage)
+        if (
+            int(raw_tap_summary.get("analyzer_gate_raw_tap_unexpected_write_count") or 0) > 0
+            and getattr(self.logger, "pace_raw_tap_fail_on_unexpected_analyzer_gate_write", lambda: False)()
+        ):
+            self._mark_co2_route_terminal_failure(
+                final_decision="FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_ANALYZER_GATE",
+                reason=str(raw_tap_summary.get("analyzer_gate_raw_tap_first_unexpected_command") or ""),
+                point=point,
+                phase="co2",
+            )
+            stable = False
+        if str(runtime_end.get("final_decision") or "") == "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED":
+            stable = False
         self._set_point_runtime_fields(
             point,
             phase="co2",
@@ -13840,6 +14132,10 @@ class CalibrationRunner:
                     float(analyzer_gate_end_ts)
                 ).isoformat(timespec="milliseconds"),
                 "analyzer_gate_elapsed_s": analyzer_gate_elapsed_s,
+                **raw_tap_summary,
+                "final_decision": self._controlled_exit_final_decision
+                if not stable and getattr(self, "_controlled_exit_final_decision", "")
+                else "",
             },
             note=(
                 f"result={'pass' if stable else 'fail'} key=co2_ratio_f tol={tol:.6f} "
@@ -15513,6 +15809,15 @@ class CalibrationRunner:
             ),
         )
         if expired:
+            self._mark_co2_route_terminal_failure(
+                final_decision="FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED",
+                reason=(
+                    f"age_s={age_s if age_s is not None else 'NA'} "
+                    f"delta_c={delta_c if delta_c is not None else 'NA'}"
+                ),
+                point=point,
+                phase="co2",
+            )
             self.log(
                 "CO2 preseal dewpoint freshness gate failed: "
                 f"age_s={age_s if age_s is not None else 'NA'} "
