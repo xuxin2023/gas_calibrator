@@ -147,10 +147,28 @@ _PRESSURE_TRACE_FIELDS = [
     "post_vent0_pace_pressure_timeline",
     "post_vent0_com22_pressure_timeline",
     "post_vent0_new_vent1_count",
+    "post_vent0_outp1_count",
+    "post_vent0_setpoint_count",
+    "post_vent0_unexpected_state_changing_write_count",
     "post_vent0_vent3_count",
     "post_vent0_vent3_watchlist_only",
     "post_vent0_pressure_build_observed",
     "post_vent0_route_valves_still_open",
+    "route_close_deadline_ts",
+    "route_close_deadline_source",
+    "route_close_actual_ts",
+    "route_close_after_raw_vent0_s",
+    "route_close_blocked_by_operator_window",
+    "operator_window_gate_effect",
+    "operator_window_terminal",
+    "operator_window_note",
+    "post_vent0_probe_overran_deadline",
+    "post_vent0_probe_skipped_due_to_deadline_count",
+    "pre_route_close_probe_count",
+    "post_route_close_probe_count",
+    "route_valves_open_during_vent0_wait",
+    "route_closed_after_fixed_wait",
+    "route_close_allowed_with_vent_status_3",
     "route_close_after_vent0_delay_s",
     "route_close_after_vent0_raw_tx_s",
     "vent_after_valve_supported",
@@ -9430,6 +9448,8 @@ class CalibrationRunner:
         operator_window_mode = self._operator_window_confirm_mode()
         operator_window_timeout_s = self._operator_window_clear_timeout_s()
         operator_final_decision = ""
+        operator_window_gate_effect = "none"
+        operator_window_terminal = False
         failures: List[str] = []
         vent_status = self._as_int(snapshot.get("pace_vent_status"))
         vent_status_classification = self._pace_vent_status_classification(
@@ -9442,7 +9462,14 @@ class CalibrationRunner:
             and not self._pace_vent_status_is_ready_for_control(vent_status)
         ):
             operator_final_decision = "FAIL_CLOSED_ATMOSPHERE_VENT_STATUS_NOT_READY"
+            operator_window_gate_effect = "terminal"
+            operator_window_terminal = True
             failures.append(f"vent_status_after_vent0={vent_status}:{vent_status_classification}")
+        operator_fields = {
+            "route_close_blocked_by_operator_window": False,
+            "operator_window_gate_effect": operator_window_gate_effect,
+            "operator_window_terminal": operator_window_terminal,
+        }
 
         self._append_pressure_trace_row(
             point=point,
@@ -9454,9 +9481,9 @@ class CalibrationRunner:
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
-            extra_fields=vent_status_diag,
+            extra_fields={**vent_status_diag, **operator_fields},
             note=(
-                "window_check_timing=after_fixed_preseal_wait_before_route_seal; "
+                "window_check_timing=after_fixed_preseal_wait_after_route_seal; "
                 f"require_operator_window_clear_after_vent0="
                 f"{str(self._require_operator_window_clear_after_vent0()).lower()}; "
                 f"operator_window_confirm_mode={operator_window_mode}; "
@@ -9479,8 +9506,9 @@ class CalibrationRunner:
                     pace_isolation_state=snapshot.get("pace_isolation_state"),
                     pace_vent_status=snapshot.get("pace_vent_status"),
                     refresh_pace_state=False,
+                    extra_fields=operator_fields,
                     note=(
-                        "window_check_timing=after_fixed_preseal_wait_before_route_seal; "
+                        "window_check_timing=after_fixed_preseal_wait_after_route_seal; "
                         f"operator_window_confirm_mode={operator_window_mode}; "
                         f"operator_window_clear_timeout_s={operator_window_timeout_s:.3f}; "
                         f"prompt={prompt}; prompt_error={prompt_error}"
@@ -9493,8 +9521,21 @@ class CalibrationRunner:
                 operator_window_mode,
             ) = self._controlled_operator_window_record()
             if operator_window_state != "true":
-                operator_final_decision = self._controlled_operator_window_failure_decision(operator_window_state)
-                failures.append(operator_final_decision)
+                operator_window_gate_effect = "warning_only"
+                operator_window_terminal = False
+                operator_fields = {
+                    "route_close_blocked_by_operator_window": False,
+                    "operator_window_gate_effect": operator_window_gate_effect,
+                    "operator_window_terminal": operator_window_terminal,
+                    "operator_window_note": operator_window_note,
+                }
+            else:
+                operator_fields = {
+                    "route_close_blocked_by_operator_window": False,
+                    "operator_window_gate_effect": operator_window_gate_effect,
+                    "operator_window_terminal": operator_window_terminal,
+                    "operator_window_note": operator_window_note,
+                }
 
         self._append_pressure_trace_row(
             point=point,
@@ -9506,7 +9547,7 @@ class CalibrationRunner:
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
-            extra_fields=vent_status_diag,
+            extra_fields={**vent_status_diag, **operator_fields},
             note=self._controlled_exit_atmosphere_note(
                 result="operator_window_check",
                 snapshot=snapshot,
@@ -9653,6 +9694,9 @@ class CalibrationRunner:
         route_valves_still_open: bool,
         max_relative_s: Optional[float] = None,
         respect_schedule: bool = False,
+        deadline_wall_s: Optional[float] = None,
+        probe_phase: str = "post_vent0",
+        allow_device_queries: bool = True,
     ) -> Dict[str, Any]:
         pace = self.devices.get("pace")
         schedule = self._post_vent0_probe_schedule_s()
@@ -9668,11 +9712,28 @@ class CalibrationRunner:
         isol_timeline: List[Dict[str, Any]] = []
         pace_pressure_timeline: List[Dict[str, Any]] = []
         com22_pressure_timeline: List[Dict[str, Any]] = []
+        skipped_due_to_deadline_count = 0
+        probe_overran_deadline = False
+        pre_route_close_probe_count = 0
+        post_route_close_probe_count = 0
+        deadline_budget_s = max(
+            0.0,
+            float(self._wf("workflow.pressure.post_vent0_preclose_probe_min_time_budget_s", 0.05) or 0.05),
+        )
         for relative_s in schedule_to_sample:
+            if not allow_device_queries:
+                skipped_due_to_deadline_count += 1
+                continue
             if respect_schedule:
                 delay_s = (begin_wall + float(relative_s)) - time.time()
                 if delay_s > 0:
+                    if deadline_wall_s is not None and time.time() + delay_s >= float(deadline_wall_s) - deadline_budget_s:
+                        skipped_due_to_deadline_count += 1
+                        continue
                     time.sleep(delay_s)
+            if deadline_wall_s is not None and time.time() >= float(deadline_wall_s) - deadline_budget_s:
+                skipped_due_to_deadline_count += 1
+                continue
             sample_wall = time.time()
             sample_ts = self._iso_ts_from_wall(sample_wall)
             snapshot: Dict[str, Any] = {}
@@ -9696,6 +9757,12 @@ class CalibrationRunner:
             isol_timeline.append({**entry_base, "value": isol_status})
             pace_pressure_timeline.append({**entry_base, "value": pace_pressure})
             com22_pressure_timeline.append({**entry_base, "value": com22_pressure})
+            if str(probe_phase or "").strip().lower() == "pre_route_close":
+                pre_route_close_probe_count += 1
+            elif str(probe_phase or "").strip().lower() == "post_route_close":
+                post_route_close_probe_count += 1
+            if deadline_wall_s is not None and time.time() > float(deadline_wall_s):
+                probe_overran_deadline = True
 
         vent0_evidence = self._latest_pace_raw_tap_vent0_evidence()
         raw_tx_ts = str(vent0_evidence.get("wall_ts") or "")
@@ -9708,6 +9775,9 @@ class CalibrationRunner:
         end_ts = self._iso_ts_from_wall(time.time())
         raw_summary = self._post_vent0_raw_tap_summary(raw_tx_ts, end_ts)
         vent3_count = sum(1 for row in vent_timeline if self._as_int(row.get("value")) == 3)
+        outp1_count = int(raw_summary.get("outp1_count") or 0)
+        setpoint_count = int(raw_summary.get("setpoint_sour_pres_count") or 0)
+        unexpected_state_write_count = int(raw_summary.get("unexpected_state_changing_write_count") or 0)
         fields = {
             "atmosphere_hold_stop_request_ts": self._iso_ts_from_wall(
                 getattr(self, "_last_atmosphere_hold_stop_request_ts", None)
@@ -9729,6 +9799,9 @@ class CalibrationRunner:
             "post_vent0_pace_pressure_timeline": json.dumps(pace_pressure_timeline, separators=(",", ":")),
             "post_vent0_com22_pressure_timeline": json.dumps(com22_pressure_timeline, separators=(",", ":")),
             "post_vent0_new_vent1_count": int(raw_summary.get("vent1_count") or 0),
+            "post_vent0_outp1_count": outp1_count,
+            "post_vent0_setpoint_count": setpoint_count,
+            "post_vent0_unexpected_state_changing_write_count": unexpected_state_write_count,
             "post_vent0_vent3_count": vent3_count,
             "post_vent0_vent3_watchlist_only": True,
             "post_vent0_pressure_build_observed": self._post_vent0_pressure_build_observed(
@@ -9736,6 +9809,10 @@ class CalibrationRunner:
                 com22_pressure_timeline,
             ),
             "post_vent0_route_valves_still_open": bool(route_valves_still_open),
+            "post_vent0_probe_overran_deadline": bool(probe_overran_deadline),
+            "post_vent0_probe_skipped_due_to_deadline_count": int(skipped_due_to_deadline_count),
+            "pre_route_close_probe_count": int(pre_route_close_probe_count),
+            "post_route_close_probe_count": int(post_route_close_probe_count),
         }
         return fields
 
@@ -9751,6 +9828,13 @@ class CalibrationRunner:
         route_valve_close_ts: Optional[float] = None,
         actual_open_valves_after_close: Any = "",
         trace_stage: str = "vent0_state_evidence",
+        collect_post_vent0_probe: bool = True,
+        post_vent0_probe_fields: Optional[Mapping[str, Any]] = None,
+        route_close_deadline_ts: Optional[float] = None,
+        route_close_deadline_source: str = "",
+        route_valves_open_during_vent0_wait: Optional[bool] = None,
+        route_closed_after_fixed_wait: Optional[bool] = None,
+        route_close_allowed_with_vent_status_3: Optional[bool] = None,
     ) -> Dict[str, Any]:
         pace = self.devices.get("pace")
         snapshot: Dict[str, Any] = {}
@@ -9764,11 +9848,22 @@ class CalibrationRunner:
         vent_status_diag = self._pace_vent_status_diagnostic_fields(vent_status, stage="preseal")
         pace_pressure = self._read_pace_pressure_now(pace) if pace is not None else None
         com22_pressure = self._read_com22_pressure_now()
-        post_vent0_fields = self._collect_post_vent0_probe_fields(
-            phase=phase,
-            vent0_intent_ts=vent0_command_ts,
-            route_valves_still_open=route_valves_still_open_during_wait,
-        )
+        if post_vent0_probe_fields is not None:
+            post_vent0_fields = dict(post_vent0_probe_fields)
+        elif collect_post_vent0_probe:
+            post_vent0_fields = self._collect_post_vent0_probe_fields(
+                phase=phase,
+                vent0_intent_ts=vent0_command_ts,
+                route_valves_still_open=route_valves_still_open_during_wait,
+            )
+        else:
+            post_vent0_fields = self._collect_post_vent0_probe_fields(
+                phase=phase,
+                vent0_intent_ts=vent0_command_ts,
+                route_valves_still_open=route_valves_still_open_during_wait,
+                max_relative_s=0.0,
+                allow_device_queries=False,
+            )
         raw_tx_wall_s = self._parse_iso_ts_to_wall_s(post_vent0_fields.get("preseal_vent0_raw_tx_ts"))
         route_close_after_vent0_delay_s = None
         route_close_after_vent0_raw_tx_s = None
@@ -9799,6 +9894,32 @@ class CalibrationRunner:
                 else ""
             ),
             "actual_open_valves_after_close": actual_open_valves_after_close,
+            "route_close_deadline_ts": (
+                datetime.fromtimestamp(float(route_close_deadline_ts)).isoformat(timespec="milliseconds")
+                if route_close_deadline_ts is not None
+                else ""
+            ),
+            "route_close_deadline_source": str(route_close_deadline_source or ""),
+            "route_close_actual_ts": (
+                datetime.fromtimestamp(float(route_valve_close_ts)).isoformat(timespec="milliseconds")
+                if route_valve_close_ts is not None
+                else ""
+            ),
+            "route_close_after_raw_vent0_s": route_close_after_vent0_raw_tx_s,
+            "route_close_blocked_by_operator_window": False,
+            "route_valves_open_during_vent0_wait": (
+                route_valves_still_open_during_wait
+                if route_valves_open_during_vent0_wait is None
+                else bool(route_valves_open_during_vent0_wait)
+            ),
+            "route_closed_after_fixed_wait": (
+                "" if route_closed_after_fixed_wait is None else bool(route_closed_after_fixed_wait)
+            ),
+            "route_close_allowed_with_vent_status_3": (
+                ""
+                if route_close_allowed_with_vent_status_3 is None
+                else bool(route_close_allowed_with_vent_status_3)
+            ),
             "route_close_after_vent0_delay_s": route_close_after_vent0_delay_s,
             "route_close_after_vent0_raw_tx_s": route_close_after_vent0_raw_tx_s,
         }
@@ -9922,6 +10043,7 @@ class CalibrationRunner:
             vent0_raw_response=wait_status,
             route_valves_still_open_during_wait=True,
             trace_stage="vent0_state_evidence",
+            collect_post_vent0_probe=False,
         )
         self._append_pressure_trace_row(
             point=point,
@@ -10015,7 +10137,7 @@ class CalibrationRunner:
                 operator_window_confirm_mode="deferred_after_fixed_preseal_wait",
                 operator_window_clear_timeout_s="",
                 operator_window_cleared_after_vent0="deferred",
-                operator_window_note="operator gate runs after fixed 1.5s preseal wait and before route seal",
+                operator_window_note="operator observation runs after deterministic fixed 1.5s route seal",
                 operator_window_response_raw="",
                 final_decision=final_decision,
             ),
@@ -18007,6 +18129,9 @@ class CalibrationRunner:
             vent0_command_ts: Optional[float] = None
             vent0_raw_response: Any = ""
             controlled_fixed_wait_completed = False
+            route_close_deadline_ts: Optional[float] = None
+            route_close_deadline_source = ""
+            pre_route_close_probe_fields: Dict[str, Any] = {}
 
             def _seal_route_now() -> None:
                 nonlocal route_sealed
@@ -18044,23 +18169,33 @@ class CalibrationRunner:
                     self._apply_valve_states([])
                 route_valve_close_ts = time.time()
                 route_sealed = True
+                if route_name == "co2" and self._no_outp_transition():
+                    self._activate_co2_sealed_no_vent_guard(
+                        point,
+                        reason="VENT0 wait complete; CO2 route valves closed",
+                    )
                 if route_name == "co2" and vent0_wall_ts is not None:
                     fixed_wait_elapsed_s = max(0.0, route_valve_close_ts - vent0_wall_ts)
+                    vent3_count = self._as_int(pre_route_close_probe_fields.get("post_vent0_vent3_count")) or 0
+                    new_vent1_count = (
+                        self._as_int(pre_route_close_probe_fields.get("post_vent0_new_vent1_count")) or 0
+                    )
                     self._record_vent0_state_evidence(
                         point,
                         phase=phase,
                         vent0_command_ts=vent0_command_ts,
                         vent0_raw_response=vent0_raw_response,
-                        route_valves_still_open_during_wait=False,
+                        route_valves_still_open_during_wait=True,
                         fixed_wait_elapsed_s=fixed_wait_elapsed_s,
                         route_valve_close_ts=route_valve_close_ts,
                         actual_open_valves_after_close=",".join(self._cached_actual_open_valves()),
                         trace_stage="route_valves_closed_after_vent0",
-                    )
-                if route_name == "co2" and self._no_outp_transition():
-                    self._activate_co2_sealed_no_vent_guard(
-                        point,
-                        reason="VENT0 wait complete; CO2 route valves closed",
+                        post_vent0_probe_fields=pre_route_close_probe_fields,
+                        route_close_deadline_ts=route_close_deadline_ts,
+                        route_close_deadline_source=route_close_deadline_source,
+                        route_valves_open_during_vent0_wait=True,
+                        route_closed_after_fixed_wait=bool(controlled_fixed_wait_completed),
+                        route_close_allowed_with_vent_status_3=bool(vent3_count > 0 and new_vent1_count == 0),
                     )
 
             self._emit_stage_event(
@@ -18113,6 +18248,7 @@ class CalibrationRunner:
                         vent0_command_ts=vent0_command_ts,
                         vent0_raw_response=vent0_raw_response,
                         route_valves_still_open_during_wait=True,
+                        collect_post_vent0_probe=False,
                     )
             vent0_wall_ts = time.time()
             self._append_pressure_trace_row(
@@ -18131,17 +18267,46 @@ class CalibrationRunner:
             ):
                 fixed_wait_s = self._co2_no_outp_vent0_to_seal_wait_s()
                 baseline_pressures = self._read_controlled_outp_preseal_pressures()
-                elapsed_s = max(0.0, time.time() - vent0_wall_ts)
-                remaining_s = max(0.0, fixed_wait_s - elapsed_s)
-                post_vent0_probe_fields = self._collect_post_vent0_probe_fields(
+                raw_vent0_evidence = self._latest_pace_raw_tap_vent0_evidence()
+                raw_vent0_ts = str(raw_vent0_evidence.get("wall_ts") or "")
+                raw_vent0_wall_s = self._parse_iso_ts_to_wall_s(raw_vent0_ts)
+                if raw_vent0_wall_s is None:
+                    raw_vent0_wall_s = float(vent0_command_ts or vent0_wall_ts or time.time())
+                    raw_vent0_ts = self._iso_ts_from_wall(raw_vent0_wall_s)
+                elif vent0_command_ts is not None and abs(float(raw_vent0_wall_s) - float(vent0_command_ts)) > 300.0:
+                    raw_vent0_wall_s = float(vent0_command_ts)
+                    raw_vent0_ts = self._iso_ts_from_wall(raw_vent0_wall_s)
+                vent0_wall_ts = float(raw_vent0_wall_s)
+                route_close_deadline_ts = float(raw_vent0_wall_s) + fixed_wait_s
+                route_close_deadline_source = "raw_vent0_tx"
+                pre_route_close_probe_fields = self._collect_post_vent0_probe_fields(
                     phase=phase,
                     vent0_intent_ts=vent0_command_ts,
                     route_valves_still_open=True,
                     max_relative_s=fixed_wait_s,
-                    respect_schedule=True,
+                    respect_schedule=False,
+                    deadline_wall_s=route_close_deadline_ts,
+                    probe_phase="pre_route_close",
+                    allow_device_queries=False,
                 )
-                elapsed_s = max(0.0, time.time() - vent0_wall_ts)
-                remaining_s = max(0.0, fixed_wait_s - elapsed_s)
+                pre_route_close_probe_fields.update(
+                    {
+                        "route_close_deadline_ts": self._iso_ts_from_wall(route_close_deadline_ts),
+                        "route_close_deadline_source": route_close_deadline_source,
+                        "route_close_blocked_by_operator_window": False,
+                        "operator_window_gate_effect": "warning_only",
+                        "operator_window_terminal": False,
+                        "route_valves_open_during_vent0_wait": True,
+                        "route_closed_after_fixed_wait": False,
+                        "route_close_allowed_with_vent_status_3": bool(
+                            (self._as_int(pre_route_close_probe_fields.get("post_vent0_vent3_count")) or 0) > 0
+                            and (self._as_int(pre_route_close_probe_fields.get("post_vent0_new_vent1_count")) or 0)
+                            == 0
+                        ),
+                    }
+                )
+                elapsed_s = max(0.0, time.time() - float(raw_vent0_wall_s))
+                remaining_s = max(0.0, float(route_close_deadline_ts) - time.time())
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -18151,13 +18316,14 @@ class CalibrationRunner:
                     pace_pressure_hpa=baseline_pressures.get("pace_pressure_hpa"),
                     pressure_gauge_hpa=baseline_pressures.get("pressure_gauge_hpa"),
                     refresh_pace_state=False,
-                    extra_fields=post_vent0_probe_fields,
+                    extra_fields=pre_route_close_probe_fields,
                     note=(
                         f"fixed_wait_s={fixed_wait_s:.3f} elapsed_s={elapsed_s:.3f} "
-                        f"remaining_s={remaining_s:.3f}; route valves remain open after VENT0"
+                        f"remaining_s={remaining_s:.3f}; route valves remain open after VENT0; "
+                        f"route_close_deadline_source={route_close_deadline_source}"
                     ),
                 )
-                if int(post_vent0_probe_fields.get("post_vent0_new_vent1_count") or 0) > 0:
+                if int(pre_route_close_probe_fields.get("post_vent0_new_vent1_count") or 0) > 0:
                     self._controlled_exit_final_decision = "FAIL_CLOSED_VENT1_AFTER_PRESEAL_VENT0"
                     self._mark_co2_route_terminal_failure(
                         final_decision=self._controlled_exit_final_decision,
@@ -18168,9 +18334,25 @@ class CalibrationRunner:
                     self._cleanup_co2_route(reason=self._controlled_exit_final_decision)
                     self._stop_pressure_transition_fast_signal_context(reason=self._controlled_exit_final_decision)
                     return False
+                if (
+                    int(pre_route_close_probe_fields.get("post_vent0_outp1_count") or 0) > 0
+                    or int(pre_route_close_probe_fields.get("post_vent0_setpoint_count") or 0) > 0
+                ):
+                    self._controlled_exit_final_decision = "FAIL_CLOSED_PRESSURE_CONTROL_BEFORE_ROUTE_CLOSE"
+                    self._mark_co2_route_terminal_failure(
+                        final_decision=self._controlled_exit_final_decision,
+                        reason="OUTP1/setpoint raw-tap command before route close",
+                        point=point,
+                        phase=phase,
+                    )
+                    self._cleanup_co2_route(reason=self._controlled_exit_final_decision)
+                    self._stop_pressure_transition_fast_signal_context(reason=self._controlled_exit_final_decision)
+                    return False
                 if remaining_s > 0:
                     time.sleep(remaining_s)
                 controlled_fixed_wait_completed = True
+                preseal_trigger_source = "controlled_fixed_wait_after_vent0"
+                _seal_route_now()
                 after_pressures = self._read_controlled_outp_preseal_pressures()
                 com22_baseline = baseline_pressures.get("pressure_gauge_hpa")
                 com22_after = after_pressures.get("pressure_gauge_hpa")
@@ -18216,8 +18398,6 @@ class CalibrationRunner:
                         reason=str(self._controlled_exit_final_decision or "operator window gate failure")
                     )
                     return False
-                preseal_trigger_source = "controlled_fixed_wait_after_vent0"
-                _seal_route_now()
                 trace_values = self._cached_ready_check_trace_values(point=point)
                 pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
                 if pace_pressure_now is None:
