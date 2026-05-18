@@ -1,8 +1,9 @@
-"""V1.5 engineering diagnostic: dewpoint-only hold after CO2 dewpoint gate.
+﻿"""V1.5 engineering diagnostic: extended hold inside the CO2 dewpoint gate.
 
 This tool is intentionally outside the normal V1.5 runner entry. It reuses the
-existing no-write runner setup, then intercepts the analyzer gate so the route
-stays open with VENT1 while only the dewpoint meter is sampled.
+existing no-write runner setup, then extends the already-passed dewpoint gate
+before the analyzer gate can begin. The route stays open with VENT1 while the
+same dewpoint gate reader and cadence continue for a fixed diagnostic hold.
 """
 
 from __future__ import annotations
@@ -39,15 +40,17 @@ from ..workflow.runner import CalibrationRunner
 from . import run_headless
 
 
-DEWPOINT_ONLY_HOLD_REBOUND_OBSERVED = "DEWPOINT_ONLY_HOLD_REBOUND_OBSERVED"
-DEWPOINT_ONLY_HOLD_NO_REBOUND = "DEWPOINT_ONLY_HOLD_NO_REBOUND"
-FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_DEWPOINT_ONLY_HOLD = (
-    "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_DEWPOINT_ONLY_HOLD"
+DEWPOINT_GATE_EXTENDED_HOLD_REBOUND_OBSERVED = "DEWPOINT_GATE_EXTENDED_HOLD_REBOUND_OBSERVED"
+DEWPOINT_GATE_EXTENDED_HOLD_NO_REBOUND = "DEWPOINT_GATE_EXTENDED_HOLD_NO_REBOUND"
+FAIL_CLOSED_UNEXPECTED_COMMAND_DURING_DEWPOINT_GATE_EXTENDED_HOLD = (
+    "FAIL_CLOSED_UNEXPECTED_COMMAND_DURING_DEWPOINT_GATE_EXTENDED_HOLD"
 )
-FAIL_CLOSED_DEWPOINT_ONLY_HOLD_SAMPLE_GAP_EXCEEDED = (
-    "FAIL_CLOSED_DEWPOINT_ONLY_HOLD_SAMPLE_GAP_EXCEEDED"
+FAIL_CLOSED_DEWPOINT_GATE_EXTENDED_HOLD_SAMPLE_GAP_EXCEEDED = (
+    "FAIL_CLOSED_DEWPOINT_GATE_EXTENDED_HOLD_SAMPLE_GAP_EXCEEDED"
 )
-FAIL_CLOSED_DEWPOINT_ONLY_HOLD_RUNTIME_ERROR = "FAIL_CLOSED_DEWPOINT_ONLY_HOLD_RUNTIME_ERROR"
+FAIL_CLOSED_DEWPOINT_GATE_EXTENDED_HOLD_RUNTIME_ERROR = (
+    "FAIL_CLOSED_DEWPOINT_GATE_EXTENDED_HOLD_RUNTIME_ERROR"
+)
 
 _CALIBRATION_WRITE_PATTERNS = (
     "ID",
@@ -167,28 +170,28 @@ def _summarize_values(samples: Sequence[Mapping[str, Any]], *, tail_reference_c:
     ]
     wall_values.sort(key=lambda item: item[0])
     summary: Dict[str, Any] = {
-        "dewpoint_only_hold_sample_count": len(valid),
-        "dewpoint_only_hold_read_error_count": sum(1 for row in samples if not bool(row.get("read_ok"))),
+        "dewpoint_gate_extended_hold_sample_count": len(valid),
+        "dewpoint_gate_extended_hold_read_error_count": sum(1 for row in samples if not bool(row.get("read_ok"))),
         "dewpoint_gate_tail_reference_c": tail_reference_c,
     }
     if not wall_values:
         summary.update(
             {
-                "dewpoint_only_hold_first_ts": "",
-                "dewpoint_only_hold_first_value_c": None,
-                "dewpoint_only_hold_last_ts": "",
-                "dewpoint_only_hold_last_value_c": None,
-                "dewpoint_only_hold_min_c": None,
-                "dewpoint_only_hold_max_c": None,
-                "dewpoint_only_hold_mean_c": None,
-                "dewpoint_only_hold_median_c": None,
-                "dewpoint_only_hold_slope_c_per_min": None,
-                "dewpoint_only_hold_trend": "unavailable",
-                "dewpoint_only_hold_max_gap_s": None,
-                "dewpoint_only_hold_delta_vs_tail_reference_c": None,
-                "dewpoint_only_hold_first_rebound_ts": "",
-                "dewpoint_only_hold_first_rebound_value_c": None,
-                "dewpoint_only_hold_rebound_exceeded": False,
+                "dewpoint_gate_extended_hold_first_ts": "",
+                "dewpoint_gate_extended_hold_first_value_c": None,
+                "dewpoint_gate_extended_hold_last_ts": "",
+                "dewpoint_gate_extended_hold_last_value_c": None,
+                "dewpoint_gate_extended_hold_min_c": None,
+                "dewpoint_gate_extended_hold_max_c": None,
+                "dewpoint_gate_extended_hold_mean_c": None,
+                "dewpoint_gate_extended_hold_median_c": None,
+                "dewpoint_gate_extended_hold_slope_c_per_min": None,
+                "dewpoint_gate_extended_hold_trend": "unavailable",
+                "dewpoint_gate_extended_hold_max_gap_s": None,
+                "dewpoint_gate_extended_hold_delta_vs_tail_reference_c": None,
+                "dewpoint_gate_extended_hold_first_rebound_ts": "",
+                "dewpoint_gate_extended_hold_first_rebound_value_c": None,
+                "dewpoint_gate_extended_hold_rebound_exceeded": False,
             }
         )
         return summary
@@ -225,21 +228,21 @@ def _summarize_values(samples: Sequence[Mapping[str, Any]], *, tail_reference_c:
 
     summary.update(
         {
-            "dewpoint_only_hold_first_ts": _iso_from_wall(first_ts),
-            "dewpoint_only_hold_first_value_c": first_value,
-            "dewpoint_only_hold_last_ts": _iso_from_wall(last_ts),
-            "dewpoint_only_hold_last_value_c": last_value,
-            "dewpoint_only_hold_min_c": min(values),
-            "dewpoint_only_hold_max_c": max(values),
-            "dewpoint_only_hold_mean_c": statistics.mean(values),
-            "dewpoint_only_hold_median_c": statistics.median(values),
-            "dewpoint_only_hold_slope_c_per_min": slope_c_per_min,
-            "dewpoint_only_hold_trend": trend,
-            "dewpoint_only_hold_max_gap_s": max(gaps) if gaps else 0.0,
-            "dewpoint_only_hold_delta_vs_tail_reference_c": delta_vs_tail,
-            "dewpoint_only_hold_first_rebound_ts": first_rebound_ts,
-            "dewpoint_only_hold_first_rebound_value_c": first_rebound_value_c,
-            "dewpoint_only_hold_rebound_exceeded": rebound_exceeded,
+            "dewpoint_gate_extended_hold_first_ts": _iso_from_wall(first_ts),
+            "dewpoint_gate_extended_hold_first_value_c": first_value,
+            "dewpoint_gate_extended_hold_last_ts": _iso_from_wall(last_ts),
+            "dewpoint_gate_extended_hold_last_value_c": last_value,
+            "dewpoint_gate_extended_hold_min_c": min(values),
+            "dewpoint_gate_extended_hold_max_c": max(values),
+            "dewpoint_gate_extended_hold_mean_c": statistics.mean(values),
+            "dewpoint_gate_extended_hold_median_c": statistics.median(values),
+            "dewpoint_gate_extended_hold_slope_c_per_min": slope_c_per_min,
+            "dewpoint_gate_extended_hold_trend": trend,
+            "dewpoint_gate_extended_hold_max_gap_s": max(gaps) if gaps else 0.0,
+            "dewpoint_gate_extended_hold_delta_vs_tail_reference_c": delta_vs_tail,
+            "dewpoint_gate_extended_hold_first_rebound_ts": first_rebound_ts,
+            "dewpoint_gate_extended_hold_first_rebound_value_c": first_rebound_value_c,
+            "dewpoint_gate_extended_hold_rebound_exceeded": rebound_exceeded,
         }
     )
     return summary
@@ -445,33 +448,24 @@ def write_analyzer_gate_dewpoint_vs_analyzer_events(run_dir: Path) -> Path:
     return path
 
 
-class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
+class DewpointGateExtendedHoldDiagnosticRunner(CalibrationRunner):
     """Runner subclass used only by the standalone diagnostic tool."""
 
-    def _dewpoint_only_hold_duration_s(self) -> float:
+    def _dewpoint_gate_extended_hold_duration_s(self) -> float:
         return max(
-            1.0,
-            float(self._wf("workflow.diagnostics.dewpoint_only_hold.duration_s", 180.0) or 180.0),
+            0.01,
+            float(self._wf("workflow.diagnostics.dewpoint_gate_extended_hold.duration_s", 180.0) or 180.0),
         )
 
-    def _dewpoint_only_hold_sample_interval_s(self) -> float:
-        return max(
-            0.2,
-            float(
-                self._wf(
-                    "workflow.diagnostics.dewpoint_only_hold.sample_interval_s",
-                    self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_interval_s", 5.0),
-                )
-                or 5.0
-            ),
-        )
+    def _dewpoint_gate_extended_hold_sample_interval_s(self) -> float:
+        return max(0.2, float(self._gas_route_dewpoint_gate_cfg().get("poll_s") or 2.0))
 
-    def _dewpoint_only_hold_max_gap_s(self) -> float:
+    def _dewpoint_gate_extended_hold_max_gap_s(self) -> float:
         return max(
-            self._dewpoint_only_hold_sample_interval_s(),
+            self._dewpoint_gate_extended_hold_sample_interval_s(),
             float(
                 self._wf(
-                    "workflow.diagnostics.dewpoint_only_hold.max_gap_s",
+                    "workflow.diagnostics.dewpoint_gate_extended_hold.max_gap_s",
                     self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_max_gap_s", 15.0),
                 )
                 or 15.0
@@ -481,28 +475,34 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
     def _controlled_exit_failure_is_route_terminal(self) -> bool:
         decision = str(getattr(self, "_controlled_exit_final_decision", "") or "").strip()
         if decision in {
-            FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_DEWPOINT_ONLY_HOLD,
-            FAIL_CLOSED_DEWPOINT_ONLY_HOLD_SAMPLE_GAP_EXCEEDED,
-            FAIL_CLOSED_DEWPOINT_ONLY_HOLD_RUNTIME_ERROR,
+            FAIL_CLOSED_UNEXPECTED_COMMAND_DURING_DEWPOINT_GATE_EXTENDED_HOLD,
+            FAIL_CLOSED_DEWPOINT_GATE_EXTENDED_HOLD_SAMPLE_GAP_EXCEEDED,
+            FAIL_CLOSED_DEWPOINT_GATE_EXTENDED_HOLD_RUNTIME_ERROR,
         }:
             return True
         return super()._controlled_exit_failure_is_route_terminal()
 
-    def _wait_co2_preseal_primary_sensor_gate(self, point) -> bool:  # type: ignore[override]
-        self.log("Dewpoint-only hold diagnostic active: skip analyzer stability wait")
-        return self._run_dewpoint_only_hold_after_gate(point)
+    def _wait_co2_route_dewpoint_gate_before_seal(self, point, **kwargs) -> bool:  # type: ignore[override]
+        gate_passed = super()._wait_co2_route_dewpoint_gate_before_seal(point, **kwargs)
+        if not gate_passed:
+            return False
+        self.log(
+            "Dewpoint gate extended hold diagnostic active: remain in dewpoint gate; "
+            "skip analyzer stability wait"
+        )
+        return self._run_dewpoint_gate_extended_hold_after_gate(point)
 
     def _hold_timeline_path(self) -> Path:
         run_dir = Path(getattr(self.logger, "run_dir", Path("logs")))
-        return run_dir / "dewpoint_only_hold_timeline.csv"
+        return run_dir / "dewpoint_gate_extended_hold_timeline.csv"
 
     def _hold_summary_path(self) -> Path:
         run_dir = Path(getattr(self.logger, "run_dir", Path("logs")))
-        return run_dir / "dewpoint_only_hold_summary.json"
+        return run_dir / "dewpoint_gate_extended_hold_summary.json"
 
     def _hold_rebound_alignment_path(self) -> Path:
         run_dir = Path(getattr(self.logger, "run_dir", Path("logs")))
-        return run_dir / "dewpoint_only_hold_first_rebound_alignment.csv"
+        return run_dir / "dewpoint_gate_extended_hold_first_rebound_alignment.csv"
 
     def _read_pace_int_status(self, pace: Any, method_name: str) -> Any:
         getter = getattr(pace, method_name, None)
@@ -513,7 +513,7 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
         except Exception as exc:
             return f"error:{exc}"
 
-    def _read_dewpoint_only_hold_sample(
+    def _read_dewpoint_gate_extended_hold_sample(
         self,
         *,
         hold_begin_wall_s: float,
@@ -658,7 +658,7 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
                 if prev_wall_s is not None and next_wall_s is not None
                 else None
             )
-            nearby_window_s = max(2.0, self._dewpoint_only_hold_sample_interval_s())
+            nearby_window_s = max(2.0, self._dewpoint_gate_extended_hold_sample_interval_s())
             if sample_wall_s is None:
                 nearby_unexpected = []
             else:
@@ -735,6 +735,7 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
         rows: Sequence[Mapping[str, Any]],
         tail_reference_c: Optional[float],
         runtime_error: str = "",
+        previous_stage: str = "co2_precondition_dewpoint_gate",
     ) -> Dict[str, Any]:
         begin_ts = _iso_from_wall(begin_wall_s)
         end_ts = _iso_from_wall(end_wall_s)
@@ -745,19 +746,27 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
         )
         timeline_csv = self._write_hold_timeline(enriched_rows)
         summary = {
-            "dewpoint_only_hold_enabled": True,
-            "dewpoint_only_hold_begin_ts": begin_ts,
-            "dewpoint_only_hold_end_ts": end_ts,
-            "dewpoint_only_hold_duration_s": max(0.0, end_wall_s - begin_wall_s),
-            "dewpoint_only_hold_sample_interval_s": self._dewpoint_only_hold_sample_interval_s(),
-            "dewpoint_only_hold_timeline_csv": timeline_csv,
+            "dewpoint_gate_extended_hold_enabled": True,
+            "dewpoint_gate_extended_hold_begin_ts": begin_ts,
+            "dewpoint_gate_extended_hold_end_ts": end_ts,
+            "dewpoint_gate_extended_hold_duration_s": max(0.0, end_wall_s - begin_wall_s),
+            "dewpoint_gate_extended_hold_sample_interval_s": self._dewpoint_gate_extended_hold_sample_interval_s(),
+            "dewpoint_gate_extended_hold_timeline_csv": timeline_csv,
+            "dewpoint_gate_extended_hold_same_reader": True,
+            "dewpoint_gate_extended_hold_reader_function": "_read_precondition_dewpoint_gate_snapshot",
+            "dewpoint_gate_extended_hold_same_sampling_interval": True,
+            "dewpoint_gate_extended_hold_previous_stage": previous_stage or "co2_precondition_dewpoint_gate",
+            "dewpoint_gate_extended_hold_stage": "co2_precondition_dewpoint_gate_extended_hold",
+            "analyzer_gate_entered": False,
+            "wait_primary_sensor_stable_called": False,
+            "analyzer_rx_stability_loop_started": False,
             "dewpoint_gate_tail_reference_c": tail_reference_c,
             "runtime_error": runtime_error,
             "point_row": getattr(point, "index", ""),
             "pressure_target_hpa": getattr(point, "target_pressure_hpa", ""),
         }
         summary.update(_summarize_values(enriched_rows, tail_reference_c=tail_reference_c))
-        max_gap_s = self._as_float(summary.get("dewpoint_only_hold_max_gap_s"))
+        max_gap_s = self._as_float(summary.get("dewpoint_gate_extended_hold_max_gap_s"))
         raw_summary_fn = getattr(self.logger, "summarize_pace_raw_tap_window", None)
         raw_summary = dict(raw_summary_fn(begin_ts, end_ts) or {}) if callable(raw_summary_fn) else {}
         summary.update(raw_summary)
@@ -774,25 +783,26 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
             end_ts,
         )
         summary.update(io_summary)
+        summary["analyzer_timeout_count"] = summary.get("analyzer_timeout_reject_count", 0)
         try:
             summary["actual_open_valves"] = ",".join(str(value) for value in self._cached_actual_open_valves())
         except Exception:
             summary["actual_open_valves"] = ""
-        summary["dewpoint_only_hold_first_rebound_alignment_csv"] = self._write_rebound_alignment_csv(
+        summary["dewpoint_gate_extended_hold_first_rebound_alignment_csv"] = self._write_rebound_alignment_csv(
             enriched_rows,
-            summary.get("dewpoint_only_hold_first_rebound_ts"),
+            summary.get("dewpoint_gate_extended_hold_first_rebound_ts"),
         )
 
         if runtime_error:
-            decision = FAIL_CLOSED_DEWPOINT_ONLY_HOLD_RUNTIME_ERROR
+            decision = FAIL_CLOSED_DEWPOINT_GATE_EXTENDED_HOLD_RUNTIME_ERROR
         elif int(summary.get("unexpected_state_changing_write_count") or 0) > 0:
-            decision = FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_DEWPOINT_ONLY_HOLD
-        elif max_gap_s is not None and max_gap_s > self._dewpoint_only_hold_max_gap_s():
-            decision = FAIL_CLOSED_DEWPOINT_ONLY_HOLD_SAMPLE_GAP_EXCEEDED
-        elif bool(summary.get("dewpoint_only_hold_rebound_exceeded")):
-            decision = DEWPOINT_ONLY_HOLD_REBOUND_OBSERVED
+            decision = FAIL_CLOSED_UNEXPECTED_COMMAND_DURING_DEWPOINT_GATE_EXTENDED_HOLD
+        elif max_gap_s is not None and max_gap_s > self._dewpoint_gate_extended_hold_max_gap_s():
+            decision = FAIL_CLOSED_DEWPOINT_GATE_EXTENDED_HOLD_SAMPLE_GAP_EXCEEDED
+        elif bool(summary.get("dewpoint_gate_extended_hold_rebound_exceeded")):
+            decision = DEWPOINT_GATE_EXTENDED_HOLD_REBOUND_OBSERVED
         else:
-            decision = DEWPOINT_ONLY_HOLD_NO_REBOUND
+            decision = DEWPOINT_GATE_EXTENDED_HOLD_NO_REBOUND
         summary["final_decision"] = decision
         summary["vent0_count"] = summary.get("vent0_count", 0)
         summary["outp0_count"] = summary.get("outp0_count", 0)
@@ -807,13 +817,14 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
         path.write_text(json.dumps(dict(summary), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return str(path)
 
-    def _run_dewpoint_only_hold_after_gate(self, point) -> bool:
+    def _run_dewpoint_gate_extended_hold_after_gate(self, point) -> bool:
         runtime_state = dict(self._point_runtime_state(point, phase="co2") or {})
         tail_reference_c = self._as_float(runtime_state.get("dewpoint_gate_tail_reference_c"))
-        duration_s = self._dewpoint_only_hold_duration_s()
-        interval_s = self._dewpoint_only_hold_sample_interval_s()
+        duration_s = self._dewpoint_gate_extended_hold_duration_s()
+        interval_s = self._dewpoint_gate_extended_hold_sample_interval_s()
         begin_wall_s = time.time()
-        previous_stage = self._set_logger_workflow_stage("dewpoint_only_hold_after_gate")
+        previous_stage = "co2_precondition_dewpoint_gate"
+        previous_logger_stage = self._set_logger_workflow_stage("co2_precondition_dewpoint_gate_extended_hold")
         rows: List[Dict[str, Any]] = []
         runtime_error = ""
         try:
@@ -821,20 +832,21 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
                 loop_started = time.time()
                 self._check_pause()
                 rows.append(
-                    self._read_dewpoint_only_hold_sample(
+                    self._read_dewpoint_gate_extended_hold_sample(
                         hold_begin_wall_s=begin_wall_s,
                         tail_reference_c=tail_reference_c,
                     )
                 )
                 elapsed = time.time() - loop_started
-                sleep_s = max(0.0, interval_s - elapsed)
+                remaining_s = max(0.0, duration_s - (time.time() - begin_wall_s))
+                sleep_s = min(max(0.0, interval_s - elapsed), remaining_s)
                 if sleep_s > 0:
                     time.sleep(sleep_s)
         except Exception as exc:
-            runtime_error = str(exc) or "dewpoint_only_hold_runtime_error"
+            runtime_error = str(exc) or "dewpoint_gate_extended_hold_runtime_error"
         finally:
             end_wall_s = time.time()
-            self._restore_logger_workflow_stage(previous_stage)
+            self._restore_logger_workflow_stage(previous_logger_stage)
 
         summary = self._build_hold_summary(
             point,
@@ -843,6 +855,7 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
             rows=rows,
             tail_reference_c=tail_reference_c,
             runtime_error=runtime_error,
+            previous_stage=previous_stage,
         )
         summary_path = self._persist_hold_summary(summary)
         self._set_point_runtime_fields(point, phase="co2", **summary)
@@ -850,7 +863,7 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
             point=point,
             route="co2",
             point_phase="co2",
-            trace_stage="dewpoint_only_hold_after_gate",
+            trace_stage="co2_precondition_dewpoint_gate_extended_hold",
             pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
             refresh_pace_state=False,
             extra_fields={
@@ -861,25 +874,25 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
         )
         self._mark_co2_route_terminal_failure(
             final_decision=str(summary["final_decision"]),
-            reason="dewpoint-only hold diagnostic completed before analyzer gate",
+            reason="dewpoint gate extended hold diagnostic completed before analyzer gate",
             point=point,
             phase="co2",
         )
         self.log(
-            "Dewpoint-only hold diagnostic completed: "
+            "Dewpoint gate extended hold diagnostic completed: "
             f"decision={summary['final_decision']} summary={summary_path}"
         )
         return False
 
 
 def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run V1.5 dewpoint-only hold diagnostic after CO2 gate.")
+    parser = argparse.ArgumentParser(description="Run V1.5 dewpoint gate extended hold diagnostic after CO2 gate.")
     parser.add_argument("--config", default="configs/default_config.json", help="V1.5 config path.")
     parser.add_argument("--run-id", default=None, help="Optional run id under logs/.")
     parser.add_argument("--temp", type=float, default=None, help="Only run points matching this chamber temperature.")
     parser.add_argument("--skip-connect-check", action="store_true", help="Skip startup connectivity self-test.")
     parser.add_argument("--skip-h2o", action="store_true", help="Force skip_h2o=True.")
-    parser.add_argument("--hold-duration-s", type=float, default=None, help="Override dewpoint-only hold duration.")
+    parser.add_argument("--hold-duration-s", type=float, default=None, help="Override dewpoint gate extended hold duration.")
     parser.add_argument("--sample-interval-s", type=float, default=None, help="Override dewpoint-only sample interval.")
     parser.add_argument("--audit-run-dir", default=None, help="Only write offline analyzer/dewpoint event CSV for a run dir.")
     return parser.parse_args(list(argv) if argv is not None else None)
@@ -887,14 +900,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
 def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
     diagnostics = cfg.setdefault("workflow", {}).setdefault("diagnostics", {}).setdefault(
-        "dewpoint_only_hold",
+        "dewpoint_gate_extended_hold",
         {},
     )
     diagnostics["enabled"] = True
     if args.hold_duration_s is not None:
         diagnostics["duration_s"] = float(args.hold_duration_s)
     if args.sample_interval_s is not None:
-        diagnostics["sample_interval_s"] = float(args.sample_interval_s)
+        cfg.setdefault("workflow", {}).setdefault("stability", {})[
+            "gas_route_dewpoint_gate_poll_s"
+        ] = float(args.sample_interval_s)
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
@@ -914,7 +929,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         f"H2O zero/span status={capability['status']} note={capability['note']}"
     )
     try:
-        require_v1_h2o_zero_span_supported(coeff_cfg, context="dewpoint_only_hold_diagnostic")
+        require_v1_h2o_zero_span_supported(coeff_cfg, context="dewpoint_gate_extended_hold_diagnostic")
     except RuntimeError as exc:
         _log(str(exc))
         _log(V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE)
@@ -957,7 +972,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 return 2
 
         devices = run_headless._build_devices(cfg, io_logger=logger)
-        runner = DewpointOnlyHoldDiagnosticRunner(cfg, devices, logger, _log, _log)
+        runner = DewpointGateExtendedHoldDiagnosticRunner(cfg, devices, logger, _log, _log)
         runner.run()
         return 0
     except PressureControllerComLockExists as exc:
@@ -983,7 +998,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             pass
         return 2
     except Exception as exc:
-        _log(f"Dewpoint-only hold diagnostic aborted: {exc}")
+        _log(f"Dewpoint gate extended hold diagnostic aborted: {exc}")
         return 1
     finally:
         if patched_loader:
@@ -993,7 +1008,5 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             logger.close()
         except Exception:
             pass
-
-
 if __name__ == "__main__":
     sys.exit(main())
