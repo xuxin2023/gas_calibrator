@@ -256,10 +256,17 @@ _PRESSURE_TRACE_FIELDS = [
     "analyzer_gate_dewpoint_live_min_c",
     "analyzer_gate_dewpoint_live_max_c",
     "analyzer_gate_dewpoint_delta_since_gate_c",
+    "analyzer_gate_dewpoint_delta_vs_tail_reference_c",
     "analyzer_gate_dewpoint_age_since_gate_s",
     "analyzer_gate_dewpoint_read_error_count",
     "analyzer_gate_dewpoint_first_rise_ts",
     "analyzer_gate_dewpoint_first_rise_value_c",
+    "analyzer_gate_dewpoint_rebound_warning",
+    "analyzer_gate_dewpoint_rebound_warning_only",
+    "analyzer_gate_dewpoint_hard_rebound_c",
+    "analyzer_gate_dewpoint_dry_enough_c",
+    "analyzer_gate_dewpoint_dry_enough_passed",
+    "analyzer_gate_dewpoint_fail_reason",
     "analyzer_gate_dewpoint_trend",
     "raw_tap_enabled",
     "pressure_controller_port",
@@ -315,6 +322,12 @@ _PRESSURE_TRACE_FIELDS = [
     "dewpoint_preseal_value_c",
     "dewpoint_freshness_age_s",
     "dewpoint_delta_since_gate_c",
+    "preseal_dewpoint_delta_vs_tail_reference_c",
+    "preseal_dewpoint_rebound_warning",
+    "preseal_dewpoint_hard_rebound_c",
+    "preseal_dewpoint_dry_enough_c",
+    "preseal_dewpoint_dry_enough_passed",
+    "preseal_freshness_decision",
     "dewpoint_freshness_expired",
     "dewpoint_freshness_decision",
     "dewpoint_rebound_delta_c",
@@ -7506,6 +7519,21 @@ class CalibrationRunner:
             return None
         return v
 
+    @staticmethod
+    def _as_bool(value: Any, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return bool(value)
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "y", "on"}:
+            return True
+        if text in {"0", "false", "no", "n", "off", ""}:
+            return False
+        return default
+
     def _pick_numeric(self, data: Dict[str, Any], keys: List[str]) -> Optional[float]:
         for key in keys:
             if key not in data:
@@ -9209,6 +9237,10 @@ class CalibrationRunner:
             "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE",
             "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE",
             "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL",
+            "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_ANALYZER_GATE",
+            "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_PRESEAL",
+            "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_ANALYZER_GATE",
+            "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_PRESEAL",
             "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED",
             "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE",
             "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_ANALYZER_GATE",
@@ -15231,6 +15263,11 @@ class CalibrationRunner:
             "max_gap_s": self._analyzer_gate_dewpoint_monitor_max_gap_s(),
             "max_age_s": self._preseal_dewpoint_freshness_max_age_s(),
             "max_delta_c": self._preseal_dewpoint_freshness_max_delta_c(),
+            "rebound_warning_only": self._gas_route_analyzer_gate_rebound_warning_only(),
+            "hard_rebound_c": self._gas_route_analyzer_gate_hard_rebound_c(),
+            "require_dry_enough": self._gas_route_dewpoint_require_dry_enough(runtime_state),
+            "dry_enough_c": self._gas_route_dewpoint_dry_enough_c(runtime_state),
+            "fail_if_above_dry_enough": self._gas_route_analyzer_gate_fail_if_above_dry_enough(),
             "begin_ts": float(analyzer_gate_begin_ts),
             "end_ts": None,
             "gate_ts": gate_ts,
@@ -15243,6 +15280,8 @@ class CalibrationRunner:
             "read_error_count": 0,
             "first_rise_ts": None,
             "first_rise_value_c": None,
+            "rebound_warning": False,
+            "dry_enough_passed": None,
             "failed": False,
             "failure_reason": "",
         }
@@ -15270,6 +15309,10 @@ class CalibrationRunner:
         delta_since_gate_c = None
         if gate_value_c is not None and last_value_c is not None:
             delta_since_gate_c = float(last_value_c) - float(gate_value_c)
+        dry_enough_c = self._as_float(state.get("dry_enough_c"))
+        dry_enough_passed = state.get("dry_enough_passed")
+        if dry_enough_c is not None and last_value_c is not None:
+            dry_enough_passed = float(last_value_c) <= float(dry_enough_c)
         age_since_gate_s = None
         if gate_ts is not None and last_ts is not None:
             age_since_gate_s = max(0.0, float(last_ts) - float(gate_ts))
@@ -15302,10 +15345,17 @@ class CalibrationRunner:
             "analyzer_gate_dewpoint_live_min_c": min(values) if values else None,
             "analyzer_gate_dewpoint_live_max_c": max(values) if values else None,
             "analyzer_gate_dewpoint_delta_since_gate_c": delta_since_gate_c,
+            "analyzer_gate_dewpoint_delta_vs_tail_reference_c": delta_since_gate_c,
             "analyzer_gate_dewpoint_age_since_gate_s": age_since_gate_s,
             "analyzer_gate_dewpoint_read_error_count": int(state.get("read_error_count") or 0),
             "analyzer_gate_dewpoint_first_rise_ts": self._iso_ts_from_wall(state.get("first_rise_ts")),
             "analyzer_gate_dewpoint_first_rise_value_c": self._as_float(state.get("first_rise_value_c")),
+            "analyzer_gate_dewpoint_rebound_warning": bool(state.get("rebound_warning")),
+            "analyzer_gate_dewpoint_rebound_warning_only": bool(state.get("rebound_warning_only")),
+            "analyzer_gate_dewpoint_hard_rebound_c": self._as_float(state.get("hard_rebound_c")),
+            "analyzer_gate_dewpoint_dry_enough_c": dry_enough_c,
+            "analyzer_gate_dewpoint_dry_enough_passed": dry_enough_passed,
+            "analyzer_gate_dewpoint_fail_reason": str(state.get("failure_reason") or ""),
             "analyzer_gate_dewpoint_trend": trend,
         }
 
@@ -15324,6 +15374,10 @@ class CalibrationRunner:
         final_decision = "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE"
         if reason_text.startswith("dewpoint_rebound_delta_c="):
             final_decision = "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE"
+        elif reason_text.startswith("dewpoint_not_dry_enough_c="):
+            final_decision = "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_ANALYZER_GATE"
+        elif reason_text.startswith("dewpoint_hard_rebound_delta_c="):
+            final_decision = "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_ANALYZER_GATE"
         elif reason_text == "dewpoint_live_sample_gap_exceeded":
             final_decision = "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED"
         elif reason_text == "dewpoint_gate_tail_reference_missing":
@@ -15397,10 +15451,34 @@ class CalibrationRunner:
         gate_value_c = self._as_float(state.get("gate_value_c"))
         if gate_value_c is not None and value_c is not None:
             delta_c = float(value_c) - float(gate_value_c)
+            dry_enough_c = self._as_float(state.get("dry_enough_c"))
+            if dry_enough_c is not None:
+                state["dry_enough_passed"] = float(value_c) <= float(dry_enough_c)
+            if (
+                bool(state.get("require_dry_enough"))
+                and bool(state.get("fail_if_above_dry_enough"))
+                and dry_enough_c is not None
+                and float(value_c) > float(dry_enough_c)
+            ):
+                return self._fail_analyzer_gate_dewpoint_monitor(
+                    point,
+                    state,
+                    reason=f"dewpoint_not_dry_enough_c={value_c}>dry_enough_c={dry_enough_c}",
+                )
             if delta_c > float(state.get("max_delta_c") or 0.20):
                 if state.get("first_rise_ts") is None:
                     state["first_rise_ts"] = sample_ts
                     state["first_rise_value_c"] = value_c
+                hard_rebound_c = float(state.get("hard_rebound_c") or 2.0)
+                if delta_c > hard_rebound_c:
+                    return self._fail_analyzer_gate_dewpoint_monitor(
+                        point,
+                        state,
+                        reason=f"dewpoint_hard_rebound_delta_c={delta_c}>hard_rebound_c={hard_rebound_c}",
+                    )
+                state["rebound_warning"] = True
+                if bool(state.get("rebound_warning_only")):
+                    return True
                 return self._fail_analyzer_gate_dewpoint_monitor(
                     point,
                     state,
@@ -17298,6 +17376,61 @@ class CalibrationRunner:
             float(self._wf("workflow.stability.dewpoint_preseal_freshness_max_delta_c", 0.20) or 0.20),
         )
 
+    def _gas_route_dewpoint_require_dry_enough(self, runtime_state: Optional[Mapping[str, Any]] = None) -> bool:
+        default = self._as_bool(
+            self._wf("workflow.stability.gas_route_dewpoint_gate_require_dry_enough", False),
+            False,
+        )
+        if runtime_state and "dewpoint_gate_require_dry_enough" in runtime_state:
+            return self._as_bool(runtime_state.get("dewpoint_gate_require_dry_enough"), default)
+        return default
+
+    def _gas_route_dewpoint_dry_enough_c(self, runtime_state: Optional[Mapping[str, Any]] = None) -> Optional[float]:
+        if runtime_state and "dewpoint_gate_dry_enough_c" in runtime_state:
+            runtime_value = self._as_float(runtime_state.get("dewpoint_gate_dry_enough_c"))
+            if runtime_value is not None:
+                return runtime_value
+        return self._as_float(self._wf("workflow.stability.gas_route_dewpoint_gate_dry_enough_c", -30.0))
+
+    def _gas_route_analyzer_gate_rebound_warning_only(self) -> bool:
+        return self._as_bool(
+            self._wf("workflow.stability.gas_route_analyzer_gate_rebound_warning_only", True),
+            True,
+        )
+
+    def _gas_route_analyzer_gate_hard_rebound_c(self) -> float:
+        return max(
+            0.0,
+            float(self._wf("workflow.stability.gas_route_analyzer_gate_hard_rebound_c", 2.0) or 2.0),
+        )
+
+    def _gas_route_analyzer_gate_fail_if_above_dry_enough(self) -> bool:
+        return self._as_bool(
+            self._wf("workflow.stability.gas_route_analyzer_gate_fail_if_above_dry_enough", True),
+            True,
+        )
+
+    def _gas_route_preseal_dewpoint_rebound_warning_only(self) -> bool:
+        return self._as_bool(
+            self._wf(
+                "workflow.stability.gas_route_preseal_dewpoint_rebound_warning_only",
+                self._wf("workflow.stability.gas_route_analyzer_gate_rebound_warning_only", True),
+            ),
+            True,
+        )
+
+    def _gas_route_preseal_dewpoint_hard_rebound_c(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.stability.gas_route_preseal_dewpoint_hard_rebound_c",
+                    self._wf("workflow.stability.gas_route_analyzer_gate_hard_rebound_c", 2.0),
+                )
+                or 2.0
+            ),
+        )
+
     def _analyzer_gate_dewpoint_monitor_max_read_errors(self) -> int:
         return max(
             0,
@@ -17337,6 +17470,13 @@ class CalibrationRunner:
             delta_c = float(preseal_value_c) - float(tail_reference_c)
         max_age_s = self._preseal_dewpoint_freshness_max_age_s()
         rebound_limit_c = self._preseal_dewpoint_freshness_max_delta_c()
+        rebound_warning_only = self._gas_route_preseal_dewpoint_rebound_warning_only()
+        hard_rebound_c = self._gas_route_preseal_dewpoint_hard_rebound_c()
+        require_dry_enough = self._gas_route_dewpoint_require_dry_enough(runtime_state)
+        dry_enough_c = self._gas_route_dewpoint_dry_enough_c(runtime_state)
+        dry_enough_passed = None
+        if dry_enough_c is not None and preseal_value_c is not None:
+            dry_enough_passed = float(preseal_value_c) <= float(dry_enough_c)
         max_gap_s = self._analyzer_gate_dewpoint_monitor_max_gap_s()
         no_live_sample = bool(monitor_enabled and monitor_sample_count <= 0)
         age_expired = age_s is None or age_s > max_age_s
@@ -17350,7 +17490,25 @@ class CalibrationRunner:
         )
         reference_missing = tail_reference_c is None
         sample_expired = bool(age_expired or no_live_sample or gap_expired or read_errors_exceeded)
-        rebound_exceeded = bool(reference_missing or delta_c is None or float(delta_c) > rebound_limit_c)
+        dry_enough_failed = bool(require_dry_enough and dry_enough_passed is False)
+        hard_rebound_exceeded = bool(delta_c is not None and float(delta_c) > hard_rebound_c)
+        small_rebound_warning = bool(
+            delta_c is not None
+            and float(delta_c) > rebound_limit_c
+            and not hard_rebound_exceeded
+            and not dry_enough_failed
+        )
+        soft_rebound_exceeded = bool(
+            small_rebound_warning
+            and not rebound_warning_only
+        )
+        rebound_exceeded = bool(
+            reference_missing
+            or delta_c is None
+            or dry_enough_failed
+            or hard_rebound_exceeded
+            or soft_rebound_exceeded
+        )
         if delta_c is None:
             dewpoint_trend = "unknown"
         elif float(delta_c) > 0.05:
@@ -17360,16 +17518,24 @@ class CalibrationRunner:
         else:
             dewpoint_trend = "stable"
         freshness_sample_decision = "fail_closed" if sample_expired else "pass"
-        rebound_decision = "fail_closed" if rebound_exceeded else "pass"
+        if rebound_exceeded:
+            rebound_decision = "fail_closed"
+        elif small_rebound_warning:
+            rebound_decision = "warning"
+        else:
+            rebound_decision = "pass"
         expired = bool(sample_expired or rebound_exceeded)
         decision = "fail_closed" if expired else "pass"
         final_decision = ""
         if rebound_exceeded:
-            final_decision = (
-                "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE"
-                if reference_missing
-                else "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
-            )
+            if reference_missing:
+                final_decision = "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE"
+            elif dry_enough_failed:
+                final_decision = "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_PRESEAL"
+            elif hard_rebound_exceeded:
+                final_decision = "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_PRESEAL"
+            else:
+                final_decision = "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
         elif gap_expired:
             final_decision = "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED"
         elif sample_expired:
@@ -17390,6 +17556,12 @@ class CalibrationRunner:
             "dewpoint_preseal_value_c": preseal_value_c,
             "dewpoint_freshness_age_s": age_s,
             "dewpoint_delta_since_gate_c": delta_c,
+            "preseal_dewpoint_delta_vs_tail_reference_c": delta_c,
+            "preseal_dewpoint_rebound_warning": small_rebound_warning,
+            "preseal_dewpoint_hard_rebound_c": hard_rebound_c,
+            "preseal_dewpoint_dry_enough_c": dry_enough_c,
+            "preseal_dewpoint_dry_enough_passed": dry_enough_passed,
+            "preseal_freshness_decision": decision,
             "dewpoint_freshness_expired": sample_expired,
             "dewpoint_freshness_decision": decision,
             "dewpoint_rebound_delta_c": delta_c,

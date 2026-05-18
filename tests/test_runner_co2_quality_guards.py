@@ -173,7 +173,65 @@ def test_dewpoint_positive_rebound_fails(tmp_path: Path) -> None:
     assert state["dewpoint_rebound_exceeded"] is True
     assert state["dewpoint_rebound_decision"] == "fail_closed"
     assert state["dewpoint_freshness_sample_decision"] == "pass"
-    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_PRESEAL"
+
+
+def test_preseal_small_rebound_below_dry_enough_warns_not_fail(tmp_path: Path) -> None:
+    runner, logger, point = _freshness_runner(tmp_path)
+    runner.cfg["workflow"]["stability"].update(
+        {
+            "gas_route_dewpoint_gate_require_dry_enough": True,
+            "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "gas_route_preseal_dewpoint_rebound_warning_only": True,
+            "gas_route_preseal_dewpoint_hard_rebound_c": 2.0,
+        }
+    )
+    _set_fresh_monitor_state(runner, point, gate_value_c=-37.07, tail_reference_c=-37.025)
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1010.0,
+        "dewpoint_c": -36.78,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert getattr(runner, "_controlled_exit_final_decision", "") == ""
+    assert state["preseal_dewpoint_delta_vs_tail_reference_c"] == pytest.approx(0.245, abs=0.001)
+    assert state["preseal_dewpoint_rebound_warning"] is True
+    assert state["preseal_dewpoint_hard_rebound_c"] == pytest.approx(2.0)
+    assert state["preseal_dewpoint_dry_enough_c"] == pytest.approx(-30.0)
+    assert state["preseal_dewpoint_dry_enough_passed"] is True
+    assert state["preseal_freshness_decision"] == "pass"
+    assert state["dewpoint_rebound_decision"] == "warning"
+
+
+def test_preseal_fails_when_above_dry_enough(tmp_path: Path) -> None:
+    runner, logger, point = _freshness_runner(tmp_path)
+    runner.cfg["workflow"]["stability"].update(
+        {
+            "gas_route_dewpoint_gate_require_dry_enough": True,
+            "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "gas_route_preseal_dewpoint_hard_rebound_c": 2.0,
+        }
+    )
+    _set_fresh_monitor_state(runner, point, gate_value_c=-31.0, tail_reference_c=-31.0)
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1010.0,
+        "dewpoint_c": -29.5,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["preseal_dewpoint_dry_enough_passed"] is False
+    assert state["preseal_freshness_decision"] == "fail_closed"
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_PRESEAL"
 
 
 def test_dewpoint_abs_delta_no_longer_used_for_falling(tmp_path: Path) -> None:
@@ -459,6 +517,28 @@ def test_dewpoint_gate_passes_when_tail_reference_below_minus30_and_stable() -> 
     assert gate["dewpoint_gate_tail_reference_c"] <= -30.0
 
 
+def test_dewpoint_gate_420dry_still_requires_tail_reference_below_minus30() -> None:
+    rows = _gate_rows([-29.90, -29.91, -29.90, -29.91, -29.90, -29.91, -29.90])
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=24.0,
+        gate_window_s=30.0,
+        max_tail_span_c=0.35,
+        max_abs_tail_slope_c_per_s=0.005,
+        require_dry_enough=True,
+        dry_enough_c=-30.0,
+        min_tail_samples=3,
+        min_tail_coverage_ratio=0.8,
+        max_tail_gap_s=15.0,
+    )
+
+    assert gate["gate_pass"] is False
+    assert gate["dewpoint_gate_dry_enough_passed"] is False
+    assert gate["dewpoint_gate_tail_reference_c"] > -30.0
+    assert "dewpoint_tail_reference_not_dry_enough" in gate["gate_reason"]
+
+
 def test_dewpoint_gate_still_rejects_insufficient_coverage() -> None:
     rows = _gate_rows([-31.0, -31.0], step_s=5.0)
 
@@ -537,7 +617,7 @@ def test_preseal_rebound_uses_tail_reference_not_pass_snapshot(tmp_path: Path) -
 
     state = runner._point_runtime_state(point, phase="co2") or {}
     assert state["dewpoint_rebound_delta_c"] == pytest.approx(5.0, abs=0.001)
-    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_PRESEAL"
 
 
 def test_tail_reference_minus30_analyzer_minus25_fails_rebound(tmp_path: Path) -> None:
@@ -553,7 +633,7 @@ def test_tail_reference_minus30_analyzer_minus25_fails_rebound(tmp_path: Path) -
     assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is False
     logger.close()
 
-    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_PRESEAL"
 
 
 def test_tail_reference_minus24_analyzer_minus25_passes_rebound(tmp_path: Path) -> None:
