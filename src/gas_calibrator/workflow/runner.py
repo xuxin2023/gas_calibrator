@@ -171,6 +171,32 @@ _PRESSURE_TRACE_FIELDS = [
     "route_close_allowed_with_vent_status_3",
     "route_close_after_vent0_delay_s",
     "route_close_after_vent0_raw_tx_s",
+    "preseal_pressure_build_begin_ts",
+    "preseal_pressure_build_pressure_source",
+    "preseal_pressure_build_trigger_hpa",
+    "preseal_pressure_build_hard_limit_hpa",
+    "preseal_pressure_build_peak_hpa",
+    "preseal_pressure_build_last_hpa",
+    "preseal_pressure_build_trigger_source",
+    "preseal_route_close_trigger_source",
+    "route_close_deadline_enforced",
+    "route_close_deadline_missed",
+    "route_close_deadline_miss_s",
+    "route_close_after_pressure_trigger_s",
+    "route_close_pressure_at_close_hpa",
+    "route_close_pressure_source",
+    "preseal_pressure_build_hard_limit_hit",
+    "post_seal_vent_abort_clear_enabled",
+    "post_seal_vent_abort_clear_sent",
+    "post_seal_vent_abort_clear_raw_tx_ts",
+    "post_seal_vent_status_before_clear",
+    "post_seal_vent_status_after_clear",
+    "post_seal_vent_window_cleared",
+    "post_seal_vent_window_persisted",
+    "post_seal_new_vent1_count",
+    "sealed_control_ready_vent_status",
+    "sealed_control_ready_decision",
+    "sealed_control_ready_allows_vent3_after_clear",
     "vent_after_valve_supported",
     "vent_after_valve_open",
     "vent_popup_ack_enabled",
@@ -9003,6 +9029,30 @@ class CalibrationRunner:
     def _operator_window_confirm_mode(self) -> str:
         return str(self._wf("workflow.pressure.operator_window_confirm_mode", "console") or "console").strip().lower()
 
+    def _preseal_route_close_max_wait_s(self) -> float:
+        configured = self._wf("workflow.pressure.preseal_route_close_max_wait_s", None)
+        if configured is None:
+            configured = self._wf(
+                "workflow.pressure.vent0_to_seal_fixed_wait_s",
+                1.5,
+            )
+        return max(0.0, float(configured or 0.0))
+
+    def _preseal_pressure_build_trigger_hpa(self) -> float:
+        return float(self._wf("workflow.pressure.co2_preseal_pressure_gauge_trigger_hpa", 1110.0) or 1110.0)
+
+    def _preseal_pressure_build_hard_limit_hpa(self) -> float:
+        return float(self._wf("workflow.pressure.preseal_pressure_build_hard_limit_hpa", 1600.0) or 1600.0)
+
+    def _preseal_pressure_build_poll_s(self) -> float:
+        return max(0.02, float(self._wf("workflow.pressure.preseal_pressure_build_poll_s", 0.1) or 0.1))
+
+    def _post_seal_vent_abort_clear_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.post_seal_vent_abort_clear_enabled", True))
+
+    def _post_seal_vent_abort_clear_wait_s(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.post_seal_vent_abort_clear_wait_s", 0.2) or 0.2))
+
     def _build_co2_sealed_sweep_key(self, point: CalibrationPoint) -> Tuple[Any, ...]:
         temp = self._as_float(point.temp_chamber_c)
         ppm = self._as_float(point.co2_ppm)
@@ -9576,7 +9626,20 @@ class CalibrationRunner:
         *,
         timeout_s: float,
         poll_s: float,
+        fast_preseal_no_wait: bool = False,
     ) -> Tuple[str, Any, str]:
+        if fast_preseal_no_wait:
+            if not self._stop_pressure_controller_atmosphere_hold(
+                pace,
+                reason="before controlled CO2 preseal raw VENT0",
+            ):
+                raise RuntimeError("ATMOSPHERE_HOLD_STOP_FAILED")
+            pace.vent(False)
+            set_isolation_open = getattr(pace, "set_isolation_open", None)
+            if callable(set_isolation_open):
+                set_isolation_open(True)
+            return "direct_vent0_no_wait", "", ""
+
         exit_atmosphere = getattr(pace, "exit_atmosphere_mode", None)
         if callable(exit_atmosphere):
             if not self._stop_pressure_controller_atmosphere_hold(
@@ -9629,6 +9692,38 @@ class CalibrationRunner:
             return self._as_float(reader())
         except Exception:
             return None
+
+    def _read_preseal_pressure_build_observation(self) -> Dict[str, Any]:
+        cached_values = self._cached_ready_check_trace_values()
+        pace_pressure = self._as_float(cached_values.get("pace_pressure_hpa"))
+        gauge_pressure = self._as_float(cached_values.get("pressure_gauge_hpa"))
+        source_mode = "fast_signal"
+        if pace_pressure is None and gauge_pressure is None:
+            readings = self._read_controlled_outp_preseal_pressures()
+            pace_pressure = readings.get("pace_pressure_hpa")
+            gauge_pressure = readings.get("pressure_gauge_hpa")
+            source_mode = "direct_query"
+        candidates: List[Tuple[str, float]] = []
+        if gauge_pressure is not None:
+            candidates.append(("pressure_gauge", float(gauge_pressure)))
+        if pace_pressure is not None:
+            candidates.append(("pace", float(pace_pressure)))
+        if not candidates:
+            return {
+                "pressure_hpa": None,
+                "pressure_source": "unavailable",
+                "source_mode": source_mode,
+                "pace_pressure_hpa": pace_pressure,
+                "pressure_gauge_hpa": gauge_pressure,
+            }
+        source, value = max(candidates, key=lambda item: item[1])
+        return {
+            "pressure_hpa": value,
+            "pressure_source": source,
+            "source_mode": source_mode,
+            "pace_pressure_hpa": pace_pressure,
+            "pressure_gauge_hpa": gauge_pressure,
+        }
 
     def _post_vent0_probe_schedule_s(self) -> List[float]:
         raw_schedule = self._wf(
@@ -9871,6 +9966,9 @@ class CalibrationRunner:
             route_close_after_vent0_delay_s = max(0.0, float(route_valve_close_ts) - float(vent0_command_ts))
         if route_valve_close_ts is not None and raw_tx_wall_s is not None:
             route_close_after_vent0_raw_tx_s = max(0.0, float(route_valve_close_ts) - float(raw_tx_wall_s))
+        route_close_deadline_miss_s = None
+        if route_valve_close_ts is not None and route_close_deadline_ts is not None:
+            route_close_deadline_miss_s = max(0.0, float(route_valve_close_ts) - float(route_close_deadline_ts))
         fields = {
             "vent0_command_ts": (
                 datetime.fromtimestamp(float(vent0_command_ts)).isoformat(timespec="milliseconds")
@@ -9924,6 +10022,17 @@ class CalibrationRunner:
             "route_close_after_vent0_raw_tx_s": route_close_after_vent0_raw_tx_s,
         }
         fields.update(post_vent0_fields)
+        if (
+            vent_status == 3
+            and int(fields.get("post_vent0_new_vent1_count") or 0) == 0
+            and not fields.get("route_close_allowed_with_vent_status_3")
+        ):
+            fields["route_close_allowed_with_vent_status_3"] = True
+        fields["route_close_deadline_enforced"] = bool(route_close_deadline_ts is not None)
+        fields["route_close_deadline_missed"] = bool(
+            route_close_deadline_miss_s is not None and route_close_deadline_miss_s > 0.001
+        )
+        fields["route_close_deadline_miss_s"] = route_close_deadline_miss_s
         fields.update(vent_status_diag)
         self._append_pressure_trace_row(
             point=point,
@@ -9951,6 +10060,7 @@ class CalibrationRunner:
         *,
         route: str,
         reason: str = "",
+        defer_evidence_until_after_route_close: bool = False,
     ) -> bool:
         pace = self.devices.get("pace")
         if not pace:
@@ -10001,6 +10111,7 @@ class CalibrationRunner:
                 pace,
                 timeout_s=timeout_s,
                 poll_s=poll_s,
+                fast_preseal_no_wait=bool(defer_evidence_until_after_route_close),
             )
         except Exception as exc:
             snapshot = self._controlled_exit_atmosphere_snapshot(pace)
@@ -10035,6 +10146,31 @@ class CalibrationRunner:
         self._pressure_atmosphere_hold_enabled = False
         self._last_pressure_atmosphere_refresh_ts = 0.0
         self._pressure_atmosphere_refresh_error_logged = False
+        if defer_evidence_until_after_route_close:
+            self._append_pressure_trace_row(
+                point=point,
+                route=route_name,
+                point_phase=route_name,
+                trace_stage="controlled_exit_atmosphere_driver_exit_done",
+                pressure_target_hpa=pressure_target_hpa,
+                refresh_pace_state=False,
+                note=self._controlled_exit_atmosphere_note(
+                    result="driver_exit_deferred",
+                    snapshot={},
+                    exit_method=exit_method,
+                    reason=reason,
+                    wait_status=wait_status,
+                    wait_error=wait_error,
+                    operator_window_confirm_mode="deferred_after_route_close",
+                    operator_window_clear_timeout_s="",
+                    operator_window_cleared_after_vent0="deferred",
+                    operator_window_note="route close is enforced before slow VENT0 evidence",
+                    operator_window_response_raw="",
+                ),
+            )
+            self._controlled_exit_final_decision = "ENGINEERING_EXIT_ATMOSPHERE_DEFERRED"
+            return True
+
         done_snapshot = self._controlled_exit_atmosphere_snapshot(pace)
         self._record_vent0_state_evidence(
             point,
@@ -10149,6 +10285,193 @@ class CalibrationRunner:
             )
             return False
         return True
+
+    def _record_controlled_exit_atmosphere_after_route_close(
+        self,
+        point: CalibrationPoint,
+        *,
+        route: str,
+        reason: str = "",
+        exit_method: str = "direct_vent0_no_wait",
+        wait_status: Any = "",
+        wait_error: str = "",
+    ) -> bool:
+        pace = self.devices.get("pace")
+        if not pace:
+            return True
+        route_name = str(route or "").strip().lower()
+        pressure_target_hpa = getattr(point, "target_pressure_hpa", None)
+        snapshot = self._controlled_exit_atmosphere_snapshot(pace)
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        vent_status_diag = self._pace_vent_status_diagnostic_fields(vent_status, stage="preseal")
+        failures: List[str] = []
+        if vent_status is None:
+            failures.append("vent_status_unavailable")
+        elif (
+            not self._pace_vent_status_is_diagnostic_only(vent_status)
+            and not self._pace_vent_status_allows_control(pace, vent_status)
+        ):
+            failures.append(f"vent_status={vent_status}")
+        if output_state is None:
+            failures.append("output_state_unavailable")
+        elif output_state != 0:
+            failures.append(f"output_state={output_state}")
+        if isolation_state is None:
+            failures.append("isolation_state_unavailable")
+        elif isolation_state != 1:
+            failures.append(f"isolation_state={isolation_state}")
+        system_error = snapshot.get("pace_system_error")
+        if not self._pressure_controller_system_error_allows_continue(system_error):
+            failures.append(f"system_error={system_error}")
+
+        self._append_pressure_trace_row(
+            point=point,
+            route=route_name,
+            point_phase=route_name,
+            trace_stage="controlled_exit_atmosphere_verify",
+            pressure_target_hpa=pressure_target_hpa,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            refresh_pace_state=False,
+            extra_fields=vent_status_diag,
+            note=self._controlled_exit_atmosphere_note(
+                result="verify_after_route_close",
+                snapshot=snapshot,
+                exit_method=exit_method,
+                reason=reason,
+                failures=failures,
+                wait_status=wait_status,
+                wait_error=wait_error,
+                operator_window_confirm_mode="deferred_after_route_close",
+                operator_window_clear_timeout_s="",
+                operator_window_cleared_after_vent0="deferred",
+                operator_window_note="route already closed; VENT?=3 remains diagnostic-only",
+                operator_window_response_raw="",
+            ),
+        )
+        final_stage = "controlled_exit_atmosphere_fail" if failures else "controlled_exit_atmosphere_pass"
+        final_decision = "FAIL_CLOSED_ATMOSPHERE_EXIT_NOT_VERIFIED" if failures else ""
+        self._controlled_exit_final_decision = final_decision or "ENGINEERING_EXIT_ATMOSPHERE_PASS"
+        self._append_pressure_trace_row(
+            point=point,
+            route=route_name,
+            point_phase=route_name,
+            trace_stage=final_stage,
+            pressure_target_hpa=pressure_target_hpa,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            refresh_pace_state=False,
+            extra_fields=vent_status_diag,
+            note=self._controlled_exit_atmosphere_note(
+                result="fail" if failures else "pass_after_route_close",
+                snapshot=snapshot,
+                exit_method=exit_method,
+                reason=reason,
+                failures=failures,
+                wait_status=wait_status,
+                wait_error=wait_error,
+                operator_window_confirm_mode="deferred_after_route_close",
+                operator_window_clear_timeout_s="",
+                operator_window_cleared_after_vent0="deferred",
+                operator_window_note="operator observation runs after deterministic route seal",
+                operator_window_response_raw="",
+                final_decision=final_decision,
+            ),
+        )
+        if failures:
+            self.log(
+                "Controlled CO2 preseal verified atmosphere exit failed after route close: "
+                + ",".join(str(one) for one in failures)
+            )
+            return False
+        return True
+
+    def _post_seal_vent_abort_clear_if_needed(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        post_vent0_new_vent1_count: int = 0,
+    ) -> Dict[str, Any]:
+        enabled = self._post_seal_vent_abort_clear_enabled()
+        fields: Dict[str, Any] = {
+            "post_seal_vent_abort_clear_enabled": bool(enabled),
+            "post_seal_vent_abort_clear_sent": False,
+            "post_seal_vent_abort_clear_raw_tx_ts": "",
+            "post_seal_vent_status_before_clear": "",
+            "post_seal_vent_status_after_clear": "",
+            "post_seal_vent_window_cleared": False,
+            "post_seal_vent_window_persisted": False,
+            "post_seal_new_vent1_count": int(post_vent0_new_vent1_count or 0),
+            "sealed_control_ready_vent_status": "",
+            "sealed_control_ready_decision": "",
+            "sealed_control_ready_allows_vent3_after_clear": "",
+        }
+        pace = self.devices.get("pace")
+        if not enabled or pace is None or not self._co2_sealed_no_vent_guard_active:
+            return fields
+
+        before = self._controlled_exit_atmosphere_snapshot(pace)
+        vent_before = self._as_int(before.get("pace_vent_status"))
+        outp_before = self._as_int(before.get("pace_output_state"))
+        isol_before = self._as_int(before.get("pace_isolation_state"))
+        actual_open_valves = self._cached_actual_open_valves()
+        fields["post_seal_vent_status_before_clear"] = vent_before
+        allowed = (
+            vent_before == 3
+            and outp_before == 0
+            and isol_before == 1
+            and not actual_open_valves
+            and int(post_vent0_new_vent1_count or 0) == 0
+        )
+        if allowed:
+            try:
+                pace.vent(False)
+                fields["post_seal_vent_abort_clear_sent"] = True
+                vent0_evidence = self._latest_pace_raw_tap_vent0_evidence()
+                fields["post_seal_vent_abort_clear_raw_tx_ts"] = str(
+                    vent0_evidence.get("wall_ts") or self._iso_ts_from_wall(time.time())
+                )
+                wait_s = self._post_seal_vent_abort_clear_wait_s()
+                if wait_s > 0:
+                    time.sleep(wait_s)
+            except Exception as exc:
+                fields["sealed_control_ready_decision"] = f"clear_error:{exc}"
+        after = self._controlled_exit_atmosphere_snapshot(pace)
+        vent_after = self._as_int(after.get("pace_vent_status"))
+        fields["post_seal_vent_status_after_clear"] = vent_after
+        fields["post_seal_vent_window_cleared"] = bool(fields["post_seal_vent_abort_clear_sent"] and vent_after in {0, 2})
+        fields["post_seal_vent_window_persisted"] = bool(fields["post_seal_vent_abort_clear_sent"] and vent_after == 3)
+        fields["sealed_control_ready_vent_status"] = vent_after
+        fields["sealed_control_ready_allows_vent3_after_clear"] = bool(vent_after == 3 and allowed)
+        if not fields.get("sealed_control_ready_decision"):
+            if vent_after == 3:
+                fields["sealed_control_ready_decision"] = "vent3_window_latch_watchlist"
+            elif vent_after in {0, 2}:
+                fields["sealed_control_ready_decision"] = "ready"
+            else:
+                fields["sealed_control_ready_decision"] = "needs_live_ready_check"
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="post_seal_vent_abort_clear",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            pace_output_state=after.get("pace_output_state"),
+            pace_isolation_state=after.get("pace_isolation_state"),
+            pace_vent_status=after.get("pace_vent_status"),
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=(
+                "post-seal VENT0 abort/clear diagnostic; "
+                f"allowed={str(allowed).lower()} sent={str(fields['post_seal_vent_abort_clear_sent']).lower()}"
+            ),
+        )
+        return fields
 
     def _set_pressure_to_target(self, point: CalibrationPoint, *, recovery_attempted: bool = False) -> bool:
         pace = self.devices.get("pace")
@@ -18132,6 +18455,7 @@ class CalibrationRunner:
             route_close_deadline_ts: Optional[float] = None
             route_close_deadline_source = ""
             pre_route_close_probe_fields: Dict[str, Any] = {}
+            route_close_pressure_trigger_wall_s: Optional[float] = None
 
             def _seal_route_now() -> None:
                 nonlocal route_sealed
@@ -18176,6 +18500,11 @@ class CalibrationRunner:
                     )
                 if route_name == "co2" and vent0_wall_ts is not None:
                     fixed_wait_elapsed_s = max(0.0, route_valve_close_ts - vent0_wall_ts)
+                    if route_close_pressure_trigger_wall_s is not None:
+                        pre_route_close_probe_fields["route_close_after_pressure_trigger_s"] = max(
+                            0.0,
+                            route_valve_close_ts - route_close_pressure_trigger_wall_s,
+                        )
                     vent3_count = self._as_int(pre_route_close_probe_fields.get("post_vent0_vent3_count")) or 0
                     new_vent1_count = (
                         self._as_int(pre_route_close_probe_fields.get("post_vent0_new_vent1_count")) or 0
@@ -18236,6 +18565,7 @@ class CalibrationRunner:
                     point,
                     route=route_name,
                     reason=vent_off_reason,
+                    defer_evidence_until_after_route_close=True,
                 ):
                     return False
                 vent0_raw_response = "controlled_verified_exit_ok"
@@ -18265,8 +18595,10 @@ class CalibrationRunner:
                 self._controlled_outp_seal_transition_enabled(route_name)
                 and not self._pressure_rise_gate_blocks_seal()
             ):
-                fixed_wait_s = self._co2_no_outp_vent0_to_seal_wait_s()
-                baseline_pressures = self._read_controlled_outp_preseal_pressures()
+                fixed_wait_s = self._preseal_route_close_max_wait_s()
+                pressure_trigger_hpa = self._preseal_pressure_build_trigger_hpa()
+                pressure_hard_limit_hpa = self._preseal_pressure_build_hard_limit_hpa()
+                pressure_build_begin_ts = time.time()
                 raw_vent0_evidence = self._latest_pace_raw_tap_vent0_evidence()
                 raw_vent0_ts = str(raw_vent0_evidence.get("wall_ts") or "")
                 raw_vent0_wall_s = self._parse_iso_ts_to_wall_s(raw_vent0_ts)
@@ -18279,6 +18611,32 @@ class CalibrationRunner:
                 vent0_wall_ts = float(raw_vent0_wall_s)
                 route_close_deadline_ts = float(raw_vent0_wall_s) + fixed_wait_s
                 route_close_deadline_source = "raw_vent0_tx"
+                route_close_deadline_enforced = True
+                pressure_build_observation = self._read_preseal_pressure_build_observation()
+                preseal_pressure_last = self._as_float(pressure_build_observation.get("pressure_hpa"))
+                preseal_pressure_peak = preseal_pressure_last
+                pressure_source = str(pressure_build_observation.get("pressure_source") or "unavailable")
+                pressure_trigger_source = "timeout"
+                preseal_pressure_build_hard_limit_hit = False
+                route_close_pressure_at_close_hpa = preseal_pressure_last
+                route_close_pressure_source = pressure_source
+                if preseal_pressure_last is not None and preseal_pressure_last >= pressure_hard_limit_hpa:
+                    pressure_trigger_source = "hard_limit"
+                    preseal_pressure_build_hard_limit_hit = True
+                    route_close_pressure_trigger_wall_s = time.time()
+                elif preseal_pressure_last is not None and preseal_pressure_last >= pressure_trigger_hpa:
+                    pressure_trigger_source = (
+                        f"{pressure_source}_threshold" if pressure_source in {"pressure_gauge", "pace"} else "pressure_threshold"
+                    )
+                    route_close_pressure_trigger_wall_s = time.time()
+                elif fixed_wait_s > 0:
+                    remaining_s = max(0.0, float(route_close_deadline_ts) - time.time())
+                    if remaining_s > 0:
+                        time.sleep(remaining_s)
+                    pressure_trigger_source = "max_wait"
+                else:
+                    pressure_trigger_source = "no_wait"
+
                 pre_route_close_probe_fields = self._collect_post_vent0_probe_fields(
                     phase=phase,
                     vent0_intent_ts=vent0_command_ts,
@@ -18291,6 +18649,15 @@ class CalibrationRunner:
                 )
                 pre_route_close_probe_fields.update(
                     {
+                        "preseal_pressure_build_begin_ts": self._iso_ts_from_wall(pressure_build_begin_ts),
+                        "preseal_pressure_build_pressure_source": pressure_source,
+                        "preseal_pressure_build_trigger_hpa": pressure_trigger_hpa,
+                        "preseal_pressure_build_hard_limit_hpa": pressure_hard_limit_hpa,
+                        "preseal_pressure_build_peak_hpa": preseal_pressure_peak,
+                        "preseal_pressure_build_last_hpa": preseal_pressure_last,
+                        "preseal_pressure_build_trigger_source": pressure_trigger_source,
+                        "preseal_route_close_trigger_source": pressure_trigger_source,
+                        "route_close_deadline_enforced": route_close_deadline_enforced,
                         "route_close_deadline_ts": self._iso_ts_from_wall(route_close_deadline_ts),
                         "route_close_deadline_source": route_close_deadline_source,
                         "route_close_blocked_by_operator_window": False,
@@ -18301,8 +18668,11 @@ class CalibrationRunner:
                         "route_close_allowed_with_vent_status_3": bool(
                             (self._as_int(pre_route_close_probe_fields.get("post_vent0_vent3_count")) or 0) > 0
                             and (self._as_int(pre_route_close_probe_fields.get("post_vent0_new_vent1_count")) or 0)
-                            == 0
+                                == 0
                         ),
+                        "route_close_pressure_at_close_hpa": route_close_pressure_at_close_hpa,
+                        "route_close_pressure_source": route_close_pressure_source,
+                        "preseal_pressure_build_hard_limit_hit": preseal_pressure_build_hard_limit_hit,
                     }
                 )
                 elapsed_s = max(0.0, time.time() - float(raw_vent0_wall_s))
@@ -18313,13 +18683,14 @@ class CalibrationRunner:
                     point_phase=phase,
                     trace_stage="controlled_outp_vent0_fixed_wait_before_seal",
                     pressure_target_hpa=point.target_pressure_hpa,
-                    pace_pressure_hpa=baseline_pressures.get("pace_pressure_hpa"),
-                    pressure_gauge_hpa=baseline_pressures.get("pressure_gauge_hpa"),
+                    pace_pressure_hpa=pressure_build_observation.get("pace_pressure_hpa"),
+                    pressure_gauge_hpa=pressure_build_observation.get("pressure_gauge_hpa"),
                     refresh_pace_state=False,
                     extra_fields=pre_route_close_probe_fields,
                     note=(
                         f"fixed_wait_s={fixed_wait_s:.3f} elapsed_s={elapsed_s:.3f} "
-                        f"remaining_s={remaining_s:.3f}; route valves remain open after VENT0; "
+                        f"remaining_s={remaining_s:.3f}; "
+                        f"trigger_source={pressure_trigger_source}; route valves remain open after VENT0; "
                         f"route_close_deadline_source={route_close_deadline_source}"
                     ),
                 )
@@ -18348,15 +18719,45 @@ class CalibrationRunner:
                     self._cleanup_co2_route(reason=self._controlled_exit_final_decision)
                     self._stop_pressure_transition_fast_signal_context(reason=self._controlled_exit_final_decision)
                     return False
-                if remaining_s > 0:
-                    time.sleep(remaining_s)
                 controlled_fixed_wait_completed = True
-                preseal_trigger_source = "controlled_fixed_wait_after_vent0"
+                preseal_trigger_source = pressure_trigger_source
                 _seal_route_now()
+                if preseal_pressure_build_hard_limit_hit:
+                    self._controlled_exit_final_decision = "FAIL_CLOSED_PRESEAL_PRESSURE_BUILD_HARD_LIMIT"
+                    self._mark_co2_route_terminal_failure(
+                        final_decision=self._controlled_exit_final_decision,
+                        reason="preseal pressure build exceeded hard limit before route close",
+                        point=point,
+                        phase=phase,
+                    )
+                    self._stop_pressure_transition_fast_signal_context(reason=self._controlled_exit_final_decision)
+                    return False
+                post_seal_clear_fields = self._post_seal_vent_abort_clear_if_needed(
+                    point,
+                    phase=phase,
+                    post_vent0_new_vent1_count=int(
+                        pre_route_close_probe_fields.get("post_vent0_new_vent1_count") or 0
+                    ),
+                )
+                if not self._record_controlled_exit_atmosphere_after_route_close(
+                    point,
+                    route=phase,
+                    reason=vent_off_reason,
+                    exit_method="direct_vent0_no_wait",
+                    wait_status=post_seal_clear_fields.get("sealed_control_ready_vent_status", ""),
+                    wait_error="",
+                ):
+                    self._cleanup_co2_route(
+                        reason=str(self._controlled_exit_final_decision or "controlled exit evidence failure")
+                    )
+                    self._stop_pressure_transition_fast_signal_context(
+                        reason=str(self._controlled_exit_final_decision or "controlled exit evidence failure")
+                    )
+                    return False
                 after_pressures = self._read_controlled_outp_preseal_pressures()
-                com22_baseline = baseline_pressures.get("pressure_gauge_hpa")
+                com22_baseline = pressure_build_observation.get("pressure_gauge_hpa")
                 com22_after = after_pressures.get("pressure_gauge_hpa")
-                pace_baseline = baseline_pressures.get("pace_pressure_hpa")
+                pace_baseline = pressure_build_observation.get("pace_pressure_hpa")
                 pace_after = after_pressures.get("pace_pressure_hpa")
                 pressure_rise_delta_hpa: Optional[float] = None
                 if com22_baseline is not None and com22_after is not None:
@@ -18424,6 +18825,7 @@ class CalibrationRunner:
                     pace_pressure_hpa=pace_pressure_now,
                     pressure_gauge_hpa=com22_after,
                     refresh_pace_state=False,
+                    extra_fields=post_seal_clear_fields,
                     note=(
                         "controlled OUTP route sealed for pressure control; "
                         + (
