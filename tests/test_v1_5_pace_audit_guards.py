@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import csv
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -419,12 +420,66 @@ class _FakePace:
         self.ser = _FakeSerial()
         self.calls: list[tuple] = []
         self._vent_hold_thread = None
+        self.output_state = 0
+        self.isolation_state = 1
+        self.vent_status = 0
+        self.query_responses = {
+            "*IDN?": "Druck,K0472,FAKE,1.0",
+            ":SYST:ERR?": "0,No error",
+            ":UNIT:PRES?": "HPA",
+            ":OUTP:MODE?": "ACT",
+            ":OUTP:STAT?": "0",
+            ":OUTP:ISOL:STAT?": "1",
+            ":SOUR:PRES:LEV:IMM:AMPL:VENT?": "0",
+            ":SOUR:PRES:INL?": "0.02",
+            ":SOUR:PRES:INL:TIME?": "2",
+            ":SOUR:PRES:SLEW?": "10",
+            ":SOUR:PRES:SLEW:MODE?": "LIN",
+            ":SOUR:PRES:SLEW:OVER:STAT?": "0",
+            ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?": "10",
+            ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?": "HPA/S",
+            ":SENS:PRES:FILT:LPAS:STAT?": "0",
+            ":SENS:PRES:CORR:HEAD:STAT?": "0",
+            ":SENS:PRES:CORR:OFFS:STAT?": "0",
+            ":STAT:OPER:PRES:COND?": "0",
+            ":STAT:OPER:PRES:EVEN?": "0",
+        }
 
     def vent(self, on: bool = True) -> None:
         self.calls.append(("vent", bool(on)))
 
     def enable_control_output(self) -> None:
         self.calls.append(("enable_control_output",))
+
+    def query(self, cmd: str) -> str:
+        self.calls.append(("query", cmd))
+        if cmd in self.query_responses:
+            response = self.query_responses[cmd]
+            if isinstance(response, Exception):
+                raise response
+            return str(response)
+        return "0"
+
+    def get_output_state(self) -> int:
+        return int(self.output_state)
+
+    def get_isolation_state(self) -> int:
+        return int(self.isolation_state)
+
+    def get_vent_status(self) -> int:
+        return int(self.vent_status)
+
+    def read_pressure(self) -> float:
+        return 1013.25
+
+    def set_units_hpa(self) -> None:
+        self.calls.append(("set_units_hpa",))
+
+    def set_output_mode_active(self) -> None:
+        self.calls.append(("set_output_mode_active",))
+
+    def set_in_limits(self, pct: float, seconds: float) -> None:
+        self.calls.append(("set_in_limits", pct, seconds))
 
 
 class _FakeDewpoint:
@@ -451,6 +506,12 @@ def _runner_for_audit(tmp_path: Path) -> tuple[CalibrationRunner, RunLogger, _Fa
     runner = CalibrationRunner(
         {
             "paths": {"output_dir": str(tmp_path)},
+            "devices": {
+                "pressure_controller": {
+                    "in_limits_pct": 0.02,
+                    "in_limits_time_s": 2.0,
+                }
+            },
             "workflow": {
                 "collect_only": True,
                 "pressure": {"transition_trace_enabled": True},
@@ -466,6 +527,163 @@ def _runner_for_audit(tmp_path: Path) -> tuple[CalibrationRunner, RunLogger, _Fa
         lambda *_args: None,
     )
     return runner, logger, pace
+
+
+def _pace_trace_rows(tmp_path: Path) -> list[dict[str, str]]:
+    trace_path = tmp_path / "pressure_transition_trace.csv"
+    with trace_path.open(newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def test_pace_baseline_snapshot_before_and_after_config(tmp_path: Path) -> None:
+    runner, logger, pace = _runner_for_audit(tmp_path)
+
+    before = runner._record_pace_manual_baseline_snapshot("pace_baseline_before_config")
+    runner._configure_devices()
+    after = runner._record_pace_manual_baseline_snapshot("pace_baseline_after_config")
+    logger.close()
+
+    assert before["pace_output_state"] == 0
+    assert before["pace_isolation_state"] == 1
+    assert before["pace_vent_status"] == 0
+    assert after["manual_profile_ready"] is True
+    assert ("query", ":OUTP:STAT?") in pace.calls
+    rows = _pace_trace_rows(logger.run_dir)
+    before_row = next(row for row in rows if row["trace_stage"] == "pace_baseline_before_config")
+    after_row = next(row for row in rows if row["trace_stage"] == "pace_baseline_after_config")
+    assert json.loads(before_row["pace_baseline_before_config"])["profile_version"]
+    assert json.loads(after_row["pace_baseline_after_config"])["vent_status_semantics"]
+    assert before_row["pace_vent_status_semantics"] == "manual_0_ok_1_in_progress_2_completed_3_unrecognized_watchlist"
+
+
+def test_pace_phase_profile_open_flow_requires_vent1_outp0_isol1(tmp_path: Path) -> None:
+    runner, logger, _pace = _runner_for_audit(tmp_path)
+    result = runner._evaluate_pace_phase_profile(
+        "open_flow",
+        pace_snapshot={"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 1},
+        route_valves=[6, 7, 8, 11],
+        vent1_fresh=True,
+    )
+    logger.close()
+
+    assert result["passed"] is True
+    assert result["actual"]["decision"] == "pass"
+
+
+def test_pace_phase_profile_open_flow_blocks_outp1_or_vent0(tmp_path: Path) -> None:
+    runner, logger, _pace = _runner_for_audit(tmp_path)
+    result = runner._evaluate_pace_phase_profile(
+        "open_flow",
+        pace_snapshot={"pace_output_state": 1, "pace_isolation_state": 1, "pace_vent_status": 0},
+        route_valves=[6, 7, 8, 11],
+        vent1_fresh=True,
+        forbidden_command_count=1,
+    )
+    logger.close()
+
+    assert result["passed"] is False
+    assert any("OUTP_expected_0_actual_1" in failure for failure in result["failures"])
+    assert "forbidden_command_count=1" in result["failures"]
+
+
+def test_pace_phase_profile_base_soak_dewpoint_gate_allows_only_vent1_and_query(tmp_path: Path) -> None:
+    runner, logger, _pace = _runner_for_audit(tmp_path)
+    allowed = runner._evaluate_pace_phase_profile(
+        "base_soak_dewpoint_analyzer",
+        pace_snapshot={"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 1},
+        forbidden_command_count=0,
+    )
+    blocked = runner._evaluate_pace_phase_profile(
+        "base_soak_dewpoint_analyzer",
+        pace_snapshot={"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 1},
+        forbidden_command_count=1,
+    )
+    logger.close()
+
+    assert allowed["passed"] is True
+    assert blocked["passed"] is False
+    assert "forbidden_command_count=1" in blocked["failures"]
+
+
+def test_pace_phase_profile_preseal_allows_vent3_watchlist_before_route_close(tmp_path: Path) -> None:
+    runner, logger, _pace = _runner_for_audit(tmp_path)
+    result = runner._evaluate_pace_phase_profile(
+        "preseal_pressure_build",
+        pace_snapshot={"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 3},
+        route_valves=[6, 7, 8, 11],
+        new_vent1_count=0,
+    )
+    logger.close()
+
+    assert result["passed"] is True
+    assert "vent3_diagnostic_only_before_route_close" in result["warnings"]
+
+
+def test_pace_phase_profile_control_ready_blocks_vent3(tmp_path: Path) -> None:
+    runner, logger, _pace = _runner_for_audit(tmp_path)
+    result = runner._evaluate_pace_phase_profile(
+        "sealed_control_ready",
+        pace_snapshot={"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 3},
+        route_valves=[],
+    )
+    logger.close()
+
+    assert result["passed"] is False
+    assert "vent_window_latched" in result["failures"]
+
+
+def test_pace_phase_profile_control_ready_blocks_vent2_conservatively(tmp_path: Path) -> None:
+    runner, logger, _pace = _runner_for_audit(tmp_path)
+    result = runner._evaluate_pace_phase_profile(
+        "sealed_control_ready",
+        pace_snapshot={"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 2},
+        route_valves=[],
+    )
+    logger.close()
+
+    assert result["passed"] is False
+    assert "vent_status_2_not_idle_or_completed_not_accepted" in result["failures"]
+
+
+def test_pace_phase_profile_control_ready_allows_vent0(tmp_path: Path) -> None:
+    runner, logger, _pace = _runner_for_audit(tmp_path)
+    result = runner._evaluate_pace_phase_profile(
+        "sealed_control_ready",
+        pace_snapshot={"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 0},
+        route_valves=[],
+    )
+    logger.close()
+
+    assert result["passed"] is True
+
+
+def test_pace_error_queue_recorded_without_crash(tmp_path: Path) -> None:
+    runner, logger, pace = _runner_for_audit(tmp_path)
+    pace.query_responses[":SYST:ERR?"] = RuntimeError("serial timeout")
+
+    snapshot = runner._record_pace_manual_baseline_snapshot("pace_baseline_before_config")
+    logger.close()
+
+    assert snapshot["errors"]["system_error"] == "serial timeout"
+    row = next(row for row in _pace_trace_rows(logger.run_dir) if row["trace_stage"] == "pace_baseline_before_config")
+    evidence = json.loads(row["pace_status_evidence"])
+    assert evidence["queries"]["system_error"]["ok"] is False
+
+
+def test_no_cal_zero_commands_in_startup_config(tmp_path: Path) -> None:
+    runner, logger, _pace = _runner_for_audit(tmp_path)
+
+    runner._configure_devices()
+    logger.close()
+
+    audit_path = logger.run_dir / "pace_startup_config_audit.csv"
+    with audit_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    commands = [row["command"].upper() for row in rows]
+    assert ":UNIT:PRES HPA" in commands
+    assert ":OUTP:MODE ACT" in commands
+    assert not any("CAL" in command or "ZERO" in command for command in commands)
+    assert not any(row["is_forbidden"] == "True" for row in rows)
 
 
 def _prepare_analyzer_gate_dewpoint_runner(

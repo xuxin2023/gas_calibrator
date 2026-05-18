@@ -119,6 +119,23 @@ _PRESSURE_TRACE_FIELDS = [
     "pace_output_state",
     "pace_isolation_state",
     "pace_vent_status",
+    "pace_manual_profile_version",
+    "pace_baseline_before_config",
+    "pace_baseline_after_config",
+    "pace_baseline_after_safe_stop",
+    "pace_phase_expected_profile",
+    "pace_phase_actual_profile",
+    "pace_phase_profile_passed",
+    "pace_phase_profile_warnings",
+    "pace_phase_profile_failures",
+    "pace_vent_status_semantics",
+    "pace_vent3_manual_defined",
+    "pace_vent3_classification",
+    "pace_vent3_gate_effect_by_phase",
+    "pace_status_evidence",
+    "pace_syst_err",
+    "pace_status_oper_pres_cond",
+    "pace_status_oper_pres_even",
     "atmosphere_hold_stop_request_ts",
     "atmosphere_hold_stop_return_ts",
     "atmosphere_hold_last_vent1_raw_ts",
@@ -555,6 +572,8 @@ class CalibrationRunner:
     _DEFAULT_CO2_GROUP_A_PPM = (0, 200, 400, 600, 800, 1000)
     _DEFAULT_CO2_GROUP_B_PPM = (0, 100, 300, 500, 700, 900)
     _FULL_SWEEP_CO2_TEMPS_C = (10.0, 20.0, 30.0)
+    _PACE_MANUAL_PROFILE_VERSION = "v1_5_k0472_manual_profile_20260518"
+    _PACE_VENT_STATUS_SEMANTICS = "manual_0_ok_1_in_progress_2_completed_3_unrecognized_watchlist"
 
     def __init__(self, config: Dict[str, Any], devices: Dict[str, Any], logger: RunLogger, log_fn, status_fn):
         self.cfg = config
@@ -610,6 +629,12 @@ class CalibrationRunner:
         run_dir = getattr(self.logger, "run_dir", None)
         self._pressure_trace_path = (run_dir / "pressure_transition_trace.csv") if run_dir is not None else None
         self._pressure_trace_error_logged = False
+        self._pace_startup_config_audit_path = (
+            (run_dir / "pace_startup_config_audit.csv") if run_dir is not None else None
+        )
+        self._pace_startup_config_audit_error_logged = False
+        self._pace_startup_config_audit_rows: List[Dict[str, Any]] = []
+        self._pace_manual_baselines: Dict[str, Dict[str, Any]] = {}
         self._point_timing_summary_path = (run_dir / "point_timing_summary.csv") if run_dir is not None else None
         self._point_timing_summary_error_logged = False
         self._sampling_window_context: Optional[Dict[str, Any]] = None
@@ -1124,6 +1149,520 @@ class CalibrationRunner:
             self._update_pace_state_cache(refreshed)
             return refreshed
         return snapshot
+
+    @staticmethod
+    def _trace_json(value: Any) -> str:
+        try:
+            return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+        except Exception:
+            return str(value)
+
+    @staticmethod
+    def _pace_manual_snapshot_queries() -> Tuple[Tuple[str, str], ...]:
+        return (
+            ("idn", "*IDN?"),
+            ("system_error", ":SYST:ERR?"),
+            ("pressure_unit", ":UNIT:PRES?"),
+            ("output_mode", ":OUTP:MODE?"),
+            ("output_state", ":OUTP:STAT?"),
+            ("isolation_state", ":OUTP:ISOL:STAT?"),
+            ("vent_status", ":SOUR:PRES:LEV:IMM:AMPL:VENT?"),
+            ("in_limits_pct", ":SOUR:PRES:INL?"),
+            ("in_limits_time_s", ":SOUR:PRES:INL:TIME?"),
+            ("slew_rate", ":SOUR:PRES:SLEW?"),
+            ("slew_mode", ":SOUR:PRES:SLEW:MODE?"),
+            ("slew_overshoot_state", ":SOUR:PRES:SLEW:OVER:STAT?"),
+            ("vent_rate", ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?"),
+            ("vent_rate_unit", ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?"),
+            ("low_pass_filter_state", ":SENS:PRES:FILT:LPAS:STAT?"),
+            ("head_correction_state", ":SENS:PRES:CORR:HEAD:STAT?"),
+            ("offset_correction_state", ":SENS:PRES:CORR:OFFS:STAT?"),
+            ("status_oper_pressure_condition", ":STAT:OPER:PRES:COND?"),
+            ("status_oper_pressure_event", ":STAT:OPER:PRES:EVEN?"),
+        )
+
+    def _pace_manual_query(self, pace: Any, command: str) -> Dict[str, Any]:
+        query = getattr(pace, "query", None)
+        if not callable(query):
+            return {"ok": False, "response": "", "error": "query_unavailable"}
+        try:
+            response = query(command)
+            if isinstance(response, bytes):
+                response = response.decode(errors="replace")
+            return {"ok": True, "response": str(response).strip(), "error": ""}
+        except Exception as exc:
+            return {"ok": False, "response": "", "error": str(exc)}
+
+    def _capture_pace_status_register_evidence(self, label: str, pace: Any = None) -> Dict[str, Any]:
+        pace = pace if pace is not None else self.devices.get("pace")
+        if pace is None:
+            return {"label": label, "available": False, "error": "pace_unavailable", "queries": {}}
+        queries: Dict[str, Any] = {}
+        for key, command in (
+            ("system_error", ":SYST:ERR?"),
+            ("status_oper_pressure_condition", ":STAT:OPER:PRES:COND?"),
+            ("status_oper_pressure_event", ":STAT:OPER:PRES:EVEN?"),
+        ):
+            queries[key] = {"command": command, **self._pace_manual_query(pace, command)}
+        return {
+            "label": label,
+            "available": any(bool(item.get("ok")) for item in queries.values()),
+            "queries": queries,
+        }
+
+    def _capture_pace_manual_baseline_snapshot(self, label: str) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        wall_ts = time.time()
+        snapshot: Dict[str, Any] = {
+            "label": str(label or ""),
+            "ts": self._iso_ts_from_wall(wall_ts),
+            "profile_version": self._PACE_MANUAL_PROFILE_VERSION,
+            "vent_status_semantics": self._PACE_VENT_STATUS_SEMANTICS,
+            "vent3_manual_defined": False,
+            "available": pace is not None,
+            "queries": {},
+            "errors": {},
+            "missing_critical_fields": [],
+            "manual_profile_ready": False,
+        }
+        if pace is None:
+            snapshot["errors"]["pace"] = "pace_unavailable"
+            snapshot["missing_critical_fields"] = ["pace_output_state", "pace_isolation_state", "pace_vent_status"]
+            return snapshot
+
+        query_results: Dict[str, Any] = {}
+        for key, command in self._pace_manual_snapshot_queries():
+            result = self._pace_manual_query(pace, command)
+            query_results[key] = {"command": command, **result}
+            if not result.get("ok"):
+                snapshot["errors"][key] = result.get("error") or "query_failed"
+        snapshot["queries"] = query_results
+
+        state_snapshot = self._pace_state_snapshot(pace, refresh=True)
+        output_state = self._as_int(state_snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(state_snapshot.get("pace_isolation_state"))
+        vent_status = self._as_int(state_snapshot.get("pace_vent_status"))
+        if output_state is None:
+            output_state = self._as_int(query_results.get("output_state", {}).get("response"))
+        if isolation_state is None:
+            isolation_state = self._as_int(query_results.get("isolation_state", {}).get("response"))
+        if vent_status is None:
+            vent_status = self._as_int(query_results.get("vent_status", {}).get("response"))
+
+        snapshot.update(
+            {
+                "pace_output_state": output_state,
+                "pace_isolation_state": isolation_state,
+                "pace_vent_status": vent_status,
+                "pace_output_mode": query_results.get("output_mode", {}).get("response", ""),
+                "pace_system_error": query_results.get("system_error", {}).get("response", ""),
+                "pace_vent3_classification": self._pace_vent_status_classification(vent_status, stage=str(label or "")),
+            }
+        )
+        missing: List[str] = []
+        for field_name, value in (
+            ("pace_output_state", output_state),
+            ("pace_isolation_state", isolation_state),
+            ("pace_vent_status", vent_status),
+        ):
+            if value is None:
+                missing.append(field_name)
+        snapshot["missing_critical_fields"] = missing
+        snapshot["manual_profile_ready"] = not missing
+        return snapshot
+
+    def _record_pace_manual_baseline_snapshot(self, label: str) -> Dict[str, Any]:
+        snapshot = self._capture_pace_manual_baseline_snapshot(label)
+        self._pace_manual_baselines[str(label or "")] = snapshot
+        self._log_run_event(
+            command=f"pace-manual-baseline:{label}",
+            response=self._trace_json(snapshot),
+        )
+        baseline_field = str(label or "")
+        extra: Dict[str, Any] = {
+            "pace_manual_profile_version": self._PACE_MANUAL_PROFILE_VERSION,
+            "pace_vent_status_semantics": self._PACE_VENT_STATUS_SEMANTICS,
+            "pace_vent3_manual_defined": False,
+            "pace_vent3_classification": snapshot.get("pace_vent3_classification", ""),
+            "pace_vent3_gate_effect_by_phase": self._trace_json(self._pace_vent3_gate_effect_by_phase()),
+        }
+        if baseline_field in {
+            "pace_baseline_before_config",
+            "pace_baseline_after_config",
+            "pace_baseline_after_safe_stop",
+        }:
+            extra[baseline_field] = self._trace_json(snapshot)
+        extra.update(
+            {
+                "pace_status_evidence": self._trace_json(
+                    self._capture_pace_status_register_evidence(baseline_field)
+                ),
+                "pace_syst_err": snapshot.get("pace_system_error", ""),
+                "pace_status_oper_pres_cond": (
+                    snapshot.get("queries", {})
+                    .get("status_oper_pressure_condition", {})
+                    .get("response", "")
+                ),
+                "pace_status_oper_pres_even": (
+                    snapshot.get("queries", {})
+                    .get("status_oper_pressure_event", {})
+                    .get("response", "")
+                ),
+            }
+        )
+        self._append_pressure_trace_row(
+            point=None,
+            route="run",
+            point_phase="run",
+            trace_stage=baseline_field,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            refresh_pace_state=False,
+            extra_fields=extra,
+            note=(
+                f"PACE K0472 manual baseline snapshot label={baseline_field}; "
+                f"ready={str(snapshot.get('manual_profile_ready')).lower()}"
+            ),
+        )
+        return snapshot
+
+    @staticmethod
+    def _pace_phase_expected_profile() -> Dict[str, Any]:
+        return {
+            "idle_run_start": {
+                "OUTP": 0,
+                "ISOL": 1,
+                "VENT?": [0, 2],
+                "route_valves": "closed",
+                "vent_1_or_3": "warning_watchlist",
+            },
+            "open_flow": {
+                "VENT1_keepalive": "fresh",
+                "OUTP": 0,
+                "ISOL": 1,
+                "route_valves": "open",
+                "forbidden": ["VENT0", "OUTP1", "setpoint", "ISOL0"],
+            },
+            "base_soak_dewpoint_analyzer": {
+                "allowed": ["VENT1_keepalive", "readonly_query"],
+                "forbidden": ["VENT0", "OUTP1", "OUTP0_redundant", "ISOL_command", "setpoint", "mode_range_write"],
+            },
+            "preseal_pressure_build": {
+                "no_new_VENT1_after_VENT0": True,
+                "OUTP": 0,
+                "ISOL": 1,
+                "route_valves": "open_until_pressure_trigger_or_timeout",
+                "VENT?=3": "diagnostic_only_watchlist",
+                "close_route": "pressure_ge_1110_or_5s_timeout",
+                "hard_limit": "emergency_close_block_OUTP1",
+            },
+            "sealed_control_ready": {
+                "route_valves": "closed",
+                "OUTP": 0,
+                "ISOL": 1,
+                "VENT?": 0,
+                "VENT?=3": "bounded_clear_then_fail_closed_if_persisted",
+                "VENT?=2": "blocked_conservative_not_idle",
+            },
+            "sampling": {
+                "route_valves": "closed",
+                "sealed_VENT1_count": 0,
+                "OUTP1_setpoint": "only_after_control_ready",
+            },
+        }
+
+    @staticmethod
+    def _pace_vent3_gate_effect_by_phase() -> Dict[str, str]:
+        return {
+            "idle_run_start": "warning_watchlist",
+            "open_flow": "warning_watchlist",
+            "base_soak_dewpoint_analyzer": "warning_watchlist",
+            "preseal_pressure_build": "none_diagnostic_only",
+            "sealed_control_ready": "terminal_block_before_outp1_if_clear_fails",
+            "sampling": "not_expected_after_ready",
+        }
+
+    def _evaluate_pace_phase_profile(
+        self,
+        phase: str,
+        *,
+        pace_snapshot: Optional[Mapping[str, Any]] = None,
+        pace_pressure_hpa: Any = None,
+        pressure_gauge_hpa: Any = None,
+        route_valves: Any = None,
+        vent1_fresh: Any = None,
+        new_vent1_count: int = 0,
+        forbidden_command_count: int = 0,
+        sealed_vent1_count: int = 0,
+        pressure_hard_limit_hit: bool = False,
+    ) -> Dict[str, Any]:
+        phase_name = str(phase or "").strip().lower()
+        snapshot = dict(pace_snapshot or {})
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        if route_valves is None:
+            route_valves_list = self._cached_actual_open_valves()
+        elif isinstance(route_valves, str):
+            route_valves_list = route_valves
+        else:
+            route_valves_list = list(route_valves or [])
+        warnings: List[str] = []
+        failures: List[str] = []
+
+        def _require(name: str, actual: Any, expected: Any) -> None:
+            if actual != expected:
+                failures.append(f"{name}_expected_{expected}_actual_{actual}")
+
+        if phase_name == "idle_run_start":
+            _require("OUTP", output_state, 0)
+            _require("ISOL", isolation_state, 1)
+            if vent_status not in {0, 2}:
+                warnings.append(f"vent_status_{vent_status}_watchlist")
+            if route_valves_list not in ([], ""):
+                failures.append(f"route_valves_not_closed:{route_valves_list}")
+        elif phase_name == "open_flow":
+            _require("OUTP", output_state, 0)
+            _require("ISOL", isolation_state, 1)
+            if vent_status != 1 and vent1_fresh is not True:
+                warnings.append("vent1_keepalive_not_fresh_or_unverified")
+            if route_valves_list in ([], ""):
+                failures.append("route_valves_not_open")
+            if forbidden_command_count:
+                failures.append(f"forbidden_command_count={int(forbidden_command_count)}")
+        elif phase_name == "base_soak_dewpoint_analyzer":
+            if forbidden_command_count:
+                failures.append(f"forbidden_command_count={int(forbidden_command_count)}")
+            if output_state not in {0, None}:
+                failures.append(f"OUTP_unexpected_{output_state}")
+            if isolation_state not in {1, None}:
+                failures.append(f"ISOL_unexpected_{isolation_state}")
+        elif phase_name == "preseal_pressure_build":
+            _require("OUTP", output_state, 0)
+            _require("ISOL", isolation_state, 1)
+            if int(new_vent1_count or 0) > 0:
+                failures.append(f"new_vent1_count={int(new_vent1_count)}")
+            if route_valves_list in ([], ""):
+                failures.append("route_valves_not_open_before_close")
+            if vent_status == 3:
+                warnings.append("vent3_diagnostic_only_before_route_close")
+            if pressure_hard_limit_hit:
+                failures.append("pressure_hard_limit_hit")
+        elif phase_name == "sealed_control_ready":
+            _require("OUTP", output_state, 0)
+            _require("ISOL", isolation_state, 1)
+            if route_valves_list not in ([], ""):
+                failures.append(f"route_valves_not_closed:{route_valves_list}")
+            if vent_status == 3:
+                failures.append("vent_window_latched")
+            elif vent_status == 2:
+                failures.append("vent_status_2_not_idle_or_completed_not_accepted")
+            elif vent_status != 0:
+                failures.append(f"vent_status={vent_status}")
+        elif phase_name == "sampling":
+            if route_valves_list not in ([], ""):
+                failures.append(f"route_valves_not_closed:{route_valves_list}")
+            if int(sealed_vent1_count or 0) > 0:
+                failures.append(f"sealed_vent1_count={int(sealed_vent1_count)}")
+        else:
+            warnings.append(f"unknown_phase:{phase_name}")
+
+        actual = {
+            "phase": phase_name,
+            "OUTP": output_state,
+            "ISOL": isolation_state,
+            "VENT?": vent_status,
+            "pace_pressure_hpa": pace_pressure_hpa,
+            "pressure_gauge_hpa": pressure_gauge_hpa,
+            "route_valves": route_valves_list,
+            "new_vent1_count": int(new_vent1_count or 0),
+            "forbidden_command_count": int(forbidden_command_count or 0),
+            "decision": "pass" if not failures else "fail",
+        }
+        return {
+            "phase": phase_name,
+            "expected": self._pace_phase_expected_profile().get(phase_name, {}),
+            "actual": actual,
+            "passed": not failures,
+            "warnings": warnings,
+            "failures": failures,
+        }
+
+    def _append_pace_phase_profile_trace(
+        self,
+        phase: str,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        route: str = "run",
+        point_phase: str = "run",
+        pace_snapshot: Optional[Mapping[str, Any]] = None,
+        pace_pressure_hpa: Any = None,
+        pressure_gauge_hpa: Any = None,
+        route_valves: Any = None,
+        vent1_fresh: Any = None,
+        new_vent1_count: int = 0,
+        forbidden_command_count: int = 0,
+        sealed_vent1_count: int = 0,
+        pressure_hard_limit_hit: bool = False,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        snapshot = dict(pace_snapshot or self._pace_state_snapshot(refresh=True))
+        profile = self._evaluate_pace_phase_profile(
+            phase,
+            pace_snapshot=snapshot,
+            pace_pressure_hpa=pace_pressure_hpa,
+            pressure_gauge_hpa=pressure_gauge_hpa,
+            route_valves=route_valves,
+            vent1_fresh=vent1_fresh,
+            new_vent1_count=new_vent1_count,
+            forbidden_command_count=forbidden_command_count,
+            sealed_vent1_count=sealed_vent1_count,
+            pressure_hard_limit_hit=pressure_hard_limit_hit,
+        )
+        extra = {
+            "pace_manual_profile_version": self._PACE_MANUAL_PROFILE_VERSION,
+            "pace_phase_expected_profile": self._trace_json(profile.get("expected", {})),
+            "pace_phase_actual_profile": self._trace_json(profile.get("actual", {})),
+            "pace_phase_profile_passed": bool(profile.get("passed")),
+            "pace_phase_profile_warnings": self._trace_json(profile.get("warnings", [])),
+            "pace_phase_profile_failures": self._trace_json(profile.get("failures", [])),
+            "pace_vent_status_semantics": self._PACE_VENT_STATUS_SEMANTICS,
+            "pace_vent3_manual_defined": False,
+            "pace_vent3_classification": self._pace_vent_status_classification(
+                snapshot.get("pace_vent_status"),
+                stage=str(phase or ""),
+            ),
+            "pace_vent3_gate_effect_by_phase": self._trace_json(self._pace_vent3_gate_effect_by_phase()),
+        }
+        status_evidence = self._capture_pace_status_register_evidence(f"pace_phase_profile:{phase}")
+        extra.update(
+            {
+                "pace_status_evidence": self._trace_json(status_evidence),
+                "pace_syst_err": status_evidence.get("queries", {}).get("system_error", {}).get("response", ""),
+                "pace_status_oper_pres_cond": status_evidence.get("queries", {})
+                .get("status_oper_pressure_condition", {})
+                .get("response", ""),
+                "pace_status_oper_pres_even": status_evidence.get("queries", {})
+                .get("status_oper_pressure_event", {})
+                .get("response", ""),
+            }
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=route,
+            point_phase=point_phase,
+            trace_stage=f"pace_phase_profile:{profile.get('phase', phase)}",
+            pace_pressure_hpa=pace_pressure_hpa,
+            pressure_gauge_hpa=pressure_gauge_hpa,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            refresh_pace_state=False,
+            extra_fields=extra,
+            note=note or "PACE K0472 manual phase profile evidence",
+        )
+        return profile
+
+    def _append_pace_status_evidence_trace(
+        self,
+        label: str,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        route: str = "run",
+        point_phase: str = "run",
+        note: str = "",
+    ) -> Dict[str, Any]:
+        evidence = self._capture_pace_status_register_evidence(label)
+        queries = evidence.get("queries", {})
+        extra = {
+            "pace_status_evidence": self._trace_json(evidence),
+            "pace_syst_err": queries.get("system_error", {}).get("response", ""),
+            "pace_status_oper_pres_cond": queries.get("status_oper_pressure_condition", {}).get("response", ""),
+            "pace_status_oper_pres_even": queries.get("status_oper_pressure_event", {}).get("response", ""),
+            "pace_manual_profile_version": self._PACE_MANUAL_PROFILE_VERSION,
+            "pace_vent_status_semantics": self._PACE_VENT_STATUS_SEMANTICS,
+            "pace_vent3_manual_defined": False,
+        }
+        self._append_pressure_trace_row(
+            point=point,
+            route=route,
+            point_phase=point_phase,
+            trace_stage=f"pace_status_evidence:{label}",
+            refresh_pace_state=False,
+            extra_fields=extra,
+            note=note or "PACE SYST:ERR/status register evidence; no *CLS issued",
+        )
+        return evidence
+
+    @staticmethod
+    def _classify_pace_startup_config_command(command: Any) -> Tuple[str, bool, str]:
+        text = str(command or "").strip()
+        upper = text.upper()
+        if not upper:
+            return "unknown", True, "empty_command"
+        unsafe_tokens = ("CAL", "SENCO", "COEFF")
+        if any(token in upper for token in unsafe_tokens):
+            return "forbidden_write", True, "calibration_or_identity_write"
+        if "ZERO" in upper:
+            return "forbidden_write", True, "zero_command"
+        if ":SENS:PRES:CORR" in upper:
+            return "forbidden_write", True, "pressure_correction_write"
+        if ":SENS:PRES:FILT" in upper:
+            return "forbidden_write", True, "pressure_filter_write"
+        if ":OUTP 1" in upper or ":OUTP:STAT 1" in upper:
+            return "forbidden_write", True, "output_on_before_control"
+        if ":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in upper:
+            return "forbidden_write", True, "vent0_before_preseal"
+        if re.match(r"^:SOUR:PRES:LEV:IMM:AMPL\s+[-+0-9.]", upper):
+            return "forbidden_write", True, "pressure_setpoint_before_control"
+        if upper.startswith(":UNIT:PRES"):
+            return "unit", False, ""
+        if upper.startswith(":OUTP:MODE"):
+            return "output_mode", False, ""
+        if upper.startswith(":SOUR:PRES:INL"):
+            return "in_limits", False, ""
+        if upper.startswith(":SOUR:PRES:SLEW"):
+            return "soft_control_slew", False, ""
+        return "other", False, ""
+
+    def _record_pace_startup_config_command(self, command: Any) -> Dict[str, Any]:
+        category, forbidden, reason = self._classify_pace_startup_config_command(command)
+        row = {
+            "ts": self._iso_ts_from_wall(time.time()),
+            "command": str(command or "").strip(),
+            "category": category,
+            "is_forbidden": bool(forbidden),
+            "forbidden_reason": reason,
+        }
+        self._pace_startup_config_audit_rows.append(row)
+        self._write_pace_startup_config_audit()
+        return row
+
+    def _write_pace_startup_config_audit(self) -> None:
+        if self._pace_startup_config_audit_path is None:
+            return
+        try:
+            self._pace_startup_config_audit_path.parent.mkdir(parents=True, exist_ok=True)
+            fieldnames = ["ts", "command", "category", "is_forbidden", "forbidden_reason"]
+            with self._pace_startup_config_audit_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+                writer.writeheader()
+                for row in self._pace_startup_config_audit_rows:
+                    writer.writerow(row)
+        except Exception as exc:
+            if not self._pace_startup_config_audit_error_logged:
+                self._pace_startup_config_audit_error_logged = True
+                self.log(f"PACE startup config audit write failed: {exc}")
+
+    def _pace_startup_config_audit_summary(self) -> Dict[str, Any]:
+        forbidden = [row for row in self._pace_startup_config_audit_rows if row.get("is_forbidden")]
+        return {
+            "path": str(self._pace_startup_config_audit_path or ""),
+            "command_count": len(self._pace_startup_config_audit_rows),
+            "forbidden_count": len(forbidden),
+            "forbidden_commands": forbidden,
+        }
 
     def _pressure_soft_control_trace_context(self) -> Dict[str, Any]:
         return {
@@ -5328,7 +5867,16 @@ class CalibrationRunner:
             self._sensor_precheck()
             self.set_status("初始化：配置设备")
             self._emit_stage_event(current="初始化", wait_reason="配置设备")
+            self._record_pace_manual_baseline_snapshot("pace_baseline_before_config")
             self._configure_devices()
+            self._record_pace_manual_baseline_snapshot("pace_baseline_after_config")
+            self._append_pace_phase_profile_trace(
+                "idle_run_start",
+                route="run",
+                point_phase="run",
+                route_valves=self._cached_actual_open_valves(),
+                note="run-start expected PACE idle profile after startup config",
+            )
             no_outp_error = self._check_pressure_output_preflight()
             if no_outp_error:
                 self.log(f"FATAL: {no_outp_error}")
@@ -6500,6 +7048,7 @@ class CalibrationRunner:
         if issues:
             summary["safe_stop_issues"] = issues
             self.log(f"Baseline restore incomplete: {', '.join(issues)}")
+        self._record_pace_manual_baseline_snapshot("pace_baseline_after_safe_stop")
         self._log_run_event(
             command="baseline-restore-done",
             response=json.dumps(summary, ensure_ascii=False, separators=(",", ":"), default=str),
@@ -6508,6 +7057,7 @@ class CalibrationRunner:
     def _configure_devices(self) -> None:
         pace = self.devices.get("pace")
         if pace:
+            self._record_pace_startup_config_command(":UNIT:PRES HPA")
             pace.set_units_hpa()
             soft_control_enabled = bool(self._wf("workflow.pressure.soft_control_enabled", False))
             if soft_control_enabled:
@@ -6524,12 +7074,21 @@ class CalibrationRunner:
                 try:
                     set_mode_active = getattr(pace, "set_output_mode_active", None)
                     if callable(set_mode_active):
+                        self._record_pace_startup_config_command(":OUTP:MODE ACT")
                         set_mode_active()
                 except Exception as exc:
                     self.log(f"Pressure controller set active mode failed: {exc}")
+            in_limits_pct = self.cfg["devices"]["pressure_controller"]["in_limits_pct"]
+            in_limits_time_s = self.cfg["devices"]["pressure_controller"]["in_limits_time_s"]
+            self._record_pace_startup_config_command(f":SOUR:PRES:INL {in_limits_pct}")
+            self._record_pace_startup_config_command(f":SOUR:PRES:INL:TIME {in_limits_time_s}")
             pace.set_in_limits(
-                self.cfg["devices"]["pressure_controller"]["in_limits_pct"],
-                self.cfg["devices"]["pressure_controller"]["in_limits_time_s"],
+                in_limits_pct,
+                in_limits_time_s,
+            )
+            self._log_run_event(
+                command="pace-startup-config-audit",
+                response=self._trace_json(self._pace_startup_config_audit_summary()),
             )
 
         gas_cfg_default = self.cfg.get("devices", {}).get("gas_analyzer", {})
@@ -11576,6 +12135,15 @@ class CalibrationRunner:
             snapshot.get("pace_vent_status"),
             stage=phase,
         )
+        self._append_pace_phase_profile_trace(
+            "sealed_control_ready",
+            point=point,
+            route=phase,
+            point_phase=phase,
+            pace_snapshot=snapshot,
+            route_valves=self._cached_actual_open_valves(),
+            note="sealed control-ready phase profile before OUTP1/setpoint",
+        )
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -12538,6 +13106,13 @@ class CalibrationRunner:
             note=note if not failures else f"{note}; failures: {', '.join(failures)}",
         )
         if not failures:
+            self._append_pace_status_evidence_trace(
+                "after_outp1",
+                point=point,
+                route=phase,
+                point_phase=phase,
+                note="after OUTP1 verification; status evidence only",
+            )
             return True
         pace_pressure_now: Optional[float] = None
         pressure_gauge_now: Optional[float] = None
@@ -13684,6 +14259,14 @@ class CalibrationRunner:
                 self.log(f"Pressure soft-control warning: {name} unsupported; keep existing controller behavior")
                 continue
             try:
+                audit_command = {
+                    "set_output_mode_active": ":OUTP:MODE ACT",
+                    "set_output_mode_passive": ":OUTP:MODE PASS",
+                    "set_slew_mode_linear": ":SOUR:PRES:SLEW:MODE LIN",
+                    "set_slew_rate": f":SOUR:PRES:SLEW {cfg['linear_slew_hpa_per_s']}",
+                    "set_overshoot_allowed": f":SOUR:PRES:SLEW:OVER {1 if args and args[0] else 0}",
+                }.get(name, name)
+                self._record_pace_startup_config_command(audit_command)
                 fn(*args)
             except Exception as exc:
                 self.log(f"Pressure soft-control warning: {name} failed: {exc}")
@@ -17809,6 +18392,13 @@ class CalibrationRunner:
                         else note
                     ),
                 )
+                self._append_pace_status_evidence_trace(
+                    "dewpoint_gate_pass",
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    note="dewpoint gate pass; PACE status evidence only",
+                )
                 self.log(
                     f"{phase.upper()} sealed dewpoint gate pass: "
                     f"elapsed_s={elapsed_s:.3f} count={count} span_c={span_c:.4f} "
@@ -18257,9 +18847,25 @@ class CalibrationRunner:
             return True
         if not self._set_co2_route_baseline(reason="before CO2 route conditioning"):
             return False
+        self._append_pace_status_evidence_trace(
+            "before_route_open",
+            point=point,
+            route="co2",
+            point_phase="co2",
+            note="before CO2 route open; status evidence only",
+        )
         if not self._co2_route_open_clean_atmosphere_gate(point, point_tag=point_tag):
             return False
         self._set_valves_for_co2(point)
+        self._append_pace_phase_profile_trace(
+            "open_flow",
+            point=point,
+            route="co2",
+            point_phase="co2",
+            route_valves=open_valves,
+            vent1_fresh=True,
+            note="CO2 open-flow expected profile: VENT1/OUTP0/ISOL1/route valves open",
+        )
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -19063,6 +19669,13 @@ class CalibrationRunner:
                         route_closed_after_fixed_wait=bool(controlled_fixed_wait_completed),
                         route_close_allowed_with_vent_status_3=bool(vent3_count > 0 and new_vent1_count == 0),
                     )
+                    self._append_pace_status_evidence_trace(
+                        "after_route_close",
+                        point=point,
+                        route=phase,
+                        point_phase=phase,
+                        note="after route close; status evidence only",
+                    )
 
             self._emit_stage_event(
                 current=self._stage_label_for_point(point, phase=phase, include_pressure=False),
@@ -19093,6 +19706,13 @@ class CalibrationRunner:
                 pressure_target_hpa=point.target_pressure_hpa,
                 refresh_pace_state=False,
                 note="before vent off command",
+            )
+            self._append_pace_status_evidence_trace(
+                "before_vent0",
+                point=point,
+                route=phase,
+                point_phase=phase,
+                note="before preseal VENT0; status evidence only",
             )
             vent_off_reason = f"before {route.upper()} pressure seal"
             vent0_command_ts = time.time()
@@ -19126,6 +19746,13 @@ class CalibrationRunner:
                 pressure_target_hpa=point.target_pressure_hpa,
                 refresh_pace_state=False,
                 note="vent off command issued; immediate pre-seal threshold monitoring begins",
+            )
+            self._append_pace_status_evidence_trace(
+                "after_vent0",
+                point=point,
+                route=phase,
+                point_phase=phase,
+                note="after preseal VENT0; status evidence only",
             )
 
             if (
