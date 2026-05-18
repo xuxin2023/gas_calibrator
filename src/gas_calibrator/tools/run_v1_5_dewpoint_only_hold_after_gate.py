@@ -27,7 +27,13 @@ from ..config import (
 )
 from ..diagnostics import run_self_test
 from ..logging_utils import RunLogger
-from ..pace_audit import PressureControllerComLockExists
+from ..pace_audit import (
+    PressureControllerComLockExists,
+    is_pace_query,
+    is_state_changing_pace_command,
+    is_vent1_command,
+    normalize_pace_command,
+)
 from ..workflow import runner as runner_mod
 from ..workflow.runner import CalibrationRunner
 from . import run_headless
@@ -78,6 +84,16 @@ def _parse_iso(value: Any) -> Optional[datetime]:
         return None
 
 
+def _iso_to_wall_s(value: Any) -> Optional[float]:
+    parsed = _parse_iso(value)
+    if parsed is None:
+        return None
+    try:
+        return parsed.timestamp()
+    except Exception:
+        return None
+
+
 def _float_or_none(value: Any) -> Optional[float]:
     try:
         return float(value)
@@ -109,6 +125,27 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], fieldnames: Sequen
         writer.writeheader()
         for row in rows:
             writer.writerow(dict(row))
+
+
+def _vent1_gap_stats(events: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    wall_values = [
+        float(value)
+        for value in (_float_or_none(row.get("wall_s")) for row in events)
+        if value is not None
+    ]
+    wall_values.sort()
+    gaps = [wall_values[index] - wall_values[index - 1] for index in range(1, len(wall_values))]
+    if not gaps:
+        return {
+            "vent1_gap_min_s": None,
+            "vent1_gap_avg_s": None,
+            "vent1_gap_max_s": None,
+        }
+    return {
+        "vent1_gap_min_s": min(gaps),
+        "vent1_gap_avg_s": statistics.mean(gaps),
+        "vent1_gap_max_s": max(gaps),
+    }
 
 
 def _latest_io_path(run_dir: Path) -> Optional[Path]:
@@ -463,6 +500,19 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
         run_dir = Path(getattr(self.logger, "run_dir", Path("logs")))
         return run_dir / "dewpoint_only_hold_summary.json"
 
+    def _hold_rebound_alignment_path(self) -> Path:
+        run_dir = Path(getattr(self.logger, "run_dir", Path("logs")))
+        return run_dir / "dewpoint_only_hold_first_rebound_alignment.csv"
+
+    def _read_pace_int_status(self, pace: Any, method_name: str) -> Any:
+        getter = getattr(pace, method_name, None)
+        if not callable(getter):
+            return ""
+        try:
+            return getter()
+        except Exception as exc:
+            return f"error:{exc}"
+
     def _read_dewpoint_only_hold_sample(
         self,
         *,
@@ -481,6 +531,9 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
             "nearest_vent1_age_s": None,
             "nearest_pace_pressure_hpa": None,
             "nearest_com22_pressure_hpa": None,
+            "nearest_vent_status": "",
+            "nearest_outp_state": "",
+            "nearest_isol_state": "",
         }
         try:
             snapshot = self._read_precondition_dewpoint_gate_snapshot()
@@ -509,23 +562,166 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
             row["nearest_com22_pressure_hpa"] = self._read_com22_pressure_now()
         except Exception:
             row["nearest_com22_pressure_hpa"] = None
+        try:
+            row["nearest_vent_status"] = self._read_pace_int_status(pace, "get_vent_status") if pace is not None else ""
+        except Exception:
+            row["nearest_vent_status"] = ""
+        try:
+            row["nearest_outp_state"] = self._read_pace_int_status(pace, "get_output_state") if pace is not None else ""
+        except Exception:
+            row["nearest_outp_state"] = ""
+        try:
+            row["nearest_isol_state"] = self._read_pace_int_status(pace, "get_isolation_state") if pace is not None else ""
+        except Exception:
+            row["nearest_isol_state"] = ""
         return row
 
-    def _write_hold_timeline(self, rows: Sequence[Mapping[str, Any]]) -> str:
-        path = self._hold_timeline_path()
+    def _pace_raw_tap_rows_between(self, begin_wall_s: float, end_wall_s: float) -> List[Dict[str, Any]]:
+        path = getattr(self.logger, "raw_serial_tap_csv_path", None)
+        if path is None:
+            return []
+        raw_path = Path(path)
+        raw_file = getattr(self.logger, "_raw_tap_file", None)
+        try:
+            if raw_file is not None:
+                raw_file.flush()
+        except Exception:
+            pass
+        if not raw_path.exists():
+            return []
+        rows: List[Dict[str, Any]] = []
+        try:
+            with raw_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    wall_s = _iso_to_wall_s(row.get("wall_ts"))
+                    if wall_s is None or wall_s < begin_wall_s or wall_s > end_wall_s:
+                        continue
+                    decoded = normalize_pace_command(
+                        row.get("decoded_command") or row.get("raw_text_decoded") or ""
+                    )
+                    event = dict(row)
+                    event["wall_s"] = wall_s
+                    event["decoded_command"] = decoded
+                    event["is_vent1"] = is_vent1_command(decoded)
+                    event["is_query"] = is_pace_query(decoded)
+                    event["is_unexpected_state_changing"] = (
+                        str(row.get("direction") or "").strip().upper() == "WRITE"
+                        and is_state_changing_pace_command(decoded)
+                        and not is_vent1_command(decoded)
+                    )
+                    rows.append(event)
+        except Exception:
+            return []
+        rows.sort(key=lambda item: float(item.get("wall_s") or 0.0))
+        return rows
+
+    def _enrich_hold_timeline_rows(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+        *,
+        begin_wall_s: float,
+        end_wall_s: float,
+    ) -> List[Dict[str, Any]]:
+        raw_rows = self._pace_raw_tap_rows_between(begin_wall_s, end_wall_s)
+        vent1_rows = [
+            row
+            for row in raw_rows
+            if str(row.get("direction") or "").strip().upper() == "WRITE" and bool(row.get("is_vent1"))
+        ]
+        unexpected_rows = [row for row in raw_rows if bool(row.get("is_unexpected_state_changing"))]
+        enriched: List[Dict[str, Any]] = []
+        for source_row in rows:
+            row = dict(source_row)
+            sample_wall_s = _float_or_none(row.get("sample_wall_ts"))
+            if sample_wall_s is None:
+                sample_wall_s = _iso_to_wall_s(row.get("ts"))
+            previous = [event for event in vent1_rows if float(event.get("wall_s") or 0.0) <= float(sample_wall_s or 0.0)]
+            upcoming = [event for event in vent1_rows if float(event.get("wall_s") or 0.0) >= float(sample_wall_s or 0.0)]
+            prev_event = previous[-1] if previous else None
+            next_event = upcoming[0] if upcoming else None
+            prev_wall_s = _float_or_none(prev_event.get("wall_s")) if prev_event else None
+            next_wall_s = _float_or_none(next_event.get("wall_s")) if next_event else None
+            row["nearest_prev_vent1_ts"] = prev_event.get("wall_ts", "") if prev_event else ""
+            row["age_since_prev_vent1_s"] = (
+                max(0.0, float(sample_wall_s) - float(prev_wall_s))
+                if sample_wall_s is not None and prev_wall_s is not None
+                else None
+            )
+            row["nearest_next_vent1_ts"] = next_event.get("wall_ts", "") if next_event else ""
+            row["time_to_next_vent1_s"] = (
+                max(0.0, float(next_wall_s) - float(sample_wall_s))
+                if sample_wall_s is not None and next_wall_s is not None
+                else None
+            )
+            row["vent1_gap_s"] = (
+                max(0.0, float(next_wall_s) - float(prev_wall_s))
+                if prev_wall_s is not None and next_wall_s is not None
+                else None
+            )
+            nearby_window_s = max(2.0, self._dewpoint_only_hold_sample_interval_s())
+            if sample_wall_s is None:
+                nearby_unexpected = []
+            else:
+                nearby_unexpected = [
+                    event
+                    for event in unexpected_rows
+                    if abs(float(event.get("wall_s") or 0.0) - float(sample_wall_s)) <= nearby_window_s
+                ]
+            row["raw_tap_unexpected_write_nearby"] = len(nearby_unexpected)
+            notes: List[str] = []
+            if nearby_unexpected:
+                notes.append(f"unexpected_pace_write={nearby_unexpected[0].get('decoded_command', '')}")
+            if row.get("nearest_vent1_age_s") in {None, ""} and row.get("age_since_prev_vent1_s") not in {None, ""}:
+                row["nearest_vent1_age_s"] = row.get("age_since_prev_vent1_s")
+            row["notes"] = "; ".join(notes)
+            enriched.append(row)
+        return enriched
+
+    def _write_rebound_alignment_csv(self, rows: Sequence[Mapping[str, Any]], first_rebound_ts: Any) -> str:
+        path = self._hold_rebound_alignment_path()
+        center_s = _iso_to_wall_s(first_rebound_ts)
+        if center_s is None:
+            selected: Sequence[Mapping[str, Any]] = []
+        else:
+            selected = [
+                row
+                for row in rows
+                if (_iso_to_wall_s(row.get("ts")) is not None)
+                and abs(float(_iso_to_wall_s(row.get("ts"))) - center_s) <= 30.0
+            ]
+        self._write_hold_timeline(selected, path_override=path)
+        return str(path)
+
+    def _write_hold_timeline(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+        *,
+        path_override: Optional[Path] = None,
+    ) -> str:
+        path = path_override or self._hold_timeline_path()
         _write_csv(
             path,
             rows,
             [
                 "ts",
-                "elapsed_since_hold_begin_s",
                 "dewpoint_c",
                 "delta_vs_tail_reference_c",
+                "nearest_prev_vent1_ts",
+                "age_since_prev_vent1_s",
+                "nearest_next_vent1_ts",
+                "time_to_next_vent1_s",
+                "vent1_gap_s",
                 "read_ok",
                 "error",
+                "elapsed_since_hold_begin_s",
                 "nearest_vent1_age_s",
                 "nearest_pace_pressure_hpa",
                 "nearest_com22_pressure_hpa",
+                "nearest_vent_status",
+                "nearest_outp_state",
+                "nearest_isol_state",
+                "raw_tap_unexpected_write_nearby",
+                "notes",
             ],
         )
         return str(path)
@@ -542,7 +738,12 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
     ) -> Dict[str, Any]:
         begin_ts = _iso_from_wall(begin_wall_s)
         end_ts = _iso_from_wall(end_wall_s)
-        timeline_csv = self._write_hold_timeline(rows)
+        enriched_rows = self._enrich_hold_timeline_rows(
+            rows,
+            begin_wall_s=begin_wall_s,
+            end_wall_s=end_wall_s,
+        )
+        timeline_csv = self._write_hold_timeline(enriched_rows)
         summary = {
             "dewpoint_only_hold_enabled": True,
             "dewpoint_only_hold_begin_ts": begin_ts,
@@ -555,11 +756,18 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
             "point_row": getattr(point, "index", ""),
             "pressure_target_hpa": getattr(point, "target_pressure_hpa", ""),
         }
-        summary.update(_summarize_values(rows, tail_reference_c=tail_reference_c))
+        summary.update(_summarize_values(enriched_rows, tail_reference_c=tail_reference_c))
         max_gap_s = self._as_float(summary.get("dewpoint_only_hold_max_gap_s"))
         raw_summary_fn = getattr(self.logger, "summarize_pace_raw_tap_window", None)
         raw_summary = dict(raw_summary_fn(begin_ts, end_ts) or {}) if callable(raw_summary_fn) else {}
         summary.update(raw_summary)
+        raw_rows = self._pace_raw_tap_rows_between(begin_wall_s, end_wall_s)
+        vent1_events = [
+            row
+            for row in raw_rows
+            if str(row.get("direction") or "").strip().upper() == "WRITE" and bool(row.get("is_vent1"))
+        ]
+        summary.update(_vent1_gap_stats(vent1_events))
         io_summary = _count_io_between(
             Path(getattr(self.logger, "io_path", "")) if getattr(self.logger, "io_path", None) else None,
             begin_ts,
@@ -570,6 +778,10 @@ class DewpointOnlyHoldDiagnosticRunner(CalibrationRunner):
             summary["actual_open_valves"] = ",".join(str(value) for value in self._cached_actual_open_valves())
         except Exception:
             summary["actual_open_valves"] = ""
+        summary["dewpoint_only_hold_first_rebound_alignment_csv"] = self._write_rebound_alignment_csv(
+            enriched_rows,
+            summary.get("dewpoint_only_hold_first_rebound_ts"),
+        )
 
         if runtime_error:
             decision = FAIL_CLOSED_DEWPOINT_ONLY_HOLD_RUNTIME_ERROR

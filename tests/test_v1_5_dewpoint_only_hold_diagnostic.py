@@ -39,6 +39,15 @@ class _ForbiddenAnalyzer:
 
 
 class _ForbiddenPace:
+    def get_vent_status(self) -> int:
+        return 1
+
+    def get_output_state(self) -> int:
+        return 0
+
+    def get_isolation_state(self) -> int:
+        return 1
+
     def set_output(self, *_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("dewpoint-only hold must not write OUTP")
 
@@ -176,11 +185,30 @@ def test_dewpoint_only_hold_records_rebound_vs_tail_reference(tmp_path: Path) ->
 
     assert runner._wait_co2_preseal_primary_sensor_gate(point) is False
     summary = _summary(logger)
+    timeline_rows = list(csv.DictReader((logger.run_dir / "dewpoint_only_hold_timeline.csv").open(newline="", encoding="utf-8")))
     logger.close()
 
     assert summary["dewpoint_gate_tail_reference_c"] == -33.5
     assert summary["dewpoint_only_hold_delta_vs_tail_reference_c"] > 0.20
     assert summary["dewpoint_only_hold_rebound_exceeded"] is True
+    assert timeline_rows
+    assert {
+        "nearest_prev_vent1_ts",
+        "age_since_prev_vent1_s",
+        "nearest_next_vent1_ts",
+        "time_to_next_vent1_s",
+        "vent1_gap_s",
+        "nearest_pace_pressure_hpa",
+        "nearest_com22_pressure_hpa",
+        "nearest_vent_status",
+        "nearest_outp_state",
+        "nearest_isol_state",
+        "raw_tap_unexpected_write_nearby",
+        "notes",
+    }.issubset(timeline_rows[0].keys())
+    assert timeline_rows[0]["nearest_vent_status"] == "1"
+    assert timeline_rows[0]["nearest_outp_state"] == "0"
+    assert timeline_rows[0]["nearest_isol_state"] == "1"
 
 
 def test_dewpoint_only_hold_rebound_observed_decision(tmp_path: Path) -> None:
