@@ -643,6 +643,108 @@ def test_analyzer_gate_fails_when_dewpoint_above_dry_enough(tmp_path: Path) -> N
     assert state["analyzer_gate_dewpoint_fail_reason"].startswith("dewpoint_not_dry_enough_c=")
 
 
+def test_analyzer_gate_dry_enough_small_overshoot_warns_not_fail(tmp_path: Path) -> None:
+    runner, logger, _pace, _dewpoint, point = _prepare_analyzer_gate_dewpoint_runner(
+        tmp_path,
+        dewpoints=[-29.95],
+        gate_value=-30.50,
+        tail_reference=-30.50,
+    )
+    runner.cfg["workflow"]["stability"].update(
+        {
+            "gas_route_dewpoint_gate_require_dry_enough": True,
+            "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "gas_route_analyzer_gate_fail_if_above_dry_enough": True,
+            "analyzer_gate_dry_enough_tolerance_c": 0.3,
+            "analyzer_gate_dry_enough_grace_s": 30.0,
+        }
+    )
+
+    def _stable_with_small_overshoot(*_args, **kwargs):
+        assert kwargs["loop_callback"]() is True
+        return True
+
+    runner._wait_primary_sensor_stable = MagicMock(side_effect=_stable_with_small_overshoot)
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(point) is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert getattr(runner, "_controlled_exit_final_decision", "") == ""
+    assert state["analyzer_gate_dewpoint_dry_enough_passed"] is False
+    assert state["analyzer_gate_dewpoint_dry_enough_warning_zone"] is True
+    assert state["analyzer_gate_dewpoint_dry_enough_gate_effect"] == "warning_only"
+    assert state["analyzer_gate_dewpoint_dry_enough_terminal"] is False
+
+
+def test_analyzer_gate_dry_enough_sustained_warning_zone_can_fail(tmp_path: Path) -> None:
+    runner, logger, _pace, _dewpoint, point = _prepare_analyzer_gate_dewpoint_runner(
+        tmp_path,
+        dewpoints=[-29.95, -29.95],
+        gate_value=-30.50,
+        tail_reference=-30.50,
+    )
+    runner.cfg["workflow"]["stability"].update(
+        {
+            "gas_route_dewpoint_gate_require_dry_enough": True,
+            "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "gas_route_analyzer_gate_fail_if_above_dry_enough": True,
+            "analyzer_gate_dry_enough_tolerance_c": 0.3,
+            "analyzer_gate_dry_enough_grace_s": 0.05,
+        }
+    )
+
+    def _fail_after_sustained_overshoot(*_args, **kwargs):
+        callback = kwargs["loop_callback"]
+        assert callback() is True
+        time.sleep(0.11)
+        assert callback() is False
+        return False
+
+    runner._wait_primary_sensor_stable = MagicMock(side_effect=_fail_after_sustained_overshoot)
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(point) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_ANALYZER_GATE"
+    assert state["analyzer_gate_dewpoint_dry_enough_warning_zone"] is True
+    assert state["analyzer_gate_dewpoint_dry_enough_terminal"] is True
+    assert state["analyzer_gate_dewpoint_dry_enough_violation_s"] > 0.05
+
+
+def test_analyzer_gate_dry_enough_hard_margin_fails(tmp_path: Path) -> None:
+    runner, logger, _pace, _dewpoint, point = _prepare_analyzer_gate_dewpoint_runner(
+        tmp_path,
+        dewpoints=[-29.60],
+        gate_value=-30.50,
+        tail_reference=-30.50,
+    )
+    runner.cfg["workflow"]["stability"].update(
+        {
+            "gas_route_dewpoint_gate_require_dry_enough": True,
+            "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "gas_route_analyzer_gate_fail_if_above_dry_enough": True,
+            "analyzer_gate_dry_enough_tolerance_c": 0.3,
+            "analyzer_gate_dry_enough_grace_s": 30.0,
+        }
+    )
+
+    def _fail_on_hard_margin(*_args, **kwargs):
+        assert kwargs["loop_callback"]() is False
+        return False
+
+    runner._wait_primary_sensor_stable = MagicMock(side_effect=_fail_on_hard_margin)
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(point) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_ANALYZER_GATE"
+    assert state["analyzer_gate_dewpoint_hard_fail_threshold_c"] == pytest.approx(-29.7)
+    assert state["analyzer_gate_dewpoint_dry_enough_terminal"] is True
+
+
 def test_analyzer_gate_hard_rebound_below_dry_enough_warns_not_fail(tmp_path: Path) -> None:
     runner, logger, _pace, _dewpoint, point = _prepare_analyzer_gate_dewpoint_runner(
         tmp_path,

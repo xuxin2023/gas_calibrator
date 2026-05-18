@@ -154,6 +154,161 @@ def _point() -> CalibrationPoint:
     )
 
 
+def _preseal_gate_cfg(
+    *,
+    min_valid: int = 2,
+    required_labels: list[str] | None = None,
+    optional_labels: list[str] | None = None,
+    max_wait_s: float = 1.0,
+    invalid_frame_min_count: int = 2,
+) -> dict:
+    return {
+        "devices": {
+            "gas_analyzers": [
+                {"name": "ga01"},
+                {"name": "ga02"},
+                {"name": "ga03"},
+                {"name": "ga04"},
+            ]
+        },
+        "workflow": {
+            "stability": {
+                "sensor": {
+                    "enabled": True,
+                    "co2_ratio_f_preseal_tol": 0.01,
+                    "co2_ratio_f_preseal_window_s": 0.25,
+                    "co2_ratio_f_preseal_timeout_s": max_wait_s,
+                    "co2_ratio_f_preseal_min_samples": 2,
+                    "co2_ratio_f_preseal_read_interval_s": 0.0,
+                    "poll_s": 0.0,
+                },
+                "analyzer_gate_min_valid_analyzers": min_valid,
+                "analyzer_gate_required_labels": required_labels or [],
+                "analyzer_gate_optional_labels": optional_labels or ["ga01", "ga02", "ga03", "ga04"],
+                "analyzer_gate_allow_pass_with_dropped_optional": True,
+                "analyzer_gate_zero_value_policy": "drop_optional_not_block",
+                "analyzer_gate_invalid_frame_drop_s": 30.0,
+                "analyzer_gate_invalid_frame_min_count": invalid_frame_min_count,
+                "analyzer_gate_silent_timeout_s": 0.2,
+                "analyzer_gate_max_wait_s": max_wait_s,
+                "analyzer_gate_stable_window_s": 0.25,
+                "analyzer_gate_stable_min_samples": 2,
+            }
+        },
+    }
+
+
+def _runner_for_preseal_gate(tmp_path: Path, cfg: dict, analyzers: dict) -> tuple[CalibrationRunner, RunLogger]:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, analyzers, logger, lambda *_: None, lambda *_: None)
+    return runner, logger
+
+
+def test_analyzer_gate_passes_with_two_valid_stable_and_two_optional_none(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg()
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeGasAnalyzer({"co2_ratio_f": 1.0}),
+            "gas_analyzer_02": _FakeRecoveringGasAnalyzer([None, None, None, None]),
+            "gas_analyzer_03": _FakeRecoveringGasAnalyzer([None, None, None, None]),
+            "gas_analyzer_04": _FakeGasAnalyzer({"co2_ratio_f": 1.1}),
+        },
+    )
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(_point()) is True
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="co2") or {}
+    assert state["analyzer_gate_valid_stable_count"] == 2
+    assert set(state["analyzer_gate_dropped_labels"].split(",")) == {"ga02", "ga03"}
+    assert state["analyzer_gate_pass_with_dropped_optional"] is True
+
+
+def test_analyzer_gate_passes_with_two_valid_stable_and_two_optional_zero(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg()
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeGasAnalyzer({"co2_ratio_f": 1.0}),
+            "gas_analyzer_02": _FakeGasAnalyzer({"co2_ratio_f": 0.0}),
+            "gas_analyzer_03": _FakeGasAnalyzer({"co2_ratio_f": 0.0}),
+            "gas_analyzer_04": _FakeGasAnalyzer({"co2_ratio_f": 1.1}),
+        },
+    )
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(_point()) is True
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="co2") or {}
+    assert state["analyzer_gate_valid_stable_count"] == 2
+    assert "zero_or_suspect_optional" in state["analyzer_gate_dropped_reasons"]
+
+
+def test_analyzer_gate_optional_invalid_dropped_after_threshold(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg(invalid_frame_min_count=2)
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeGasAnalyzer({"co2_ratio_f": 1.0}),
+            "gas_analyzer_02": _FakeRecoveringGasAnalyzer([{"co2_ratio_f": None}, {"co2_ratio_f": None}]),
+            "gas_analyzer_03": _FakeRecoveringGasAnalyzer([{"co2_ratio_f": None}, {"co2_ratio_f": None}]),
+            "gas_analyzer_04": _FakeGasAnalyzer({"co2_ratio_f": 1.1}),
+        },
+    )
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(_point()) is True
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="co2") or {}
+    assert set(state["analyzer_gate_dropped_labels"].split(",")) == {"ga02", "ga03"}
+
+
+def test_analyzer_gate_fails_when_min_valid_not_met(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg(max_wait_s=0.4)
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeGasAnalyzer({"co2_ratio_f": 1.0}),
+            "gas_analyzer_02": _FakeGasAnalyzer({"co2_ratio_f": 0.0}),
+            "gas_analyzer_03": _FakeRecoveringGasAnalyzer([None, None, None]),
+            "gas_analyzer_04": _FakeRecoveringGasAnalyzer([None, None, None]),
+        },
+    )
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(_point()) is False
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="co2") or {}
+    assert state["analyzer_gate_valid_stable_count"] < 2
+    assert state["analyzer_gate_final_decision_reason"] == "min_valid_not_met"
+
+
+def test_analyzer_gate_required_label_failure_blocks(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg(min_valid=1, required_labels=["ga02"], max_wait_s=0.4)
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeGasAnalyzer({"co2_ratio_f": 1.0}),
+            "gas_analyzer_02": _FakeGasAnalyzer({"co2_ratio_f": 0.0}),
+            "gas_analyzer_03": _FakeGasAnalyzer({"co2_ratio_f": 0.0}),
+            "gas_analyzer_04": _FakeGasAnalyzer({"co2_ratio_f": 1.1}),
+        },
+    )
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(_point()) is False
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="co2") or {}
+    assert state["analyzer_gate_valid_stable_count"] >= 1
+    assert state["analyzer_gate_final_decision_reason"] == "min_valid_not_met"
+
+
 def _active_frame(seq: int, recv_mono_s: float, co2_ppm: float, *, h2o_mmol: float = 2.0) -> dict:
     return {
         "recv_wall_ts": f"2026-03-30T12:00:{int(recv_mono_s * 10):02d}.000",

@@ -273,6 +273,35 @@ def test_preseal_fails_when_above_dry_enough(tmp_path: Path) -> None:
     assert runner._controlled_exit_final_decision == "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_PRESEAL"
 
 
+def test_preseal_freshness_uses_same_or_stricter_dry_tolerance(tmp_path: Path) -> None:
+    runner, logger, point = _freshness_runner(tmp_path)
+    runner.cfg["workflow"]["stability"].update(
+        {
+            "gas_route_dewpoint_gate_require_dry_enough": True,
+            "gas_route_dewpoint_gate_dry_enough_c": -30.0,
+            "preseal_dry_enough_tolerance_c": 0.3,
+        }
+    )
+    _set_fresh_monitor_state(runner, point, gate_value_c=-30.50, tail_reference_c=-30.50)
+    runner._preseal_dewpoint_snapshot = {
+        "sample_wall_ts": 1010.0,
+        "dewpoint_c": -29.95,
+        "temp_c": 20.0,
+        "rh_pct": 5.0,
+    }
+
+    assert runner._check_preseal_dewpoint_freshness(point, phase="co2") is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert getattr(runner, "_controlled_exit_final_decision", "") == ""
+    assert state["preseal_dewpoint_dry_enough_passed"] is False
+    assert state["preseal_dewpoint_dry_enough_warning_zone"] is True
+    assert state["preseal_dewpoint_dry_enough_gate_effect"] == "warning_only"
+    assert state["preseal_dewpoint_dry_enough_terminal"] is False
+    assert state["preseal_freshness_decision"] == "pass"
+
+
 def test_dewpoint_abs_delta_no_longer_used_for_falling(tmp_path: Path) -> None:
     runner, logger, point = _freshness_runner(tmp_path)
     _set_fresh_monitor_state(runner, point, gate_value_c=-24.89)

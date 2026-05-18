@@ -311,6 +311,19 @@ _PRESSURE_TRACE_FIELDS = [
     "analyzer_gate_begin_ts",
     "analyzer_gate_end_ts",
     "analyzer_gate_elapsed_s",
+    "analyzer_gate_min_valid_analyzers",
+    "analyzer_gate_valid_stable_count",
+    "analyzer_gate_required_labels",
+    "analyzer_gate_optional_labels",
+    "analyzer_gate_pass_with_dropped_optional",
+    "analyzer_gate_max_wait_s",
+    "analyzer_gate_zero_value_policy",
+    "analyzer_gate_drop_summary",
+    "analyzer_gate_per_analyzer_status",
+    "analyzer_gate_active_labels_final",
+    "analyzer_gate_dropped_labels",
+    "analyzer_gate_dropped_reasons",
+    "analyzer_gate_final_decision_reason",
     "analyzer_gate_raw_tap_write_count",
     "analyzer_gate_raw_tap_vent1_count",
     "analyzer_gate_raw_tap_query_count",
@@ -344,6 +357,12 @@ _PRESSURE_TRACE_FIELDS = [
     "analyzer_gate_dewpoint_hard_rebound_terminal",
     "analyzer_gate_dewpoint_dry_enough_c",
     "analyzer_gate_dewpoint_dry_enough_passed",
+    "analyzer_gate_dewpoint_dry_enough_tolerance_c",
+    "analyzer_gate_dewpoint_hard_fail_threshold_c",
+    "analyzer_gate_dewpoint_dry_enough_warning_zone",
+    "analyzer_gate_dewpoint_dry_enough_violation_s",
+    "analyzer_gate_dewpoint_dry_enough_gate_effect",
+    "analyzer_gate_dewpoint_dry_enough_terminal",
     "analyzer_gate_dewpoint_fail_reason",
     "analyzer_gate_dewpoint_gate_effect",
     "analyzer_gate_dewpoint_trend",
@@ -409,6 +428,11 @@ _PRESSURE_TRACE_FIELDS = [
     "preseal_dewpoint_hard_rebound_terminal",
     "preseal_dewpoint_dry_enough_c",
     "preseal_dewpoint_dry_enough_passed",
+    "preseal_dewpoint_dry_enough_tolerance_c",
+    "preseal_dewpoint_hard_fail_threshold_c",
+    "preseal_dewpoint_dry_enough_warning_zone",
+    "preseal_dewpoint_dry_enough_gate_effect",
+    "preseal_dewpoint_dry_enough_terminal",
     "preseal_freshness_decision",
     "preseal_freshness_gate_effect",
     "dewpoint_freshness_expired",
@@ -12572,6 +12596,8 @@ class CalibrationRunner:
         pressure_fill_override: Optional[float] = None,
         pressure_window_cfg: Optional[Dict[str, Any]] = None,
         loop_callback: Optional[Callable[[], bool]] = None,
+        analyzer_gate_policy: Optional[Mapping[str, Any]] = None,
+        analyzer_gate_result: Optional[Dict[str, Any]] = None,
     ) -> bool:
         cfg = self.cfg.get("workflow", {}).get("stability", {}).get("sensor", {})
         if cfg and not cfg.get("enabled", True):
@@ -12653,6 +12679,125 @@ class CalibrationRunner:
         pressure_window_source = "unavailable"
         pressure_window_span: Optional[float] = None
         pressure_window_ready = False
+        policy = dict(analyzer_gate_policy or {})
+        policy_enabled = bool(policy.get("enabled", False))
+        analyzer_labels = [label for label, _, _ in analyzers]
+        required_labels = [
+            str(item or "").strip()
+            for item in (policy.get("required_labels") or [])
+            if str(item or "").strip()
+        ]
+        configured_optional = [
+            str(item or "").strip()
+            for item in (policy.get("optional_labels") or [])
+            if str(item or "").strip()
+        ]
+        if policy_enabled:
+            optional_labels = configured_optional or [
+                label for label in analyzer_labels if label not in set(required_labels)
+            ]
+            min_valid_analyzers = max(
+                1,
+                int(policy.get("min_valid_analyzers") or len(analyzers)),
+            )
+        else:
+            optional_labels = []
+            min_valid_analyzers = len(analyzers)
+        allow_pass_with_dropped_optional = bool(policy.get("allow_pass_with_dropped_optional", False))
+        zero_value_policy = str(policy.get("zero_value_policy") or "").strip().lower()
+        invalid_frame_drop_s = max(0.0, float(policy.get("invalid_frame_drop_s") or 0.0))
+        invalid_frame_min_count = max(1, int(policy.get("invalid_frame_min_count") or 1))
+        silent_timeout_s = max(0.0, float(policy.get("silent_timeout_s") or 0.0))
+        per_label: Dict[str, Dict[str, Any]] = {
+            label: {
+                "label": label,
+                "frame_received": False,
+                "latest_frame_age_s": None,
+                "parsed_ok": False,
+                key: None,
+                "co2_ratio_valid": False,
+                "zero_or_suspect": False,
+                "stable": False,
+                "dropped": False,
+                "drop_reason": "",
+                "invalid_count": 0,
+                "first_invalid_ts": None,
+                "latest_frame_ts": None,
+                "sample_count": 0,
+                "stable_since_s": None,
+            }
+            for label in analyzer_labels
+        }
+        dropped_reasons: Dict[str, str] = {}
+
+        def _analyzer_gate_json(value: Any) -> str:
+            return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+        def _stable_labels_now() -> List[str]:
+            return [
+                label
+                for label, state in per_label.items()
+                if bool(state.get("stable")) and not bool(state.get("dropped"))
+            ]
+
+        def _required_labels_stable() -> bool:
+            stable_labels = set(_stable_labels_now())
+            return all(label in stable_labels for label in required_labels)
+
+        def _drop_optional(label: str, reason: str) -> None:
+            if not policy_enabled:
+                return
+            if label in required_labels:
+                return
+            if optional_labels and label not in optional_labels:
+                return
+            state = per_label[label]
+            if bool(state.get("dropped")):
+                return
+            state["dropped"] = True
+            state["drop_reason"] = reason
+            dropped_reasons[label] = reason
+            self._disable_analyzers([label], reason=reason)
+
+        def _publish_analyzer_gate_result(reason: str) -> None:
+            if analyzer_gate_result is None:
+                return
+            active_final = [
+                label
+                for label in analyzer_labels
+                if not bool(per_label.get(label, {}).get("dropped"))
+            ]
+            stable_labels = _stable_labels_now()
+            public_states: List[Dict[str, Any]] = []
+            now_for_age = time.time()
+            for label in analyzer_labels:
+                state = dict(per_label[label])
+                latest_ts = self._as_float(state.get("latest_frame_ts"))
+                if latest_ts is not None:
+                    state["latest_frame_age_s"] = max(0.0, now_for_age - latest_ts)
+                state.pop("invalid_count", None)
+                state.pop("first_invalid_ts", None)
+                state.pop("latest_frame_ts", None)
+                public_states.append(state)
+            analyzer_gate_result.update(
+                {
+                    "analyzer_gate_min_valid_analyzers": min_valid_analyzers,
+                    "analyzer_gate_valid_stable_count": len(stable_labels),
+                    "analyzer_gate_required_labels": ",".join(required_labels),
+                    "analyzer_gate_optional_labels": ",".join(optional_labels),
+                    "analyzer_gate_pass_with_dropped_optional": bool(
+                        dropped_reasons and allow_pass_with_dropped_optional
+                    ),
+                    "analyzer_gate_max_wait_s": timeout_s,
+                    "analyzer_gate_zero_value_policy": zero_value_policy,
+                    "analyzer_gate_drop_summary": _analyzer_gate_json(dropped_reasons),
+                    "analyzer_gate_per_analyzer_status": _analyzer_gate_json(public_states),
+                    "analyzer_gate_active_labels_final": ",".join(active_final),
+                    "analyzer_gate_dropped_labels": ",".join(dropped_reasons.keys()),
+                    "analyzer_gate_dropped_reasons": _analyzer_gate_json(dropped_reasons),
+                    "analyzer_gate_final_decision_reason": reason,
+                }
+            )
 
         while time.time() - start < timeout_s:
             loop_started_at = time.time()
@@ -12743,7 +12888,10 @@ class CalibrationRunner:
             all_stable = True
             stable_snapshot: Dict[str, float] = {}
             for label, ga, _ in analyzers:
-                _, parsed = self._read_sensor_parsed(
+                state = per_label[label]
+                if policy_enabled and bool(state.get("dropped")):
+                    continue
+                line, parsed = self._read_sensor_parsed(
                     ga,
                     required_key=key,
                     frame_acceptance_mode=self._resolve_sensor_frame_acceptance_mode(
@@ -12751,20 +12899,86 @@ class CalibrationRunner:
                         require_usable=True,
                     ),
                 )
+                raw_value = None
+                if parsed:
+                    raw_value = self._as_float(parsed.get(key))
+                if parsed is None:
+                    # Use the rejected line returned by _read_sensor_parsed so optional
+                    # zero/suspect frames can be dropped without extra device reads.
+                    raw_parsed = self._parse_sensor_line(ga, line) if line else None
+                    if raw_parsed:
+                        raw_value = self._as_float(raw_parsed.get(key))
+                    if line:
+                        state["frame_received"] = True
+                        state["latest_frame_ts"] = time.time()
+                    state["parsed_ok"] = False
+                    state["co2_ratio_valid"] = False
+                    if raw_value is not None:
+                        state[key] = raw_value
+                        state["zero_or_suspect"] = raw_value <= 0
+                    state["invalid_count"] = int(state.get("invalid_count") or 0) + 1
+                    if state.get("first_invalid_ts") is None:
+                        state["first_invalid_ts"] = time.time()
+                    invalid_elapsed = max(0.0, time.time() - float(state["first_invalid_ts"]))
+                    has_frame = bool(line)
+                    if policy_enabled and has_frame and (
+                        int(state["invalid_count"]) >= invalid_frame_min_count
+                        or (invalid_frame_drop_s > 0 and invalid_elapsed >= invalid_frame_drop_s)
+                    ):
+                        if state.get("zero_or_suspect") and zero_value_policy == "drop_optional_not_block":
+                            _drop_optional(label, "zero_or_suspect_optional")
+                        else:
+                            _drop_optional(label, "invalid_optional")
+                    elif (
+                        policy_enabled
+                        and silent_timeout_s > 0
+                        and not bool(state.get("frame_received"))
+                        and (time.time() - start) >= silent_timeout_s
+                    ):
+                        _drop_optional(label, "silent_timeout_optional")
+                    all_stable = False
+                    continue
+                state["frame_received"] = True
+                state["latest_frame_ts"] = time.time()
+                state["parsed_ok"] = True
                 if parsed:
                     value = self._as_float(parsed.get(key))
                     if value is not None:
                         last_values[label] = value
+                        state[key] = value
+                        state["co2_ratio_valid"] = True
+                        state["zero_or_suspect"] = value <= 0
                         stabs[label].add(value)
                 stab = stabs[label]
+                state["sample_count"] = len(stab.values)
                 if len(stab.values) >= max(2, min_samples) and stab.is_stable():
                     if last_values[label] is not None:
                         stable_snapshot[label] = float(last_values[label])
+                        state["stable"] = True
+                        if state.get("stable_since_s") is None:
+                            state["stable_since_s"] = max(0.0, time.time() - start)
                 else:
+                    state["stable"] = False
                     all_stable = False
 
             if pressure_window_cfg and not pressure_window_ready:
                 all_stable = False
+
+            if policy_enabled:
+                stable_labels = _stable_labels_now()
+                valid_stable_count = len(stable_labels)
+                if _required_labels_stable() and valid_stable_count >= min_valid_analyzers:
+                    reason = "min_valid_met"
+                    if dropped_reasons and allow_pass_with_dropped_optional:
+                        reason = "min_valid_met_with_dropped_optional"
+                    _publish_analyzer_gate_result(reason)
+                    self.log(
+                        "Sensor stable (analyzer gate min-valid "
+                        f"{key}: stable={','.join(stable_labels)} "
+                        f"dropped={','.join(dropped_reasons.keys()) or 'none'} "
+                        f"min_valid={min_valid_analyzers})"
+                    )
+                    return True
 
             if all_stable and len(stable_snapshot) == len(analyzers):
                 summary = " ".join(
@@ -12778,13 +12992,17 @@ class CalibrationRunner:
                         f"pressure_samples={len(pressure_window_samples)}"
                     )
                 self.log(msg)
+                _publish_analyzer_gate_result("all_active_stable")
                 return True
 
             if time.time() - last_report >= 30:
                 last_report = time.time()
                 parts = []
                 for label, _, _ in analyzers:
-                    parts.append(f"{label}={last_values.get(label)}")
+                    if bool(per_label.get(label, {}).get("dropped")):
+                        parts.append(f"{label}=dropped({per_label[label].get('drop_reason')})")
+                    else:
+                        parts.append(f"{label}={last_values.get(label)}")
                 msg = f"Sensor settling... {key} " + " ".join(parts)
                 if require_pressure_in_limits and pace and point.target_pressure_hpa is not None:
                     msg += f" pressure={last_pressure_now} in_limits={last_pressure_inl}"
@@ -12803,13 +13021,37 @@ class CalibrationRunner:
         stable_labels: List[str] = []
         unstable_labels: List[str] = []
         for label, _, _ in analyzers:
+            if policy_enabled and bool(per_label.get(label, {}).get("dropped")):
+                continue
             stab = stabs[label]
             if len(stab.values) >= max(2, min_samples) and stab.is_stable():
                 stable_labels.append(label)
             else:
                 unstable_labels.append(label)
 
-        tail = " ".join(f"{label}={last_values.get(label)}" for label, _, _ in analyzers)
+        tail = " ".join(
+            f"{label}={'dropped(' + per_label[label].get('drop_reason', '') + ')' if bool(per_label.get(label, {}).get('dropped')) else last_values.get(label)}"
+            for label, _, _ in analyzers
+        )
+        if policy_enabled:
+            for label in stable_labels:
+                per_label[label]["stable"] = True
+            if _required_labels_stable() and len(stable_labels) >= min_valid_analyzers:
+                reason = "max_wait_min_valid_met"
+                _publish_analyzer_gate_result(reason)
+                self.log(
+                    f"Sensor stability max-wait reached with min-valid satisfied key={key}; "
+                    f"stable={','.join(stable_labels)} dropped={','.join(dropped_reasons.keys()) or 'none'}"
+                )
+                return True
+            _publish_analyzer_gate_result("min_valid_not_met")
+            self.log(
+                f"Sensor stability timeout on analyzer gate key={key}; "
+                f"stable={','.join(stable_labels) or 'none'} "
+                f"required={','.join(required_labels) or 'none'} "
+                f"min_valid={min_valid_analyzers} last={tail}"
+            )
+            return False
         if unstable_labels and stable_labels:
             self.log(
                 f"Sensor stability timeout on active analyzers key={key}; "
@@ -16043,6 +16285,8 @@ class CalibrationRunner:
             "hard_rebound_c": self._gas_route_analyzer_gate_hard_rebound_c(),
             "require_dry_enough": self._gas_route_dewpoint_require_dry_enough(runtime_state),
             "dry_enough_c": self._gas_route_dewpoint_dry_enough_c(runtime_state),
+            "dry_enough_tolerance_c": self._analyzer_gate_dry_enough_tolerance_c(),
+            "dry_enough_grace_s": self._analyzer_gate_dry_enough_grace_s(),
             "fail_if_above_dry_enough": self._gas_route_analyzer_gate_fail_if_above_dry_enough(),
             "begin_ts": float(analyzer_gate_begin_ts),
             "end_ts": None,
@@ -16061,6 +16305,11 @@ class CalibrationRunner:
             "hard_rebound_terminal": False,
             "gate_effect": "none",
             "dry_enough_passed": None,
+            "dry_enough_warning_zone": False,
+            "dry_enough_violation_started_ts": None,
+            "dry_enough_violation_s": 0.0,
+            "dry_enough_hard_fail": False,
+            "dry_enough_terminal": False,
             "failed": False,
             "failure_reason": "",
         }
@@ -16089,6 +16338,12 @@ class CalibrationRunner:
         if gate_value_c is not None and last_value_c is not None:
             delta_since_gate_c = float(last_value_c) - float(gate_value_c)
         dry_enough_c = self._as_float(state.get("dry_enough_c"))
+        dry_enough_tolerance_c = self._as_float(state.get("dry_enough_tolerance_c")) or 0.0
+        dry_enough_hard_fail_threshold_c = (
+            float(dry_enough_c) + float(dry_enough_tolerance_c)
+            if dry_enough_c is not None
+            else None
+        )
         dry_enough_passed = state.get("dry_enough_passed")
         if dry_enough_c is not None and last_value_c is not None:
             dry_enough_passed = float(last_value_c) <= float(dry_enough_c)
@@ -16136,6 +16391,21 @@ class CalibrationRunner:
             "analyzer_gate_dewpoint_hard_rebound_terminal": bool(state.get("hard_rebound_terminal")),
             "analyzer_gate_dewpoint_dry_enough_c": dry_enough_c,
             "analyzer_gate_dewpoint_dry_enough_passed": dry_enough_passed,
+            "analyzer_gate_dewpoint_dry_enough_tolerance_c": dry_enough_tolerance_c,
+            "analyzer_gate_dewpoint_hard_fail_threshold_c": dry_enough_hard_fail_threshold_c,
+            "analyzer_gate_dewpoint_dry_enough_warning_zone": bool(
+                state.get("dry_enough_warning_zone")
+            ),
+            "analyzer_gate_dewpoint_dry_enough_violation_s": self._as_float(
+                state.get("dry_enough_violation_s")
+            )
+            or 0.0,
+            "analyzer_gate_dewpoint_dry_enough_gate_effect": str(
+                state.get("dry_enough_gate_effect") or "none"
+            ),
+            "analyzer_gate_dewpoint_dry_enough_terminal": bool(
+                state.get("dry_enough_terminal")
+            ),
             "analyzer_gate_dewpoint_fail_reason": str(state.get("failure_reason") or ""),
             "analyzer_gate_dewpoint_gate_effect": str(state.get("gate_effect") or "none"),
             "analyzer_gate_dewpoint_trend": trend,
@@ -16156,7 +16426,9 @@ class CalibrationRunner:
         final_decision = "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED_DURING_ANALYZER_GATE"
         if reason_text.startswith("dewpoint_rebound_delta_c="):
             final_decision = "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_ANALYZER_GATE"
-        elif reason_text.startswith("dewpoint_not_dry_enough_c="):
+        elif reason_text.startswith("dewpoint_not_dry_enough_c=") or reason_text.startswith(
+            "dewpoint_not_dry_enough_sustained_c="
+        ):
             final_decision = "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_ANALYZER_GATE"
         elif reason_text.startswith("dewpoint_hard_rebound_delta_c="):
             final_decision = "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_ANALYZER_GATE"
@@ -16233,13 +16505,61 @@ class CalibrationRunner:
         gate_value_c = self._as_float(state.get("gate_value_c"))
         if gate_value_c is not None and value_c is not None:
             delta_c = float(value_c) - float(gate_value_c)
-            dry_enough_c = self._as_float(state.get("dry_enough_c"))
-            if dry_enough_c is not None:
-                state["dry_enough_passed"] = float(value_c) <= float(dry_enough_c)
             if delta_c > float(state.get("max_delta_c") or 0.20):
                 if state.get("first_rise_ts") is None:
                     state["first_rise_ts"] = sample_ts
                     state["first_rise_value_c"] = value_c
+                state["rebound_warning"] = True
+            dry_enough_c = self._as_float(state.get("dry_enough_c"))
+            if dry_enough_c is not None:
+                state["dry_enough_passed"] = float(value_c) <= float(dry_enough_c)
+                tolerance_c = self._as_float(state.get("dry_enough_tolerance_c")) or 0.0
+                grace_s = self._as_float(state.get("dry_enough_grace_s")) or 0.0
+                hard_fail_threshold_c = float(dry_enough_c) + float(tolerance_c)
+                state["dry_enough_warning_zone"] = False
+                state["dry_enough_hard_fail"] = False
+                state["dry_enough_terminal"] = False
+                state["dry_enough_gate_effect"] = "pass"
+                if float(value_c) <= float(dry_enough_c):
+                    state["dry_enough_violation_started_ts"] = None
+                    state["dry_enough_violation_s"] = 0.0
+                elif float(value_c) <= hard_fail_threshold_c:
+                    state["dry_enough_warning_zone"] = True
+                    if state.get("dry_enough_violation_started_ts") is None:
+                        state["dry_enough_violation_started_ts"] = sample_ts
+                    violation_s = max(
+                        0.0,
+                        sample_ts - float(state.get("dry_enough_violation_started_ts") or sample_ts),
+                    )
+                    state["dry_enough_violation_s"] = violation_s
+                    state["dry_enough_gate_effect"] = "warning_only"
+                    state["gate_effect"] = "warning_only"
+                    if grace_s > 0 and violation_s > grace_s:
+                        state["dry_enough_terminal"] = True
+                        state["dry_enough_gate_effect"] = "fail_closed"
+                        state["gate_effect"] = "fail_closed"
+                        return self._fail_analyzer_gate_dewpoint_monitor(
+                            point,
+                            state,
+                            reason=(
+                                "dewpoint_not_dry_enough_sustained_c="
+                                f"{value_c}>dry_enough_c={dry_enough_c}"
+                            ),
+                        )
+                else:
+                    state["dry_enough_hard_fail"] = True
+                    state["dry_enough_terminal"] = True
+                    state["dry_enough_gate_effect"] = "fail_closed"
+                    state["gate_effect"] = "fail_closed"
+                    return self._fail_analyzer_gate_dewpoint_monitor(
+                        point,
+                        state,
+                        reason=(
+                            f"dewpoint_not_dry_enough_c={value_c}>"
+                            f"hard_fail_threshold_c={hard_fail_threshold_c}"
+                        ),
+                    )
+            if delta_c > float(state.get("max_delta_c") or 0.20):
                 hard_rebound_c = float(state.get("hard_rebound_c") or 2.0)
                 if delta_c > hard_rebound_c:
                     state["hard_rebound_warning"] = True
@@ -16250,6 +16570,7 @@ class CalibrationRunner:
                 and bool(state.get("fail_if_above_dry_enough"))
                 and dry_enough_c is not None
                 and float(value_c) > float(dry_enough_c)
+                and bool(state.get("dry_enough_terminal"))
             ):
                 state["gate_effect"] = "fail_closed"
                 return self._fail_analyzer_gate_dewpoint_monitor(
@@ -16275,12 +16596,50 @@ class CalibrationRunner:
         read_interval_s = float(
             sensor_cfg.get("co2_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0))
         )
+        stability_cfg = self.cfg.get("workflow", {}).get("stability", {})
+
+        def _label_list(raw: Any) -> List[str]:
+            if not isinstance(raw, list):
+                return []
+            return [str(item or "").strip() for item in raw if str(item or "").strip()]
+
+        analyzer_gate_policy = {
+            "enabled": "analyzer_gate_min_valid_analyzers" in stability_cfg,
+            "min_valid_analyzers": int(stability_cfg.get("analyzer_gate_min_valid_analyzers", 0) or 0),
+            "required_labels": _label_list(stability_cfg.get("analyzer_gate_required_labels")),
+            "optional_labels": _label_list(stability_cfg.get("analyzer_gate_optional_labels")),
+            "allow_pass_with_dropped_optional": self._as_bool(
+                stability_cfg.get("analyzer_gate_allow_pass_with_dropped_optional"),
+                False,
+            ),
+            "zero_value_policy": str(
+                stability_cfg.get("analyzer_gate_zero_value_policy", "block")
+                or "block"
+            ),
+            "invalid_frame_drop_s": float(
+                stability_cfg.get("analyzer_gate_invalid_frame_drop_s", 0.0) or 0.0
+            ),
+            "invalid_frame_min_count": int(
+                stability_cfg.get("analyzer_gate_invalid_frame_min_count", 1) or 1
+            ),
+            "silent_timeout_s": float(
+                stability_cfg.get("analyzer_gate_silent_timeout_s", 0.0) or 0.0
+            ),
+        }
+        if analyzer_gate_policy["enabled"]:
+            timeout_s = float(stability_cfg.get("analyzer_gate_max_wait_s", timeout_s) or timeout_s)
+            window_s = float(stability_cfg.get("analyzer_gate_stable_window_s", window_s) or window_s)
+            min_samples = max(
+                2,
+                int(stability_cfg.get("analyzer_gate_stable_min_samples", min_samples) or min_samples),
+            )
         analyzer_gate_begin_ts = time.time()
         dewpoint_monitor = self._analyzer_gate_dewpoint_monitor_state(
             point,
             analyzer_gate_begin_ts=analyzer_gate_begin_ts,
         )
         dewpoint_monitor_begin = self._summarize_analyzer_gate_dewpoint_monitor(dewpoint_monitor)
+        analyzer_gate_result: Dict[str, Any] = {}
         previous_workflow_stage = self._set_logger_workflow_stage("co2_precondition_analyzer_gate")
         raw_tap_begin = {}
         raw_tap_begin_fn = getattr(self.logger, "begin_pace_raw_tap_analyzer_gate", None)
@@ -16315,6 +16674,11 @@ class CalibrationRunner:
                     float(analyzer_gate_begin_ts)
                 ).isoformat(timespec="milliseconds"),
                 **dewpoint_monitor_begin,
+                "analyzer_gate_min_valid_analyzers": analyzer_gate_policy.get("min_valid_analyzers") or "",
+                "analyzer_gate_required_labels": ",".join(analyzer_gate_policy.get("required_labels") or []),
+                "analyzer_gate_optional_labels": ",".join(analyzer_gate_policy.get("optional_labels") or []),
+                "analyzer_gate_max_wait_s": timeout_s,
+                "analyzer_gate_zero_value_policy": analyzer_gate_policy.get("zero_value_policy") or "",
                 **raw_tap_begin,
             },
             note=(
@@ -16354,6 +16718,8 @@ class CalibrationRunner:
             min_samples_override=min_samples,
             read_interval_override=read_interval_s,
             loop_callback=lambda: self._poll_analyzer_gate_dewpoint_monitor(point, dewpoint_monitor),
+            analyzer_gate_policy=analyzer_gate_policy if analyzer_gate_policy["enabled"] else None,
+            analyzer_gate_result=analyzer_gate_result,
         )
         analyzer_gate_end_ts = time.time()
         analyzer_gate_elapsed_s = max(0.0, analyzer_gate_end_ts - analyzer_gate_begin_ts)
@@ -16393,6 +16759,7 @@ class CalibrationRunner:
             analyzer_gate_end_ts=analyzer_gate_end_ts,
             analyzer_gate_elapsed_s=analyzer_gate_elapsed_s,
             **dewpoint_monitor_summary,
+            **analyzer_gate_result,
         )
         self._append_pressure_trace_row(
             point=point,
@@ -16410,6 +16777,7 @@ class CalibrationRunner:
                 ).isoformat(timespec="milliseconds"),
                 "analyzer_gate_elapsed_s": analyzer_gate_elapsed_s,
                 **dewpoint_monitor_summary,
+                **analyzer_gate_result,
                 **raw_tap_summary,
                 "final_decision": self._controlled_exit_final_decision
                 if not stable and getattr(self, "_controlled_exit_final_decision", "")
@@ -18186,6 +18554,30 @@ class CalibrationRunner:
             True,
         )
 
+    def _analyzer_gate_dry_enough_tolerance_c(self) -> float:
+        return max(
+            0.0,
+            float(self._wf("workflow.stability.analyzer_gate_dry_enough_tolerance_c", 0.0) or 0.0),
+        )
+
+    def _analyzer_gate_dry_enough_grace_s(self) -> float:
+        return max(
+            0.0,
+            float(self._wf("workflow.stability.analyzer_gate_dry_enough_grace_s", 0.0) or 0.0),
+        )
+
+    def _preseal_dewpoint_dry_enough_tolerance_c(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.stability.preseal_dry_enough_tolerance_c",
+                    self._wf("workflow.stability.analyzer_gate_dry_enough_tolerance_c", 0.0),
+                )
+                or 0.0
+            ),
+        )
+
     def _gas_route_preseal_dewpoint_rebound_warning_only(self) -> bool:
         return self._as_bool(
             self._wf(
@@ -18250,9 +18642,27 @@ class CalibrationRunner:
         hard_rebound_c = self._gas_route_preseal_dewpoint_hard_rebound_c()
         require_dry_enough = self._gas_route_dewpoint_require_dry_enough(runtime_state)
         dry_enough_c = self._gas_route_dewpoint_dry_enough_c(runtime_state)
+        dry_enough_tolerance_c = self._preseal_dewpoint_dry_enough_tolerance_c()
+        dry_enough_hard_fail_threshold_c = (
+            float(dry_enough_c) + float(dry_enough_tolerance_c)
+            if dry_enough_c is not None
+            else None
+        )
         dry_enough_passed = None
         if dry_enough_c is not None and preseal_value_c is not None:
             dry_enough_passed = float(preseal_value_c) <= float(dry_enough_c)
+        dry_enough_warning_zone = bool(
+            dry_enough_c is not None
+            and dry_enough_hard_fail_threshold_c is not None
+            and preseal_value_c is not None
+            and float(preseal_value_c) > float(dry_enough_c)
+            and float(preseal_value_c) <= float(dry_enough_hard_fail_threshold_c)
+        )
+        dry_enough_hard_fail = bool(
+            dry_enough_hard_fail_threshold_c is not None
+            and preseal_value_c is not None
+            and float(preseal_value_c) > float(dry_enough_hard_fail_threshold_c)
+        )
         max_gap_s = self._analyzer_gate_dewpoint_monitor_max_gap_s()
         no_live_sample = bool(monitor_enabled and monitor_sample_count <= 0)
         age_expired = age_s is None or age_s > max_age_s
@@ -18266,7 +18676,7 @@ class CalibrationRunner:
         )
         reference_missing = tail_reference_c is None
         sample_expired = bool(age_expired or no_live_sample or gap_expired or read_errors_exceeded)
-        dry_enough_failed = bool(require_dry_enough and dry_enough_passed is False)
+        dry_enough_failed = bool(require_dry_enough and dry_enough_hard_fail)
         hard_rebound_exceeded = bool(delta_c is not None and float(delta_c) > hard_rebound_c)
         rebound_warning = bool(
             delta_c is not None
@@ -18340,6 +18750,15 @@ class CalibrationRunner:
             "preseal_dewpoint_hard_rebound_terminal": hard_rebound_terminal,
             "preseal_dewpoint_dry_enough_c": dry_enough_c,
             "preseal_dewpoint_dry_enough_passed": dry_enough_passed,
+            "preseal_dewpoint_dry_enough_tolerance_c": dry_enough_tolerance_c,
+            "preseal_dewpoint_hard_fail_threshold_c": dry_enough_hard_fail_threshold_c,
+            "preseal_dewpoint_dry_enough_warning_zone": dry_enough_warning_zone,
+            "preseal_dewpoint_dry_enough_gate_effect": (
+                "fail_closed"
+                if dry_enough_failed
+                else ("warning_only" if dry_enough_warning_zone else "pass")
+            ),
+            "preseal_dewpoint_dry_enough_terminal": dry_enough_failed,
             "preseal_freshness_decision": decision,
             "preseal_freshness_gate_effect": freshness_gate_effect,
             "dewpoint_freshness_expired": sample_expired,
