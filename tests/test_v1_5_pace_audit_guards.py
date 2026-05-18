@@ -312,6 +312,35 @@ def test_base_soak_boundary_audit_records_pace_commands(tmp_path: Path) -> None:
     assert summary["unexpected_state_changing_write_count"] == 0
 
 
+def test_base_soak_to_dewpoint_gate_has_no_forbidden_pace_writes(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path, cfg=_tap_cfg(tmp_path))
+    begin_ts = "2000-01-01T00:00:00.000"
+    end_ts = "2999-01-01T00:00:00.000"
+    logger.log_raw_serial_tap(
+        port="COM23",
+        device_label="pace5000",
+        direction="WRITE",
+        raw_bytes=b":SOUR:PRES:LEV:IMM:AMPL:VENT 1\n",
+    )
+    logger.log_raw_serial_tap(
+        port="COM23",
+        device_label="pace5000",
+        direction="WRITE",
+        raw_bytes=b":SENS:PRES?\n",
+    )
+    summary = logger.summarize_pace_raw_tap_window(begin_ts, end_ts)
+    logger.close()
+
+    assert summary["vent1_count"] == 1
+    assert summary["readonly_query_count"] == 1
+    assert summary["vent0_count"] == 0
+    assert summary["outp1_count"] == 0
+    assert summary["isol_command_count"] == 0
+    assert summary["setpoint_sour_pres_count"] == 0
+    assert summary["mode_range_command_count"] == 0
+    assert summary["unexpected_state_changing_write_count"] == 0
+
+
 def test_base_soak_boundary_detects_unexpected_vent0(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path, cfg=_tap_cfg(tmp_path))
     begin_ts = "2000-01-01T00:00:00.000"
