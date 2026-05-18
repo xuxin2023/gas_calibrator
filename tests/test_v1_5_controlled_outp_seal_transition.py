@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 from gas_calibrator.data.points import CalibrationPoint
 from gas_calibrator.workflow import runner as runner_module
@@ -196,6 +199,44 @@ class RawTapLogger(FakeLogger):
         }
 
 
+class PostVent0RawTapLogger(FakeLogger):
+    def __init__(self, *, vent1_count: int = 0, vent0_wall_ts: float | None = None) -> None:
+        self.vent1_count = int(vent1_count)
+        self.vent0_wall_ts = vent0_wall_ts
+
+    def latest_pace_raw_tap_vent0_evidence(self) -> dict:
+        wall_ts = (
+            datetime.fromtimestamp(float(self.vent0_wall_ts)).isoformat(timespec="milliseconds")
+            if self.vent0_wall_ts is not None
+            else "2026-05-18T16:00:00.100"
+        )
+        return {
+            "raw_tap_enabled": True,
+            "wall_ts": wall_ts,
+            "monotonic_ts": f"{time.monotonic():.9f}",
+            "decoded_command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
+            "thread_name": "MainThread",
+        }
+
+    def latest_pace_raw_tap_vent1_evidence(self) -> dict:
+        return {
+            "raw_tap_enabled": True,
+            "wall_ts": "2026-05-18T15:59:59.500",
+            "monotonic_ts": f"{time.monotonic() - 1.0:.9f}",
+            "decoded_command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
+            "thread_name": "pace5000-vent-hold-COM23",
+        }
+
+    def summarize_pace_raw_tap_window(self, _begin_ts, _end_ts) -> dict:
+        return {
+            "vent1_count": self.vent1_count,
+            "vent0_count": 1,
+            "outp1_count": 0,
+            "setpoint_sour_pres_count": 0,
+            "unexpected_state_changing_write_count": 0,
+        }
+
+
 def _controlled_cfg(pressure_overrides: dict | None = None) -> dict:
     pressure = {
         "no_outp_transition_mode": True,
@@ -282,6 +323,15 @@ def _last_route_open_gate_fields(runner: CalibrationRunner) -> dict:
     return gate_calls[-1].kwargs.get("extra_fields", {})
 
 
+def _last_stage_fields(runner: CalibrationRunner, trace_stage: str) -> dict:
+    calls = [
+        call for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == trace_stage
+    ]
+    assert calls
+    return calls[-1].kwargs.get("extra_fields", {})
+
+
 def _prepare_co2_group_runner_for_seal_failure_tests(runner: CalibrationRunner) -> None:
     runner._apply_idle_route_isolation = MagicMock()
     runner._set_temperature_for_point = MagicMock(return_value=True)
@@ -346,10 +396,11 @@ def test_vent3_is_diagnostic_only_all_stages() -> None:
     for stage in ("route_open", "preseal", "sealed", "recovery"):
         fields = runner._pace_vent_status_diagnostic_fields(3, stage=stage)
         assert fields["vent_status_raw"] == 3
-        assert fields["vent_status_classification"] == "trapped_or_window_latched_watchlist"
+        assert fields["vent_status_classification"] == "pressure_build_or_window_latched"
         assert fields["vent_status_watchlist"] is True
         assert fields["vent_status_diagnostic_only"] is True
         assert fields["vent_status_gate_effect"] == "none"
+        assert fields["vent_status_terminal"] is False
 
     assert runner._pace_vent_status_is_ready_for_control(3) is False
 
@@ -443,7 +494,7 @@ def test_route_open_allows_vent3_when_pressure_ambient_and_vent1_fresh() -> None
     ]
     fields = gate_calls[-1].kwargs.get("extra_fields", {})
     assert fields["vent_status_before_route_open"] == 3
-    assert fields["vent_status_before_route_open_classification"] == "trapped_or_window_latched_watchlist"
+    assert fields["vent_status_before_route_open_classification"] == "pressure_build_or_window_latched"
     assert fields["vent_status_watchlist"] is True
     assert fields["vent_status_gate_effect"] == "none"
     assert fields["route_open_allowed"] is True
@@ -745,7 +796,11 @@ def test_verified_exit_active_vent_fails_before_close_valves(monkeypatch) -> Non
 
 
 def test_preseal_buildup_does_not_fail_on_vent3_alone(monkeypatch) -> None:
-    runner, pace, _, _ = _runner(pace=LegacyTrappedVentAfterOffPace(), gauge=FakeGauge([1013.0, 1018.0]))
+    runner, pace, _, _ = _runner(
+        pace=LegacyTrappedVentAfterOffPace(),
+        gauge=FakeGauge([1013.0, 1018.0, 1022.0, 1024.0, 1026.0, 1028.0, 1030.0]),
+        logger=PostVent0RawTapLogger(vent1_count=0),
+    )
     runner._apply_valve_states = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
 
@@ -763,6 +818,148 @@ def test_preseal_buildup_does_not_fail_on_vent3_alone(monkeypatch) -> None:
         if call.kwargs.get("trace_stage") == "vent0_state_evidence"
     ]
     assert evidence_calls[-1].kwargs.get("extra_fields", {})["vent_status_watchlist"] is True
+    assert evidence_calls[-1].kwargs.get("extra_fields", {})["vent_status_terminal"] is False
+    assert _last_stage_fields(runner, "controlled_outp_vent0_fixed_wait_before_seal")[
+        "post_vent0_new_vent1_count"
+    ] == 0
+
+
+def test_post_vent0_probe_records_vent_outp_isol_pressure_timeline() -> None:
+    vent0_ts = time.time()
+    runner, pace, _, _ = _runner(
+        pace=LegacyTrappedVentAfterOffPace(),
+        gauge=FakeGauge([1013.0, 1014.0, 1015.0, 1016.0, 1017.0, 1018.0, 1019.0]),
+        logger=PostVent0RawTapLogger(vent1_count=0, vent0_wall_ts=vent0_ts),
+    )
+    pace.exit_atmosphere_mode(timeout_s=3.0, poll_s=0.2)
+
+    fields = runner._collect_post_vent0_probe_fields(
+        phase="co2",
+        vent0_intent_ts=vent0_ts,
+        route_valves_still_open=True,
+        max_relative_s=3.0,
+    )
+
+    schedule = json.loads(fields["post_vent0_probe_schedule_s"])
+    vent_timeline = json.loads(fields["post_vent0_vent_status_timeline"])
+    outp_timeline = json.loads(fields["post_vent0_outp_status_timeline"])
+    isol_timeline = json.loads(fields["post_vent0_isol_status_timeline"])
+    pace_timeline = json.loads(fields["post_vent0_pace_pressure_timeline"])
+    com22_timeline = json.loads(fields["post_vent0_com22_pressure_timeline"])
+    assert schedule == [0.0, 0.2, 0.5, 1.0, 1.5, 2.0, 3.0]
+    assert [row["relative_s"] for row in vent_timeline] == schedule
+    assert {row["value"] for row in vent_timeline} == {3}
+    assert {row["value"] for row in outp_timeline} == {0}
+    assert {row["value"] for row in isol_timeline} == {1}
+    assert len(pace_timeline) == len(schedule)
+    assert len(com22_timeline) == len(schedule)
+    assert fields["post_vent0_new_vent1_count"] == 0
+    assert fields["post_vent0_vent3_count"] == len(schedule)
+    assert fields["post_vent0_vent3_watchlist_only"] is True
+    assert fields["post_vent0_pressure_build_observed"] is True
+    assert fields["post_vent0_route_valves_still_open"] is True
+
+
+def test_post_vent0_new_vent1_is_flagged(monkeypatch) -> None:
+    runner, _pace, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        logger=PostVent0RawTapLogger(vent1_count=1),
+    )
+    runner._apply_valve_states = MagicMock()
+    runner._cleanup_co2_route = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(
+        _co2_point(),
+        route="co2",
+        sealed_control_refs=[_co2_point()],
+    ) is False
+
+    fields = _last_stage_fields(runner, "controlled_outp_vent0_fixed_wait_before_seal")
+    assert fields["post_vent0_new_vent1_count"] == 1
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_VENT1_AFTER_PRESEAL_VENT0"
+    runner._apply_valve_states.assert_not_called()
+    runner._cleanup_co2_route.assert_called_once()
+
+
+def test_route_close_waits_after_raw_vent0_and_valves_remain_open() -> None:
+    vent0_ts = time.time()
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        logger=PostVent0RawTapLogger(vent1_count=0, vent0_wall_ts=vent0_ts + 0.05),
+    )
+
+    fields = runner._record_vent0_state_evidence(
+        _co2_point(),
+        phase="co2",
+        vent0_command_ts=vent0_ts,
+        vent0_raw_response=2,
+        route_valves_still_open_during_wait=True,
+        fixed_wait_elapsed_s=1.6,
+        route_valve_close_ts=vent0_ts + 1.6,
+        actual_open_valves_after_close="",
+        trace_stage="route_valves_closed_after_vent0",
+    )
+
+    assert fields["route_valves_still_open_during_wait"] is True
+    assert fields["post_vent0_route_valves_still_open"] is True
+    assert fields["route_close_after_vent0_delay_s"] == pytest.approx(1.6)
+    assert fields["route_close_after_vent0_raw_tx_s"] == pytest.approx(1.55, abs=0.01)
+
+
+def test_vent_status_3_after_vent0_does_not_block_route_close(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        pace=LegacyTrappedVentAfterOffPace(),
+        gauge=FakeGauge([1013.0, 1014.0, 1015.0, 1016.0, 1017.0, 1018.0, 1019.0]),
+        logger=PostVent0RawTapLogger(vent1_count=0),
+    )
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(
+        _co2_point(),
+        route="co2",
+        sealed_control_refs=[_co2_point()],
+    ) is True
+
+    assert ("exit_atmosphere_mode", 3.0, 0.2) in pace.calls
+    runner._apply_valve_states.assert_called_once_with([])
+    fixed_fields = _last_stage_fields(runner, "controlled_outp_vent0_fixed_wait_before_seal")
+    assert fixed_fields["post_vent0_new_vent1_count"] == 0
+    assert fixed_fields["post_vent0_vent3_watchlist_only"] is True
+    assert fixed_fields["post_vent0_route_valves_still_open"] is True
+
+
+def test_vent_status_3_is_not_atmosphere_exit_failure(monkeypatch) -> None:
+    runner, _, _, _ = _runner(
+        pace=LegacyTrappedVentAfterOffPace(),
+        gauge=FakeGauge([1013.0, 1013.0, 1013.0]),
+        logger=PostVent0RawTapLogger(vent1_count=0),
+    )
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(
+        _co2_point(),
+        route="co2",
+        sealed_control_refs=[_co2_point()],
+    ) is True
+
+    stages = _trace_stages(runner)
+    assert "controlled_exit_atmosphere_fail" not in stages
+    assert "controlled_exit_atmosphere_pass" in stages
+    assert runner._controlled_exit_final_decision == "ENGINEERING_EXIT_ATMOSPHERE_PASS"
+
+
+def test_vent_status_3_is_watchlist_not_terminal() -> None:
+    runner, _, _, _ = _runner()
+
+    fields = runner._pace_vent_status_diagnostic_fields(3, stage="preseal")
+
+    assert fields["vent_status_watchlist"] is True
+    assert fields["vent_status_classification"] == "pressure_build_or_window_latched"
+    assert fields["vent_status_gate_effect"] == "none"
+    assert fields["vent_status_terminal"] is False
 
 
 def test_operator_window_console_yes_allows_fixed_1p5_close(monkeypatch) -> None:
@@ -778,8 +975,9 @@ def test_operator_window_console_yes_allows_fixed_1p5_close(monkeypatch) -> None
     assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
 
     assert runner._controlled_exit_final_decision == "ENGINEERING_EXIT_ATMOSPHERE_PASS"
-    assert events[0].startswith("sleep:1.5")
-    assert events[1] == "close_valves"
+    close_index = events.index("close_valves")
+    assert any(event.startswith("sleep:1.5") for event in events[:close_index])
+    assert all(event.startswith("sleep:") for event in events[:close_index])
 
 
 def test_operator_window_console_no_blocks_seal(monkeypatch) -> None:
@@ -990,8 +1188,9 @@ def test_verified_exit_then_fixed_1p5_close_valves(monkeypatch) -> None:
     assert stages.index("controlled_exit_atmosphere_pass") < stages.index("controlled_outp_vent0_fixed_wait_before_seal")
     assert stages.index("controlled_outp_vent0_fixed_wait_before_seal") < stages.index("operator_window_check_begin")
     assert stages.index("operator_window_check_result") < stages.index("route_sealed")
-    assert events[0].startswith("sleep:1.5")
-    assert events[1] == "close_valves"
+    close_index = events.index("close_valves")
+    assert any(event.startswith("sleep:1.5") for event in events[:close_index])
+    assert all(event.startswith("sleep:") for event in events[:close_index])
 
 
 def test_pressure_rise_gate_does_not_block_seal_in_controlled_mode(monkeypatch) -> None:
@@ -1044,8 +1243,9 @@ def test_route_valves_remain_open_during_fixed_wait(monkeypatch) -> None:
 
     runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
 
-    assert events[0].startswith("sleep:")
-    assert events[1] == "close_valves"
+    close_index = events.index("close_valves")
+    assert close_index > 0
+    assert all(event.startswith("sleep:") for event in events[:close_index])
 
 
 def test_sealed_guard_activates_immediately_after_close(monkeypatch) -> None:

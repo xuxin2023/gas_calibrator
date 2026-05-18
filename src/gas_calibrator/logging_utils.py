@@ -882,6 +882,7 @@ class RunLogger:
             self._empty_pace_raw_tap_open_flow_until_preseal_summary()
         )
         self._pace_raw_tap_last_vent1_evidence: Dict[str, Any] = {}
+        self._pace_raw_tap_last_vent0_evidence: Dict[str, Any] = {}
         if self._pace_raw_tap_enabled:
             self._raw_tap_file = self.raw_serial_tap_csv_path.open("w", newline="", encoding="utf-8")
             self._raw_tap_writer = csv.DictWriter(
@@ -2195,6 +2196,12 @@ class RunLogger:
         evidence["raw_tap_enabled"] = bool(self._pace_raw_tap_enabled)
         return evidence
 
+    def latest_pace_raw_tap_vent0_evidence(self) -> Dict[str, Any]:
+        with self._raw_tap_lock:
+            evidence = dict(self._pace_raw_tap_last_vent0_evidence)
+        evidence["raw_tap_enabled"] = bool(self._pace_raw_tap_enabled)
+        return evidence
+
     def _is_pace_raw_tap_device(self, *, device_label: Any, port: Any) -> bool:
         if not self._pace_raw_tap_enabled:
             return False
@@ -2256,6 +2263,16 @@ class RunLogger:
                 self._raw_tap_jsonl_file.flush()
             if direction_text == "WRITE" and is_vent1_command(decoded):
                 self._pace_raw_tap_last_vent1_evidence = {
+                    "wall_ts": row["wall_ts"],
+                    "monotonic_ts": row["monotonic_ts"],
+                    "decoded_command": decoded,
+                    "thread_name": row["thread_name"],
+                    "workflow_stage": row["workflow_stage"],
+                    "port": row["port"],
+                    "device_label": row["device_label"],
+                }
+            if direction_text == "WRITE" and self._is_vent0_command(decoded):
+                self._pace_raw_tap_last_vent0_evidence = {
                     "wall_ts": row["wall_ts"],
                     "monotonic_ts": row["monotonic_ts"],
                     "decoded_command": decoded,

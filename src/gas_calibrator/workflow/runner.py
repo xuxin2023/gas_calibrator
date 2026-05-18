@@ -119,6 +119,12 @@ _PRESSURE_TRACE_FIELDS = [
     "pace_output_state",
     "pace_isolation_state",
     "pace_vent_status",
+    "atmosphere_hold_stop_request_ts",
+    "atmosphere_hold_stop_return_ts",
+    "atmosphere_hold_last_vent1_raw_ts",
+    "preseal_vent0_intent_ts",
+    "preseal_vent0_raw_tx_ts",
+    "preseal_vent0_raw_tx_minus_intent_s",
     "vent0_command_ts",
     "vent0_raw_response",
     "vent_status_after_vent0",
@@ -133,6 +139,20 @@ _PRESSURE_TRACE_FIELDS = [
     "fixed_wait_elapsed_s",
     "route_valve_close_ts",
     "actual_open_valves_after_close",
+    "post_vent0_probe_enabled",
+    "post_vent0_probe_schedule_s",
+    "post_vent0_vent_status_timeline",
+    "post_vent0_outp_status_timeline",
+    "post_vent0_isol_status_timeline",
+    "post_vent0_pace_pressure_timeline",
+    "post_vent0_com22_pressure_timeline",
+    "post_vent0_new_vent1_count",
+    "post_vent0_vent3_count",
+    "post_vent0_vent3_watchlist_only",
+    "post_vent0_pressure_build_observed",
+    "post_vent0_route_valves_still_open",
+    "route_close_after_vent0_delay_s",
+    "route_close_after_vent0_raw_tx_s",
     "vent_after_valve_supported",
     "vent_after_valve_open",
     "vent_popup_ack_enabled",
@@ -264,9 +284,12 @@ _PRESSURE_TRACE_FIELDS = [
     "analyzer_gate_dewpoint_rebound_warning",
     "analyzer_gate_dewpoint_rebound_warning_only",
     "analyzer_gate_dewpoint_hard_rebound_c",
+    "analyzer_gate_dewpoint_hard_rebound_warning",
+    "analyzer_gate_dewpoint_hard_rebound_terminal",
     "analyzer_gate_dewpoint_dry_enough_c",
     "analyzer_gate_dewpoint_dry_enough_passed",
     "analyzer_gate_dewpoint_fail_reason",
+    "analyzer_gate_dewpoint_gate_effect",
     "analyzer_gate_dewpoint_trend",
     "raw_tap_enabled",
     "pressure_controller_port",
@@ -298,6 +321,7 @@ _PRESSURE_TRACE_FIELDS = [
     "vent_status_watchlist",
     "vent_status_diagnostic_only",
     "vent_status_gate_effect",
+    "vent_status_terminal",
     "vent_status_note",
     "output_state_before_route_open",
     "isolation_state_before_route_open",
@@ -325,9 +349,12 @@ _PRESSURE_TRACE_FIELDS = [
     "preseal_dewpoint_delta_vs_tail_reference_c",
     "preseal_dewpoint_rebound_warning",
     "preseal_dewpoint_hard_rebound_c",
+    "preseal_dewpoint_hard_rebound_warning",
+    "preseal_dewpoint_hard_rebound_terminal",
     "preseal_dewpoint_dry_enough_c",
     "preseal_dewpoint_dry_enough_passed",
     "preseal_freshness_decision",
+    "preseal_freshness_gate_effect",
     "dewpoint_freshness_expired",
     "dewpoint_freshness_decision",
     "dewpoint_rebound_delta_c",
@@ -8867,7 +8894,7 @@ class CalibrationRunner:
         if value == 2:
             return "vent_completed_ready"
         if value == 3:
-            return "trapped_or_window_latched_watchlist"
+            return "pressure_build_or_window_latched"
         return f"abnormal_vent_status_{value}_not_ready"
 
     def _pace_vent_status_is_ready_for_control(self, vent_status: Any) -> bool:
@@ -8886,6 +8913,7 @@ class CalibrationRunner:
             "vent_status_watchlist": watchlist,
             "vent_status_diagnostic_only": watchlist,
             "vent_status_gate_effect": "none" if watchlist else "",
+            "vent_status_terminal": False if watchlist else "",
             "vent_status_note": (
                 "VENT?=3 is diagnostic-only; flow decision uses pressure/valves/raw-tap/heartbeat"
                 if watchlist
@@ -9243,6 +9271,7 @@ class CalibrationRunner:
             "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_PRESEAL",
             "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED",
             "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE",
+            "FAIL_CLOSED_VENT1_AFTER_PRESEAL_VENT0",
             "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_ANALYZER_GATE",
             "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_OPEN_FLOW_TO_PRESEAL",
             "FAIL_CLOSED_SECOND_PRESSURE_CONTROLLER_INSTANCE_DETECTED",
@@ -9509,6 +9538,11 @@ class CalibrationRunner:
     ) -> Tuple[str, Any, str]:
         exit_atmosphere = getattr(pace, "exit_atmosphere_mode", None)
         if callable(exit_atmosphere):
+            if not self._stop_pressure_controller_atmosphere_hold(
+                pace,
+                reason="before controlled CO2 preseal verified atmosphere exit",
+            ):
+                raise RuntimeError("ATMOSPHERE_HOLD_STOP_FAILED")
             try:
                 return "pace.exit_atmosphere_mode", exit_atmosphere(timeout_s=timeout_s, poll_s=poll_s), ""
             except TypeError:
@@ -9555,6 +9589,156 @@ class CalibrationRunner:
         except Exception:
             return None
 
+    def _post_vent0_probe_schedule_s(self) -> List[float]:
+        raw_schedule = self._wf(
+            "workflow.pressure.post_vent0_probe_schedule_s",
+            [0.0, 0.2, 0.5, 1.0, 1.5, 2.0, 3.0],
+        )
+        values: List[float] = []
+        if isinstance(raw_schedule, (list, tuple)):
+            for raw_value in raw_schedule:
+                parsed = self._as_float(raw_value)
+                if parsed is not None and parsed >= 0:
+                    values.append(float(parsed))
+        if not values:
+            values = [0.0, 0.2, 0.5, 1.0, 1.5, 2.0, 3.0]
+        return sorted(set(round(value, 3) for value in values))
+
+    def _parse_iso_ts_to_wall_s(self, value: Any) -> Optional[float]:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            return datetime.fromisoformat(text).timestamp()
+        except Exception:
+            return None
+
+    def _latest_pace_raw_tap_vent0_evidence(self) -> Dict[str, Any]:
+        getter = getattr(self.logger, "latest_pace_raw_tap_vent0_evidence", None)
+        if not callable(getter):
+            return {}
+        try:
+            return dict(getter() or {})
+        except Exception:
+            return {}
+
+    def _post_vent0_raw_tap_summary(self, begin_ts: Any, end_ts: Any) -> Dict[str, Any]:
+        summarizer = getattr(self.logger, "summarize_pace_raw_tap_window", None)
+        if not callable(summarizer):
+            return {}
+        try:
+            return dict(summarizer(begin_ts, end_ts) or {})
+        except Exception:
+            return {}
+
+    def _post_vent0_pressure_build_observed(
+        self,
+        pace_timeline: List[Dict[str, Any]],
+        com22_timeline: List[Dict[str, Any]],
+    ) -> bool:
+        def _rose(rows: List[Dict[str, Any]]) -> bool:
+            values = [self._as_float(row.get("value")) for row in rows]
+            values = [float(value) for value in values if value is not None]
+            if len(values) < 2:
+                return False
+            return (values[-1] - values[0]) >= 0.5
+
+        return bool(_rose(pace_timeline) or _rose(com22_timeline))
+
+    def _collect_post_vent0_probe_fields(
+        self,
+        *,
+        phase: str,
+        vent0_intent_ts: Optional[float],
+        route_valves_still_open: bool,
+        max_relative_s: Optional[float] = None,
+        respect_schedule: bool = False,
+    ) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        schedule = self._post_vent0_probe_schedule_s()
+        if max_relative_s is not None:
+            schedule_to_sample = [value for value in schedule if value <= float(max_relative_s) + 1e-9]
+            if not schedule_to_sample:
+                schedule_to_sample = [0.0]
+        else:
+            schedule_to_sample = [0.0]
+        begin_wall = float(vent0_intent_ts or time.time())
+        vent_timeline: List[Dict[str, Any]] = []
+        outp_timeline: List[Dict[str, Any]] = []
+        isol_timeline: List[Dict[str, Any]] = []
+        pace_pressure_timeline: List[Dict[str, Any]] = []
+        com22_pressure_timeline: List[Dict[str, Any]] = []
+        for relative_s in schedule_to_sample:
+            if respect_schedule:
+                delay_s = (begin_wall + float(relative_s)) - time.time()
+                if delay_s > 0:
+                    time.sleep(delay_s)
+            sample_wall = time.time()
+            sample_ts = self._iso_ts_from_wall(sample_wall)
+            snapshot: Dict[str, Any] = {}
+            if pace is not None:
+                try:
+                    snapshot = self._controlled_exit_atmosphere_snapshot(pace)
+                except Exception:
+                    snapshot = dict(self._pace_state_snapshot(pace, refresh=True))
+            vent_status = self._as_int(snapshot.get("pace_vent_status"))
+            outp_status = self._as_int(snapshot.get("pace_output_state"))
+            isol_status = self._as_int(snapshot.get("pace_isolation_state"))
+            pace_pressure = self._read_pace_pressure_now(pace) if pace is not None else None
+            com22_pressure = self._read_com22_pressure_now()
+            entry_base = {
+                "relative_s": round(float(relative_s), 3),
+                "observed_relative_s": round(max(0.0, sample_wall - begin_wall), 3),
+                "ts": sample_ts,
+            }
+            vent_timeline.append({**entry_base, "value": vent_status})
+            outp_timeline.append({**entry_base, "value": outp_status})
+            isol_timeline.append({**entry_base, "value": isol_status})
+            pace_pressure_timeline.append({**entry_base, "value": pace_pressure})
+            com22_pressure_timeline.append({**entry_base, "value": com22_pressure})
+
+        vent0_evidence = self._latest_pace_raw_tap_vent0_evidence()
+        raw_tx_ts = str(vent0_evidence.get("wall_ts") or "")
+        if not raw_tx_ts and vent0_intent_ts is not None:
+            raw_tx_ts = self._iso_ts_from_wall(vent0_intent_ts)
+        raw_tx_wall_s = self._parse_iso_ts_to_wall_s(raw_tx_ts)
+        raw_minus_intent_s = None
+        if raw_tx_wall_s is not None and vent0_intent_ts is not None:
+            raw_minus_intent_s = max(0.0, raw_tx_wall_s - float(vent0_intent_ts))
+        end_ts = self._iso_ts_from_wall(time.time())
+        raw_summary = self._post_vent0_raw_tap_summary(raw_tx_ts, end_ts)
+        vent3_count = sum(1 for row in vent_timeline if self._as_int(row.get("value")) == 3)
+        fields = {
+            "atmosphere_hold_stop_request_ts": self._iso_ts_from_wall(
+                getattr(self, "_last_atmosphere_hold_stop_request_ts", None)
+            ),
+            "atmosphere_hold_stop_return_ts": self._iso_ts_from_wall(
+                getattr(self, "_last_atmosphere_hold_stop_return_ts", None)
+            ),
+            "atmosphere_hold_last_vent1_raw_ts": str(
+                getattr(self, "_last_atmosphere_hold_last_vent1_raw_ts", "") or ""
+            ),
+            "preseal_vent0_intent_ts": self._iso_ts_from_wall(vent0_intent_ts),
+            "preseal_vent0_raw_tx_ts": raw_tx_ts,
+            "preseal_vent0_raw_tx_minus_intent_s": raw_minus_intent_s,
+            "post_vent0_probe_enabled": True,
+            "post_vent0_probe_schedule_s": json.dumps(schedule, separators=(",", ":")),
+            "post_vent0_vent_status_timeline": json.dumps(vent_timeline, separators=(",", ":")),
+            "post_vent0_outp_status_timeline": json.dumps(outp_timeline, separators=(",", ":")),
+            "post_vent0_isol_status_timeline": json.dumps(isol_timeline, separators=(",", ":")),
+            "post_vent0_pace_pressure_timeline": json.dumps(pace_pressure_timeline, separators=(",", ":")),
+            "post_vent0_com22_pressure_timeline": json.dumps(com22_pressure_timeline, separators=(",", ":")),
+            "post_vent0_new_vent1_count": int(raw_summary.get("vent1_count") or 0),
+            "post_vent0_vent3_count": vent3_count,
+            "post_vent0_vent3_watchlist_only": True,
+            "post_vent0_pressure_build_observed": self._post_vent0_pressure_build_observed(
+                pace_pressure_timeline,
+                com22_pressure_timeline,
+            ),
+            "post_vent0_route_valves_still_open": bool(route_valves_still_open),
+        }
+        return fields
+
     def _record_vent0_state_evidence(
         self,
         point: CalibrationPoint,
@@ -9580,6 +9764,18 @@ class CalibrationRunner:
         vent_status_diag = self._pace_vent_status_diagnostic_fields(vent_status, stage="preseal")
         pace_pressure = self._read_pace_pressure_now(pace) if pace is not None else None
         com22_pressure = self._read_com22_pressure_now()
+        post_vent0_fields = self._collect_post_vent0_probe_fields(
+            phase=phase,
+            vent0_intent_ts=vent0_command_ts,
+            route_valves_still_open=route_valves_still_open_during_wait,
+        )
+        raw_tx_wall_s = self._parse_iso_ts_to_wall_s(post_vent0_fields.get("preseal_vent0_raw_tx_ts"))
+        route_close_after_vent0_delay_s = None
+        route_close_after_vent0_raw_tx_s = None
+        if route_valve_close_ts is not None and vent0_command_ts is not None:
+            route_close_after_vent0_delay_s = max(0.0, float(route_valve_close_ts) - float(vent0_command_ts))
+        if route_valve_close_ts is not None and raw_tx_wall_s is not None:
+            route_close_after_vent0_raw_tx_s = max(0.0, float(route_valve_close_ts) - float(raw_tx_wall_s))
         fields = {
             "vent0_command_ts": (
                 datetime.fromtimestamp(float(vent0_command_ts)).isoformat(timespec="milliseconds")
@@ -9603,7 +9799,10 @@ class CalibrationRunner:
                 else ""
             ),
             "actual_open_valves_after_close": actual_open_valves_after_close,
+            "route_close_after_vent0_delay_s": route_close_after_vent0_delay_s,
+            "route_close_after_vent0_raw_tx_s": route_close_after_vent0_raw_tx_s,
         }
+        fields.update(post_vent0_fields)
         fields.update(vent_status_diag)
         self._append_pressure_trace_row(
             point=point,
@@ -10555,16 +10754,30 @@ class CalibrationRunner:
         return bool(thread is not None and getattr(thread, "is_alive", lambda: False)())
 
     def _stop_pressure_controller_atmosphere_hold(self, pace: Any, *, reason: str = "") -> bool:
+        self._last_atmosphere_hold_stop_request_ts = time.time()
+        vent1_evidence: Dict[str, Any] = {}
+        latest_vent1 = getattr(self.logger, "latest_pace_raw_tap_vent1_evidence", None)
+        if callable(latest_vent1):
+            try:
+                vent1_evidence = dict(latest_vent1() or {})
+            except Exception:
+                vent1_evidence = {}
+        self._last_atmosphere_hold_last_vent1_raw_ts = str(vent1_evidence.get("wall_ts") or "")
+        self._last_atmosphere_hold_stop_return_ts = None
         stop_hold = getattr(pace, "stop_atmosphere_hold", None)
         if callable(stop_hold):
             try:
                 result = stop_hold()
+                self._last_atmosphere_hold_stop_return_ts = time.time()
                 if result is False:
                     self.log(f"Pressure controller atmosphere hold stop failed ({reason or 'no reason'}): join timeout")
                     return False
             except Exception as exc:
+                self._last_atmosphere_hold_stop_return_ts = time.time()
                 self.log(f"Pressure controller atmosphere hold stop failed ({reason or 'no reason'}): {exc}")
                 return False
+        else:
+            self._last_atmosphere_hold_stop_return_ts = time.time()
         if self._pressure_controller_hold_thread_active(pace):
             self.log(f"Pressure controller atmosphere hold still active ({reason or 'no reason'})")
             return False
@@ -15281,6 +15494,9 @@ class CalibrationRunner:
             "first_rise_ts": None,
             "first_rise_value_c": None,
             "rebound_warning": False,
+            "hard_rebound_warning": False,
+            "hard_rebound_terminal": False,
+            "gate_effect": "none",
             "dry_enough_passed": None,
             "failed": False,
             "failure_reason": "",
@@ -15353,9 +15569,12 @@ class CalibrationRunner:
             "analyzer_gate_dewpoint_rebound_warning": bool(state.get("rebound_warning")),
             "analyzer_gate_dewpoint_rebound_warning_only": bool(state.get("rebound_warning_only")),
             "analyzer_gate_dewpoint_hard_rebound_c": self._as_float(state.get("hard_rebound_c")),
+            "analyzer_gate_dewpoint_hard_rebound_warning": bool(state.get("hard_rebound_warning")),
+            "analyzer_gate_dewpoint_hard_rebound_terminal": bool(state.get("hard_rebound_terminal")),
             "analyzer_gate_dewpoint_dry_enough_c": dry_enough_c,
             "analyzer_gate_dewpoint_dry_enough_passed": dry_enough_passed,
             "analyzer_gate_dewpoint_fail_reason": str(state.get("failure_reason") or ""),
+            "analyzer_gate_dewpoint_gate_effect": str(state.get("gate_effect") or "none"),
             "analyzer_gate_dewpoint_trend": trend,
         }
 
@@ -15454,36 +15673,30 @@ class CalibrationRunner:
             dry_enough_c = self._as_float(state.get("dry_enough_c"))
             if dry_enough_c is not None:
                 state["dry_enough_passed"] = float(value_c) <= float(dry_enough_c)
-            if (
-                bool(state.get("require_dry_enough"))
-                and bool(state.get("fail_if_above_dry_enough"))
-                and dry_enough_c is not None
-                and float(value_c) > float(dry_enough_c)
-            ):
-                return self._fail_analyzer_gate_dewpoint_monitor(
-                    point,
-                    state,
-                    reason=f"dewpoint_not_dry_enough_c={value_c}>dry_enough_c={dry_enough_c}",
-                )
             if delta_c > float(state.get("max_delta_c") or 0.20):
                 if state.get("first_rise_ts") is None:
                     state["first_rise_ts"] = sample_ts
                     state["first_rise_value_c"] = value_c
                 hard_rebound_c = float(state.get("hard_rebound_c") or 2.0)
                 if delta_c > hard_rebound_c:
-                    return self._fail_analyzer_gate_dewpoint_monitor(
-                        point,
-                        state,
-                        reason=f"dewpoint_hard_rebound_delta_c={delta_c}>hard_rebound_c={hard_rebound_c}",
-                    )
+                    state["hard_rebound_warning"] = True
+                    state["hard_rebound_terminal"] = False
                 state["rebound_warning"] = True
-                if bool(state.get("rebound_warning_only")):
-                    return True
+            if (
+                bool(state.get("require_dry_enough"))
+                and bool(state.get("fail_if_above_dry_enough"))
+                and dry_enough_c is not None
+                and float(value_c) > float(dry_enough_c)
+            ):
+                state["gate_effect"] = "fail_closed"
                 return self._fail_analyzer_gate_dewpoint_monitor(
                     point,
                     state,
-                    reason=f"dewpoint_rebound_delta_c={delta_c}",
+                    reason=f"dewpoint_not_dry_enough_c={value_c}>dry_enough_c={dry_enough_c}",
                 )
+            if delta_c > float(state.get("max_delta_c") or 0.20):
+                state["gate_effect"] = "warning_only"
+                return True
         return True
 
     def _wait_co2_preseal_primary_sensor_gate(self, point: CalibrationPoint) -> bool:
@@ -17492,21 +17705,18 @@ class CalibrationRunner:
         sample_expired = bool(age_expired or no_live_sample or gap_expired or read_errors_exceeded)
         dry_enough_failed = bool(require_dry_enough and dry_enough_passed is False)
         hard_rebound_exceeded = bool(delta_c is not None and float(delta_c) > hard_rebound_c)
-        small_rebound_warning = bool(
+        rebound_warning = bool(
             delta_c is not None
             and float(delta_c) > rebound_limit_c
-            and not hard_rebound_exceeded
             and not dry_enough_failed
         )
-        soft_rebound_exceeded = bool(
-            small_rebound_warning
-            and not rebound_warning_only
-        )
+        hard_rebound_warning = bool(hard_rebound_exceeded and not dry_enough_failed)
+        hard_rebound_terminal = False
+        soft_rebound_exceeded = False
         rebound_exceeded = bool(
             reference_missing
             or delta_c is None
             or dry_enough_failed
-            or hard_rebound_exceeded
             or soft_rebound_exceeded
         )
         if delta_c is None:
@@ -17520,7 +17730,7 @@ class CalibrationRunner:
         freshness_sample_decision = "fail_closed" if sample_expired else "pass"
         if rebound_exceeded:
             rebound_decision = "fail_closed"
-        elif small_rebound_warning:
+        elif rebound_warning:
             rebound_decision = "warning"
         else:
             rebound_decision = "pass"
@@ -17532,14 +17742,18 @@ class CalibrationRunner:
                 final_decision = "FAIL_CLOSED_DEWPOINT_GATE_INSUFFICIENT_COVERAGE"
             elif dry_enough_failed:
                 final_decision = "FAIL_CLOSED_DEWPOINT_NOT_DRY_ENOUGH_DURING_PRESEAL"
-            elif hard_rebound_exceeded:
-                final_decision = "FAIL_CLOSED_DEWPOINT_HARD_REBOUND_DURING_PRESEAL"
             else:
                 final_decision = "FAIL_CLOSED_DEWPOINT_REBOUND_DURING_PRESEAL"
         elif gap_expired:
             final_decision = "FAIL_CLOSED_DEWPOINT_LIVE_SAMPLE_GAP_EXCEEDED"
         elif sample_expired:
             final_decision = "FAIL_CLOSED_DEWPOINT_FRESHNESS_EXPIRED"
+        if expired:
+            freshness_gate_effect = "fail_closed"
+        elif rebound_warning:
+            freshness_gate_effect = "warning_only" if rebound_warning_only else "warning"
+        else:
+            freshness_gate_effect = "pass"
         fields = {
             "dewpoint_gate_pass_ts": (
                 datetime.fromtimestamp(float(gate_ts)).isoformat(timespec="milliseconds")
@@ -17557,11 +17771,14 @@ class CalibrationRunner:
             "dewpoint_freshness_age_s": age_s,
             "dewpoint_delta_since_gate_c": delta_c,
             "preseal_dewpoint_delta_vs_tail_reference_c": delta_c,
-            "preseal_dewpoint_rebound_warning": small_rebound_warning,
+            "preseal_dewpoint_rebound_warning": rebound_warning,
             "preseal_dewpoint_hard_rebound_c": hard_rebound_c,
+            "preseal_dewpoint_hard_rebound_warning": hard_rebound_warning,
+            "preseal_dewpoint_hard_rebound_terminal": hard_rebound_terminal,
             "preseal_dewpoint_dry_enough_c": dry_enough_c,
             "preseal_dewpoint_dry_enough_passed": dry_enough_passed,
             "preseal_freshness_decision": decision,
+            "preseal_freshness_gate_effect": freshness_gate_effect,
             "dewpoint_freshness_expired": sample_expired,
             "dewpoint_freshness_decision": decision,
             "dewpoint_rebound_delta_c": delta_c,
@@ -17916,6 +18133,15 @@ class CalibrationRunner:
                 baseline_pressures = self._read_controlled_outp_preseal_pressures()
                 elapsed_s = max(0.0, time.time() - vent0_wall_ts)
                 remaining_s = max(0.0, fixed_wait_s - elapsed_s)
+                post_vent0_probe_fields = self._collect_post_vent0_probe_fields(
+                    phase=phase,
+                    vent0_intent_ts=vent0_command_ts,
+                    route_valves_still_open=True,
+                    max_relative_s=fixed_wait_s,
+                    respect_schedule=True,
+                )
+                elapsed_s = max(0.0, time.time() - vent0_wall_ts)
+                remaining_s = max(0.0, fixed_wait_s - elapsed_s)
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -17925,11 +18151,23 @@ class CalibrationRunner:
                     pace_pressure_hpa=baseline_pressures.get("pace_pressure_hpa"),
                     pressure_gauge_hpa=baseline_pressures.get("pressure_gauge_hpa"),
                     refresh_pace_state=False,
+                    extra_fields=post_vent0_probe_fields,
                     note=(
                         f"fixed_wait_s={fixed_wait_s:.3f} elapsed_s={elapsed_s:.3f} "
                         f"remaining_s={remaining_s:.3f}; route valves remain open after VENT0"
                     ),
                 )
+                if int(post_vent0_probe_fields.get("post_vent0_new_vent1_count") or 0) > 0:
+                    self._controlled_exit_final_decision = "FAIL_CLOSED_VENT1_AFTER_PRESEAL_VENT0"
+                    self._mark_co2_route_terminal_failure(
+                        final_decision=self._controlled_exit_final_decision,
+                        reason="new VENT1 raw-tap command after preseal VENT0",
+                        point=point,
+                        phase=phase,
+                    )
+                    self._cleanup_co2_route(reason=self._controlled_exit_final_decision)
+                    self._stop_pressure_transition_fast_signal_context(reason=self._controlled_exit_final_decision)
+                    return False
                 if remaining_s > 0:
                     time.sleep(remaining_s)
                 controlled_fixed_wait_completed = True
