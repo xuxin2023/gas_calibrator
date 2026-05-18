@@ -358,6 +358,9 @@ def evaluate_dewpoint_flush_gate(
     rebound_min_rise_c: float = DEFAULT_DEWPOINT_REBOUND_MIN_RISE_C,
     rebound_require_no_new_actuation: bool = True,
     include_rebound_in_gate: bool = True,
+    rebound_warning_only: bool = False,
+    require_dry_enough: bool = False,
+    dry_enough_c: Optional[float] = None,
     require_vent_on: bool = False,
     min_tail_samples: int = 2,
     min_tail_coverage_ratio: float = 0.0,
@@ -425,12 +428,33 @@ def evaluate_dewpoint_flush_gate(
         reasons.append("dewpoint_tail_span_missing")
     elif dewpoint_span > float(max_tail_span_c):
         reasons.append("dewpoint_tail_span_too_large")
-    if include_rebound_in_gate and bool(rebound.get("dewpoint_rebound_detected")):
+    dry_enough_threshold_c = safe_float(dry_enough_c)
+    dry_enough_required = bool(require_dry_enough)
+    dry_enough_passed = (
+        (not dry_enough_required)
+        or (
+            dewpoint_tail_reference_c is not None
+            and dry_enough_threshold_c is not None
+            and dewpoint_tail_reference_c <= dry_enough_threshold_c
+        )
+    )
+    if dry_enough_required and not dry_enough_passed:
+        reasons.append("dewpoint_tail_reference_not_dry_enough")
+    rebound_is_gate = bool(include_rebound_in_gate) and not bool(rebound_warning_only)
+    if rebound_is_gate and bool(rebound.get("dewpoint_rebound_detected")):
         reasons.append("dewpoint_rebound_detected")
     pressure_values = preferred_pressure_series(tail)
     pressure_std = pstdev(pressure_values) if len(pressure_values) >= 2 else None
     pressure_span = (max(pressure_values) - min(pressure_values)) if len(pressure_values) >= 2 else None
     gate_pass = not reasons
+    pass_reason = ""
+    if gate_pass:
+        pass_parts = ["tail_stable"]
+        if dry_enough_required:
+            pass_parts.append("dry_enough")
+        if bool(rebound_warning_only) and bool(rebound.get("dewpoint_rebound_detected")):
+            pass_parts.append("rebound_warning_only")
+        pass_reason = ";".join(pass_parts)
     return {
         "gate_pass": gate_pass,
         "gate_status": "pass" if gate_pass else "waiting",
@@ -454,9 +478,17 @@ def evaluate_dewpoint_flush_gate(
         "dewpoint_gate_tail_slope_c_per_min": (
             dewpoint_slope * 60.0 if dewpoint_slope is not None else None
         ),
+        "dewpoint_gate_tail_abs_slope_c_per_min": (
+            abs(dewpoint_slope) * 60.0 if dewpoint_slope is not None else None
+        ),
         "dewpoint_gate_tail_max_gap_s": dewpoint_tail_max_gap_s,
         "dewpoint_gate_tail_reference_method": method,
         "dewpoint_gate_tail_reference_c": dewpoint_tail_reference_c,
+        "dewpoint_gate_rebound_warning_only": bool(rebound_warning_only),
+        "dewpoint_gate_require_dry_enough": dry_enough_required,
+        "dewpoint_gate_dry_enough_c": dry_enough_threshold_c,
+        "dewpoint_gate_dry_enough_passed": bool(dry_enough_passed),
+        "dewpoint_gate_pass_reason": pass_reason,
         "pressure_tail_std_60s": pressure_std,
         "pressure_tail_span_60s": pressure_span,
         "vent_state_during_flush": "VENT_ON" if vent_on else "NOT_ALL_VENT_ON",

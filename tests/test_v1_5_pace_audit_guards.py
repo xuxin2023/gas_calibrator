@@ -261,6 +261,32 @@ def test_open_flow_until_preseal_raw_tap_blocks_state_changes(tmp_path: Path) ->
     assert summary["first_unexpected_thread"]
 
 
+def test_no_change_to_pace_or_valve_sequence(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path, cfg=_tap_cfg(tmp_path))
+    logger.set_workflow_stage("co2_open_flow")
+    logger.begin_pace_raw_tap_open_flow_until_preseal()
+    logger.log_raw_serial_tap(
+        port="COM23",
+        device_label="pace5000",
+        direction="WRITE",
+        raw_bytes=b":SOUR:PRES:LEV:IMM:AMPL:VENT 1\n",
+    )
+    logger.log_raw_serial_tap(
+        port="COM23",
+        device_label="pace5000",
+        direction="WRITE",
+        raw_bytes=b":SENS:PRES?\n",
+    )
+    summary = logger.end_pace_raw_tap_open_flow_until_preseal()
+    logger.close()
+
+    assert summary["vent1_write_count"] == 1
+    assert summary["readonly_query_count"] == 1
+    assert summary["unexpected_state_changing_write_count"] == 0
+    assert ":OUTP" not in str(summary)
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT 0" not in str(summary)
+
+
 def test_base_soak_boundary_audit_records_pace_commands(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path, cfg=_tap_cfg(tmp_path))
     begin_ts = "2000-01-01T00:00:00.000"

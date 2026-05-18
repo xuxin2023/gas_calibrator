@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import types
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -342,6 +343,178 @@ def test_dewpoint_gate_tail_reference_computed_from_gate_samples() -> None:
     assert gate["dewpoint_gate_tail_span_c"] == pytest.approx(0.04)
     assert gate["dewpoint_gate_tail_reference_method"] == "median"
     assert gate["dewpoint_gate_tail_reference_c"] == pytest.approx(-30.01)
+
+
+def _gate_rows(values: list[float], *, step_s: float = 5.0) -> list[dict]:
+    start = datetime(2026, 5, 18, 13, 45, 0)
+    return [
+        {
+            "timestamp": (start + timedelta(seconds=idx * step_s)).isoformat(timespec="milliseconds"),
+            "phase_elapsed_s": idx * step_s,
+            "controller_vent_state": "VENT_ON",
+            "dewpoint_c": value,
+        }
+        for idx, value in enumerate(values)
+    ]
+
+
+def test_limited_config_co2_base_soak_420s() -> None:
+    cfg_path = Path("configs/site_v1_5_no_write_current_hardware_co2_20c_1000ppm_limited_2sealed_skip_tempwait.json")
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    stability = cfg["workflow"]["stability"]
+
+    assert stability["co2_route"]["first_point_preseal_soak_s"] == 420
+    assert stability["gas_route_dewpoint_gate_rebound_warning_only"] is True
+    assert stability["gas_route_dewpoint_gate_require_dry_enough"] is True
+    assert stability["gas_route_dewpoint_gate_dry_enough_c"] == pytest.approx(-30.0)
+
+
+def test_dewpoint_gate_rebound_is_warning_not_terminal() -> None:
+    rows = _gate_rows(
+        [-35.00, -35.50, -34.20, -31.02, -31.01, -31.00, -31.01, -31.00, -31.01, -31.00]
+    )
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=24.0,
+        gate_window_s=30.0,
+        max_tail_span_c=0.35,
+        max_abs_tail_slope_c_per_s=0.005,
+        rebound_min_rise_c=1.0,
+        include_rebound_in_gate=True,
+        rebound_warning_only=True,
+        require_dry_enough=True,
+        dry_enough_c=-30.0,
+        min_tail_samples=3,
+        min_tail_coverage_ratio=0.8,
+        max_tail_gap_s=15.0,
+    )
+
+    assert gate["dewpoint_rebound_detected"] is True
+    assert gate["dewpoint_gate_rebound_warning_only"] is True
+    assert gate["gate_pass"] is True
+    assert gate["dewpoint_gate_pass_reason"] == "tail_stable;dry_enough;rebound_warning_only"
+
+
+def test_dewpoint_gate_passes_when_tail_stable_even_if_recent_values_slightly_rising() -> None:
+    rows = _gate_rows([-31.06, -31.05, -31.04, -31.03, -31.02, -31.01, -31.00])
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=24.0,
+        gate_window_s=30.0,
+        max_tail_span_c=0.35,
+        max_abs_tail_slope_c_per_s=0.005,
+        require_dry_enough=True,
+        dry_enough_c=-30.0,
+        min_tail_samples=3,
+        min_tail_coverage_ratio=0.8,
+        max_tail_gap_s=15.0,
+    )
+
+    assert gate["gate_pass"] is True
+    assert gate["dewpoint_gate_tail_reference_c"] <= -30.0
+    assert gate["dewpoint_gate_tail_abs_slope_c_per_min"] is not None
+
+
+def test_dewpoint_gate_requires_dry_enough_when_enabled() -> None:
+    rows = _gate_rows([-24.24, -24.23, -24.22, -24.23, -24.22, -24.21, -24.22])
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=24.0,
+        gate_window_s=30.0,
+        max_tail_span_c=0.35,
+        max_abs_tail_slope_c_per_s=0.005,
+        require_dry_enough=True,
+        dry_enough_c=-30.0,
+        min_tail_samples=3,
+        min_tail_coverage_ratio=0.8,
+        max_tail_gap_s=15.0,
+    )
+
+    assert gate["gate_pass"] is False
+    assert gate["dewpoint_gate_dry_enough_passed"] is False
+    assert "dewpoint_tail_reference_not_dry_enough" in gate["gate_reason"]
+
+
+def test_dewpoint_gate_passes_when_tail_reference_below_minus30_and_stable() -> None:
+    rows = _gate_rows([-30.30, -30.28, -30.27, -30.26, -30.25, -30.25, -30.24])
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=24.0,
+        gate_window_s=30.0,
+        max_tail_span_c=0.35,
+        max_abs_tail_slope_c_per_s=0.005,
+        require_dry_enough=True,
+        dry_enough_c=-30.0,
+        min_tail_samples=3,
+        min_tail_coverage_ratio=0.8,
+        max_tail_gap_s=15.0,
+    )
+
+    assert gate["gate_pass"] is True
+    assert gate["dewpoint_gate_dry_enough_passed"] is True
+    assert gate["dewpoint_gate_tail_reference_c"] <= -30.0
+
+
+def test_dewpoint_gate_still_rejects_insufficient_coverage() -> None:
+    rows = _gate_rows([-31.0, -31.0], step_s=5.0)
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=24.0,
+        gate_window_s=30.0,
+        require_dry_enough=True,
+        dry_enough_c=-30.0,
+        min_tail_samples=3,
+        min_tail_coverage_ratio=0.8,
+    )
+
+    assert gate["gate_pass"] is False
+    assert "dewpoint_tail_sample_count_insufficient" in gate["gate_reason"]
+    assert "dewpoint_tail_coverage_insufficient" in gate["gate_reason"]
+
+
+def test_dewpoint_gate_still_rejects_large_tail_span() -> None:
+    rows = _gate_rows([-31.0, -31.4, -31.1, -31.45, -31.05, -31.42, -31.06])
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=24.0,
+        gate_window_s=30.0,
+        max_tail_span_c=0.35,
+        max_abs_tail_slope_c_per_s=0.050,
+        require_dry_enough=True,
+        dry_enough_c=-30.0,
+        min_tail_samples=3,
+        min_tail_coverage_ratio=0.8,
+        max_tail_gap_s=15.0,
+    )
+
+    assert gate["gate_pass"] is False
+    assert "dewpoint_tail_span_too_large" in gate["gate_reason"]
+
+
+def test_dewpoint_gate_still_rejects_large_abs_slope() -> None:
+    rows = _gate_rows([-31.50, -31.45, -31.40, -31.35, -31.30, -31.25, -31.20])
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=24.0,
+        gate_window_s=30.0,
+        max_tail_span_c=0.60,
+        max_abs_tail_slope_c_per_s=0.005,
+        require_dry_enough=True,
+        dry_enough_c=-30.0,
+        min_tail_samples=3,
+        min_tail_coverage_ratio=0.8,
+        max_tail_gap_s=15.0,
+    )
+
+    assert gate["gate_pass"] is False
+    assert "dewpoint_tail_slope_too_large" in gate["gate_reason"]
 
 
 def test_preseal_rebound_uses_tail_reference_not_pass_snapshot(tmp_path: Path) -> None:

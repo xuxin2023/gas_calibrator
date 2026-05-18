@@ -214,9 +214,15 @@ _PRESSURE_TRACE_FIELDS = [
     "dewpoint_gate_tail_max_c",
     "dewpoint_gate_tail_span_c",
     "dewpoint_gate_tail_slope_c_per_min",
+    "dewpoint_gate_tail_abs_slope_c_per_min",
     "dewpoint_gate_tail_max_gap_s",
     "dewpoint_gate_tail_reference_method",
     "dewpoint_gate_tail_reference_c",
+    "dewpoint_gate_rebound_warning_only",
+    "dewpoint_gate_require_dry_enough",
+    "dewpoint_gate_dry_enough_c",
+    "dewpoint_gate_dry_enough_passed",
+    "dewpoint_gate_pass_reason",
     "open_flow_until_preseal_window_begin_ts",
     "open_flow_until_preseal_window_end_ts",
     "pace_write_count_total",
@@ -13911,6 +13917,15 @@ class CalibrationRunner:
                 0.0,
                 float(self._wf("workflow.stability.gas_route_dewpoint_gate_rebound_min_rise_c", 1.3) or 1.3),
             ),
+            "rebound_warning_only": bool(
+                self._wf("workflow.stability.gas_route_dewpoint_gate_rebound_warning_only", False)
+            ),
+            "require_dry_enough": bool(
+                self._wf("workflow.stability.gas_route_dewpoint_gate_require_dry_enough", False)
+            ),
+            "dry_enough_c": float(
+                self._wf("workflow.stability.gas_route_dewpoint_gate_dry_enough_c", -30.0) or -30.0
+            ),
             "log_interval_s": max(
                 1.0,
                 float(self._wf("workflow.stability.gas_route_dewpoint_gate_log_interval_s", 15.0) or 15.0),
@@ -14431,9 +14446,15 @@ class CalibrationRunner:
             "dewpoint_gate_tail_max_c",
             "dewpoint_gate_tail_span_c",
             "dewpoint_gate_tail_slope_c_per_min",
+            "dewpoint_gate_tail_abs_slope_c_per_min",
             "dewpoint_gate_tail_max_gap_s",
             "dewpoint_gate_tail_reference_method",
             "dewpoint_gate_tail_reference_c",
+            "dewpoint_gate_rebound_warning_only",
+            "dewpoint_gate_require_dry_enough",
+            "dewpoint_gate_dry_enough_c",
+            "dewpoint_gate_dry_enough_passed",
+            "dewpoint_gate_pass_reason",
         )
         fields = {key: gate_eval.get(key) for key in keys}
         fields["dewpoint_gate_coverage_s"] = gate_eval.get("dewpoint_gate_tail_coverage_s")
@@ -14575,6 +14596,9 @@ class CalibrationRunner:
                 rebound_window_s=float(cfg["rebound_window_s"]),
                 rebound_min_rise_c=float(cfg["rebound_min_rise_c"]),
                 include_rebound_in_gate=True,
+                rebound_warning_only=bool(cfg.get("rebound_warning_only")),
+                require_dry_enough=bool(cfg.get("require_dry_enough")),
+                dry_enough_c=self._as_float(cfg.get("dry_enough_c")),
                 min_tail_samples=int(cfg["tail_min_samples"]),
                 min_tail_coverage_ratio=float(cfg["tail_min_coverage_ratio"]),
                 max_tail_gap_s=float(cfg["tail_max_gap_s"]),
