@@ -138,7 +138,35 @@ _PRESSURE_TRACE_FIELDS = [
     "pace_status_oper_pres_even",
     "atmosphere_hold_stop_request_ts",
     "atmosphere_hold_stop_return_ts",
+    "atmosphere_hold_stop_thread_join_begin_ts",
+    "atmosphere_hold_stop_thread_join_return_ts",
+    "atmosphere_hold_thread_alive_after_stop",
     "atmosphere_hold_last_vent1_raw_ts",
+    "raw_last_vent1_before_stop_ts",
+    "raw_last_vent1_after_stop_ts",
+    "raw_last_vent1_used_for_vent0_gap_ts",
+    "last_vent1_to_vent0_gap_s",
+    "post_stop_new_vent1_count",
+    "post_stop_new_vent1_times",
+    "pre_vent0_quiet_gap_required_s",
+    "pre_vent0_quiet_gap_actual_s",
+    "pre_vent0_quiet_gap_max_s",
+    "pre_vent0_quiet_gap_waited_s",
+    "pre_vent0_quiet_gap_source",
+    "pre_vent0_require_no_new_vent1",
+    "pre_vent0_use_raw_tap_last_vent1",
+    "pre_vent0_quiet_gap_satisfied",
+    "pre_vent0_quiet_gap_timed_out",
+    "quiet_gap_interrupted_by_pressure",
+    "quiet_gap_pressure_hpa",
+    "quiet_gap_pressure_source",
+    "quiet_gap_pressure_trigger_hpa",
+    "quiet_gap_pressure_hard_limit_hpa",
+    "pre_vent0_vent_status_probe_enabled",
+    "pre_vent0_vent_status",
+    "pre_vent0_vent_status_probe_duration_s",
+    "pre_vent0_vent_status_in_progress",
+    "pre_vent0_vent_status_probe_error",
     "preseal_vent0_intent_ts",
     "preseal_vent0_raw_tx_ts",
     "preseal_vent0_raw_tx_minus_intent_s",
@@ -678,6 +706,15 @@ class CalibrationRunner:
         self._pressure_controller_runtime_conflict_decision = ""
         self._last_co2_route_baseline_fields: Dict[str, Any] = {}
         self._co2_open_flow_until_preseal_raw_tap_window_active = False
+        self._last_atmosphere_hold_stop_request_ts: Optional[float] = None
+        self._last_atmosphere_hold_stop_return_ts: Optional[float] = None
+        self._last_atmosphere_hold_stop_thread_join_begin_ts: Optional[float] = None
+        self._last_atmosphere_hold_stop_thread_join_return_ts: Optional[float] = None
+        self._last_atmosphere_hold_thread_alive_after_stop = False
+        self._last_atmosphere_hold_last_vent1_raw_ts = ""
+        self._last_atmosphere_hold_raw_last_vent1_before_stop_ts = ""
+        self._last_atmosphere_hold_raw_last_vent1_after_stop_ts = ""
+        self._last_pre_vent0_quiet_gap_fields: Dict[str, Any] = {}
 
     def _check_no_write_guard(self, operation: str) -> bool:
         if self._no_write_guard_enabled:
@@ -9656,6 +9693,23 @@ class CalibrationRunner:
     def _preseal_pressure_build_poll_s(self) -> float:
         return max(0.02, float(self._wf("workflow.pressure.preseal_pressure_build_poll_s", 0.1) or 0.1))
 
+    def _pre_vent0_quiet_gap_required_s(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.pre_vent0_quiet_gap_s", 2.0) or 0.0))
+
+    def _pre_vent0_quiet_gap_max_s(self) -> float:
+        required_s = self._pre_vent0_quiet_gap_required_s()
+        configured = self._wf("workflow.pressure.pre_vent0_quiet_gap_max_s", 3.0)
+        return max(required_s, max(0.0, float(configured or 0.0)))
+
+    def _pre_vent0_require_no_new_vent1(self) -> bool:
+        return self._as_bool(self._wf("workflow.pressure.pre_vent0_require_no_new_vent1", True), True)
+
+    def _pre_vent0_use_raw_tap_last_vent1(self) -> bool:
+        return self._as_bool(self._wf("workflow.pressure.pre_vent0_use_raw_tap_last_vent1", True), True)
+
+    def _pre_vent0_vent_status_probe_enabled(self) -> bool:
+        return self._as_bool(self._wf("workflow.pressure.pre_vent0_vent_status_probe_enabled", False), False)
+
     def _post_seal_vent_abort_clear_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.post_seal_vent_abort_clear_enabled", True))
 
@@ -10249,6 +10303,9 @@ class CalibrationRunner:
                 reason="before controlled CO2 preseal raw VENT0",
             ):
                 raise RuntimeError("ATMOSPHERE_HOLD_STOP_FAILED")
+            self._wait_pre_vent0_raw_tap_quiet_gap(pace)
+            vent0_command_ts = time.time()
+            self._mark_pre_vent0_command_sent(vent0_command_ts)
             pace.vent(False)
             set_isolation_open = getattr(pace, "set_isolation_open", None)
             if callable(set_isolation_open):
@@ -10382,6 +10439,239 @@ class CalibrationRunner:
         except Exception:
             return {}
 
+    def _latest_pace_raw_tap_vent1_evidence(self) -> Dict[str, Any]:
+        getter = getattr(self.logger, "latest_pace_raw_tap_vent1_evidence", None)
+        if not callable(getter):
+            return {}
+        try:
+            return dict(getter() or {})
+        except Exception:
+            return {}
+
+    def _raw_tap_vent1_enabled(self) -> bool:
+        enabled = False
+        enabled_fn = getattr(self.logger, "pace_raw_tap_enabled", None)
+        if callable(enabled_fn):
+            try:
+                enabled = bool(enabled_fn())
+            except Exception:
+                enabled = False
+        if enabled:
+            return True
+        evidence = self._latest_pace_raw_tap_vent1_evidence()
+        return bool(evidence.get("raw_tap_enabled"))
+
+    def _raw_tap_vent1_wall_ts(self, evidence: Optional[Mapping[str, Any]] = None) -> Tuple[str, Optional[float]]:
+        evidence_dict = dict(evidence or self._latest_pace_raw_tap_vent1_evidence())
+        raw_ts = str(evidence_dict.get("wall_ts") or "").strip()
+        return raw_ts, self._parse_iso_ts_to_wall_s(raw_ts)
+
+    @staticmethod
+    def _json_compact(value: Any) -> str:
+        try:
+            return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            return ""
+
+    def _post_stop_raw_tap_vent1_summary(self, begin_wall_s: Optional[float], end_wall_s: Optional[float]) -> Dict[str, Any]:
+        if begin_wall_s is None or end_wall_s is None:
+            return {}
+        begin_ts = self._iso_ts_from_wall(begin_wall_s)
+        end_ts = self._iso_ts_from_wall(end_wall_s)
+        summary = self._post_vent0_raw_tap_summary(begin_ts, end_ts)
+        times: List[str] = []
+        for key in ("vent1_times", "vent1_wall_ts_list", "vent1_wall_ts", "vent1_ts_list"):
+            raw_times = summary.get(key)
+            if isinstance(raw_times, str):
+                raw_times = [part for part in raw_times.replace(";", ",").split(",") if part.strip()]
+            if isinstance(raw_times, (list, tuple)):
+                times = [str(item).strip() for item in raw_times if str(item).strip()]
+                if times:
+                    break
+        latest_evidence = self._latest_pace_raw_tap_vent1_evidence()
+        latest_ts, latest_wall_s = self._raw_tap_vent1_wall_ts(latest_evidence)
+        if latest_wall_s is not None and latest_wall_s >= float(begin_wall_s) and latest_wall_s <= float(end_wall_s):
+            if latest_ts and latest_ts not in times:
+                times.append(latest_ts)
+            if int(summary.get("vent1_count") or 0) <= 0:
+                summary["vent1_count"] = 1
+        summary["vent1_times"] = times
+        return summary
+
+    def _pre_vent0_internal_last_vent1_wall_s(self, pace: Any) -> Tuple[str, Optional[float], str]:
+        candidates: List[Tuple[str, Optional[float], str]] = []
+        for attr, source in (
+            ("last_successful_vent1_ts", "atmosphere_hold_thread"),
+            ("_last_successful_vent1_ts", "atmosphere_hold_thread"),
+        ):
+            value = self._as_float(getattr(pace, attr, None))
+            if value is not None:
+                candidates.append((self._iso_ts_from_wall(value), float(value), source))
+        runner_ts = self._as_float(getattr(self, "_last_pressure_atmosphere_refresh_ts", None))
+        if runner_ts is not None and runner_ts > 0:
+            candidates.append((self._iso_ts_from_wall(runner_ts), float(runner_ts), "runner_internal"))
+        if not candidates:
+            return "", None, "unavailable"
+        return max(candidates, key=lambda item: float(item[1] or 0.0))
+
+    def _probe_pre_vent0_vent_status(self, pace: Any, fields: Dict[str, Any]) -> None:
+        enabled = self._pre_vent0_vent_status_probe_enabled()
+        fields["pre_vent0_vent_status_probe_enabled"] = bool(enabled)
+        fields["pre_vent0_vent_status"] = ""
+        fields["pre_vent0_vent_status_probe_duration_s"] = ""
+        fields["pre_vent0_vent_status_in_progress"] = False
+        fields["pre_vent0_vent_status_probe_error"] = ""
+        if not enabled:
+            return
+        getter = getattr(pace, "get_vent_status", None)
+        if not callable(getter):
+            fields["pre_vent0_vent_status_probe_error"] = "get_vent_status_unavailable"
+            return
+        start_s = time.time()
+        try:
+            status = self._as_int(getter())
+            fields["pre_vent0_vent_status"] = "" if status is None else status
+            fields["pre_vent0_vent_status_in_progress"] = status == 1
+        except Exception as exc:
+            fields["pre_vent0_vent_status_probe_error"] = str(exc)
+        finally:
+            fields["pre_vent0_vent_status_probe_duration_s"] = max(0.0, time.time() - start_s)
+
+    def _wait_pre_vent0_raw_tap_quiet_gap(self, pace: Any) -> None:
+        request_s = self._as_float(getattr(self, "_last_atmosphere_hold_stop_request_ts", None))
+        join_return_s = self._as_float(getattr(self, "_last_atmosphere_hold_stop_thread_join_return_ts", None))
+        start_s = time.time()
+        required_s = self._pre_vent0_quiet_gap_required_s()
+        max_s = self._pre_vent0_quiet_gap_max_s()
+        use_raw_tap = self._pre_vent0_use_raw_tap_last_vent1()
+        require_no_new = self._pre_vent0_require_no_new_vent1()
+        raw_enabled = bool(use_raw_tap and self._raw_tap_vent1_enabled())
+        before_raw_ts = str(getattr(self, "_last_atmosphere_hold_raw_last_vent1_before_stop_ts", "") or "")
+        after_raw_ts = str(getattr(self, "_last_atmosphere_hold_raw_last_vent1_after_stop_ts", "") or "")
+        latest_raw_ts, latest_raw_wall_s = self._raw_tap_vent1_wall_ts() if raw_enabled else ("", None)
+        internal_ts, internal_wall_s, internal_source = self._pre_vent0_internal_last_vent1_wall_s(pace)
+        if raw_enabled and latest_raw_wall_s is not None:
+            used_ts = latest_raw_ts
+            used_wall_s = latest_raw_wall_s
+            source = "raw_tap"
+        else:
+            used_ts = internal_ts
+            used_wall_s = internal_wall_s
+            source = internal_source
+        if used_wall_s is None:
+            used_wall_s = start_s
+            used_ts = self._iso_ts_from_wall(used_wall_s)
+            source = "stop_return"
+
+        pressure_trigger_hpa = self._preseal_pressure_build_trigger_hpa()
+        pressure_hard_limit_hpa = self._preseal_pressure_build_hard_limit_hpa()
+        pressure_poll_s = min(self._preseal_pressure_build_poll_s(), 0.1)
+        deadline_s = start_s + max_s
+        virtual_now_s = start_s
+        waited_s = 0.0
+        interrupted_by_pressure = False
+        timed_out = False
+        pressure_value: Optional[float] = None
+        pressure_source = "unavailable"
+        post_stop_summary: Dict[str, Any] = {}
+
+        while True:
+            now_s = time.time()
+            virtual_now_s = max(virtual_now_s, now_s)
+            if raw_enabled and require_no_new:
+                raw_ts_now, raw_wall_now = self._raw_tap_vent1_wall_ts()
+                if raw_wall_now is not None and raw_wall_now > float(used_wall_s) + 1e-6:
+                    used_wall_s = raw_wall_now
+                    used_ts = raw_ts_now
+                    source = "raw_tap"
+            actual_gap_s = max(0.0, virtual_now_s - float(used_wall_s))
+            if actual_gap_s >= required_s:
+                break
+            observation = self._read_preseal_pressure_build_observation()
+            pressure_now = self._as_float(observation.get("pressure_hpa"))
+            if pressure_now is not None:
+                pressure_value = pressure_now
+                pressure_source = str(observation.get("pressure_source") or "unavailable")
+                if pressure_now >= pressure_trigger_hpa or pressure_now >= pressure_hard_limit_hpa:
+                    interrupted_by_pressure = True
+                    break
+            if virtual_now_s >= deadline_s:
+                timed_out = True
+                break
+            sleep_s = min(pressure_poll_s, max(0.0, required_s - actual_gap_s), max(0.0, deadline_s - virtual_now_s))
+            if sleep_s <= 0:
+                timed_out = True
+                break
+            time.sleep(sleep_s)
+            waited_s += sleep_s
+            virtual_now_s += sleep_s
+
+        end_s = time.time()
+        if raw_enabled and request_s is not None:
+            post_stop_summary = self._post_stop_raw_tap_vent1_summary(request_s, end_s)
+        post_stop_times = list(post_stop_summary.get("vent1_times") or [])
+        post_stop_count = int(post_stop_summary.get("vent1_count") or 0)
+        if not post_stop_times and after_raw_ts:
+            after_wall = self._parse_iso_ts_to_wall_s(after_raw_ts)
+            if after_wall is not None and request_s is not None and after_wall >= request_s:
+                post_stop_times = [after_raw_ts]
+                post_stop_count = max(post_stop_count, 1)
+        if raw_enabled and request_s is not None and float(used_wall_s) >= float(request_s):
+            after_raw_ts = used_ts
+            self._last_atmosphere_hold_raw_last_vent1_after_stop_ts = after_raw_ts
+            self._last_atmosphere_hold_last_vent1_raw_ts = after_raw_ts
+        actual_gap_s = max(0.0, max(end_s, virtual_now_s) - float(used_wall_s))
+        self._last_pre_vent0_quiet_gap_fields = {
+            "atmosphere_hold_stop_request_ts": self._iso_ts_from_wall(request_s),
+            "atmosphere_hold_stop_return_ts": self._iso_ts_from_wall(
+                getattr(self, "_last_atmosphere_hold_stop_return_ts", None)
+            ),
+            "atmosphere_hold_stop_thread_join_begin_ts": self._iso_ts_from_wall(
+                getattr(self, "_last_atmosphere_hold_stop_thread_join_begin_ts", None)
+            ),
+            "atmosphere_hold_stop_thread_join_return_ts": self._iso_ts_from_wall(join_return_s),
+            "atmosphere_hold_thread_alive_after_stop": bool(
+                getattr(self, "_last_atmosphere_hold_thread_alive_after_stop", False)
+            ),
+            "atmosphere_hold_last_vent1_raw_ts": str(getattr(self, "_last_atmosphere_hold_last_vent1_raw_ts", "") or ""),
+            "raw_last_vent1_before_stop_ts": before_raw_ts,
+            "raw_last_vent1_after_stop_ts": after_raw_ts,
+            "raw_last_vent1_used_for_vent0_gap_ts": used_ts,
+            "last_vent1_to_vent0_gap_s": "",
+            "post_stop_new_vent1_count": post_stop_count,
+            "post_stop_new_vent1_times": self._json_compact(post_stop_times),
+            "pre_vent0_quiet_gap_required_s": required_s,
+            "pre_vent0_quiet_gap_actual_s": actual_gap_s,
+            "pre_vent0_quiet_gap_max_s": max_s,
+            "pre_vent0_quiet_gap_waited_s": waited_s,
+            "pre_vent0_quiet_gap_source": source,
+            "pre_vent0_require_no_new_vent1": bool(require_no_new),
+            "pre_vent0_use_raw_tap_last_vent1": bool(use_raw_tap),
+            "pre_vent0_quiet_gap_satisfied": bool(actual_gap_s >= required_s),
+            "pre_vent0_quiet_gap_timed_out": bool(timed_out),
+            "quiet_gap_interrupted_by_pressure": bool(interrupted_by_pressure),
+            "quiet_gap_pressure_hpa": pressure_value,
+            "quiet_gap_pressure_source": pressure_source,
+            "quiet_gap_pressure_trigger_hpa": pressure_trigger_hpa,
+            "quiet_gap_pressure_hard_limit_hpa": pressure_hard_limit_hpa,
+        }
+        self._probe_pre_vent0_vent_status(pace, self._last_pre_vent0_quiet_gap_fields)
+
+    def _mark_pre_vent0_command_sent(self, vent0_command_ts: float) -> None:
+        self._last_vent0_command_ts = float(vent0_command_ts)
+        fields = dict(getattr(self, "_last_pre_vent0_quiet_gap_fields", {}) or {})
+        used_wall_s = self._parse_iso_ts_to_wall_s(fields.get("raw_last_vent1_used_for_vent0_gap_ts"))
+        if used_wall_s is not None:
+            gap_s = max(0.0, float(vent0_command_ts) - float(used_wall_s))
+            fields["last_vent1_to_vent0_gap_s"] = gap_s
+            fields["pre_vent0_quiet_gap_actual_s"] = max(
+                self._as_float(fields.get("pre_vent0_quiet_gap_actual_s")) or 0.0,
+                gap_s,
+            )
+            required_s = self._as_float(fields.get("pre_vent0_quiet_gap_required_s")) or 0.0
+            fields["pre_vent0_quiet_gap_satisfied"] = bool(gap_s >= required_s)
+        self._last_pre_vent0_quiet_gap_fields = fields
+
     def _post_vent0_pressure_build_observed(
         self,
         pace_timeline: List[Dict[str, Any]],
@@ -10495,8 +10785,23 @@ class CalibrationRunner:
             "atmosphere_hold_stop_return_ts": self._iso_ts_from_wall(
                 getattr(self, "_last_atmosphere_hold_stop_return_ts", None)
             ),
+            "atmosphere_hold_stop_thread_join_begin_ts": self._iso_ts_from_wall(
+                getattr(self, "_last_atmosphere_hold_stop_thread_join_begin_ts", None)
+            ),
+            "atmosphere_hold_stop_thread_join_return_ts": self._iso_ts_from_wall(
+                getattr(self, "_last_atmosphere_hold_stop_thread_join_return_ts", None)
+            ),
+            "atmosphere_hold_thread_alive_after_stop": bool(
+                getattr(self, "_last_atmosphere_hold_thread_alive_after_stop", False)
+            ),
             "atmosphere_hold_last_vent1_raw_ts": str(
                 getattr(self, "_last_atmosphere_hold_last_vent1_raw_ts", "") or ""
+            ),
+            "raw_last_vent1_before_stop_ts": str(
+                getattr(self, "_last_atmosphere_hold_raw_last_vent1_before_stop_ts", "") or ""
+            ),
+            "raw_last_vent1_after_stop_ts": str(
+                getattr(self, "_last_atmosphere_hold_raw_last_vent1_after_stop_ts", "") or ""
             ),
             "preseal_vent0_intent_ts": self._iso_ts_from_wall(vent0_intent_ts),
             "preseal_vent0_raw_tx_ts": raw_tx_ts,
@@ -10524,6 +10829,7 @@ class CalibrationRunner:
             "pre_route_close_probe_count": int(pre_route_close_probe_count),
             "post_route_close_probe_count": int(post_route_close_probe_count),
         }
+        fields.update(dict(getattr(self, "_last_pre_vent0_quiet_gap_fields", {}) or {}))
         return fields
 
     def _record_vent0_state_evidence(
@@ -11870,6 +12176,10 @@ class CalibrationRunner:
 
     def _stop_pressure_controller_atmosphere_hold(self, pace: Any, *, reason: str = "") -> bool:
         self._last_atmosphere_hold_stop_request_ts = time.time()
+        self._last_atmosphere_hold_stop_return_ts = None
+        self._last_atmosphere_hold_stop_thread_join_begin_ts = None
+        self._last_atmosphere_hold_stop_thread_join_return_ts = None
+        self._last_atmosphere_hold_thread_alive_after_stop = False
         vent1_evidence: Dict[str, Any] = {}
         latest_vent1 = getattr(self.logger, "latest_pace_raw_tap_vent1_evidence", None)
         if callable(latest_vent1):
@@ -11878,22 +12188,40 @@ class CalibrationRunner:
             except Exception:
                 vent1_evidence = {}
         self._last_atmosphere_hold_last_vent1_raw_ts = str(vent1_evidence.get("wall_ts") or "")
-        self._last_atmosphere_hold_stop_return_ts = None
+        self._last_atmosphere_hold_raw_last_vent1_before_stop_ts = str(vent1_evidence.get("wall_ts") or "")
+        self._last_atmosphere_hold_raw_last_vent1_after_stop_ts = ""
         stop_hold = getattr(pace, "stop_atmosphere_hold", None)
         if callable(stop_hold):
             try:
+                self._last_atmosphere_hold_stop_thread_join_begin_ts = time.time()
                 result = stop_hold()
-                self._last_atmosphere_hold_stop_return_ts = time.time()
+                self._last_atmosphere_hold_stop_thread_join_return_ts = time.time()
                 if result is False:
+                    self._last_atmosphere_hold_stop_return_ts = time.time()
                     self.log(f"Pressure controller atmosphere hold stop failed ({reason or 'no reason'}): join timeout")
                     return False
             except Exception as exc:
+                self._last_atmosphere_hold_stop_thread_join_return_ts = time.time()
                 self._last_atmosphere_hold_stop_return_ts = time.time()
                 self.log(f"Pressure controller atmosphere hold stop failed ({reason or 'no reason'}): {exc}")
                 return False
         else:
-            self._last_atmosphere_hold_stop_return_ts = time.time()
-        if self._pressure_controller_hold_thread_active(pace):
+            now = time.time()
+            self._last_atmosphere_hold_stop_thread_join_begin_ts = now
+            self._last_atmosphere_hold_stop_thread_join_return_ts = now
+        after_vent1_evidence: Dict[str, Any] = {}
+        if callable(latest_vent1):
+            try:
+                after_vent1_evidence = dict(latest_vent1() or {})
+            except Exception:
+                after_vent1_evidence = {}
+        self._last_atmosphere_hold_raw_last_vent1_after_stop_ts = str(after_vent1_evidence.get("wall_ts") or "")
+        if self._last_atmosphere_hold_raw_last_vent1_after_stop_ts:
+            self._last_atmosphere_hold_last_vent1_raw_ts = self._last_atmosphere_hold_raw_last_vent1_after_stop_ts
+        hold_alive = self._pressure_controller_hold_thread_active(pace)
+        self._last_atmosphere_hold_thread_alive_after_stop = bool(hold_alive)
+        self._last_atmosphere_hold_stop_return_ts = time.time()
+        if hold_alive:
             self.log(f"Pressure controller atmosphere hold still active ({reason or 'no reason'})")
             return False
         return True
@@ -19740,6 +20068,7 @@ class CalibrationRunner:
                     defer_evidence_until_after_route_close=True,
                 ):
                     return False
+                vent0_command_ts = self._last_vent0_command_ts or vent0_command_ts
                 vent0_raw_response = "controlled_verified_exit_ok"
             else:
                 vent0_raw_response = self._set_pressure_controller_vent(False, reason=vent_off_reason)

@@ -169,6 +169,27 @@ class DriverNoPollPace(FakePace):
         return self.vent_status
 
 
+class LingeringHoldPace(FakePace):
+    def stop_atmosphere_hold(self) -> bool:
+        self.calls.append(("stop_hold",))
+        return True
+
+    def is_atmosphere_hold_active(self) -> bool:
+        return True
+
+
+class ProbeFailOncePace(FakePace):
+    def __init__(self) -> None:
+        super().__init__()
+        self.vent_status_read_count = 0
+
+    def get_vent_status(self) -> int:
+        self.vent_status_read_count += 1
+        if self.vent_status_read_count == 1:
+            raise TimeoutError("VENT? probe timeout")
+        return self.vent_status
+
+
 class FakeStdin:
     def __init__(self, text: str = "", *, interactive: bool = True) -> None:
         self.text = text
@@ -266,6 +287,57 @@ class PostVent0RawTapLogger(FakeLogger):
         }
 
 
+class QuietGapRawTapLogger(FakeLogger):
+    def __init__(
+        self,
+        *,
+        latest_wall_s: float,
+        sequence_wall_s: list[float] | None = None,
+        post_stop_count: int = 0,
+        vent0_wall_ts: float | None = None,
+    ) -> None:
+        self.enabled = True
+        self.latest_wall_s = float(latest_wall_s)
+        self.sequence_wall_s = list(sequence_wall_s or [])
+        self.post_stop_count = int(post_stop_count)
+        self.vent0_wall_ts = vent0_wall_ts
+
+    def pace_raw_tap_enabled(self) -> bool:
+        return self.enabled
+
+    def latest_pace_raw_tap_vent1_evidence(self) -> dict:
+        if self.sequence_wall_s:
+            self.latest_wall_s = float(self.sequence_wall_s.pop(0))
+        return {
+            "raw_tap_enabled": True,
+            "wall_ts": datetime.fromtimestamp(self.latest_wall_s).isoformat(timespec="milliseconds"),
+            "monotonic_ts": f"{time.monotonic():.9f}",
+            "decoded_command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
+            "thread_name": "pace5000-vent-hold-COM23",
+        }
+
+    def latest_pace_raw_tap_vent0_evidence(self) -> dict:
+        wall_s = self.vent0_wall_ts if self.vent0_wall_ts is not None else time.time()
+        return {
+            "raw_tap_enabled": True,
+            "wall_ts": datetime.fromtimestamp(float(wall_s)).isoformat(timespec="milliseconds"),
+            "monotonic_ts": f"{time.monotonic():.9f}",
+            "decoded_command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
+            "thread_name": "MainThread",
+        }
+
+    def summarize_pace_raw_tap_window(self, _begin_ts, _end_ts) -> dict:
+        latest_ts = datetime.fromtimestamp(self.latest_wall_s).isoformat(timespec="milliseconds")
+        return {
+            "vent1_count": self.post_stop_count,
+            "vent1_times": [latest_ts] if self.post_stop_count else [],
+            "vent0_count": 1,
+            "outp1_count": 0,
+            "setpoint_sour_pres_count": 0,
+            "unexpected_state_changing_write_count": 0,
+        }
+
+
 def _controlled_cfg(pressure_overrides: dict | None = None) -> dict:
     pressure = {
         "no_outp_transition_mode": True,
@@ -290,6 +362,11 @@ def _controlled_cfg(pressure_overrides: dict | None = None) -> dict:
         "controlled_output_confirm_timeout_s": 0.05,
         "controlled_output_confirm_poll_s": 0.01,
         "pressure_trace_poll_s": 0.01,
+        "pre_vent0_quiet_gap_s": 0.0,
+        "pre_vent0_quiet_gap_max_s": 0.0,
+        "pre_vent0_require_no_new_vent1": True,
+        "pre_vent0_use_raw_tap_last_vent1": True,
+        "pre_vent0_vent_status_probe_enabled": False,
     }
     pressure.update(pressure_overrides or {})
     return {
@@ -734,6 +811,159 @@ def test_controlled_exit_uses_direct_vent0_before_route_close(monkeypatch) -> No
     assert "operator_window_check_begin" in stages
     assert "operator_window_check_result" in stages
     assert "controlled_exit_atmosphere_pass" in stages
+
+
+def test_hold_stop_waits_for_thread_or_records_alive() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pace=LingeringHoldPace(),
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
+    )
+
+    assert runner._stop_pressure_controller_atmosphere_hold(pace, reason="unit-test") is False
+
+    assert runner._last_atmosphere_hold_stop_request_ts is not None
+    assert runner._last_atmosphere_hold_stop_thread_join_begin_ts is not None
+    assert runner._last_atmosphere_hold_stop_thread_join_return_ts is not None
+    assert runner._last_atmosphere_hold_thread_alive_after_stop is True
+    assert runner._last_atmosphere_hold_raw_last_vent1_before_stop_ts
+    assert runner._last_atmosphere_hold_raw_last_vent1_after_stop_ts
+
+
+def test_pre_vent0_uses_raw_tap_last_vent1() -> None:
+    now_s = time.time()
+    raw_wall_s = now_s - 0.01
+    runner, pace, _, _ = _runner(
+        pace=HoldThreadEvidencePace(age_s=30.0),
+        pressure_overrides={"pre_vent0_quiet_gap_s": 0.0, "pre_vent0_quiet_gap_max_s": 0.0},
+        logger=QuietGapRawTapLogger(latest_wall_s=raw_wall_s),
+    )
+    runner._last_atmosphere_hold_stop_request_ts = now_s - 0.5
+    runner._last_atmosphere_hold_stop_thread_join_return_ts = now_s - 0.4
+    runner._last_atmosphere_hold_stop_return_ts = now_s - 0.4
+    runner._last_atmosphere_hold_raw_last_vent1_before_stop_ts = datetime.fromtimestamp(now_s - 30.0).isoformat(
+        timespec="milliseconds"
+    )
+    runner._last_atmosphere_hold_raw_last_vent1_after_stop_ts = datetime.fromtimestamp(raw_wall_s).isoformat(
+        timespec="milliseconds"
+    )
+
+    runner._wait_pre_vent0_raw_tap_quiet_gap(pace)
+
+    fields = runner._last_pre_vent0_quiet_gap_fields
+    assert fields["pre_vent0_quiet_gap_source"] == "raw_tap"
+    assert fields["raw_last_vent1_used_for_vent0_gap_ts"] == datetime.fromtimestamp(raw_wall_s).isoformat(
+        timespec="milliseconds"
+    )
+    assert fields["raw_last_vent1_used_for_vent0_gap_ts"] != fields["raw_last_vent1_before_stop_ts"]
+
+
+def test_pre_vent0_waits_quiet_gap_after_raw_last_vent1() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pressure_overrides={"pre_vent0_quiet_gap_s": 0.03, "pre_vent0_quiet_gap_max_s": 0.05},
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.005),
+    )
+    runner._last_atmosphere_hold_stop_request_ts = now_s - 0.5
+    runner._last_atmosphere_hold_stop_thread_join_return_ts = now_s - 0.4
+    runner._last_atmosphere_hold_stop_return_ts = now_s - 0.4
+
+    runner._wait_pre_vent0_raw_tap_quiet_gap(pace)
+
+    fields = runner._last_pre_vent0_quiet_gap_fields
+    assert fields["pre_vent0_quiet_gap_actual_s"] >= 0.025
+    assert fields["pre_vent0_quiet_gap_satisfied"] is True
+
+
+def test_pre_vent0_quiet_gap_resets_if_new_vent1_after_stop() -> None:
+    now_s = time.time()
+    later_wall_s = now_s + 0.005
+    runner, pace, _, _ = _runner(
+        pressure_overrides={"pre_vent0_quiet_gap_s": 0.02, "pre_vent0_quiet_gap_max_s": 0.05},
+        logger=QuietGapRawTapLogger(
+            latest_wall_s=now_s - 0.02,
+            sequence_wall_s=[now_s - 0.02, later_wall_s],
+            post_stop_count=1,
+        ),
+    )
+    runner._last_atmosphere_hold_stop_request_ts = now_s - 0.5
+    runner._last_atmosphere_hold_stop_thread_join_return_ts = now_s - 0.4
+    runner._last_atmosphere_hold_stop_return_ts = now_s - 0.4
+
+    runner._wait_pre_vent0_raw_tap_quiet_gap(pace)
+
+    fields = runner._last_pre_vent0_quiet_gap_fields
+    assert fields["raw_last_vent1_used_for_vent0_gap_ts"] == datetime.fromtimestamp(later_wall_s).isoformat(
+        timespec="milliseconds"
+    )
+    assert fields["post_stop_new_vent1_count"] == 1
+    assert fields["pre_vent0_quiet_gap_actual_s"] >= 0.015
+
+
+def test_pre_vent0_quiet_gap_interrupted_by_pressure_safety(monkeypatch) -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        gauge=FakeGauge([1200.0, 1200.0, 1200.0]),
+        pressure_overrides={"pre_vent0_quiet_gap_s": 2.0, "pre_vent0_quiet_gap_max_s": 3.0},
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.01),
+    )
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(
+        _co2_point(),
+        route="co2",
+        sealed_control_refs=[_co2_point()],
+    ) is False
+
+    fields = _last_stage_fields(runner, "controlled_outp_vent0_fixed_wait_before_seal")
+    assert fields["quiet_gap_interrupted_by_pressure"] is True
+    assert fields["quiet_gap_pressure_hpa"] == pytest.approx(1200.0)
+    assert ("vent", False) in pace.calls
+    runner._apply_valve_states.assert_called_once_with([])
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_PRESEAL_PRESSURE_BUILD_HARD_LIMIT"
+
+
+def test_pre_vent0_quiet_gap_does_not_cancel_open_flow_keepalive() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pressure_overrides={"pre_vent0_quiet_gap_s": 0.0, "pre_vent0_quiet_gap_max_s": 0.0},
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
+    )
+
+    assert runner._set_co2_route_baseline(reason="unit open-flow") is True
+    assert ("vent", True) in pace.calls
+    assert ("start_hold", 2.0) in pace.calls
+
+    assert runner._stop_pressure_controller_atmosphere_hold(pace, reason="unit pre-VENT0") is True
+    runner._wait_pre_vent0_raw_tap_quiet_gap(pace)
+
+    assert ("start_hold", 2.0) in pace.calls
+    assert ("vent", False) not in pace.calls
+
+
+def test_pre_vent0_optional_vent_status_probe_does_not_block_route_close() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pace=ProbeFailOncePace(),
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 0.0,
+            "pre_vent0_quiet_gap_max_s": 0.0,
+            "pre_vent0_vent_status_probe_enabled": True,
+        },
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
+    )
+    assert runner._stop_pressure_controller_atmosphere_hold(pace, reason="unit pre-VENT0") is True
+
+    runner._wait_pre_vent0_raw_tap_quiet_gap(pace)
+    vent0_ts = time.time()
+    runner._mark_pre_vent0_command_sent(vent0_ts)
+    pace.vent(False)
+
+    fields = runner._last_pre_vent0_quiet_gap_fields
+    assert fields["pre_vent0_vent_status_probe_enabled"] is True
+    assert "VENT? probe timeout" in fields["pre_vent0_vent_status_probe_error"]
+    assert ("vent", False) in pace.calls
 
 
 def test_driver_exit_does_not_send_outp1_before_seal() -> None:
@@ -1255,6 +1485,29 @@ def test_control_ready_blocks_outp1_when_vent3_persists_after_clear(monkeypatch)
     assert ("vent", True) not in pace.calls
 
 
+def test_vent3_after_clear_still_blocks_outp1(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        pace=Vent3PersistPace(),
+        gauge=FakeGauge([1112.0, 1112.0]),
+        logger=PostVent0RawTapLogger(vent1_count=0),
+    )
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(
+        _co2_point(),
+        route="co2",
+        sealed_control_refs=[_co2_point()],
+    ) is True
+    assert runner._set_pressure_to_target(_co2_point()) is False
+
+    fields = _last_stage_fields(runner, "control_ready_failed")
+    assert fields["outp1_blocked_reason"] == "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_BEFORE_CONTROL"
+    assert ("enable_control_output",) not in pace.calls
+    assert ("setpoint", 1100.0) not in pace.calls
+    assert ("vent", True) not in pace.calls
+
+
 def test_control_ready_allows_outp1_when_vent_clear_returns_zero(monkeypatch) -> None:
     runner, pace, _, _ = _runner(
         pace=Vent3ThenClearPace(),
@@ -1295,6 +1548,25 @@ def test_post_seal_clear_never_sends_vent1(monkeypatch) -> None:
     ) is True
 
     assert ("vent", True) not in pace.calls
+
+
+def test_no_vent1_in_sealed_stage(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        pace=Vent3PersistPace(),
+        gauge=FakeGauge([1112.0, 1112.0]),
+        logger=PostVent0RawTapLogger(vent1_count=0),
+    )
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(
+        _co2_point(),
+        route="co2",
+        sealed_control_refs=[_co2_point()],
+    ) is True
+
+    route_close_index = next(i for i, call in enumerate(pace.calls) if call == ("vent", False))
+    assert ("vent", True) not in pace.calls[route_close_index + 1 :]
 
 
 def test_sampling_not_started_when_control_ready_blocks(monkeypatch) -> None:
