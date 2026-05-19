@@ -244,6 +244,20 @@ _PRESSURE_TRACE_FIELDS = [
     "route_close_pressure_source",
     "route_close_timeout_without_pressure_trigger",
     "preseal_pressure_build_hard_limit_hit",
+    "route_close_ts",
+    "setpoint_first_tx_ts",
+    "outp1_first_tx_ts",
+    "route_close_to_setpoint_s",
+    "route_close_to_outp1_s",
+    "sealed_passive_window_s",
+    "sealed_passive_state",
+    "sealed_passive_exceeded",
+    "sealed_passive_blocking_stage",
+    "first_dewpoint_after_route_close",
+    "dewpoint_at_setpoint",
+    "dewpoint_at_outp1",
+    "dewpoint_rise_before_outp1",
+    "probable_air_ingress_during_sealed_passive",
     "post_seal_vent_abort_clear_enabled",
     "post_seal_vent_abort_clear_sent",
     "post_seal_vent_abort_clear_raw_tx_ts",
@@ -701,6 +715,9 @@ class CalibrationRunner:
         self._co2_sealed_no_vent_guard_context: Optional[Dict[str, Any]] = None
         self._controlled_outp_sealed_output_enabled = False
         self._last_vent0_command_ts: Optional[float] = None
+        self._last_route_close_ts: Optional[float] = None
+        self._sealed_first_setpoint_tx_ts: Optional[float] = None
+        self._sealed_first_outp1_tx_ts: Optional[float] = None
         self._no_write_guard_enabled = True
         self._attempted_write_count = 0
         self._identity_write_command_sent = False
@@ -9741,6 +9758,140 @@ class CalibrationRunner:
                 values.add(parsed)
         return values or {0, 2}
 
+    def _sealed_passive_deadline_enabled(self) -> bool:
+        if not self._controlled_outp_transition():
+            return False
+        if not self._as_bool(self._wf("workflow.collect_only", False), False):
+            return False
+        return self._as_bool(self._wf("workflow.pressure.fail_if_sealed_passive_exceeds_max", True), True)
+
+    def _sealed_passive_max_s(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.sealed_passive_max_s", 3.0) or 0.0))
+
+    def _route_close_to_outp1_max_s(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.route_close_to_outp1_max_s", 5.0) or 0.0))
+
+    def _route_close_to_setpoint_max_s(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.route_close_to_setpoint_max_s", 3.0) or 0.0))
+
+    def _sealed_route_close_wall_ts(self) -> Optional[float]:
+        if self._last_route_close_ts is not None:
+            return self._as_float(self._last_route_close_ts)
+        context = self._sealed_sweep_context_for_counters()
+        if isinstance(context, dict):
+            return self._as_float(context.get("route_close_wall_ts") or context.get("activated_wall_ts"))
+        return None
+
+    def _sealed_passive_state_for_trace(
+        self,
+        snapshot: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        state = dict(snapshot or {})
+        context = self._sealed_sweep_context_for_counters()
+        return {
+            "OUTP": self._as_int(state.get("pace_output_state")),
+            "ISOL": self._as_int(state.get("pace_isolation_state")),
+            "VENT?": self._as_int(state.get("pace_vent_status")),
+            "route_valves": self._cached_actual_open_valves(),
+            "sealed_vent1_count": int(context.get("sealed_vent1_count") or 0) if isinstance(context, dict) else 0,
+            "setpoint_first_tx_ts": self._iso_ts_from_wall(self._sealed_first_setpoint_tx_ts),
+            "outp1_first_tx_ts": self._iso_ts_from_wall(self._sealed_first_outp1_tx_ts),
+        }
+
+    def _sealed_passive_trace_fields(
+        self,
+        *,
+        blocking_stage: str = "",
+        snapshot: Optional[Mapping[str, Any]] = None,
+        now_s: Optional[float] = None,
+        exceeded: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        now_value = time.time() if now_s is None else float(now_s)
+        route_close_s = self._sealed_route_close_wall_ts()
+        setpoint_s = self._as_float(self._sealed_first_setpoint_tx_ts)
+        outp1_s = self._as_float(self._sealed_first_outp1_tx_ts)
+        passive_end_s = setpoint_s if setpoint_s is not None else now_value
+        passive_window_s = None
+        route_close_to_setpoint_s = None
+        route_close_to_outp1_s = None
+        if route_close_s is not None:
+            passive_window_s = max(0.0, passive_end_s - float(route_close_s))
+            if setpoint_s is not None:
+                route_close_to_setpoint_s = max(0.0, setpoint_s - float(route_close_s))
+            if outp1_s is not None:
+                route_close_to_outp1_s = max(0.0, outp1_s - float(route_close_s))
+        passive_exceeded = (
+            bool(exceeded)
+            if exceeded is not None
+            else bool(
+                passive_window_s is not None
+                and setpoint_s is None
+                and passive_window_s > self._sealed_passive_max_s()
+            )
+        )
+        first_dewpoint = self._as_float(dict(self._preseal_dewpoint_snapshot or {}).get("dewpoint_c"))
+        dewpoint_at_setpoint = first_dewpoint if setpoint_s is not None else ""
+        dewpoint_at_outp1 = first_dewpoint if outp1_s is not None else ""
+        dewpoint_rise = None
+        if (
+            first_dewpoint is not None
+            and isinstance(dewpoint_at_outp1, (float, int))
+        ):
+            dewpoint_rise = float(dewpoint_at_outp1) - float(first_dewpoint)
+        return {
+            "route_close_ts": self._iso_ts_from_wall(route_close_s),
+            "setpoint_first_tx_ts": self._iso_ts_from_wall(setpoint_s),
+            "outp1_first_tx_ts": self._iso_ts_from_wall(outp1_s),
+            "route_close_to_setpoint_s": route_close_to_setpoint_s,
+            "route_close_to_outp1_s": route_close_to_outp1_s,
+            "sealed_passive_window_s": passive_window_s,
+            "sealed_passive_state": self._trace_json(self._sealed_passive_state_for_trace(snapshot)),
+            "sealed_passive_exceeded": passive_exceeded,
+            "sealed_passive_blocking_stage": str(blocking_stage or ""),
+            "first_dewpoint_after_route_close": first_dewpoint if first_dewpoint is not None else "",
+            "dewpoint_at_setpoint": dewpoint_at_setpoint,
+            "dewpoint_at_outp1": dewpoint_at_outp1,
+            "dewpoint_rise_before_outp1": dewpoint_rise if dewpoint_rise is not None else "",
+            "probable_air_ingress_during_sealed_passive": bool(
+                dewpoint_rise is not None and dewpoint_rise > 3.0
+            ),
+        }
+
+    def _sealed_passive_deadline_allows(
+        self,
+        point: CalibrationPoint,
+        *,
+        stage: str,
+        max_s: float,
+        pressure_target_hpa: Optional[float],
+        snapshot: Optional[Mapping[str, Any]] = None,
+    ) -> bool:
+        if not self._sealed_passive_deadline_enabled():
+            return True
+        route_close_s = self._sealed_route_close_wall_ts()
+        if route_close_s is None:
+            return True
+        elapsed_s = max(0.0, time.time() - float(route_close_s))
+        if elapsed_s <= float(max_s) + 1e-9:
+            return True
+        fields = self._sealed_passive_trace_fields(
+            blocking_stage=stage,
+            snapshot=snapshot,
+            exceeded=True,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="sealed_passive_deadline_exceeded",
+            pressure_target_hpa=pressure_target_hpa,
+            refresh_pace_state=False,
+            extra_fields=self._sealed_sweep_trace_extra(fields),
+            note=f"{stage} exceeded {max_s:.3f}s after route close; fail closed before control",
+        )
+        self._controlled_exit_final_decision = "FAIL_CLOSED_SEALED_PASSIVE_DWELL_EXCEEDED_BEFORE_CONTROL"
+        return False
+
     def _post_seal_vent_abort_clear_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.post_seal_vent_abort_clear_enabled", True))
 
@@ -9771,13 +9922,21 @@ class CalibrationRunner:
             route_key,
         )
 
-    def _activate_co2_sealed_no_vent_guard(self, point: CalibrationPoint, *, reason: str = "") -> None:
+    def _activate_co2_sealed_no_vent_guard(
+        self,
+        point: CalibrationPoint,
+        *,
+        reason: str = "",
+        route_close_ts: Optional[float] = None,
+    ) -> None:
         self._co2_sealed_no_vent_guard_active = True
         started_ts = time.time()
+        route_close_wall_ts = float(route_close_ts) if route_close_ts is not None else started_ts
         self._co2_sealed_no_vent_guard_context = {
             "sealed_sweep_active": True,
             "sealed_sweep_route": "co2",
             "sealed_sweep_started_at": started_ts,
+            "route_close_wall_ts": route_close_wall_ts,
             "phase": "co2",
             "point_row": getattr(point, "index", None),
             "target_pressure_hpa": self._as_float(point.target_pressure_hpa),
@@ -9798,7 +9957,10 @@ class CalibrationRunner:
             pressure_target_hpa=point.target_pressure_hpa,
             refresh_pace_state=False,
             extra_fields=self._sealed_sweep_trace_extra(
-                {"sealed_actual_open_valves": self._cached_actual_open_valves()}
+                {
+                    "sealed_actual_open_valves": self._cached_actual_open_valves(),
+                    **self._sealed_passive_trace_fields(now_s=started_ts),
+                }
             ),
             note=reason or "CO2 route sealed; no-vent guard active",
         )
@@ -9820,6 +9982,9 @@ class CalibrationRunner:
         self._co2_sealed_no_vent_guard_active = False
         self._co2_sealed_no_vent_guard_context = None
         self._controlled_outp_sealed_output_enabled = False
+        self._last_route_close_ts = None
+        self._sealed_first_setpoint_tx_ts = None
+        self._sealed_first_outp1_tx_ts = None
 
     def _begin_active_co2_sealed_sweep_context(self, point: CalibrationPoint) -> None:
         key = self._build_co2_sealed_sweep_key(point)
@@ -11523,6 +11688,149 @@ class CalibrationRunner:
             return False
         return True
 
+    def _post_route_close_minimal_control_ready(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        route_close_ts: Optional[float],
+        route_close_pressure_hpa: Any = None,
+        pressure_hard_limit_hit: bool = False,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        pace = self.devices.get("pace")
+        cached = self._pace_state_cache_snapshot()
+        snapshot: Dict[str, Any] = dict(cached)
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        if pace is not None:
+            get_vent_status = getattr(pace, "get_vent_status", None)
+            if callable(get_vent_status):
+                try:
+                    vent_status = self._as_int(get_vent_status())
+                    snapshot["pace_vent_status"] = vent_status
+                except Exception:
+                    pass
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        if output_state is None:
+            output_state = 0
+            snapshot["pace_output_state"] = output_state
+        if isolation_state is None:
+            isolation_state = 1
+            snapshot["pace_isolation_state"] = isolation_state
+        self._update_pace_state_cache(snapshot)
+
+        actual_open_valves = self._cached_actual_open_valves()
+        ready_vent_statuses = self._control_ready_allowed_vent_statuses()
+        context = self._sealed_sweep_context_for_counters()
+        sealed_vent1_count = int(context.get("sealed_vent1_count") or 0) if isinstance(context, dict) else 0
+        clear_fields: Dict[str, Any] = {}
+        if vent_status == 3 and self._post_seal_vent_abort_clear_enabled():
+            clear_fields = self._post_seal_vent_abort_clear_if_needed(
+                point,
+                phase=phase,
+                post_vent0_new_vent1_count=sealed_vent1_count,
+            )
+            vent_status = self._as_int(
+                clear_fields.get("sealed_control_ready_vent_status_after_clear")
+                if clear_fields.get("sealed_control_ready_vent_status_after_clear") != ""
+                else clear_fields.get("sealed_control_ready_vent_status")
+            )
+            snapshot = self._pace_state_cache_snapshot()
+            if vent_status is not None:
+                snapshot["pace_vent_status"] = vent_status
+            output_state = self._as_int(snapshot.get("pace_output_state"))
+            isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+            if output_state is None:
+                output_state = 0
+                snapshot["pace_output_state"] = output_state
+            if isolation_state is None:
+                isolation_state = 1
+                snapshot["pace_isolation_state"] = isolation_state
+        block_reason = ""
+        if actual_open_valves:
+            block_reason = "FAIL_CLOSED_ROUTE_VALVES_NOT_CLOSED_BEFORE_CONTROL"
+        elif sealed_vent1_count > 0:
+            block_reason = "FAIL_CLOSED_SEALED_STAGE_VENT1_BEFORE_CONTROL"
+        elif vent_status == 3:
+            block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_BEFORE_CONTROL"
+        elif vent_status not in ready_vent_statuses:
+            block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_NOT_IDLE_BEFORE_CONTROL"
+        elif output_state != 0:
+            block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_OUTPUT_ALREADY_ON_BEFORE_CONTROL"
+        elif isolation_state != 1:
+            block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_ISOLATED_BEFORE_CONTROL"
+        elif pressure_hard_limit_hit:
+            block_reason = "FAIL_CLOSED_PRESEAL_PRESSURE_BUILD_HARD_LIMIT"
+
+        fields: Dict[str, Any] = {
+            "post_seal_vent_abort_clear_enabled": bool(self._post_seal_vent_abort_clear_enabled()),
+            "post_seal_vent_abort_clear_sent": False,
+            "post_seal_vent_abort_clear_raw_tx_ts": "",
+            "post_seal_vent_abort_clear_attempts": "[]",
+            "post_seal_vent_status_before_clear": vent_status,
+            "post_seal_vent_status_after_clear": vent_status,
+            "post_seal_vent_window_cleared": False,
+            "post_seal_vent_window_persisted": bool(vent_status == 3),
+            "post_seal_new_vent1_count": sealed_vent1_count,
+            "sealed_control_ready_vent_status": vent_status,
+            "sealed_control_ready_vent_status_before_clear": vent_status,
+            "sealed_control_ready_vent_status_after_clear": vent_status,
+            "sealed_control_ready_vent_clear_attempt_count": 0,
+            "sealed_control_ready_vent_window_latched": bool(vent_status == 3),
+            "sealed_control_ready_allows_vent3_after_clear": False,
+            "sealed_control_ready_blocks_outp1": bool(block_reason),
+            "outp1_blocked_reason": block_reason,
+            "setpoint_blocked_reason": block_reason,
+            "sampling_blocked_reason": block_reason,
+            "sealed_control_ready_gate_effect": "terminal_block_before_outp1" if block_reason else "pass",
+            "sealed_control_ready_decision": (
+                "ready" if not block_reason else f"blocked:{block_reason}"
+            ),
+            "route_close_pressure_at_close_hpa": route_close_pressure_hpa,
+            "preseal_pressure_build_hard_limit_hit": bool(pressure_hard_limit_hit),
+        }
+        fields.update(clear_fields)
+        fields.update(
+            self._sealed_passive_trace_fields(
+                blocking_stage="minimal_post_route_close_ready",
+                snapshot=snapshot,
+                now_s=time.time(),
+            )
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="post_seal_vent_abort_clear",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            pace_output_state=output_state,
+            pace_isolation_state=isolation_state,
+            pace_vent_status=vent_status,
+            refresh_pace_state=False,
+            extra_fields=self._sealed_sweep_trace_extra(fields),
+            note=(
+                "fast sealed passive control-ready gate; post-seal VENT0 clear not sent; "
+                f"route_close_ts={self._iso_ts_from_wall(route_close_ts)}"
+            ),
+        )
+        if not block_reason:
+            self._preseal_pressure_control_ready_state = {
+                **snapshot,
+                "phase": str(phase or "").strip().lower(),
+                "point_row": int(point.index),
+                "target_pressure_hpa": self._as_float(getattr(point, "target_pressure_hpa", None)),
+                "recorded_wall_ts": time.time(),
+                "route_sealed": True,
+                "atmosphere_hold_stopped": True,
+                "ready_verification_pending": False,
+                "failures": [],
+            }
+            self._last_preseal_pressure_control_ready_invalidation = None
+            self._controlled_exit_final_decision = "ENGINEERING_EXIT_ATMOSPHERE_PASS"
+            return True, fields
+        self._controlled_exit_final_decision = block_reason
+        return False, fields
+
     def _post_seal_vent_abort_clear_if_needed(
         self,
         point: CalibrationPoint,
@@ -11941,19 +12249,45 @@ class CalibrationRunner:
                     else "vent off command completed; controller ready before setpoint"
                 ),
             )
-            controlled_outp_enabled_before_setpoint = False
-            if phase == "co2" and self._controlled_outp_transition():
+            controlled_outp_transition = phase == "co2" and self._controlled_outp_transition()
+            if phase == "co2" and self._co2_sealed_no_vent_guard_active:
+                if not self._sealed_passive_deadline_allows(
+                    point,
+                    stage="before_setpoint",
+                    max_s=self._route_close_to_setpoint_max_s(),
+                    pressure_target_hpa=target,
+                    snapshot=preseal_ready_state if isinstance(preseal_ready_state, Mapping) else None,
+                ):
+                    return False
+            if phase == "co2" and self._co2_sealed_no_vent_guard_active:
+                self._increment_sealed_sweep_counter("sealed_setpoint_count")
+            pace.set_setpoint(target)
+            if phase == "co2" and self._co2_sealed_no_vent_guard_active and self._sealed_first_setpoint_tx_ts is None:
+                self._sealed_first_setpoint_tx_ts = time.time()
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="sealed_control_setpoint_command_sent",
+                    pressure_target_hpa=target,
+                    refresh_pace_state=False,
+                    extra_fields=self._sealed_sweep_trace_extra(
+                        self._sealed_passive_trace_fields(
+                            blocking_stage="setpoint_sent",
+                            snapshot=preseal_ready_state if isinstance(preseal_ready_state, Mapping) else None,
+                            now_s=self._sealed_first_setpoint_tx_ts,
+                        )
+                    ),
+                    note="setpoint sent before OUTP1 after sealed route close",
+                )
+            if controlled_outp_transition:
                 if not self._enable_controlled_outp_after_seal(
                     point,
                     phase=phase,
                     pressure_target_hpa=target,
                 ):
                     return False
-                controlled_outp_enabled_before_setpoint = True
-            if phase == "co2" and self._co2_sealed_no_vent_guard_active:
-                self._increment_sealed_sweep_counter("sealed_setpoint_count")
-            pace.set_setpoint(target)
-            if not controlled_outp_enabled_before_setpoint:
+            else:
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -13297,6 +13631,14 @@ class CalibrationRunner:
             return False
 
         pace = self.devices.get("pace")
+        if not self._sealed_passive_deadline_allows(
+            point,
+            stage="before_outp1",
+            max_s=self._route_close_to_outp1_max_s(),
+            pressure_target_hpa=pressure_target_hpa,
+            snapshot=self._pace_state_cache_snapshot(),
+        ):
+            return False
         timeout_s = self._controlled_output_confirm_timeout_s()
         poll_s = self._controlled_output_confirm_poll_s()
         self._append_pressure_trace_row(
@@ -13307,7 +13649,9 @@ class CalibrationRunner:
             pressure_target_hpa=pressure_target_hpa,
             read_pace_pressure=True,
             read_pressure_gauge=True,
-            extra_fields=self._sealed_sweep_trace_extra(),
+            extra_fields=self._sealed_sweep_trace_extra(
+                self._sealed_passive_trace_fields(blocking_stage="before_outp1")
+            ),
             note=f"timeout_s={timeout_s:.3f} poll_s={poll_s:.3f}",
         )
 
@@ -13335,7 +13679,12 @@ class CalibrationRunner:
                     pressure_target_hpa=pressure_target_hpa,
                     pace_output_state=current_output_state,
                     refresh_pace_state=False,
-                    extra_fields=self._sealed_sweep_trace_extra(),
+                    extra_fields=self._sealed_sweep_trace_extra(
+                        self._sealed_passive_trace_fields(
+                            blocking_stage="outp1_already_on",
+                            snapshot={"pace_output_state": current_output_state},
+                        )
+                    ),
                     note="output_state already 1 after route seal; skip duplicate OUTP1",
                 )
                 return True
@@ -13350,12 +13699,17 @@ class CalibrationRunner:
                     read_pace_pressure=True,
                     read_pressure_gauge=True,
                     refresh_pace_state=False,
-                    extra_fields=self._sealed_sweep_trace_extra(),
+                    extra_fields=self._sealed_sweep_trace_extra(
+                        self._sealed_passive_trace_fields(
+                            blocking_stage="before_outp1_output_unknown",
+                            snapshot={"pace_output_state": current_output_state},
+                        )
+                    ),
                     note=f"output_state unknown before OUTP1; block blind enable ({output_state_error})",
                 )
                 return False
 
-        if not self._enable_pressure_controller_output(reason="after CO2 route sealed before first setpoint"):
+        if not self._enable_pressure_controller_output(reason="after CO2 route sealed after first setpoint"):
             self._append_pressure_trace_row(
                 point=point,
                 route="co2",
@@ -13364,10 +13718,14 @@ class CalibrationRunner:
                 pressure_target_hpa=pressure_target_hpa,
                 read_pace_pressure=True,
                 read_pressure_gauge=True,
-                extra_fields=self._sealed_sweep_trace_extra(),
+                extra_fields=self._sealed_sweep_trace_extra(
+                    self._sealed_passive_trace_fields(blocking_stage="outp1_command_failed")
+                ),
                 note="enable_control_output command failed",
             )
             return False
+        if self._sealed_first_outp1_tx_ts is None:
+            self._sealed_first_outp1_tx_ts = time.time()
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -13375,8 +13733,13 @@ class CalibrationRunner:
             trace_stage="sealed_control_output_enable_command_sent",
             pressure_target_hpa=pressure_target_hpa,
             refresh_pace_state=False,
-            extra_fields=self._sealed_sweep_trace_extra(),
-            note="enable_control_output/OUTP1 sent once after seal",
+            extra_fields=self._sealed_sweep_trace_extra(
+                self._sealed_passive_trace_fields(
+                    blocking_stage="outp1_sent",
+                    now_s=self._sealed_first_outp1_tx_ts,
+                )
+            ),
+            note="enable_control_output/OUTP1 sent once after sealed setpoint",
         )
 
         if not pace:
@@ -13415,7 +13778,12 @@ class CalibrationRunner:
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
-            extra_fields=self._sealed_sweep_trace_extra(),
+            extra_fields=self._sealed_sweep_trace_extra(
+                self._sealed_passive_trace_fields(
+                    blocking_stage="outp1_poll",
+                    snapshot=snapshot,
+                )
+            ),
             note=(
                 f"poll_values={values_text} poll_count={len(values)} "
                 f"elapsed_s={elapsed_s:.3f} first_one_elapsed_s="
@@ -13435,7 +13803,12 @@ class CalibrationRunner:
                 read_pace_pressure=True,
                 read_pressure_gauge=True,
                 refresh_pace_state=False,
-                extra_fields=self._sealed_sweep_trace_extra(),
+                extra_fields=self._sealed_sweep_trace_extra(
+                    self._sealed_passive_trace_fields(
+                        blocking_stage="outp1_confirm_failed",
+                        snapshot=snapshot,
+                    )
+                ),
                 note="output_state did not become 1 before timeout",
             )
             return False
@@ -13451,7 +13824,12 @@ class CalibrationRunner:
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
             refresh_pace_state=False,
-            extra_fields=self._sealed_sweep_trace_extra(),
+            extra_fields=self._sealed_sweep_trace_extra(
+                self._sealed_passive_trace_fields(
+                    blocking_stage="outp1_confirmed",
+                    snapshot=snapshot,
+                )
+            ),
             note="output_state confirmed 1 after sealed route close",
         )
         return True
@@ -20159,9 +20537,10 @@ class CalibrationRunner:
             route_close_deadline_source = ""
             pre_route_close_probe_fields: Dict[str, Any] = {}
             route_close_pressure_trigger_wall_s: Optional[float] = None
+            route_valve_close_ts: Optional[float] = None
 
             def _seal_route_now() -> None:
-                nonlocal route_sealed
+                nonlocal route_sealed, route_valve_close_ts
                 if route_sealed:
                     return
                 if (
@@ -20195,11 +20574,16 @@ class CalibrationRunner:
                     # before pressure control starts.
                     self._apply_valve_states([])
                 route_valve_close_ts = time.time()
+                if route_name == "co2":
+                    self._last_route_close_ts = route_valve_close_ts
+                    self._sealed_first_setpoint_tx_ts = None
+                    self._sealed_first_outp1_tx_ts = None
                 route_sealed = True
                 if route_name == "co2" and self._no_outp_transition():
                     self._activate_co2_sealed_no_vent_guard(
                         point,
                         reason="vent-exit wait complete; CO2 route valves closed",
+                        route_close_ts=route_valve_close_ts,
                     )
                 if route_name == "co2" and vent0_wall_ts is not None:
                     fixed_wait_elapsed_s = max(0.0, route_valve_close_ts - vent0_wall_ts)
@@ -20212,32 +20596,105 @@ class CalibrationRunner:
                     new_vent1_count = (
                         self._as_int(pre_route_close_probe_fields.get("post_vent0_new_vent1_count")) or 0
                     )
-                    self._record_vent0_state_evidence(
-                        point,
-                        phase=phase,
-                        vent0_command_ts=vent0_command_ts,
-                        vent0_raw_response=vent0_raw_response,
-                        route_valves_still_open_during_wait=True,
-                        fixed_wait_elapsed_s=fixed_wait_elapsed_s,
-                        route_valve_close_ts=route_valve_close_ts,
-                        actual_open_valves_after_close=",".join(self._cached_actual_open_valves()),
-                        trace_stage="route_valves_closed_after_vent0",
-                        post_vent0_probe_fields=pre_route_close_probe_fields,
-                        route_close_deadline_ts=route_close_deadline_ts,
-                        route_close_deadline_source=route_close_deadline_source,
-                        route_valves_open_during_vent0_wait=True,
-                        route_closed_after_fixed_wait=bool(controlled_fixed_wait_completed),
-                        route_close_allowed_with_vent_status_3=bool(vent3_count > 0 and new_vent1_count == 0),
-                        vent_abort_sent=vent_abort_sent,
-                        vent_exit_reference_ts=vent0_wall_ts,
-                    )
-                    self._append_pace_status_evidence_trace(
-                        "after_route_close",
-                        point=point,
-                        route=phase,
-                        point_phase=phase,
-                        note="after route close; status evidence only",
-                    )
+                    if self._sealed_passive_deadline_enabled():
+                        route_close_after_vent_exit_s = max(0.0, route_valve_close_ts - float(vent0_wall_ts))
+                        vent_status = self._as_int(pre_route_close_probe_fields.get("pre_vent0_vent_status"))
+                        snapshot = {
+                            "pace_output_state": 0,
+                            "pace_isolation_state": 1,
+                            "pace_vent_status": vent_status,
+                        }
+                        fields = {
+                            **pre_route_close_probe_fields,
+                            "vent0_command_ts": self._iso_ts_from_wall(vent0_command_ts),
+                            "vent0_raw_response": vent0_raw_response,
+                            "vent_status_after_vent0": vent_status,
+                            "vent_status_after_vent0_classification": self._pace_vent_status_classification(
+                                vent_status,
+                                stage="preseal",
+                            ),
+                            "outp_status_after_vent0": 0,
+                            "isol_status_after_vent0": 1,
+                            "route_valves_still_open_during_wait": True,
+                            "fixed_wait_elapsed_s": fixed_wait_elapsed_s,
+                            "route_valve_close_ts": self._iso_ts_from_wall(route_valve_close_ts),
+                            "actual_open_valves_after_close": ",".join(self._cached_actual_open_valves()),
+                            "route_close_deadline_ts": self._iso_ts_from_wall(route_close_deadline_ts),
+                            "route_close_deadline_source": str(route_close_deadline_source or ""),
+                            "route_close_actual_ts": self._iso_ts_from_wall(route_valve_close_ts),
+                            "route_close_after_vent_exit_s": route_close_after_vent_exit_s,
+                            "route_close_after_raw_vent0_s": (
+                                max(0.0, route_valve_close_ts - float(vent0_command_ts))
+                                if vent_abort_sent and vent0_command_ts is not None
+                                else ""
+                            ),
+                            "route_close_blocked_by_operator_window": False,
+                            "route_valves_open_during_vent0_wait": True,
+                            "route_closed_after_fixed_wait": bool(controlled_fixed_wait_completed),
+                            "route_close_allowed_with_vent_status_3": bool(vent3_count > 0 and new_vent1_count == 0),
+                            "route_close_after_vent0_delay_s": (
+                                max(0.0, route_valve_close_ts - float(vent0_command_ts))
+                                if vent0_command_ts is not None
+                                else ""
+                            ),
+                            "route_close_after_vent0_raw_tx_s": (
+                                max(0.0, route_valve_close_ts - float(vent0_command_ts))
+                                if vent_abort_sent and vent0_command_ts is not None
+                                else ""
+                            ),
+                            **self._sealed_passive_trace_fields(
+                                blocking_stage="route_close",
+                                snapshot=snapshot,
+                                now_s=route_valve_close_ts,
+                            ),
+                        }
+                        fields.update(self._pace_vent_status_diagnostic_fields(vent_status, stage="preseal"))
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="route_valves_closed_after_vent0",
+                            pressure_target_hpa=point.target_pressure_hpa,
+                            pace_pressure_hpa=route_close_pressure_at_close_hpa,
+                            pressure_gauge_hpa=(
+                                route_close_pressure_at_close_hpa
+                                if route_close_pressure_source == "pressure_gauge"
+                                else ""
+                            ),
+                            pace_output_state=0,
+                            pace_isolation_state=1,
+                            pace_vent_status=vent_status,
+                            refresh_pace_state=False,
+                            extra_fields=fields,
+                            note="fast route-close evidence; full post-route status evidence deferred until after OUTP1",
+                        )
+                    else:
+                        self._record_vent0_state_evidence(
+                            point,
+                            phase=phase,
+                            vent0_command_ts=vent0_command_ts,
+                            vent0_raw_response=vent0_raw_response,
+                            route_valves_still_open_during_wait=True,
+                            fixed_wait_elapsed_s=fixed_wait_elapsed_s,
+                            route_valve_close_ts=route_valve_close_ts,
+                            actual_open_valves_after_close=",".join(self._cached_actual_open_valves()),
+                            trace_stage="route_valves_closed_after_vent0",
+                            post_vent0_probe_fields=pre_route_close_probe_fields,
+                            route_close_deadline_ts=route_close_deadline_ts,
+                            route_close_deadline_source=route_close_deadline_source,
+                            route_valves_open_during_vent0_wait=True,
+                            route_closed_after_fixed_wait=bool(controlled_fixed_wait_completed),
+                            route_close_allowed_with_vent_status_3=bool(vent3_count > 0 and new_vent1_count == 0),
+                            vent_abort_sent=vent_abort_sent,
+                            vent_exit_reference_ts=vent0_wall_ts,
+                        )
+                        self._append_pace_status_evidence_trace(
+                            "after_route_close",
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            note="after route close; status evidence only",
+                        )
 
             self._emit_stage_event(
                 current=self._stage_label_for_point(point, phase=phase, include_pressure=False),
@@ -20511,6 +20968,48 @@ class CalibrationRunner:
                     )
                     self._stop_pressure_transition_fast_signal_context(reason=self._controlled_exit_final_decision)
                     return False
+                if self._sealed_passive_deadline_enabled():
+                    ready_ok, post_seal_clear_fields = self._post_route_close_minimal_control_ready(
+                        point,
+                        phase=phase,
+                        route_close_ts=route_valve_close_ts,
+                        route_close_pressure_hpa=route_close_pressure_at_close_hpa,
+                        pressure_hard_limit_hit=preseal_pressure_build_hard_limit_hit,
+                    )
+                    if not ready_ok:
+                        self._mark_co2_route_terminal_failure(
+                            final_decision=str(
+                                self._controlled_exit_final_decision
+                                or "FAIL_CLOSED_SEALED_PASSIVE_MINIMAL_READY"
+                            ),
+                            reason="minimal sealed control-ready check failed before OUTP1",
+                            point=point,
+                            phase=phase,
+                        )
+                        self._stop_pressure_transition_fast_signal_context(
+                            reason=str(self._controlled_exit_final_decision or "minimal sealed ready failure")
+                        )
+                        return False
+                    trace_values = self._cached_ready_check_trace_values(point=point)
+                    pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
+                    self.log(
+                        f"{route.upper()} route sealed after fixed vent-exit wait "
+                        f"{fixed_wait_s:.3f}s; fast sealed passive control entry armed"
+                    )
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="route_sealed",
+                        trigger_reason=preseal_trigger_source,
+                        pressure_target_hpa=point.target_pressure_hpa,
+                        pace_pressure_hpa=pace_pressure_now,
+                        pressure_gauge_hpa="",
+                        refresh_pace_state=False,
+                        extra_fields=self._sealed_sweep_trace_extra(post_seal_clear_fields),
+                        note="controlled OUTP route sealed; fast minimal ready path avoids passive dwell before OUTP1",
+                    )
+                    return True
                 post_seal_clear_fields = self._post_seal_vent_abort_clear_if_needed(
                     point,
                     phase=phase,
