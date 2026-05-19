@@ -190,6 +190,19 @@ class ProbeFailOncePace(FakePace):
         return self.vent_status
 
 
+class SequenceVentStatusPace(FakePace):
+    def __init__(self, statuses: list[int]) -> None:
+        super().__init__()
+        self._statuses = list(statuses)
+        if statuses:
+            self.vent_status = int(statuses[0])
+
+    def get_vent_status(self) -> int:
+        if self._statuses:
+            self.vent_status = int(self._statuses.pop(0))
+        return self.vent_status
+
+
 class FakeStdin:
     def __init__(self, text: str = "", *, interactive: bool = True) -> None:
         self.text = text
@@ -953,17 +966,212 @@ def test_pre_vent0_optional_vent_status_probe_does_not_block_route_close() -> No
         },
         logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
     )
-    assert runner._stop_pressure_controller_atmosphere_hold(pace, reason="unit pre-VENT0") is True
 
-    runner._wait_pre_vent0_raw_tap_quiet_gap(pace)
-    vent0_ts = time.time()
-    runner._mark_pre_vent0_command_sent(vent0_ts)
-    pace.vent(False)
+    method, _status, _error = runner._controlled_exit_atmosphere_command(
+        pace,
+        timeout_s=3.0,
+        poll_s=0.2,
+        fast_preseal_no_wait=True,
+    )
 
     fields = runner._last_pre_vent0_quiet_gap_fields
+    assert method == "probe_unavailable_abort_fallback"
     assert fields["pre_vent0_vent_status_probe_enabled"] is True
     assert "VENT? probe timeout" in fields["pre_vent0_vent_status_probe_error"]
     assert ("vent", False) in pace.calls
+
+
+def test_pre_vent0_skips_abort_when_vent_status_2_completed() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pace=SequenceVentStatusPace([2]),
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 0.0,
+            "pre_vent0_quiet_gap_max_s": 0.0,
+            "pre_vent0_vent_status_probe_enabled": True,
+            "pre_vent0_status_probe_enabled": True,
+        },
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
+    )
+
+    method, status, error = runner._controlled_exit_atmosphere_command(
+        pace,
+        timeout_s=3.0,
+        poll_s=0.2,
+        fast_preseal_no_wait=True,
+    )
+
+    fields = runner._last_pre_vent0_quiet_gap_fields
+    assert method == "completed_no_abort"
+    assert status == 2
+    assert error == ""
+    assert ("vent", False) not in pace.calls
+    assert fields["vent_abort_sent"] is False
+    assert fields["vent_exit_method"] == "completed_no_abort"
+    assert fields["vent_exit_reference_ts"]
+
+
+def test_pre_vent0_skips_abort_when_vent_status_0_ok() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pace=SequenceVentStatusPace([0]),
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 0.0,
+            "pre_vent0_quiet_gap_max_s": 0.0,
+            "pre_vent0_vent_status_probe_enabled": True,
+        },
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
+    )
+
+    method, status, _error = runner._controlled_exit_atmosphere_command(
+        pace,
+        timeout_s=3.0,
+        poll_s=0.2,
+        fast_preseal_no_wait=True,
+    )
+
+    assert method == "already_ok_no_abort"
+    assert status == 0
+    assert ("vent", False) not in pace.calls
+
+
+def test_pre_vent0_aborts_when_vent_status_1_still_in_progress_after_grace() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pace=SequenceVentStatusPace([1, 1]),
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 0.0,
+            "pre_vent0_quiet_gap_max_s": 0.0,
+            "pre_vent0_vent_status_probe_enabled": True,
+            "pre_vent0_in_progress_grace_s": 0.001,
+        },
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
+    )
+
+    method, _status, _error = runner._controlled_exit_atmosphere_command(
+        pace,
+        timeout_s=3.0,
+        poll_s=0.2,
+        fast_preseal_no_wait=True,
+    )
+
+    assert method == "abort_in_progress"
+    assert ("vent", False) in pace.calls
+    assert runner._last_pre_vent0_quiet_gap_fields["vent_abort_sent"] is True
+
+
+def test_pre_vent0_waits_short_grace_when_vent_status_1_then_2() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pace=SequenceVentStatusPace([1, 2]),
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 0.0,
+            "pre_vent0_quiet_gap_max_s": 0.0,
+            "pre_vent0_vent_status_probe_enabled": True,
+            "pre_vent0_in_progress_grace_s": 0.001,
+        },
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
+    )
+
+    method, status, _error = runner._controlled_exit_atmosphere_command(
+        pace,
+        timeout_s=3.0,
+        poll_s=0.2,
+        fast_preseal_no_wait=True,
+    )
+
+    fields = runner._last_pre_vent0_quiet_gap_fields
+    assert method == "completed_no_abort"
+    assert status == 2
+    assert ("vent", False) not in pace.calls
+    assert fields["pre_vent0_status_probe_grace_used"] is True
+
+
+def test_pre_vent0_vent3_preseal_routes_close_then_blocks_control() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pace=SequenceVentStatusPace([3]),
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 0.0,
+            "pre_vent0_quiet_gap_max_s": 0.0,
+            "pre_vent0_vent_status_probe_enabled": True,
+        },
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
+    )
+
+    method, status, _error = runner._controlled_exit_atmosphere_command(
+        pace,
+        timeout_s=3.0,
+        poll_s=0.2,
+        fast_preseal_no_wait=True,
+    )
+
+    failures = runner._pressure_controller_ready_failures(
+        {"pace_vent_status": 3, "pace_output_state": 0, "pace_isolation_state": 1},
+        pace,
+    )
+    assert method == "preseal_vent3_unrecognized"
+    assert status == 3
+    assert ("vent", False) not in pace.calls
+    assert "vent_window_latched" in failures
+
+
+def test_control_ready_allows_vent_status_2_completed() -> None:
+    runner, pace, _, _ = _runner()
+
+    failures = runner._pressure_controller_ready_failures(
+        {"pace_vent_status": 2, "pace_output_state": 0, "pace_isolation_state": 1},
+        pace,
+    )
+
+    assert failures == []
+
+
+def test_control_ready_blocks_vent_status_1_or_3() -> None:
+    runner, pace, _, _ = _runner()
+
+    failures_1 = runner._pressure_controller_ready_failures(
+        {"pace_vent_status": 1, "pace_output_state": 0, "pace_isolation_state": 1},
+        pace,
+    )
+    failures_3 = runner._pressure_controller_ready_failures(
+        {"pace_vent_status": 3, "pace_output_state": 0, "pace_isolation_state": 1},
+        pace,
+    )
+
+    assert "vent_status=1" in failures_1
+    assert "vent_window_latched" in failures_3
+
+
+def test_skip_abort_path_has_no_vent0_raw_tx() -> None:
+    now_s = time.time()
+    runner, pace, _, _ = _runner(
+        pace=SequenceVentStatusPace([2]),
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 0.0,
+            "pre_vent0_quiet_gap_max_s": 0.0,
+            "pre_vent0_vent_status_probe_enabled": True,
+        },
+        logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.1),
+    )
+
+    runner._controlled_exit_atmosphere_command(
+        pace,
+        timeout_s=3.0,
+        poll_s=0.2,
+        fast_preseal_no_wait=True,
+    )
+    fields = runner._collect_post_vent0_probe_fields(
+        phase="co2",
+        vent0_intent_ts=None,
+        route_valves_still_open=True,
+        allow_device_queries=False,
+        vent_abort_sent=False,
+        vent_exit_reference_ts=runner._last_vent_exit_reference_ts,
+    )
+
+    assert fields["vent_abort_sent"] is False
+    assert fields["preseal_vent0_raw_tx_ts"] == ""
 
 
 def test_driver_exit_does_not_send_outp1_before_seal() -> None:

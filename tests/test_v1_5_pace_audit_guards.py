@@ -649,7 +649,7 @@ def test_pace_phase_profile_control_ready_blocks_vent3(tmp_path: Path) -> None:
     assert "vent_window_latched" in result["failures"]
 
 
-def test_pace_phase_profile_control_ready_blocks_vent2_conservatively(tmp_path: Path) -> None:
+def test_pace_phase_profile_control_ready_allows_vent2_completed(tmp_path: Path) -> None:
     runner, logger, _pace = _runner_for_audit(tmp_path)
     result = runner._evaluate_pace_phase_profile(
         "sealed_control_ready",
@@ -658,8 +658,8 @@ def test_pace_phase_profile_control_ready_blocks_vent2_conservatively(tmp_path: 
     )
     logger.close()
 
-    assert result["passed"] is False
-    assert "vent_status_2_not_idle_or_completed_not_accepted" in result["failures"]
+    assert result["passed"] is True
+    assert result["failures"] == []
 
 
 def test_pace_phase_profile_control_ready_allows_vent0(tmp_path: Path) -> None:

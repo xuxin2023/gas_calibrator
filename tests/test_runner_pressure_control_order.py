@@ -1014,7 +1014,7 @@ def test_set_pressure_to_target_aborts_when_output_state_stays_off(tmp_path: Pat
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_blocks_legacy_completed_vent_status_for_control(tmp_path: Path) -> None:
+def test_set_pressure_to_target_allows_completed_vent_status_for_control(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -1040,16 +1040,16 @@ def test_set_pressure_to_target_blocks_legacy_completed_vent_status_for_control(
     pace = _FakePaceLegacyVentCompleted()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    assert runner._set_pressure_to_target(point) is False
+    assert runner._set_pressure_to_target(point) is True
     logger.close()
 
-    assert pace.calls == [("vent_off", 12.0)]
+    assert pace.calls == [
+        ("vent_off", 12.0),
+        ("setpoint", 1100.0),
+        ("output_on",),
+    ]
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(
-        row["trace_stage"] == "control_ready_failed"
-        and row.get("sealed_control_ready_decision") == "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_NOT_IDLE_BEFORE_CONTROL"
-        for row in trace_rows
-    )
+    assert not any(row["trace_stage"] == "control_ready_failed" for row in trace_rows)
 
 
 def test_set_pressure_controller_vent_off_for_preseal_skips_slow_exit_wait(tmp_path: Path) -> None:
