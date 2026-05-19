@@ -727,6 +727,42 @@ def test_sampling_timing_evidence_records_per_device_age(tmp_path: Path) -> None
     test_collect_samples_writes_prefixed_sensor_fields(tmp_path)
 
 
+def test_sample_count_zero_reports_sampling_not_verified(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"sampling": {"count": 1}}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+
+    status = runner._sampling_timing_audit_status([])
+
+    assert status["sealed_sample_count"] == 0
+    assert status["sampling_fast_claim_allowed"] is False
+    assert status["sampling_not_verified_reason"] == "sample_count_zero"
+    logger.close()
+
+
+def test_sampling_parallel_status_unknown_without_sample_rows(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"sampling": {"count": 1}}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+
+    status = runner._sampling_timing_audit_status([])
+
+    assert status["sampling_parallel_status"] == "unknown"
+    assert status["sampling_snapshot_based"] is False
+    assert status["sampling_device_timestamp_complete"] is False
+    logger.close()
+
+
 def test_collect_samples_prefers_stream_reader_when_available(tmp_path: Path) -> None:
     cfg = {
         "devices": {

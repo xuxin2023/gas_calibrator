@@ -643,7 +643,42 @@ def test_open_flow_vent_keepalive_gap_guard_records_gap() -> None:
     assert fields["open_flow_vent1_gap_fail_count"] == 1
     assert fields["open_flow_vent_gap_may_cause_flow_drop"] is True
     assert fields["pre_vent_exit_flow_drop_suspected"] is True
+    assert fields["open_flow_vent1_gap_guard_passed"] is False
+    assert fields["open_flow_vent1_gap_fail_reason"]
     assert runner._controlled_exit_final_decision == "FAIL_CLOSED_OPEN_FLOW_VENT1_KEEPALIVE_GAP"
+
+
+def test_open_flow_vent1_keepalive_not_blocked_by_pressure_query() -> None:
+    runner, _pace, _, _ = _runner(logger=OpenFlowGapLogger(max_gap_s=1.0))
+    point = _co2_point(pressure=1100.0)
+    runner._read_precondition_dewpoint_gate_snapshot = MagicMock(return_value={"dewpoint_c": -35.0})
+    runner._read_pace_pressure_now = MagicMock(side_effect=AssertionError("PACE pressure query blocked VENT1"))
+
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
+    row = runner._read_co2_route_base_soak_dewpoint_trace_sample(route_open_wall_s=time.time() - 5.0)
+
+    assert row["dewpoint_c"] == pytest.approx(-35.0)
+    assert row["pace_pressure_nearest_hpa"] is None
+    assert runner._pace_query_deferred_for_keepalive_count == 1
+    assert "base_soak_trace_pace_pressure" in runner._pace_query_deferred_for_keepalive_types
+    runner._read_pace_pressure_now.assert_not_called()
+
+
+def test_open_flow_vent1_gap_guard_passes_when_scheduler_priority_works() -> None:
+    runner, _pace, _, _ = _runner(logger=OpenFlowGapLogger(max_gap_s=1.0))
+    point = _co2_point(pressure=1100.0)
+
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
+
+    assert runner._end_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit") is True
+    fields = _last_stage_fields(runner, "open_flow_until_preseal_raw_tap_end")
+    assert fields["open_flow_vent1_gap_fail_count"] == 0
+    assert fields["open_flow_vent1_gap_guard_passed"] is True
+    assert fields["vent1_scheduler_owner"] == "pace_atmosphere_hold_thread"
+
+
+def test_open_flow_vent1_gap_still_fails_when_real_gap_exceeds_limit() -> None:
+    test_open_flow_vent_keepalive_gap_guard_records_gap()
 
 
 def test_open_flow_vent_keepalive_not_blocked_by_status_probe(monkeypatch) -> None:
@@ -665,6 +700,34 @@ def test_open_flow_vent_keepalive_not_blocked_by_status_probe(monkeypatch) -> No
     assert fields["open_flow_vent1_max_gap_s"] == pytest.approx(1.0)
     assert fields["open_flow_vent1_gap_fail_count"] == 0
     assert fields["pre_vent_exit_flow_drop_suspected"] is False
+    assert fields["open_flow_vent1_gap_guard_passed"] is True
+
+
+def test_mainthread_vent1_not_sent_during_keepalive_owner_active() -> None:
+    runner, pace, _, _ = _runner(logger=OpenFlowGapLogger(max_gap_s=1.0))
+    point = _co2_point()
+    runner._read_precondition_dewpoint_gate_snapshot = MagicMock(return_value={"dewpoint_c": -35.0})
+
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
+    runner._read_co2_route_base_soak_dewpoint_trace_sample(route_open_wall_s=time.time() - 1.0)
+
+    assert pace.calls.count(("vent", True)) == 0
+    assert runner._open_flow_keepalive_owner == "pace_atmosphere_hold_thread"
+
+
+def test_1100_point_not_failed_by_synthetic_query_blocking_gap() -> None:
+    runner, _pace, _, _ = _runner(logger=OpenFlowGapLogger(max_gap_s=1.0))
+    point = _co2_point(pressure=1100.0)
+    runner._read_precondition_dewpoint_gate_snapshot = MagicMock(return_value={"dewpoint_c": -35.0})
+    runner._read_pace_pressure_now = MagicMock(side_effect=AssertionError("should be deferred"))
+
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
+    runner._read_co2_route_base_soak_dewpoint_trace_sample(route_open_wall_s=time.time() - 1.0)
+
+    assert runner._end_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit") is True
+    fields = _last_stage_fields(runner, "open_flow_until_preseal_raw_tap_end")
+    assert fields["open_flow_vent1_gap_guard_passed"] is True
+    assert getattr(runner, "_controlled_exit_final_decision", "") != "FAIL_CLOSED_OPEN_FLOW_VENT1_KEEPALIVE_GAP"
 
 
 def test_quiet_gap_only_starts_after_preseal_ready(monkeypatch) -> None:
@@ -2762,6 +2825,29 @@ def test_exhaust_only_blocks_any_target_crossing(monkeypatch) -> None:
     assert fields["target_crossing_count"] == 1
     assert fields["pressure_chatter_fail_closed"] is True
     assert fields["sampling_blocked_by_control_chatter"] is True
+    assert fields["first_target_crossing_ts"]
+    assert fields["pressure_wait_cycles_after_crossing"] == 0
+    assert fields["fail_immediately_after_crossing"] is True
+
+
+def test_target_crossing_fails_immediately_without_extra_wait_cycles(monkeypatch) -> None:
+    test_exhaust_only_blocks_any_target_crossing(monkeypatch)
+
+
+def test_target_crossing_records_first_crossing_to_fail_seconds(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(pressure_overrides={"stabilize_timeout_s": 0.2})
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 0), (999.9, 0)]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._set_pressure_to_target(point) is False
+
+    fields = _last_stage_fields(runner, "sealed_pressure_control_state_fail")
+    assert fields["first_target_crossing_ts"]
+    assert fields["target_crossing_to_fail_s"] <= 1.0
+    assert fields["target_crossing_to_safe_stop_s"] <= 1.0
 
 
 def test_exhaust_only_blocks_below_target_duration() -> None:
@@ -2895,6 +2981,29 @@ def test_dewpoint_rise_with_lag_after_outp1_marks_pressure_control_mixing() -> N
     test_dewpoint_lag_correlation_marks_pressure_control_mixing()
 
 
+def test_local_dewpoint_rise_distinguished_from_abnormal_rise() -> None:
+    runner, _, _, _ = _runner()
+    point = _co2_point(pressure=1280.0)
+    now = time.time()
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -36.0,
+        "pressure_hpa": 1000.0,
+        "sample_wall_ts": now - 30.0,
+    }
+    runner._sealed_first_outp1_tx_ts = now - 20.0
+    runner._cached_ready_check_trace_values = MagicMock(
+        return_value={"dewpoint_c": -35.6, "pace_pressure_hpa": 1280.0}
+    )
+
+    fields = runner._sealed_dewpoint_rise_trace_fields(point=point)
+
+    assert fields["dewpoint_rise_observed_c"] == pytest.approx(0.4)
+    assert fields["dewpoint_local_rise_detected"] is True
+    assert fields["dewpoint_abnormal_rise_detected"] is False
+    assert fields["likely_pressure_control_mixing"] is False
+    assert runner._sealed_dewpoint_rise_exceeded(point=point) is False
+
+
 def test_dewpoint_rise_still_fails_before_sampling() -> None:
     runner, pace, _, _ = _runner()
     point = _co2_point(pressure=1000.0)
@@ -2921,6 +3030,20 @@ def test_dewpoint_rise_still_fails_before_sampling() -> None:
     fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
     assert fields["sampling_blocked_by_dewpoint_rise"] is True
     assert fields["pressure_controller_control_state_failure_reason"] == "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
+
+
+def test_repeated_outp1_not_sent_when_already_on() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1000.0)
+    pace.output_state = 1
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+
+    assert runner._enable_controlled_outp_after_seal(point, phase="co2", pressure_target_hpa=1000.0) is True
+
+    assert ("enable_control_output",) not in pace.calls
+    assert ("output", True) not in pace.calls
+    stages = _trace_stages(runner)
+    assert "sealed_control_output_already_on" in stages
 
 
 def test_ascending_pressure_point_blocks_when_clean_supply_not_confirmed() -> None:
