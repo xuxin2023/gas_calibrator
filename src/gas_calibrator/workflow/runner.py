@@ -251,10 +251,25 @@ _PRESSURE_TRACE_FIELDS = [
     "route_close_to_setpoint_s",
     "route_close_to_outp1_s",
     "fast_control_branch_entered",
+    "sealed_control_prearm_config_begin_ts",
+    "sealed_control_prearm_config_end_ts",
+    "sealed_control_prearm_config_elapsed_s",
+    "slew_mode_preconfigured",
+    "slew_rate_preconfigured",
+    "overshoot_not_allowed_preconfigured",
+    "slew_config_deferred_before_route_close",
+    "slew_config_after_route_close_count",
+    "sealed_control_prearm_syst_err",
     "minimal_ready_gate_begin_ts",
     "minimal_ready_gate_end_ts",
     "minimal_ready_gate_elapsed_s",
     "minimal_ready_gate_blocked_by",
+    "minimal_ready_uses_cached_vent_status",
+    "minimal_ready_realtime_query_count",
+    "minimal_ready_realtime_query_elapsed_s",
+    "minimal_ready_gate_target_max_s",
+    "minimal_ready_gate_exceeded",
+    "minimal_ready_gate_blocking_query",
     "full_evidence_deferred_until_after_outp1",
     "operator_window_deferred_until_after_outp1",
     "dewpoint_evidence_deferred_until_after_outp1",
@@ -262,6 +277,10 @@ _PRESSURE_TRACE_FIELDS = [
     "sealed_passive_deadline_consumed_by",
     "setpoint_before_outp1",
     "post_route_pressure_peak_before_outp1_hpa",
+    "post_route_pressure_warning_hpa",
+    "post_route_pressure_warning_hit",
+    "post_route_absolute_pressure_hard_limit_hpa",
+    "post_route_absolute_pressure_hard_limit_hit",
     "post_route_pressure_hard_limit_hpa",
     "post_route_pressure_hard_limit_hit",
     "pressure_high_but_control_should_start",
@@ -275,6 +294,8 @@ _PRESSURE_TRACE_FIELDS = [
     "current_pressure_before_point_hpa",
     "positive_supply_required",
     "positive_supply_forbidden",
+    "positive_supply_precheck_fast_path",
+    "positive_supply_precheck_elapsed_s",
     "slew_mode_set",
     "slew_rate_set_hpa_per_s",
     "overshoot_allowed_set",
@@ -288,6 +309,8 @@ _PRESSURE_TRACE_FIELDS = [
     "positive_supply_effort_threshold_pct",
     "positive_supply_effort_detected",
     "sample_blocked_by_positive_supply_effort",
+    "effort_query_before_outp1_skipped_or_zero_reason",
+    "effort_guard_active_after_outp1",
     "pressure_in_limit_before_sampling",
     "dewpoint_stable_before_sampling",
     "sampling_invalidated_by_positive_supply_effort",
@@ -787,6 +810,9 @@ class CalibrationRunner:
         self._sealed_pressure_ready_ts: Optional[float] = None
         self._sealed_last_pressure_ready_result: str = ""
         self._sealed_sampling_block_reason: str = ""
+        self._sealed_control_prearm_fields: Dict[str, Any] = {}
+        self._sealed_control_prearm_failed_reason = ""
+        self._sealed_control_slew_config_after_route_close_count = 0
         self._no_write_guard_enabled = True
         self._attempted_write_count = 0
         self._identity_write_command_sent = False
@@ -7232,6 +7258,13 @@ class CalibrationRunner:
                 in_limits_pct,
                 in_limits_time_s,
             )
+            if self._controlled_outp_transition() and self._sealed_control_prearm_config_enabled():
+                self._prearm_sealed_control_config(
+                    point=None,
+                    phase="co2",
+                    pressure_target_hpa=None,
+                    trace_stage="sealed_control_prearm_config",
+                )
             self._log_run_event(
                 command="pace-startup-config-audit",
                 response=self._trace_json(self._pace_startup_config_audit_summary()),
@@ -9848,12 +9881,36 @@ class CalibrationRunner:
             0.0,
             float(
                 self._wf(
-                    "workflow.pressure.post_route_pressure_hard_limit_hpa",
+                    "workflow.pressure.post_route_absolute_pressure_hard_limit_hpa",
                     self._wf("workflow.pressure.absolute_pressure_hard_limit_hpa", 1300.0),
                 )
                 or 0.0
             ),
         )
+
+    def _post_route_pressure_warning_hpa(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.pressure.post_route_pressure_warning_hpa",
+                    self._wf(
+                        "workflow.pressure.post_route_pressure_hard_limit_hpa",
+                        self._wf("workflow.pressure.preseal_pressure_build_hard_limit_hpa", 1200.0),
+                    ),
+                )
+                or 0.0
+            ),
+        )
+
+    def _minimal_ready_gate_target_max_s(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.minimal_ready_gate_target_max_s", 1.0) or 0.0))
+
+    def _minimal_ready_realtime_vent_query_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.minimal_ready_realtime_vent_query_enabled", False))
+
+    def _sealed_control_prearm_config_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.sealed_control_prearm_config_enabled", True))
 
     def _prevent_positive_supply_during_sampling(self) -> bool:
         return bool(self._wf("workflow.pressure.prevent_positive_supply_during_sampling", True))
@@ -10052,11 +10109,18 @@ class CalibrationRunner:
             return True, {}
         pace = self.devices.get("pace")
         target = self._as_float(pressure_target_hpa)
-        current = self._read_sealed_current_pressure_hpa(pace, fallback_hpa=current_pressure_hpa)
+        guard_begin_s = time.time()
+        fast_path = bool(str(trace_stage or "").endswith("_fast_control") and current_pressure_hpa is not None)
+        if fast_path:
+            current = self._as_float(current_pressure_hpa)
+        else:
+            current = self._read_sealed_current_pressure_hpa(pace, fallback_hpa=current_pressure_hpa)
         fields = self._sealed_positive_supply_base_fields(
             current_pressure_hpa=current,
             target_pressure_hpa=target,
         )
+        fields["positive_supply_precheck_fast_path"] = fast_path
+        fields["positive_supply_precheck_elapsed_s"] = max(0.0, time.time() - guard_begin_s)
         if isinstance(self._sealed_sweep_context_for_counters(), dict):
             context = self._sealed_sweep_context_for_counters()
             context["current_pressure_before_point_hpa"] = current
@@ -10084,6 +10148,164 @@ class CalibrationRunner:
             return False, fields
         return True, fields
 
+    def _sealed_control_prearm_trace_fields(self) -> Dict[str, Any]:
+        fields = dict(self._sealed_control_prearm_fields or {})
+        fields.setdefault("sealed_control_prearm_config_begin_ts", "")
+        fields.setdefault("sealed_control_prearm_config_end_ts", "")
+        fields.setdefault("sealed_control_prearm_config_elapsed_s", "")
+        fields.setdefault("slew_mode_preconfigured", False)
+        fields.setdefault("slew_rate_preconfigured", False)
+        fields.setdefault("overshoot_not_allowed_preconfigured", False)
+        fields.setdefault("slew_config_deferred_before_route_close", bool(fields.get("slew_rate_preconfigured")))
+        fields["slew_config_after_route_close_count"] = int(self._sealed_control_slew_config_after_route_close_count)
+        fields.setdefault("sealed_control_prearm_syst_err", "")
+        fields.setdefault("slew_mode_set", "LIN" if fields.get("slew_mode_preconfigured") else "")
+        fields.setdefault(
+            "slew_rate_set_hpa_per_s",
+            self._sealed_control_slew_rate_hpa_per_s() if fields.get("slew_rate_preconfigured") else "",
+        )
+        fields.setdefault("overshoot_allowed_set", False if fields.get("overshoot_not_allowed_preconfigured") else "")
+        return fields
+
+    def _prearm_sealed_control_config(
+        self,
+        point: Optional[CalibrationPoint] = None,
+        *,
+        phase: str = "co2",
+        pressure_target_hpa: Optional[float] = None,
+        trace_stage: str = "sealed_control_prearm_config",
+    ) -> bool:
+        if phase != "co2" or not self._controlled_outp_transition() or not self._sealed_control_prearm_config_enabled():
+            return True
+        if self._sealed_control_prearm_fields.get("slew_rate_preconfigured"):
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase if point is not None else "run",
+                point_phase=phase if point is not None else "",
+                trace_stage=trace_stage,
+                pressure_target_hpa=pressure_target_hpa,
+                refresh_pace_state=False,
+                extra_fields=self._sealed_control_prearm_trace_fields(),
+                note="sealed control slew/overshoot already preconfigured before route close",
+            )
+            return True
+        if self._sealed_control_prearm_failed_reason:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase if point is not None else "run",
+                point_phase=phase if point is not None else "",
+                trace_stage=f"{trace_stage}_failed",
+                pressure_target_hpa=pressure_target_hpa,
+                refresh_pace_state=False,
+                extra_fields=self._sealed_control_prearm_trace_fields(),
+                note=self._sealed_control_prearm_failed_reason,
+            )
+            return False
+
+        pace = self.devices.get("pace")
+        begin_s = time.time()
+        fields: Dict[str, Any] = {
+            "sealed_control_prearm_config_begin_ts": self._iso_ts_from_wall(begin_s),
+            "sealed_control_prearm_config_end_ts": "",
+            "sealed_control_prearm_config_elapsed_s": "",
+            "slew_mode_preconfigured": False,
+            "slew_rate_preconfigured": False,
+            "overshoot_not_allowed_preconfigured": False,
+            "slew_config_deferred_before_route_close": False,
+            "slew_config_after_route_close_count": int(self._sealed_control_slew_config_after_route_close_count),
+            "sealed_control_prearm_syst_err": "",
+            "slew_mode_set": "",
+            "slew_rate_set_hpa_per_s": "",
+            "overshoot_allowed_set": "",
+        }
+        failures: List[str] = []
+        mode = self._sealed_control_slew_mode()
+        rate = self._sealed_control_slew_rate_hpa_per_s()
+        overshoot_allowed = self._sealed_control_overshoot_allowed()
+        if pace is None:
+            failures.append("pace_unavailable")
+        else:
+            if mode == "LIN":
+                fn = getattr(pace, "set_slew_mode_linear", None)
+                if callable(fn):
+                    try:
+                        self._record_pace_startup_config_command(":SOUR:PRES:SLEW:MODE LIN")
+                        fn()
+                        fields["slew_mode_preconfigured"] = True
+                        fields["slew_mode_set"] = "LIN"
+                    except Exception as exc:
+                        failures.append(f"slew_mode:{exc}")
+                else:
+                    failures.append("slew_mode:unsupported")
+            set_rate = getattr(pace, "set_slew_rate", None)
+            if callable(set_rate):
+                try:
+                    self._record_pace_startup_config_command(f":SOUR:PRES:SLEW {rate}")
+                    set_rate(rate)
+                    fields["slew_rate_preconfigured"] = True
+                    fields["slew_rate_set_hpa_per_s"] = rate
+                except Exception as exc:
+                    failures.append(f"slew_rate:{exc}")
+            else:
+                failures.append("slew_rate:unsupported")
+            set_overshoot = getattr(pace, "set_overshoot_allowed", None)
+            if callable(set_overshoot):
+                try:
+                    self._record_pace_startup_config_command(
+                        f":SOUR:PRES:SLEW:OVER {1 if overshoot_allowed else 0}"
+                    )
+                    set_overshoot(overshoot_allowed)
+                    fields["overshoot_allowed_set"] = overshoot_allowed
+                    fields["overshoot_not_allowed_preconfigured"] = not bool(overshoot_allowed)
+                except Exception as exc:
+                    failures.append(f"overshoot:{exc}")
+            else:
+                failures.append("overshoot:unsupported")
+            syst = self._pace_manual_query(pace, ":SYST:ERR?")
+            fields["sealed_control_prearm_syst_err"] = syst.get("response") or syst.get("error") or ""
+            if not bool(syst.get("ok")):
+                failures.append(f"syst_err_query:{syst.get('error') or 'failed'}")
+            elif " 0" not in str(syst.get("response", "")) and "NO ERROR" not in str(syst.get("response", "")).upper():
+                failures.append(f"syst_err:{syst.get('response')}")
+
+        end_s = time.time()
+        fields["sealed_control_prearm_config_end_ts"] = self._iso_ts_from_wall(end_s)
+        fields["sealed_control_prearm_config_elapsed_s"] = max(0.0, end_s - begin_s)
+        fields["slew_config_deferred_before_route_close"] = bool(
+            fields.get("slew_mode_preconfigured")
+            and fields.get("slew_rate_preconfigured")
+            and fields.get("overshoot_not_allowed_preconfigured")
+        )
+        self._sealed_control_prearm_fields = fields
+        if isinstance(self._sealed_sweep_context_for_counters(), dict):
+            self._sealed_sweep_context_for_counters().update(fields)
+        if failures:
+            self._sealed_control_prearm_failed_reason = ";".join(str(one) for one in failures)
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase if point is not None else "run",
+                point_phase=phase if point is not None else "",
+                trace_stage=f"{trace_stage}_failed",
+                pressure_target_hpa=pressure_target_hpa,
+                refresh_pace_state=False,
+                extra_fields=self._sealed_control_prearm_trace_fields(),
+                note=self._sealed_control_prearm_failed_reason,
+            )
+            self._controlled_exit_final_decision = "FAIL_CLOSED_SEALED_CONTROL_PREARM_CONFIG_FAILED"
+            return False
+
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase if point is not None else "run",
+            point_phase=phase if point is not None else "",
+            trace_stage=trace_stage,
+            pressure_target_hpa=pressure_target_hpa,
+            refresh_pace_state=False,
+            extra_fields=self._sealed_control_prearm_trace_fields(),
+            note="sealed control slew/overshoot preconfigured before route close",
+        )
+        return True
+
     def _configure_sealed_pressure_slew_for_control(
         self,
         point: CalibrationPoint,
@@ -10094,6 +10316,21 @@ class CalibrationRunner:
     ) -> Dict[str, Any]:
         if phase != "co2" or not self._co2_sealed_no_vent_guard_active:
             return {}
+        prearm_fields = self._sealed_control_prearm_trace_fields()
+        if prearm_fields.get("slew_config_deferred_before_route_close"):
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="sealed_pressure_slew_prearmed_reused",
+                pressure_target_hpa=pressure_target_hpa,
+                refresh_pace_state=False,
+                extra_fields=self._sealed_sweep_trace_extra({**dict(extra_fields or {}), **prearm_fields}),
+                note="sealed control slew/overshoot already preconfigured before route close",
+            )
+            return prearm_fields
+        if self._sealed_route_close_wall_ts() is not None:
+            self._sealed_control_slew_config_after_route_close_count += 1
         pace = self.devices.get("pace")
         mode = self._sealed_control_slew_mode()
         rate = self._sealed_control_slew_rate_hpa_per_s()
@@ -10474,10 +10711,12 @@ class CalibrationRunner:
         setpoint_s = self._as_float(self._sealed_first_setpoint_tx_ts)
         outp1_s = self._as_float(self._sealed_first_outp1_tx_ts)
         pressure_peak = self._as_float(pressure_peak_before_outp1_hpa)
+        warning_hpa = self._post_route_pressure_warning_hpa()
         hard_limit = self._post_route_pressure_hard_limit_hpa()
-        pressure_high = pressure_peak is not None and pressure_peak > hard_limit * 0.9 if hard_limit > 0 else False
+        warning_hit = bool(pressure_peak is not None and warning_hpa > 0.0 and pressure_peak > warning_hpa)
         return {
             "fast_control_branch_entered": True,
+            **self._sealed_control_prearm_trace_fields(),
             "full_evidence_deferred_until_after_outp1": True,
             "operator_window_deferred_until_after_outp1": True,
             "dewpoint_evidence_deferred_until_after_outp1": True,
@@ -10487,9 +10726,13 @@ class CalibrationRunner:
             "post_route_pressure_peak_before_outp1_hpa": (
                 pressure_peak if pressure_peak is not None else ""
             ),
+            "post_route_pressure_warning_hpa": warning_hpa,
+            "post_route_pressure_warning_hit": warning_hit,
+            "post_route_absolute_pressure_hard_limit_hpa": hard_limit,
+            "post_route_absolute_pressure_hard_limit_hit": bool(pressure_hard_limit_hit),
             "post_route_pressure_hard_limit_hpa": hard_limit,
             "post_route_pressure_hard_limit_hit": bool(pressure_hard_limit_hit),
-            "pressure_high_but_control_should_start": bool(pressure_high and not pressure_hard_limit_hit),
+            "pressure_high_but_control_should_start": bool(warning_hit and not pressure_hard_limit_hit),
             "pressure_high_blocked_outp1": bool(pressure_hard_limit_hit),
             "pressure_high_block_reason": str(pressure_hard_limit_block_reason or ""),
         }
@@ -10570,12 +10813,14 @@ class CalibrationRunner:
         )
         if not positive_ok:
             return False
-        slew_fields = self._configure_sealed_pressure_slew_for_control(
-            point,
-            phase=phase,
-            pressure_target_hpa=target,
-            extra_fields={**dict(ready_fields or {}), **positive_fields},
-        )
+        if self._sealed_control_prearm_failed_reason:
+            self._controlled_exit_final_decision = "FAIL_CLOSED_SEALED_CONTROL_PREARM_CONFIG_FAILED"
+            return False
+        slew_fields = self._sealed_control_prearm_trace_fields()
+        effort_fields: Dict[str, Any] = {
+            "effort_query_before_outp1_skipped_or_zero_reason": "OUTP off reports zero effort; guard starts after OUTP1",
+            "effort_guard_active_after_outp1": True,
+        }
 
         if not self._sealed_passive_deadline_allows(
             point,
@@ -10629,13 +10874,14 @@ class CalibrationRunner:
             refresh_pace_state=False,
             extra_fields=self._sealed_sweep_trace_extra(
                 {
-                    **dict(ready_fields or {}),
-                    **positive_fields,
-                    **slew_fields,
-                    **self._sealed_passive_trace_fields(
-                        blocking_stage="setpoint_sent",
-                        snapshot=ready_fields,
-                        now_s=self._sealed_first_setpoint_tx_ts,
+                        **dict(ready_fields or {}),
+                        **positive_fields,
+                        **slew_fields,
+                        **effort_fields,
+                        **self._sealed_passive_trace_fields(
+                            blocking_stage="setpoint_sent",
+                            snapshot=ready_fields,
+                            now_s=self._sealed_first_setpoint_tx_ts,
                     ),
                     **self._sealed_control_state_trace_fields(
                         point,
@@ -10653,14 +10899,6 @@ class CalibrationRunner:
             note="setpoint sent immediately after route close minimal ready gate",
         )
 
-        effort_ok, effort_fields, _effort_reason = self._sealed_positive_supply_effort_guard(
-            point,
-            stage="before_outp1",
-            pressure_target_hpa=target,
-            fail_on_unsupported=False,
-        )
-        if not effort_ok:
-            return False
         if not self._sealed_passive_deadline_allows(
             point,
             stage="before_outp1",
@@ -12682,14 +12920,24 @@ class CalibrationRunner:
         cached = self._pace_state_cache_snapshot()
         snapshot: Dict[str, Any] = dict(cached)
         vent_status = self._as_int(snapshot.get("pace_vent_status"))
-        if pace is not None:
+        minimal_query_count = 0
+        minimal_query_elapsed_s = 0.0
+        minimal_blocking_query = ""
+        use_cached_vent_status = True
+        if pace is not None and (self._minimal_ready_realtime_vent_query_enabled() or vent_status is None):
             get_vent_status = getattr(pace, "get_vent_status", None)
             if callable(get_vent_status):
+                query_begin_s = time.time()
+                minimal_query_count += 1
+                minimal_blocking_query = "VENT?"
                 try:
                     vent_status = self._as_int(get_vent_status())
                     snapshot["pace_vent_status"] = vent_status
                 except Exception:
                     pass
+                finally:
+                    minimal_query_elapsed_s += max(0.0, time.time() - query_begin_s)
+                    use_cached_vent_status = False
         output_state = self._as_int(snapshot.get("pace_output_state"))
         isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
         if output_state is None:
@@ -12707,14 +12955,20 @@ class CalibrationRunner:
         sealed_vent0_count = int(context.get("sealed_vent0_count") or 0) if isinstance(context, dict) else 0
         clear_fields: Dict[str, Any] = {}
         route_pressure = self._as_float(route_close_pressure_hpa)
-        post_route_pressure_hard_limit_hpa = self._post_route_pressure_hard_limit_hpa()
+        post_route_pressure_warning_hpa = self._post_route_pressure_warning_hpa()
+        post_route_absolute_pressure_hard_limit_hpa = self._post_route_pressure_hard_limit_hpa()
+        post_route_pressure_warning_hit = bool(
+            route_pressure is not None
+            and post_route_pressure_warning_hpa > 0.0
+            and route_pressure > post_route_pressure_warning_hpa
+        )
         post_route_pressure_hard_limit_hit = bool(
             route_pressure is not None
-            and post_route_pressure_hard_limit_hpa > 0.0
-            and route_pressure > post_route_pressure_hard_limit_hpa
+            and post_route_absolute_pressure_hard_limit_hpa > 0.0
+            and route_pressure > post_route_absolute_pressure_hard_limit_hpa
         )
         pressure_high_block_reason = (
-            "FAIL_CLOSED_POST_ROUTE_PRESSURE_HARD_LIMIT"
+            "FAIL_CLOSED_POST_ROUTE_ABSOLUTE_PRESSURE_HARD_LIMIT"
             if post_route_pressure_hard_limit_hit
             else ""
         )
@@ -12739,13 +12993,22 @@ class CalibrationRunner:
             block_reason = pressure_high_block_reason
         gate_end_s = time.time()
         gate_elapsed_s = max(0.0, gate_end_s - gate_begin_s)
+        gate_target_max_s = self._minimal_ready_gate_target_max_s()
+        gate_exceeded = bool(gate_target_max_s > 0.0 and gate_elapsed_s > gate_target_max_s)
 
         fields: Dict[str, Any] = {
             "fast_control_branch_entered": True,
+            **self._sealed_control_prearm_trace_fields(),
             "minimal_ready_gate_begin_ts": self._iso_ts_from_wall(gate_begin_s),
             "minimal_ready_gate_end_ts": self._iso_ts_from_wall(gate_end_s),
             "minimal_ready_gate_elapsed_s": gate_elapsed_s,
             "minimal_ready_gate_blocked_by": block_reason,
+            "minimal_ready_uses_cached_vent_status": use_cached_vent_status,
+            "minimal_ready_realtime_query_count": minimal_query_count,
+            "minimal_ready_realtime_query_elapsed_s": minimal_query_elapsed_s,
+            "minimal_ready_gate_target_max_s": gate_target_max_s,
+            "minimal_ready_gate_exceeded": gate_exceeded,
+            "minimal_ready_gate_blocking_query": minimal_blocking_query if gate_exceeded else "",
             "post_seal_vent_abort_clear_enabled": bool(self._post_seal_vent_abort_clear_enabled()),
             "post_seal_vent_abort_clear_sent": False,
             "post_seal_vent_abort_clear_raw_tx_ts": "",
@@ -12774,12 +13037,15 @@ class CalibrationRunner:
             "route_close_pressure_at_close_hpa": route_close_pressure_hpa,
             "preseal_pressure_build_hard_limit_hit": bool(pressure_hard_limit_hit),
             "post_route_pressure_peak_before_outp1_hpa": route_pressure if route_pressure is not None else "",
-            "post_route_pressure_hard_limit_hpa": post_route_pressure_hard_limit_hpa,
+            "post_route_pressure_warning_hpa": post_route_pressure_warning_hpa,
+            "post_route_pressure_warning_hit": post_route_pressure_warning_hit,
+            "post_route_absolute_pressure_hard_limit_hpa": post_route_absolute_pressure_hard_limit_hpa,
+            "post_route_absolute_pressure_hard_limit_hit": bool(post_route_pressure_hard_limit_hit),
+            "post_route_pressure_hard_limit_hpa": post_route_absolute_pressure_hard_limit_hpa,
             "post_route_pressure_hard_limit_hit": bool(post_route_pressure_hard_limit_hit),
             "pressure_high_but_control_should_start": bool(
                 route_pressure is not None
-                and post_route_pressure_hard_limit_hpa > 0.0
-                and route_pressure > post_route_pressure_hard_limit_hpa * 0.9
+                and post_route_pressure_warning_hit
                 and not post_route_pressure_hard_limit_hit
             ),
             "pressure_high_blocked_outp1": bool(post_route_pressure_hard_limit_hit),
@@ -21953,6 +22219,7 @@ class CalibrationRunner:
                             ),
                         }
                         fields.update(self._pace_vent_status_diagnostic_fields(vent_status, stage="preseal"))
+                        self._update_pace_state_cache(snapshot)
                         self._append_pressure_trace_row(
                             point=point,
                             route=phase,
@@ -22083,6 +22350,31 @@ class CalibrationRunner:
                     f"vent_abort_sent={str(vent_abort_sent).lower()}"
                 ),
             )
+
+            if (
+                route_name == "co2"
+                and self._controlled_outp_transition()
+                and not self._prearm_sealed_control_config(
+                    point=point,
+                    phase=phase,
+                    pressure_target_hpa=self._as_float(point.target_pressure_hpa),
+                    trace_stage="sealed_control_prearm_config_before_route_close",
+                )
+            ):
+                self._mark_co2_route_terminal_failure(
+                    final_decision=str(
+                        self._controlled_exit_final_decision
+                        or "FAIL_CLOSED_SEALED_CONTROL_PREARM_CONFIG_FAILED"
+                    ),
+                    reason="sealed control slew/overshoot prearm failed before route close",
+                    point=point,
+                    phase=phase,
+                )
+                self._cleanup_co2_route(reason=self._controlled_exit_final_decision)
+                self._stop_pressure_transition_fast_signal_context(
+                    reason=str(self._controlled_exit_final_decision or "sealed control prearm failure")
+                )
+                return False
 
             if (
                 self._controlled_outp_seal_transition_enabled(route_name)

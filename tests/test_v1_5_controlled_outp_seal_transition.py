@@ -229,6 +229,12 @@ class SequenceVentStatusPace(FakePace):
         return self.vent_status
 
 
+class SlewConfigFailPace(FakePace):
+    def set_slew_rate(self, value: float) -> None:
+        self.calls.append(("set_slew_rate_failed", float(value)))
+        raise RuntimeError("slew rate failed")
+
+
 class Vent3AfterOutp1Pace(FakePace):
     def enable_control_output(self) -> None:
         self.calls.append(("enable_control_output",))
@@ -2431,6 +2437,92 @@ def test_v2_like_sequence_route_close_setpoint_outp1(monkeypatch) -> None:
     assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
 
 
+def test_slew_config_prearmed_before_route_close(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(gauge=FakeGauge([1112.0, 1112.0]))
+    point = _co2_point(pressure=900.0)
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    stages = _trace_stages(runner)
+    assert "sealed_control_prearm_config_before_route_close" in stages
+    assert stages.index("sealed_control_prearm_config_before_route_close") < stages.index(
+        "route_valves_closed_after_vent0"
+    )
+    assert ("set_slew_mode_linear",) in pace.calls
+    assert ("set_slew_rate", 15.0) in pace.calls
+    assert ("set_overshoot_allowed", False) in pace.calls
+    assert "sealed_pressure_slew_configured" not in stages[stages.index("route_valves_closed_after_vent0") :]
+    fields = _last_stage_fields(runner, "sealed_control_setpoint_command_sent")
+    assert fields["slew_config_deferred_before_route_close"] is True
+    assert fields["slew_config_after_route_close_count"] == 0
+
+
+def test_slew_config_failure_before_route_close_fails_before_seal(monkeypatch) -> None:
+    runner, _, _, _ = _runner(pace=SlewConfigFailPace(), gauge=FakeGauge([1112.0, 1112.0]))
+    point = _co2_point(pressure=900.0)
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is False
+
+    stages = _trace_stages(runner)
+    assert "sealed_control_prearm_config_before_route_close_failed" in stages
+    assert "route_valves_closed_after_vent0" not in stages
+
+
+def test_minimal_ready_gate_fast_after_route_close() -> None:
+    runner, _, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._update_pace_state_cache(
+        {"pace_vent_status": 2, "pace_output_state": 0, "pace_isolation_state": 1}
+    )
+
+    ready, fields = runner._post_route_close_minimal_control_ready(
+        point,
+        phase="co2",
+        route_close_ts=time.time(),
+        route_close_pressure_hpa=1125.0,
+        pressure_hard_limit_hit=False,
+    )
+
+    assert ready is True
+    assert fields["minimal_ready_uses_cached_vent_status"] is True
+    assert fields["minimal_ready_realtime_query_count"] == 0
+    assert fields["minimal_ready_gate_elapsed_s"] <= 1.0
+    assert fields["minimal_ready_gate_exceeded"] is False
+
+
+def test_route_close_to_setpoint_not_consumed_by_slew_config(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(gauge=FakeGauge([1112.0, 1112.0]))
+    point = _co2_point(pressure=900.0)
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    fields = _last_stage_fields(runner, "sealed_control_setpoint_command_sent")
+    assert fields["route_close_to_setpoint_s"] <= 3.0
+    assert fields["slew_config_after_route_close_count"] == 0
+    assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
+
+
+def test_route_close_to_outp1_not_consumed_by_slew_config(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(gauge=FakeGauge([1112.0, 1112.0]))
+    point = _co2_point(pressure=900.0)
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    fields = _last_stage_fields(runner, "sealed_control_output_enable_command_sent")
+    assert fields["route_close_to_outp1_s"] <= 5.0
+    assert fields["slew_config_after_route_close_count"] == 0
+    assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
+
+
 def test_fast_control_chain_still_setpoint_before_outp1(monkeypatch) -> None:
     runner, pace, _, _ = _runner(gauge=FakeGauge([1112.0, 1112.0]))
     point = _co2_point(pressure=900.0)
@@ -2620,7 +2712,10 @@ def test_full_status_evidence_deferred_until_after_outp1(monkeypatch) -> None:
 
 def test_pressure_high_below_hard_limit_does_not_block_fast_control() -> None:
     runner, pace, _, _ = _runner(
-        pressure_overrides={"post_route_pressure_hard_limit_hpa": 1200.0}
+        pressure_overrides={
+            "post_route_pressure_warning_hpa": 1200.0,
+            "post_route_absolute_pressure_hard_limit_hpa": 1300.0,
+        }
     )
     point = _co2_point(pressure=900.0)
     runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
@@ -2629,11 +2724,12 @@ def test_pressure_high_below_hard_limit_does_not_block_fast_control() -> None:
         point,
         phase="co2",
         route_close_ts=time.time(),
-        route_close_pressure_hpa=1190.0,
+        route_close_pressure_hpa=1201.0,
         pressure_hard_limit_hit=False,
     )
 
     assert ready is True
+    assert fields["post_route_pressure_warning_hit"] is True
     assert fields["pressure_high_but_control_should_start"] is True
     assert fields["pressure_high_blocked_outp1"] is False
     assert runner._start_fast_control_after_route_close(
@@ -2647,7 +2743,7 @@ def test_pressure_high_below_hard_limit_does_not_block_fast_control() -> None:
 
 def test_post_route_pressure_hard_limit_blocks_outp1() -> None:
     runner, pace, _, _ = _runner(
-        pressure_overrides={"post_route_pressure_hard_limit_hpa": 1200.0}
+        pressure_overrides={"post_route_absolute_pressure_hard_limit_hpa": 1200.0}
     )
     point = _co2_point(pressure=900.0)
     runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
@@ -2662,9 +2758,26 @@ def test_post_route_pressure_hard_limit_blocks_outp1() -> None:
 
     assert ready is False
     assert fields["pressure_high_blocked_outp1"] is True
-    assert fields["outp1_blocked_reason"] == "FAIL_CLOSED_POST_ROUTE_PRESSURE_HARD_LIMIT"
+    assert fields["post_route_absolute_pressure_hard_limit_hit"] is True
+    assert fields["outp1_blocked_reason"] == "FAIL_CLOSED_POST_ROUTE_ABSOLUTE_PRESSURE_HARD_LIMIT"
     assert ("setpoint", 900.0) not in pace.calls
     assert ("enable_control_output",) not in pace.calls
+
+
+def test_positive_supply_effort_guard_starts_after_outp1(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(gauge=FakeGauge([1112.0, 1112.0]))
+    point = _co2_point(pressure=900.0)
+    pace.efforts = [-1.0]
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    assert pace.calls.index(("enable_control_output",)) < pace.calls.index(("query", ":SOUR:PRES:EFF?"))
+    setpoint_fields = _last_stage_fields(runner, "sealed_control_setpoint_command_sent")
+    assert setpoint_fields["effort_query_before_outp1_skipped_or_zero_reason"]
+    outp_fields = _last_stage_fields(runner, "sealed_control_output_enable_command_sent")
+    assert outp_fields["effort_guard_active_after_outp1"] is True
 
 
 def test_no_parameter_write_added_in_fast_control_path(monkeypatch) -> None:
