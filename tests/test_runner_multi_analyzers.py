@@ -765,6 +765,35 @@ def test_sampling_parallel_status_unknown_without_sample_rows(tmp_path: Path) ->
     logger.close()
 
 
+def test_open_flow_sample_rows_do_not_mark_sealed_sampling_verified(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"sampling": {"count": 1}}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+
+    status = runner._sampling_timing_audit_status(
+        [
+            {
+                "pressure_mode": "ambient_open",
+                "sample_snapshot_ts": "2026-05-19T22:41:00.000",
+                "per_device_sample_ts": json.dumps({"pace_pressure": "2026-05-19T22:41:00.000"}),
+                "sampling_time_alignment_max_age_ms": 0.0,
+                "sampling_time_alignment_p95_age_ms": 0.0,
+            }
+        ]
+    )
+
+    assert status["sample_count"] == 1
+    assert status["sealed_sample_count"] == 0
+    assert status["sampling_parallel_status"] == "partial"
+    assert status["sampling_not_verified_reason"] == "no_sealed_sample_rows"
+    logger.close()
+
+
 def test_collect_samples_prefers_stream_reader_when_available(tmp_path: Path) -> None:
     cfg = {
         "devices": {

@@ -372,6 +372,19 @@ _PRESSURE_TRACE_FIELDS = [
     "target_crossing_to_safe_stop_s",
     "pressure_wait_cycles_after_crossing",
     "fail_immediately_after_crossing",
+    "exhaust_only_sample_above_target_enabled",
+    "exhaust_only_upper_window_hpa",
+    "exhaust_only_sample_above_target_lower_margin_hpa",
+    "exhaust_only_candidate_window_entered",
+    "exhaust_only_candidate_pressure_hpa",
+    "exhaust_only_candidate_ts",
+    "exhaust_only_candidate_effort_pct",
+    "exhaust_only_candidate_dewpoint_c",
+    "exhaust_only_candidate_vent_status",
+    "exhaust_only_candidate_sampling_allowed",
+    "actual_pressure_used_for_sample",
+    "nominal_target_hpa",
+    "pressure_above_target_sample_offset_hpa",
     "exhaust_only_ready_result",
     "exhaust_only_ready_failure_reason",
     "pace_pressure_age_s",
@@ -386,6 +399,9 @@ _PRESSURE_TRACE_FIELDS = [
     "dewpoint_rise_excess_c",
     "dewpoint_lag_best_s",
     "dewpoint_rise_likely_phase",
+    "dewpoint_local_rise_max_c",
+    "dewpoint_local_rise_window_start",
+    "dewpoint_local_rise_window_end",
     "likely_pressure_control_mixing",
     "likely_seal_transition_mixing",
     "likely_safe_stop_artifact",
@@ -607,6 +623,14 @@ _PRESSURE_TRACE_FIELDS = [
     "pace_query_blocking_keepalive_count",
     "open_flow_vent1_gap_fail_reason",
     "open_flow_vent1_gap_guard_passed",
+    "open_flow_vent1_gap_guard_window_end_ts",
+    "vent1_gap_after_keepalive_stop_ignored_for_open_flow_guard",
+    "quiet_gap_window_uses_no_new_vent1_check",
+    "post_open_flow_sampling_to_stop_hold_s",
+    "post_open_flow_sampling_pace_query_count",
+    "post_open_flow_sampling_pace_query_deferred_count",
+    "post_open_flow_sampling_vent1_gap_max_s",
+    "post_open_flow_sampling_gap_fail_reason",
     "pre_vent_exit_flow_drop_suspected",
     "pre_vent_exit_flow_drop_reason",
     "setpoint_prearm_before_vent_exit_detected",
@@ -10124,6 +10148,42 @@ class CalibrationRunner:
         raw = self._wf("workflow.pressure.pressure_target_crossing_fail_count", 1)
         return max(1, int(1 if raw is None else raw))
 
+    def _exhaust_only_sample_above_target_enabled(self) -> bool:
+        raw = self._wf("workflow.pressure.exhaust_only_sample_above_target_enabled", None)
+        # This no-write strategy is intentionally opt-in per limited-run config;
+        # otherwise existing fail-closed crossing/chatter tests must keep owning the default path.
+        return self._as_bool(raw, False)
+
+    def _exhaust_only_sample_above_target_upper_window_hpa(self) -> float:
+        raw = self._wf(
+            "workflow.pressure.exhaust_only_sample_above_target_upper_window_hpa",
+            self._wf("workflow.pressure.exhaust_only_upper_tolerance_hpa", 1.0),
+        )
+        return max(0.0, float(1.0 if raw is None else raw))
+
+    def _exhaust_only_sample_above_target_lower_margin_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.exhaust_only_sample_above_target_lower_margin_hpa", 0.0)
+        return max(0.0, float(0.0 if raw is None else raw))
+
+    def _exhaust_only_above_target_candidate_base_fields(self) -> Dict[str, Any]:
+        return {
+            "exhaust_only_sample_above_target_enabled": self._exhaust_only_sample_above_target_enabled(),
+            "exhaust_only_upper_window_hpa": self._exhaust_only_sample_above_target_upper_window_hpa(),
+            "exhaust_only_sample_above_target_lower_margin_hpa": (
+                self._exhaust_only_sample_above_target_lower_margin_hpa()
+            ),
+            "exhaust_only_candidate_window_entered": False,
+            "exhaust_only_candidate_pressure_hpa": "",
+            "exhaust_only_candidate_ts": "",
+            "exhaust_only_candidate_effort_pct": "",
+            "exhaust_only_candidate_dewpoint_c": "",
+            "exhaust_only_candidate_vent_status": "",
+            "exhaust_only_candidate_sampling_allowed": False,
+            "actual_pressure_used_for_sample": "",
+            "nominal_target_hpa": "",
+            "pressure_above_target_sample_offset_hpa": "",
+        }
+
     def _dewpoint_lag_compensation_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.dewpoint_lag_compensation_enabled", True))
 
@@ -10228,6 +10288,19 @@ class CalibrationRunner:
             elapsed_s = max(0.0, time.time() - baseline_wall_s)
             if elapsed_s > 0.0:
                 rate_c_per_min = float(rise_c) / elapsed_s * 60.0
+        context = self._sealed_sweep_context_for_counters()
+        local_rise_max_c = rise_c
+        local_rise_start_ts = self._iso_ts_from_wall(baseline_wall_s)
+        local_rise_end_ts = self._iso_ts_from_wall(time.time()) if rise_c is not None else ""
+        if isinstance(context, dict):
+            previous_max = self._as_float(context.get("dewpoint_local_rise_max_c"))
+            if rise_c is not None and (previous_max is None or float(rise_c) > float(previous_max)):
+                context["dewpoint_local_rise_max_c"] = float(rise_c)
+                context["dewpoint_local_rise_window_start"] = local_rise_start_ts
+                context["dewpoint_local_rise_window_end"] = local_rise_end_ts
+            local_rise_max_c = self._as_float(context.get("dewpoint_local_rise_max_c"))
+            local_rise_start_ts = str(context.get("dewpoint_local_rise_window_start") or local_rise_start_ts or "")
+            local_rise_end_ts = str(context.get("dewpoint_local_rise_window_end") or local_rise_end_ts or "")
         lag_best_s = ""
         likely_phase = ""
         likely_pressure_control_mixing = False
@@ -10239,7 +10312,7 @@ class CalibrationRunner:
             abnormal_rise = bool(float(rise_excess_c) > fail_threshold_c)
         elif rise_c is not None:
             abnormal_rise = bool(float(rise_c) > fail_threshold_c)
-        local_rise = bool(rise_c is not None and float(rise_c) > 0.05 and not abnormal_rise)
+        local_rise = bool(local_rise_max_c is not None and float(local_rise_max_c) > 0.05)
         if abnormal_rise:
             if self._sealed_first_outp1_tx_ts is not None:
                 lag_best_s = 45.0 if 45.0 in self._dewpoint_lag_candidates_s() else self._dewpoint_lag_candidates_s()[0]
@@ -10264,6 +10337,9 @@ class CalibrationRunner:
             "dewpoint_rise_excess_c": rise_excess_c if rise_excess_c is not None else "",
             "dewpoint_lag_best_s": lag_best_s if self._dewpoint_lag_compensation_enabled() else "",
             "dewpoint_rise_likely_phase": likely_phase,
+            "dewpoint_local_rise_max_c": local_rise_max_c if local_rise_max_c is not None else "",
+            "dewpoint_local_rise_window_start": local_rise_start_ts,
+            "dewpoint_local_rise_window_end": local_rise_end_ts,
             "likely_pressure_control_mixing": likely_pressure_control_mixing,
             "likely_seal_transition_mixing": likely_seal_transition_mixing,
             "likely_safe_stop_artifact": likely_safe_stop_artifact,
@@ -11000,6 +11076,7 @@ class CalibrationRunner:
         wait_cycles_after_crossing: int = 0,
         result: str = "",
         failure_reason: str = "",
+        candidate_fields: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         monotonic_to_target = bool(
             enabled
@@ -11007,7 +11084,7 @@ class CalibrationRunner:
             and int(crossing_count or 0) == 0
             and not chatter_detected
         )
-        return {
+        fields = {
             "exhaust_only_ready_gate_enabled": bool(enabled),
             "one_sided_pressure_ready": one_sided_ready,
             "one_sided_upper_tolerance_hpa": self._one_sided_upper_tolerance_hpa(),
@@ -11040,6 +11117,10 @@ class CalibrationRunner:
             "exhaust_only_ready_result": str(result or ""),
             "exhaust_only_ready_failure_reason": str(failure_reason or ""),
         }
+        base_candidate_fields = self._exhaust_only_above_target_candidate_base_fields()
+        base_candidate_fields.update(dict(candidate_fields or {}))
+        fields.update(base_candidate_fields)
+        return fields
 
     def _evaluate_exhaust_only_pressure_ready(
         self,
@@ -11068,6 +11149,8 @@ class CalibrationRunner:
         failure_reason = ""
         terminal = False
         evaluation_ts = time.time()
+        candidate_fields: Dict[str, Any] = self._exhaust_only_above_target_candidate_base_fields()
+        candidate_sampling_allowed = False
         if pressure_hpa is not None:
             diff = float(pressure_hpa) - float(target)
             sign = 1 if diff > 0.0 else -1 if diff < 0.0 else 0
@@ -11107,6 +11190,42 @@ class CalibrationRunner:
                 terminal = True
             upper_limit = float(target) + self._one_sided_upper_tolerance_hpa()
             one_sided_ready = bool(float(target) <= float(pressure_hpa) <= upper_limit)
+            candidate_enabled = bool(candidate_fields.get("exhaust_only_sample_above_target_enabled"))
+            candidate_upper = self._exhaust_only_sample_above_target_upper_window_hpa()
+            candidate_lower_margin = self._exhaust_only_sample_above_target_lower_margin_hpa()
+            candidate_entered = bool(
+                candidate_enabled
+                and not terminal
+                and crossing_count == 0
+                and not undershoot_detected
+                and (float(target) - candidate_lower_margin) <= float(pressure_hpa) <= float(target) + candidate_upper
+            )
+            candidate_sampling_allowed = bool(candidate_entered)
+            if candidate_entered and state is not None:
+                state["exhaust_only_candidate_window_entered"] = True
+                state["exhaust_only_candidate_pressure_hpa"] = float(pressure_hpa)
+                state["exhaust_only_candidate_ts"] = evaluation_ts
+                state["actual_pressure_used_for_sample"] = float(pressure_hpa)
+                state["nominal_target_hpa"] = float(target)
+                state["pressure_above_target_sample_offset_hpa"] = max(0.0, float(pressure_hpa) - float(target))
+            candidate_fields.update(
+                {
+                    "exhaust_only_upper_window_hpa": candidate_upper,
+                    "exhaust_only_sample_above_target_lower_margin_hpa": candidate_lower_margin,
+                    "exhaust_only_candidate_window_entered": candidate_entered,
+                    "exhaust_only_candidate_pressure_hpa": float(pressure_hpa) if candidate_entered else "",
+                    "exhaust_only_candidate_ts": (
+                        self._iso_ts_from_wall(evaluation_ts) if candidate_entered else ""
+                    ),
+                    "exhaust_only_candidate_dewpoint_c": self._current_trace_dewpoint_c(),
+                    "exhaust_only_candidate_sampling_allowed": candidate_sampling_allowed,
+                    "actual_pressure_used_for_sample": float(pressure_hpa) if candidate_sampling_allowed else "",
+                    "nominal_target_hpa": float(target) if candidate_sampling_allowed else "",
+                    "pressure_above_target_sample_offset_hpa": (
+                        max(0.0, float(pressure_hpa) - float(target)) if candidate_sampling_allowed else ""
+                    ),
+                }
+            )
             if int(in_limits or 0) == 1 and not one_sided_ready and not terminal:
                 failure_reason = "FAIL_CLOSED_EXHAUST_ONLY_INLIMIT_OUTSIDE_ONE_SIDED_WINDOW"
                 terminal = True
@@ -11129,8 +11248,15 @@ class CalibrationRunner:
                 else ""
             ),
             wait_cycles_after_crossing=wait_cycles_after_crossing,
-            result="fail" if terminal else "pass" if one_sided_ready and int(in_limits or 0) == 1 else "pending",
+            result=(
+                "fail"
+                if terminal
+                else "pass"
+                if (one_sided_ready and int(in_limits or 0) == 1) or candidate_sampling_allowed
+                else "pending"
+            ),
             failure_reason=failure_reason,
+            candidate_fields=candidate_fields,
         )
         if state is not None:
             state.update(
@@ -11177,7 +11303,13 @@ class CalibrationRunner:
             "pressure_controller_control_state_verified": ready_bool,
             "pressure_controller_control_state_failure_reason": str(failure_reason or ""),
             "pressure_in_limit": bool(pressure_in_limit) if pressure_in_limit is not None else "",
-            "pressure_stable_evidence": "pace_in_limits=1" if pressure_in_limit else "",
+            "pressure_stable_evidence": (
+                "pace_in_limits=1"
+                if pressure_in_limit
+                else "exhaust_only_above_target_window"
+                if pressure_ready and not failure_reason
+                else ""
+            ),
         }
         for key in ("pace_pressure_age_s", "com22_pressure_age_s", "dewpoint_age_s"):
             if key in ready_values:
@@ -12863,6 +12995,9 @@ class CalibrationRunner:
             "pre_vent0_quiet_gap_satisfied": bool(actual_gap_s >= required_s),
             "pre_vent0_quiet_gap_timed_out": bool(timed_out),
             "quiet_gap_interrupted_by_pressure": bool(interrupted_by_pressure),
+            "open_flow_vent1_gap_guard_window_end_ts": self._iso_ts_from_wall(request_s),
+            "vent1_gap_after_keepalive_stop_ignored_for_open_flow_guard": True,
+            "quiet_gap_window_uses_no_new_vent1_check": True,
             "quiet_gap_pressure_hpa": pressure_value,
             "quiet_gap_pressure_source": pressure_source,
             "quiet_gap_pressure_trigger_hpa": pressure_trigger_hpa,
@@ -14342,6 +14477,11 @@ class CalibrationRunner:
                 if phase == "co2" and self._co2_sealed_no_vent_guard_active
                 else (True, False, {}, "")
             )
+            if phase == "co2" and self._co2_sealed_no_vent_guard_active:
+                exhaust_fields = {
+                    **self._sealed_dewpoint_rise_trace_fields(point=point),
+                    **exhaust_fields,
+                }
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -14391,7 +14531,10 @@ class CalibrationRunner:
                     note=exhaust_failure_reason,
                 )
                 return False
-            if inl == 1:
+            above_target_candidate_ready = bool(
+                exhaust_fields.get("exhaust_only_candidate_sampling_allowed")
+            )
+            if inl == 1 or above_target_candidate_ready:
                 if phase == "co2" and self._co2_sealed_no_vent_guard_active:
                     snapshot = self._pressure_controller_ready_snapshot(pace)
                     vent_status = self._as_int(snapshot.get("pace_vent_status"))
@@ -14401,10 +14544,24 @@ class CalibrationRunner:
                         pressure_target_hpa=target,
                         fail_on_unsupported=False,
                     )
+                    if above_target_candidate_ready:
+                        candidate_effort_pct = self._as_float(
+                            effort_fields.get("effort_after_outp1")
+                            if effort_fields.get("effort_after_outp1") != ""
+                            else effort_fields.get("effort_before_sampling")
+                        )
+                        exhaust_fields["exhaust_only_candidate_effort_pct"] = (
+                            candidate_effort_pct if candidate_effort_pct is not None else ""
+                        )
+                        exhaust_fields["exhaust_only_candidate_vent_status"] = (
+                            vent_status if vent_status is not None else ""
+                        )
                     failure_reason = ""
                     if not effort_ok:
                         failure_reason = effort_reason
-                    elif exhaust_fields.get("exhaust_only_ready_gate_enabled") and not one_sided_ready:
+                    elif exhaust_fields.get("exhaust_only_ready_gate_enabled") and not (
+                        one_sided_ready or above_target_candidate_ready
+                    ):
                         failure_reason = (
                             exhaust_failure_reason
                             or "FAIL_CLOSED_EXHAUST_ONLY_PRESSURE_NOT_READY_FROM_ABOVE"
@@ -14416,6 +14573,8 @@ class CalibrationRunner:
                     elif self._sealed_dewpoint_rise_exceeded(point=point):
                         failure_reason = "FAIL_CLOSED_DEWPOINT_RISE_AFTER_OUTP1_BEFORE_SAMPLING"
                     if failure_reason:
+                        if above_target_candidate_ready:
+                            exhaust_fields["exhaust_only_candidate_sampling_allowed"] = False
                         self._controlled_exit_final_decision = failure_reason
                         self._append_pressure_trace_row(
                             point=point,
@@ -14440,7 +14599,7 @@ class CalibrationRunner:
                                         point,
                                         snapshot=snapshot,
                                         pressure_target_hpa=target,
-                                        pressure_in_limit=True,
+                                        pressure_in_limit=bool(inl == 1),
                                         failure_reason=failure_reason,
                                     ),
                                     **self._fast_control_deferred_trace_fields(
@@ -14457,7 +14616,9 @@ class CalibrationRunner:
                             note=failure_reason,
                         )
                         return False
-                    self._mark_sealed_pressure_ready(result="in_limits")
+                    self._mark_sealed_pressure_ready(
+                        result="in_limits" if inl == 1 else "above_target_window"
+                    )
                     sealed_extra = self._sealed_sweep_trace_extra(
                         {
                             **self._sealed_passive_trace_fields(
@@ -14468,7 +14629,7 @@ class CalibrationRunner:
                                 point,
                                 snapshot=snapshot,
                                 pressure_target_hpa=target,
-                                pressure_in_limit=True,
+                                pressure_in_limit=bool(inl == 1),
                                 pressure_ready=True,
                             ),
                             **self._fast_control_deferred_trace_fields(consumed_by="pressure_in_limits"),
@@ -14714,6 +14875,10 @@ class CalibrationRunner:
                     pressure_control_direction_expected=pressure_control_direction_expected,
                 )
             )
+            exhaust_fields = {
+                **self._sealed_dewpoint_rise_trace_fields(point=point),
+                **exhaust_fields,
+            }
             self._append_pressure_trace_row(
                 point=point,
                 route="co2",
@@ -14757,7 +14922,10 @@ class CalibrationRunner:
                 )
                 self._clear_active_co2_sealed_sweep_context(reason=exhaust_failure_reason, point=point)
                 return False
-            if inl == 1:
+            above_target_candidate_ready = bool(
+                exhaust_fields.get("exhaust_only_candidate_sampling_allowed")
+            )
+            if inl == 1 or above_target_candidate_ready:
                 snapshot = self._pressure_controller_ready_snapshot(pace)
                 vent_status = self._as_int(snapshot.get("pace_vent_status"))
                 effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
@@ -14766,10 +14934,24 @@ class CalibrationRunner:
                     pressure_target_hpa=target,
                     fail_on_unsupported=False,
                 )
+                if above_target_candidate_ready:
+                    candidate_effort_pct = self._as_float(
+                        effort_fields.get("effort_after_outp1")
+                        if effort_fields.get("effort_after_outp1") != ""
+                        else effort_fields.get("effort_before_sampling")
+                    )
+                    exhaust_fields["exhaust_only_candidate_effort_pct"] = (
+                        candidate_effort_pct if candidate_effort_pct is not None else ""
+                    )
+                    exhaust_fields["exhaust_only_candidate_vent_status"] = (
+                        vent_status if vent_status is not None else ""
+                    )
                 failure_reason = ""
                 if not effort_ok:
                     failure_reason = effort_reason
-                elif exhaust_fields.get("exhaust_only_ready_gate_enabled") and not one_sided_ready:
+                elif exhaust_fields.get("exhaust_only_ready_gate_enabled") and not (
+                    one_sided_ready or above_target_candidate_ready
+                ):
                     failure_reason = (
                         exhaust_failure_reason
                         or "FAIL_CLOSED_EXHAUST_ONLY_PRESSURE_NOT_READY_FROM_ABOVE"
@@ -14781,6 +14963,8 @@ class CalibrationRunner:
                 elif self._sealed_dewpoint_rise_exceeded(point=point):
                     failure_reason = "FAIL_CLOSED_DEWPOINT_RISE_DURING_SEALED_SWEEP_BEFORE_SAMPLING"
                 if failure_reason:
+                    if above_target_candidate_ready:
+                        exhaust_fields["exhaust_only_candidate_sampling_allowed"] = False
                     self._controlled_exit_final_decision = failure_reason
                     self._append_pressure_trace_row(
                         point=point,
@@ -14805,7 +14989,7 @@ class CalibrationRunner:
                                     point,
                                     snapshot=snapshot,
                                     pressure_target_hpa=target,
-                                    pressure_in_limit=True,
+                                    pressure_in_limit=bool(inl == 1),
                                     failure_reason=failure_reason,
                                 ),
                                 "sampling_blocked_by_dewpoint_rise": failure_reason.startswith(
@@ -14820,7 +15004,9 @@ class CalibrationRunner:
                     )
                     self._clear_active_co2_sealed_sweep_context(reason=failure_reason, point=point)
                     return False
-                self._mark_sealed_pressure_ready(result="in_limits")
+                self._mark_sealed_pressure_ready(
+                    result="in_limits" if inl == 1 else "above_target_window"
+                )
                 self._append_pressure_trace_row(
                     point=point,
                     route="co2",
@@ -14840,7 +15026,7 @@ class CalibrationRunner:
                                 point,
                                 snapshot=snapshot,
                                 pressure_target_hpa=target,
-                                pressure_in_limit=True,
+                                pressure_in_limit=bool(inl == 1),
                                 pressure_ready=True,
                             ),
                             **exhaust_fields,
@@ -20064,7 +20250,7 @@ class CalibrationRunner:
         scheduler_fields = self._open_flow_keepalive_scheduler_fields()
         self._co2_open_flow_until_preseal_raw_tap_window_active = False
         fields.update(scheduler_fields)
-        gap_fields = self._open_flow_vent_keepalive_gap_fields(fields)
+        gap_fields = self._open_flow_vent_keepalive_gap_fields(fields, point=point)
         if gap_fields:
             fields.update(gap_fields)
         if fields:
@@ -20166,12 +20352,104 @@ class CalibrationRunner:
             return []
         return rows
 
-    def _open_flow_vent_keepalive_gap_fields(self, fields: Mapping[str, Any]) -> Dict[str, Any]:
+    def _open_flow_post_sampling_handoff_fields(
+        self,
+        fields: Mapping[str, Any],
+        rows: List[Mapping[str, Any]],
+    ) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "post_open_flow_sampling_to_stop_hold_s": "",
+            "post_open_flow_sampling_pace_query_count": 0,
+            "post_open_flow_sampling_pace_query_deferred_count": int(
+                self._pace_query_deferred_for_keepalive_count
+            ),
+            "post_open_flow_sampling_vent1_gap_max_s": "",
+            "post_open_flow_sampling_gap_fail_reason": "",
+        }
+        completion = dict(self._last_sample_completion or {})
+        if str(completion.get("phase") or "").strip().lower() != "co2":
+            return result
+        sample_done_s = self._as_float(completion.get("sample_done_ts"))
+        end_ts = str(fields.get("open_flow_until_preseal_window_end_ts") or "").strip()
+        end_s = self._parse_iso_ts_to_wall_s(end_ts)
+        if sample_done_s is None or end_s is None or end_s < sample_done_s:
+            return result
+        result["post_open_flow_sampling_to_stop_hold_s"] = round(max(0.0, end_s - sample_done_s), 3)
+        query_rows: List[Mapping[str, Any]] = []
+        vent_times: List[float] = []
+        last_vent_before_sample_s: Optional[float] = None
+        for row in rows:
+            wall_s = self._parse_iso_ts_to_wall_s(str(row.get("wall_ts") or ""))
+            if wall_s is None:
+                continue
+            command = self._raw_tap_command_text(row).upper()
+            direction = str(row.get("direction") or "").strip().upper()
+            if direction == "WRITE" and self._raw_tap_is_vent1(command):
+                if wall_s <= sample_done_s:
+                    if last_vent_before_sample_s is None or wall_s > last_vent_before_sample_s:
+                        last_vent_before_sample_s = wall_s
+                elif wall_s <= end_s:
+                    vent_times.append(wall_s)
+            if not (sample_done_s <= wall_s <= end_s and direction == "WRITE"):
+                continue
+            if (
+                "INL?" in command
+                or "SENS:PRES" in command
+                or "MEAS:PRES" in command
+                or "READ:PRES" in command
+                or "SYST:ERR?" in command
+                or "VENT?" in command
+                or "EFF?" in command
+            ):
+                query_rows.append(row)
+        result["post_open_flow_sampling_pace_query_count"] = len(query_rows)
+        gap_candidates: List[float] = []
+        sequence = ([] if last_vent_before_sample_s is None else [last_vent_before_sample_s]) + sorted(vent_times)
+        for prev, current in zip(sequence, sequence[1:]):
+            gap_candidates.append(max(0.0, current - prev))
+        if sequence:
+            gap_candidates.append(max(0.0, end_s - sequence[-1]))
+        if gap_candidates:
+            max_gap_s = max(gap_candidates)
+            result["post_open_flow_sampling_vent1_gap_max_s"] = round(max_gap_s, 3)
+            if max_gap_s > self._open_flow_vent1_gap_fail_s():
+                blocking = self._open_flow_gap_blocking_operation(list(query_rows))
+                result["post_open_flow_sampling_gap_fail_reason"] = (
+                    f"post-open-flow sampling handoff VENT1 gap {max_gap_s:.3f}s"
+                    f" before stop-hold; blocking={blocking}"
+                )
+        return result
+
+    def _open_flow_vent_keepalive_gap_fields(
+        self,
+        fields: Mapping[str, Any],
+        *,
+        point: Optional[CalibrationPoint] = None,
+    ) -> Dict[str, Any]:
         target_gap_s = self._open_flow_vent1_gap_target_s()
         fail_gap_s = self._open_flow_vent1_gap_fail_s()
         max_gap = self._as_float(fields.get("open_flow_vent1_max_gap_s"))
         gap_count = self._as_int(fields.get("open_flow_vent1_gap_violation_count"))
         scheduler_fields = self._open_flow_keepalive_scheduler_fields()
+        begin_ts = fields.get("open_flow_until_preseal_window_begin_ts")
+        raw_window_end_ts = fields.get("open_flow_until_preseal_window_end_ts")
+        guard_end_ts = (
+            fields.get("open_flow_vent1_gap_guard_window_end_ts")
+            or fields.get("stop_atmosphere_hold_begin_ts")
+            or raw_window_end_ts
+        )
+        rows = self._open_flow_raw_tap_rows(begin_ts, guard_end_ts)
+        if rows and str(guard_end_ts or "") != str(raw_window_end_ts or ""):
+            max_gap = None
+        post_sampling_fields = self._open_flow_post_sampling_handoff_fields(
+            {**dict(fields), "open_flow_until_preseal_window_end_ts": guard_end_ts},
+            rows,
+        )
+        guard_window_fields = {
+            "open_flow_vent1_gap_guard_window_end_ts": str(guard_end_ts or ""),
+            "vent1_gap_after_keepalive_stop_ignored_for_open_flow_guard": True,
+            "quiet_gap_window_uses_no_new_vent1_check": True,
+        }
         if max_gap is not None:
             fail_count = 1 if max_gap > fail_gap_s else 0
             may_drop = bool(max_gap > target_gap_s)
@@ -20182,6 +20460,8 @@ class CalibrationRunner:
             )
             return {
                 **scheduler_fields,
+                **guard_window_fields,
+                **post_sampling_fields,
                 "open_flow_vent1_max_gap_s": max_gap,
                 "open_flow_vent1_p95_gap_s": fields.get("open_flow_vent1_p95_gap_s", ""),
                 "open_flow_vent1_last_gap_s": fields.get("open_flow_vent1_last_gap_s", ""),
@@ -20209,9 +20489,6 @@ class CalibrationRunner:
                 "quiet_gap_started_before_stop_hold_detected": False,
             }
 
-        begin_ts = fields.get("open_flow_until_preseal_window_begin_ts")
-        end_ts = fields.get("open_flow_until_preseal_window_end_ts")
-        rows = self._open_flow_raw_tap_rows(begin_ts, end_ts)
         vent_rows: List[Dict[str, Any]] = [
             row
             for row in rows
@@ -20268,6 +20545,8 @@ class CalibrationRunner:
         )
         return {
             **scheduler_fields,
+            **guard_window_fields,
+            **post_sampling_fields,
             "open_flow_vent1_count": len(vent_times),
             "open_flow_vent1_raw_tx_times": json.dumps([item[1] for item in vent_times], ensure_ascii=False),
             "open_flow_vent1_max_gap_s": round(max_gap_s, 3),
@@ -23074,11 +23353,17 @@ class CalibrationRunner:
         self._preseal_dewpoint_snapshot = None
         route_name = str(route or "co2").strip().lower()
         phase = "h2o" if route_name == "h2o" or point.is_h2o_point else "co2"
-        self._start_pressure_transition_fast_signal_context(
-            point=point,
-            phase=phase,
-            reason=f"before {route.upper()} pressure seal",
+        pressure_transition_fast_signal_started = False
+        defer_fast_signal_until_atmosphere_exit = bool(
+            route_name == "co2" and self._open_flow_keepalive_active()
         )
+        if not defer_fast_signal_until_atmosphere_exit:
+            self._start_pressure_transition_fast_signal_context(
+                point=point,
+                phase=phase,
+                reason=f"before {route.upper()} pressure seal",
+            )
+            pressure_transition_fast_signal_started = True
         try:
             route_sealed = False
             use_preseal_topoff = bool(getattr(self, "_active_route_requires_preseal_topoff", True))
@@ -23337,6 +23622,13 @@ class CalibrationRunner:
             vent0_wall_ts = self._as_float(getattr(self, "_last_vent_exit_reference_ts", None))
             if vent0_wall_ts is None:
                 vent0_wall_ts = float(vent0_command_ts or time.time())
+            if not pressure_transition_fast_signal_started:
+                self._start_pressure_transition_fast_signal_context(
+                    point=point,
+                    phase=phase,
+                    reason=f"after {route.upper()} atmosphere exit",
+                )
+                pressure_transition_fast_signal_started = True
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -25676,6 +25968,11 @@ class CalibrationRunner:
                 "sampling_not_verified_reason": "sample_count_zero",
                 "sampling_fast_claim_allowed": False,
             }
+        sealed_rows = [
+            row
+            for row in rows
+            if str(row.get("pressure_mode") or "").strip().lower() not in {"ambient_open", "open_flow"}
+        ]
         latest = dict(rows[-1])
         missing: List[str] = []
         per_device_ts_raw = latest.get("per_device_sample_ts")
@@ -25687,7 +25984,7 @@ class CalibrationRunner:
             missing = [str(name) for name, value in per_device_ts.items() if value in (None, "")]
         snapshot_based = bool(latest.get("sample_snapshot_ts"))
         return {
-            "sealed_sample_count": len(rows),
+            "sealed_sample_count": len(sealed_rows),
             "sample_count": len(rows),
             "sampling_parallel_status": "partial",
             "sampling_snapshot_based": snapshot_based,
@@ -25695,7 +25992,7 @@ class CalibrationRunner:
             "sampling_time_alignment_max_age_ms": latest.get("sampling_time_alignment_max_age_ms", ""),
             "sampling_time_alignment_p95_age_ms": latest.get("sampling_time_alignment_p95_age_ms", ""),
             "sampling_missing_device_timestamp_fields": ",".join(missing),
-            "sampling_not_verified_reason": "",
+            "sampling_not_verified_reason": "" if sealed_rows else "no_sealed_sample_rows",
             "sampling_fast_claim_allowed": True,
         }
 
@@ -26016,6 +26313,25 @@ class CalibrationRunner:
                 data["co2_ppm_target"] = point.co2_ppm
                 data["h2o_mmol_target"] = point.h2o_mmol
                 data["pressure_target_hpa"] = point.target_pressure_hpa
+                if phase_text == "co2" and self._co2_sealed_no_vent_guard_active:
+                    sealed_context = self._sealed_sweep_context_for_counters() or {}
+                    nominal_target = self._as_float(
+                        sealed_context.get("nominal_target_hpa")
+                        if sealed_context.get("nominal_target_hpa") not in (None, "")
+                        else point.target_pressure_hpa
+                    )
+                    actual_pressure = self._as_float(sealed_context.get("actual_pressure_used_for_sample"))
+                    if actual_pressure is None:
+                        actual_pressure = self._as_float(data.get("pressure_hpa"))
+                    if actual_pressure is None:
+                        actual_pressure = self._as_float(data.get("pressure_gauge_hpa"))
+                    data["nominal_target_hpa"] = nominal_target if nominal_target is not None else ""
+                    data["actual_pressure_used_for_sample"] = actual_pressure if actual_pressure is not None else ""
+                    data["pressure_above_target_sample_offset_hpa"] = (
+                        max(0.0, float(actual_pressure) - float(nominal_target))
+                        if actual_pressure is not None and nominal_target is not None
+                        else ""
+                    )
                 data["temp_set_c"] = point.temp_chamber_c
                 data["point_is_h2o"] = point.is_h2o_point
                 analyzer_value_present = bool(

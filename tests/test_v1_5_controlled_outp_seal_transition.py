@@ -423,6 +423,15 @@ class OpenFlowGapLogger(FakeLogger):
         }
 
 
+def _write_raw_tap_csv(path: Path, rows: list[tuple[str, str, str, str]]) -> None:
+    path.write_text(
+        "wall_ts,direction,decoded_command,workflow_stage\n"
+        + "\n".join(",".join(row) for row in rows)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _controlled_cfg(pressure_overrides: dict | None = None) -> dict:
     pressure = {
         "no_outp_transition_mode": True,
@@ -681,6 +690,83 @@ def test_open_flow_vent1_gap_still_fails_when_real_gap_exceeds_limit() -> None:
     test_open_flow_vent_keepalive_gap_guard_records_gap()
 
 
+def test_open_flow_gap_guard_ends_at_stop_hold_begin(tmp_path: Path) -> None:
+    runner, _pace, _, _ = _runner(logger=FakeLogger())
+    raw_path = tmp_path / "pace_raw_serial_tap.csv"
+    _write_raw_tap_csv(
+        raw_path,
+        [
+            ("2026-05-19T18:05:00.000", "WRITE", ":SOUR:PRES:LEV:IMM:AMPL:VENT 1", "open_flow"),
+            ("2026-05-19T18:05:01.000", "WRITE", ":SOUR:PRES:LEV:IMM:AMPL:VENT 1", "open_flow"),
+            ("2026-05-19T18:05:02.000", "WRITE", ":SOUR:PRES:LEV:IMM:AMPL:VENT 1", "open_flow"),
+            ("2026-05-19T18:05:03.000", "WRITE", ":SOUR:PRES:LEV:IMM:AMPL:VENT 1", "open_flow"),
+            ("2026-05-19T18:05:04.000", "WRITE", ":SOUR:PRES:LEV:IMM:AMPL:VENT 1", "open_flow"),
+            ("2026-05-19T18:05:05.000", "WRITE", ":SOUR:PRES:LEV:IMM:AMPL:VENT 1", "open_flow"),
+            ("2026-05-19T18:05:06.000", "WRITE", ":SOUR:PRES:LEV:IMM:AMPL:VENT 1", "open_flow"),
+            ("2026-05-19T18:05:08.250", "WRITE", ":SENS:PRES:INL?", "quiet_gap"),
+        ],
+    )
+    runner.logger.raw_serial_tap_csv_path = raw_path
+
+    fields = runner._open_flow_vent_keepalive_gap_fields(
+        {
+            "open_flow_until_preseal_window_begin_ts": "2026-05-19T18:05:00.000",
+            "open_flow_until_preseal_window_end_ts": "2026-05-19T18:05:09.000",
+            "open_flow_vent1_gap_guard_window_end_ts": "2026-05-19T18:05:06.000",
+            "open_flow_vent1_max_gap_s": 2.25,
+            "open_flow_vent1_gap_violation_count": 1,
+        }
+    )
+
+    assert fields["open_flow_vent1_gap_guard_window_end_ts"] == "2026-05-19T18:05:06.000"
+    assert fields["open_flow_vent1_gap_fail_count"] == 0
+    assert fields["open_flow_vent1_gap_guard_passed"] is True
+    assert fields["vent1_gap_after_keepalive_stop_ignored_for_open_flow_guard"] is True
+
+
+def test_open_flow_gap_before_stop_hold_still_fails(tmp_path: Path) -> None:
+    runner, _pace, _, _ = _runner(logger=FakeLogger())
+    raw_path = tmp_path / "pace_raw_serial_tap.csv"
+    _write_raw_tap_csv(
+        raw_path,
+        [
+            ("2026-05-19T18:05:00.000", "WRITE", ":SOUR:PRES:LEV:IMM:AMPL:VENT 1", "open_flow"),
+            ("2026-05-19T18:05:02.000", "WRITE", ":SOUR:PRES:LEV:IMM:AMPL:VENT 1", "open_flow"),
+        ],
+    )
+    runner.logger.raw_serial_tap_csv_path = raw_path
+
+    fields = runner._open_flow_vent_keepalive_gap_fields(
+        {
+            "open_flow_until_preseal_window_begin_ts": "2026-05-19T18:05:00.000",
+            "open_flow_until_preseal_window_end_ts": "2026-05-19T18:05:02.000",
+            "open_flow_vent1_gap_guard_window_end_ts": "2026-05-19T18:05:02.000",
+        }
+    )
+
+    assert fields["open_flow_vent1_gap_fail_count"] == 1
+    assert fields["open_flow_vent1_gap_guard_passed"] is False
+    assert fields["pre_vent_exit_flow_drop_suspected"] is True
+
+
+def test_quiet_gap_after_stop_hold_uses_no_new_vent1_not_keepalive_gap() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 0.0,
+            "pre_vent0_quiet_gap_max_s": 0.0,
+            "pre_vent0_vent_status_probe_enabled": True,
+        },
+        logger=QuietGapRawTapLogger(latest_wall_s=time.time() - 2.0),
+    )
+
+    runner._last_atmosphere_hold_stop_request_ts = time.time()
+    runner._wait_pre_vent0_raw_tap_quiet_gap(pace)
+
+    fields = runner._last_pre_vent0_quiet_gap_fields
+    assert fields["quiet_gap_window_uses_no_new_vent1_check"] is True
+    assert fields["vent1_gap_after_keepalive_stop_ignored_for_open_flow_guard"] is True
+
+
 def test_open_flow_vent_keepalive_not_blocked_by_status_probe(monkeypatch) -> None:
     runner, _pace, _, _ = _runner(
         gauge=FakeGauge([1112.0, 1112.0]),
@@ -701,6 +787,12 @@ def test_open_flow_vent_keepalive_not_blocked_by_status_probe(monkeypatch) -> No
     assert fields["open_flow_vent1_gap_fail_count"] == 0
     assert fields["pre_vent_exit_flow_drop_suspected"] is False
     assert fields["open_flow_vent1_gap_guard_passed"] is True
+    start_reasons = [
+        str(call.kwargs.get("reason") or "")
+        for call in runner._start_pressure_transition_fast_signal_context.call_args_list
+    ]
+    assert "before CO2 pressure seal" not in start_reasons
+    assert "after CO2 atmosphere exit" in start_reasons
 
 
 def test_mainthread_vent1_not_sent_during_keepalive_owner_active() -> None:
@@ -2778,6 +2870,89 @@ def test_exhaust_only_ready_accepts_above_target_window() -> None:
     assert fields["exhaust_only_ready_result"] == "pass"
 
 
+def test_exhaust_only_above_target_candidate_detected() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={"exhaust_only_sample_above_target_enabled": True}
+    )
+    point = _co2_point(pressure=1000.0)
+    state: dict = {}
+    runner._exhaust_only_tracking_context = MagicMock(return_value=state)
+
+    ok, _one_sided_ready, fields, _reason = runner._evaluate_exhaust_only_pressure_ready(
+        target=1000.0,
+        pressure_hpa=1000.8,
+        in_limits=0,
+        pressure_control_direction_expected="exhaust_only",
+    )
+
+    assert ok is True
+    assert fields["exhaust_only_candidate_window_entered"] is True
+    assert fields["exhaust_only_candidate_sampling_allowed"] is True
+    assert fields["exhaust_only_candidate_pressure_hpa"] == pytest.approx(1000.8)
+    assert state["actual_pressure_used_for_sample"] == pytest.approx(1000.8)
+
+
+def test_exhaust_only_above_target_sampling_allowed_no_write() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={"exhaust_only_sample_above_target_enabled": True}
+    )
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1000.8, 0)]
+    pace.efforts = [-0.5]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    fields = _last_stage_fields(runner, "pressure_in_limits")
+    assert fields["exhaust_only_candidate_window_entered"] is True
+    assert fields["exhaust_only_candidate_sampling_allowed"] is True
+    assert fields["pressure_in_limit"] is False
+    assert fields["pressure_stable_evidence"] == "exhaust_only_above_target_window"
+    assert fields["actual_pressure_used_for_sample"] == pytest.approx(1000.8)
+    assert fields["nominal_target_hpa"] == pytest.approx(1000.0)
+    assert fields["pressure_above_target_sample_offset_hpa"] == pytest.approx(0.8)
+    assert ("vent", True) not in pace.calls
+
+
+def test_actual_pressure_recorded_for_above_target_sample() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1000.0)
+    pace.efforts = [-0.5]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["actual_pressure_used_for_sample"] = 1000.8
+    context["nominal_target_hpa"] = 1000.0
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+    runner._sampling_window_worker_plan = MagicMock(return_value={})
+    runner._prime_sampling_window_context = MagicMock()
+    runner._merge_fast_signal_cache_into_sample = MagicMock(
+        side_effect=lambda data, *_args, **_kwargs: data.update(
+            {
+                "pressure_hpa": 1000.8,
+                "pace_sample_ts": data["sample_start_ts"],
+            }
+        )
+    )
+    runner._sampling_row_pace_state_snapshot = MagicMock(
+        return_value={
+            "pace_output_state": 1,
+            "pace_isolation_state": 1,
+            "pace_vent_status": 2,
+        }
+    )
+    runner._merge_analyzer_cache_into_sample = MagicMock(return_value={})
+    runner._merge_slow_aux_cache_into_sample = MagicMock()
+
+    samples = runner._collect_samples(point, 1, 0.0, phase="co2")
+
+    assert samples is not None
+    assert samples[0]["actual_pressure_used_for_sample"] == pytest.approx(1000.8)
+    assert samples[0]["nominal_target_hpa"] == pytest.approx(1000.0)
+    assert samples[0]["pressure_above_target_sample_offset_hpa"] == pytest.approx(0.8)
+
+
 def test_exhaust_only_ready_blocks_below_target_undershoot() -> None:
     runner, pace, _, _ = _runner()
     point = _co2_point(pressure=1000.0)
@@ -3002,6 +3177,37 @@ def test_local_dewpoint_rise_distinguished_from_abnormal_rise() -> None:
     assert fields["dewpoint_abnormal_rise_detected"] is False
     assert fields["likely_pressure_control_mixing"] is False
     assert runner._sealed_dewpoint_rise_exceeded(point=point) is False
+
+
+def test_dewpoint_local_rise_detected_even_when_sampling_blocked(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "stabilize_timeout_s": 0.2,
+            "exhaust_only_sample_above_target_enabled": False,
+        }
+    )
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 0), (999.9, 0)]
+    now = time.time()
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -36.99,
+        "pressure_hpa": 1280.0,
+        "sample_wall_ts": now - 60.0,
+    }
+    runner._cached_ready_check_trace_values = MagicMock(
+        return_value={"dewpoint_c": -33.79, "pace_pressure_hpa": 1000.0}
+    )
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=now)
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._set_pressure_to_target(point) is False
+
+    fields = _last_stage_fields(runner, "sealed_pressure_control_state_fail")
+    assert fields["target_crossing_count"] == 1
+    assert fields["dewpoint_local_rise_detected"] is True
+    assert fields["dewpoint_local_rise_max_c"] == pytest.approx(3.2)
+    assert "dewpoint_abnormal_rise_detected" in fields
 
 
 def test_dewpoint_rise_still_fails_before_sampling() -> None:
