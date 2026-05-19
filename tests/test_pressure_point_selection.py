@@ -24,6 +24,23 @@ def _co2_points(*pressures: int) -> list[CalibrationPoint]:
     ]
 
 
+def _co2_0ppm_20c_points(*pressures: int) -> list[CalibrationPoint]:
+    return [
+        CalibrationPoint(
+            index=idx + 3,
+            temp_chamber_c=20.0,
+            co2_ppm=0.0,
+            hgen_temp_c=None,
+            hgen_rh_pct=None,
+            target_pressure_hpa=float(pressure),
+            dewpoint_c=None,
+            h2o_mmol=None,
+            raw_h2o=None,
+        )
+        for idx, pressure in enumerate(pressures)
+    ]
+
+
 def _h2o_points(*pressures: int) -> list[CalibrationPoint]:
     return [
         CalibrationPoint(
@@ -182,6 +199,157 @@ def test_pressure_selection_normalizes_ambient_and_numeric_mix(tmp_path: Path) -
         _close_runner(runner)
 
     assert [runner._pressure_target_label(point) for point in selected] == ["当前大气压", "900hPa", "700hPa"]
+
+
+def test_v1_5_0ppm_ambient_2sealed_config_splits_refs(tmp_path: Path) -> None:
+    runner = _runner(
+        tmp_path,
+        {
+            "workflow": {
+                "selected_pressure_points": ["ambient", 1100, 1000],
+                "preserve_explicit_point_matrix": True,
+            }
+        },
+    )
+    try:
+        refs = runner._co2_pressure_points_for_temperature(
+            _co2_0ppm_20c_points(1100, 1000, 900, 800, 700, 600, 500)
+        )
+        ambient_refs, sealed_refs = runner._split_pressure_execution_points(refs)
+    finally:
+        _close_runner(runner)
+
+    assert len(ambient_refs) == 1
+    assert len(sealed_refs) == 2
+    assert ambient_refs[0].co2_ppm == 0.0
+    assert ambient_refs[0].temp_chamber_c == 20.0
+    assert ambient_refs[0].target_pressure_hpa is None
+    assert runner._pressure_mode_for_point(ambient_refs[0]) == "ambient_open"
+    assert [int(point.co2_ppm) for point in sealed_refs if point.co2_ppm is not None] == [0, 0]
+    assert [int(point.temp_chamber_c) for point in sealed_refs if point.temp_chamber_c is not None] == [20, 20]
+    assert [int(point.target_pressure_hpa or 0) for point in sealed_refs] == [1100, 1000]
+
+
+def test_v1_5_ambient_selected_point_enters_open_route_sampling_path(tmp_path: Path) -> None:
+    runner = _runner(
+        tmp_path,
+        {
+            "workflow": {
+                "selected_pressure_points": ["ambient", 1100, 1000],
+                "preserve_explicit_point_matrix": True,
+            }
+        },
+    )
+    commands: list[tuple[str, object]] = []
+    events: list[tuple[str, object]] = []
+    runner._controlled_exit_final_decision = ""  # type: ignore[attr-defined]
+    state = {
+        "route_valves_open": False,
+        "outp": 0,
+        "isol": 1,
+        "vent1_keepalive_active": False,
+    }
+
+    try:
+        points = _co2_0ppm_20c_points(1100, 1000, 900)
+        refs = runner._co2_pressure_points_for_temperature(points)
+        source = runner._co2_source_points(points)[0]
+
+        runner._apply_co2_pre_route_idle_baseline = lambda *, reason="": None  # type: ignore[method-assign]
+        runner._set_temperature_for_point = lambda point, phase="": True  # type: ignore[method-assign]
+        runner._capture_temperature_calibration_snapshot = lambda *args, **kwargs: None  # type: ignore[method-assign]
+        runner._wait_co2_route_soak_before_seal = lambda point: True  # type: ignore[method-assign]
+        runner._wait_co2_preseal_primary_sensor_gate = lambda point: True  # type: ignore[method-assign]
+        runner._wait_cold_co2_quality_gate = lambda point: True  # type: ignore[method-assign]
+        runner._end_co2_open_flow_until_preseal_raw_tap_window = (  # type: ignore[method-assign]
+            lambda point, *, reason="": True
+        )
+        runner._controlled_exit_failure_is_route_terminal = lambda: True  # type: ignore[method-assign]
+        runner._cleanup_co2_route = lambda *, reason="": None  # type: ignore[method-assign]
+
+        def open_route(point: CalibrationPoint, *, point_tag: str = "") -> bool:
+            state["route_valves_open"] = True
+            state["vent1_keepalive_active"] = True
+            events.append(("route_open", point_tag))
+            return True
+
+        def fail_if_called(name: str):
+            def _inner(*args, **kwargs):
+                commands.append((name, args or kwargs))
+                raise AssertionError(f"{name} must not run during open-flow ambient sampling")
+
+            return _inner
+
+        runner._open_co2_route_for_conditioning = open_route  # type: ignore[method-assign]
+        runner._set_pressure_controller_vent = fail_if_called("VENT0_or_VENT1_direct")  # type: ignore[method-assign]
+        runner._enable_pressure_controller_output = fail_if_called("OUTP1")  # type: ignore[method-assign]
+        runner._pressurize_route_for_sealed_points = lambda *args, **kwargs: False  # type: ignore[method-assign]
+
+        original_open_sample = runner._sample_open_route_point
+
+        def record_open_sample(point: CalibrationPoint, *, phase: str, point_tag: str) -> None:
+            events.append(("open_flow_sample_begin", runner._pressure_mode_for_point(point)))
+            original_open_sample(point, phase=phase, point_tag=point_tag)
+
+        def fake_sample_and_log(point: CalibrationPoint, phase: str = "", point_tag: str = "") -> None:
+            assert runner._pressure_mode_for_point(point) == "ambient_open"
+            assert state["route_valves_open"] is True
+            assert state["outp"] == 0
+            assert state["isol"] == 1
+            assert state["vent1_keepalive_active"] is True
+            runner._all_samples.append({"point_tag": point_tag, "point_phase": phase, "sample_index": 1})
+            events.append(("sample_and_log", point_tag))
+
+        runner._sample_open_route_point = record_open_sample  # type: ignore[method-assign]
+        runner._sample_and_log = fake_sample_and_log  # type: ignore[method-assign]
+
+        runner._run_co2_point(source, pressure_points=refs)
+    finally:
+        _close_runner(runner)
+
+    assert commands == []
+    assert ("open_flow_sample_begin", "ambient_open") in events
+    assert any(event[0] == "sample_and_log" for event in events)
+    assert len(runner._all_samples) == 1
+
+
+def test_v1_5_analyzer_gate_is_not_reported_as_sampling(tmp_path: Path) -> None:
+    runner = _runner(
+        tmp_path,
+        {
+            "workflow": {
+                "stability": {
+                    "analyzer_gate_min_valid_analyzers": 1,
+                    "analyzer_gate_required_labels": ["ga01"],
+                    "analyzer_gate_dewpoint_monitor_enabled": False,
+                }
+            }
+        },
+    )
+    trace_stages: list[str] = []
+    try:
+        point = _co2_0ppm_20c_points(1100)[0]
+        runner._emit_pressure_controller_runtime_audit = lambda *args, **kwargs: {}  # type: ignore[method-assign]
+        runner._set_logger_workflow_stage = lambda stage: ""  # type: ignore[method-assign]
+        runner._restore_logger_workflow_stage = lambda stage: None  # type: ignore[method-assign]
+        runner._wait_primary_sensor_stable = lambda *args, **kwargs: True  # type: ignore[method-assign]
+        runner._sample_and_log = lambda *args, **kwargs: (_ for _ in ()).throw(  # type: ignore[method-assign]
+            AssertionError("analyzer gate must not collect samples")
+        )
+
+        def record_trace(*args, **kwargs) -> None:
+            trace_stages.append(str(kwargs.get("trace_stage") or ""))
+
+        runner._append_pressure_trace_row = record_trace  # type: ignore[method-assign]
+
+        assert runner._wait_co2_preseal_primary_sensor_gate(point) is True
+    finally:
+        _close_runner(runner)
+
+    assert "co2_precondition_analyzer_gate_begin" in trace_stages
+    assert "co2_precondition_analyzer_gate_end" in trace_stages
+    assert "sampling_begin" not in trace_stages
+    assert "sampling_collection_begin" not in trace_stages
 
 
 def test_pressure_selection_ambient_point_uses_explicit_labels(tmp_path: Path) -> None:

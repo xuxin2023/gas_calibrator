@@ -740,8 +740,10 @@ def test_sample_count_zero_reports_sampling_not_verified(tmp_path: Path) -> None
     status = runner._sampling_timing_audit_status([])
 
     assert status["sealed_sample_count"] == 0
+    assert status["sample_count"] == 0
     assert status["sampling_fast_claim_allowed"] is False
     assert status["sampling_not_verified_reason"] == "sample_count_zero"
+    assert status["sampling_missing_device_timestamp_fields"] == "no_sample_rows"
     logger.close()
 
 
