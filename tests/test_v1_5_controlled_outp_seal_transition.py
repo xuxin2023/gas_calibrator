@@ -46,6 +46,7 @@ class FakePace:
         self.output_mode = "ACT"
         self.system_error = "0,No error"
         self.in_limits = [(1100.0, 1)]
+        self.setpoint = None
 
     def stop_atmosphere_hold(self) -> bool:
         self.calls.append(("stop_hold",))
@@ -87,6 +88,10 @@ class FakePace:
 
     def set_setpoint(self, value: float) -> None:
         self.calls.append(("setpoint", float(value)))
+        self.setpoint = float(value)
+
+    def get_setpoint(self) -> float | None:
+        return self.setpoint
 
     def get_output_state(self) -> int:
         return self.output_state
@@ -201,6 +206,13 @@ class SequenceVentStatusPace(FakePace):
         if self._statuses:
             self.vent_status = int(self._statuses.pop(0))
         return self.vent_status
+
+
+class Vent3AfterOutp1Pace(FakePace):
+    def enable_control_output(self) -> None:
+        self.calls.append(("enable_control_output",))
+        self.output_state = 1
+        self.vent_status = 3
 
 
 class FakeStdin:
@@ -765,7 +777,7 @@ def test_raw_tap_route_open_precheck_records_clean_state() -> None:
     ).issubset(fields)
 
 
-def test_sealed_control_does_not_fail_on_vent3_alone() -> None:
+def test_sealed_control_blocks_vent3_before_sampling() -> None:
     runner, pace, _, _ = _runner()
     point = _co2_point(pressure=1100.0)
     pace.vent_status = 3
@@ -773,12 +785,12 @@ def test_sealed_control_does_not_fail_on_vent3_alone() -> None:
     runner._activate_co2_sealed_no_vent_guard(point, reason="test")
     runner._begin_active_co2_sealed_sweep_context(point)
 
-    assert runner._set_pressure_to_target_in_active_co2_sealed_sweep(point) is True
+    assert runner._set_pressure_to_target_in_active_co2_sealed_sweep(point) is False
 
     stages = _trace_stages(runner)
     assert "sealed_vent_status_watchlist" in stages
-    assert "sealed_sweep_live_check_fail" not in stages
-    assert ("setpoint", 1100.0) in pace.calls
+    assert "sealed_sweep_live_check_fail" in stages
+    assert ("setpoint", 1100.0) not in pace.calls
 
 
 def test_recovery_does_not_fail_on_vent3_alone() -> None:
@@ -1009,6 +1021,8 @@ def test_pre_vent0_skips_abort_when_vent_status_2_completed() -> None:
     assert ("vent", False) not in pace.calls
     assert fields["vent_abort_sent"] is False
     assert fields["vent_exit_method"] == "completed_no_abort"
+    assert fields["vent_status_preseal"] == 2
+    assert fields["vent2_transient_only"] is True
     assert fields["vent_exit_reference_ts"]
 
 
@@ -2238,6 +2252,119 @@ def test_vent2_completed_allowed_only_for_immediate_control() -> None:
     fields = _last_stage_fields(runner, "sealed_control_output_enable_pass")
     assert json.loads(fields["sealed_passive_state"])["VENT?"] == 2
     assert fields["sealed_passive_exceeded"] is False
+    assert fields["vent2_transient_only"] is True
+
+
+def test_outp1_after_vent3_fails_closed_before_pressure_ready() -> None:
+    runner, pace, _, _ = _runner(pace=Vent3AfterOutp1Pace())
+    point = _co2_point(pressure=900.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is False
+
+    fields = _last_stage_fields(runner, "sealed_control_output_enable_fail")
+    assert fields["vent_status_after_outp1"] == 3
+    assert fields["pressure_controller_control_state_verified"] is False
+    assert fields["pressure_controller_control_state_failure_reason"] == (
+        "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_AFTER_OUTP1"
+    )
+
+
+def test_sampling_ready_treats_vent2_as_watchlist_with_control_evidence() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 900.0
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="unit") is True
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready")
+    assert fields["vent_status_before_sampling"] == 2
+    assert fields["vent2_watchlist_before_sampling"] is True
+    assert fields["sampling_blocked_by_vent_watchlist"] is False
+    assert fields["pressure_controller_control_state_verified"] is True
+
+
+def test_sampling_ready_blocks_vent1_or_vent3() -> None:
+    for status in (1, 3):
+        runner, pace, _, _ = _runner()
+        point = _co2_point(pressure=900.0)
+        pace.output_state = 1
+        pace.vent_status = status
+        pace.setpoint = 900.0
+        runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+        runner._sealed_first_setpoint_tx_ts = time.time()
+        runner._sealed_first_outp1_tx_ts = time.time()
+        runner._mark_sealed_pressure_ready(result="in_limits")
+
+        assert runner._co2_sealed_sampling_ready(point, point_tag=f"vent{status}") is False
+
+        fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+        assert fields["vent_status_before_sampling"] == status
+        assert fields["sampling_blocked_by_vent_watchlist"] is True
+
+
+def test_sampling_ready_blocks_dewpoint_rise_after_outp1() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 900.0
+    runner._preseal_dewpoint_snapshot = {"dewpoint_c": -34.0}
+    runner._cached_ready_check_trace_values = MagicMock(return_value={"dewpoint_c": -10.0})
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="dew") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["sampling_blocked_by_dewpoint_rise"] is True
+    assert fields["dewpoint_rise_before_sampling_c"] == pytest.approx(24.0)
+
+
+def test_sampling_ready_blocks_pressure_not_ready() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 900.0
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="pressure") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["sampling_blocked_by_pressure_not_ready"] is True
+    assert fields["pressure_controller_control_state_verified"] is False
+
+
+def test_sampling_ready_blocks_sealed_vent0_or_vent1_counts() -> None:
+    for counter in ("sealed_vent0_count", "sealed_vent1_count"):
+        runner, pace, _, _ = _runner()
+        point = _co2_point(pressure=900.0)
+        pace.output_state = 1
+        pace.vent_status = 2
+        pace.setpoint = 900.0
+        runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+        assert runner._co2_sealed_no_vent_guard_context is not None
+        runner._co2_sealed_no_vent_guard_context[counter] = 1
+        runner._sealed_first_setpoint_tx_ts = time.time()
+        runner._sealed_first_outp1_tx_ts = time.time()
+        runner._mark_sealed_pressure_ready(result="in_limits")
+
+        assert runner._co2_sealed_sampling_ready(point, point_tag=counter) is False
+
+        fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+        assert fields["sampling_blocked_by_vent_watchlist"] is True
 
 
 def test_v2_like_sequence_route_close_setpoint_outp1(monkeypatch) -> None:
