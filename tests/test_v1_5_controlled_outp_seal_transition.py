@@ -45,7 +45,7 @@ class FakePace:
         self.vent_status = 0
         self.output_mode = "ACT"
         self.system_error = "0,No error"
-        self.in_limits = [(1100.0, 1)]
+        self.in_limits = []
         self.setpoint = None
         self.efforts = [-1.0]
         self.slew_mode = ""
@@ -141,7 +141,7 @@ class FakePace:
     def get_in_limits(self):
         if self.in_limits:
             return self.in_limits.pop(0)
-        return 1100.0, 1
+        return float(self.setpoint if self.setpoint is not None else 1100.0), 1
 
 
 class ActiveVentAfterOffPace(FakePace):
@@ -233,6 +233,12 @@ class SlewConfigFailPace(FakePace):
     def set_slew_rate(self, value: float) -> None:
         self.calls.append(("set_slew_rate_failed", float(value)))
         raise RuntimeError("slew rate failed")
+
+
+class SetpointPrearmFailPace(FakePace):
+    def set_setpoint(self, value: float) -> None:
+        self.calls.append(("setpoint_failed", float(value)))
+        raise RuntimeError("setpoint prearm failed")
 
 
 class Vent3AfterOutp1Pace(FakePace):
@@ -2539,6 +2545,40 @@ def test_fast_control_chain_still_setpoint_before_outp1(monkeypatch) -> None:
     assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
 
 
+def test_setpoint_prearmed_before_route_close_reduces_outp1_delay(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(gauge=FakeGauge([1112.0, 1112.0]))
+    point = _co2_point(pressure=900.0)
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    stages = _trace_stages(runner)
+    assert stages.index("sealed_control_setpoint_prearm_before_route_close") < stages.index(
+        "route_valves_closed_after_vent0"
+    )
+    fields = _last_stage_fields(runner, "sealed_control_output_enable_command_sent")
+    assert fields["setpoint_prearmed_before_route_close"] is True
+    assert fields["route_close_to_outp1_s"] <= 3.0
+    assert fields["route_close_to_outp1_target_s"] == pytest.approx(2.0)
+    assert fields["route_close_to_outp1_hard_max_s"] == pytest.approx(3.0)
+    assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
+
+
+def test_setpoint_prearm_failure_fails_before_route_close(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(pace=SetpointPrearmFailPace(), gauge=FakeGauge([1112.0, 1112.0]))
+    point = _co2_point(pressure=900.0)
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is False
+
+    stages = _trace_stages(runner)
+    assert "sealed_control_setpoint_prearm_before_route_close_failed" in stages
+    assert "route_valves_closed_after_vent0" not in stages
+    assert ("enable_control_output",) not in pace.calls
+
+
 def test_descending_pressure_point_allows_exhaust_only_control() -> None:
     runner, pace, _, _ = _runner()
     point = _co2_point(pressure=900.0)
@@ -2552,6 +2592,156 @@ def test_descending_pressure_point_allows_exhaust_only_control() -> None:
     assert fields["positive_supply_required"] is False
     assert fields["pressure_point_sequence_violation"] is False
     assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
+
+
+def test_exhaust_only_ready_accepts_above_target_window() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 1)]
+    pace.efforts = [-0.5]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    fields = _last_stage_fields(runner, "pressure_in_limits")
+    assert fields["exhaust_only_ready_gate_enabled"] is True
+    assert fields["one_sided_pressure_ready"] is True
+    assert fields["exhaust_only_ready_result"] == "pass"
+
+
+def test_exhaust_only_ready_blocks_below_target_undershoot() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(999.0, 0)]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is False
+
+    fields = _last_stage_fields(runner, "sealed_pressure_control_state_fail")
+    assert fields["pressure_undershoot_detected"] is True
+    assert fields["exhaust_only_ready_failure_reason"] == "FAIL_CLOSED_PRESSURE_UNDERSHOOT_EXHAUST_ONLY"
+
+
+def test_exhaust_only_ready_blocks_target_chatter(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(pressure_overrides={"stabilize_timeout_s": 0.2})
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 0), (999.9, 0), (1000.5, 0)]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._set_pressure_to_target(point) is False
+
+    fields = _last_stage_fields(runner, "sealed_pressure_control_state_fail")
+    assert fields["pressure_chatter_detected"] is True
+    assert fields["pressure_target_crossing_count"] >= 2
+    assert fields["exhaust_only_ready_failure_reason"] == "FAIL_CLOSED_PRESSURE_TARGET_CHATTER_EXHAUST_ONLY"
+
+
+def test_exhaust_only_blocks_small_positive_effort() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 1)]
+    pace.efforts = [0.5]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is False
+
+    fields = _last_stage_fields(runner, "sealed_pressure_control_state_fail")
+    assert fields["positive_supply_effort_fail_pct"] == pytest.approx(0.5)
+    assert fields["positive_supply_effort_strict_fail"] is True
+    assert fields["positive_supply_effort_detected"] is True
+
+
+def test_positive_effort_warning_for_tiny_positive_noise() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 1)]
+    pace.efforts = [0.1]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    fields = _last_stage_fields(runner, "pressure_in_limits")
+    assert fields["positive_supply_effort_warning_pct"] == pytest.approx(0.1)
+    assert fields["positive_supply_effort_fail_pct"] == pytest.approx(0.5)
+    assert fields["positive_supply_effort_strict_fail"] is False
+    assert fields["positive_supply_effort_detected"] is False
+
+
+def test_inlimit_alone_does_not_allow_sampling_when_effort_positive() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1000.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 1000.0
+    pace.efforts = [0.5]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="positive-effort-inlimit") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["pressure_in_limit_before_sampling"] is True
+    assert fields["positive_supply_effort_strict_fail"] is True
+    assert fields["sample_blocked_by_positive_supply_effort"] is True
+
+
+def test_dewpoint_lag_correlation_marks_pressure_control_mixing() -> None:
+    runner, _, _, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    now = time.time()
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -36.0,
+        "pressure_hpa": 1110.0,
+        "sample_wall_ts": now - 90.0,
+    }
+    runner._last_route_close_ts = now - 80.0
+    runner._sealed_first_outp1_tx_ts = now - 45.0
+    runner._cached_ready_check_trace_values = MagicMock(
+        return_value={"dewpoint_c": -28.0, "pace_pressure_hpa": 1100.0}
+    )
+
+    fields = runner._sealed_dewpoint_rise_trace_fields(point=point)
+
+    assert fields["dewpoint_rise_observed_c"] == pytest.approx(8.0)
+    assert fields["dewpoint_lag_best_s"] != ""
+    assert fields["dewpoint_rise_likely_phase"] == "OUTP1_after_pressure_ready_wait"
+    assert fields["likely_pressure_control_mixing"] is True
+
+
+def test_dewpoint_rise_still_fails_before_sampling() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1000.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 1000.0
+    pace.efforts = [-1.0]
+    now = time.time()
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -36.0,
+        "pressure_hpa": 1110.0,
+        "sample_wall_ts": now - 60.0,
+    }
+    runner._cached_ready_check_trace_values = MagicMock(
+        return_value={"dewpoint_c": -28.0, "pace_pressure_hpa": 1100.0}
+    )
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=now - 50.0)
+    runner._sealed_first_setpoint_tx_ts = now - 49.0
+    runner._sealed_first_outp1_tx_ts = now - 48.0
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="dewpoint-rise") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["sampling_blocked_by_dewpoint_rise"] is True
+    assert fields["pressure_controller_control_state_failure_reason"] == "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
 
 
 def test_ascending_pressure_point_blocks_when_clean_supply_not_confirmed() -> None:

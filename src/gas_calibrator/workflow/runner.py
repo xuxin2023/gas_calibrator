@@ -250,6 +250,14 @@ _PRESSURE_TRACE_FIELDS = [
     "outp1_first_tx_ts",
     "route_close_to_setpoint_s",
     "route_close_to_outp1_s",
+    "setpoint_prearm_enabled",
+    "setpoint_prearm_begin_ts",
+    "setpoint_prearm_end_ts",
+    "setpoint_prearm_elapsed_s",
+    "setpoint_prearmed_before_route_close",
+    "setpoint_prearm_syst_err",
+    "route_close_to_outp1_target_s",
+    "route_close_to_outp1_hard_max_s",
     "fast_control_branch_entered",
     "sealed_control_prearm_config_begin_ts",
     "sealed_control_prearm_config_end_ts",
@@ -307,6 +315,9 @@ _PRESSURE_TRACE_FIELDS = [
     "effort_during_sampling_max",
     "effort_positive_duration_s",
     "positive_supply_effort_threshold_pct",
+    "positive_supply_effort_warning_pct",
+    "positive_supply_effort_fail_pct",
+    "positive_supply_effort_strict_fail",
     "positive_supply_effort_detected",
     "sample_blocked_by_positive_supply_effort",
     "effort_query_before_outp1_skipped_or_zero_reason",
@@ -337,12 +348,32 @@ _PRESSURE_TRACE_FIELDS = [
     "pressure_controller_control_state_failure_reason",
     "pressure_in_limit",
     "pressure_stable_evidence",
+    "exhaust_only_ready_gate_enabled",
+    "one_sided_pressure_ready",
+    "one_sided_upper_tolerance_hpa",
+    "one_sided_lower_tolerance_hpa",
+    "pressure_undershoot_detected",
+    "pressure_undershoot_min_hpa",
+    "pressure_target_crossing_count",
+    "pressure_chatter_detected",
+    "pressure_chatter_blocks_sampling",
+    "exhaust_only_ready_result",
+    "exhaust_only_ready_failure_reason",
     "pace_pressure_age_s",
     "com22_pressure_age_s",
     "dewpoint_age_s",
     "dewpoint_rise_after_route_close_c",
     "dewpoint_rise_after_outp1_c",
     "dewpoint_rise_before_sampling_c",
+    "dewpoint_rise_observed_c",
+    "dewpoint_rise_rate_c_per_min",
+    "dewpoint_pressure_only_expected_c",
+    "dewpoint_rise_excess_c",
+    "dewpoint_lag_best_s",
+    "dewpoint_rise_likely_phase",
+    "likely_pressure_control_mixing",
+    "likely_seal_transition_mixing",
+    "likely_safe_stop_artifact",
     "sampling_blocked_by_vent_watchlist",
     "sampling_blocked_by_dewpoint_rise",
     "sampling_blocked_by_pressure_not_ready",
@@ -813,6 +844,9 @@ class CalibrationRunner:
         self._sealed_control_prearm_fields: Dict[str, Any] = {}
         self._sealed_control_prearm_failed_reason = ""
         self._sealed_control_slew_config_after_route_close_count = 0
+        self._sealed_setpoint_prearm_fields: Dict[str, Any] = {}
+        self._sealed_setpoint_prearm_failed_reason = ""
+        self._sealed_setpoint_prearmed_before_route_close = False
         self._no_write_guard_enabled = True
         self._attempted_write_count = 0
         self._identity_write_command_sent = False
@@ -9873,6 +9907,21 @@ class CalibrationRunner:
     def _route_close_to_outp1_max_s(self) -> float:
         return max(0.0, float(self._wf("workflow.pressure.route_close_to_outp1_max_s", 5.0) or 0.0))
 
+    def _route_close_to_outp1_target_s(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.route_close_to_outp1_target_s", 2.0) or 0.0))
+
+    def _route_close_to_outp1_hard_max_s(self) -> float:
+        return max(0.0, float(self._wf("workflow.pressure.route_close_to_outp1_hard_max_s", 3.0) or 0.0))
+
+    def _route_close_to_outp1_effective_max_s(self) -> float:
+        configured = self._route_close_to_outp1_max_s()
+        hard = self._route_close_to_outp1_hard_max_s()
+        if configured <= 0.0:
+            return hard
+        if hard <= 0.0:
+            return configured
+        return min(configured, hard)
+
     def _route_close_to_setpoint_max_s(self) -> float:
         return max(0.0, float(self._wf("workflow.pressure.route_close_to_setpoint_max_s", 3.0) or 0.0))
 
@@ -9912,6 +9961,9 @@ class CalibrationRunner:
     def _sealed_control_prearm_config_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.sealed_control_prearm_config_enabled", True))
 
+    def _setpoint_prearm_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.setpoint_prearm_enabled", True))
+
     def _prevent_positive_supply_during_sampling(self) -> bool:
         return bool(self._wf("workflow.pressure.prevent_positive_supply_during_sampling", True))
 
@@ -9921,6 +9973,53 @@ class CalibrationRunner:
     def _positive_supply_effort_max_duration_s(self) -> float:
         raw = self._wf("workflow.pressure.positive_supply_effort_max_duration_s", 0.5)
         return max(0.0, float(0.5 if raw is None else raw))
+
+    def _positive_supply_effort_warning_pct(self) -> float:
+        raw = self._wf("workflow.pressure.positive_supply_effort_warning_pct", 0.1)
+        return abs(float(0.1 if raw is None else raw))
+
+    def _positive_supply_effort_fail_pct(self) -> float:
+        raw = self._wf("workflow.pressure.positive_supply_effort_fail_pct", 0.5)
+        return abs(float(0.5 if raw is None else raw))
+
+    def _positive_supply_effort_strict_max_duration_s(self) -> float:
+        raw = self._wf("workflow.pressure.positive_supply_effort_strict_max_duration_s", 0.0)
+        return max(0.0, float(0.0 if raw is None else raw))
+
+    def _exhaust_only_ready_gate_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.exhaust_only_ready_gate_enabled", True))
+
+    def _one_sided_upper_tolerance_hpa(self) -> float:
+        raw = self._wf(
+            "workflow.pressure.one_sided_upper_tolerance_hpa",
+            self._wf("workflow.pressure.exhaust_only_upper_tolerance_hpa", 2.0),
+        )
+        return max(0.0, float(2.0 if raw is None else raw))
+
+    def _one_sided_lower_tolerance_hpa(self) -> float:
+        raw = self._wf(
+            "workflow.pressure.one_sided_lower_tolerance_hpa",
+            self._wf("workflow.pressure.exhaust_only_lower_tolerance_hpa", 0.2),
+        )
+        return max(0.0, float(0.2 if raw is None else raw))
+
+    def _pressure_target_crossing_fail_count(self) -> int:
+        raw = self._wf("workflow.pressure.pressure_target_crossing_fail_count", 2)
+        return max(1, int(2 if raw is None else raw))
+
+    def _dewpoint_lag_compensation_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.dewpoint_lag_compensation_enabled", True))
+
+    def _dewpoint_lag_candidates_s(self) -> List[float]:
+        raw = self._wf("workflow.pressure.dewpoint_lag_candidates_s", [15, 30, 45, 60, 90])
+        if not isinstance(raw, (list, tuple)):
+            raw = [15, 30, 45, 60, 90]
+        values: List[float] = []
+        for item in raw:
+            value = self._as_float(item)
+            if value is not None and value >= 0.0:
+                values.append(float(value))
+        return values or [15.0, 30.0, 45.0, 60.0, 90.0]
 
     def _require_descending_pressure_points_unless_clean_supply(self) -> bool:
         return bool(self._wf("workflow.pressure.require_descending_pressure_points_unless_clean_supply", True))
@@ -9983,10 +10082,67 @@ class CalibrationRunner:
         if baseline_c is not None and current_c is not None:
             rise_c = float(current_c) - float(baseline_c)
         outp1_rise_c = rise_c if self._sealed_first_outp1_tx_ts is not None else None
+        snapshot = dict(self._preseal_dewpoint_snapshot or {})
+        baseline_pressure = self._as_float(snapshot.get("pressure_hpa"))
+        current_pressure: Optional[float] = None
+        if point is not None:
+            current_pressure = self._as_float(getattr(point, "target_pressure_hpa", None))
+        ready_values = self._cached_ready_check_trace_values(point=point)
+        for key in ("pace_pressure_hpa", "pressure_gauge_hpa"):
+            value = self._as_float(ready_values.get(key))
+            if value is not None:
+                current_pressure = value
+                break
+        pressure_only_expected_c: Optional[float] = None
+        rise_excess_c: Optional[float] = None
+        if baseline_c is not None and baseline_pressure is not None and current_pressure is not None:
+            pressure_only_dewpoint = predict_pressure_scaled_dewpoint_c(
+                baseline_c,
+                baseline_pressure,
+                current_pressure,
+            )
+            if pressure_only_dewpoint is not None:
+                pressure_only_expected_c = float(pressure_only_dewpoint) - float(baseline_c)
+        if rise_c is not None and pressure_only_expected_c is not None:
+            rise_excess_c = float(rise_c) - float(pressure_only_expected_c)
+        rate_c_per_min: Optional[float] = None
+        baseline_wall_s = self._as_float(snapshot.get("sample_wall_ts"))
+        if rise_c is not None and baseline_wall_s is not None:
+            elapsed_s = max(0.0, time.time() - baseline_wall_s)
+            if elapsed_s > 0.0:
+                rate_c_per_min = float(rise_c) / elapsed_s * 60.0
+        lag_best_s = ""
+        likely_phase = ""
+        likely_pressure_control_mixing = False
+        likely_seal_transition_mixing = False
+        likely_safe_stop_artifact = False
+        if rise_c is not None and rise_c > self._sealed_dewpoint_rise_fail_threshold_c():
+            if self._sealed_first_outp1_tx_ts is not None:
+                lag_best_s = 45.0 if 45.0 in self._dewpoint_lag_candidates_s() else self._dewpoint_lag_candidates_s()[0]
+                likely_phase = "OUTP1_after_pressure_ready_wait"
+                likely_pressure_control_mixing = True
+            elif self._sealed_route_close_wall_ts() is not None:
+                lag_best_s = 30.0 if 30.0 in self._dewpoint_lag_candidates_s() else self._dewpoint_lag_candidates_s()[0]
+                likely_phase = "route_close_before_outp1"
+                likely_seal_transition_mixing = True
+            else:
+                likely_phase = "safe_stop_or_unknown"
+                likely_safe_stop_artifact = True
         return {
             "dewpoint_rise_after_route_close_c": rise_c if rise_c is not None else "",
             "dewpoint_rise_after_outp1_c": outp1_rise_c if outp1_rise_c is not None else "",
             "dewpoint_rise_before_sampling_c": rise_c if rise_c is not None else "",
+            "dewpoint_rise_observed_c": rise_c if rise_c is not None else "",
+            "dewpoint_rise_rate_c_per_min": rate_c_per_min if rate_c_per_min is not None else "",
+            "dewpoint_pressure_only_expected_c": (
+                pressure_only_expected_c if pressure_only_expected_c is not None else ""
+            ),
+            "dewpoint_rise_excess_c": rise_excess_c if rise_excess_c is not None else "",
+            "dewpoint_lag_best_s": lag_best_s if self._dewpoint_lag_compensation_enabled() else "",
+            "dewpoint_rise_likely_phase": likely_phase,
+            "likely_pressure_control_mixing": likely_pressure_control_mixing,
+            "likely_seal_transition_mixing": likely_seal_transition_mixing,
+            "likely_safe_stop_artifact": likely_safe_stop_artifact,
         }
 
     def _sealed_dewpoint_rise_exceeded(
@@ -10094,6 +10250,9 @@ class CalibrationRunner:
             "positive_supply_required": positive_required,
             "positive_supply_forbidden": positive_forbidden,
             "positive_supply_effort_threshold_pct": self._positive_supply_effort_threshold_pct(),
+            "positive_supply_effort_warning_pct": self._positive_supply_effort_warning_pct(),
+            "positive_supply_effort_fail_pct": self._positive_supply_effort_fail_pct(),
+            "positive_supply_effort_strict_fail": False,
         }
 
     def _sealed_positive_supply_pre_control_guard(
@@ -10166,6 +10325,117 @@ class CalibrationRunner:
         )
         fields.setdefault("overshoot_allowed_set", False if fields.get("overshoot_not_allowed_preconfigured") else "")
         return fields
+
+    def _sealed_setpoint_prearm_trace_fields(self) -> Dict[str, Any]:
+        fields = dict(self._sealed_setpoint_prearm_fields or {})
+        fields.setdefault("setpoint_prearm_enabled", self._setpoint_prearm_enabled())
+        fields.setdefault("setpoint_prearm_begin_ts", "")
+        fields.setdefault("setpoint_prearm_end_ts", "")
+        fields.setdefault("setpoint_prearm_elapsed_s", "")
+        fields.setdefault("setpoint_prearmed_before_route_close", bool(self._sealed_setpoint_prearmed_before_route_close))
+        fields.setdefault("setpoint_prearm_syst_err", "")
+        fields.setdefault("route_close_to_outp1_target_s", self._route_close_to_outp1_target_s())
+        fields.setdefault("route_close_to_outp1_hard_max_s", self._route_close_to_outp1_hard_max_s())
+        return fields
+
+    def _prearm_sealed_control_setpoint(
+        self,
+        point: Optional[CalibrationPoint] = None,
+        *,
+        phase: str = "co2",
+        pressure_target_hpa: Optional[float] = None,
+        trace_stage: str = "sealed_control_setpoint_prearm_before_route_close",
+    ) -> bool:
+        if phase != "co2" or not self._controlled_outp_transition() or not self._setpoint_prearm_enabled():
+            return True
+        target = self._as_float(pressure_target_hpa)
+        if target is None:
+            self._sealed_setpoint_prearm_failed_reason = "target_pressure_unavailable"
+            self._controlled_exit_final_decision = "FAIL_CLOSED_SEALED_SETPOINT_PREARM_FAILED"
+            return False
+        if self._sealed_setpoint_prearmed_before_route_close:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase if point is not None else "run",
+                point_phase=phase if point is not None else "",
+                trace_stage=trace_stage,
+                pressure_target_hpa=target,
+                refresh_pace_state=False,
+                extra_fields=self._sealed_setpoint_prearm_trace_fields(),
+                note="sealed control setpoint already prearmed before route close",
+            )
+            return True
+        if self._sealed_setpoint_prearm_failed_reason:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase if point is not None else "run",
+                point_phase=phase if point is not None else "",
+                trace_stage=f"{trace_stage}_failed",
+                pressure_target_hpa=target,
+                refresh_pace_state=False,
+                extra_fields=self._sealed_setpoint_prearm_trace_fields(),
+                note=self._sealed_setpoint_prearm_failed_reason,
+            )
+            return False
+        pace = self.devices.get("pace")
+        begin_s = time.time()
+        fields: Dict[str, Any] = {
+            "setpoint_prearm_enabled": True,
+            "setpoint_prearm_begin_ts": self._iso_ts_from_wall(begin_s),
+            "setpoint_prearm_end_ts": "",
+            "setpoint_prearm_elapsed_s": "",
+            "setpoint_prearmed_before_route_close": False,
+            "setpoint_prearm_syst_err": "",
+            "route_close_to_outp1_target_s": self._route_close_to_outp1_target_s(),
+            "route_close_to_outp1_hard_max_s": self._route_close_to_outp1_hard_max_s(),
+        }
+        failures: List[str] = []
+        if pace is None:
+            failures.append("pace_unavailable")
+        else:
+            try:
+                pace.set_setpoint(target)
+                self._sealed_first_setpoint_tx_ts = time.time()
+                fields["setpoint_prearmed_before_route_close"] = True
+            except Exception as exc:
+                failures.append(f"setpoint:{exc}")
+            syst = self._pace_manual_query(pace, ":SYST:ERR?")
+            fields["setpoint_prearm_syst_err"] = syst.get("response") or syst.get("error") or ""
+            if not bool(syst.get("ok")):
+                failures.append(f"syst_err_query:{syst.get('error') or 'failed'}")
+            elif " 0" not in str(syst.get("response", "")) and "NO ERROR" not in str(syst.get("response", "")).upper():
+                failures.append(f"syst_err:{syst.get('response')}")
+        end_s = time.time()
+        fields["setpoint_prearm_end_ts"] = self._iso_ts_from_wall(end_s)
+        fields["setpoint_prearm_elapsed_s"] = max(0.0, end_s - begin_s)
+        self._sealed_setpoint_prearm_fields = fields
+        if failures:
+            self._sealed_setpoint_prearm_failed_reason = ";".join(str(one) for one in failures)
+            self._sealed_setpoint_prearmed_before_route_close = False
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase if point is not None else "run",
+                point_phase=phase if point is not None else "",
+                trace_stage=f"{trace_stage}_failed",
+                pressure_target_hpa=target,
+                refresh_pace_state=False,
+                extra_fields=self._sealed_setpoint_prearm_trace_fields(),
+                note=self._sealed_setpoint_prearm_failed_reason,
+            )
+            self._controlled_exit_final_decision = "FAIL_CLOSED_SEALED_SETPOINT_PREARM_FAILED"
+            return False
+        self._sealed_setpoint_prearmed_before_route_close = True
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase if point is not None else "run",
+            point_phase=phase if point is not None else "",
+            trace_stage=trace_stage,
+            pressure_target_hpa=target,
+            refresh_pace_state=False,
+            extra_fields=self._sealed_setpoint_prearm_trace_fields(),
+            note="sealed control setpoint prearmed before route close; OUTP remains off",
+        )
+        return True
 
     def _prearm_sealed_control_config(
         self,
@@ -10400,10 +10670,16 @@ class CalibrationRunner:
         now_s = time.time()
         context = self._sealed_sweep_context_for_counters()
         threshold = self._positive_supply_effort_threshold_pct()
+        warning_pct = self._positive_supply_effort_warning_pct()
+        fail_pct = self._positive_supply_effort_fail_pct()
         max_duration_s = self._positive_supply_effort_max_duration_s()
-        effort_positive = bool(effort_supported and effort_pct is not None and effort_pct > threshold)
+        strict_max_duration_s = self._positive_supply_effort_strict_max_duration_s()
+        effort_warning_positive = bool(effort_supported and effort_pct is not None and effort_pct >= warning_pct)
+        effort_strict_positive = bool(effort_supported and effort_pct is not None and effort_pct >= fail_pct)
+        effort_legacy_positive = bool(effort_supported and effort_pct is not None and effort_pct >= threshold)
         positive_duration_s = 0.0
         detected = False
+        strict_fail = False
         effort_min = effort_pct if effort_pct is not None else None
         effort_max = effort_pct if effort_pct is not None else None
         if isinstance(context, dict):
@@ -10414,22 +10690,26 @@ class CalibrationRunner:
                 effort_max = effort_pct if prior_max is None else max(prior_max, effort_pct)
                 context["effort_during_sampling_min"] = effort_min
                 context["effort_during_sampling_max"] = effort_max
-            if effort_positive:
+            if effort_warning_positive:
                 first_positive_s = self._as_float(context.get("positive_effort_first_wall_ts"))
                 if first_positive_s is None:
                     first_positive_s = now_s
                     context["positive_effort_first_wall_ts"] = first_positive_s
                 context["positive_effort_last_wall_ts"] = now_s
                 positive_duration_s = max(0.0, now_s - first_positive_s)
-                detected = bool(positive_duration_s >= max_duration_s)
+                strict_fail = bool(effort_strict_positive and positive_duration_s >= strict_max_duration_s)
+                detected = bool(strict_fail or (effort_legacy_positive and positive_duration_s >= max_duration_s))
             else:
                 context["positive_effort_first_wall_ts"] = None
                 context["positive_effort_last_wall_ts"] = None
                 positive_duration_s = 0.0
+                strict_fail = False
             detected = bool(detected or context.get("positive_supply_effort_detected") is True)
+            strict_fail = bool(strict_fail or context.get("positive_supply_effort_strict_fail") is True)
             context["effort_query_supported"] = bool(effort_supported)
             context["effort_positive_duration_s"] = positive_duration_s
             context["positive_supply_effort_detected"] = detected
+            context["positive_supply_effort_strict_fail"] = strict_fail
             if stage == "before_outp1":
                 context["effort_before_outp1"] = effort_pct
             elif stage == "after_outp1":
@@ -10445,6 +10725,9 @@ class CalibrationRunner:
             "effort_during_sampling_max": effort_max if effort_max is not None else "",
             "effort_positive_duration_s": positive_duration_s,
             "positive_supply_effort_threshold_pct": threshold,
+            "positive_supply_effort_warning_pct": warning_pct,
+            "positive_supply_effort_fail_pct": fail_pct,
+            "positive_supply_effort_strict_fail": strict_fail,
             "positive_supply_effort_detected": detected,
             "sample_blocked_by_positive_supply_effort": detected,
             "sampling_invalidated_by_positive_supply_effort": False,
@@ -10523,6 +10806,139 @@ class CalibrationRunner:
             note=reason or f"effort_pct={effort if effort is not None else 'unsupported'} stage={stage}",
         )
         return not bool(reason), fields, reason
+
+    def _exhaust_only_tracking_context(self, *, target: float) -> Dict[str, Any]:
+        context = self._sealed_sweep_context_for_counters()
+        if not isinstance(context, dict):
+            return {}
+        state = context.setdefault(
+            "exhaust_only_ready_tracking",
+            {
+                "target_pressure_hpa": float(target),
+                "last_sign": None,
+                "crossing_count": 0,
+                "undershoot_detected": False,
+                "undershoot_min_hpa": None,
+                "pressure_chatter_detected": False,
+            },
+        )
+        prior_target = self._as_float(state.get("target_pressure_hpa"))
+        if prior_target is None or abs(float(prior_target) - float(target)) > 1e-6:
+            state.clear()
+            state.update(
+                {
+                    "target_pressure_hpa": float(target),
+                    "last_sign": None,
+                    "crossing_count": 0,
+                    "undershoot_detected": False,
+                    "undershoot_min_hpa": None,
+                    "pressure_chatter_detected": False,
+                }
+            )
+        return state
+
+    def _exhaust_only_ready_trace_fields(
+        self,
+        *,
+        enabled: bool,
+        one_sided_ready: Any = "",
+        undershoot_detected: bool = False,
+        undershoot_min_hpa: Any = "",
+        crossing_count: int = 0,
+        chatter_detected: bool = False,
+        result: str = "",
+        failure_reason: str = "",
+    ) -> Dict[str, Any]:
+        return {
+            "exhaust_only_ready_gate_enabled": bool(enabled),
+            "one_sided_pressure_ready": one_sided_ready,
+            "one_sided_upper_tolerance_hpa": self._one_sided_upper_tolerance_hpa(),
+            "one_sided_lower_tolerance_hpa": self._one_sided_lower_tolerance_hpa(),
+            "pressure_undershoot_detected": bool(undershoot_detected),
+            "pressure_undershoot_min_hpa": undershoot_min_hpa,
+            "pressure_target_crossing_count": int(crossing_count or 0),
+            "pressure_chatter_detected": bool(chatter_detected),
+            "pressure_chatter_blocks_sampling": bool(chatter_detected),
+            "exhaust_only_ready_result": str(result or ""),
+            "exhaust_only_ready_failure_reason": str(failure_reason or ""),
+        }
+
+    def _evaluate_exhaust_only_pressure_ready(
+        self,
+        *,
+        target: float,
+        pressure_hpa: Optional[float],
+        in_limits: Any,
+        pressure_control_direction_expected: Any = "",
+    ) -> Tuple[bool, bool, Dict[str, Any], str]:
+        direction = str(pressure_control_direction_expected or "").strip().lower()
+        enabled = bool(
+            self._exhaust_only_ready_gate_enabled()
+            and self._prevent_positive_supply_during_sampling()
+            and direction == "exhaust_only"
+        )
+        if not enabled:
+            return True, False, self._exhaust_only_ready_trace_fields(enabled=False), ""
+        state = self._exhaust_only_tracking_context(target=target)
+        crossing_count = int(state.get("crossing_count") or 0) if state else 0
+        undershoot_detected = bool(state.get("undershoot_detected")) if state else False
+        undershoot_min = self._as_float(state.get("undershoot_min_hpa")) if state else None
+        chatter_detected = bool(state.get("pressure_chatter_detected")) if state else False
+        one_sided_ready = False
+        failure_reason = ""
+        terminal = False
+        if pressure_hpa is not None:
+            diff = float(pressure_hpa) - float(target)
+            sign = 1 if diff > 0.0 else -1 if diff < 0.0 else 0
+            if state is not None and sign != 0:
+                last_sign = state.get("last_sign")
+                if last_sign in {-1, 1} and int(last_sign) != sign:
+                    crossing_count += 1
+                    state["crossing_count"] = crossing_count
+                state["last_sign"] = sign
+            lower_limit = float(target) - self._one_sided_lower_tolerance_hpa()
+            if float(pressure_hpa) < lower_limit:
+                undershoot_detected = True
+                undershoot_min = (
+                    float(pressure_hpa)
+                    if undershoot_min is None
+                    else min(float(undershoot_min), float(pressure_hpa))
+                )
+                if state is not None:
+                    state["undershoot_detected"] = True
+                    state["undershoot_min_hpa"] = undershoot_min
+                failure_reason = "FAIL_CLOSED_PRESSURE_UNDERSHOOT_EXHAUST_ONLY"
+                terminal = True
+            if crossing_count >= self._pressure_target_crossing_fail_count():
+                chatter_detected = True
+                if state is not None:
+                    state["pressure_chatter_detected"] = True
+                failure_reason = failure_reason or "FAIL_CLOSED_PRESSURE_TARGET_CHATTER_EXHAUST_ONLY"
+                terminal = True
+            upper_limit = float(target) + self._one_sided_upper_tolerance_hpa()
+            one_sided_ready = bool(float(target) <= float(pressure_hpa) <= upper_limit)
+            if int(in_limits or 0) == 1 and not one_sided_ready and not terminal:
+                failure_reason = "FAIL_CLOSED_EXHAUST_ONLY_INLIMIT_OUTSIDE_ONE_SIDED_WINDOW"
+                terminal = True
+        fields = self._exhaust_only_ready_trace_fields(
+            enabled=True,
+            one_sided_ready=one_sided_ready,
+            undershoot_detected=undershoot_detected,
+            undershoot_min_hpa=undershoot_min if undershoot_min is not None else "",
+            crossing_count=crossing_count,
+            chatter_detected=chatter_detected,
+            result="fail" if terminal else "pass" if one_sided_ready and int(in_limits or 0) == 1 else "pending",
+            failure_reason=failure_reason,
+        )
+        if state is not None:
+            state.update(
+                {
+                    "one_sided_pressure_ready": one_sided_ready,
+                    "exhaust_only_ready_result": fields["exhaust_only_ready_result"],
+                    "exhaust_only_ready_failure_reason": failure_reason,
+                }
+            )
+        return not terminal, one_sided_ready, fields, failure_reason
 
     def _sealed_control_state_trace_fields(
         self,
@@ -10662,6 +11078,7 @@ class CalibrationRunner:
                 self._as_int((snapshot or {}).get("pace_vent_status")) if outp1_s is not None else ""
             ),
             "vent2_transient_only": self._as_int((snapshot or {}).get("pace_vent_status")) == 2,
+            **self._sealed_setpoint_prearm_trace_fields(),
             **self._sealed_dewpoint_rise_trace_fields(),
         }
 
@@ -10717,6 +11134,7 @@ class CalibrationRunner:
         return {
             "fast_control_branch_entered": True,
             **self._sealed_control_prearm_trace_fields(),
+            **self._sealed_setpoint_prearm_trace_fields(),
             "full_evidence_deferred_until_after_outp1": True,
             "operator_window_deferred_until_after_outp1": True,
             "dewpoint_evidence_deferred_until_after_outp1": True,
@@ -10817,54 +11235,65 @@ class CalibrationRunner:
             self._controlled_exit_final_decision = "FAIL_CLOSED_SEALED_CONTROL_PREARM_CONFIG_FAILED"
             return False
         slew_fields = self._sealed_control_prearm_trace_fields()
+        setpoint_prearm_fields = self._sealed_setpoint_prearm_trace_fields()
         effort_fields: Dict[str, Any] = {
             "effort_query_before_outp1_skipped_or_zero_reason": "OUTP off reports zero effort; guard starts after OUTP1",
             "effort_guard_active_after_outp1": True,
         }
+        setpoint_prearmed = bool(
+            self._sealed_setpoint_prearmed_before_route_close
+            and self._sealed_first_setpoint_tx_ts is not None
+        )
 
-        if not self._sealed_passive_deadline_allows(
-            point,
-            stage="before_setpoint",
-            max_s=self._route_close_to_setpoint_max_s(),
-            pressure_target_hpa=target,
-            snapshot=ready_fields,
-        ):
-            return False
-        try:
-            self._increment_sealed_sweep_counter("sealed_setpoint_count")
-            pace.set_setpoint(target)
-        except Exception as exc:
-            self._controlled_exit_final_decision = "FAIL_CLOSED_PRESSURE_CONTROLLER_SETPOINT_FAILED"
-            self._append_pressure_trace_row(
-                point=point,
-                route=phase,
-                point_phase=phase,
-                trace_stage="sealed_control_setpoint_failed",
+        if not setpoint_prearmed:
+            if not self._sealed_passive_deadline_allows(
+                point,
+                stage="before_setpoint",
+                max_s=self._route_close_to_setpoint_max_s(),
                 pressure_target_hpa=target,
-                refresh_pace_state=False,
-                extra_fields=self._sealed_sweep_trace_extra(
-                    {
-                        **dict(ready_fields or {}),
-                        **positive_fields,
-                        **slew_fields,
-                        **self._sealed_passive_trace_fields(blocking_stage="setpoint_command_failed"),
-                        **self._fast_control_deferred_trace_fields(
-                            consumed_by="setpoint_command_failed",
-                            pressure_peak_before_outp1_hpa=route_pressure,
-                            pressure_hard_limit_hit=pressure_hard_limit_hit,
-                            pressure_hard_limit_block_reason=pressure_hard_limit_block_reason,
-                        ),
-                    }
-                ),
-                note=str(exc),
-            )
-            return False
-        if self._sealed_first_setpoint_tx_ts is None:
-            self._sealed_first_setpoint_tx_ts = time.time()
+                snapshot=ready_fields,
+            ):
+                return False
+            try:
+                self._increment_sealed_sweep_counter("sealed_setpoint_count")
+                pace.set_setpoint(target)
+            except Exception as exc:
+                self._controlled_exit_final_decision = "FAIL_CLOSED_PRESSURE_CONTROLLER_SETPOINT_FAILED"
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="sealed_control_setpoint_failed",
+                    pressure_target_hpa=target,
+                    refresh_pace_state=False,
+                    extra_fields=self._sealed_sweep_trace_extra(
+                        {
+                            **dict(ready_fields or {}),
+                            **positive_fields,
+                            **slew_fields,
+                            **setpoint_prearm_fields,
+                            **self._sealed_passive_trace_fields(blocking_stage="setpoint_command_failed"),
+                            **self._fast_control_deferred_trace_fields(
+                                consumed_by="setpoint_command_failed",
+                                pressure_peak_before_outp1_hpa=route_pressure,
+                                pressure_hard_limit_hit=pressure_hard_limit_hit,
+                                pressure_hard_limit_block_reason=pressure_hard_limit_block_reason,
+                            ),
+                        }
+                    ),
+                    note=str(exc),
+                )
+                return False
+            if self._sealed_first_setpoint_tx_ts is None:
+                self._sealed_first_setpoint_tx_ts = time.time()
+        else:
             context = self._sealed_sweep_context_for_counters()
-            if isinstance(context, dict):
-                context["setpoint_first_tx_ts"] = self._sealed_first_setpoint_tx_ts
-                context["target_pressure_hpa"] = target
+            if isinstance(context, dict) and int(context.get("sealed_setpoint_count") or 0) == 0:
+                self._increment_sealed_sweep_counter("sealed_setpoint_count")
+        context = self._sealed_sweep_context_for_counters()
+        if isinstance(context, dict):
+            context["setpoint_first_tx_ts"] = self._sealed_first_setpoint_tx_ts
+            context["target_pressure_hpa"] = target
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -10877,6 +11306,7 @@ class CalibrationRunner:
                         **dict(ready_fields or {}),
                         **positive_fields,
                         **slew_fields,
+                        **setpoint_prearm_fields,
                         **effort_fields,
                         **self._sealed_passive_trace_fields(
                             blocking_stage="setpoint_sent",
@@ -10896,13 +11326,17 @@ class CalibrationRunner:
                     ),
                 }
             ),
-            note="setpoint sent immediately after route close minimal ready gate",
+            note=(
+                "setpoint prearmed before route close; fast-control reuses active target"
+                if setpoint_prearmed
+                else "setpoint sent immediately after route close minimal ready gate"
+            ),
         )
 
         if not self._sealed_passive_deadline_allows(
             point,
             stage="before_outp1",
-            max_s=self._route_close_to_outp1_max_s(),
+            max_s=self._route_close_to_outp1_effective_max_s(),
             pressure_target_hpa=target,
             snapshot=ready_fields,
         ):
@@ -11084,6 +11518,9 @@ class CalibrationRunner:
         self._sealed_pressure_ready_ts = None
         self._sealed_last_pressure_ready_result = ""
         self._sealed_sampling_block_reason = ""
+        self._sealed_setpoint_prearm_fields = {}
+        self._sealed_setpoint_prearm_failed_reason = ""
+        self._sealed_setpoint_prearmed_before_route_close = False
 
     def _begin_active_co2_sealed_sweep_context(self, point: CalibrationPoint) -> None:
         key = self._build_co2_sealed_sweep_key(point)
@@ -13666,6 +14103,12 @@ class CalibrationRunner:
         closest_pressure_now: Optional[float] = None
         closest_error_hpa: Optional[float] = None
         sealed_extra: Optional[Dict[str, Any]] = None
+        direction_context = self._sealed_sweep_context_for_counters()
+        pressure_control_direction_expected = (
+            direction_context.get("pressure_control_direction_expected")
+            if isinstance(direction_context, dict)
+            else ""
+        )
         while time.time() - start < timeout_s:
             if self.stop_event.is_set():
                 return False
@@ -13687,6 +14130,16 @@ class CalibrationRunner:
             read_aux_now = loop_now >= next_aux_read_at
             if read_aux_now:
                 next_aux_read_at = loop_now + self._pressure_control_wait_aux_interval_s()
+            exhaust_ok, one_sided_ready, exhaust_fields, exhaust_failure_reason = (
+                self._evaluate_exhaust_only_pressure_ready(
+                    target=target,
+                    pressure_hpa=pressure_value,
+                    in_limits=inl,
+                    pressure_control_direction_expected=pressure_control_direction_expected,
+                )
+                if phase == "co2" and self._co2_sealed_no_vent_guard_active
+                else (True, False, {}, "")
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -13697,12 +14150,45 @@ class CalibrationRunner:
                 read_pressure_gauge=read_aux_now,
                 read_dewpoint=read_aux_now,
                 extra_fields=(
-                    self._sealed_sweep_trace_extra()
+                    self._sealed_sweep_trace_extra(exhaust_fields)
                     if phase == "co2" and self._co2_sealed_no_vent_guard_active
                     else None
                 ),
                 note=f"pace_in_limits={inl}",
             )
+            if not exhaust_ok:
+                self._controlled_exit_final_decision = exhaust_failure_reason
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="sealed_pressure_control_state_fail",
+                    pressure_target_hpa=target,
+                    pace_pressure_hpa=pressure_value,
+                    read_pressure_gauge=True,
+                    read_dewpoint=True,
+                    refresh_pace_state=False,
+                    extra_fields=self._sealed_sweep_trace_extra(
+                        {
+                            **self._sealed_passive_trace_fields(
+                                blocking_stage="exhaust_only_pressure_ready_failed"
+                            ),
+                            **self._sealed_control_state_trace_fields(
+                                point,
+                                pressure_target_hpa=target,
+                                pressure_in_limit=bool(inl == 1),
+                                failure_reason=exhaust_failure_reason,
+                            ),
+                            **self._fast_control_deferred_trace_fields(
+                                consumed_by="exhaust_only_pressure_ready_failed"
+                            ),
+                            **exhaust_fields,
+                            "sampling_blocked_by_pressure_not_ready": True,
+                        }
+                    ),
+                    note=exhaust_failure_reason,
+                )
+                return False
             if inl == 1:
                 if phase == "co2" and self._co2_sealed_no_vent_guard_active:
                     snapshot = self._pressure_controller_ready_snapshot(pace)
@@ -13716,6 +14202,11 @@ class CalibrationRunner:
                     failure_reason = ""
                     if not effort_ok:
                         failure_reason = effort_reason
+                    elif exhaust_fields.get("exhaust_only_ready_gate_enabled") and not one_sided_ready:
+                        failure_reason = (
+                            exhaust_failure_reason
+                            or "FAIL_CLOSED_EXHAUST_ONLY_PRESSURE_NOT_READY_FROM_ABOVE"
+                        )
                     elif vent_status == 1:
                         failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_AFTER_OUTP1"
                     elif vent_status == 3:
@@ -13753,6 +14244,7 @@ class CalibrationRunner:
                                     **self._fast_control_deferred_trace_fields(
                                         consumed_by="pressure_control_state_failed"
                                     ),
+                                    **exhaust_fields,
                                     **effort_fields,
                                     "sampling_blocked_by_dewpoint_rise": failure_reason.startswith(
                                         "FAIL_CLOSED_DEWPOINT"
@@ -13778,6 +14270,7 @@ class CalibrationRunner:
                                 pressure_ready=True,
                             ),
                             **self._fast_control_deferred_trace_fields(consumed_by="pressure_in_limits"),
+                            **exhaust_fields,
                             **effort_fields,
                         }
                     )
@@ -13976,6 +14469,12 @@ class CalibrationRunner:
         trace_poll_s = self._pressure_trace_poll_s(point)
         start = time.time()
         next_aux_read_at = start + self._pressure_control_wait_aux_interval_s()
+        direction_context = self._sealed_sweep_context_for_counters()
+        pressure_control_direction_expected = (
+            direction_context.get("pressure_control_direction_expected")
+            if isinstance(direction_context, dict)
+            else ""
+        )
         while time.time() - start < timeout_s:
             if self.stop_event.is_set():
                 self._clear_active_co2_sealed_sweep_context(reason="stop event during sealed sweep setpoint-only", point=point)
@@ -13992,6 +14491,14 @@ class CalibrationRunner:
             read_aux_now = loop_now >= next_aux_read_at
             if read_aux_now:
                 next_aux_read_at = loop_now + self._pressure_control_wait_aux_interval_s()
+            exhaust_ok, one_sided_ready, exhaust_fields, exhaust_failure_reason = (
+                self._evaluate_exhaust_only_pressure_ready(
+                    target=target,
+                    pressure_hpa=pressure_value,
+                    in_limits=inl,
+                    pressure_control_direction_expected=pressure_control_direction_expected,
+                )
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route="co2",
@@ -14001,9 +14508,40 @@ class CalibrationRunner:
                 pace_pressure_hpa=pressure_value,
                 read_pressure_gauge=read_aux_now,
                 read_dewpoint=read_aux_now,
-                extra_fields=self._sealed_sweep_trace_extra(),
+                extra_fields=self._sealed_sweep_trace_extra(exhaust_fields),
                 note=f"pace_in_limits={inl}",
             )
+            if not exhaust_ok:
+                self._controlled_exit_final_decision = exhaust_failure_reason
+                self._append_pressure_trace_row(
+                    point=point,
+                    route="co2",
+                    point_phase="co2",
+                    trace_stage="sealed_pressure_control_state_fail",
+                    pressure_target_hpa=target,
+                    pace_pressure_hpa=pressure_value,
+                    read_pressure_gauge=True,
+                    read_dewpoint=True,
+                    refresh_pace_state=False,
+                    extra_fields=self._sealed_sweep_trace_extra(
+                        {
+                            **self._sealed_passive_trace_fields(
+                                blocking_stage="sealed_sweep_exhaust_only_pressure_ready_failed"
+                            ),
+                            **self._sealed_control_state_trace_fields(
+                                point,
+                                pressure_target_hpa=target,
+                                pressure_in_limit=bool(inl == 1),
+                                failure_reason=exhaust_failure_reason,
+                            ),
+                            **exhaust_fields,
+                            "sampling_blocked_by_pressure_not_ready": True,
+                        }
+                    ),
+                    note=exhaust_failure_reason,
+                )
+                self._clear_active_co2_sealed_sweep_context(reason=exhaust_failure_reason, point=point)
+                return False
             if inl == 1:
                 snapshot = self._pressure_controller_ready_snapshot(pace)
                 vent_status = self._as_int(snapshot.get("pace_vent_status"))
@@ -14016,6 +14554,11 @@ class CalibrationRunner:
                 failure_reason = ""
                 if not effort_ok:
                     failure_reason = effort_reason
+                elif exhaust_fields.get("exhaust_only_ready_gate_enabled") and not one_sided_ready:
+                    failure_reason = (
+                        exhaust_failure_reason
+                        or "FAIL_CLOSED_EXHAUST_ONLY_PRESSURE_NOT_READY_FROM_ABOVE"
+                    )
                 elif vent_status == 1:
                     failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_DURING_SEALED_SWEEP"
                 elif vent_status == 3:
@@ -14054,6 +14597,7 @@ class CalibrationRunner:
                                     "FAIL_CLOSED_DEWPOINT"
                                 ),
                                 "sampling_blocked_by_vent_watchlist": vent_status in {1, 3},
+                                **exhaust_fields,
                                 **effort_fields,
                             }
                         ),
@@ -14084,6 +14628,7 @@ class CalibrationRunner:
                                 pressure_in_limit=True,
                                 pressure_ready=True,
                             ),
+                            **exhaust_fields,
                             **effort_fields,
                         }
                     ),
@@ -15123,7 +15668,7 @@ class CalibrationRunner:
         if not self._sealed_passive_deadline_allows(
             point,
             stage="before_outp1",
-            max_s=self._route_close_to_outp1_max_s(),
+            max_s=self._route_close_to_outp1_effective_max_s(),
             pressure_target_hpa=pressure_target_hpa,
             snapshot=self._pace_state_cache_snapshot(),
         ):
@@ -22146,7 +22691,8 @@ class CalibrationRunner:
                 route_valve_close_ts = time.time()
                 if route_name == "co2":
                     self._last_route_close_ts = route_valve_close_ts
-                    self._sealed_first_setpoint_tx_ts = None
+                    if not self._sealed_setpoint_prearmed_before_route_close:
+                        self._sealed_first_setpoint_tx_ts = None
                     self._sealed_first_outp1_tx_ts = None
                 route_sealed = True
                 if route_name == "co2" and self._no_outp_transition():
@@ -22155,6 +22701,14 @@ class CalibrationRunner:
                         reason="vent-exit wait complete; CO2 route valves closed",
                         route_close_ts=route_valve_close_ts,
                     )
+                    if (
+                        self._sealed_setpoint_prearmed_before_route_close
+                        and isinstance(self._co2_sealed_no_vent_guard_context, dict)
+                    ):
+                        self._co2_sealed_no_vent_guard_context.update(self._sealed_setpoint_prearm_trace_fields())
+                        self._co2_sealed_no_vent_guard_context["setpoint_first_tx_ts"] = (
+                            self._sealed_first_setpoint_tx_ts
+                        )
                 if route_name == "co2" and vent0_wall_ts is not None:
                     fixed_wait_elapsed_s = max(0.0, route_valve_close_ts - vent0_wall_ts)
                     if route_close_pressure_trigger_wall_s is not None:
@@ -22377,6 +22931,31 @@ class CalibrationRunner:
                 return False
 
             if (
+                route_name == "co2"
+                and self._controlled_outp_transition()
+                and not self._prearm_sealed_control_setpoint(
+                    point=point,
+                    phase=phase,
+                    pressure_target_hpa=self._as_float(point.target_pressure_hpa),
+                    trace_stage="sealed_control_setpoint_prearm_before_route_close",
+                )
+            ):
+                self._mark_co2_route_terminal_failure(
+                    final_decision=str(
+                        self._controlled_exit_final_decision
+                        or "FAIL_CLOSED_SEALED_SETPOINT_PREARM_FAILED"
+                    ),
+                    reason="sealed control setpoint prearm failed before route close",
+                    point=point,
+                    phase=phase,
+                )
+                self._cleanup_co2_route(reason=self._controlled_exit_final_decision)
+                self._stop_pressure_transition_fast_signal_context(
+                    reason=str(self._controlled_exit_final_decision or "sealed setpoint prearm failure")
+                )
+                return False
+
+            if (
                 self._controlled_outp_seal_transition_enabled(route_name)
                 and not self._pressure_rise_gate_blocks_seal()
             ):
@@ -22537,9 +23116,11 @@ class CalibrationRunner:
                     self._cleanup_co2_route(reason=self._controlled_exit_final_decision)
                     self._stop_pressure_transition_fast_signal_context(reason=self._controlled_exit_final_decision)
                     return False
+                pre_route_setpoint_count = int(pre_route_close_probe_fields.get("post_vent0_setpoint_count") or 0)
+                allowed_prearmed_setpoint_count = 1 if self._sealed_setpoint_prearmed_before_route_close else 0
                 if (
                     int(pre_route_close_probe_fields.get("post_vent0_outp1_count") or 0) > 0
-                    or int(pre_route_close_probe_fields.get("post_vent0_setpoint_count") or 0) > 0
+                    or pre_route_setpoint_count > allowed_prearmed_setpoint_count
                 ):
                     self._controlled_exit_final_decision = "FAIL_CLOSED_PRESSURE_CONTROL_BEFORE_ROUTE_CLOSE"
                     self._mark_co2_route_terminal_failure(
