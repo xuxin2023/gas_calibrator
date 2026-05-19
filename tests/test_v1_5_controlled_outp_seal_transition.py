@@ -18,7 +18,7 @@ CONFIG_PATH = Path(
 )
 
 
-def _co2_point(index: int = 1, pressure: float = 1100.0, ppm: float = 1000.0) -> CalibrationPoint:
+def _co2_point(index: int = 1, pressure: float = 900.0, ppm: float = 1000.0) -> CalibrationPoint:
     return CalibrationPoint(
         index=index,
         temp_chamber_c=20.0,
@@ -47,6 +47,10 @@ class FakePace:
         self.system_error = "0,No error"
         self.in_limits = [(1100.0, 1)]
         self.setpoint = None
+        self.efforts = [-1.0]
+        self.slew_mode = ""
+        self.slew_rate = None
+        self.overshoot_allowed = None
 
     def stop_atmosphere_hold(self) -> bool:
         self.calls.append(("stop_hold",))
@@ -90,6 +94,18 @@ class FakePace:
         self.calls.append(("setpoint", float(value)))
         self.setpoint = float(value)
 
+    def set_slew_mode_linear(self) -> None:
+        self.calls.append(("set_slew_mode_linear",))
+        self.slew_mode = "LIN"
+
+    def set_slew_rate(self, value: float) -> None:
+        self.calls.append(("set_slew_rate", float(value)))
+        self.slew_rate = float(value)
+
+    def set_overshoot_allowed(self, enabled: bool) -> None:
+        self.calls.append(("set_overshoot_allowed", bool(enabled)))
+        self.overshoot_allowed = bool(enabled)
+
     def get_setpoint(self) -> float | None:
         return self.setpoint
 
@@ -107,8 +123,13 @@ class FakePace:
 
     def query(self, command: str) -> str:
         self.calls.append(("query", str(command)))
-        if str(command).strip().upper() == ":SYST:ERR?":
+        cmd = str(command).strip().upper()
+        if cmd == ":SYST:ERR?":
             return self.system_error
+        if cmd == ":SOUR:PRES:EFF?":
+            if self.efforts:
+                return str(self.efforts.pop(0))
+            return "-1.0"
         return ""
 
     def vent_status_allows_control(self, status: int) -> bool:
@@ -2297,6 +2318,24 @@ def test_sampling_ready_treats_vent2_as_watchlist_with_control_evidence() -> Non
     assert fields["pressure_controller_control_state_verified"] is True
 
 
+def test_vent2_watchlist_not_sampling_ready_by_itself() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 900.0
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="vent2-only") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["vent2_watchlist_before_sampling"] is True
+    assert fields["sampling_blocked_by_pressure_not_ready"] is True
+    assert fields["pressure_controller_control_state_verified"] is False
+
+
 def test_sampling_ready_blocks_vent1_or_vent3() -> None:
     for status in (1, 3):
         runner, pace, _, _ = _runner()
@@ -2390,6 +2429,172 @@ def test_v2_like_sequence_route_close_setpoint_outp1(monkeypatch) -> None:
     )
     assert stages.index("sealed_control_output_enable_command_sent") < stages.index("route_sealed")
     assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
+
+
+def test_fast_control_chain_still_setpoint_before_outp1(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(gauge=FakeGauge([1112.0, 1112.0]))
+    point = _co2_point(pressure=900.0)
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    stages = _trace_stages(runner)
+    assert "sealed_fast_control_branch_entered" in stages
+    assert stages.index("sealed_control_setpoint_command_sent") < stages.index(
+        "sealed_control_output_enable_command_sent"
+    )
+    assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
+
+
+def test_descending_pressure_point_allows_exhaust_only_control() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    fields = _last_stage_fields(runner, "sealed_positive_supply_precheck")
+    assert fields["pressure_control_direction_expected"] == "exhaust_only"
+    assert fields["positive_supply_required"] is False
+    assert fields["pressure_point_sequence_violation"] is False
+    assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
+
+
+def test_ascending_pressure_point_blocks_when_clean_supply_not_confirmed() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is False
+
+    fields = _last_stage_fields(runner, "sealed_positive_supply_precheck_failed")
+    assert fields["positive_supply_required"] is True
+    assert fields["positive_supply_forbidden"] is True
+    assert fields["pressure_point_sequence_violation"] is True
+    assert ("setpoint", 1100.0) not in pace.calls
+    assert ("enable_control_output",) not in pace.calls
+
+
+def test_clean_positive_supply_flag_allows_ascending_points_only_when_true() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={"clean_positive_supply_confirmed": True}
+    )
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    fields = _last_stage_fields(runner, "sealed_positive_supply_precheck")
+    assert fields["positive_supply_required"] is True
+    assert fields["positive_supply_forbidden"] is False
+    assert fields["clean_positive_supply_confirmed"] is True
+    assert ("setpoint", 1100.0) in pace.calls
+
+
+def test_positive_supply_effort_blocks_sampling() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={"positive_supply_effort_max_duration_s": 0.0}
+    )
+    point = _co2_point(pressure=900.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 900.0
+    pace.efforts = [5.0]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="positive-effort") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["positive_supply_effort_detected"] is True
+    assert fields["sample_blocked_by_positive_supply_effort"] is True
+    assert fields["sampling_blocked_reason"] == "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
+
+
+def test_negative_effort_allows_exhaust_control() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 900.0
+    pace.efforts = [-8.0]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="negative-effort") is True
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready")
+    assert fields["positive_supply_effort_detected"] is False
+    assert fields["sample_blocked_by_positive_supply_effort"] is False
+    assert fields["effort_before_sampling"] == pytest.approx(-8.0)
+
+
+def test_overshoot_disabled_before_sealed_control() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    assert ("set_overshoot_allowed", False) in pace.calls
+    fields = _last_stage_fields(runner, "sealed_pressure_slew_configured")
+    assert fields["overshoot_allowed_set"] is False
+
+
+def test_slew_linear_mode_set_before_sealed_control() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={"slew_rate_hpa_per_s": 12.5}
+    )
+    point = _co2_point(pressure=900.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    assert ("set_slew_mode_linear",) in pace.calls
+    assert ("set_slew_rate", 12.5) in pace.calls
+    fields = _last_stage_fields(runner, "sealed_pressure_slew_configured")
+    assert fields["slew_mode_set"] == "LIN"
+    assert fields["slew_rate_set_hpa_per_s"] == pytest.approx(12.5)
+
+
+def test_effort_guard_runs_before_and_during_sampling() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 900.0
+    pace.efforts = [-1.0, -2.0]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="effort-before") is True
+    ok, fields, reason = runner._sealed_positive_supply_effort_guard(
+        point,
+        stage="during_sampling",
+        pressure_target_hpa=900.0,
+        fail_on_unsupported=True,
+        during_sampling=True,
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert fields["effort_before_sampling"] == pytest.approx(-1.0)
+    assert fields["effort_during_sampling_min"] == pytest.approx(-2.0)
+    stages = _trace_stages(runner)
+    assert "sealed_positive_supply_effort_before_sampling" in stages
+    assert "sealed_positive_supply_effort_during_sampling" in stages
 
 
 def test_full_status_evidence_deferred_until_after_outp1(monkeypatch) -> None:
@@ -2500,7 +2705,12 @@ def test_sealed_sweep_subsequent_points_setpoint_only() -> None:
     pace.calls.clear()
 
     assert runner._set_pressure_to_target_in_active_co2_sealed_sweep(later) is True
-    assert pace.calls == [("setpoint", 700.0)]
+    assert ("set_slew_mode_linear",) in pace.calls
+    assert ("set_slew_rate", 15.0) in pace.calls
+    assert ("set_overshoot_allowed", False) in pace.calls
+    assert ("setpoint", 700.0) in pace.calls
+    assert pace.calls.index(("set_slew_mode_linear",)) < pace.calls.index(("setpoint", 700.0))
+    assert not any(call[0] in {"output", "vent", "enable_control_output"} for call in pace.calls)
     update_calls = [
         call.kwargs
         for call in runner._append_pressure_trace_row.call_args_list

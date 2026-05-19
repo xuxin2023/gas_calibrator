@@ -267,6 +267,30 @@ _PRESSURE_TRACE_FIELDS = [
     "pressure_high_but_control_should_start",
     "pressure_high_blocked_outp1",
     "pressure_high_block_reason",
+    "clean_positive_supply_confirmed",
+    "prevent_positive_supply_during_sampling",
+    "pressure_point_sequence_descending",
+    "pressure_point_sequence_violation",
+    "pressure_control_direction_expected",
+    "current_pressure_before_point_hpa",
+    "positive_supply_required",
+    "positive_supply_forbidden",
+    "slew_mode_set",
+    "slew_rate_set_hpa_per_s",
+    "overshoot_allowed_set",
+    "effort_query_supported",
+    "effort_before_outp1",
+    "effort_after_outp1",
+    "effort_before_sampling",
+    "effort_during_sampling_min",
+    "effort_during_sampling_max",
+    "effort_positive_duration_s",
+    "positive_supply_effort_threshold_pct",
+    "positive_supply_effort_detected",
+    "sample_blocked_by_positive_supply_effort",
+    "pressure_in_limit_before_sampling",
+    "dewpoint_stable_before_sampling",
+    "sampling_invalidated_by_positive_supply_effort",
     "outp1_to_pressure_ready_s",
     "outp1_to_sampling_s",
     "sealed_passive_window_s",
@@ -9831,6 +9855,38 @@ class CalibrationRunner:
             ),
         )
 
+    def _prevent_positive_supply_during_sampling(self) -> bool:
+        return bool(self._wf("workflow.pressure.prevent_positive_supply_during_sampling", True))
+
+    def _positive_supply_effort_threshold_pct(self) -> float:
+        return abs(float(self._wf("workflow.pressure.positive_supply_effort_threshold_pct", 2.0) or 2.0))
+
+    def _positive_supply_effort_max_duration_s(self) -> float:
+        raw = self._wf("workflow.pressure.positive_supply_effort_max_duration_s", 0.5)
+        return max(0.0, float(0.5 if raw is None else raw))
+
+    def _require_descending_pressure_points_unless_clean_supply(self) -> bool:
+        return bool(self._wf("workflow.pressure.require_descending_pressure_points_unless_clean_supply", True))
+
+    def _clean_positive_supply_confirmed(self) -> bool:
+        return bool(self._wf("workflow.pressure.clean_positive_supply_confirmed", False))
+
+    def _sealed_control_slew_mode(self) -> str:
+        return str(self._wf("workflow.pressure.slew_mode", "LIN") or "LIN").strip().upper()
+
+    def _sealed_control_slew_rate_hpa_per_s(self) -> float:
+        raw = self._wf(
+            "workflow.pressure.slew_rate_hpa_per_s",
+            self._wf("workflow.pressure.soft_control_linear_slew_hpa_per_s", 15.0),
+        )
+        return max(0.1, float(raw or 15.0))
+
+    def _sealed_control_overshoot_allowed(self) -> bool:
+        return bool(self._wf("workflow.pressure.slew_overshoot_allowed", False))
+
+    def _effort_unsupported_blocks_sampling(self) -> bool:
+        return bool(self._wf("workflow.pressure.effort_unsupported_blocks_sampling", True))
+
     def _sealed_route_close_wall_ts(self) -> Optional[float]:
         if self._last_route_close_ts is not None:
             return self._as_float(self._last_route_close_ts)
@@ -9903,6 +9959,333 @@ class CalibrationRunner:
             if value is not None:
                 return value
         return None
+
+    def _read_pressure_controller_effort_pct(self, pace: Any) -> Tuple[Optional[float], bool, str]:
+        if pace is None:
+            return None, False, "pace_unavailable"
+        query = getattr(pace, "query", None)
+        if not callable(query):
+            return None, False, "effort_query_unavailable"
+        try:
+            response = query(":SOUR:PRES:EFF?")
+        except Exception as exc:
+            return None, False, str(exc)
+        value = self._extract_first_float(response)
+        if value is None:
+            return None, False, "effort_parse_failed"
+        return float(value), True, ""
+
+    def _read_sealed_current_pressure_hpa(
+        self,
+        pace: Any,
+        *,
+        fallback_hpa: Any = None,
+    ) -> Optional[float]:
+        fallback = self._as_float(fallback_hpa)
+        if fallback is not None:
+            return fallback
+        if pace is not None:
+            reader = getattr(pace, "read_pressure", None)
+            if callable(reader):
+                try:
+                    value = self._as_float(reader())
+                    if value is not None:
+                        return value
+                except Exception:
+                    pass
+            get_in_limits = getattr(pace, "get_in_limits", None)
+            if callable(get_in_limits):
+                try:
+                    reading = get_in_limits()
+                    if isinstance(reading, (tuple, list)) and reading:
+                        value = self._as_float(reading[0])
+                    else:
+                        value = self._as_float(reading)
+                    if value is not None:
+                        return value
+                except Exception:
+                    pass
+        return self._read_com22_pressure_now()
+
+    def _sealed_positive_supply_base_fields(
+        self,
+        *,
+        current_pressure_hpa: Any = None,
+        target_pressure_hpa: Any = None,
+    ) -> Dict[str, Any]:
+        current = self._as_float(current_pressure_hpa)
+        target = self._as_float(target_pressure_hpa)
+        clean = self._clean_positive_supply_confirmed()
+        prevent = self._prevent_positive_supply_during_sampling()
+        descending = bool(current is not None and target is not None and target < current)
+        positive_required = bool(current is not None and target is not None and target >= current)
+        positive_forbidden = bool(positive_required and prevent and not clean)
+        sequence_violation = bool(
+            positive_forbidden and self._require_descending_pressure_points_unless_clean_supply()
+        )
+        direction = ""
+        if current is not None and target is not None:
+            direction = "exhaust_only" if target < current else "positive_supply_required"
+        return {
+            "clean_positive_supply_confirmed": clean,
+            "prevent_positive_supply_during_sampling": prevent,
+            "pressure_point_sequence_descending": descending,
+            "pressure_point_sequence_violation": sequence_violation,
+            "pressure_control_direction_expected": direction,
+            "current_pressure_before_point_hpa": current if current is not None else "",
+            "target_pressure_hpa": target if target is not None else "",
+            "positive_supply_required": positive_required,
+            "positive_supply_forbidden": positive_forbidden,
+            "positive_supply_effort_threshold_pct": self._positive_supply_effort_threshold_pct(),
+        }
+
+    def _sealed_positive_supply_pre_control_guard(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        pressure_target_hpa: Optional[float],
+        current_pressure_hpa: Any = None,
+        trace_stage: str = "sealed_positive_supply_precheck",
+    ) -> Tuple[bool, Dict[str, Any]]:
+        if phase != "co2" or not self._co2_sealed_no_vent_guard_active:
+            return True, {}
+        pace = self.devices.get("pace")
+        target = self._as_float(pressure_target_hpa)
+        current = self._read_sealed_current_pressure_hpa(pace, fallback_hpa=current_pressure_hpa)
+        fields = self._sealed_positive_supply_base_fields(
+            current_pressure_hpa=current,
+            target_pressure_hpa=target,
+        )
+        if isinstance(self._sealed_sweep_context_for_counters(), dict):
+            context = self._sealed_sweep_context_for_counters()
+            context["current_pressure_before_point_hpa"] = current
+            context["pressure_control_direction_expected"] = fields.get("pressure_control_direction_expected")
+            context["positive_supply_required"] = fields.get("positive_supply_required")
+            context["positive_supply_forbidden"] = fields.get("positive_supply_forbidden")
+            context["pressure_point_sequence_violation"] = fields.get("pressure_point_sequence_violation")
+        block_reason = ""
+        if fields.get("pressure_point_sequence_violation"):
+            block_reason = "positive_supply_required_but_clean_supply_not_confirmed"
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage=trace_stage if not block_reason else f"{trace_stage}_failed",
+            pressure_target_hpa=target,
+            pace_pressure_hpa=current,
+            refresh_pace_state=False,
+            extra_fields=self._sealed_sweep_trace_extra(fields),
+            note=block_reason or "sealed control direction checked before setpoint",
+        )
+        if block_reason:
+            self._controlled_exit_final_decision = "FAIL_CLOSED_POSITIVE_SUPPLY_REQUIRED_BUT_CLEAN_SUPPLY_NOT_CONFIRMED"
+            self._sealed_sampling_block_reason = self._controlled_exit_final_decision
+            return False, fields
+        return True, fields
+
+    def _configure_sealed_pressure_slew_for_control(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        pressure_target_hpa: Optional[float],
+        extra_fields: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if phase != "co2" or not self._co2_sealed_no_vent_guard_active:
+            return {}
+        pace = self.devices.get("pace")
+        mode = self._sealed_control_slew_mode()
+        rate = self._sealed_control_slew_rate_hpa_per_s()
+        overshoot_allowed = self._sealed_control_overshoot_allowed()
+        fields: Dict[str, Any] = {
+            "slew_mode_set": "",
+            "slew_rate_set_hpa_per_s": "",
+            "overshoot_allowed_set": "",
+        }
+        failures: List[str] = []
+        if pace is not None:
+            if mode == "LIN":
+                fn = getattr(pace, "set_slew_mode_linear", None)
+                if callable(fn):
+                    try:
+                        fn()
+                        fields["slew_mode_set"] = "LIN"
+                    except Exception as exc:
+                        failures.append(f"slew_mode:{exc}")
+                else:
+                    failures.append("slew_mode:unsupported")
+            set_rate = getattr(pace, "set_slew_rate", None)
+            if callable(set_rate):
+                try:
+                    set_rate(rate)
+                    fields["slew_rate_set_hpa_per_s"] = rate
+                except Exception as exc:
+                    failures.append(f"slew_rate:{exc}")
+            else:
+                failures.append("slew_rate:unsupported")
+            set_overshoot = getattr(pace, "set_overshoot_allowed", None)
+            if callable(set_overshoot):
+                try:
+                    set_overshoot(overshoot_allowed)
+                    fields["overshoot_allowed_set"] = overshoot_allowed
+                except Exception as exc:
+                    failures.append(f"overshoot:{exc}")
+            else:
+                failures.append("overshoot:unsupported")
+        else:
+            failures.append("pace_unavailable")
+        if isinstance(self._sealed_sweep_context_for_counters(), dict):
+            context = self._sealed_sweep_context_for_counters()
+            context["slew_mode_set"] = fields["slew_mode_set"]
+            context["slew_rate_set_hpa_per_s"] = fields["slew_rate_set_hpa_per_s"]
+            context["overshoot_allowed_set"] = fields["overshoot_allowed_set"]
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="sealed_pressure_slew_configured",
+            pressure_target_hpa=pressure_target_hpa,
+            refresh_pace_state=False,
+            extra_fields=self._sealed_sweep_trace_extra({**dict(extra_fields or {}), **fields}),
+            note=";".join(failures) if failures else "LIN slew and overshoot setting applied before sealed control",
+        )
+        return fields
+
+    def _sealed_positive_supply_effort_trace_fields(
+        self,
+        *,
+        stage: str,
+        effort_pct: Optional[float],
+        effort_supported: bool,
+        effort_error: str = "",
+    ) -> Dict[str, Any]:
+        now_s = time.time()
+        context = self._sealed_sweep_context_for_counters()
+        threshold = self._positive_supply_effort_threshold_pct()
+        max_duration_s = self._positive_supply_effort_max_duration_s()
+        effort_positive = bool(effort_supported and effort_pct is not None and effort_pct > threshold)
+        positive_duration_s = 0.0
+        detected = False
+        effort_min = effort_pct if effort_pct is not None else None
+        effort_max = effort_pct if effort_pct is not None else None
+        if isinstance(context, dict):
+            if effort_pct is not None:
+                prior_min = self._as_float(context.get("effort_during_sampling_min"))
+                prior_max = self._as_float(context.get("effort_during_sampling_max"))
+                effort_min = effort_pct if prior_min is None else min(prior_min, effort_pct)
+                effort_max = effort_pct if prior_max is None else max(prior_max, effort_pct)
+                context["effort_during_sampling_min"] = effort_min
+                context["effort_during_sampling_max"] = effort_max
+            if effort_positive:
+                first_positive_s = self._as_float(context.get("positive_effort_first_wall_ts"))
+                if first_positive_s is None:
+                    first_positive_s = now_s
+                    context["positive_effort_first_wall_ts"] = first_positive_s
+                context["positive_effort_last_wall_ts"] = now_s
+                positive_duration_s = max(0.0, now_s - first_positive_s)
+                detected = bool(positive_duration_s >= max_duration_s)
+            else:
+                context["positive_effort_first_wall_ts"] = None
+                context["positive_effort_last_wall_ts"] = None
+                positive_duration_s = 0.0
+            detected = bool(detected or context.get("positive_supply_effort_detected") is True)
+            context["effort_query_supported"] = bool(effort_supported)
+            context["effort_positive_duration_s"] = positive_duration_s
+            context["positive_supply_effort_detected"] = detected
+            if stage == "before_outp1":
+                context["effort_before_outp1"] = effort_pct
+            elif stage == "after_outp1":
+                context["effort_after_outp1"] = effort_pct
+            elif stage == "before_sampling":
+                context["effort_before_sampling"] = effort_pct
+        fields: Dict[str, Any] = {
+            "effort_query_supported": bool(effort_supported),
+            "effort_before_outp1": "",
+            "effort_after_outp1": "",
+            "effort_before_sampling": "",
+            "effort_during_sampling_min": effort_min if effort_min is not None else "",
+            "effort_during_sampling_max": effort_max if effort_max is not None else "",
+            "effort_positive_duration_s": positive_duration_s,
+            "positive_supply_effort_threshold_pct": threshold,
+            "positive_supply_effort_detected": detected,
+            "sample_blocked_by_positive_supply_effort": detected,
+            "sampling_invalidated_by_positive_supply_effort": False,
+            "pressure_in_limit_before_sampling": "",
+            "dewpoint_stable_before_sampling": "",
+            "prevent_positive_supply_during_sampling": self._prevent_positive_supply_during_sampling(),
+            "clean_positive_supply_confirmed": self._clean_positive_supply_confirmed(),
+        }
+        if stage == "before_outp1":
+            fields["effort_before_outp1"] = effort_pct if effort_pct is not None else ""
+        elif stage == "after_outp1":
+            fields["effort_after_outp1"] = effort_pct if effort_pct is not None else ""
+        elif stage == "before_sampling":
+            fields["effort_before_sampling"] = effort_pct if effort_pct is not None else ""
+            fields["pressure_in_limit_before_sampling"] = bool(self._sealed_pressure_ready_ts is not None)
+            fields["dewpoint_stable_before_sampling"] = not self._sealed_dewpoint_rise_exceeded()
+        if effort_error:
+            fields["pressure_controller_control_state_failure_reason"] = effort_error
+        if isinstance(context, dict):
+            for key in (
+                "effort_before_outp1",
+                "effort_after_outp1",
+                "effort_before_sampling",
+                "effort_during_sampling_min",
+                "effort_during_sampling_max",
+            ):
+                if context.get(key) is not None and fields.get(key, "") == "":
+                    fields[key] = context.get(key)
+        return fields
+
+    def _sealed_positive_supply_effort_guard(
+        self,
+        point: CalibrationPoint,
+        *,
+        stage: str,
+        pressure_target_hpa: Optional[float],
+        fail_on_unsupported: bool = False,
+        during_sampling: bool = False,
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        if not self._co2_sealed_no_vent_guard_active or not self._prevent_positive_supply_during_sampling():
+            return True, {}, ""
+        pace = self.devices.get("pace")
+        effort, supported, error = self._read_pressure_controller_effort_pct(pace)
+        fields = self._sealed_positive_supply_effort_trace_fields(
+            stage=stage,
+            effort_pct=effort,
+            effort_supported=supported,
+            effort_error=error,
+        )
+        reason = ""
+        if not supported and fail_on_unsupported and self._effort_unsupported_blocks_sampling():
+            reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_EFFORT_UNSUPPORTED_BEFORE_SAMPLING"
+        elif fields.get("positive_supply_effort_detected"):
+            reason = "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
+        if reason:
+            fields["sample_blocked_by_positive_supply_effort"] = reason.startswith("FAIL_CLOSED_POSITIVE_SUPPLY")
+            fields["sampling_invalidated_by_positive_supply_effort"] = bool(during_sampling)
+            fields["sampling_blocked_reason"] = reason
+            self._controlled_exit_final_decision = reason
+            self._sealed_sampling_block_reason = reason
+        trace_stage = (
+            "sealed_sampling_positive_supply_effort_blocked"
+            if reason and during_sampling
+            else "sealed_positive_supply_effort_guard_failed"
+            if reason
+            else f"sealed_positive_supply_effort_{stage}"
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage=trace_stage,
+            pressure_target_hpa=pressure_target_hpa,
+            refresh_pace_state=False,
+            extra_fields=self._sealed_sweep_trace_extra(fields),
+            note=reason or f"effort_pct={effort if effort is not None else 'unsupported'} stage={stage}",
+        )
+        return not bool(reason), fields, reason
 
     def _sealed_control_state_trace_fields(
         self,
@@ -10178,6 +10561,22 @@ class CalibrationRunner:
             note="route close complete; start minimal fast-control chain before full evidence",
         )
 
+        positive_ok, positive_fields = self._sealed_positive_supply_pre_control_guard(
+            point,
+            phase=phase,
+            pressure_target_hpa=target,
+            current_pressure_hpa=route_pressure,
+            trace_stage="sealed_positive_supply_precheck_fast_control",
+        )
+        if not positive_ok:
+            return False
+        slew_fields = self._configure_sealed_pressure_slew_for_control(
+            point,
+            phase=phase,
+            pressure_target_hpa=target,
+            extra_fields={**dict(ready_fields or {}), **positive_fields},
+        )
+
         if not self._sealed_passive_deadline_allows(
             point,
             stage="before_setpoint",
@@ -10201,6 +10600,8 @@ class CalibrationRunner:
                 extra_fields=self._sealed_sweep_trace_extra(
                     {
                         **dict(ready_fields or {}),
+                        **positive_fields,
+                        **slew_fields,
                         **self._sealed_passive_trace_fields(blocking_stage="setpoint_command_failed"),
                         **self._fast_control_deferred_trace_fields(
                             consumed_by="setpoint_command_failed",
@@ -10229,6 +10630,8 @@ class CalibrationRunner:
             extra_fields=self._sealed_sweep_trace_extra(
                 {
                     **dict(ready_fields or {}),
+                    **positive_fields,
+                    **slew_fields,
                     **self._sealed_passive_trace_fields(
                         blocking_stage="setpoint_sent",
                         snapshot=ready_fields,
@@ -10250,6 +10653,14 @@ class CalibrationRunner:
             note="setpoint sent immediately after route close minimal ready gate",
         )
 
+        effort_ok, effort_fields, _effort_reason = self._sealed_positive_supply_effort_guard(
+            point,
+            stage="before_outp1",
+            pressure_target_hpa=target,
+            fail_on_unsupported=False,
+        )
+        if not effort_ok:
+            return False
         if not self._sealed_passive_deadline_allows(
             point,
             stage="before_outp1",
@@ -10270,6 +10681,9 @@ class CalibrationRunner:
                 extra_fields=self._sealed_sweep_trace_extra(
                     {
                         **dict(ready_fields or {}),
+                        **positive_fields,
+                        **slew_fields,
+                        **effort_fields,
                         **self._sealed_passive_trace_fields(blocking_stage="outp1_command_failed"),
                         **self._fast_control_deferred_trace_fields(
                             consumed_by="outp1_command_failed",
@@ -10289,6 +10703,12 @@ class CalibrationRunner:
                 context["outp1_first_tx_ts"] = self._sealed_first_outp1_tx_ts
                 context["output_enabled_once"] = True
         self._controlled_outp_sealed_output_enabled = True
+        effort_after_ok, effort_after_fields, _effort_after_reason = self._sealed_positive_supply_effort_guard(
+            point,
+            stage="after_outp1",
+            pressure_target_hpa=target,
+            fail_on_unsupported=False,
+        )
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -10299,6 +10719,10 @@ class CalibrationRunner:
             extra_fields=self._sealed_sweep_trace_extra(
                 {
                     **dict(ready_fields or {}),
+                    **positive_fields,
+                    **slew_fields,
+                    **effort_fields,
+                    **effort_after_fields,
                     **self._sealed_passive_trace_fields(
                         blocking_stage="outp1_sent",
                         snapshot=ready_fields,
@@ -10319,6 +10743,8 @@ class CalibrationRunner:
             ),
             note="OUTP1 sent immediately after sealed setpoint; full evidence deferred until pressure wait",
         )
+        if not effort_after_ok:
+            return False
         return True
 
     def _post_seal_vent_abort_clear_enabled(self) -> bool:
@@ -10535,6 +10961,12 @@ class CalibrationRunner:
         setpoint_sent = bool(self._sealed_first_setpoint_tx_ts is not None or sealed_setpoint_count > 0)
         pressure_ready = bool(self._sealed_pressure_ready_ts is not None)
         dewpoint_bad = self._sealed_dewpoint_rise_exceeded(point=point)
+        effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
+            point,
+            stage="before_sampling",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            fail_on_unsupported=True,
+        )
         vent2_watchlist = bool(vent_status == 2)
         blocked_by_vent = bool(vent_status in {1, 3} or sealed_vent1_count > 0 or sealed_vent0_count > 0)
         blocked_by_pressure = not pressure_ready
@@ -10557,6 +10989,8 @@ class CalibrationRunner:
             block_reason = "FAIL_CLOSED_PRESSURE_NOT_READY_BEFORE_SAMPLING"
         elif dewpoint_bad:
             block_reason = "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
+        elif not effort_ok:
+            block_reason = effort_reason
         if isinstance(context, dict):
             context["vent2_watchlist_before_sampling"] = vent2_watchlist
         ready = not block_reason
@@ -10566,12 +11000,16 @@ class CalibrationRunner:
             "sampling_blocked_by_vent_watchlist": blocked_by_vent,
             "sampling_blocked_by_dewpoint_rise": bool(dewpoint_bad),
             "sampling_blocked_by_pressure_not_ready": bool(blocked_by_pressure),
+            "sample_blocked_by_positive_supply_effort": bool(not effort_ok and effort_reason),
             "sampling_blocked_reason": block_reason,
             "sealed_control_ready_blocks_outp1": False,
             "pressure_controller_control_state_verified": bool(pressure_ready and not block_reason),
             "pressure_controller_control_state_failure_reason": block_reason,
             "sealed_actual_open_valves": actual_open_valves,
+            "pressure_in_limit_before_sampling": bool(pressure_ready),
+            "dewpoint_stable_before_sampling": not bool(dewpoint_bad),
         }
+        fields.update(effort_fields)
         fields.update(
             self._sealed_control_state_trace_fields(
                 point,
@@ -12834,6 +13272,27 @@ class CalibrationRunner:
                 ),
             )
             controlled_outp_transition = phase == "co2" and self._controlled_outp_transition()
+            positive_fields: Dict[str, Any] = {}
+            slew_fields: Dict[str, Any] = {}
+            if phase == "co2" and self._co2_sealed_no_vent_guard_active:
+                positive_ok, positive_fields = self._sealed_positive_supply_pre_control_guard(
+                    point,
+                    phase=phase,
+                    pressure_target_hpa=target,
+                    current_pressure_hpa=(
+                        preseal_ready_state.get("route_close_pressure_at_close_hpa")
+                        if isinstance(preseal_ready_state, Mapping)
+                        else None
+                    ),
+                )
+                if not positive_ok:
+                    return False
+                slew_fields = self._configure_sealed_pressure_slew_for_control(
+                    point,
+                    phase=phase,
+                    pressure_target_hpa=target,
+                    extra_fields=positive_fields,
+                )
             if phase == "co2" and self._co2_sealed_no_vent_guard_active:
                 if not self._sealed_passive_deadline_allows(
                     point,
@@ -12860,6 +13319,8 @@ class CalibrationRunner:
                     refresh_pace_state=False,
                     extra_fields=self._sealed_sweep_trace_extra(
                         {
+                            **positive_fields,
+                            **slew_fields,
                             **self._sealed_passive_trace_fields(
                                 blocking_stage="setpoint_sent",
                                 snapshot=preseal_ready_state if isinstance(preseal_ready_state, Mapping) else None,
@@ -12980,8 +13441,16 @@ class CalibrationRunner:
                 if phase == "co2" and self._co2_sealed_no_vent_guard_active:
                     snapshot = self._pressure_controller_ready_snapshot(pace)
                     vent_status = self._as_int(snapshot.get("pace_vent_status"))
+                    effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
+                        point,
+                        stage="after_outp1",
+                        pressure_target_hpa=target,
+                        fail_on_unsupported=False,
+                    )
                     failure_reason = ""
-                    if vent_status == 1:
+                    if not effort_ok:
+                        failure_reason = effort_reason
+                    elif vent_status == 1:
                         failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_AFTER_OUTP1"
                     elif vent_status == 3:
                         failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_AFTER_OUTP1"
@@ -13018,6 +13487,7 @@ class CalibrationRunner:
                                     **self._fast_control_deferred_trace_fields(
                                         consumed_by="pressure_control_state_failed"
                                     ),
+                                    **effort_fields,
                                     "sampling_blocked_by_dewpoint_rise": failure_reason.startswith(
                                         "FAIL_CLOSED_DEWPOINT"
                                     ),
@@ -13042,6 +13512,7 @@ class CalibrationRunner:
                                 pressure_ready=True,
                             ),
                             **self._fast_control_deferred_trace_fields(consumed_by="pressure_in_limits"),
+                            **effort_fields,
                         }
                     )
                 self._emit_stage_event(
@@ -13204,6 +13675,24 @@ class CalibrationRunner:
             extra_fields=self._sealed_sweep_trace_extra(),
             note="route sealed; no vent/output transition allowed",
         )
+        positive_ok, positive_fields = self._sealed_positive_supply_pre_control_guard(
+            point,
+            phase="co2",
+            pressure_target_hpa=target,
+            trace_stage="sealed_positive_supply_precheck_sealed_sweep",
+        )
+        if not positive_ok:
+            self._clear_active_co2_sealed_sweep_context(
+                reason=self._controlled_exit_final_decision or "positive supply guard failed",
+                point=point,
+            )
+            return False
+        slew_fields = self._configure_sealed_pressure_slew_for_control(
+            point,
+            phase="co2",
+            pressure_target_hpa=target,
+            extra_fields=positive_fields,
+        )
         self._increment_sealed_sweep_counter("sealed_setpoint_count")
         pace.set_setpoint(target)
         self._append_pressure_trace_row(
@@ -13213,7 +13702,7 @@ class CalibrationRunner:
             trace_stage="sealed_sweep_setpoint_update",
             pressure_target_hpa=target,
             refresh_pace_state=False,
-            extra_fields=self._sealed_sweep_trace_extra(),
+            extra_fields=self._sealed_sweep_trace_extra({**positive_fields, **slew_fields}),
             note="setpoint updated without VENT/OUTP/route changes",
         )
 
@@ -13252,8 +13741,16 @@ class CalibrationRunner:
             if inl == 1:
                 snapshot = self._pressure_controller_ready_snapshot(pace)
                 vent_status = self._as_int(snapshot.get("pace_vent_status"))
+                effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
+                    point,
+                    stage="after_outp1",
+                    pressure_target_hpa=target,
+                    fail_on_unsupported=False,
+                )
                 failure_reason = ""
-                if vent_status == 1:
+                if not effort_ok:
+                    failure_reason = effort_reason
+                elif vent_status == 1:
                     failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_DURING_SEALED_SWEEP"
                 elif vent_status == 3:
                     failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_DURING_SEALED_SWEEP"
@@ -13291,6 +13788,7 @@ class CalibrationRunner:
                                     "FAIL_CLOSED_DEWPOINT"
                                 ),
                                 "sampling_blocked_by_vent_watchlist": vent_status in {1, 3},
+                                **effort_fields,
                             }
                         ),
                         note=failure_reason,
@@ -13320,6 +13818,7 @@ class CalibrationRunner:
                                 pressure_in_limit=True,
                                 pressure_ready=True,
                             ),
+                            **effort_fields,
                         }
                     ),
                     note=f"pace_in_limits={inl}",
@@ -23923,6 +24422,39 @@ class CalibrationRunner:
                 if pace:
                     pace_state = self._sampling_row_pace_state_snapshot(pace, sample_idx=sample_idx)
                     data.update(pace_state)
+                effort_fields: Dict[str, Any] = {}
+                if phase_text == "co2" and self._co2_sealed_no_vent_guard_active:
+                    effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
+                        point,
+                        stage="during_sampling",
+                        pressure_target_hpa=point.target_pressure_hpa,
+                        fail_on_unsupported=True,
+                        during_sampling=True,
+                    )
+                    if effort_fields.get("effort_during_sampling_min") != "":
+                        data["pressure_controller_effort_min_pct"] = effort_fields.get("effort_during_sampling_min")
+                    if effort_fields.get("effort_during_sampling_max") != "":
+                        data["pressure_controller_effort_max_pct"] = effort_fields.get("effort_during_sampling_max")
+                    data["positive_supply_effort_detected"] = effort_fields.get(
+                        "positive_supply_effort_detected",
+                        False,
+                    )
+                    if not effort_ok:
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase_text,
+                            point_phase=phase_text,
+                            point_tag=point_tag,
+                            trace_stage="sampling_invalidated_by_positive_supply_effort",
+                            pressure_target_hpa=point.target_pressure_hpa,
+                            pace_output_state=data.get("pace_output_state"),
+                            pace_isolation_state=data.get("pace_isolation_state"),
+                            pace_vent_status=data.get("pace_vent_status"),
+                            refresh_pace_state=False,
+                            extra_fields=self._sealed_sweep_trace_extra(effort_fields),
+                            note=effort_reason,
+                        )
+                        return None
                 fast_group_end_dt = datetime.now()
                 fast_group_end_monotonic = time.monotonic()
                 fast_group_span_ms = round((fast_group_end_monotonic - fast_group_start_monotonic) * 1000.0, 3)
@@ -23949,6 +24481,11 @@ class CalibrationRunner:
                         dew_rh_live_pct=self._as_float(data.get("dew_rh_live_pct")),
                         fast_group_span_ms=fast_group_span_ms,
                         sample_lag_ms=sample_lag_ms,
+                        extra_fields=(
+                            self._sealed_sweep_trace_extra(effort_fields)
+                            if phase_text == "co2" and self._co2_sealed_no_vent_guard_active
+                            else None
+                        ),
                         refresh_pace_state=False,
                         event_ts=row_start_dt.timestamp(),
                         note=f"sample_index=1/{count}",
@@ -24098,6 +24635,11 @@ class CalibrationRunner:
                     dew_temp_live_c=self._as_float(data.get("dew_temp_live_c")),
                     dew_rh_live_pct=self._as_float(data.get("dew_rh_live_pct")),
                     sample_lag_ms=sample_lag_ms,
+                    extra_fields=(
+                        self._sealed_sweep_trace_extra(effort_fields)
+                        if phase_text == "co2" and self._co2_sealed_no_vent_guard_active
+                        else None
+                    ),
                     note=f"sample_index={sample_idx + 1}/{count}",
                 )
 
