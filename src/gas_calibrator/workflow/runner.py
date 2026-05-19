@@ -318,13 +318,19 @@ _PRESSURE_TRACE_FIELDS = [
     "positive_supply_effort_warning_pct",
     "positive_supply_effort_fail_pct",
     "positive_supply_effort_strict_fail",
+    "positive_effort_any_seen",
+    "positive_effort_strict_threshold_pct",
+    "positive_effort_fail_closed",
     "positive_supply_effort_detected",
     "sample_blocked_by_positive_supply_effort",
+    "effort_unavailable_control_risk",
     "effort_query_before_outp1_skipped_or_zero_reason",
     "effort_guard_active_after_outp1",
     "pressure_in_limit_before_sampling",
     "dewpoint_stable_before_sampling",
     "sampling_invalidated_by_positive_supply_effort",
+    "inlimit_without_exhaust_only_ready_blocked",
+    "sampling_blocked_by_control_chatter",
     "outp1_to_pressure_ready_s",
     "outp1_to_sampling_s",
     "sealed_passive_window_s",
@@ -349,6 +355,9 @@ _PRESSURE_TRACE_FIELDS = [
     "pressure_in_limit",
     "pressure_stable_evidence",
     "exhaust_only_ready_gate_enabled",
+    "pressure_monotonic_to_target",
+    "pressure_crossed_below_target",
+    "target_crossing_count",
     "one_sided_pressure_ready",
     "one_sided_upper_tolerance_hpa",
     "one_sided_lower_tolerance_hpa",
@@ -357,6 +366,7 @@ _PRESSURE_TRACE_FIELDS = [
     "pressure_target_crossing_count",
     "pressure_chatter_detected",
     "pressure_chatter_blocks_sampling",
+    "pressure_chatter_fail_closed",
     "exhaust_only_ready_result",
     "exhaust_only_ready_failure_reason",
     "pace_pressure_age_s",
@@ -565,6 +575,27 @@ _PRESSURE_TRACE_FIELDS = [
     "atmosphere_hold_thread_name",
     "active_thread_snapshot",
     "pace_hold_thread_count",
+    "open_flow_vent1_count",
+    "open_flow_vent1_raw_tx_times",
+    "open_flow_vent1_max_gap_s",
+    "open_flow_vent1_p95_gap_s",
+    "open_flow_vent1_last_gap_s",
+    "open_flow_vent1_gap_target_s",
+    "open_flow_vent1_gap_fail_s",
+    "open_flow_vent1_gap_violation_count",
+    "open_flow_vent1_gap_fail_count",
+    "open_flow_vent1_gap_violation_times",
+    "open_flow_vent1_gap_gt_1_2s",
+    "open_flow_vent1_gap_gt_1_5s",
+    "open_flow_vent1_gap_gt_2_0s",
+    "open_flow_vent1_gap_gt_3_0s",
+    "open_flow_vent_gap_stage",
+    "open_flow_vent_gap_blocking_operation",
+    "open_flow_vent_gap_may_cause_flow_drop",
+    "pre_vent_exit_flow_drop_suspected",
+    "pre_vent_exit_flow_drop_reason",
+    "setpoint_prearm_before_vent_exit_detected",
+    "quiet_gap_started_before_stop_hold_detected",
     "pressure_controller_runtime_audit_decision",
     "final_decision",
     "remaining_selected_pressure_points_skipped",
@@ -2658,7 +2689,30 @@ class CalibrationRunner:
         return bool(self._wf("workflow.pressure.continuous_atmosphere_hold", True))
 
     def _vent_hold_interval_s(self) -> float:
-        return max(0.1, float(self._wf("workflow.pressure.vent_hold_interval_s", 2.0) or 2.0))
+        configured = max(0.1, float(self._wf("workflow.pressure.vent_hold_interval_s", 2.0) or 2.0))
+        open_flow_cap = max(
+            0.1,
+            float(
+                self._wf(
+                    "workflow.pressure.open_flow_vent1_keepalive_interval_s",
+                    1.0,
+                )
+                or 1.0
+            ),
+        )
+        return min(configured, open_flow_cap)
+
+    def _open_flow_vent1_gap_target_s(self) -> float:
+        return max(0.1, float(self._wf("workflow.pressure.open_flow_vent1_gap_target_s", 1.2) or 1.2))
+
+    def _open_flow_vent1_gap_fail_s(self) -> float:
+        return max(
+            self._open_flow_vent1_gap_target_s(),
+            float(self._wf("workflow.pressure.open_flow_vent1_gap_fail_s", 1.5) or 1.5),
+        )
+
+    def _open_flow_vent1_gap_fail_closed_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.open_flow_vent1_gap_fail_closed_enabled", True))
 
     def _vent_after_valve_open_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.vent_after_valve_open", False))
@@ -9968,7 +10022,7 @@ class CalibrationRunner:
         return bool(self._wf("workflow.pressure.prevent_positive_supply_during_sampling", True))
 
     def _positive_supply_effort_threshold_pct(self) -> float:
-        return abs(float(self._wf("workflow.pressure.positive_supply_effort_threshold_pct", 2.0) or 2.0))
+        return abs(float(self._wf("workflow.pressure.positive_supply_effort_threshold_pct", 0.3) or 0.3))
 
     def _positive_supply_effort_max_duration_s(self) -> float:
         raw = self._wf("workflow.pressure.positive_supply_effort_max_duration_s", 0.5)
@@ -9979,8 +10033,8 @@ class CalibrationRunner:
         return abs(float(0.1 if raw is None else raw))
 
     def _positive_supply_effort_fail_pct(self) -> float:
-        raw = self._wf("workflow.pressure.positive_supply_effort_fail_pct", 0.5)
-        return abs(float(0.5 if raw is None else raw))
+        raw = self._wf("workflow.pressure.positive_supply_effort_fail_pct", 0.3)
+        return abs(float(0.3 if raw is None else raw))
 
     def _positive_supply_effort_strict_max_duration_s(self) -> float:
         raw = self._wf("workflow.pressure.positive_supply_effort_strict_max_duration_s", 0.0)
@@ -10004,8 +10058,8 @@ class CalibrationRunner:
         return max(0.0, float(0.2 if raw is None else raw))
 
     def _pressure_target_crossing_fail_count(self) -> int:
-        raw = self._wf("workflow.pressure.pressure_target_crossing_fail_count", 2)
-        return max(1, int(2 if raw is None else raw))
+        raw = self._wf("workflow.pressure.pressure_target_crossing_fail_count", 1)
+        return max(1, int(1 if raw is None else raw))
 
     def _dewpoint_lag_compensation_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.dewpoint_lag_compensation_enabled", True))
@@ -10333,6 +10387,7 @@ class CalibrationRunner:
         fields.setdefault("setpoint_prearm_end_ts", "")
         fields.setdefault("setpoint_prearm_elapsed_s", "")
         fields.setdefault("setpoint_prearmed_before_route_close", bool(self._sealed_setpoint_prearmed_before_route_close))
+        fields.setdefault("setpoint_prearm_before_vent_exit_detected", False)
         fields.setdefault("setpoint_prearm_syst_err", "")
         fields.setdefault("route_close_to_outp1_target_s", self._route_close_to_outp1_target_s())
         fields.setdefault("route_close_to_outp1_hard_max_s", self._route_close_to_outp1_hard_max_s())
@@ -10385,14 +10440,19 @@ class CalibrationRunner:
             "setpoint_prearm_end_ts": "",
             "setpoint_prearm_elapsed_s": "",
             "setpoint_prearmed_before_route_close": False,
+            "setpoint_prearm_before_vent_exit_detected": False,
             "setpoint_prearm_syst_err": "",
             "route_close_to_outp1_target_s": self._route_close_to_outp1_target_s(),
             "route_close_to_outp1_hard_max_s": self._route_close_to_outp1_hard_max_s(),
         }
         failures: List[str] = []
+        vent_exit_reference_s = self._as_float(getattr(self, "_last_vent_exit_reference_ts", None))
+        if vent_exit_reference_s is None:
+            fields["setpoint_prearm_before_vent_exit_detected"] = True
+            failures.append("setpoint_prearm_before_vent_exit")
         if pace is None:
             failures.append("pace_unavailable")
-        else:
+        elif not failures:
             try:
                 pace.set_setpoint(target)
                 self._sealed_first_setpoint_tx_ts = time.time()
@@ -10677,6 +10737,7 @@ class CalibrationRunner:
         effort_warning_positive = bool(effort_supported and effort_pct is not None and effort_pct >= warning_pct)
         effort_strict_positive = bool(effort_supported and effort_pct is not None and effort_pct >= fail_pct)
         effort_legacy_positive = bool(effort_supported and effort_pct is not None and effort_pct >= threshold)
+        positive_seen = bool(effort_warning_positive or effort_strict_positive or effort_legacy_positive)
         positive_duration_s = 0.0
         detected = False
         strict_fail = False
@@ -10706,10 +10767,12 @@ class CalibrationRunner:
                 strict_fail = False
             detected = bool(detected or context.get("positive_supply_effort_detected") is True)
             strict_fail = bool(strict_fail or context.get("positive_supply_effort_strict_fail") is True)
+            positive_seen = bool(positive_seen or context.get("positive_effort_any_seen") is True)
             context["effort_query_supported"] = bool(effort_supported)
             context["effort_positive_duration_s"] = positive_duration_s
             context["positive_supply_effort_detected"] = detected
             context["positive_supply_effort_strict_fail"] = strict_fail
+            context["positive_effort_any_seen"] = positive_seen
             if stage == "before_outp1":
                 context["effort_before_outp1"] = effort_pct
             elif stage == "after_outp1":
@@ -10729,8 +10792,12 @@ class CalibrationRunner:
             "positive_supply_effort_fail_pct": fail_pct,
             "positive_supply_effort_strict_fail": strict_fail,
             "positive_supply_effort_detected": detected,
+            "positive_effort_any_seen": positive_seen,
+            "positive_effort_strict_threshold_pct": fail_pct,
+            "positive_effort_fail_closed": bool(detected or strict_fail),
             "sample_blocked_by_positive_supply_effort": detected,
             "sampling_invalidated_by_positive_supply_effort": False,
+            "effort_unavailable_control_risk": bool(not effort_supported),
             "pressure_in_limit_before_sampling": "",
             "dewpoint_stable_before_sampling": "",
             "prevent_positive_supply_during_sampling": self._prevent_positive_supply_during_sampling(),
@@ -10785,6 +10852,10 @@ class CalibrationRunner:
         if reason:
             fields["sample_blocked_by_positive_supply_effort"] = reason.startswith("FAIL_CLOSED_POSITIVE_SUPPLY")
             fields["sampling_invalidated_by_positive_supply_effort"] = bool(during_sampling)
+            fields["positive_effort_fail_closed"] = reason.startswith("FAIL_CLOSED_POSITIVE_SUPPLY")
+            fields["effort_unavailable_control_risk"] = reason.startswith(
+                "FAIL_CLOSED_PRESSURE_CONTROLLER_EFFORT_UNSUPPORTED"
+            )
             fields["sampling_blocked_reason"] = reason
             self._controlled_exit_final_decision = reason
             self._sealed_sampling_block_reason = reason
@@ -10849,16 +10920,32 @@ class CalibrationRunner:
         result: str = "",
         failure_reason: str = "",
     ) -> Dict[str, Any]:
+        monotonic_to_target = bool(
+            enabled
+            and not undershoot_detected
+            and int(crossing_count or 0) == 0
+            and not chatter_detected
+        )
         return {
             "exhaust_only_ready_gate_enabled": bool(enabled),
             "one_sided_pressure_ready": one_sided_ready,
             "one_sided_upper_tolerance_hpa": self._one_sided_upper_tolerance_hpa(),
             "one_sided_lower_tolerance_hpa": self._one_sided_lower_tolerance_hpa(),
+            "pressure_monotonic_to_target": monotonic_to_target,
+            "pressure_crossed_below_target": bool(undershoot_detected),
+            "target_crossing_count": int(crossing_count or 0),
             "pressure_undershoot_detected": bool(undershoot_detected),
             "pressure_undershoot_min_hpa": undershoot_min_hpa,
             "pressure_target_crossing_count": int(crossing_count or 0),
             "pressure_chatter_detected": bool(chatter_detected),
             "pressure_chatter_blocks_sampling": bool(chatter_detected),
+            "pressure_chatter_fail_closed": bool(chatter_detected and failure_reason),
+            "inlimit_without_exhaust_only_ready_blocked": bool(
+                failure_reason == "FAIL_CLOSED_EXHAUST_ONLY_INLIMIT_OUTSIDE_ONE_SIDED_WINDOW"
+            ),
+            "sampling_blocked_by_control_chatter": bool(
+                chatter_detected and failure_reason == "FAIL_CLOSED_PRESSURE_TARGET_CHATTER_EXHAUST_ONLY"
+            ),
             "exhaust_only_ready_result": str(result or ""),
             "exhaust_only_ready_failure_reason": str(failure_reason or ""),
         }
@@ -19829,10 +19916,14 @@ class CalibrationRunner:
         end_fn = getattr(self.logger, "end_pace_raw_tap_open_flow_until_preseal", None)
         fields = dict(end_fn() or {}) if callable(end_fn) else {}
         self._co2_open_flow_until_preseal_raw_tap_window_active = False
+        gap_fields = self._open_flow_vent_keepalive_gap_fields(fields)
+        if gap_fields:
+            fields.update(gap_fields)
         if fields:
             self._set_point_runtime_fields(point, phase="co2", **fields)
         unexpected_count = self._as_int(fields.get("unexpected_state_changing_write_count")) or 0
         first_unexpected = str(fields.get("first_unexpected_state_changing_write") or "")
+        gap_fail_count = self._as_int(fields.get("open_flow_vent1_gap_fail_count")) or 0
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -19851,7 +19942,188 @@ class CalibrationRunner:
                 phase="co2",
             )
             return False
+        if gap_fail_count > 0 and self._open_flow_vent1_gap_fail_closed_enabled():
+            self._mark_co2_route_terminal_failure(
+                final_decision="FAIL_CLOSED_OPEN_FLOW_VENT1_KEEPALIVE_GAP",
+                reason=str(
+                    fields.get("pre_vent_exit_flow_drop_reason")
+                    or "open-flow VENT1 keepalive gap exceeded fail-closed limit"
+                ),
+                point=point,
+                phase="co2",
+            )
+            return False
         return True
+
+    @staticmethod
+    def _raw_tap_command_text(row: Mapping[str, Any]) -> str:
+        return str(row.get("decoded_command") or row.get("raw_text_decoded") or "").strip()
+
+    @staticmethod
+    def _raw_tap_is_vent1(command: Any) -> bool:
+        text = str(command or "").strip().upper()
+        return "VENT" in text and re.search(r"VENT\s+(\+?1(?:\.0*)?)\s*$", text) is not None
+
+    @staticmethod
+    def _open_flow_gap_blocking_operation(rows: List[Mapping[str, Any]]) -> str:
+        commands = [CalibrationRunner._raw_tap_command_text(row).upper() for row in rows]
+        joined = " ".join(commands)
+        if any("SYST:ERR?" in command for command in commands):
+            return "SYST:ERR?"
+        if any("VENT?" in command or "AMPL:VENT?" in command for command in commands):
+            return "VENT? probe"
+        if any("EFF?" in command for command in commands):
+            return "PACE effort query"
+        if any("INL?" in command for command in commands):
+            return "PACE status query"
+        if any("SENS:PRES" in command or "MEAS:PRES" in command or "READ:PRES" in command for command in commands):
+            return "PACE pressure query"
+        if rows:
+            first = CalibrationRunner._raw_tap_command_text(rows[0])
+            return first[:80] if first else "raw_tap_activity"
+        return "none_observed"
+
+    def _open_flow_raw_tap_rows(
+        self,
+        begin_ts: Any,
+        end_ts: Any,
+    ) -> List[Dict[str, Any]]:
+        begin_text = str(begin_ts or "").strip()
+        end_text = str(end_ts or "").strip()
+        if not begin_text or not end_text:
+            return []
+        path = getattr(self.logger, "raw_serial_tap_csv_path", None)
+        if not path:
+            run_dir = getattr(self.logger, "run_dir", None)
+            if run_dir:
+                path = Path(run_dir) / "pace_raw_serial_tap.csv"
+        if not path:
+            return []
+        try:
+            tap_path = Path(path)
+        except Exception:
+            return []
+        if not tap_path.exists():
+            return []
+        rows: List[Dict[str, Any]] = []
+        try:
+            with tap_path.open("r", encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                for row in reader:
+                    wall_ts = str(row.get("wall_ts") or "").strip()
+                    if not wall_ts or wall_ts < begin_text or wall_ts > end_text:
+                        continue
+                    rows.append(dict(row))
+        except Exception:
+            return []
+        return rows
+
+    def _open_flow_vent_keepalive_gap_fields(self, fields: Mapping[str, Any]) -> Dict[str, Any]:
+        target_gap_s = self._open_flow_vent1_gap_target_s()
+        fail_gap_s = self._open_flow_vent1_gap_fail_s()
+        max_gap = self._as_float(fields.get("open_flow_vent1_max_gap_s"))
+        gap_count = self._as_int(fields.get("open_flow_vent1_gap_violation_count"))
+        if max_gap is not None:
+            fail_count = 1 if max_gap > fail_gap_s else 0
+            may_drop = bool(max_gap > target_gap_s)
+            return {
+                "open_flow_vent1_max_gap_s": max_gap,
+                "open_flow_vent1_p95_gap_s": fields.get("open_flow_vent1_p95_gap_s", ""),
+                "open_flow_vent1_last_gap_s": fields.get("open_flow_vent1_last_gap_s", ""),
+                "open_flow_vent1_gap_target_s": target_gap_s,
+                "open_flow_vent1_gap_fail_s": fail_gap_s,
+                "open_flow_vent1_gap_fail_count": fail_count,
+                "open_flow_vent1_gap_violation_count": int(gap_count or (1 if may_drop else 0)),
+                "open_flow_vent1_gap_violation_times": str(
+                    fields.get("open_flow_vent1_gap_violation_times") or ""
+                ),
+                "open_flow_vent_gap_stage": str(fields.get("open_flow_vent_gap_stage") or ""),
+                "open_flow_vent_gap_blocking_operation": str(
+                    fields.get("open_flow_vent_gap_blocking_operation") or ""
+                ),
+                "open_flow_vent_gap_may_cause_flow_drop": may_drop,
+                "pre_vent_exit_flow_drop_suspected": bool(max_gap > fail_gap_s),
+                "pre_vent_exit_flow_drop_reason": (
+                    f"VENT1 raw tx gap {max_gap:.3f}s exceeded {fail_gap_s:.3f}s fail limit"
+                    if max_gap > fail_gap_s
+                    else f"VENT1 raw tx max gap {max_gap:.3f}s"
+                ),
+                "setpoint_prearm_before_vent_exit_detected": False,
+                "quiet_gap_started_before_stop_hold_detected": False,
+            }
+
+        begin_ts = fields.get("open_flow_until_preseal_window_begin_ts")
+        end_ts = fields.get("open_flow_until_preseal_window_end_ts")
+        rows = self._open_flow_raw_tap_rows(begin_ts, end_ts)
+        vent_rows: List[Dict[str, Any]] = [
+            row
+            for row in rows
+            if str(row.get("direction") or "").strip().upper() == "WRITE"
+            and self._raw_tap_is_vent1(self._raw_tap_command_text(row))
+        ]
+        vent_times: List[Tuple[float, str, str]] = []
+        for row in vent_rows:
+            wall_ts = str(row.get("wall_ts") or "").strip()
+            wall_s = self._parse_iso_ts_to_wall_s(wall_ts)
+            if wall_s is None:
+                continue
+            vent_times.append((wall_s, wall_ts, str(row.get("workflow_stage") or "")))
+        vent_times.sort(key=lambda item: item[0])
+        gaps: List[Tuple[float, str, str, List[Dict[str, Any]]]] = []
+        for prev, current in zip(vent_times, vent_times[1:]):
+            gap_s = max(0.0, float(current[0]) - float(prev[0]))
+            between = [
+                row
+                for row in rows
+                if prev[1] < str(row.get("wall_ts") or "") < current[1]
+            ]
+            gaps.append((gap_s, prev[1], current[1], between))
+        sorted_gaps = sorted(gaps, key=lambda item: item[0])
+        max_gap_s = sorted_gaps[-1][0] if sorted_gaps else 0.0
+        p95_gap_s = sorted_gaps[min(len(sorted_gaps) - 1, int(math.ceil(len(sorted_gaps) * 0.95)) - 1)][0] if sorted_gaps else 0.0
+        last_gap_s = gaps[-1][0] if gaps else 0.0
+        violations = [gap for gap in gaps if gap[0] > target_gap_s]
+        fail_gaps = [gap for gap in gaps if gap[0] > fail_gap_s]
+        worst = max(gaps, key=lambda item: item[0]) if gaps else None
+        worst_rows = list(worst[3]) if worst is not None else []
+        stage = ""
+        if worst is not None:
+            stage = str((worst_rows[0].get("workflow_stage") if worst_rows else "") or "")
+            if not stage:
+                next_match = [row for row in vent_rows if str(row.get("wall_ts") or "") == worst[2]]
+                stage = str((next_match[0].get("workflow_stage") if next_match else "") or "")
+        blocking = self._open_flow_gap_blocking_operation(worst_rows)
+        violation_times = [
+            {"gap_s": round(gap[0], 3), "from": gap[1], "to": gap[2]}
+            for gap in violations[:20]
+        ]
+        return {
+            "open_flow_vent1_count": len(vent_times),
+            "open_flow_vent1_raw_tx_times": json.dumps([item[1] for item in vent_times], ensure_ascii=False),
+            "open_flow_vent1_max_gap_s": round(max_gap_s, 3),
+            "open_flow_vent1_p95_gap_s": round(p95_gap_s, 3),
+            "open_flow_vent1_last_gap_s": round(last_gap_s, 3),
+            "open_flow_vent1_gap_target_s": target_gap_s,
+            "open_flow_vent1_gap_fail_s": fail_gap_s,
+            "open_flow_vent1_gap_violation_count": len(violations),
+            "open_flow_vent1_gap_fail_count": len(fail_gaps),
+            "open_flow_vent1_gap_violation_times": json.dumps(violation_times, ensure_ascii=False),
+            "open_flow_vent1_gap_gt_1_2s": sum(1 for gap in gaps if gap[0] > 1.2),
+            "open_flow_vent1_gap_gt_1_5s": sum(1 for gap in gaps if gap[0] > 1.5),
+            "open_flow_vent1_gap_gt_2_0s": sum(1 for gap in gaps if gap[0] > 2.0),
+            "open_flow_vent1_gap_gt_3_0s": sum(1 for gap in gaps if gap[0] > 3.0),
+            "open_flow_vent_gap_stage": stage,
+            "open_flow_vent_gap_blocking_operation": blocking,
+            "open_flow_vent_gap_may_cause_flow_drop": bool(max_gap_s > target_gap_s),
+            "pre_vent_exit_flow_drop_suspected": bool(max_gap_s > fail_gap_s),
+            "pre_vent_exit_flow_drop_reason": (
+                f"VENT1 raw tx gap {max_gap_s:.3f}s around {stage or 'open_flow'} with {blocking}"
+                if max_gap_s > target_gap_s
+                else "no open-flow VENT1 keepalive gap above target"
+            ),
+            "setpoint_prearm_before_vent_exit_detected": False,
+            "quiet_gap_started_before_stop_hold_detected": False,
+        }
 
     def _analyzer_gate_dewpoint_monitor_enabled(self) -> bool:
         return bool(self._wf("workflow.stability.analyzer_gate_dewpoint_monitor_enabled", True))
@@ -22851,12 +23123,18 @@ class CalibrationRunner:
                 refresh_pace_state=False,
                 note="before vent off command",
             )
-            self._append_pace_status_evidence_trace(
-                "before_vent0",
+            self._append_pressure_trace_row(
                 point=point,
                 route=phase,
                 point_phase=phase,
-                note="before preseal VENT0; status evidence only",
+                trace_stage="pace_status_evidence_before_vent0_deferred",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                extra_fields={
+                    "open_flow_vent_gap_blocking_operation": "deferred_pace_status_evidence_before_vent0",
+                    "quiet_gap_started_before_stop_hold_detected": False,
+                },
+                note="deferred sync PACE status evidence until after vent exit to protect VENT1 keepalive",
             )
             vent_off_reason = f"before {route.upper()} pressure seal"
             vent0_command_ts = time.time()
@@ -25182,6 +25460,121 @@ class CalibrationRunner:
             "analyzer_unusable_labels": ",".join(unusable),
         }
 
+    def _sampling_time_alignment_limit_ms(self) -> float:
+        return max(0.0, float(self._wf("workflow.sampling.time_alignment_max_age_ms", 2000.0) or 2000.0))
+
+    @staticmethod
+    def _sample_source_category(value: Any) -> str:
+        text = str(value or "").strip().lower()
+        if not text or text == "missing":
+            return "missing"
+        if text in {"active_stream", "active_upload", "stream"}:
+            return "active_upload"
+        if text in {"passive_cache", "active_live_cache", "cache", "cached"}:
+            return "cache"
+        if "poll" in text:
+            return "background_poll"
+        if "live" in text:
+            return "live_read"
+        return text
+
+    def _sample_age_ms_from_ts(
+        self,
+        sample_ts: Any,
+        *,
+        row_time_s: float,
+        existing_age_ms: Any = None,
+    ) -> Optional[float]:
+        age = self._as_float(existing_age_ms)
+        if age is not None:
+            return max(0.0, round(float(age), 3))
+        wall_s = self._parse_iso_ts_to_wall_s(sample_ts)
+        if wall_s is None:
+            return None
+        return max(0.0, round((float(row_time_s) - float(wall_s)) * 1000.0, 3))
+
+    def _add_sampling_timing_evidence(
+        self,
+        data: Dict[str, Any],
+        gas_analyzers: List[Tuple[str, Any, Dict[str, Any]]],
+        *,
+        row_time_s: float,
+    ) -> None:
+        data["sample_begin_ts"] = data.get("sample_start_ts") or data.get("sample_ts") or ""
+        data["sample_snapshot_ts"] = data.get("fast_group_anchor_ts") or data.get("sample_begin_ts") or ""
+        device_ts: Dict[str, Any] = {}
+        device_age: Dict[str, Any] = {}
+        device_source: Dict[str, Any] = {}
+
+        def add_device(name: str, ts_key: str, age_key: str = "", source: str = "cache") -> None:
+            sample_ts = data.get(ts_key)
+            age_ms = self._sample_age_ms_from_ts(
+                sample_ts,
+                row_time_s=row_time_s,
+                existing_age_ms=data.get(age_key) if age_key else None,
+            )
+            device_ts[name] = sample_ts or ""
+            device_age[name] = age_ms if age_ms is not None else ""
+            device_source[name] = source if sample_ts else "missing"
+
+        add_device("pace_pressure", "pace_sample_ts", "pace_anchor_delta_ms", "background_poll")
+        add_device("com22_pressure", "pressure_gauge_sample_ts", "pressure_gauge_anchor_delta_ms", "background_poll")
+        add_device("dewpoint", "dewpoint_sample_ts", "dewpoint_live_anchor_delta_ms", "background_poll")
+        add_device("chamber", "chamber_sample_ts", "chamber_cache_age_ms", "cache")
+        add_device("thermometer", "thermometer_sample_ts", "thermometer_cache_age_ms", "cache")
+        add_device("hgen", "hgen_sample_ts", "hgen_cache_age_ms", "cache")
+
+        analyzer_age_by_port: Dict[str, Any] = {}
+        for label, _ga, _cfg in gas_analyzers:
+            prefix = self._safe_label(label)
+            add_device(
+                prefix,
+                f"{prefix}_frame_cache_ts",
+                f"{prefix}_frame_cache_age_ms",
+                self._sample_source_category(data.get(f"{prefix}_frame_source")),
+            )
+            analyzer_age_by_port[prefix] = device_age.get(prefix, "")
+
+        numeric_ages = [
+            float(value)
+            for value in device_age.values()
+            if self._as_float(value) is not None
+        ]
+        limit_ms = self._sampling_time_alignment_limit_ms()
+        missing_ts = [name for name, value in device_ts.items() if value in (None, "")]
+        over_limit = [
+            name
+            for name, value in device_age.items()
+            if self._as_float(value) is not None and float(value) > limit_ms
+        ]
+        reasons: List[str] = []
+        if missing_ts:
+            reasons.append("missing_device_timestamp:" + ",".join(missing_ts))
+        if over_limit:
+            reasons.append(f"device_age_over_{limit_ms:g}ms:" + ",".join(over_limit))
+
+        data["per_device_sample_ts"] = json.dumps(device_ts, ensure_ascii=False, sort_keys=True)
+        data["per_device_age_ms"] = json.dumps(device_age, ensure_ascii=False, sort_keys=True)
+        data["per_device_source"] = json.dumps(device_source, ensure_ascii=False, sort_keys=True)
+        data["sample_alignment_ok"] = not bool(over_limit)
+        data["sample_alignment_failure_reason"] = ";".join(reasons)
+        data["sampling_time_alignment_max_age_ms"] = max(numeric_ages) if numeric_ages else ""
+        data["sampling_time_alignment_p95_age_ms"] = (
+            sorted(numeric_ages)[min(len(numeric_ages) - 1, int(math.ceil(len(numeric_ages) * 0.95)) - 1)]
+            if numeric_ages
+            else ""
+        )
+        pace_age = self._as_float(device_age.get("pace_pressure"))
+        gauge_age = self._as_float(device_age.get("com22_pressure"))
+        pressure_candidates = [value for value in (pace_age, gauge_age) if value is not None]
+        data["pressure_sample_age_ms"] = max(pressure_candidates) if pressure_candidates else ""
+        data["dewpoint_sample_age_ms"] = device_age.get("dewpoint", "")
+        data["analyzer_sample_age_ms_by_port"] = json.dumps(
+            analyzer_age_by_port,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
     def _collect_samples(
         self,
         point: CalibrationPoint,
@@ -25407,6 +25800,12 @@ class CalibrationRunner:
                         and self._preseal_dewpoint_snapshot.get("pressure_hpa") is not None
                     ):
                         data["dew_pressure_hpa"] = self._preseal_dewpoint_snapshot.get("pressure_hpa")
+
+                self._add_sampling_timing_evidence(
+                    data,
+                    gas_analyzers,
+                    row_time_s=row_time_s,
+                )
 
                 data["co2_ppm_target"] = point.co2_ppm
                 data["h2o_mmol_target"] = point.h2o_mmol

@@ -336,7 +336,7 @@ def test_set_pressure_controller_vent_on_defaults_to_legacy_hold_strategy(tmp_pa
     logger.close()
 
     assert pace.calls == [
-        ("vent_on", 12.0, True, 2.5),
+        ("vent_on", 12.0, True, 1.0),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
     assert any(
@@ -404,7 +404,7 @@ def test_set_pressure_controller_vent_on_falls_back_to_legacy_hold_with_warning(
     logger.close()
 
     assert pace.calls == [
-        ("vent_on", 12.0, True, 2.5),
+        ("vent_on", 12.0, True, 1.0),
     ]
     assert any("fallback -> legacy hold thread" in message for message in messages)
     trace_rows = _load_pressure_trace_rows(logger)

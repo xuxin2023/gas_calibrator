@@ -1,5 +1,6 @@
 from pathlib import Path
 import time
+import json
 
 import pytest
 
@@ -706,7 +707,24 @@ def test_collect_samples_writes_prefixed_sensor_fields(tmp_path: Path) -> None:
     assert row["ga02_frame_cache_ts"]
     assert row["ga01_frame_cache_age_ms"] >= 0.0
     assert row["ga02_frame_cache_age_ms"] >= 0.0
+    assert row["sample_begin_ts"]
+    assert row["sample_snapshot_ts"]
+    assert row["pressure_sample_age_ms"] in ("", None) or row["pressure_sample_age_ms"] >= 0.0
+    analyzer_age = json.loads(row["analyzer_sample_age_ms_by_port"])
+    assert set(analyzer_age) == {"ga01", "ga02"}
+    per_device_age = json.loads(row["per_device_age_ms"])
+    per_device_ts = json.loads(row["per_device_sample_ts"])
+    per_device_source = json.loads(row["per_device_source"])
+    assert per_device_age["ga01"] >= 0.0
+    assert per_device_age["ga02"] >= 0.0
+    assert per_device_ts["ga01"]
+    assert per_device_source["ga01"] == "cache"
+    assert row["sample_alignment_ok"] is True
     logger.close()
+
+
+def test_sampling_timing_evidence_records_per_device_age(tmp_path: Path) -> None:
+    test_collect_samples_writes_prefixed_sensor_fields(tmp_path)
 
 
 def test_collect_samples_prefers_stream_reader_when_available(tmp_path: Path) -> None:
