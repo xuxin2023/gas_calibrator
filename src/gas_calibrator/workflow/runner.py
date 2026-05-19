@@ -572,8 +572,12 @@ class CalibrationRunner:
     _DEFAULT_CO2_GROUP_A_PPM = (0, 200, 400, 600, 800, 1000)
     _DEFAULT_CO2_GROUP_B_PPM = (0, 100, 300, 500, 700, 900)
     _FULL_SWEEP_CO2_TEMPS_C = (10.0, 20.0, 30.0)
-    _PACE_MANUAL_PROFILE_VERSION = "v1_5_k0472_manual_profile_20260518"
+    _PACE_MANUAL_PROFILE_VERSION = "v1_5_k0472_manual_profile_20260519"
     _PACE_VENT_STATUS_SEMANTICS = "manual_0_ok_1_in_progress_2_completed_3_unrecognized_watchlist"
+    _PACE_MANUAL_UNSUPPORTED_OPTIONAL_QUERIES = {
+        ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?",
+        ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?",
+    }
 
     def __init__(self, config: Dict[str, Any], devices: Dict[str, Any], logger: RunLogger, log_fn, status_fn):
         self.cfg = config
@@ -1232,6 +1236,16 @@ class CalibrationRunner:
 
         query_results: Dict[str, Any] = {}
         for key, command in self._pace_manual_snapshot_queries():
+            if command in self._PACE_MANUAL_UNSUPPORTED_OPTIONAL_QUERIES:
+                query_results[key] = {
+                    "command": command,
+                    "ok": False,
+                    "response": "",
+                    "error": "unsupported_by_k0472_manual_profile",
+                    "unsupported": True,
+                    "skipped": True,
+                }
+                continue
             result = self._pace_manual_query(pace, command)
             query_results[key] = {"command": command, **result}
             if not result.get("ok"):

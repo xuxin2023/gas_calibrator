@@ -556,6 +556,23 @@ def test_pace_baseline_snapshot_before_and_after_config(tmp_path: Path) -> None:
     assert before_row["pace_vent_status_semantics"] == "manual_0_ok_1_in_progress_2_completed_3_unrecognized_watchlist"
 
 
+def test_pace_baseline_skips_unsupported_optional_vent_rate_queries(tmp_path: Path) -> None:
+    runner, logger, pace = _runner_for_audit(tmp_path)
+
+    snapshot = runner._record_pace_manual_baseline_snapshot("pace_baseline_before_config")
+    logger.close()
+
+    assert ("query", ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?") not in pace.calls
+    assert ("query", ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?") not in pace.calls
+    queries = snapshot["queries"]
+    assert queries["vent_rate"]["unsupported"] is True
+    assert queries["vent_rate"]["skipped"] is True
+    assert queries["vent_rate_unit"]["unsupported"] is True
+    assert queries["vent_rate_unit"]["skipped"] is True
+    assert "vent_rate" not in snapshot["errors"]
+    assert "vent_rate_unit" not in snapshot["errors"]
+
+
 def test_pace_phase_profile_open_flow_requires_vent1_outp0_isol1(tmp_path: Path) -> None:
     runner, logger, _pace = _runner_for_audit(tmp_path)
     result = runner._evaluate_pace_phase_profile(
