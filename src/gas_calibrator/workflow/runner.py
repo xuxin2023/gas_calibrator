@@ -1354,7 +1354,7 @@ class CalibrationRunner:
                 "ISOL": 1,
                 "route_valves": "open_until_pressure_trigger_or_timeout",
                 "VENT?=3": "diagnostic_only_watchlist",
-                "close_route": "pressure_ge_1110_or_5s_timeout",
+                "close_route": "pressure_ge_1110_or_1p5s_timeout",
                 "hard_limit": "emergency_close_block_OUTP1",
             },
             "sealed_control_ready": {
@@ -9629,14 +9629,15 @@ class CalibrationRunner:
         if configured is None:
             configured = self._wf("workflow.pressure.preseal_route_close_max_wait_s", None)
         if configured is None:
-            configured = 5.0
-        return max(0.0, float(configured or 0.0))
+            configured = 1.5
+        return min(1.5, max(0.0, float(configured or 0.0)))
 
     def _preseal_pressure_build_trigger_hpa(self) -> float:
         return float(self._wf("workflow.pressure.co2_preseal_pressure_gauge_trigger_hpa", 1110.0) or 1110.0)
 
     def _preseal_pressure_build_hard_limit_hpa(self) -> float:
-        return float(self._wf("workflow.pressure.preseal_pressure_build_hard_limit_hpa", 1600.0) or 1600.0)
+        configured = float(self._wf("workflow.pressure.preseal_pressure_build_hard_limit_hpa", 1200.0) or 1200.0)
+        return min(configured, 1200.0)
 
     def _preseal_pressure_build_poll_s(self) -> float:
         return max(0.02, float(self._wf("workflow.pressure.preseal_pressure_build_poll_s", 0.1) or 0.1))
@@ -19746,13 +19747,6 @@ class CalibrationRunner:
                 pressure_target_hpa=point.target_pressure_hpa,
                 refresh_pace_state=False,
                 note="vent off command issued; immediate pre-seal threshold monitoring begins",
-            )
-            self._append_pace_status_evidence_trace(
-                "after_vent0",
-                point=point,
-                route=phase,
-                point_phase=phase,
-                note="after preseal VENT0; status evidence only",
             )
 
             if (

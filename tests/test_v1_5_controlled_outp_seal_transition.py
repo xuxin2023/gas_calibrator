@@ -272,7 +272,8 @@ def _controlled_cfg(pressure_overrides: dict | None = None) -> dict:
         "open_flow_output_off_mode": True,
         "controlled_outp_transition_mode": True,
         "vent0_to_seal_fixed_wait_s": 1.5,
-        "co2_preseal_pressure_build_max_wait_s": 5.0,
+        "co2_preseal_pressure_build_max_wait_s": 1.5,
+        "preseal_pressure_build_hard_limit_hpa": 1200.0,
         "controlled_verified_exit_atmosphere": True,
         "controlled_exit_wait_for_vent_idle_timeout_s": 3.0,
         "controlled_exit_wait_for_vent_idle_poll_s": 0.2,
@@ -1034,7 +1035,19 @@ def test_preseal_pressure_build_waits_for_1110_before_route_close(monkeypatch) -
     assert fields["route_close_timeout_without_pressure_trigger"] is False
 
 
-def test_preseal_pressure_build_timeout_uses_5s_not_1p5s(monkeypatch) -> None:
+def test_preseal_pressure_build_safety_caps_configured_wait_and_hard_limit() -> None:
+    runner, _, _, _ = _runner(
+        pressure_overrides={
+            "co2_preseal_pressure_build_max_wait_s": 5.0,
+            "preseal_pressure_build_hard_limit_hpa": 1600.0,
+        }
+    )
+
+    assert runner._preseal_route_close_max_wait_s() == pytest.approx(1.5)
+    assert runner._preseal_pressure_build_hard_limit_hpa() == pytest.approx(1200.0)
+
+
+def test_preseal_pressure_build_timeout_uses_1p5s_not_5s(monkeypatch) -> None:
     runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
     events: list[str] = []
     runner._apply_valve_states = MagicMock(side_effect=lambda _valves: events.append("close_valves"))
@@ -1048,11 +1061,11 @@ def test_preseal_pressure_build_timeout_uses_5s_not_1p5s(monkeypatch) -> None:
 
     close_index = events.index("close_valves")
     slept_s = sum(float(event.split(":", 1)[1]) for event in events[:close_index] if event.startswith("sleep:"))
-    assert slept_s == pytest.approx(5.0, abs=0.2)
+    assert slept_s == pytest.approx(1.5, abs=0.2)
     fields = _last_stage_fields(runner, "route_valves_closed_after_vent0")
     assert fields["preseal_route_close_trigger_source"] == "max_wait"
     assert fields["route_close_deadline_enforced"] is True
-    assert fields["preseal_pressure_build_max_wait_s"] == pytest.approx(5.0)
+    assert fields["preseal_pressure_build_max_wait_s"] == pytest.approx(1.5)
     assert fields["route_close_timeout_without_pressure_trigger"] is True
 
 
@@ -1076,6 +1089,22 @@ def test_route_close_not_delayed_by_preseal_exit_evidence(monkeypatch) -> None:
     ) is True
 
     assert events.index("close_valves") < events.index("slow_evidence")
+
+
+def test_full_status_evidence_runs_only_after_route_close(monkeypatch) -> None:
+    runner, _, _, _ = _runner(gauge=FakeGauge([1112.0, 1112.0]))
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(
+        _co2_point(),
+        route="co2",
+        sealed_control_refs=[_co2_point()],
+    ) is True
+
+    stages = _trace_stages(runner)
+    assert "pace_status_evidence:after_vent0" not in stages
+    assert stages.index("route_valves_closed_after_vent0") < stages.index("pace_status_evidence:after_route_close")
 
 
 def test_route_close_deadline_miss_is_recorded() -> None:
@@ -1122,6 +1151,7 @@ def test_preseal_pressure_hard_limit_emergency_closes_and_blocks_outp1(monkeypat
     assert runner._controlled_exit_final_decision == "FAIL_CLOSED_PRESEAL_PRESSURE_BUILD_HARD_LIMIT"
     fields = _last_stage_fields(runner, "route_valves_closed_after_vent0")
     assert fields["preseal_pressure_build_hard_limit_hit"] is True
+    assert fields["preseal_pressure_build_hard_limit_hpa"] == pytest.approx(1200.0)
 
 
 def test_vent_status_3_after_vent0_does_not_block_route_close(monkeypatch) -> None:
@@ -1334,7 +1364,7 @@ def test_operator_window_console_yes_allows_pressure_build_timeout_close(monkeyp
     assert runner._controlled_exit_final_decision == "ENGINEERING_EXIT_ATMOSPHERE_PASS"
     close_index = events.index("close_valves")
     slept_s = sum(float(event.split(":", 1)[1]) for event in events[:close_index] if event.startswith("sleep:"))
-    assert slept_s == pytest.approx(5.0, abs=0.2)
+    assert slept_s == pytest.approx(1.5, abs=0.2)
     assert all(event.startswith("sleep:") for event in events[:close_index])
 
 
@@ -1492,7 +1522,7 @@ def test_vent0_pressure_build_timeout_then_close_valves(monkeypatch) -> None:
 
     assert ("vent", False) in pace.calls
     assert ("exit_atmosphere_mode", 3.0, 0.2) not in pace.calls
-    assert sum(event[1] for event in events if event[0] == "sleep") == pytest.approx(5.0, abs=0.2)
+    assert sum(event[1] for event in events if event[0] == "sleep") == pytest.approx(1.5, abs=0.2)
     assert events.index(("close_valves", [])) > next(i for i, event in enumerate(events) if event[0] == "sleep")
     assert events.index(("close_valves", [])) < events.index(("guard", None))
 
@@ -1560,7 +1590,7 @@ def test_verified_exit_then_pressure_build_timeout_close_valves(monkeypatch) -> 
     assert stages.index("operator_window_check_result") < stages.index("route_sealed")
     close_index = events.index("close_valves")
     slept_s = sum(float(event.split(":", 1)[1]) for event in events[:close_index] if event.startswith("sleep:"))
-    assert slept_s == pytest.approx(5.0, abs=0.2)
+    assert slept_s == pytest.approx(1.5, abs=0.2)
     assert all(event.startswith("sleep:") for event in events[:close_index])
 
 
