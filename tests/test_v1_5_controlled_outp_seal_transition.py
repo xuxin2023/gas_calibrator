@@ -3947,6 +3947,208 @@ def test_clean_positive_supply_flag_allows_ascending_points_only_when_true() -> 
     assert ("setpoint", 1100.0) in pace.calls
 
 
+def test_positive_supply_guard_rejects_stale_open_flow_pressure() -> None:
+    runner, pace, gauge, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    route_close_ts = time.time()
+    pace.read_pressure = MagicMock(return_value=None)
+    pace.get_in_limits = MagicMock(return_value=None)
+    gauge.read_pressure = MagicMock(return_value=None)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=route_close_ts)
+
+    ok, fields = runner._post_route_close_minimal_control_ready(
+        point,
+        phase="co2",
+        route_close_ts=route_close_ts,
+        route_close_pressure_hpa=1008.0,
+    )
+
+    assert ok is False
+    assert fields["minimal_ready_gate_blocked_by"] == "FAIL_CLOSED_STALE_PRESEAL_PRESSURE_EVIDENCE"
+    assert fields["positive_supply_required_used_stale_pressure"] is False
+    assert fields["positive_supply_guard_blocked_due_to_stale_pressure_evidence"] is True
+    assert fields["stale_pressure_value_hpa"] == pytest.approx(1008.0)
+    assert "sealed_positive_supply_precheck_fast_control_failed" not in _trace_stages(runner)
+
+
+def test_positive_supply_guard_waits_for_fresh_post_close_pressure() -> None:
+    runner, pace, gauge, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    route_close_ts = time.time()
+    pace.read_pressure = MagicMock(return_value=1122.0)
+    gauge.read_pressure = MagicMock(return_value=1121.5)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=route_close_ts)
+
+    ok, fields = runner._post_route_close_minimal_control_ready(
+        point,
+        phase="co2",
+        route_close_ts=route_close_ts,
+        route_close_pressure_hpa=1093.0,
+    )
+
+    assert ok is True
+    pace.read_pressure.assert_called_once()
+    gauge.read_pressure.assert_called_once()
+    assert fields["positive_supply_guard_waited_for_fresh_post_close_pressure"] is True
+    assert fields["post_route_close_pressure_fresh"] is True
+    assert fields["positive_supply_direction_pressure_hpa"] == pytest.approx(1122.0)
+    assert fields["positive_supply_direction_pressure_source"] == "pace"
+
+
+def test_fresh_post_close_pressure_above_target_allows_exhaust_only() -> None:
+    runner, pace, gauge, _ = _runner(
+        pressure_overrides={"post_route_absolute_pressure_hard_limit_hpa": 1300.0}
+    )
+    point = _co2_point(pressure=1100.0)
+    route_close_ts = time.time()
+    pace.read_pressure = MagicMock(return_value=1300.0)
+    gauge.read_pressure = MagicMock(return_value=1298.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=route_close_ts)
+
+    ready_ok, ready_fields = runner._post_route_close_minimal_control_ready(
+        point,
+        phase="co2",
+        route_close_ts=route_close_ts,
+        route_close_pressure_hpa=1008.0,
+    )
+    assert ready_ok is True
+
+    assert runner._start_fast_control_after_route_close(
+        point,
+        phase="co2",
+        pressure_target_hpa=1100.0,
+        ready_fields=ready_fields,
+    ) is True
+
+    fields = _last_stage_fields(runner, "sealed_positive_supply_precheck_fast_control")
+    assert fields["current_pressure_before_point_hpa"] == pytest.approx(1300.0)
+    assert fields["pressure_control_direction_expected"] == "exhaust_only"
+    assert fields["positive_supply_required"] is False
+    assert fields["positive_supply_required_misclassified_due_to_stale_pressure"] is True
+    assert ("enable_control_output",) in pace.calls
+
+
+def test_missing_post_close_pressure_reports_stale_evidence_not_positive_supply() -> None:
+    runner, pace, gauge, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    route_close_ts = time.time()
+    pace.read_pressure = MagicMock(return_value=None)
+    pace.get_in_limits = MagicMock(return_value=None)
+    gauge.read_pressure = MagicMock(return_value=None)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=route_close_ts)
+
+    ok, fields = runner._post_route_close_minimal_control_ready(
+        point,
+        phase="co2",
+        route_close_ts=route_close_ts,
+        route_close_pressure_hpa=None,
+    )
+
+    assert ok is False
+    assert fields["minimal_ready_gate_blocked_by"] == "FAIL_CLOSED_MISSING_POST_CLOSE_PRESSURE_EVIDENCE"
+    assert fields["missing_fresh_post_close_pressure_evidence"] is True
+    assert fields["positive_supply_check_ran_before_post_close_pressure_evidence"] is True
+    assert "positive_supply_required_but_clean_supply_not_confirmed" not in fields["minimal_ready_gate_blocked_by"]
+
+
+def test_fresh_post_close_pressure_below_target_blocks_positive_supply() -> None:
+    runner, pace, gauge, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    route_close_ts = time.time()
+    pace.read_pressure = MagicMock(return_value=1008.0)
+    gauge.read_pressure = MagicMock(return_value=1007.5)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=route_close_ts)
+
+    ready_ok, ready_fields = runner._post_route_close_minimal_control_ready(
+        point,
+        phase="co2",
+        route_close_ts=route_close_ts,
+        route_close_pressure_hpa=1008.0,
+    )
+    assert ready_ok is True
+
+    assert runner._start_fast_control_after_route_close(
+        point,
+        phase="co2",
+        pressure_target_hpa=1100.0,
+        ready_fields=ready_fields,
+    ) is False
+
+    fields = _last_stage_fields(runner, "sealed_positive_supply_precheck_fast_control_failed")
+    assert fields["current_pressure_before_point_hpa"] == pytest.approx(1008.0)
+    assert fields["positive_supply_required"] is True
+    assert fields["positive_supply_forbidden"] is True
+    assert fields["post_route_close_pressure_fresh"] is True
+    assert runner._controlled_exit_final_decision == (
+        "FAIL_CLOSED_POSITIVE_SUPPLY_REQUIRED_BUT_CLEAN_SUPPLY_NOT_CONFIRMED"
+    )
+
+
+def test_setpoint_prearm_uses_fresh_pressure_evidence() -> None:
+    runner, pace, gauge, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    route_close_ts = time.time()
+    pace.read_pressure = MagicMock(return_value=1125.0)
+    gauge.read_pressure = MagicMock(return_value=1124.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=route_close_ts)
+
+    ready_ok, ready_fields = runner._post_route_close_minimal_control_ready(
+        point,
+        phase="co2",
+        route_close_ts=route_close_ts,
+        route_close_pressure_hpa=1008.0,
+    )
+    assert ready_ok is True
+
+    assert runner._start_fast_control_after_route_close(
+        point,
+        phase="co2",
+        pressure_target_hpa=1100.0,
+        ready_fields=ready_fields,
+    ) is True
+
+    fields = _last_stage_fields(runner, "sealed_control_setpoint_command_sent")
+    assert fields["positive_supply_direction_pressure_hpa"] == pytest.approx(1125.0)
+    assert fields["positive_supply_direction_pressure_source"] == "pace"
+    assert fields["current_pressure_before_point_hpa"] == pytest.approx(1125.0)
+    assert ("setpoint", 1100.0) in pace.calls
+
+
+def test_post_close_pressure_hard_limit_still_blocks() -> None:
+    runner, pace, gauge, _ = _runner(
+        pressure_overrides={"post_route_absolute_pressure_hard_limit_hpa": 1200.0}
+    )
+    point = _co2_point(pressure=1100.0)
+    route_close_ts = time.time()
+    pace.read_pressure = MagicMock(return_value=1201.0)
+    gauge.read_pressure = MagicMock(return_value=1200.5)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=route_close_ts)
+
+    ok, fields = runner._post_route_close_minimal_control_ready(
+        point,
+        phase="co2",
+        route_close_ts=route_close_ts,
+        route_close_pressure_hpa=1008.0,
+    )
+
+    assert ok is False
+    assert fields["minimal_ready_gate_blocked_by"] == "FAIL_CLOSED_POST_ROUTE_ABSOLUTE_PRESSURE_HARD_LIMIT"
+    assert fields["post_route_absolute_pressure_hard_limit_hit"] is True
+    assert ("enable_control_output",) not in pace.calls
+
+
+def test_no_open_flow_critical_query_regression() -> None:
+    runner, pace, _, _ = _runner()
+    pace.read_pressure = MagicMock(side_effect=AssertionError("open-flow pressure query must be deferred"))
+    runner._record_open_flow_pressure_query_deferred_for_keepalive = MagicMock(return_value=True)
+    runner._cached_open_flow_pace_pressure_for_keepalive = MagicMock(return_value=1012.0)
+
+    readings = runner._read_controlled_outp_preseal_pressures()
+
+    assert readings["pace_pressure_hpa"] == pytest.approx(1012.0)
+    pace.read_pressure.assert_not_called()
+
+
 def test_positive_supply_effort_blocks_sampling() -> None:
     runner, pace, _, _ = _runner(
         pressure_overrides={"positive_supply_effort_max_duration_s": 0.0}
@@ -4078,6 +4280,7 @@ def test_pressure_high_below_hard_limit_does_not_block_fast_control() -> None:
         }
     )
     point = _co2_point(pressure=900.0)
+    pace.read_pressure = MagicMock(return_value=1201.0)
     runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
 
     ready, fields = runner._post_route_close_minimal_control_ready(
@@ -4106,6 +4309,7 @@ def test_post_route_pressure_hard_limit_blocks_outp1() -> None:
         pressure_overrides={"post_route_absolute_pressure_hard_limit_hpa": 1200.0}
     )
     point = _co2_point(pressure=900.0)
+    pace.read_pressure = MagicMock(return_value=1201.0)
     runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
 
     ready, fields = runner._post_route_close_minimal_control_ready(

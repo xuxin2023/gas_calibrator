@@ -245,6 +245,27 @@ _PRESSURE_TRACE_FIELDS = [
     "route_close_pressure_source",
     "route_close_timeout_without_pressure_trigger",
     "preseal_pressure_build_hard_limit_hit",
+    "post_route_close_pressure_probe_begin_ts",
+    "post_route_close_pressure_probe_end_ts",
+    "post_route_close_pressure_probe_elapsed_s",
+    "post_route_close_pace_pressure_hpa",
+    "post_route_close_com22_pressure_hpa",
+    "post_route_close_pressure_delta_hpa",
+    "post_route_close_pressure_fresh",
+    "positive_supply_direction_pressure_hpa",
+    "positive_supply_direction_pressure_source",
+    "positive_supply_direction_pressure_age_ms",
+    "positive_supply_direction_pressure_relative_to_route_close_s",
+    "positive_supply_guard_waited_for_fresh_post_close_pressure",
+    "positive_supply_guard_blocked_due_to_stale_pressure_evidence",
+    "positive_supply_required_used_stale_pressure",
+    "positive_supply_required_misclassified_due_to_stale_pressure",
+    "positive_supply_check_ran_before_post_close_pressure_evidence",
+    "missing_fresh_post_close_pressure_evidence",
+    "stale_pressure_value_hpa",
+    "fresh_post_close_pressure_value_hpa",
+    "fresh_post_close_pressure_source",
+    "fresh_post_close_pressure_delay_s",
     "route_close_ts",
     "setpoint_first_tx_ts",
     "outp1_first_tx_ts",
@@ -10407,6 +10428,12 @@ class CalibrationRunner:
     def _minimal_ready_realtime_vent_query_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.minimal_ready_realtime_vent_query_enabled", False))
 
+    def _post_route_close_pressure_freshness_ms(self) -> float:
+        return max(
+            0.0,
+            float(self._wf("workflow.pressure.post_route_close_pressure_freshness_ms", 1500.0) or 0.0),
+        )
+
     def _sealed_control_prearm_config_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.sealed_control_prearm_config_enabled", True))
 
@@ -10866,6 +10893,7 @@ class CalibrationRunner:
         phase: str,
         pressure_target_hpa: Optional[float],
         current_pressure_hpa: Any = None,
+        pressure_evidence_fields: Optional[Mapping[str, Any]] = None,
         trace_stage: str = "sealed_positive_supply_precheck",
     ) -> Tuple[bool, Dict[str, Any]]:
         if phase != "co2" or not self._co2_sealed_no_vent_guard_active:
@@ -10882,6 +10910,7 @@ class CalibrationRunner:
             current_pressure_hpa=current,
             target_pressure_hpa=target,
         )
+        fields.update(dict(pressure_evidence_fields or {}))
         fields["positive_supply_precheck_fast_path"] = fast_path
         fields["positive_supply_precheck_elapsed_s"] = max(0.0, time.time() - guard_begin_s)
         if isinstance(self._sealed_sweep_context_for_counters(), dict):
@@ -11967,7 +11996,11 @@ class CalibrationRunner:
         if target is None:
             return False
 
-        route_pressure = self._as_float((ready_fields or {}).get("route_close_pressure_at_close_hpa"))
+        route_pressure = self._as_float((ready_fields or {}).get("positive_supply_direction_pressure_hpa"))
+        if route_pressure is None:
+            route_pressure = self._as_float((ready_fields or {}).get("fresh_post_close_pressure_value_hpa"))
+        if route_pressure is None:
+            route_pressure = self._as_float((ready_fields or {}).get("route_close_pressure_at_close_hpa"))
         pressure_hard_limit_hit = self._as_bool(
             (ready_fields or {}).get("post_route_pressure_hard_limit_hit"),
             False,
@@ -11999,6 +12032,7 @@ class CalibrationRunner:
             phase=phase,
             pressure_target_hpa=target,
             current_pressure_hpa=route_pressure,
+            pressure_evidence_fields=ready_fields,
             trace_stage="sealed_positive_supply_precheck_fast_control",
         )
         if not positive_ok:
@@ -13001,6 +13035,104 @@ class CalibrationRunner:
             return self._as_float(reader())
         except Exception:
             return None
+
+    def _read_post_route_close_pressure_evidence(
+        self,
+        *,
+        route_close_ts: Optional[float],
+        target_pressure_hpa: Any = None,
+        stale_pressure_hpa: Any = None,
+    ) -> Tuple[Optional[float], Dict[str, Any]]:
+        begin_s = time.time()
+        freshness_ms = self._post_route_close_pressure_freshness_ms()
+        route_close_s = self._as_float(route_close_ts)
+        stale_pressure = self._as_float(stale_pressure_hpa)
+        target = self._as_float(target_pressure_hpa)
+        pace_pressure: Optional[float] = None
+        pace_sample_s: Optional[float] = None
+        com22_pressure: Optional[float] = None
+        com22_sample_s: Optional[float] = None
+        pace = self.devices.get("pace")
+        if pace is not None:
+            pace_pressure = self._read_pace_pressure_now(pace)
+            if pace_pressure is None:
+                get_in_limits = getattr(pace, "get_in_limits", None)
+                if callable(get_in_limits):
+                    try:
+                        reading = get_in_limits()
+                        if isinstance(reading, (tuple, list)) and reading:
+                            pace_pressure = self._as_float(reading[0])
+                        else:
+                            pace_pressure = self._as_float(reading)
+                    except Exception:
+                        pace_pressure = None
+            if pace_pressure is not None:
+                pace_sample_s = time.time()
+        com22_pressure = self._read_com22_pressure_now()
+        if com22_pressure is not None:
+            com22_sample_s = time.time()
+        chosen_pressure: Optional[float] = None
+        chosen_source = ""
+        chosen_sample_s: Optional[float] = None
+        if pace_pressure is not None:
+            chosen_pressure = float(pace_pressure)
+            chosen_source = "pace"
+            chosen_sample_s = pace_sample_s
+        elif com22_pressure is not None:
+            chosen_pressure = float(com22_pressure)
+            chosen_source = "com22"
+            chosen_sample_s = com22_sample_s
+        relative_s = (
+            max(0.0, float(chosen_sample_s) - float(route_close_s))
+            if chosen_sample_s is not None and route_close_s is not None
+            else None
+        )
+        age_ms = 0.0 if chosen_sample_s is not None else None
+        fresh = bool(
+            chosen_pressure is not None
+            and chosen_sample_s is not None
+            and (route_close_s is None or chosen_sample_s >= route_close_s)
+            and (freshness_ms <= 0.0 or float(age_ms or 0.0) <= freshness_ms)
+        )
+        stale_would_require_supply = bool(
+            stale_pressure is not None and target is not None and target >= stale_pressure
+        )
+        fresh_allows_exhaust = bool(
+            fresh and chosen_pressure is not None and target is not None and chosen_pressure > target
+        )
+        end_s = time.time()
+        fields: Dict[str, Any] = {
+            "post_route_close_pressure_probe_begin_ts": self._iso_ts_from_wall(begin_s),
+            "post_route_close_pressure_probe_end_ts": self._iso_ts_from_wall(end_s),
+            "post_route_close_pressure_probe_elapsed_s": max(0.0, end_s - begin_s),
+            "post_route_close_pace_pressure_hpa": pace_pressure if pace_pressure is not None else "",
+            "post_route_close_com22_pressure_hpa": com22_pressure if com22_pressure is not None else "",
+            "post_route_close_pressure_delta_hpa": (
+                abs(float(pace_pressure) - float(com22_pressure))
+                if pace_pressure is not None and com22_pressure is not None
+                else ""
+            ),
+            "post_route_close_pressure_fresh": fresh,
+            "positive_supply_direction_pressure_hpa": chosen_pressure if fresh else "",
+            "positive_supply_direction_pressure_source": chosen_source if fresh else "",
+            "positive_supply_direction_pressure_age_ms": age_ms if fresh else "",
+            "positive_supply_direction_pressure_relative_to_route_close_s": (
+                relative_s if fresh and relative_s is not None else ""
+            ),
+            "positive_supply_guard_waited_for_fresh_post_close_pressure": True,
+            "positive_supply_guard_blocked_due_to_stale_pressure_evidence": not fresh,
+            "positive_supply_required_used_stale_pressure": False,
+            "positive_supply_required_misclassified_due_to_stale_pressure": (
+                stale_would_require_supply and fresh_allows_exhaust
+            ),
+            "positive_supply_check_ran_before_post_close_pressure_evidence": not fresh,
+            "missing_fresh_post_close_pressure_evidence": not fresh,
+            "stale_pressure_value_hpa": stale_pressure if stale_pressure is not None else "",
+            "fresh_post_close_pressure_value_hpa": chosen_pressure if fresh else "",
+            "fresh_post_close_pressure_source": chosen_source if fresh else "",
+            "fresh_post_close_pressure_delay_s": relative_s if fresh and relative_s is not None else "",
+        }
+        return (chosen_pressure if fresh else None), fields
 
     def _read_preseal_pressure_build_observation(self) -> Dict[str, Any]:
         cached_values = self._cached_ready_check_trace_values()
@@ -14194,7 +14326,11 @@ class CalibrationRunner:
         sealed_vent1_count = int(context.get("sealed_vent1_count") or 0) if isinstance(context, dict) else 0
         sealed_vent0_count = int(context.get("sealed_vent0_count") or 0) if isinstance(context, dict) else 0
         clear_fields: Dict[str, Any] = {}
-        route_pressure = self._as_float(route_close_pressure_hpa)
+        route_pressure, post_route_pressure_fields = self._read_post_route_close_pressure_evidence(
+            route_close_ts=route_close_ts,
+            target_pressure_hpa=getattr(point, "target_pressure_hpa", None),
+            stale_pressure_hpa=route_close_pressure_hpa,
+        )
         post_route_pressure_warning_hpa = self._post_route_pressure_warning_hpa()
         post_route_absolute_pressure_hard_limit_hpa = self._post_route_pressure_hard_limit_hpa()
         post_route_pressure_warning_hit = bool(
@@ -14227,6 +14363,12 @@ class CalibrationRunner:
             block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_OUTPUT_ALREADY_ON_BEFORE_CONTROL"
         elif isolation_state != 1:
             block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_ISOLATED_BEFORE_CONTROL"
+        elif not self._as_bool(post_route_pressure_fields.get("post_route_close_pressure_fresh"), False):
+            block_reason = (
+                "FAIL_CLOSED_STALE_PRESEAL_PRESSURE_EVIDENCE"
+                if self._as_float(route_close_pressure_hpa) is not None
+                else "FAIL_CLOSED_MISSING_POST_CLOSE_PRESSURE_EVIDENCE"
+            )
         elif pressure_hard_limit_hit:
             block_reason = "FAIL_CLOSED_PRESEAL_PRESSURE_BUILD_HARD_LIMIT"
         elif post_route_pressure_hard_limit_hit:
@@ -14275,6 +14417,7 @@ class CalibrationRunner:
                 "ready" if not block_reason else f"blocked:{block_reason}"
             ),
             "route_close_pressure_at_close_hpa": route_close_pressure_hpa,
+            **post_route_pressure_fields,
             "preseal_pressure_build_hard_limit_hit": bool(pressure_hard_limit_hit),
             "post_route_pressure_peak_before_outp1_hpa": route_pressure if route_pressure is not None else "",
             "post_route_pressure_warning_hpa": post_route_pressure_warning_hpa,
