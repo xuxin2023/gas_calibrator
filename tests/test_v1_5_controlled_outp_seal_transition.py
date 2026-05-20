@@ -3326,6 +3326,123 @@ def test_exhaust_only_above_target_sampling_allowed_no_write() -> None:
     assert ("vent", True) not in pace.calls
 
 
+def test_1100_above_target_candidate_triggers_immediate_sampling() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    pace.in_limits = [(1100.009, 0)]
+    pace.efforts = [0.002, 1.85]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    assert runner._preseal_pressure_control_ready_state is not None
+    runner._preseal_pressure_control_ready_state["route_close_pressure_at_close_hpa"] = 1323.0
+
+    assert runner._set_pressure_to_target(point) is True
+
+    fields = _last_stage_fields(runner, "pressure_in_limits")
+    assert fields["exhaust_only_candidate_window_entered"] is True
+    assert fields["exhaust_only_candidate_sampling_allowed"] is True
+    assert fields["pressure_stable_evidence"] == "exhaust_only_above_target_window"
+    assert fields["actual_pressure_used_for_sample"] == pytest.approx(1100.009)
+    assert fields["nominal_target_hpa"] == pytest.approx(1100.0)
+
+
+def test_1100_candidate_does_not_wait_for_later_effort_fail() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    pace.in_limits = [(1100.009, 0)]
+    pace.efforts = [0.002, 1.85]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    assert runner._preseal_pressure_control_ready_state is not None
+    runner._preseal_pressure_control_ready_state["route_close_pressure_at_close_hpa"] = 1323.0
+
+    assert runner._set_pressure_to_target(point) is True
+
+    assert pace.efforts == [0.002, 1.85]
+    assert "sealed_positive_supply_effort_guard_failed" not in _trace_stages(runner)
+
+
+def test_candidate_to_first_sample_within_deadline_for_first_sealed_point() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 1100.0
+    pace.efforts = [1.85]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+    runner._mark_sealed_pressure_ready(result="above_target_window")
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context.update(
+        {
+            "exhaust_only_candidate_sampling_allowed": True,
+            "sampled_from_above_target_window": True,
+            "actual_pressure_used_for_sample": 1100.009,
+            "nominal_target_hpa": 1100.0,
+            "dewpoint_abnormal_at_candidate": False,
+        }
+    )
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="first-1100") is True
+
+    assert pace.efforts == [1.85]
+    fields = _last_stage_fields(runner, "sealed_sampling_ready")
+    assert fields["above_target_candidate_effort_guard_source"] == "cached_before_sampling"
+    assert fields["sample_blocked_by_positive_supply_effort"] is False
+
+
+def test_positive_effort_before_sampling_still_fails() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 1100.0
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+    runner._mark_sealed_pressure_ready(result="above_target_window")
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context.update(
+        {
+            "exhaust_only_candidate_sampling_allowed": True,
+            "sampled_from_above_target_window": True,
+            "actual_pressure_used_for_sample": 1100.009,
+            "nominal_target_hpa": 1100.0,
+            "dewpoint_abnormal_at_candidate": False,
+            "effort_before_sampling": 1.85,
+        }
+    )
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="pre-effort") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["sampling_blocked_reason"] == "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
+    assert fields["sample_blocked_by_positive_supply_effort"] is True
+
+
 def test_above_target_sampling_allowed_in_limited_no_write() -> None:
     test_exhaust_only_above_target_sampling_allowed_no_write()
 
@@ -3380,6 +3497,7 @@ def test_actual_pressure_recorded_for_above_target_sample() -> None:
 
     assert samples is not None
     assert samples[0]["actual_pressure_used_for_sample"] == pytest.approx(1000.8)
+    assert samples[0]["actual_pressure_source_for_sample"] == "candidate"
     assert samples[0]["nominal_target_hpa"] == pytest.approx(1000.0)
     assert samples[0]["pressure_above_target_sample_offset_hpa"] == pytest.approx(0.8)
     assert samples[0]["sampled_from_above_target_window"] is True
@@ -3387,6 +3505,50 @@ def test_actual_pressure_recorded_for_above_target_sample() -> None:
 
 def test_above_target_sample_records_actual_pressure() -> None:
     test_actual_pressure_recorded_for_above_target_sample()
+
+
+def test_candidate_pressure_and_snapshot_pressure_distinct_for_1100() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    pace.efforts = [-0.5]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context.update(
+        {
+            "exhaust_only_candidate_pressure_hpa": 1100.009,
+            "actual_pressure_used_for_sample": 1100.009,
+            "nominal_target_hpa": 1100.0,
+            "sampled_from_above_target_window": True,
+            "exhaust_only_candidate_sampling_allowed": True,
+        }
+    )
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+    runner._sampling_window_worker_plan = MagicMock(return_value={})
+    runner._prime_sampling_window_context = MagicMock()
+    runner._merge_fast_signal_cache_into_sample = MagicMock(
+        side_effect=lambda data, *_args, **_kwargs: data.update(
+            {
+                "pressure_hpa": 1100.25,
+                "pace_sample_ts": data["sample_start_ts"],
+            }
+        )
+    )
+    runner._sampling_row_pace_state_snapshot = MagicMock(
+        return_value={"pace_output_state": 1, "pace_isolation_state": 1, "pace_vent_status": 2}
+    )
+    runner._merge_analyzer_cache_into_sample = MagicMock(return_value={})
+    runner._merge_slow_aux_cache_into_sample = MagicMock()
+
+    samples = runner._collect_samples(point, 1, 0.0, phase="co2")
+
+    assert samples is not None
+    assert samples[0]["candidate_pressure_hpa"] == pytest.approx(1100.009)
+    assert samples[0]["candidate_pressure_offset_hpa"] == pytest.approx(0.009)
+    assert samples[0]["sample_snapshot_pressure_hpa"] == pytest.approx(1100.25)
+    assert samples[0]["sample_snapshot_pressure_offset_hpa"] == pytest.approx(0.25)
+    assert samples[0]["actual_pressure_used_for_sample"] == pytest.approx(1100.009)
+    assert samples[0]["actual_pressure_source_for_sample"] == "candidate"
 
 
 def test_above_target_candidate_safe_at_detection_samples_immediately_no_write() -> None:

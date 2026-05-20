@@ -11528,6 +11528,72 @@ class CalibrationRunner:
         )
         return not bool(reason), fields, reason
 
+    def _sealed_positive_supply_effort_cached_guard_fields(
+        self,
+        *,
+        stage: str,
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        context = self._sealed_sweep_context_for_counters()
+        if not isinstance(context, dict):
+            return True, {}, ""
+        fail_threshold = self._positive_supply_effort_fail_pct()
+        cached_effort_pct: Optional[float] = None
+        for key in (
+            "effort_before_sampling",
+            "effort_after_outp1",
+            "effort_before_outp1",
+            "effort_during_sampling_max",
+        ):
+            value = self._as_float(context.get(key))
+            if value is None:
+                continue
+            cached_effort_pct = value if cached_effort_pct is None else max(cached_effort_pct, value)
+        fail_closed = bool(
+            context.get("positive_supply_effort_detected") is True
+            or context.get("positive_supply_effort_strict_fail") is True
+            or context.get("positive_effort_fail_closed") is True
+            or (cached_effort_pct is not None and cached_effort_pct >= fail_threshold)
+        )
+        fields: Dict[str, Any] = {
+            "effort_query_supported": context.get("effort_query_supported", ""),
+            "effort_before_outp1": context.get("effort_before_outp1", ""),
+            "effort_after_outp1": context.get("effort_after_outp1", ""),
+            "effort_before_sampling": context.get("effort_before_sampling", ""),
+            "effort_during_sampling_min": context.get("effort_during_sampling_min", ""),
+            "effort_during_sampling_max": context.get("effort_during_sampling_max", ""),
+            "effort_positive_duration_s": context.get("effort_positive_duration_s", 0.0),
+            "positive_supply_effort_threshold_pct": self._positive_supply_effort_threshold_pct(),
+            "positive_supply_effort_warning_pct": self._positive_supply_effort_warning_pct(),
+            "positive_supply_effort_fail_pct": fail_threshold,
+            "positive_supply_effort_cached_pct": (
+                cached_effort_pct if cached_effort_pct is not None else ""
+            ),
+            "positive_supply_effort_strict_fail": bool(
+                context.get("positive_supply_effort_strict_fail") is True
+            ),
+            "positive_supply_effort_detected": bool(
+                context.get("positive_supply_effort_detected") is True
+            ),
+            "positive_effort_any_seen": bool(context.get("positive_effort_any_seen") is True),
+            "positive_effort_strict_threshold_pct": fail_threshold,
+            "positive_effort_fail_closed": fail_closed,
+            "sample_blocked_by_positive_supply_effort": fail_closed,
+            "sampling_invalidated_by_positive_supply_effort": False,
+            "effort_unavailable_control_risk": bool(
+                context.get("effort_unavailable_control_risk") is True
+            ),
+            "prevent_positive_supply_during_sampling": self._prevent_positive_supply_during_sampling(),
+            "clean_positive_supply_confirmed": self._clean_positive_supply_confirmed(),
+            "above_target_candidate_effort_guard_source": "cached_before_sampling",
+        }
+        if stage == "before_sampling" and fields.get("effort_before_sampling", "") == "":
+            fields["pressure_in_limit_before_sampling"] = bool(self._sealed_pressure_ready_ts is not None)
+            fields["dewpoint_stable_before_sampling"] = not self._sealed_dewpoint_rise_exceeded()
+        reason = "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING" if fail_closed else ""
+        if reason:
+            fields["sampling_blocked_reason"] = reason
+        return not fail_closed, fields, reason
+
     def _exhaust_only_tracking_context(self, *, target: float) -> Dict[str, Any]:
         context = self._sealed_sweep_context_for_counters()
         if not isinstance(context, dict):
@@ -12557,12 +12623,19 @@ class CalibrationRunner:
             invalidation_fields = self._mark_above_target_sample_invalidated(
                 reason="dewpoint_abnormal_rise",
             )
-        effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
-            point,
-            stage="before_sampling",
-            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
-            fail_on_unsupported=True,
-        )
+        if above_target_candidate_safe:
+            effort_ok, effort_fields, effort_reason = (
+                self._sealed_positive_supply_effort_cached_guard_fields(
+                    stage="before_sampling"
+                )
+            )
+        else:
+            effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
+                point,
+                stage="before_sampling",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+                fail_on_unsupported=True,
+            )
         vent2_watchlist = bool(vent_status == 2)
         blocked_by_vent = bool(vent_status in {1, 3} or sealed_vent1_count > 0 or sealed_vent0_count > 0)
         blocked_by_pressure = not pressure_ready
@@ -15368,12 +15441,19 @@ class CalibrationRunner:
                 if phase == "co2" and self._co2_sealed_no_vent_guard_active:
                     snapshot = self._pressure_controller_ready_snapshot(pace)
                     vent_status = self._as_int(snapshot.get("pace_vent_status"))
-                    effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
-                        point,
-                        stage="after_outp1",
-                        pressure_target_hpa=target,
-                        fail_on_unsupported=False,
-                    )
+                    if above_target_candidate_ready:
+                        effort_ok, effort_fields, effort_reason = (
+                            self._sealed_positive_supply_effort_cached_guard_fields(
+                                stage="before_sampling"
+                            )
+                        )
+                    else:
+                        effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
+                            point,
+                            stage="after_outp1",
+                            pressure_target_hpa=target,
+                            fail_on_unsupported=False,
+                        )
                     if above_target_candidate_ready:
                         candidate_effort_pct = self._as_float(
                             effort_fields.get("effort_after_outp1")
@@ -27483,13 +27563,36 @@ class CalibrationRunner:
                         if sealed_context.get("nominal_target_hpa") not in (None, "")
                         else point.target_pressure_hpa
                     )
+                    candidate_pressure = self._as_float(
+                        sealed_context.get("exhaust_only_candidate_pressure_hpa")
+                    )
+                    snapshot_pressure = self._as_float(data.get("pressure_hpa"))
+                    if snapshot_pressure is None:
+                        snapshot_pressure = self._as_float(data.get("pressure_gauge_hpa"))
+                    actual_pressure_source = "candidate"
                     actual_pressure = self._as_float(sealed_context.get("actual_pressure_used_for_sample"))
                     if actual_pressure is None:
-                        actual_pressure = self._as_float(data.get("pressure_hpa"))
-                    if actual_pressure is None:
-                        actual_pressure = self._as_float(data.get("pressure_gauge_hpa"))
+                        actual_pressure = snapshot_pressure
+                        actual_pressure_source = "snapshot" if snapshot_pressure is not None else ""
+                    data["candidate_pressure_hpa"] = (
+                        candidate_pressure if candidate_pressure is not None else ""
+                    )
+                    data["candidate_pressure_offset_hpa"] = (
+                        max(0.0, float(candidate_pressure) - float(nominal_target))
+                        if candidate_pressure is not None and nominal_target is not None
+                        else ""
+                    )
+                    data["sample_snapshot_pressure_hpa"] = (
+                        snapshot_pressure if snapshot_pressure is not None else ""
+                    )
+                    data["sample_snapshot_pressure_offset_hpa"] = (
+                        max(0.0, float(snapshot_pressure) - float(nominal_target))
+                        if snapshot_pressure is not None and nominal_target is not None
+                        else ""
+                    )
                     data["nominal_target_hpa"] = nominal_target if nominal_target is not None else ""
                     data["actual_pressure_used_for_sample"] = actual_pressure if actual_pressure is not None else ""
+                    data["actual_pressure_source_for_sample"] = actual_pressure_source
                     data["pressure_above_target_sample_offset_hpa"] = (
                         max(0.0, float(actual_pressure) - float(nominal_target))
                         if actual_pressure is not None and nominal_target is not None
