@@ -383,7 +383,7 @@ def test_open_flow_until_preseal_unexpected_write_blocks_preseal_vent0(tmp_path:
     logger.close()
 
     assert runner._controlled_exit_final_decision == (
-        "FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_OPEN_FLOW_TO_PRESEAL"
+        "FAIL_CLOSED_PRESEAL_UNEXPECTED_PACE_COMMAND"
     )
     assert ("vent", False) not in pace.calls
 

@@ -668,6 +668,17 @@ _PRESSURE_TRACE_FIELDS = [
     "pre_vent_exit_flow_drop_reason",
     "setpoint_prearm_before_vent_exit_detected",
     "quiet_gap_started_before_stop_hold_detected",
+    "sealed_group_preseal_begin_ts",
+    "sealed_group_preseal_end_ts",
+    "sealed_group_preseal_result",
+    "sealed_group_preseal_fail_reason",
+    "sealed_group_preseal_failed_before_first_point",
+    "sealed_group_aborted_before_pressure_points",
+    "first_sealed_point_started",
+    "first_sealed_point_target_hpa",
+    "sealed_point_started_after_route_closed",
+    "point_skipped_because_group_preseal_failed",
+    "next_sealed_point_not_attempted_after_preseal_fail",
     "pressure_controller_runtime_audit_decision",
     "final_decision",
     "remaining_selected_pressure_points_skipped",
@@ -1257,6 +1268,9 @@ class CalibrationRunner:
         reason: str,
         point: Optional[CalibrationPoint] = None,
         phase: str = "co2",
+        trace_stage: str = "co2_route_terminal_failure",
+        pressure_target_hpa: Any = None,
+        extra_fields: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self._controlled_exit_final_decision = str(final_decision or "")
         self._co2_route_terminal_failure_decision = str(final_decision or "")
@@ -1273,19 +1287,109 @@ class CalibrationRunner:
                 ensure_ascii=False,
             ),
         )
-        if point is not None:
+        fields = {
+            "final_decision": self._co2_route_terminal_failure_decision,
+            "remaining_selected_pressure_points_skipped": "",
+        }
+        if extra_fields:
+            fields.update(dict(extra_fields))
+        target = pressure_target_hpa
+        if target is None and point is not None:
+            target = getattr(point, "target_pressure_hpa", None)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage=trace_stage,
+            pressure_target_hpa=target,
+            refresh_pace_state=False,
+            extra_fields=fields,
+            note=f"{self._co2_route_terminal_failure_decision}: {self._co2_route_terminal_failure_reason}",
+        )
+
+    def _sealed_group_target_labels(self, sealed_control_refs: List[CalibrationPoint]) -> List[str]:
+        labels: List[str] = []
+        for ref in sealed_control_refs:
+            target = getattr(ref, "target_pressure_hpa", None)
+            labels.append(str(target if target is not None else ""))
+        return labels
+
+    def _sealed_group_first_target(self, sealed_control_refs: List[CalibrationPoint]) -> Any:
+        if not sealed_control_refs:
+            return ""
+        return getattr(sealed_control_refs[0], "target_pressure_hpa", "")
+
+    def _sealed_group_preseal_trace_fields(
+        self,
+        *,
+        begin_ts: str,
+        end_ts: str = "",
+        result: str,
+        fail_reason: str = "",
+        sealed_control_refs: Optional[List[CalibrationPoint]] = None,
+        failed_before_first_point: bool = False,
+        aborted_before_pressure_points: bool = False,
+        first_started: bool = False,
+        started_after_route_closed: bool = False,
+    ) -> Dict[str, Any]:
+        refs = sealed_control_refs or []
+        return {
+            "sealed_group_preseal_begin_ts": begin_ts,
+            "sealed_group_preseal_end_ts": end_ts,
+            "sealed_group_preseal_result": result,
+            "sealed_group_preseal_fail_reason": fail_reason,
+            "sealed_group_preseal_failed_before_first_point": failed_before_first_point,
+            "sealed_group_aborted_before_pressure_points": aborted_before_pressure_points,
+            "first_sealed_point_started": first_started,
+            "first_sealed_point_target_hpa": self._sealed_group_first_target(refs),
+            "sealed_point_started_after_route_closed": started_after_route_closed,
+        }
+
+    def _record_sealed_points_skipped_for_group_preseal_failure(
+        self,
+        lead_point: CalibrationPoint,
+        sealed_control_refs: List[CalibrationPoint],
+        *,
+        final_decision: str,
+        begin_ts: str,
+        end_ts: str,
+        reason: str,
+    ) -> None:
+        skipped_targets: List[str] = []
+        for idx, ref in enumerate(sealed_control_refs):
+            try:
+                sample_point = self._build_co2_pressure_point(lead_point, ref)
+            except Exception:
+                sample_point = ref
+            target = getattr(sample_point, "target_pressure_hpa", None)
+            skipped_targets.append(str(target))
+            fields = self._sealed_group_preseal_trace_fields(
+                begin_ts=begin_ts,
+                end_ts=end_ts,
+                result="fail",
+                fail_reason=reason,
+                sealed_control_refs=sealed_control_refs,
+                failed_before_first_point=True,
+                aborted_before_pressure_points=True,
+            )
+            fields.update(
+                {
+                    "final_decision": final_decision,
+                    "remaining_selected_pressure_points_skipped": ",".join(skipped_targets),
+                    "skipped_reason": "group_preseal_failed",
+                    "point_skipped_because_group_preseal_failed": True,
+                    "next_sealed_point_not_attempted_after_preseal_fail": idx > 0,
+                }
+            )
             self._append_pressure_trace_row(
-                point=point,
-                route=phase,
-                point_phase=phase,
-                trace_stage="co2_route_terminal_failure",
-                pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+                point=sample_point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="sealed_pressure_point_skipped_group_preseal_failed",
+                pressure_target_hpa=target,
                 refresh_pace_state=False,
-                extra_fields={
-                    "final_decision": self._co2_route_terminal_failure_decision,
-                    "remaining_selected_pressure_points_skipped": "",
-                },
-                note=f"{self._co2_route_terminal_failure_decision}: {self._co2_route_terminal_failure_reason}",
+                extra_fields=fields,
+                note="sealed pressure point skipped because sealed group preseal transition failed",
             )
 
     def _record_remaining_pressure_points_skipped_for_dewpoint_failure(
@@ -19087,53 +19191,110 @@ class CalibrationRunner:
             self._cleanup_co2_route(reason="after CO2 source complete")
             return
 
-        seal_start_index: Optional[int] = None
-        for idx, pressure_point in enumerate(sealed_control_refs):
-            if self.stop_event.is_set():
-                _flush_co2_route_seal_deferred_exports(reason="before CO2 pressure-seal interruption cleanup")
-                self._cleanup_co2_route(reason="after CO2 pressure-seal interrupted")
-                return
-            self._check_pause()
-            seal_point = self._build_co2_pressure_point(point, pressure_point)
-            if self._pressurize_route_for_sealed_points(
-                seal_point,
-                route="co2",
-                sealed_control_refs=sealed_control_refs,
-            ):
-                _flush_co2_route_seal_deferred_exports(
-                    reason=f"after CO2 route sealed {seal_point.index}:{self._co2_point_tag(seal_point)}"
-                )
-                seal_start_index = idx
-                break
-            self.log(
-                f"CO2 {seal_point.co2_ppm} ppm @ {seal_point.target_pressure_hpa} hPa skipped: "
-                f"route sealing failed"
-            )
-            if self._controlled_exit_failure_is_route_terminal():
-                _flush_co2_route_seal_deferred_exports(reason=str(self._controlled_exit_final_decision))
-                decision_text = str(self._controlled_exit_final_decision or "")
-                if "DEWPOINT" in decision_text:
-                    self._record_remaining_pressure_points_skipped_for_dewpoint_failure(
-                        point,
-                        sealed_control_refs[idx + 1 :],
-                    )
-                self.log(
-                    "CO2 route aborted after fail-closed route gate: "
-                    f"{self._controlled_exit_final_decision}"
-                )
-                self._cleanup_co2_route(reason=str(self._controlled_exit_final_decision))
-                return
-
-        if seal_start_index is None:
-            _flush_co2_route_seal_deferred_exports(reason="after CO2 pressure-seal failure")
-            self.log(f"CO2 row {point.index} skipped: route sealing failed")
-            self._cleanup_co2_route(reason="after CO2 pressure-seal failure")
+        if self.stop_event.is_set():
+            _flush_co2_route_seal_deferred_exports(reason="before CO2 pressure-seal interruption cleanup")
+            self._cleanup_co2_route(reason="after CO2 pressure-seal interrupted")
             return
+        self._check_pause()
+        first_seal_ref = sealed_control_refs[0]
+        seal_point = self._build_co2_pressure_point(point, first_seal_ref)
+        first_sealed_target = getattr(seal_point, "target_pressure_hpa", None)
+        sealed_group_preseal_begin_ts = datetime.now().isoformat(timespec="milliseconds")
+        self._append_pressure_trace_row(
+            point=None,
+            route="co2",
+            point_phase="co2",
+            trace_stage="sealed_group_preseal_begin",
+            pressure_target_hpa="",
+            refresh_pace_state=False,
+            extra_fields=self._sealed_group_preseal_trace_fields(
+                begin_ts=sealed_group_preseal_begin_ts,
+                result="started",
+                sealed_control_refs=sealed_control_refs,
+                first_started=False,
+                started_after_route_closed=False,
+            ),
+            note=f"sealed group preseal transition before first target {first_sealed_target}",
+        )
+        preseal_ok = self._pressurize_route_for_sealed_points(
+            seal_point,
+            route="co2",
+            sealed_control_refs=sealed_control_refs,
+        )
+        sealed_group_preseal_end_ts = datetime.now().isoformat(timespec="milliseconds")
+        if not preseal_ok:
+            _flush_co2_route_seal_deferred_exports(reason="after CO2 pressure-seal failure")
+            decision_text = str(
+                self._controlled_exit_final_decision
+                or self._co2_route_terminal_failure_decision
+                or "FAIL_CLOSED_SEALED_PRESEAL_TRANSITION"
+            )
+            reason_text = str(self._co2_route_terminal_failure_reason or "sealed group preseal transition failed")
+            self._append_pressure_trace_row(
+                point=None,
+                route="co2",
+                point_phase="co2",
+                trace_stage="sealed_group_preseal_end",
+                pressure_target_hpa="",
+                refresh_pace_state=False,
+                extra_fields={
+                    **self._sealed_group_preseal_trace_fields(
+                        begin_ts=sealed_group_preseal_begin_ts,
+                        end_ts=sealed_group_preseal_end_ts,
+                        result="fail",
+                        fail_reason=reason_text,
+                        sealed_control_refs=sealed_control_refs,
+                        failed_before_first_point=True,
+                        aborted_before_pressure_points=True,
+                        first_started=False,
+                        started_after_route_closed=False,
+                    ),
+                    "final_decision": decision_text,
+                    "remaining_selected_pressure_points_skipped": ",".join(
+                        self._sealed_group_target_labels(sealed_control_refs)
+                    ),
+                },
+                note=f"{decision_text}: sealed group preseal transition failed before first pressure point",
+            )
+            self._record_sealed_points_skipped_for_group_preseal_failure(
+                point,
+                sealed_control_refs,
+                final_decision=decision_text,
+                begin_ts=sealed_group_preseal_begin_ts,
+                end_ts=sealed_group_preseal_end_ts,
+                reason=reason_text,
+            )
+            self.log(
+                "CO2 sealed group preseal transition failed before first pressure point "
+                f"{first_sealed_target}: {decision_text}"
+            )
+            self._cleanup_co2_route(reason=decision_text)
+            return
+        self._append_pressure_trace_row(
+            point=None,
+            route="co2",
+            point_phase="co2",
+            trace_stage="sealed_group_preseal_end",
+            pressure_target_hpa="",
+            refresh_pace_state=False,
+            extra_fields=self._sealed_group_preseal_trace_fields(
+                begin_ts=sealed_group_preseal_begin_ts,
+                end_ts=sealed_group_preseal_end_ts,
+                result="pass",
+                sealed_control_refs=sealed_control_refs,
+                first_started=False,
+                started_after_route_closed=False,
+            ),
+            note="sealed group preseal transition passed; sealed pressure point sequence may start",
+        )
+        _flush_co2_route_seal_deferred_exports(
+            reason=f"after CO2 route sealed {seal_point.index}:{self._co2_point_tag(seal_point)}"
+        )
 
         last_sample_point: Optional[CalibrationPoint] = None
         last_point_tag = ""
         handoff_armed = False
-        active_pressure_refs = sealed_control_refs[seal_start_index:]
+        active_pressure_refs = sealed_control_refs
         for pressure_idx, pressure_point in enumerate(active_pressure_refs):
             if self.stop_event.is_set():
                 break
@@ -19141,6 +19302,25 @@ class CalibrationRunner:
             sample_point = self._build_co2_pressure_point(point, pressure_point)
             point_tag = self._co2_point_tag(sample_point)
             pressure_label = self._pressure_target_label(sample_point) or "--"
+            if pressure_idx == 0:
+                self._append_pressure_trace_row(
+                    point=sample_point,
+                    route="co2",
+                    point_phase="co2",
+                    point_tag=point_tag,
+                    trace_stage="sealed_pressure_point_started",
+                    pressure_target_hpa=getattr(sample_point, "target_pressure_hpa", None),
+                    refresh_pace_state=False,
+                    extra_fields=self._sealed_group_preseal_trace_fields(
+                        begin_ts=sealed_group_preseal_begin_ts,
+                        end_ts=sealed_group_preseal_end_ts,
+                        result="pass",
+                        sealed_control_refs=sealed_control_refs,
+                        first_started=True,
+                        started_after_route_closed=True,
+                    ),
+                    note="first sealed pressure point started after route closed",
+                )
             self.set_status(f"CO2 {int(round(float(sample_point.co2_ppm or 0)))}ppm {pressure_label}")
             self._emit_stage_event(
                 current=self._stage_label_for_point(sample_point, phase="co2"),
@@ -20717,21 +20897,45 @@ class CalibrationRunner:
         )
         if unexpected_count > 0:
             self._mark_co2_route_terminal_failure(
-                final_decision="FAIL_CLOSED_UNEXPECTED_PACE_COMMAND_DURING_OPEN_FLOW_TO_PRESEAL",
+                final_decision="FAIL_CLOSED_PRESEAL_UNEXPECTED_PACE_COMMAND",
                 reason=first_unexpected or "unexpected PACE state-changing WRITE during open-flow-to-preseal",
                 point=point,
                 phase="co2",
+                trace_stage="sealed_group_preseal_failure",
+                pressure_target_hpa="",
+                extra_fields={
+                    "sealed_group_preseal_result": "fail",
+                    "sealed_group_preseal_fail_reason": first_unexpected
+                    or "unexpected PACE state-changing WRITE during open-flow-to-preseal",
+                    "sealed_group_preseal_failed_before_first_point": True,
+                    "sealed_group_aborted_before_pressure_points": True,
+                    "first_sealed_point_started": False,
+                    "first_sealed_point_target_hpa": getattr(point, "target_pressure_hpa", ""),
+                    "sealed_point_started_after_route_closed": False,
+                },
             )
             return False
         if gap_fail_count > 0 and self._open_flow_vent1_gap_fail_closed_enabled():
+            gap_reason = str(
+                fields.get("pre_vent_exit_flow_drop_reason")
+                or "open-flow VENT1 keepalive gap exceeded fail-closed limit"
+            )
             self._mark_co2_route_terminal_failure(
-                final_decision="FAIL_CLOSED_OPEN_FLOW_VENT1_KEEPALIVE_GAP",
-                reason=str(
-                    fields.get("pre_vent_exit_flow_drop_reason")
-                    or "open-flow VENT1 keepalive gap exceeded fail-closed limit"
-                ),
+                final_decision="FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP",
+                reason=gap_reason,
                 point=point,
                 phase="co2",
+                trace_stage="sealed_group_preseal_failure",
+                pressure_target_hpa="",
+                extra_fields={
+                    "sealed_group_preseal_result": "fail",
+                    "sealed_group_preseal_fail_reason": gap_reason,
+                    "sealed_group_preseal_failed_before_first_point": True,
+                    "sealed_group_aborted_before_pressure_points": True,
+                    "first_sealed_point_started": False,
+                    "first_sealed_point_target_hpa": getattr(point, "target_pressure_hpa", ""),
+                    "sealed_point_started_after_route_closed": False,
+                },
             )
             return False
         return True

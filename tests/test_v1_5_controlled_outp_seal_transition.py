@@ -33,6 +33,14 @@ def _co2_point(index: int = 1, pressure: float = 900.0, ppm: float = 1000.0) -> 
     )
 
 
+def _ambient_co2_point(index: int = 3, ppm: float = 0.0) -> CalibrationPoint:
+    point = _co2_point(index=index, pressure=None, ppm=ppm)
+    setattr(point, "_pressure_mode", "ambient_open")
+    setattr(point, "_pressure_target_label", "当前大气压")
+    setattr(point, "_pressure_selection_token", "ambient")
+    return point
+
+
 class FakePace:
     VENT_STATUS_IDLE = 0
     VENT_STATUS_COMPLETED = 2
@@ -568,6 +576,181 @@ def _prepare_co2_group_runner_for_seal_failure_tests(runner: CalibrationRunner) 
     runner._flush_deferred_point_exports = MagicMock()
 
 
+def test_preseal_failure_is_group_failure_not_1100_point_failure() -> None:
+    runner, _pace, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+    lead = _ambient_co2_point()
+    ambient = _ambient_co2_point()
+    p1100 = _co2_point(index=4, pressure=1100.0, ppm=0.0)
+    p1000 = _co2_point(index=5, pressure=1000.0, ppm=0.0)
+
+    def fail_preseal(*_args, **_kwargs):
+        runner._controlled_exit_final_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_reason = "VENT1 gap before route close"
+        return False
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=fail_preseal)
+
+    runner._run_co2_point(lead, pressure_points=[ambient, p1100, p1000])
+
+    stages = _trace_stages(runner)
+    assert "sealed_group_preseal_begin" in stages
+    assert "sealed_group_preseal_end" in stages
+    group_fields = _last_stage_fields(runner, "sealed_group_preseal_end")
+    assert group_fields["sealed_group_preseal_result"] == "fail"
+    assert group_fields["sealed_group_preseal_failed_before_first_point"] is True
+    assert group_fields["sealed_group_aborted_before_pressure_points"] is True
+    assert group_fields["first_sealed_point_started"] is False
+    assert group_fields["first_sealed_point_target_hpa"] == 1100.0
+    assert "co2_route_terminal_failure" not in stages
+    assert "sealed_pressure_point_started" not in stages
+    runner._set_pressure_to_target.assert_not_called()
+
+
+def test_preseal_failure_aborts_all_sealed_points() -> None:
+    runner, _pace, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+    lead = _ambient_co2_point()
+    p1100 = _co2_point(index=4, pressure=1100.0, ppm=0.0)
+    p1000 = _co2_point(index=5, pressure=1000.0, ppm=0.0)
+
+    def fail_preseal(*_args, **_kwargs):
+        runner._controlled_exit_final_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_reason = "VENT1 gap before route close"
+        return False
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=fail_preseal)
+
+    runner._run_co2_point(lead, pressure_points=[p1100, p1000])
+
+    runner._pressurize_route_for_sealed_points.assert_called_once()
+    skipped_calls = [
+        call for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "sealed_pressure_point_skipped_group_preseal_failed"
+    ]
+    assert [call.kwargs.get("pressure_target_hpa") for call in skipped_calls] == [1100.0, 1000.0]
+    assert all(
+        call.kwargs.get("extra_fields", {}).get("point_skipped_because_group_preseal_failed") is True
+        for call in skipped_calls
+    )
+    assert skipped_calls[-1].kwargs.get("extra_fields", {}).get(
+        "next_sealed_point_not_attempted_after_preseal_fail"
+    ) is True
+    runner._sample_and_log.assert_not_called()
+
+
+def test_pressure_point_failure_only_after_route_closed() -> None:
+    runner, _pace, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+    lead = _co2_point(index=3, pressure=1100.0, ppm=0.0)
+    p1100 = _co2_point(index=4, pressure=1100.0, ppm=0.0)
+    runner._pressurize_route_for_sealed_points = MagicMock(return_value=True)
+    runner._set_pressure_to_target = MagicMock(return_value=False)
+
+    runner._run_co2_point(lead, pressure_points=[p1100])
+
+    stages = _trace_stages(runner)
+    assert stages.index("sealed_group_preseal_end") < stages.index("sealed_pressure_point_started")
+    fields = _last_stage_fields(runner, "sealed_pressure_point_started")
+    assert fields["sealed_group_preseal_result"] == "pass"
+    assert fields["sealed_point_started_after_route_closed"] is True
+    assert fields["first_sealed_point_started"] is True
+    assert not any(stage == "sealed_pressure_point_skipped_group_preseal_failed" for stage in stages)
+
+
+def test_first_sealed_point_starts_after_route_closed() -> None:
+    runner, _pace, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+    lead = _co2_point(index=3, pressure=1100.0, ppm=0.0)
+    p1100 = _co2_point(index=4, pressure=1100.0, ppm=0.0)
+    runner._pressurize_route_for_sealed_points = MagicMock(return_value=True)
+    runner._set_pressure_to_target = MagicMock(return_value=False)
+
+    runner._run_co2_point(lead, pressure_points=[p1100])
+
+    fields = _last_stage_fields(runner, "sealed_pressure_point_started")
+    assert fields["first_sealed_point_target_hpa"] == 1100.0
+    assert fields["sealed_point_started_after_route_closed"] is True
+
+
+def test_ambient_open_sample_success_does_not_imply_sealed_preseal_success() -> None:
+    runner, _pace, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+    lead = _ambient_co2_point()
+    ambient = _ambient_co2_point()
+    p1100 = _co2_point(index=4, pressure=1100.0, ppm=0.0)
+
+    def fail_preseal(*_args, **_kwargs):
+        runner._controlled_exit_final_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_reason = "VENT1 gap before route close"
+        return False
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=fail_preseal)
+
+    runner._run_co2_point(lead, pressure_points=[ambient, p1100])
+
+    runner._sample_open_route_point.assert_called_once()
+    runner._sample_and_log.assert_not_called()
+    fields = _last_stage_fields(runner, "sealed_group_preseal_end")
+    assert fields["sealed_group_preseal_result"] == "fail"
+
+
+def test_group_preseal_fail_reports_all_sealed_refs_skipped() -> None:
+    runner, _pace, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+    lead = _co2_point(index=3, pressure=1100.0, ppm=0.0)
+    p1100 = _co2_point(index=4, pressure=1100.0, ppm=0.0)
+    p1000 = _co2_point(index=5, pressure=1000.0, ppm=0.0)
+
+    def fail_preseal(*_args, **_kwargs):
+        runner._controlled_exit_final_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_reason = "VENT1 gap before route close"
+        return False
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=fail_preseal)
+
+    runner._run_co2_point(lead, pressure_points=[p1100, p1000])
+
+    group_fields = _last_stage_fields(runner, "sealed_group_preseal_end")
+    assert group_fields["remaining_selected_pressure_points_skipped"] == "1100.0,1000.0"
+    skipped_fields = [
+        call.kwargs.get("extra_fields", {})
+        for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "sealed_pressure_point_skipped_group_preseal_failed"
+    ]
+    assert [fields["skipped_reason"] for fields in skipped_fields] == [
+        "group_preseal_failed",
+        "group_preseal_failed",
+    ]
+
+
+def test_above_target_sampling_only_runs_after_preseal_success() -> None:
+    runner, _pace, _, _ = _runner()
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+    lead = _co2_point(index=3, pressure=1100.0, ppm=0.0)
+    p1100 = _co2_point(index=4, pressure=1100.0, ppm=0.0)
+    p1000 = _co2_point(index=5, pressure=1000.0, ppm=0.0)
+
+    def fail_preseal(*_args, **_kwargs):
+        runner._controlled_exit_final_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_decision = "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+        runner._co2_route_terminal_failure_reason = "VENT1 gap before route close"
+        return False
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=fail_preseal)
+
+    runner._run_co2_point(lead, pressure_points=[p1100, p1000])
+
+    runner._set_pressure_to_target.assert_not_called()
+    runner._set_pressure_to_target_in_active_co2_sealed_sweep.assert_not_called()
+    runner._wait_after_pressure_stable_before_sampling.assert_not_called()
+    runner._sample_and_log.assert_not_called()
+
+
 def test_co2_route_baseline_skips_redundant_outp0_when_output_already_off() -> None:
     runner, pace, _, _ = _runner()
 
@@ -666,7 +849,7 @@ def test_open_flow_vent_keepalive_gap_guard_records_gap() -> None:
     assert fields["pre_vent_exit_flow_drop_suspected"] is True
     assert fields["open_flow_vent1_gap_guard_passed"] is False
     assert fields["open_flow_vent1_gap_fail_reason"]
-    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_OPEN_FLOW_VENT1_KEEPALIVE_GAP"
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
 
 
 def test_open_flow_vent1_keepalive_not_blocked_by_pressure_query() -> None:
