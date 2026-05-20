@@ -363,6 +363,18 @@ _PRESSURE_TRACE_FIELDS = [
     "sealed_initial_slew_rate_hpa_per_s",
     "sealed_approach_slow_zone_hpa",
     "sealed_slow_slew_rate_hpa_per_s",
+    "first_sealed_point_high_pressure_profile_enabled",
+    "pressure_delta_to_target_hpa",
+    "adaptive_slow_zone_hpa",
+    "slow_slew_trigger_pressure_expected_hpa",
+    "slow_slew_trigger_pressure_actual_hpa",
+    "slow_slew_trigger_before_crossing",
+    "slow_slew_too_late",
+    "sample_setpoint_bias_enabled",
+    "sample_setpoint_bias_hpa",
+    "control_setpoint_hpa",
+    "setpoint_bias_reason",
+    "actual_pressure_offset_from_nominal_hpa",
     "sealed_slow_slew_trigger_ts",
     "sealed_slow_slew_trigger_pressure_hpa",
     "sealed_slow_slew_command_sent",
@@ -472,6 +484,14 @@ _PRESSURE_TRACE_FIELDS = [
     "fast_candidate_monitor_actual_interval_p95_s",
     "fast_candidate_monitor_sample_count",
     "fast_candidate_monitor_pressures",
+    "fast_monitor_loop_latency_audit",
+    "fast_monitor_slow_operation_detected",
+    "fast_monitor_blocking_operation",
+    "fast_monitor_critical_loop_pace_only",
+    "fast_monitor_deferred_com22",
+    "fast_monitor_deferred_eff",
+    "fast_monitor_deferred_dewpoint",
+    "fast_monitor_deferred_inl",
     "fast_candidate_detected",
     "fast_candidate_ts",
     "fast_candidate_pressure_hpa",
@@ -10736,6 +10756,14 @@ class CalibrationRunner:
             "fast_candidate_monitor_actual_interval_p50_s": "",
             "fast_candidate_monitor_actual_interval_p95_s": "",
             "fast_candidate_monitor_sample_count": 0,
+            "fast_monitor_loop_latency_audit": "",
+            "fast_monitor_slow_operation_detected": False,
+            "fast_monitor_blocking_operation": "",
+            "fast_monitor_critical_loop_pace_only": False,
+            "fast_monitor_deferred_com22": False,
+            "fast_monitor_deferred_eff": False,
+            "fast_monitor_deferred_dewpoint": False,
+            "fast_monitor_deferred_inl": False,
             "fast_candidate_detected": False,
             "fast_candidate_ts": "",
             "fast_candidate_pressure_hpa": "",
@@ -10748,6 +10776,11 @@ class CalibrationRunner:
             "candidate_miss_reason": "",
             "actual_pressure_used_for_sample": "",
             "nominal_target_hpa": "",
+            "control_setpoint_hpa": "",
+            "sample_setpoint_bias_enabled": False,
+            "sample_setpoint_bias_hpa": "",
+            "setpoint_bias_reason": "",
+            "actual_pressure_offset_from_nominal_hpa": "",
             "pressure_above_target_sample_offset_hpa": "",
             "sampled_from_above_target_window": False,
         }
@@ -10848,6 +10881,146 @@ class CalibrationRunner:
         raw = self._wf("workflow.pressure.sealed_approach_slow_slew_rate_hpa_per_s", 1.0)
         value = self._as_float(raw)
         return max(0.1, float(1.0 if value is None else value))
+
+    def _sealed_first_pressure_point_active(self) -> bool:
+        return not isinstance(self._active_co2_sealed_sweep_context, dict)
+
+    def _sealed_first_point_high_pressure_profile_enabled(self) -> bool:
+        raw = self._wf("workflow.pressure.sealed_first_point_high_pressure_profile_enabled", None)
+        default = bool(
+            self._limited_no_write_workflow_active()
+            and self._exhaust_only_sample_above_target_allow_sampling()
+        )
+        return self._as_bool(raw, default)
+
+    def _sealed_high_pressure_slow_zone_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.sealed_first_point_high_pressure_slow_zone_hpa", 80.0)
+        value = self._as_float(raw)
+        return max(self._sealed_approach_slow_zone_hpa(), float(80.0 if value is None else value))
+
+    def _sealed_medium_pressure_slow_zone_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.sealed_medium_pressure_slow_zone_hpa", 40.0)
+        value = self._as_float(raw)
+        return max(self._sealed_approach_slow_zone_hpa(), float(40.0 if value is None else value))
+
+    def _sealed_pressure_reference_for_target(self) -> Optional[float]:
+        context = self._sealed_sweep_context_for_counters()
+        if isinstance(context, dict):
+            for key in (
+                "positive_supply_direction_pressure_hpa",
+                "fresh_post_close_pressure_value_hpa",
+                "post_route_first_fresh_pressure_hpa",
+                "post_route_close_pace_pressure_hpa",
+                "route_close_pressure_at_close_hpa",
+                "current_pressure_before_point_hpa",
+            ):
+                value = self._as_float(context.get(key))
+                if value is not None:
+                    return value
+        if isinstance(self._preseal_pressure_control_ready_state, Mapping):
+            for key in (
+                "positive_supply_direction_pressure_hpa",
+                "fresh_post_close_pressure_value_hpa",
+                "post_route_first_fresh_pressure_hpa",
+                "post_route_close_pace_pressure_hpa",
+                "route_close_pressure_at_close_hpa",
+            ):
+                value = self._as_float(self._preseal_pressure_control_ready_state.get(key))
+                if value is not None:
+                    return value
+        return None
+
+    def _sealed_adaptive_slow_zone_fields(
+        self,
+        *,
+        target: float,
+        pressure_hpa: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        base_zone = self._sealed_approach_slow_zone_hpa()
+        reference = self._sealed_pressure_reference_for_target()
+        if reference is None:
+            reference = self._as_float(pressure_hpa)
+        delta = (
+            max(0.0, float(reference) - float(target))
+            if reference is not None
+            else ""
+        )
+        profile_enabled = False
+        zone = base_zone
+        if (
+            self._sealed_first_point_high_pressure_profile_enabled()
+            and delta != ""
+            and float(delta) >= 80.0
+        ):
+            profile_enabled = True
+            zone = self._sealed_high_pressure_slow_zone_hpa() if float(delta) >= 150.0 else self._sealed_medium_pressure_slow_zone_hpa()
+        trigger_expected = float(target) + float(zone)
+        actual = self._as_float(pressure_hpa)
+        return {
+            "first_sealed_point_high_pressure_profile_enabled": profile_enabled,
+            "pressure_delta_to_target_hpa": delta,
+            "adaptive_slow_zone_hpa": zone,
+            "sealed_approach_slow_zone_hpa": zone,
+            "slow_slew_trigger_pressure_expected_hpa": trigger_expected,
+            "slow_slew_trigger_pressure_actual_hpa": actual if actual is not None else "",
+            "slow_slew_trigger_before_crossing": (
+                bool(actual is not None and actual >= float(target))
+                if actual is not None
+                else ""
+            ),
+            "slow_slew_too_late": bool(actual is not None and actual < float(target)),
+        }
+
+    def _sealed_sample_setpoint_bias_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.sealed_sample_setpoint_bias_hpa", 0.5)
+        value = self._as_float(raw)
+        return max(0.0, float(0.5 if value is None else value))
+
+    def _sealed_sample_setpoint_bias_fields(
+        self,
+        *,
+        target: float,
+        reference_pressure_hpa: Any = None,
+    ) -> Dict[str, Any]:
+        context = self._sealed_sweep_context_for_counters()
+        direction = (
+            str((context or {}).get("pressure_control_direction_expected") or "")
+            .strip()
+            .lower()
+            if isinstance(context, dict)
+            else ""
+        )
+        reference = self._as_float(reference_pressure_hpa)
+        if reference is None:
+            reference = self._sealed_pressure_reference_for_target()
+        delta = (
+            max(0.0, float(reference) - float(target))
+            if reference is not None
+            else None
+        )
+        enabled = bool(
+            self._limited_no_write_workflow_active()
+            and self._exhaust_only_sample_above_target_allow_sampling()
+            and direction == "exhaust_only"
+            and delta is not None
+            and delta >= 80.0
+        )
+        bias = self._sealed_sample_setpoint_bias_hpa() if enabled else 0.0
+        control_setpoint = float(target) + float(bias)
+        reason = ""
+        if enabled:
+            reason = (
+                "first_or_high_delta_exhaust_only_no_write"
+                if self._sealed_first_pressure_point_active()
+                else "high_delta_exhaust_only_no_write"
+            )
+        return {
+            "sample_setpoint_bias_enabled": enabled,
+            "sample_setpoint_bias_hpa": bias,
+            "nominal_target_hpa": float(target),
+            "control_setpoint_hpa": control_setpoint,
+            "setpoint_bias_reason": reason,
+        }
 
     def _effort_unsupported_blocks_sampling(self) -> bool:
         return bool(self._wf("workflow.pressure.effort_unsupported_blocks_sampling", True))
@@ -11193,6 +11366,8 @@ class CalibrationRunner:
         fields.setdefault("sealed_initial_slew_rate_hpa_per_s", self._sealed_control_slew_rate_hpa_per_s())
         fields.setdefault("sealed_approach_slow_zone_hpa", self._sealed_approach_slow_zone_hpa())
         fields.setdefault("sealed_slow_slew_rate_hpa_per_s", self._sealed_approach_slow_slew_rate_hpa_per_s())
+        fields.setdefault("adaptive_slow_zone_hpa", fields.get("sealed_approach_slow_zone_hpa"))
+        fields.setdefault("first_sealed_point_high_pressure_profile_enabled", False)
         return fields
 
     def _sealed_setpoint_prearm_trace_fields(self) -> Dict[str, Any]:
@@ -11369,6 +11544,8 @@ class CalibrationRunner:
             "sealed_slew_over_not_allowed_configured": False,
             "sealed_initial_slew_rate_hpa_per_s": rate,
             "sealed_approach_slow_zone_hpa": self._sealed_approach_slow_zone_hpa(),
+            "adaptive_slow_zone_hpa": self._sealed_approach_slow_zone_hpa(),
+            "first_sealed_point_high_pressure_profile_enabled": False,
             "sealed_slow_slew_rate_hpa_per_s": self._sealed_approach_slow_slew_rate_hpa_per_s(),
         }
         failures: List[str] = []
@@ -11825,6 +12002,20 @@ class CalibrationRunner:
             "crossing_pressure_hpa": context.get("crossing_pressure_hpa", ""),
             "candidate_miss_reason": str(context.get("candidate_miss_reason") or ""),
             "fast_candidate_monitor_pressures": self._trace_json(pressures),
+            "fast_monitor_loop_latency_audit": self._trace_json(
+                context.get("fast_monitor_loop_latency_audit") or []
+            ),
+            "fast_monitor_slow_operation_detected": bool(
+                context.get("fast_monitor_slow_operation_detected")
+            ),
+            "fast_monitor_blocking_operation": str(context.get("fast_monitor_blocking_operation") or ""),
+            "fast_monitor_critical_loop_pace_only": bool(
+                context.get("fast_monitor_critical_loop_pace_only")
+            ),
+            "fast_monitor_deferred_com22": bool(context.get("fast_monitor_deferred_com22")),
+            "fast_monitor_deferred_eff": bool(context.get("fast_monitor_deferred_eff")),
+            "fast_monitor_deferred_dewpoint": bool(context.get("fast_monitor_deferred_dewpoint")),
+            "fast_monitor_deferred_inl": bool(context.get("fast_monitor_deferred_inl")),
         }
 
     def _record_sealed_fast_candidate_monitor_pressure(
@@ -11833,6 +12024,10 @@ class CalibrationRunner:
         target: float,
         pressure_hpa: Optional[float],
         source: str,
+        loop_begin_s: Optional[float] = None,
+        loop_end_s: Optional[float] = None,
+        pace_read_duration_s: Optional[float] = None,
+        blocking_operation: str = "",
     ) -> Dict[str, Any]:
         context = self._sealed_sweep_context_for_counters()
         if not isinstance(context, dict):
@@ -11853,6 +12048,44 @@ class CalibrationRunner:
             "source": source,
         }
         context.setdefault("fast_candidate_monitor_pressures", []).append(entry)
+        context["fast_monitor_critical_loop_pace_only"] = True
+        context["fast_monitor_deferred_com22"] = True
+        context["fast_monitor_deferred_eff"] = True
+        context["fast_monitor_deferred_dewpoint"] = True
+        context["fast_monitor_deferred_inl"] = True
+        requested_interval = self._sealed_fast_candidate_interval_s()
+        loop_duration_s = (
+            max(0.0, float(loop_end_s) - float(loop_begin_s))
+            if loop_begin_s is not None and loop_end_s is not None
+            else ""
+        )
+        pace_duration_s = self._as_float(pace_read_duration_s)
+        slow_threshold_s = max(1.0, requested_interval * 2.0)
+        op_name = str(blocking_operation or "")
+        if pace_duration_s is not None and pace_duration_s >= slow_threshold_s:
+            op_name = op_name or "PACE:read_pressure"
+        elif self._as_float(loop_duration_s) is not None and float(loop_duration_s) >= slow_threshold_s:
+            op_name = op_name or "fast_monitor_loop"
+        if op_name:
+            context["fast_monitor_slow_operation_detected"] = True
+            context["fast_monitor_blocking_operation"] = op_name
+        latency_entry = {
+            "loop_index": int(context.get("fast_candidate_monitor_sample_count") or 0),
+            "loop_begin_ts": self._iso_ts_from_wall(loop_begin_s),
+            "loop_end_ts": self._iso_ts_from_wall(loop_end_s),
+            "loop_duration_s": loop_duration_s,
+            "pace_read_duration_s": pace_duration_s if pace_duration_s is not None else "",
+            "com22_duration_s": 0.0,
+            "eff_duration_s": 0.0,
+            "dewpoint_duration_s": 0.0,
+            "inl_duration_s": 0.0,
+            "vent_status_duration_s": 0.0,
+            "other_duration_s": "",
+            "pressure_hpa": pressure_hpa if pressure_hpa is not None else "",
+            "candidate_detected": False,
+            "blocking_operation": op_name,
+        }
+        context.setdefault("fast_monitor_loop_latency_audit", []).append(latency_entry)
         if pressure_hpa is not None and float(pressure_hpa) < float(target):
             context["crossing_detected_by_fast_monitor"] = True
             context["crossing_ts"] = self._iso_ts_from_wall(now_s)
@@ -11877,15 +12110,21 @@ class CalibrationRunner:
         context = self._sealed_sweep_context_for_counters()
         if not isinstance(context, dict):
             return True, {}, ""
-        zone = self._sealed_approach_slow_zone_hpa()
+        zone_fields = self._sealed_adaptive_slow_zone_fields(
+            target=target,
+            pressure_hpa=pressure_hpa,
+        )
+        zone = float(zone_fields.get("adaptive_slow_zone_hpa") or self._sealed_approach_slow_zone_hpa())
         slow_rate = self._sealed_approach_slow_slew_rate_hpa_per_s()
         initial_rate = self._sealed_control_slew_rate_hpa_per_s()
+        context.update(zone_fields)
         if zone <= 0.0 or float(pressure_hpa) > float(target) + zone:
-            return True, {}, ""
+            return True, zone_fields, ""
         if context.get("sealed_slow_slew_command_sent") is True:
             return True, self._sealed_slow_slew_trace_fields(), ""
         pace = self.devices.get("pace")
         fields: Dict[str, Any] = {
+            **zone_fields,
             "sealed_slew_mode_lin_configured": bool(
                 self._sealed_control_prearm_fields.get("sealed_slew_mode_lin_configured")
             ),
@@ -11894,9 +12133,13 @@ class CalibrationRunner:
             ),
             "sealed_initial_slew_rate_hpa_per_s": initial_rate,
             "sealed_approach_slow_zone_hpa": zone,
+            "adaptive_slow_zone_hpa": zone,
             "sealed_slow_slew_rate_hpa_per_s": slow_rate,
             "sealed_slow_slew_trigger_ts": self._iso_ts_from_wall(time.time()),
             "sealed_slow_slew_trigger_pressure_hpa": float(pressure_hpa),
+            "slow_slew_trigger_pressure_actual_hpa": float(pressure_hpa),
+            "slow_slew_trigger_before_crossing": bool(float(pressure_hpa) >= float(target)),
+            "slow_slew_too_late": bool(float(pressure_hpa) < float(target)),
             "sealed_slow_slew_command_sent": False,
             "sealed_slow_slew_syst_err": "",
         }
@@ -11956,6 +12199,24 @@ class CalibrationRunner:
                 "sealed_slow_slew_rate_hpa_per_s",
                 self._sealed_approach_slow_slew_rate_hpa_per_s(),
             ),
+            "first_sealed_point_high_pressure_profile_enabled": bool(
+                context.get("first_sealed_point_high_pressure_profile_enabled")
+            ),
+            "pressure_delta_to_target_hpa": context.get("pressure_delta_to_target_hpa", ""),
+            "adaptive_slow_zone_hpa": context.get(
+                "adaptive_slow_zone_hpa",
+                context.get("sealed_approach_slow_zone_hpa", self._sealed_approach_slow_zone_hpa()),
+            ),
+            "slow_slew_trigger_pressure_expected_hpa": context.get(
+                "slow_slew_trigger_pressure_expected_hpa",
+                "",
+            ),
+            "slow_slew_trigger_pressure_actual_hpa": context.get(
+                "slow_slew_trigger_pressure_actual_hpa",
+                context.get("sealed_slow_slew_trigger_pressure_hpa", ""),
+            ),
+            "slow_slew_trigger_before_crossing": context.get("slow_slew_trigger_before_crossing", ""),
+            "slow_slew_too_late": bool(context.get("slow_slew_too_late")),
             "sealed_slow_slew_trigger_ts": context.get("sealed_slow_slew_trigger_ts", ""),
             "sealed_slow_slew_trigger_pressure_hpa": context.get(
                 "sealed_slow_slew_trigger_pressure_hpa",
@@ -12186,6 +12447,22 @@ class CalibrationRunner:
                 state["exhaust_only_candidate_ts"] = evaluation_ts
                 state["actual_pressure_used_for_sample"] = float(pressure_hpa)
                 state["nominal_target_hpa"] = float(target)
+                state["control_setpoint_hpa"] = (candidate_context or {}).get(
+                    "control_setpoint_hpa",
+                    (candidate_context or {}).get("nominal_target_hpa", float(target)),
+                )
+                state["sample_setpoint_bias_enabled"] = bool(
+                    (candidate_context or {}).get("sample_setpoint_bias_enabled")
+                )
+                state["sample_setpoint_bias_hpa"] = (candidate_context or {}).get(
+                    "sample_setpoint_bias_hpa",
+                    0.0,
+                )
+                state["setpoint_bias_reason"] = (candidate_context or {}).get("setpoint_bias_reason", "")
+                state["actual_pressure_offset_from_nominal_hpa"] = max(
+                    0.0,
+                    float(pressure_hpa) - float(target),
+                )
                 state["pressure_above_target_sample_offset_hpa"] = max(0.0, float(pressure_hpa) - float(target))
                 state["dewpoint_at_candidate"] = candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
                 state["dewpoint_abnormal_at_candidate"] = candidate_dewpoint_abnormal
@@ -12216,6 +12493,9 @@ class CalibrationRunner:
                             0.0,
                             float(pressure_hpa) - float(target),
                         )
+                        latency = candidate_context.get("fast_monitor_loop_latency_audit")
+                        if isinstance(latency, list) and latency:
+                            latency[-1]["candidate_detected"] = True
             candidate_fields.update(
                 {
                     "exhaust_only_upper_window_hpa": candidate_upper,
@@ -12263,6 +12543,29 @@ class CalibrationRunner:
                     "higher_quality_sample_candidate": bool(candidate_entered and int(in_limits or 0) == 1),
                     "actual_pressure_used_for_sample": float(pressure_hpa) if candidate_sampling_allowed else "",
                     "nominal_target_hpa": float(target) if candidate_sampling_allowed else "",
+                    "control_setpoint_hpa": (
+                        state.get("control_setpoint_hpa", "")
+                        if state is not None and candidate_sampling_allowed
+                        else ""
+                    ),
+                    "sample_setpoint_bias_enabled": bool(
+                        state is not None
+                        and candidate_sampling_allowed
+                        and state.get("sample_setpoint_bias_enabled")
+                    ),
+                    "sample_setpoint_bias_hpa": (
+                        state.get("sample_setpoint_bias_hpa", "")
+                        if state is not None and candidate_sampling_allowed
+                        else ""
+                    ),
+                    "setpoint_bias_reason": (
+                        state.get("setpoint_bias_reason", "")
+                        if state is not None and candidate_sampling_allowed
+                        else ""
+                    ),
+                    "actual_pressure_offset_from_nominal_hpa": (
+                        max(0.0, float(pressure_hpa) - float(target)) if candidate_sampling_allowed else ""
+                    ),
                     "pressure_above_target_sample_offset_hpa": (
                         max(0.0, float(pressure_hpa) - float(target)) if candidate_sampling_allowed else ""
                     ),
@@ -12645,6 +12948,13 @@ class CalibrationRunner:
         )
         if not positive_ok:
             return False
+        setpoint_bias_fields = self._sealed_sample_setpoint_bias_fields(
+            target=target,
+            reference_pressure_hpa=route_pressure,
+        )
+        control_setpoint = float(setpoint_bias_fields.get("control_setpoint_hpa") or target)
+        if isinstance(self._sealed_sweep_context_for_counters(), dict):
+            self._sealed_sweep_context_for_counters().update(setpoint_bias_fields)
         if self._sealed_control_prearm_failed_reason:
             self._controlled_exit_final_decision = "FAIL_CLOSED_SEALED_CONTROL_PREARM_CONFIG_FAILED"
             return False
@@ -12659,7 +12969,12 @@ class CalibrationRunner:
             and self._sealed_first_setpoint_tx_ts is not None
         )
 
-        if not setpoint_prearmed:
+        setpoint_bias_requires_update = bool(
+            setpoint_prearmed
+            and setpoint_bias_fields.get("sample_setpoint_bias_enabled")
+            and abs(float(control_setpoint) - float(target)) > 1e-9
+        )
+        if not setpoint_prearmed or setpoint_bias_requires_update:
             if not self._sealed_passive_deadline_allows(
                 point,
                 stage="before_setpoint",
@@ -12670,7 +12985,7 @@ class CalibrationRunner:
                 return False
             try:
                 self._increment_sealed_sweep_counter("sealed_setpoint_count")
-                pace.set_setpoint(target)
+                pace.set_setpoint(control_setpoint)
             except Exception as exc:
                 self._controlled_exit_final_decision = "FAIL_CLOSED_PRESSURE_CONTROLLER_SETPOINT_FAILED"
                 self._append_pressure_trace_row(
@@ -12684,6 +12999,7 @@ class CalibrationRunner:
                         {
                             **dict(ready_fields or {}),
                             **positive_fields,
+                            **setpoint_bias_fields,
                             **slew_fields,
                             **setpoint_prearm_fields,
                             **self._sealed_passive_trace_fields(blocking_stage="setpoint_command_failed"),
@@ -12708,6 +13024,7 @@ class CalibrationRunner:
         if isinstance(context, dict):
             context["setpoint_first_tx_ts"] = self._sealed_first_setpoint_tx_ts
             context["target_pressure_hpa"] = target
+            context.update(setpoint_bias_fields)
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -12719,6 +13036,7 @@ class CalibrationRunner:
                 {
                         **dict(ready_fields or {}),
                         **positive_fields,
+                        **setpoint_bias_fields,
                         **slew_fields,
                         **setpoint_prearm_fields,
                         **effort_fields,
@@ -12742,7 +13060,9 @@ class CalibrationRunner:
             ),
             note=(
                 "setpoint prearmed before route close; fast-control reuses active target"
-                if setpoint_prearmed
+                if setpoint_prearmed and not setpoint_bias_requires_update
+                else "setpoint bias sent immediately after route close for limited no-write exhaust sampling"
+                if setpoint_bias_requires_update
                 else "setpoint sent immediately after route close minimal ready gate"
             ),
         )
@@ -15679,6 +15999,22 @@ class CalibrationRunner:
                     pressure_target_hpa=target,
                     extra_fields=positive_fields,
                 )
+            setpoint_bias_fields: Dict[str, Any] = {}
+            control_setpoint = target
+            if phase == "co2" and self._co2_sealed_no_vent_guard_active:
+                reference_pressure = (
+                    preseal_ready_state.get("route_close_pressure_at_close_hpa")
+                    if isinstance(preseal_ready_state, Mapping)
+                    else None
+                )
+                setpoint_bias_fields = self._sealed_sample_setpoint_bias_fields(
+                    target=target,
+                    reference_pressure_hpa=reference_pressure,
+                )
+                control_setpoint = float(setpoint_bias_fields.get("control_setpoint_hpa") or target)
+                context = self._sealed_sweep_context_for_counters()
+                if isinstance(context, dict):
+                    context.update(setpoint_bias_fields)
             if phase == "co2" and self._co2_sealed_no_vent_guard_active:
                 if not self._sealed_passive_deadline_allows(
                     point,
@@ -15690,7 +16026,7 @@ class CalibrationRunner:
                     return False
             if phase == "co2" and self._co2_sealed_no_vent_guard_active:
                 self._increment_sealed_sweep_counter("sealed_setpoint_count")
-            pace.set_setpoint(target)
+            pace.set_setpoint(control_setpoint)
             if phase == "co2" and self._co2_sealed_no_vent_guard_active and self._sealed_first_setpoint_tx_ts is None:
                 self._sealed_first_setpoint_tx_ts = time.time()
                 context = self._sealed_sweep_context_for_counters()
@@ -15706,6 +16042,7 @@ class CalibrationRunner:
                     extra_fields=self._sealed_sweep_trace_extra(
                         {
                             **positive_fields,
+                            **setpoint_bias_fields,
                             **slew_fields,
                             **self._sealed_passive_trace_fields(
                                 blocking_stage="setpoint_sent",
@@ -15802,8 +16139,12 @@ class CalibrationRunner:
             if self.stop_event.is_set():
                 return False
             self._check_pause()
+            loop_begin_s = time.time()
+            pace_read_duration_s: Optional[float] = None
             if fast_candidate_monitor_active:
+                pressure_read_begin_s = time.time()
                 pressure_now = self._read_pace_pressure_now(pace)
+                pace_read_duration_s = max(0.0, time.time() - pressure_read_begin_s)
                 inl = 0
             else:
                 pressure_now, inl = pace.get_in_limits()
@@ -15824,18 +16165,16 @@ class CalibrationRunner:
             if fast_candidate_monitor_active:
                 context = self._sealed_sweep_context_for_counters()
                 if isinstance(context, dict):
-                    ready_values = self._cached_ready_check_trace_values(point=point)
                     context["current_candidate_primary_pressure_source"] = "PACE:read_pressure"
-                    context["candidate_secondary_pressure_hpa"] = self._as_float(
-                        ready_values.get("pressure_gauge_hpa")
-                    )
-                    context["candidate_secondary_pressure_age_s"] = self._as_float(
-                        ready_values.get("com22_pressure_age_s")
-                    )
+                    context.setdefault("candidate_secondary_pressure_hpa", "")
+                    context.setdefault("candidate_secondary_pressure_age_s", "")
                 fast_monitor_fields = self._record_sealed_fast_candidate_monitor_pressure(
                     target=target,
                     pressure_hpa=pressure_value,
                     source="PACE:read_pressure",
+                    loop_begin_s=loop_begin_s,
+                    loop_end_s=loop_now,
+                    pace_read_duration_s=pace_read_duration_s,
                 )
                 slow_ok, slow_fields, slow_reason = self._maybe_trigger_sealed_slow_slew_near_target(
                     point,
@@ -15858,7 +16197,7 @@ class CalibrationRunner:
                         note=slow_reason,
                     )
                     return False
-            read_aux_now = loop_now >= next_aux_read_at
+            read_aux_now = (loop_now >= next_aux_read_at) and not fast_candidate_monitor_active
             if read_aux_now:
                 next_aux_read_at = loop_now + self._pressure_control_wait_aux_interval_s()
             dewpoint_trace_values = (
@@ -15951,7 +16290,11 @@ class CalibrationRunner:
             )
             if inl == 1 or above_target_candidate_ready:
                 if phase == "co2" and self._co2_sealed_no_vent_guard_active:
-                    snapshot = self._pressure_controller_ready_snapshot(pace)
+                    snapshot = self._pressure_controller_ready_snapshot(
+                        pace,
+                        refresh_state=not above_target_candidate_ready,
+                        refresh_aux=False if above_target_candidate_ready else None,
+                    )
                     vent_status = self._as_int(snapshot.get("pace_vent_status"))
                     if above_target_candidate_ready:
                         effort_ok, effort_fields, effort_reason = (
@@ -16015,8 +16358,8 @@ class CalibrationRunner:
                             pace_output_state=snapshot.get("pace_output_state"),
                             pace_isolation_state=snapshot.get("pace_isolation_state"),
                             pace_vent_status=snapshot.get("pace_vent_status"),
-                            read_pressure_gauge=True,
-                            read_dewpoint=True,
+                            read_pressure_gauge=not above_target_candidate_ready,
+                            read_dewpoint=not above_target_candidate_ready,
                             refresh_pace_state=False,
                             extra_fields=self._sealed_sweep_trace_extra(
                                 {
@@ -16079,8 +16422,8 @@ class CalibrationRunner:
                     trace_stage="pressure_in_limits",
                     pressure_target_hpa=target,
                     pace_pressure_hpa=pressure_value,
-                    read_pressure_gauge=True,
-                    read_dewpoint=True,
+                    read_pressure_gauge=not above_target_candidate_ready,
+                    read_dewpoint=not above_target_candidate_ready,
                     extra_fields=(
                         sealed_extra
                         if phase == "co2" and self._co2_sealed_no_vent_guard_active
@@ -16091,6 +16434,8 @@ class CalibrationRunner:
                 self.log(f"Pressure in-limits at target {target} hPa")
                 return True
             now = loop_now
+            if fast_candidate_monitor_active and not above_target_candidate_ready:
+                next_retry_at = now + retry_interval_s
             if not adaptive_sampling_enabled and not prepared and retries_done < retry_count and now >= next_retry_at:
                 retries_done += 1
                 self.log(
@@ -16099,7 +16444,15 @@ class CalibrationRunner:
                 )
                 if phase == "co2" and self._co2_sealed_no_vent_guard_active:
                     self._increment_sealed_sweep_counter("sealed_setpoint_count")
-                pace.set_setpoint(target)
+                control_setpoint = target
+                setpoint_bias_fields = {}
+                if phase == "co2" and self._co2_sealed_no_vent_guard_active:
+                    setpoint_bias_fields = self._sealed_sample_setpoint_bias_fields(target=target)
+                    control_setpoint = float(setpoint_bias_fields.get("control_setpoint_hpa") or target)
+                    context = self._sealed_sweep_context_for_counters()
+                    if isinstance(context, dict):
+                        context.update(setpoint_bias_fields)
+                pace.set_setpoint(control_setpoint)
                 output_already_enabled = bool(
                     phase == "co2"
                     and self._co2_sealed_no_vent_guard_active
@@ -16117,6 +16470,11 @@ class CalibrationRunner:
                     pressure_target_hpa=target,
                     read_pace_pressure=not output_already_enabled,
                     read_pressure_gauge=not output_already_enabled,
+                    extra_fields=(
+                        self._sealed_sweep_trace_extra(setpoint_bias_fields)
+                        if phase == "co2" and self._co2_sealed_no_vent_guard_active
+                        else None
+                    ),
                     note=(
                         "output already ON; verify only after setpoint re-apply"
                         if output_already_enabled
@@ -16251,6 +16609,11 @@ class CalibrationRunner:
                 point=point,
             )
             return False
+        setpoint_bias_fields = self._sealed_sample_setpoint_bias_fields(target=target)
+        control_setpoint = float(setpoint_bias_fields.get("control_setpoint_hpa") or target)
+        context = self._sealed_sweep_context_for_counters()
+        if isinstance(context, dict):
+            context.update(setpoint_bias_fields)
         slew_fields = self._configure_sealed_pressure_slew_for_control(
             point,
             phase="co2",
@@ -16258,7 +16621,7 @@ class CalibrationRunner:
             extra_fields=positive_fields,
         )
         self._increment_sealed_sweep_counter("sealed_setpoint_count")
-        pace.set_setpoint(target)
+        pace.set_setpoint(control_setpoint)
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -16266,7 +16629,7 @@ class CalibrationRunner:
             trace_stage="sealed_sweep_setpoint_update",
             pressure_target_hpa=target,
             refresh_pace_state=False,
-            extra_fields=self._sealed_sweep_trace_extra({**positive_fields, **slew_fields}),
+            extra_fields=self._sealed_sweep_trace_extra({**positive_fields, **setpoint_bias_fields, **slew_fields}),
             note="setpoint updated without VENT/OUTP/route changes",
         )
 
@@ -16291,8 +16654,12 @@ class CalibrationRunner:
                 self._clear_active_co2_sealed_sweep_context(reason="stop event during sealed sweep setpoint-only", point=point)
                 return False
             self._check_pause()
+            loop_begin_s = time.time()
+            pace_read_duration_s: Optional[float] = None
             if fast_candidate_monitor_active:
+                pressure_read_begin_s = time.time()
                 pressure_now = self._read_pace_pressure_now(pace)
+                pace_read_duration_s = max(0.0, time.time() - pressure_read_begin_s)
                 inl = 0
             else:
                 pressure_now, inl = pace.get_in_limits()
@@ -16307,18 +16674,16 @@ class CalibrationRunner:
             if fast_candidate_monitor_active:
                 context = self._sealed_sweep_context_for_counters()
                 if isinstance(context, dict):
-                    ready_values = self._cached_ready_check_trace_values(point=point)
                     context["current_candidate_primary_pressure_source"] = "PACE:read_pressure"
-                    context["candidate_secondary_pressure_hpa"] = self._as_float(
-                        ready_values.get("pressure_gauge_hpa")
-                    )
-                    context["candidate_secondary_pressure_age_s"] = self._as_float(
-                        ready_values.get("com22_pressure_age_s")
-                    )
+                    context.setdefault("candidate_secondary_pressure_hpa", "")
+                    context.setdefault("candidate_secondary_pressure_age_s", "")
                 fast_monitor_fields = self._record_sealed_fast_candidate_monitor_pressure(
                     target=target,
                     pressure_hpa=pressure_value,
                     source="PACE:read_pressure",
+                    loop_begin_s=loop_begin_s,
+                    loop_end_s=loop_now,
+                    pace_read_duration_s=pace_read_duration_s,
                 )
                 slow_ok, slow_fields, slow_reason = self._maybe_trigger_sealed_slow_slew_near_target(
                     point,
@@ -16343,7 +16708,7 @@ class CalibrationRunner:
                     )
                     self._clear_active_co2_sealed_sweep_context(reason=slow_reason, point=point)
                     return False
-            read_aux_now = loop_now >= next_aux_read_at
+            read_aux_now = (loop_now >= next_aux_read_at) and not fast_candidate_monitor_active
             if read_aux_now:
                 next_aux_read_at = loop_now + self._pressure_control_wait_aux_interval_s()
             dewpoint_trace_values = self._cached_ready_check_trace_values(point=point)
@@ -16422,7 +16787,11 @@ class CalibrationRunner:
                 exhaust_fields.get("exhaust_only_candidate_sampling_allowed")
             )
             if inl == 1 or above_target_candidate_ready:
-                snapshot = self._pressure_controller_ready_snapshot(pace)
+                snapshot = self._pressure_controller_ready_snapshot(
+                    pace,
+                    refresh_state=not above_target_candidate_ready,
+                    refresh_aux=False if above_target_candidate_ready else None,
+                )
                 vent_status = self._as_int(snapshot.get("pace_vent_status"))
                 if above_target_candidate_ready:
                     effort_ok, effort_fields, effort_reason = (
@@ -16486,8 +16855,8 @@ class CalibrationRunner:
                         pace_output_state=snapshot.get("pace_output_state"),
                         pace_isolation_state=snapshot.get("pace_isolation_state"),
                         pace_vent_status=snapshot.get("pace_vent_status"),
-                        read_pressure_gauge=True,
-                        read_dewpoint=True,
+                        read_pressure_gauge=not above_target_candidate_ready,
+                        read_dewpoint=not above_target_candidate_ready,
                         refresh_pace_state=False,
                         extra_fields=self._sealed_sweep_trace_extra(
                             {
@@ -16524,8 +16893,8 @@ class CalibrationRunner:
                     trace_stage="sealed_sweep_pressure_in_limits",
                     pressure_target_hpa=target,
                     pace_pressure_hpa=pressure_value,
-                    read_pressure_gauge=True,
-                    read_dewpoint=True,
+                    read_pressure_gauge=not above_target_candidate_ready,
+                    read_dewpoint=not above_target_candidate_ready,
                     extra_fields=self._sealed_sweep_trace_extra(
                         {
                             **self._sealed_passive_trace_fields(
@@ -28197,8 +28566,19 @@ class CalibrationRunner:
                         else ""
                     )
                     data["nominal_target_hpa"] = nominal_target if nominal_target is not None else ""
+                    data["control_setpoint_hpa"] = sealed_context.get("control_setpoint_hpa", "")
+                    data["sample_setpoint_bias_enabled"] = bool(
+                        sealed_context.get("sample_setpoint_bias_enabled")
+                    )
+                    data["sample_setpoint_bias_hpa"] = sealed_context.get("sample_setpoint_bias_hpa", "")
+                    data["setpoint_bias_reason"] = sealed_context.get("setpoint_bias_reason", "")
                     data["actual_pressure_used_for_sample"] = actual_pressure if actual_pressure is not None else ""
                     data["actual_pressure_source_for_sample"] = actual_pressure_source
+                    data["actual_pressure_offset_from_nominal_hpa"] = (
+                        max(0.0, float(actual_pressure) - float(nominal_target))
+                        if actual_pressure is not None and nominal_target is not None
+                        else ""
+                    )
                     data["pressure_above_target_sample_offset_hpa"] = (
                         max(0.0, float(actual_pressure) - float(nominal_target))
                         if actual_pressure is not None and nominal_target is not None
