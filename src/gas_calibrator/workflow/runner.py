@@ -15,7 +15,7 @@ from collections import Counter, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import mean, median, stdev
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Optional, Tuple
 
 from ..config import (
     V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
@@ -491,6 +491,12 @@ _PRESSURE_TRACE_FIELDS = [
     "candidate_positive_effort_seen",
     "candidate_dewpoint_abnormal",
     "candidate_sample_safe_precheck_result",
+    "candidate_dewpoint_missing",
+    "post_row_dewpoint_abnormal",
+    "dewpoint_invalidation_phase",
+    "sample_invalidated_phase",
+    "sample_quality_warning",
+    "invalidation_sources",
     "exhaust_only_candidate_vent_status",
     "exhaust_only_candidate_sampling_allowed",
     "candidate_primary_pressure_source",
@@ -539,6 +545,14 @@ _PRESSURE_TRACE_FIELDS = [
     "ultra_fast_snapshot_row_ts",
     "ultra_fast_snapshot_anchor_ts",
     "ultra_fast_snapshot_candidate_to_row_s",
+    "ultra_fast_snapshot_row_object_created_ts",
+    "ultra_fast_snapshot_row_appended_ts",
+    "ultra_fast_snapshot_csv_write_ts",
+    "ultra_fast_snapshot_candidate_to_row_object_s",
+    "ultra_fast_snapshot_candidate_to_append_s",
+    "ultra_fast_snapshot_candidate_to_csv_write_s",
+    "ultra_fast_snapshot_materialization_stage",
+    "ultra_fast_snapshot_row_deferred_until_validation",
     "ultra_fast_snapshot_blocking_query_count",
     "ultra_fast_snapshot_used_cache_only",
     "ultra_fast_snapshot_live_query_count",
@@ -10790,6 +10804,12 @@ class CalibrationRunner:
             "candidate_positive_effort_seen": False,
             "candidate_dewpoint_abnormal": False,
             "candidate_sample_safe_precheck_result": "",
+            "candidate_dewpoint_missing": False,
+            "post_row_dewpoint_abnormal": False,
+            "dewpoint_invalidation_phase": "",
+            "sample_invalidated_phase": "",
+            "sample_quality_warning": "",
+            "invalidation_sources": "",
             "exhaust_only_candidate_vent_status": "",
             "exhaust_only_candidate_sampling_allowed": False,
             "candidate_primary_pressure_source": "",
@@ -10842,6 +10862,14 @@ class CalibrationRunner:
             "ultra_fast_snapshot_row_ts": "",
             "ultra_fast_snapshot_anchor_ts": "",
             "ultra_fast_snapshot_candidate_to_row_s": "",
+            "ultra_fast_snapshot_row_object_created_ts": "",
+            "ultra_fast_snapshot_row_appended_ts": "",
+            "ultra_fast_snapshot_csv_write_ts": "",
+            "ultra_fast_snapshot_candidate_to_row_object_s": "",
+            "ultra_fast_snapshot_candidate_to_append_s": "",
+            "ultra_fast_snapshot_candidate_to_csv_write_s": "",
+            "ultra_fast_snapshot_materialization_stage": "",
+            "ultra_fast_snapshot_row_deferred_until_validation": "",
             "ultra_fast_snapshot_blocking_query_count": 0,
             "ultra_fast_snapshot_used_cache_only": False,
             "ultra_fast_snapshot_live_query_count": 0,
@@ -10881,24 +10909,93 @@ class CalibrationRunner:
         }
         return mapping.get(text, text)
 
-    def _aggregate_sample_invalidation_reasons(self, existing: Any, reason: str) -> str:
+    @classmethod
+    def _coerce_internal_list(cls, value: Any) -> List[Any]:
+        if value in (None, ""):
+            return []
+        if isinstance(value, list):
+            return value
+        if isinstance(value, (tuple, set)):
+            return list(value)
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, list):
+                return list(parsed)
+            if ";" in text:
+                return [part.strip() for part in text.split(";") if part.strip()]
+            return [text]
+        return [value]
+
+    def _context_list(self, context: MutableMapping[str, Any], key: str) -> List[Any]:
+        value = context.get(key)
+        if isinstance(value, list):
+            return value
+        coerced = self._coerce_internal_list(value)
+        context[key] = coerced
+        return coerced
+
+    def _normalized_sample_invalidation_token(
+        self,
+        reason: Any,
+        *,
+        phase: Optional[str] = None,
+    ) -> str:
+        text = str(reason or "").strip()
+        if not text:
+            return ""
+        token_phase = str(phase or "").strip()
+        if "@" in text:
+            text, existing_phase = text.split("@", 1)
+            token_phase = token_phase or existing_phase.strip()
+        normalized = self._normalized_sample_invalidation_reason(text)
+        return f"{normalized}@{token_phase}" if normalized and token_phase else normalized
+
+    def _aggregate_sample_invalidation_reasons(
+        self,
+        existing: Any,
+        reason: str,
+        *,
+        phase: Optional[str] = None,
+    ) -> str:
         parts: List[str] = []
-        for item in str(existing or "").split(";"):
-            text = self._normalized_sample_invalidation_reason(item)
+        for item in self._coerce_internal_list(existing):
+            text = self._normalized_sample_invalidation_token(item)
             if text and text not in parts:
                 parts.append(text)
-        text = self._normalized_sample_invalidation_reason(reason)
+        text = self._normalized_sample_invalidation_token(reason, phase=phase)
         if text and text not in parts:
             parts.append(text)
         return ";".join(parts)
+
+    def _apply_ultra_fast_row_context_updates(
+        self,
+        context: MutableMapping[str, Any],
+        updates: Mapping[str, Any],
+    ) -> None:
+        rows = context.get("ultra_fast_snapshot_rows")
+        if not isinstance(rows, list):
+            return
+        for row in rows:
+            if isinstance(row, dict):
+                row.update(updates)
 
     def _mark_above_target_sample_invalidated(
         self,
         *,
         reason: str,
         fields: Optional[Mapping[str, Any]] = None,
+        phase: str = "post_row",
     ) -> Dict[str, Any]:
         context = self._sealed_sweep_context_for_counters()
+        phase_text = str(phase or "post_row").strip() or "post_row"
+        normalized_reason = self._normalized_sample_invalidation_reason(reason)
+        source_token = self._normalized_sample_invalidation_token(normalized_reason, phase=phase_text)
         updates: Dict[str, Any] = {
             "sample_invalidated": True,
             "sample_valid_for_acceptance": False,
@@ -10906,6 +11003,9 @@ class CalibrationRunner:
         if reason in {"dewpoint_abnormal_rise", "dewpoint_abnormal"}:
             updates["dewpoint_abnormal_during_sample"] = True
             updates["sample_invalidated_by_dewpoint_rise"] = True
+            if phase_text == "post_row":
+                updates["post_row_dewpoint_abnormal"] = True
+            updates["dewpoint_invalidation_phase"] = phase_text
         if reason == "target_crossing":
             updates["sample_invalidated_by_target_crossing"] = True
         if reason in {"positive_supply_effort", "positive_effort"}:
@@ -10922,9 +11022,23 @@ class CalibrationRunner:
         updates["sample_invalidated_reason"] = self._aggregate_sample_invalidation_reasons(
             existing_reason,
             reason,
+            phase=phase_text,
         )
+        existing_phases = self._coerce_internal_list(
+            context.get("sample_invalidated_phase") if isinstance(context, dict) else ""
+        )
+        if phase_text and phase_text not in existing_phases:
+            existing_phases.append(phase_text)
+        updates["sample_invalidated_phase"] = ";".join(str(item) for item in existing_phases if str(item))
+        existing_sources = self._coerce_internal_list(
+            context.get("invalidation_sources") if isinstance(context, dict) else ""
+        )
+        if source_token and source_token not in existing_sources:
+            existing_sources.append(source_token)
+        updates["invalidation_sources"] = ";".join(str(item) for item in existing_sources if str(item))
         if isinstance(context, dict):
             context.update(updates)
+            self._apply_ultra_fast_row_context_updates(context, updates)
         return updates
 
     @staticmethod
@@ -11001,6 +11115,36 @@ class CalibrationRunner:
         context = self._sealed_sweep_context_for_counters()
         if not isinstance(context, dict):
             return []
+        stored_rows = context.get("ultra_fast_snapshot_rows")
+        if isinstance(stored_rows, list) and stored_rows:
+            rows = [dict(row) for row in stored_rows if isinstance(row, dict)]
+            sync_keys = (
+                "sample_invalidated",
+                "sample_valid_for_acceptance",
+                "sample_invalidated_reason",
+                "sample_invalidated_phase",
+                "sample_quality_warning",
+                "invalidation_sources",
+                "sample_invalidated_by_target_crossing",
+                "sample_invalidated_by_positive_effort",
+                "sample_invalidated_by_dewpoint_rise",
+                "sample_invalidated_by_vent",
+                "dewpoint_abnormal_during_sample",
+                "post_row_dewpoint_abnormal",
+                "dewpoint_invalidation_phase",
+                "fast_candidate_to_first_sample_s",
+                "ultra_fast_snapshot_row_object_created_ts",
+                "ultra_fast_snapshot_row_appended_ts",
+                "ultra_fast_snapshot_candidate_to_row_object_s",
+                "ultra_fast_snapshot_candidate_to_append_s",
+                "ultra_fast_snapshot_materialization_stage",
+                "ultra_fast_snapshot_row_deferred_until_validation",
+            )
+            for row in rows:
+                for key in sync_keys:
+                    if key in context:
+                        row[key] = context.get(key)
+            return rows[:1]
 
         gas_analyzers = self._all_gas_analyzers()
         row_now_s = time.time()
@@ -11010,6 +11154,7 @@ class CalibrationRunner:
         anchor_ts = self._ts_from_datetime(anchor_dt)
         row_ts = self._ts_from_datetime(datetime.fromtimestamp(row_now_s))
         candidate_to_row_s = max(0.0, row_now_s - float(anchor_s))
+        candidate_to_append_s = candidate_to_row_s
         nominal_target = self._as_float(context.get("nominal_target_hpa")) or self._as_float(
             getattr(point, "target_pressure_hpa", None)
         )
@@ -11090,6 +11235,8 @@ class CalibrationRunner:
             "sample_valid_for_acceptance": False,
             "sample_invalidated": bool(context.get("sample_invalidated") is True),
             "sample_invalidated_reason": context.get("sample_invalidated_reason", ""),
+            "sample_invalidated_phase": context.get("sample_invalidated_phase", ""),
+            "invalidation_sources": context.get("invalidation_sources", ""),
             "sample_invalidated_by_target_crossing": bool(
                 context.get("sample_invalidated_by_target_crossing") is True
             ),
@@ -11104,12 +11251,24 @@ class CalibrationRunner:
             "ultra_fast_snapshot_row_ts": row_ts,
             "ultra_fast_snapshot_anchor_ts": anchor_ts,
             "ultra_fast_snapshot_candidate_to_row_s": candidate_to_row_s,
+            "ultra_fast_snapshot_row_object_created_ts": row_ts,
+            "ultra_fast_snapshot_row_appended_ts": row_ts,
+            "ultra_fast_snapshot_csv_write_ts": "",
+            "ultra_fast_snapshot_candidate_to_row_object_s": candidate_to_row_s,
+            "ultra_fast_snapshot_candidate_to_append_s": candidate_to_append_s,
+            "ultra_fast_snapshot_candidate_to_csv_write_s": "",
+            "ultra_fast_snapshot_materialization_stage": "candidate_branch_append",
+            "ultra_fast_snapshot_row_deferred_until_validation": False,
             "ultra_fast_snapshot_blocking_query_count": 0,
             "ultra_fast_snapshot_used_cache_only": True,
             "ultra_fast_snapshot_live_query_count": 0,
             "ultra_fast_snapshot_quality_warning": ";".join(quality_warnings),
             "ultra_fast_snapshot_acceptance_allowed": False,
             "dewpoint_candidate_missing": dewpoint_missing,
+            "candidate_dewpoint_missing": dewpoint_missing,
+            "post_row_dewpoint_abnormal": bool(context.get("post_row_dewpoint_abnormal") is True),
+            "dewpoint_invalidation_phase": context.get("dewpoint_invalidation_phase", ""),
+            "sample_quality_warning": ";".join(quality_warnings),
         }
         data.update(self._candidate_cached_pace_state_fields(context))
         for key in (
@@ -11132,6 +11291,12 @@ class CalibrationRunner:
             "candidate_positive_effort_seen",
             "candidate_dewpoint_abnormal",
             "candidate_sample_safe_precheck_result",
+            "candidate_dewpoint_missing",
+            "post_row_dewpoint_abnormal",
+            "dewpoint_invalidation_phase",
+            "sample_invalidated_phase",
+            "invalidation_sources",
+            "sample_quality_warning",
             "dewpoint_abnormal_at_candidate",
             "dewpoint_abnormal_during_sample",
             "candidate_primary_pressure_source",
@@ -11180,6 +11345,7 @@ class CalibrationRunner:
                 ]
                 if item
             )
+        data["sample_quality_warning"] = data.get("ultra_fast_snapshot_quality_warning", "")
         data["sample_end_ts"] = row_ts
         data["sample_elapsed_ms"] = round(max(0.0, (time.time() - row_now_s) * 1000.0), 3)
 
@@ -11188,6 +11354,14 @@ class CalibrationRunner:
             "ultra_fast_snapshot_row_ts": row_ts,
             "ultra_fast_snapshot_anchor_ts": anchor_ts,
             "ultra_fast_snapshot_candidate_to_row_s": candidate_to_row_s,
+            "ultra_fast_snapshot_row_object_created_ts": row_ts,
+            "ultra_fast_snapshot_row_appended_ts": row_ts,
+            "ultra_fast_snapshot_csv_write_ts": "",
+            "ultra_fast_snapshot_candidate_to_row_object_s": candidate_to_row_s,
+            "ultra_fast_snapshot_candidate_to_append_s": candidate_to_append_s,
+            "ultra_fast_snapshot_candidate_to_csv_write_s": "",
+            "ultra_fast_snapshot_materialization_stage": "candidate_branch_append",
+            "ultra_fast_snapshot_row_deferred_until_validation": False,
             "ultra_fast_snapshot_blocking_query_count": 0,
             "ultra_fast_snapshot_used_cache_only": True,
             "ultra_fast_snapshot_live_query_count": 0,
@@ -11198,6 +11372,7 @@ class CalibrationRunner:
         }
         context.update(context_updates)
         data.update(context_updates)
+        context["ultra_fast_snapshot_rows"] = [dict(data)]
 
         self._append_pressure_trace_row(
             point=point,
@@ -11249,6 +11424,30 @@ class CalibrationRunner:
             effective_sample_started_on_row=1,
         )
         return [data]
+
+    def _materialize_ultra_fast_candidate_snapshot_row(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "co2",
+        point_tag: str = "",
+    ) -> None:
+        if point is None:
+            return
+        context = self._sealed_sweep_context_for_counters()
+        if not isinstance(context, dict):
+            return
+        if isinstance(context.get("ultra_fast_snapshot_rows"), list) and context.get("ultra_fast_snapshot_rows"):
+            return
+        if not self._ultra_fast_candidate_snapshot_active(point, phase=phase):
+            return
+        self._collect_ultra_fast_candidate_snapshot_rows(
+            point,
+            requested_rows=self._sealed_fast_sample_rows(),
+            requested_interval_s=self._sealed_fast_sample_interval_s(),
+            phase=phase,
+            point_tag=point_tag,
+        )
 
     def _dewpoint_lag_compensation_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.dewpoint_lag_compensation_enabled", True))
@@ -12431,7 +12630,7 @@ class CalibrationRunner:
         end_s = self._as_float(context.get("fast_candidate_monitor_last_wall_ts"))
         intervals = [
             float(value)
-            for value in (context.get("fast_candidate_monitor_intervals_s") or [])
+            for value in self._coerce_internal_list(context.get("fast_candidate_monitor_intervals_s"))
             if self._as_float(value) is not None
         ]
         interval_p50: Any = ""
@@ -12440,7 +12639,7 @@ class CalibrationRunner:
             ordered = sorted(intervals)
             interval_p50 = ordered[int((len(ordered) - 1) * 0.5)]
             interval_p95 = ordered[int((len(ordered) - 1) * 0.95)]
-        pressures = context.get("fast_candidate_monitor_pressures") or []
+        pressures = self._coerce_internal_list(context.get("fast_candidate_monitor_pressures"))
         return {
             "fast_candidate_monitor_enabled": bool(context.get("fast_candidate_monitor_enabled")),
             "fast_candidate_monitor_begin_ts": self._iso_ts_from_wall(begin_s),
@@ -12469,7 +12668,7 @@ class CalibrationRunner:
             "candidate_miss_reason": str(context.get("candidate_miss_reason") or ""),
             "fast_candidate_monitor_pressures": self._trace_json(pressures),
             "fast_monitor_loop_latency_audit": self._trace_json(
-                context.get("fast_monitor_loop_latency_audit") or []
+                self._coerce_internal_list(context.get("fast_monitor_loop_latency_audit"))
             ),
             "fast_monitor_slow_operation_detected": bool(
                 context.get("fast_monitor_slow_operation_detected")
@@ -12500,12 +12699,17 @@ class CalibrationRunner:
             return {}
         now_s = time.time()
         context["fast_candidate_monitor_enabled"] = True
+        self._context_list(context, "fast_candidate_monitor_intervals_s")
+        self._context_list(context, "fast_candidate_monitor_pressures")
+        self._context_list(context, "fast_monitor_loop_latency_audit")
         context["fast_candidate_monitor_requested_interval_s"] = self._sealed_fast_candidate_interval_s()
         if context.get("fast_candidate_monitor_begin_wall_ts") is None:
             context["fast_candidate_monitor_begin_wall_ts"] = now_s
         last_s = self._as_float(context.get("fast_candidate_monitor_last_wall_ts"))
         if last_s is not None:
-            context.setdefault("fast_candidate_monitor_intervals_s", []).append(max(0.0, now_s - float(last_s)))
+            self._context_list(context, "fast_candidate_monitor_intervals_s").append(
+                max(0.0, now_s - float(last_s))
+            )
         context["fast_candidate_monitor_last_wall_ts"] = now_s
         context["fast_candidate_monitor_sample_count"] = int(context.get("fast_candidate_monitor_sample_count") or 0) + 1
         entry = {
@@ -12513,7 +12717,7 @@ class CalibrationRunner:
             "pressure_hpa": pressure_hpa if pressure_hpa is not None else "",
             "source": source,
         }
-        context.setdefault("fast_candidate_monitor_pressures", []).append(entry)
+        self._context_list(context, "fast_candidate_monitor_pressures").append(entry)
         context["fast_monitor_critical_loop_pace_only"] = True
         context["fast_monitor_deferred_com22"] = True
         context["fast_monitor_deferred_eff"] = True
@@ -12551,7 +12755,7 @@ class CalibrationRunner:
             "candidate_detected": False,
             "blocking_operation": op_name,
         }
-        context.setdefault("fast_monitor_loop_latency_audit", []).append(latency_entry)
+        self._context_list(context, "fast_monitor_loop_latency_audit").append(latency_entry)
         if pressure_hpa is not None and float(pressure_hpa) < float(target):
             context["crossing_detected_by_fast_monitor"] = True
             context["crossing_ts"] = self._iso_ts_from_wall(now_s)
@@ -12819,6 +13023,7 @@ class CalibrationRunner:
         evaluation_ts = time.time()
         candidate_fields: Dict[str, Any] = self._exhaust_only_above_target_candidate_base_fields()
         candidate_sampling_allowed = False
+        cached_effort_ok = True
         if pressure_hpa is not None:
             diff = float(pressure_hpa) - float(target)
             sign = 1 if diff > 0.0 else -1 if diff < 0.0 else 0
@@ -12954,6 +13159,7 @@ class CalibrationRunner:
                 state["dewpoint_at_candidate"] = candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
                 state["dewpoint_abnormal_at_candidate"] = candidate_dewpoint_abnormal
                 state["dewpoint_candidate_missing"] = candidate_dewpoint_c is None
+                state["candidate_dewpoint_missing"] = candidate_dewpoint_c is None
                 state["candidate_dewpoint_c"] = candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
                 state["candidate_dewpoint_ts"] = candidate_dewpoint_ts
                 state["candidate_dewpoint_age_ms"] = candidate_dewpoint_age_ms
@@ -13005,8 +13211,8 @@ class CalibrationRunner:
                             0.0,
                             float(pressure_hpa) - float(target),
                         )
-                        latency = candidate_context.get("fast_monitor_loop_latency_audit")
-                        if isinstance(latency, list) and latency:
+                        latency = self._context_list(candidate_context, "fast_monitor_loop_latency_audit")
+                        if latency:
                             latency[-1]["candidate_detected"] = True
             candidate_fields.update(
                 {
@@ -13022,6 +13228,7 @@ class CalibrationRunner:
                     ),
                     "dewpoint_at_candidate": candidate_dewpoint_c if candidate_dewpoint_c is not None else "",
                     "dewpoint_candidate_missing": bool(candidate_entered and candidate_dewpoint_c is None),
+                    "candidate_dewpoint_missing": bool(candidate_entered and candidate_dewpoint_c is None),
                     "candidate_dewpoint_c": (
                         candidate_dewpoint_c if candidate_entered and candidate_dewpoint_c is not None else ""
                     ),
@@ -13153,6 +13360,12 @@ class CalibrationRunner:
             context = self._sealed_sweep_context_for_counters()
             if isinstance(context, dict) and candidate_entered:
                 context.update(candidate_fields)
+                if candidate_sampling_allowed and cached_effort_ok:
+                    self._materialize_ultra_fast_candidate_snapshot_row(
+                        point,
+                        phase="co2",
+                        point_tag="",
+                    )
             if int(in_limits or 0) == 1 and not one_sided_ready and not terminal:
                 failure_reason = "FAIL_CLOSED_EXHAUST_ONLY_INLIMIT_OUTSIDE_ONE_SIDED_WINDOW"
                 terminal = True
@@ -27762,6 +27975,14 @@ class CalibrationRunner:
         stored_samples: List[Dict[str, Any]] = []
         for data in samples:
             payload = dict(data)
+            if payload.get("ultra_fast_snapshot_row_enabled"):
+                csv_wall_s = time.time()
+                csv_ts = self._iso_ts_from_wall(csv_wall_s)
+                payload["ultra_fast_snapshot_csv_write_ts"] = csv_ts
+                anchor_s = self._candidate_anchor_wall_ts(payload)
+                payload["ultra_fast_snapshot_candidate_to_csv_write_s"] = (
+                    max(0.0, csv_wall_s - float(anchor_s)) if anchor_s is not None else ""
+                )
             payload["save_ts"] = self._ts_from_datetime(datetime.now())
             try:
                 self.logger.log_sample(payload)
@@ -29233,9 +29454,15 @@ class CalibrationRunner:
                         "candidate_positive_effort_seen",
                         "candidate_dewpoint_abnormal",
                         "candidate_sample_safe_precheck_result",
+                        "candidate_dewpoint_missing",
+                        "post_row_dewpoint_abnormal",
+                        "dewpoint_invalidation_phase",
                         "sample_invalidated_by_target_crossing",
                         "sample_invalidated_by_positive_effort",
                         "sample_invalidated_by_vent",
+                        "sample_invalidated_phase",
+                        "sample_quality_warning",
+                        "invalidation_sources",
                         "candidate_primary_pressure_source",
                         "candidate_secondary_pressure_source",
                         "candidate_com22_waited",
@@ -29248,6 +29475,14 @@ class CalibrationRunner:
                         "ultra_fast_snapshot_row_ts",
                         "ultra_fast_snapshot_anchor_ts",
                         "ultra_fast_snapshot_candidate_to_row_s",
+                        "ultra_fast_snapshot_row_object_created_ts",
+                        "ultra_fast_snapshot_row_appended_ts",
+                        "ultra_fast_snapshot_csv_write_ts",
+                        "ultra_fast_snapshot_candidate_to_row_object_s",
+                        "ultra_fast_snapshot_candidate_to_append_s",
+                        "ultra_fast_snapshot_candidate_to_csv_write_s",
+                        "ultra_fast_snapshot_materialization_stage",
+                        "ultra_fast_snapshot_row_deferred_until_validation",
                         "ultra_fast_snapshot_blocking_query_count",
                         "ultra_fast_snapshot_used_cache_only",
                         "ultra_fast_snapshot_live_query_count",

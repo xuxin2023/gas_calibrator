@@ -4116,6 +4116,115 @@ def test_ultra_fast_candidate_snapshot_row_created_immediately() -> None:
     assert row["ultra_fast_snapshot_live_query_count"] == 0
     assert row["ultra_fast_snapshot_blocking_query_count"] == 0
     assert row["ultra_fast_snapshot_used_cache_only"] is True
+    assert row["ultra_fast_snapshot_candidate_to_row_object_s"] <= 1.0
+    assert row["ultra_fast_snapshot_candidate_to_append_s"] <= 1.0
+    assert row["ultra_fast_snapshot_row_deferred_until_validation"] is False
+
+
+def test_ultra_fast_row_object_created_in_candidate_branch() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["fast_candidate_monitor_enabled"] = True
+    runner._current_trace_dewpoint_c = MagicMock(return_value=-38.0)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    ok, _ready, fields, reason = runner._evaluate_exhaust_only_pressure_ready(
+        target=1100.0,
+        pressure_hpa=1100.47,
+        in_limits=0,
+        pressure_control_direction_expected="exhaust_only",
+        point=point,
+    )
+
+    assert ok is True
+    assert reason == ""
+    rows = context.get("ultra_fast_snapshot_rows")
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    assert rows[0]["actual_pressure_used_for_sample"] == pytest.approx(1100.47)
+    assert fields["fast_candidate_detected"] is True
+    assert context["ultra_fast_snapshot_candidate_to_row_object_s"] <= 0.5
+    assert context["ultra_fast_snapshot_candidate_to_append_s"] <= 0.5
+
+
+def test_ultra_fast_row_appended_before_post_validation() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    runner._materialize_ultra_fast_candidate_snapshot_row(point, phase="co2")
+    assert context.get("ultra_fast_snapshot_rows")
+
+    runner._mark_above_target_sample_invalidated(reason="target_crossing", phase="post_row")
+    row = context["ultra_fast_snapshot_rows"][0]
+    assert row["sample_invalidated"] is True
+    assert row["sample_invalidated_by_target_crossing"] is True
+    assert "target_crossing@post_row" in row["sample_invalidated_reason"]
+
+
+def test_candidate_to_row_object_within_deadline() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    samples = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )
+
+    assert samples[0]["ultra_fast_snapshot_candidate_to_row_object_s"] <= 0.5
+    assert samples[0]["ultra_fast_snapshot_candidate_to_append_s"] <= 0.5
+
+
+def test_csv_write_time_not_used_as_row_creation_time() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+    samples = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )
+    row_object_ts = samples[0]["ultra_fast_snapshot_row_object_created_ts"]
+    assert samples[0]["ultra_fast_snapshot_csv_write_ts"] == ""
+
+    runner._perform_heavy_point_exports = MagicMock()
+    runner._perform_light_point_exports(point, samples, phase="co2", point_tag="")
+
+    exported = runner._all_samples[-1]
+    assert exported["ultra_fast_snapshot_row_object_created_ts"] == row_object_ts
+    assert exported["ultra_fast_snapshot_csv_write_ts"] != ""
 
 
 def test_ultra_fast_row_uses_candidate_pressure_as_actual_pressure() -> None:
@@ -4170,7 +4279,10 @@ def test_ultra_fast_row_does_not_wait_for_dewpoint_live_query() -> None:
 
     assert len(samples) == 1
     assert samples[0]["dewpoint_candidate_missing"] is True
+    assert samples[0]["candidate_dewpoint_missing"] is True
+    assert samples[0]["candidate_dewpoint_abnormal"] is False
     assert "dewpoint_candidate_missing" in samples[0]["ultra_fast_snapshot_quality_warning"]
+    assert "dewpoint_candidate_missing" in samples[0]["sample_quality_warning"]
     assert samples[0]["sample_valid_for_acceptance"] is False
 
 
@@ -4245,7 +4357,15 @@ def test_invalidated_reason_aggregates_multiple_causes() -> None:
     runner._mark_above_target_sample_invalidated(reason="positive_supply_effort")
     updates = runner._mark_above_target_sample_invalidated(reason="dewpoint_abnormal_rise")
 
-    assert updates["sample_invalidated_reason"] == "target_crossing;positive_effort;dewpoint_abnormal"
+    assert (
+        updates["sample_invalidated_reason"]
+        == "target_crossing@post_row;positive_effort@post_row;dewpoint_abnormal@post_row"
+    )
+    assert updates["sample_invalidated_phase"] == "post_row"
+    assert (
+        updates["invalidation_sources"]
+        == "target_crossing@post_row;positive_effort@post_row;dewpoint_abnormal@post_row"
+    )
     context = runner._sealed_sweep_context_for_counters()
     assert context is not None
     assert context["sample_invalidated_by_target_crossing"] is True
@@ -4275,7 +4395,104 @@ def test_short_burst_stops_after_first_row_if_invalidated() -> None:
 
     assert len(samples) == 1
     assert samples[0]["sample_invalidated_by_target_crossing"] is True
-    assert samples[0]["sample_invalidated_reason"] == "target_crossing"
+    assert samples[0]["sample_invalidated_reason"] == "target_crossing@post_row"
+
+
+def test_dewpoint_candidate_missing_is_quality_warning_not_candidate_abnormal() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    for key in ("candidate_dewpoint_c", "dewpoint_at_candidate", "candidate_dewpoint_ts"):
+        context.pop(key, None)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    runner._materialize_ultra_fast_candidate_snapshot_row(point, phase="co2")
+
+    row = context["ultra_fast_snapshot_rows"][0]
+    assert row["candidate_dewpoint_missing"] is True
+    assert row["candidate_dewpoint_abnormal"] is False
+    assert row["sample_valid_for_acceptance"] is False
+    assert "dewpoint_candidate_missing" in row["sample_quality_warning"]
+
+
+def test_post_row_dewpoint_abnormal_invalidates_existing_row() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+    runner._materialize_ultra_fast_candidate_snapshot_row(point, phase="co2")
+
+    updates = runner._mark_above_target_sample_invalidated(
+        reason="dewpoint_abnormal_rise",
+        phase="post_row",
+    )
+
+    row = context["ultra_fast_snapshot_rows"][0]
+    assert updates["post_row_dewpoint_abnormal"] is True
+    assert row["sample_invalidated_by_dewpoint_rise"] is True
+    assert row["dewpoint_invalidation_phase"] == "post_row"
+    assert "dewpoint_abnormal@post_row" in row["sample_invalidated_reason"]
+
+
+def test_invalidated_reason_includes_phase_and_multiple_causes() -> None:
+    runner, _pace, _, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+
+    runner._mark_above_target_sample_invalidated(reason="target_crossing", phase="post_row")
+    runner._mark_above_target_sample_invalidated(reason="positive_supply_effort", phase="post_row")
+    updates = runner._mark_above_target_sample_invalidated(reason="dewpoint_abnormal_rise", phase="post_row")
+
+    assert "target_crossing@post_row" in updates["sample_invalidated_reason"]
+    assert "positive_effort@post_row" in updates["sample_invalidated_reason"]
+    assert "dewpoint_abnormal@post_row" in updates["sample_invalidated_reason"]
+    assert updates["sample_invalidated_phase"] == "post_row"
+
+
+def test_1000_str_append_bug_fixed() -> None:
+    runner, _pace, _, _ = _runner()
+    point = _co2_point(pressure=1000.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["fast_candidate_monitor_intervals_s"] = "0.2"
+    context["fast_candidate_monitor_pressures"] = "[{\"pressure_hpa\": 1100.0}]"
+    context["fast_monitor_loop_latency_audit"] = "legacy"
+
+    fields = runner._record_sealed_fast_candidate_monitor_pressure(
+        target=1000.0,
+        pressure_hpa=1000.5,
+        source="PACE:read_pressure",
+    )
+
+    assert fields["fast_candidate_monitor_sample_count"] == 1
+    assert isinstance(context["fast_candidate_monitor_intervals_s"], list)
+    assert isinstance(context["fast_candidate_monitor_pressures"], list)
+    assert isinstance(context["fast_monitor_loop_latency_audit"], list)
+
+
+def test_invalidation_reason_internal_list_csv_string_output() -> None:
+    runner, _pace, _, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["sample_invalidated_reason"] = "target_crossing@post_row"
+
+    updates = runner._mark_above_target_sample_invalidated(reason="positive_supply_effort", phase="post_row")
+
+    assert isinstance(updates["sample_invalidated_reason"], str)
+    assert updates["sample_invalidated_reason"] == "target_crossing@post_row;positive_effort@post_row"
 
 
 def test_above_target_candidate_safe_at_detection_samples_immediately_no_write() -> None:
