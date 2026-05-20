@@ -641,6 +641,66 @@ def test_preseal_failure_aborts_all_sealed_points() -> None:
     runner._sample_and_log.assert_not_called()
 
 
+def test_cleanup_vent_after_preseal_fail_is_not_active_sealed_violation() -> None:
+    runner, _pace, _, _ = _runner()
+
+    runner._cleanup_co2_route(reason="FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP")
+
+    fields = _last_stage_fields(runner, "co2_route_cleanup_restore_atmosphere")
+    assert fields["vent_after_valve_close_classification"] == "cleanup_restore_atmosphere"
+    assert fields["active_sealed_vent_violation"] is False
+    assert fields["cleanup_vent_after_abort"] is True
+
+
+def test_cleanup_vent_after_abort_marks_line_contaminated() -> None:
+    runner, _pace, _, _ = _runner()
+
+    runner._cleanup_co2_route(reason="FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP")
+
+    fields = _last_stage_fields(runner, "co2_route_cleanup_restore_atmosphere")
+    assert fields["cleanup_may_contaminate_line"] is True
+    assert fields["samples_after_cleanup_allowed"] is False
+    assert fields["rerun_requires_full_open_flow_flush"] is True
+
+
+def test_active_sealed_vent1_before_terminal_is_p0() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="unit")
+
+    assert runner._set_pressure_controller_vent(True, reason="unexpected sealed VENT1") is False
+
+    fields = _last_stage_fields(runner, "sealed_no_vent_guard_blocked")
+    assert fields["active_sealed_vent_violation"] is True
+    assert fields["vent_after_valve_close_classification"] == "active_sealed_vent_violation"
+    assert fields["samples_after_cleanup_allowed"] is False
+    assert not any(call[0] == "vent" and call[1] is True for call in pace.calls)
+
+
+def test_safe_stop_vent1_after_terminal_not_counted_as_sealed_vent() -> None:
+    runner, pace, _, _ = _runner()
+
+    runner._cleanup_co2_route(reason="FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP")
+
+    stages = _trace_stages(runner)
+    assert "sealed_no_vent_guard_blocked" not in stages
+    fields = _last_stage_fields(runner, "co2_route_cleanup_restore_atmosphere")
+    assert fields["active_sealed_vent_violation"] is False
+    assert fields["vent_after_valve_close_classification"] == "cleanup_restore_atmosphere"
+    assert any(call[0] in {"start_hold", "vent"} for call in pace.calls)
+
+
+def test_vent_after_valve_close_timeline_records_relay_and_safe_stop_order() -> None:
+    runner, _pace, _, _ = _runner()
+
+    runner._cleanup_co2_route(reason="FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP")
+
+    fields = _last_stage_fields(runner, "co2_route_cleanup_restore_atmosphere")
+    assert fields["cleanup_safe_stop_begin_ts"]
+    assert fields["cleanup_relay_reset_ts"]
+    assert fields["cleanup_pace_vent_on_ts"]
+
+
 def test_pressure_point_failure_only_after_route_closed() -> None:
     runner, _pace, _, _ = _runner()
     _prepare_co2_group_runner_for_seal_failure_tests(runner)
@@ -893,6 +953,42 @@ def test_open_flow_pressure_query_deferred_to_preserve_vent1_keepalive() -> None
     pressures = runner._read_controlled_outp_preseal_pressures()
 
     assert pressures["pace_pressure_hpa"] is None
+    pace.read_pressure.assert_not_called()
+    assert runner._open_flow_pressure_query_deferred_for_keepalive_count == 1
+
+
+def test_pre_stop_hold_inl_query_forbidden_in_open_flow_critical_window() -> None:
+    runner, pace, _, _ = _runner(logger=OpenFlowGapLogger(max_gap_s=1.0))
+    point = _co2_point(pressure=1100.0)
+    pace.pressure_queries = [":SENS:PRES:INL?"]
+    pace.query_line_endings = [None]
+    pace._parse_first_float = lambda _resp: 1013.0
+    pace.query = MagicMock(side_effect=AssertionError(":SENS:PRES:INL? must defer"))
+    pace.read_pressure = MagicMock(side_effect=AssertionError("read_pressure must defer"))
+
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
+
+    with pytest.raises(RuntimeError, match="PACE_PRESSURE_QUERY_DEFERRED"):
+        runner._read_pace_pressure_value(fast=True)
+
+    pace.query.assert_not_called()
+    pace.read_pressure.assert_not_called()
+    fields = runner._open_flow_keepalive_scheduler_fields()
+    assert fields["open_flow_inl_query_deferred_for_keepalive_count"] == 1
+    assert fields["open_flow_pressure_query_deferred_for_keepalive_count"] == 1
+    assert "fast_signal_pace_pressure" in fields["open_flow_critical_pace_query_deferred_types"]
+
+
+def test_pre_stop_hold_pressure_query_deferred_in_open_flow_critical_window() -> None:
+    runner, pace, _, _ = _runner(logger=OpenFlowGapLogger(max_gap_s=1.0))
+    point = _co2_point(pressure=1100.0)
+    pace.read_pressure = MagicMock(side_effect=AssertionError("PACE pressure must defer"))
+
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
+
+    with pytest.raises(RuntimeError, match="PACE_PRESSURE_QUERY_DEFERRED"):
+        runner._read_pace_pressure_value(fast=True)
+
     pace.read_pressure.assert_not_called()
     assert runner._open_flow_pressure_query_deferred_for_keepalive_count == 1
 

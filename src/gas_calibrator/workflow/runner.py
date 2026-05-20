@@ -679,6 +679,16 @@ _PRESSURE_TRACE_FIELDS = [
     "sealed_point_started_after_route_closed",
     "point_skipped_because_group_preseal_failed",
     "next_sealed_point_not_attempted_after_preseal_fail",
+    "cleanup_safe_stop_begin_ts",
+    "cleanup_safe_stop_reason",
+    "cleanup_relay_reset_ts",
+    "cleanup_pace_vent_on_ts",
+    "cleanup_vent_after_abort",
+    "cleanup_may_contaminate_line",
+    "active_sealed_vent_violation",
+    "vent_after_valve_close_classification",
+    "samples_after_cleanup_allowed",
+    "rerun_requires_full_open_flow_flush",
     "pressure_controller_runtime_audit_decision",
     "final_decision",
     "remaining_selected_pressure_points_skipped",
@@ -1345,6 +1355,53 @@ class CalibrationRunner:
             "sealed_point_started_after_route_closed": started_after_route_closed,
         }
 
+    def _cleanup_after_abort_trace_fields(
+        self,
+        reason: str = "",
+        *,
+        cleanup_begin_ts: str = "",
+        cleanup_relay_reset_ts: str = "",
+        cleanup_pace_vent_on_ts: str = "",
+    ) -> Dict[str, Any]:
+        reason_text = str(reason or "").strip()
+        reason_upper = reason_text.upper()
+        abort_cleanup = bool(
+            reason_text
+            and (
+                "FAIL_CLOSED" in reason_upper
+                or "FAIL" in reason_upper
+                or "ABORT" in reason_upper
+            )
+        )
+        return {
+            "cleanup_safe_stop_begin_ts": cleanup_begin_ts,
+            "cleanup_safe_stop_reason": reason_text,
+            "cleanup_relay_reset_ts": cleanup_relay_reset_ts if abort_cleanup else "",
+            "cleanup_pace_vent_on_ts": cleanup_pace_vent_on_ts if abort_cleanup else "",
+            "cleanup_vent_after_abort": abort_cleanup,
+            "cleanup_may_contaminate_line": abort_cleanup,
+            "active_sealed_vent_violation": False,
+            "vent_after_valve_close_classification": (
+                "cleanup_restore_atmosphere" if abort_cleanup else ""
+            ),
+            "samples_after_cleanup_allowed": False if abort_cleanup else "",
+            "rerun_requires_full_open_flow_flush": abort_cleanup,
+        }
+
+    def _active_sealed_vent_violation_trace_fields(self, reason: str = "") -> Dict[str, Any]:
+        return {
+            "cleanup_safe_stop_begin_ts": "",
+            "cleanup_safe_stop_reason": "",
+            "cleanup_relay_reset_ts": "",
+            "cleanup_pace_vent_on_ts": "",
+            "cleanup_vent_after_abort": False,
+            "cleanup_may_contaminate_line": False,
+            "active_sealed_vent_violation": True,
+            "vent_after_valve_close_classification": "active_sealed_vent_violation",
+            "samples_after_cleanup_allowed": False,
+            "rerun_requires_full_open_flow_flush": True,
+        }
+
     def _record_sealed_points_skipped_for_group_preseal_failure(
         self,
         lead_point: CalibrationPoint,
@@ -1379,6 +1436,7 @@ class CalibrationRunner:
                     "skipped_reason": "group_preseal_failed",
                     "point_skipped_because_group_preseal_failed": True,
                     "next_sealed_point_not_attempted_after_preseal_fail": idx > 0,
+                    **self._cleanup_after_abort_trace_fields(final_decision),
                 }
             )
             self._append_pressure_trace_row(
@@ -3384,6 +3442,16 @@ class CalibrationRunner:
             raise RuntimeError("pace unsupported")
         if not fast:
             return float(reader())
+
+        if self._record_open_flow_pressure_query_deferred_for_keepalive(
+            "fast_signal_pace_pressure",
+            pressure_query=True,
+            inl_query=True,
+        ):
+            cached = self._cached_open_flow_pace_pressure_for_keepalive()
+            if cached is not None:
+                return float(cached)
+            raise RuntimeError("PACE_PRESSURE_QUERY_DEFERRED_FOR_OPEN_FLOW_KEEPALIVE")
 
         query = getattr(pace, "query", None)
         parse_first_float = getattr(pace, "_parse_first_float", None)
@@ -12465,7 +12533,9 @@ class CalibrationRunner:
             point_phase="co2",
             trace_stage="sealed_no_vent_guard_blocked",
             refresh_pace_state=False,
-            extra_fields=self._sealed_sweep_trace_extra(),
+            extra_fields=self._sealed_sweep_trace_extra(
+                self._active_sealed_vent_violation_trace_fields(reason)
+            ),
             note=f"action={action} reason={reason or ''}",
         )
         return True
@@ -19253,6 +19323,7 @@ class CalibrationRunner:
                     "remaining_selected_pressure_points_skipped": ",".join(
                         self._sealed_group_target_labels(sealed_control_refs)
                     ),
+                    **self._cleanup_after_abort_trace_fields(decision_text),
                 },
                 note=f"{decision_text}: sealed group preseal transition failed before first pressure point",
             )
@@ -19450,7 +19521,28 @@ class CalibrationRunner:
 
     def _cleanup_co2_route(self, *, reason: str = "") -> None:
         self._clear_active_co2_sealed_sweep_context(reason=reason or "CO2 route cleanup")
+        cleanup_begin_ts = datetime.now().isoformat(timespec="milliseconds")
         self._set_co2_route_baseline(reason=reason)
+        cleanup_end_ts = datetime.now().isoformat(timespec="milliseconds")
+        fields = self._cleanup_after_abort_trace_fields(
+            reason,
+            cleanup_begin_ts=cleanup_begin_ts,
+            cleanup_relay_reset_ts=cleanup_end_ts,
+            cleanup_pace_vent_on_ts=cleanup_end_ts,
+        )
+        if fields.get("cleanup_vent_after_abort"):
+            self._append_pressure_trace_row(
+                point=None,
+                route="co2",
+                point_phase="co2",
+                trace_stage="co2_route_cleanup_restore_atmosphere",
+                refresh_pace_state=False,
+                extra_fields=fields,
+                note=(
+                    "abort cleanup restored atmosphere; this is not active sealed pressure control "
+                    "and samples after cleanup are not allowed"
+                ),
+            )
 
     def _apply_idle_route_isolation(self, *, reason: str = "") -> None:
         self._set_pressure_controller_vent(False, reason=reason)
@@ -20912,6 +21004,9 @@ class CalibrationRunner:
                     "first_sealed_point_started": False,
                     "first_sealed_point_target_hpa": getattr(point, "target_pressure_hpa", ""),
                     "sealed_point_started_after_route_closed": False,
+                    **self._cleanup_after_abort_trace_fields(
+                        "FAIL_CLOSED_PRESEAL_UNEXPECTED_PACE_COMMAND"
+                    ),
                 },
             )
             return False
@@ -20935,6 +21030,9 @@ class CalibrationRunner:
                     "first_sealed_point_started": False,
                     "first_sealed_point_target_hpa": getattr(point, "target_pressure_hpa", ""),
                     "sealed_point_started_after_route_closed": False,
+                    **self._cleanup_after_abort_trace_fields(
+                        "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+                    ),
                 },
             )
             return False
