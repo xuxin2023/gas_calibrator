@@ -321,6 +321,30 @@ _PRESSURE_TRACE_FIELDS = [
     "pressure_high_but_control_should_start",
     "pressure_high_blocked_outp1",
     "pressure_high_block_reason",
+    "post_route_pressure_limit_mode",
+    "hard_limit_semantics",
+    "absolute_safety_pressure_hard_limit_hpa",
+    "absolute_safety_pressure_hard_limit_source",
+    "exhaust_entry_transient_upper_hpa",
+    "exhaust_entry_transient_allowed_for_collect_only",
+    "exhaust_entry_transient_requires_exhaust_only",
+    "exhaust_entry_transient_requires_no_vent",
+    "exhaust_entry_transient_requires_no_positive_effort",
+    "exhaust_entry_transient_requires_dewpoint_not_abnormal",
+    "exhaust_entry_transient_requires_pressure_fresh",
+    "exhaust_entry_transient_candidate",
+    "exhaust_entry_transient_allowed",
+    "exhaust_entry_transient_block_reason",
+    "exhaust_entry_transient_pressure_hpa",
+    "pressure_above_target_exhaust_entry_offset_hpa",
+    "exhaust_entry_to_outp1_s",
+    "post_route_first_fresh_pressure_ts",
+    "post_route_first_fresh_pressure_source",
+    "post_route_first_fresh_pressure_hpa",
+    "post_route_first_fresh_pressure_to_outp1_s",
+    "post_route_secondary_pressure_deferred",
+    "post_route_pressure_source_mismatch",
+    "post_route_pressure_source_delta_hpa",
     "clean_positive_supply_confirmed",
     "prevent_positive_supply_during_sampling",
     "pressure_point_sequence_descending",
@@ -10395,16 +10419,63 @@ class CalibrationRunner:
     def _route_close_to_setpoint_max_s(self) -> float:
         return max(0.0, float(self._wf("workflow.pressure.route_close_to_setpoint_max_s", 3.0) or 0.0))
 
+    def _wf_configured_value(self, path: str) -> Tuple[bool, Any]:
+        sentinel = object()
+        value = self._wf(path, sentinel)
+        return value is not sentinel, value
+
+    def _absolute_safety_pressure_hard_limit(self) -> Tuple[float, str]:
+        for path, source in (
+            ("workflow.pressure.absolute_safety_pressure_hard_limit_hpa", "absolute_safety_pressure_hard_limit_hpa"),
+            ("workflow.pressure.post_route_absolute_pressure_hard_limit_hpa", "post_route_absolute_pressure_hard_limit_hpa"),
+        ):
+            configured, value = self._wf_configured_value(path)
+            if not configured:
+                continue
+            parsed = self._as_float(value)
+            if parsed is not None and parsed > 0.0:
+                return max(0.0, float(parsed)), source
+        return 0.0, "not_configured"
+
     def _post_route_pressure_hard_limit_hpa(self) -> float:
-        return max(
-            0.0,
-            float(
-                self._wf(
-                    "workflow.pressure.post_route_absolute_pressure_hard_limit_hpa",
-                    self._wf("workflow.pressure.absolute_pressure_hard_limit_hpa", 1300.0),
-                )
-                or 0.0
-            ),
+        limit, _source = self._absolute_safety_pressure_hard_limit()
+        return limit
+
+    def _exhaust_entry_transient_upper_hpa(self) -> float:
+        configured, value = self._wf_configured_value("workflow.pressure.exhaust_entry_transient_upper_hpa")
+        if not configured:
+            configured, value = self._wf_configured_value(
+                "workflow.pressure.post_route_exhaust_entry_transient_upper_hpa"
+            )
+        parsed = self._as_float(value) if configured else None
+        if parsed is None or parsed <= 0.0:
+            parsed = 1350.0
+        return max(0.0, float(parsed))
+
+    def _exhaust_entry_transient_allowed_for_collect_only(self) -> bool:
+        enabled = self._as_bool(
+            self._wf("workflow.pressure.exhaust_entry_transient_allowed_for_collect_only", True),
+            True,
+        )
+        if not enabled:
+            return False
+        if not self._as_bool(self._wf("workflow.collect_only", False), False):
+            return False
+        if self._as_bool(self._wf("workflow.production", False), False):
+            return False
+        if self._as_bool(self._wf("workflow.controlled_write", False), False):
+            return False
+        return True
+
+    def _post_route_pressure_source_mismatch_fail_delta_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.post_route_pressure_source_mismatch_fail_delta_hpa", 10.0)
+        parsed = self._as_float(raw)
+        return max(0.0, float(10.0 if parsed is None else parsed))
+
+    def _post_route_secondary_pressure_deferred_enabled(self) -> bool:
+        return self._as_bool(
+            self._wf("workflow.pressure.post_route_secondary_pressure_deferred", True),
+            True,
         )
 
     def _post_route_pressure_warning_hpa(self) -> float:
@@ -11930,7 +12001,8 @@ class CalibrationRunner:
         outp1_s = self._as_float(self._sealed_first_outp1_tx_ts)
         pressure_peak = self._as_float(pressure_peak_before_outp1_hpa)
         warning_hpa = self._post_route_pressure_warning_hpa()
-        hard_limit = self._post_route_pressure_hard_limit_hpa()
+        hard_limit, hard_limit_source = self._absolute_safety_pressure_hard_limit()
+        transient_upper = self._exhaust_entry_transient_upper_hpa()
         warning_hit = bool(pressure_peak is not None and warning_hpa > 0.0 and pressure_peak > warning_hpa)
         return {
             "fast_control_branch_entered": True,
@@ -11954,6 +12026,17 @@ class CalibrationRunner:
             "pressure_high_but_control_should_start": bool(warning_hit and not pressure_hard_limit_hit),
             "pressure_high_blocked_outp1": bool(pressure_hard_limit_hit),
             "pressure_high_block_reason": str(pressure_hard_limit_block_reason or ""),
+            "post_route_pressure_limit_mode": "absolute" if pressure_hard_limit_hit else "transient_exhaust_entry",
+            "hard_limit_semantics": "absolute" if hard_limit > 0.0 else "warning_only_legacy_threshold",
+            "absolute_safety_pressure_hard_limit_hpa": hard_limit,
+            "absolute_safety_pressure_hard_limit_source": hard_limit_source,
+            "exhaust_entry_transient_upper_hpa": transient_upper,
+            "exhaust_entry_transient_allowed_for_collect_only": self._exhaust_entry_transient_allowed_for_collect_only(),
+            "exhaust_entry_transient_requires_exhaust_only": True,
+            "exhaust_entry_transient_requires_no_vent": True,
+            "exhaust_entry_transient_requires_no_positive_effort": True,
+            "exhaust_entry_transient_requires_dewpoint_not_abnormal": True,
+            "exhaust_entry_transient_requires_pressure_fresh": True,
         }
 
     def _sealed_fast_control_prestarted_for_point(
@@ -12192,6 +12275,18 @@ class CalibrationRunner:
                 context["outp1_first_tx_ts"] = self._sealed_first_outp1_tx_ts
                 context["output_enabled_once"] = True
         self._controlled_outp_sealed_output_enabled = True
+        first_pressure_ts = self._parse_iso_ts_to_wall_s(
+            (ready_fields or {}).get("post_route_first_fresh_pressure_ts")
+        )
+        first_pressure_to_outp1_s = (
+            max(0.0, float(self._sealed_first_outp1_tx_ts) - float(first_pressure_ts))
+            if first_pressure_ts is not None and self._sealed_first_outp1_tx_ts is not None
+            else ""
+        )
+        outp1_timing_fields: Dict[str, Any] = {
+            "post_route_first_fresh_pressure_to_outp1_s": first_pressure_to_outp1_s,
+            "exhaust_entry_to_outp1_s": first_pressure_to_outp1_s,
+        }
         effort_after_ok, effort_after_fields, _effort_after_reason = self._sealed_positive_supply_effort_guard(
             point,
             stage="after_outp1",
@@ -12213,6 +12308,7 @@ class CalibrationRunner:
                     **effort_fields,
                     **effort_after_fields,
                     **outp1_fast_fields,
+                    **outp1_timing_fields,
                     **self._sealed_passive_trace_fields(
                         blocking_stage="outp1_sent",
                         snapshot=ready_fields,
@@ -13052,6 +13148,7 @@ class CalibrationRunner:
         pace_sample_s: Optional[float] = None
         com22_pressure: Optional[float] = None
         com22_sample_s: Optional[float] = None
+        secondary_deferred = False
         pace = self.devices.get("pace")
         if pace is not None:
             pace_pressure = self._read_pace_pressure_now(pace)
@@ -13068,9 +13165,12 @@ class CalibrationRunner:
                         pace_pressure = None
             if pace_pressure is not None:
                 pace_sample_s = time.time()
-        com22_pressure = self._read_com22_pressure_now()
-        if com22_pressure is not None:
-            com22_sample_s = time.time()
+        if pace_pressure is not None and self._post_route_secondary_pressure_deferred_enabled():
+            secondary_deferred = True
+        else:
+            com22_pressure = self._read_com22_pressure_now()
+            if com22_pressure is not None:
+                com22_sample_s = time.time()
         chosen_pressure: Optional[float] = None
         chosen_source = ""
         chosen_sample_s: Optional[float] = None
@@ -13100,6 +13200,17 @@ class CalibrationRunner:
         fresh_allows_exhaust = bool(
             fresh and chosen_pressure is not None and target is not None and chosen_pressure > target
         )
+        pressure_delta = (
+            abs(float(pace_pressure) - float(com22_pressure))
+            if pace_pressure is not None and com22_pressure is not None
+            else None
+        )
+        mismatch_threshold = self._post_route_pressure_source_mismatch_fail_delta_hpa()
+        source_mismatch = bool(
+            pressure_delta is not None
+            and mismatch_threshold > 0.0
+            and float(pressure_delta) > mismatch_threshold
+        )
         end_s = time.time()
         fields: Dict[str, Any] = {
             "post_route_close_pressure_probe_begin_ts": self._iso_ts_from_wall(begin_s),
@@ -13107,11 +13218,7 @@ class CalibrationRunner:
             "post_route_close_pressure_probe_elapsed_s": max(0.0, end_s - begin_s),
             "post_route_close_pace_pressure_hpa": pace_pressure if pace_pressure is not None else "",
             "post_route_close_com22_pressure_hpa": com22_pressure if com22_pressure is not None else "",
-            "post_route_close_pressure_delta_hpa": (
-                abs(float(pace_pressure) - float(com22_pressure))
-                if pace_pressure is not None and com22_pressure is not None
-                else ""
-            ),
+            "post_route_close_pressure_delta_hpa": pressure_delta if pressure_delta is not None else "",
             "post_route_close_pressure_fresh": fresh,
             "positive_supply_direction_pressure_hpa": chosen_pressure if fresh else "",
             "positive_supply_direction_pressure_source": chosen_source if fresh else "",
@@ -13131,6 +13238,14 @@ class CalibrationRunner:
             "fresh_post_close_pressure_value_hpa": chosen_pressure if fresh else "",
             "fresh_post_close_pressure_source": chosen_source if fresh else "",
             "fresh_post_close_pressure_delay_s": relative_s if fresh and relative_s is not None else "",
+            "post_route_first_fresh_pressure_ts": (
+                self._iso_ts_from_wall(chosen_sample_s) if fresh and chosen_sample_s is not None else ""
+            ),
+            "post_route_first_fresh_pressure_source": chosen_source if fresh else "",
+            "post_route_first_fresh_pressure_hpa": chosen_pressure if fresh else "",
+            "post_route_secondary_pressure_deferred": bool(secondary_deferred),
+            "post_route_pressure_source_mismatch": bool(source_mismatch),
+            "post_route_pressure_source_delta_hpa": pressure_delta if pressure_delta is not None else "",
         }
         return (chosen_pressure if fresh else None), fields
 
@@ -14331,23 +14446,82 @@ class CalibrationRunner:
             target_pressure_hpa=getattr(point, "target_pressure_hpa", None),
             stale_pressure_hpa=route_close_pressure_hpa,
         )
+        target_pressure = self._as_float(getattr(point, "target_pressure_hpa", None))
         post_route_pressure_warning_hpa = self._post_route_pressure_warning_hpa()
-        post_route_absolute_pressure_hard_limit_hpa = self._post_route_pressure_hard_limit_hpa()
+        (
+            post_route_absolute_pressure_hard_limit_hpa,
+            absolute_safety_pressure_hard_limit_source,
+        ) = self._absolute_safety_pressure_hard_limit()
+        exhaust_entry_transient_upper_hpa = self._exhaust_entry_transient_upper_hpa()
+        exhaust_entry_collect_only_allowed = self._exhaust_entry_transient_allowed_for_collect_only()
         post_route_pressure_warning_hit = bool(
             route_pressure is not None
             and post_route_pressure_warning_hpa > 0.0
             and route_pressure > post_route_pressure_warning_hpa
+        )
+        pressure_above_target_offset = (
+            float(route_pressure) - float(target_pressure)
+            if route_pressure is not None and target_pressure is not None
+            else None
+        )
+        expected_exhaust_entry = bool(
+            pressure_above_target_offset is not None and float(pressure_above_target_offset) > 0.0
+        )
+        exhaust_entry_transient_candidate = bool(
+            self._as_bool(post_route_pressure_fields.get("post_route_close_pressure_fresh"), False)
+            and expected_exhaust_entry
+            and (
+                post_route_pressure_warning_hpa <= 0.0
+                or bool(post_route_pressure_warning_hit)
+            )
+        )
+        dewpoint_fields = self._sealed_dewpoint_rise_trace_fields(
+            current_pressure_hpa=route_pressure,
+            point=point,
+        ) if route_pressure is not None else {}
+        dewpoint_abnormal = self._as_bool(dewpoint_fields.get("dewpoint_abnormal_rise_detected"), False)
+        pressure_source_mismatch = self._as_bool(
+            post_route_pressure_fields.get("post_route_pressure_source_mismatch"),
+            False,
         )
         post_route_pressure_hard_limit_hit = bool(
             route_pressure is not None
             and post_route_absolute_pressure_hard_limit_hpa > 0.0
             and route_pressure > post_route_absolute_pressure_hard_limit_hpa
         )
-        pressure_high_block_reason = (
-            "FAIL_CLOSED_POST_ROUTE_ABSOLUTE_PRESSURE_HARD_LIMIT"
-            if post_route_pressure_hard_limit_hit
-            else ""
+        exhaust_entry_transient_over_limit = bool(
+            exhaust_entry_transient_candidate
+            and exhaust_entry_transient_upper_hpa > 0.0
+            and route_pressure is not None
+            and route_pressure > exhaust_entry_transient_upper_hpa
         )
+        exhaust_entry_transient_block_reason = ""
+        if pressure_source_mismatch:
+            exhaust_entry_transient_block_reason = "FAIL_CLOSED_POST_ROUTE_PRESSURE_SOURCE_MISMATCH"
+        elif post_route_pressure_hard_limit_hit:
+            exhaust_entry_transient_block_reason = "FAIL_CLOSED_POST_ROUTE_ABSOLUTE_PRESSURE_HARD_LIMIT"
+        elif exhaust_entry_transient_candidate and not exhaust_entry_collect_only_allowed:
+            exhaust_entry_transient_block_reason = "FAIL_CLOSED_POST_ROUTE_EXHAUST_ENTRY_NOT_ALLOWED"
+        elif exhaust_entry_transient_over_limit:
+            exhaust_entry_transient_block_reason = "FAIL_CLOSED_POST_ROUTE_EXHAUST_ENTRY_TRANSIENT_LIMIT"
+        elif exhaust_entry_transient_candidate and dewpoint_abnormal:
+            exhaust_entry_transient_block_reason = "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_OUTP1"
+        exhaust_entry_transient_allowed = bool(
+            exhaust_entry_transient_candidate
+            and not exhaust_entry_transient_block_reason
+            and exhaust_entry_collect_only_allowed
+            and route_pressure is not None
+            and (post_route_absolute_pressure_hard_limit_hpa <= 0.0 or route_pressure < post_route_absolute_pressure_hard_limit_hpa)
+            and (exhaust_entry_transient_upper_hpa <= 0.0 or route_pressure <= exhaust_entry_transient_upper_hpa)
+        )
+        pressure_high_block_reason = exhaust_entry_transient_block_reason
+        pressure_block_reasons = {
+            "FAIL_CLOSED_POST_ROUTE_PRESSURE_SOURCE_MISMATCH",
+            "FAIL_CLOSED_POST_ROUTE_ABSOLUTE_PRESSURE_HARD_LIMIT",
+            "FAIL_CLOSED_POST_ROUTE_EXHAUST_ENTRY_NOT_ALLOWED",
+            "FAIL_CLOSED_POST_ROUTE_EXHAUST_ENTRY_TRANSIENT_LIMIT",
+            "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_OUTP1",
+        }
         block_reason = ""
         if actual_open_valves:
             block_reason = "FAIL_CLOSED_ROUTE_VALVES_NOT_CLOSED_BEFORE_CONTROL"
@@ -14371,7 +14545,7 @@ class CalibrationRunner:
             )
         elif pressure_hard_limit_hit:
             block_reason = "FAIL_CLOSED_PRESEAL_PRESSURE_BUILD_HARD_LIMIT"
-        elif post_route_pressure_hard_limit_hit:
+        elif pressure_high_block_reason:
             block_reason = pressure_high_block_reason
         gate_end_s = time.time()
         gate_elapsed_s = max(0.0, gate_end_s - gate_begin_s)
@@ -14418,6 +14592,7 @@ class CalibrationRunner:
             ),
             "route_close_pressure_at_close_hpa": route_close_pressure_hpa,
             **post_route_pressure_fields,
+            **dewpoint_fields,
             "preseal_pressure_build_hard_limit_hit": bool(pressure_hard_limit_hit),
             "post_route_pressure_peak_before_outp1_hpa": route_pressure if route_pressure is not None else "",
             "post_route_pressure_warning_hpa": post_route_pressure_warning_hpa,
@@ -14429,10 +14604,40 @@ class CalibrationRunner:
             "pressure_high_but_control_should_start": bool(
                 route_pressure is not None
                 and post_route_pressure_warning_hit
-                and not post_route_pressure_hard_limit_hit
+                and not pressure_high_block_reason
             ),
-            "pressure_high_blocked_outp1": bool(post_route_pressure_hard_limit_hit),
+            "pressure_high_blocked_outp1": bool(block_reason in pressure_block_reasons),
             "pressure_high_block_reason": pressure_high_block_reason,
+            "post_route_pressure_limit_mode": (
+                "absolute"
+                if post_route_pressure_hard_limit_hit
+                else (
+                    "transient_exhaust_entry"
+                    if exhaust_entry_transient_candidate
+                    else "warning"
+                )
+            ),
+            "hard_limit_semantics": (
+                "absolute"
+                if post_route_absolute_pressure_hard_limit_hpa > 0.0
+                else "warning_only_legacy_threshold"
+            ),
+            "absolute_safety_pressure_hard_limit_hpa": post_route_absolute_pressure_hard_limit_hpa,
+            "absolute_safety_pressure_hard_limit_source": absolute_safety_pressure_hard_limit_source,
+            "exhaust_entry_transient_upper_hpa": exhaust_entry_transient_upper_hpa,
+            "exhaust_entry_transient_allowed_for_collect_only": bool(exhaust_entry_collect_only_allowed),
+            "exhaust_entry_transient_requires_exhaust_only": True,
+            "exhaust_entry_transient_requires_no_vent": True,
+            "exhaust_entry_transient_requires_no_positive_effort": True,
+            "exhaust_entry_transient_requires_dewpoint_not_abnormal": True,
+            "exhaust_entry_transient_requires_pressure_fresh": True,
+            "exhaust_entry_transient_candidate": bool(exhaust_entry_transient_candidate),
+            "exhaust_entry_transient_allowed": bool(exhaust_entry_transient_allowed),
+            "exhaust_entry_transient_block_reason": exhaust_entry_transient_block_reason,
+            "exhaust_entry_transient_pressure_hpa": route_pressure if route_pressure is not None else "",
+            "pressure_above_target_exhaust_entry_offset_hpa": (
+                pressure_above_target_offset if pressure_above_target_offset is not None else ""
+            ),
             "full_evidence_deferred_until_after_outp1": True,
             "operator_window_deferred_until_after_outp1": True,
             "dewpoint_evidence_deferred_until_after_outp1": True,
