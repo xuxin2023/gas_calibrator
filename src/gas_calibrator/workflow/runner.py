@@ -277,11 +277,21 @@ _PRESSURE_TRACE_FIELDS = [
     "setpoint_prearmed_fast_outp1_path",
     "minimal_ready_to_outp1_s",
     "outp1_delay_reason",
+    "fast_control_path_entered",
+    "fast_control_minimal_ready_passed",
+    "setpoint_to_outp1_s",
+    "outp1_sent_immediately_after_setpoint",
+    "outp1_blocked_by_passive_dwell",
+    "passive_dwell_guard_stage",
+    "slow_evidence_deferred_until_after_outp1",
     "setpoint_prearm_enabled",
     "setpoint_prearm_begin_ts",
     "setpoint_prearm_end_ts",
     "setpoint_prearm_elapsed_s",
     "setpoint_prearmed_before_route_close",
+    "outp_state_when_setpoint_prearmed",
+    "route_open_when_setpoint_prearmed",
+    "physical_control_not_active",
     "setpoint_prearm_syst_err",
     "route_close_to_outp1_target_s",
     "route_close_to_outp1_hard_max_s",
@@ -366,6 +376,9 @@ _PRESSURE_TRACE_FIELDS = [
     "first_sealed_point_high_pressure_profile_enabled",
     "pressure_delta_to_target_hpa",
     "adaptive_slow_zone_hpa",
+    "high_profile_threshold_hpa",
+    "high_profile_threshold_tolerance_hpa",
+    "high_profile_enabled_reason",
     "slow_slew_trigger_pressure_expected_hpa",
     "slow_slew_trigger_pressure_actual_hpa",
     "slow_slew_trigger_before_crossing",
@@ -1081,6 +1094,7 @@ class CalibrationRunner:
         self._sealed_setpoint_prearm_fields: Dict[str, Any] = {}
         self._sealed_setpoint_prearm_failed_reason = ""
         self._sealed_setpoint_prearmed_before_route_close = False
+        self._sealed_prearmed_control_setpoint_hpa: Optional[float] = None
         self._no_write_guard_enabled = True
         self._attempted_write_count = 0
         self._identity_write_command_sent = False
@@ -10903,6 +10917,16 @@ class CalibrationRunner:
         value = self._as_float(raw)
         return max(self._sealed_approach_slow_zone_hpa(), float(40.0 if value is None else value))
 
+    def _sealed_high_pressure_profile_threshold_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.sealed_high_pressure_profile_threshold_hpa", 150.0)
+        value = self._as_float(raw)
+        return max(0.0, float(150.0 if value is None else value))
+
+    def _sealed_high_pressure_profile_threshold_tolerance_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.sealed_high_pressure_profile_threshold_tolerance_hpa", 10.0)
+        value = self._as_float(raw)
+        return max(0.0, float(10.0 if value is None else value))
+
     def _sealed_pressure_reference_for_target(self) -> Optional[float]:
         context = self._sealed_sweep_context_for_counters()
         if isinstance(context, dict):
@@ -10947,19 +10971,31 @@ class CalibrationRunner:
         )
         profile_enabled = False
         zone = base_zone
+        high_threshold = self._sealed_high_pressure_profile_threshold_hpa()
+        high_tolerance = self._sealed_high_pressure_profile_threshold_tolerance_hpa()
+        high_effective_threshold = max(0.0, high_threshold - high_tolerance)
+        enabled_reason = ""
         if (
             self._sealed_first_point_high_pressure_profile_enabled()
             and delta != ""
             and float(delta) >= 80.0
         ):
             profile_enabled = True
-            zone = self._sealed_high_pressure_slow_zone_hpa() if float(delta) >= 150.0 else self._sealed_medium_pressure_slow_zone_hpa()
+            if float(delta) >= high_effective_threshold:
+                zone = self._sealed_high_pressure_slow_zone_hpa()
+                enabled_reason = "delta_at_or_above_high_threshold_with_tolerance"
+            else:
+                zone = self._sealed_medium_pressure_slow_zone_hpa()
+                enabled_reason = "delta_at_or_above_medium_threshold"
         trigger_expected = float(target) + float(zone)
         actual = self._as_float(pressure_hpa)
         return {
             "first_sealed_point_high_pressure_profile_enabled": profile_enabled,
             "pressure_delta_to_target_hpa": delta,
             "adaptive_slow_zone_hpa": zone,
+            "high_profile_threshold_hpa": high_threshold,
+            "high_profile_threshold_tolerance_hpa": high_tolerance,
+            "high_profile_enabled_reason": enabled_reason,
             "sealed_approach_slow_zone_hpa": zone,
             "slow_slew_trigger_pressure_expected_hpa": trigger_expected,
             "slow_slew_trigger_pressure_actual_hpa": actual if actual is not None else "",
@@ -10981,6 +11017,7 @@ class CalibrationRunner:
         *,
         target: float,
         reference_pressure_hpa: Any = None,
+        allow_first_point_prearm: bool = False,
     ) -> Dict[str, Any]:
         context = self._sealed_sweep_context_for_counters()
         direction = (
@@ -11001,9 +11038,17 @@ class CalibrationRunner:
         enabled = bool(
             self._limited_no_write_workflow_active()
             and self._exhaust_only_sample_above_target_allow_sampling()
-            and direction == "exhaust_only"
-            and delta is not None
-            and delta >= 80.0
+            and (
+                (
+                    direction == "exhaust_only"
+                    and delta is not None
+                    and delta >= 80.0
+                )
+                or (
+                    allow_first_point_prearm
+                    and self._sealed_first_pressure_point_active()
+                )
+            )
         )
         bias = self._sealed_sample_setpoint_bias_hpa() if enabled else 0.0
         control_setpoint = float(target) + float(bias)
@@ -11377,6 +11422,9 @@ class CalibrationRunner:
         fields.setdefault("setpoint_prearm_end_ts", "")
         fields.setdefault("setpoint_prearm_elapsed_s", "")
         fields.setdefault("setpoint_prearmed_before_route_close", bool(self._sealed_setpoint_prearmed_before_route_close))
+        fields.setdefault("outp_state_when_setpoint_prearmed", "")
+        fields.setdefault("route_open_when_setpoint_prearmed", "")
+        fields.setdefault("physical_control_not_active", "")
         fields.setdefault("setpoint_prearm_before_vent_exit_detected", False)
         fields.setdefault("setpoint_prearm_syst_err", "")
         fields.setdefault("route_close_to_outp1_target_s", self._route_close_to_outp1_target_s())
@@ -11430,6 +11478,9 @@ class CalibrationRunner:
             "setpoint_prearm_end_ts": "",
             "setpoint_prearm_elapsed_s": "",
             "setpoint_prearmed_before_route_close": False,
+            "outp_state_when_setpoint_prearmed": "",
+            "route_open_when_setpoint_prearmed": "",
+            "physical_control_not_active": "",
             "setpoint_prearm_before_vent_exit_detected": False,
             "setpoint_prearm_syst_err": "",
             "route_close_to_outp1_target_s": self._route_close_to_outp1_target_s(),
@@ -11443,9 +11494,19 @@ class CalibrationRunner:
         if pace is None:
             failures.append("pace_unavailable")
         elif not failures:
+            setpoint_bias_fields = self._sealed_sample_setpoint_bias_fields(
+                target=target,
+                allow_first_point_prearm=True,
+            )
+            control_setpoint = float(setpoint_bias_fields.get("control_setpoint_hpa") or target)
+            fields.update(setpoint_bias_fields)
+            fields["outp_state_when_setpoint_prearmed"] = 0
+            fields["route_open_when_setpoint_prearmed"] = True
+            fields["physical_control_not_active"] = True
             try:
-                pace.set_setpoint(target)
+                pace.set_setpoint(control_setpoint)
                 self._sealed_first_setpoint_tx_ts = time.time()
+                self._sealed_prearmed_control_setpoint_hpa = control_setpoint
                 fields["setpoint_prearmed_before_route_close"] = True
             except Exception as exc:
                 failures.append(f"setpoint:{exc}")
@@ -11462,6 +11523,7 @@ class CalibrationRunner:
         if failures:
             self._sealed_setpoint_prearm_failed_reason = ";".join(str(one) for one in failures)
             self._sealed_setpoint_prearmed_before_route_close = False
+            self._sealed_prearmed_control_setpoint_hpa = None
             self._append_pressure_trace_row(
                 point=point,
                 route=phase if point is not None else "run",
@@ -12729,12 +12791,15 @@ class CalibrationRunner:
         passive_window_s = None
         route_close_to_setpoint_s = None
         route_close_to_outp1_s = None
+        setpoint_to_outp1_s = None
         if route_close_s is not None:
             passive_window_s = max(0.0, passive_end_s - float(route_close_s))
             if setpoint_s is not None:
                 route_close_to_setpoint_s = max(0.0, setpoint_s - float(route_close_s))
             if outp1_s is not None:
                 route_close_to_outp1_s = max(0.0, outp1_s - float(route_close_s))
+        if setpoint_s is not None and outp1_s is not None:
+            setpoint_to_outp1_s = max(0.0, outp1_s - setpoint_s)
         passive_exceeded = (
             bool(exceeded)
             if exceeded is not None
@@ -12759,6 +12824,14 @@ class CalibrationRunner:
             "outp1_first_tx_ts": self._iso_ts_from_wall(outp1_s),
             "route_close_to_setpoint_s": route_close_to_setpoint_s,
             "route_close_to_outp1_s": route_close_to_outp1_s,
+            "setpoint_to_outp1_s": setpoint_to_outp1_s,
+            "outp1_sent_immediately_after_setpoint": (
+                bool(setpoint_to_outp1_s is not None and setpoint_to_outp1_s <= 0.5)
+                if setpoint_to_outp1_s is not None
+                else False
+            ),
+            "outp1_blocked_by_passive_dwell": bool(passive_exceeded and outp1_s is None),
+            "passive_dwell_guard_stage": str(blocking_stage or ""),
             "sealed_passive_window_s": passive_window_s,
             "sealed_passive_state": self._trace_json(self._sealed_passive_state_for_trace(snapshot)),
             "sealed_passive_exceeded": passive_exceeded,
@@ -12814,7 +12887,15 @@ class CalibrationRunner:
             extra_fields=self._sealed_sweep_trace_extra(fields),
             note=f"{stage} exceeded {max_s:.3f}s after route close; fail closed before control",
         )
-        self._controlled_exit_final_decision = "FAIL_CLOSED_SEALED_PASSIVE_DWELL_EXCEEDED_BEFORE_CONTROL"
+        if str(stage or "") == "before_outp1":
+            setpoint_s = self._as_float(self._sealed_first_setpoint_tx_ts)
+            self._controlled_exit_final_decision = (
+                "FAIL_CLOSED_SETPOINT_TO_OUTP1_DEADLINE"
+                if setpoint_s is not None
+                else "FAIL_CLOSED_ROUTE_CLOSE_TO_OUTP1_DEADLINE"
+            )
+        else:
+            self._controlled_exit_final_decision = "FAIL_CLOSED_SEALED_PASSIVE_DWELL_EXCEEDED_BEFORE_CONTROL"
         return False
 
     def _fast_control_deferred_trace_fields(
@@ -12827,6 +12908,11 @@ class CalibrationRunner:
     ) -> Dict[str, Any]:
         setpoint_s = self._as_float(self._sealed_first_setpoint_tx_ts)
         outp1_s = self._as_float(self._sealed_first_outp1_tx_ts)
+        setpoint_to_outp1_s = (
+            max(0.0, float(outp1_s) - float(setpoint_s))
+            if setpoint_s is not None and outp1_s is not None
+            else ""
+        )
         pressure_peak = self._as_float(pressure_peak_before_outp1_hpa)
         warning_hpa = self._post_route_pressure_warning_hpa()
         hard_limit, hard_limit_source = self._absolute_safety_pressure_hard_limit()
@@ -12834,14 +12920,21 @@ class CalibrationRunner:
         warning_hit = bool(pressure_peak is not None and warning_hpa > 0.0 and pressure_peak > warning_hpa)
         return {
             "fast_control_branch_entered": True,
+            "fast_control_path_entered": True,
+            "fast_control_minimal_ready_passed": True,
             **self._sealed_control_prearm_trace_fields(),
             **self._sealed_setpoint_prearm_trace_fields(),
             "full_evidence_deferred_until_after_outp1": True,
             "operator_window_deferred_until_after_outp1": True,
             "dewpoint_evidence_deferred_until_after_outp1": True,
             "pressure_diagnostic_deferred_until_after_outp1": True,
+            "slow_evidence_deferred_until_after_outp1": True,
             "sealed_passive_deadline_consumed_by": str(consumed_by or ""),
             "setpoint_before_outp1": bool(setpoint_s is not None and (outp1_s is None or setpoint_s <= outp1_s)),
+            "setpoint_to_outp1_s": setpoint_to_outp1_s,
+            "outp1_sent_immediately_after_setpoint": bool(
+                isinstance(setpoint_to_outp1_s, (float, int)) and setpoint_to_outp1_s <= 0.5
+            ),
             "post_route_pressure_peak_before_outp1_hpa": (
                 pressure_peak if pressure_peak is not None else ""
             ),
@@ -12969,10 +13062,16 @@ class CalibrationRunner:
             and self._sealed_first_setpoint_tx_ts is not None
         )
 
+        prearmed_control_setpoint = self._as_float(self._sealed_prearmed_control_setpoint_hpa)
+        if prearmed_control_setpoint is None:
+            prearmed_control_setpoint = self._as_float(setpoint_prearm_fields.get("control_setpoint_hpa"))
         setpoint_bias_requires_update = bool(
             setpoint_prearmed
             and setpoint_bias_fields.get("sample_setpoint_bias_enabled")
-            and abs(float(control_setpoint) - float(target)) > 1e-9
+            and (
+                prearmed_control_setpoint is None
+                or abs(float(control_setpoint) - float(prearmed_control_setpoint)) > 1e-9
+            )
         )
         if not setpoint_prearmed or setpoint_bias_requires_update:
             if not self._sealed_passive_deadline_allows(
@@ -12986,6 +13085,7 @@ class CalibrationRunner:
             try:
                 self._increment_sealed_sweep_counter("sealed_setpoint_count")
                 pace.set_setpoint(control_setpoint)
+                self._sealed_prearmed_control_setpoint_hpa = control_setpoint
             except Exception as exc:
                 self._controlled_exit_final_decision = "FAIL_CLOSED_PRESSURE_CONTROLLER_SETPOINT_FAILED"
                 self._append_pressure_trace_row(
@@ -13280,6 +13380,7 @@ class CalibrationRunner:
         self._sealed_setpoint_prearm_fields = {}
         self._sealed_setpoint_prearm_failed_reason = ""
         self._sealed_setpoint_prearmed_before_route_close = False
+        self._sealed_prearmed_control_setpoint_hpa = None
 
     def _begin_active_co2_sealed_sweep_context(self, point: CalibrationPoint) -> None:
         key = self._build_co2_sealed_sweep_key(point)
@@ -17972,6 +18073,11 @@ class CalibrationRunner:
             )
         fields["route_close_to_outp1_blocking_steps"] = ",".join(steps)
         fields["route_close_to_outp1_blocking_step_durations"] = self._trace_json(durations)
+        setpoint_s = self._as_float(self._sealed_first_setpoint_tx_ts)
+        if setpoint_s is not None:
+            setpoint_to_outp1_s = max(0.0, self._sealed_first_outp1_tx_ts - float(setpoint_s))
+            fields["setpoint_to_outp1_s"] = round(setpoint_to_outp1_s, 3)
+            fields["outp1_sent_immediately_after_setpoint"] = setpoint_to_outp1_s <= 0.5
         if route_close_s is not None:
             elapsed = max(0.0, self._sealed_first_outp1_tx_ts - float(route_close_s))
             if elapsed > self._route_close_to_outp1_target_s():

@@ -2864,6 +2864,24 @@ def test_route_close_to_outp1_has_short_deadline() -> None:
     fields = _last_stage_fields(runner, "sealed_passive_deadline_exceeded")
     assert fields["sealed_passive_exceeded"] is True
     assert fields["sealed_passive_blocking_stage"] == "before_outp1"
+    assert fields["outp1_blocked_by_passive_dwell"] is True
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_SETPOINT_TO_OUTP1_DEADLINE"
+
+
+def test_route_close_to_outp1_deadline_reports_specific_reason() -> None:
+    runner, _pace, _, _ = _runner()
+    point = _co2_point(pressure=900.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time() - 5.0)
+
+    assert runner._sealed_passive_deadline_allows(
+        point,
+        stage="before_outp1",
+        max_s=0.001,
+        pressure_target_hpa=900.0,
+        snapshot={},
+    ) is False
+
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_ROUTE_CLOSE_TO_OUTP1_DEADLINE"
 
 
 def test_sealed_passive_window_fails_if_exceeds_max() -> None:
@@ -3157,6 +3175,88 @@ def test_route_close_to_outp1_fast_path_when_setpoint_prearmed(monkeypatch) -> N
     assert ("enable_control_output",) not in pace.calls
     assert ("output", True) in pace.calls
     assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("output", True))
+
+
+def test_biased_setpoint_followed_by_outp1_fast_path(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "fast_outp1_after_route_close_enabled": True,
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        },
+    )
+    point = _co2_point(pressure=1100.0)
+    runner._last_vent_exit_reference_ts = time.time()
+
+    assert runner._prearm_sealed_control_setpoint(
+        point=point,
+        phase="co2",
+        pressure_target_hpa=1100.0,
+    ) is True
+    route_close_ts = time.time()
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=route_close_ts)
+    ready_fields = {
+        "positive_supply_direction_pressure_hpa": 1249.059,
+        "fresh_post_close_pressure_value_hpa": 1249.059,
+        "post_route_close_pace_pressure_hpa": 1249.059,
+        "post_route_close_pressure_fresh": True,
+        "pace_vent_status": 2,
+        "pace_isolation_state": 1,
+        "minimal_ready_gate_end_ts": datetime.fromtimestamp(route_close_ts).isoformat(),
+    }
+
+    assert runner._start_fast_control_after_route_close(
+        point,
+        phase="co2",
+        pressure_target_hpa=1100.0,
+        ready_fields=ready_fields,
+    ) is True
+
+    assert pace.calls.count(("setpoint", 1100.5)) == 1
+    assert ("output", True) in pace.calls
+    assert pace.calls.index(("setpoint", 1100.5)) < pace.calls.index(("output", True))
+    fields = _last_stage_fields(runner, "sealed_control_output_enable_command_sent")
+    assert fields["outp1_fast_path_used"] is True
+    assert fields["setpoint_prearmed_before_route_close"] is True
+    assert fields["setpoint_to_outp1_s"] <= 0.5
+    assert fields["outp1_sent_immediately_after_setpoint"] is True
+    assert fields["full_evidence_deferred_until_after_outp1"] is True
+    assert fields["slow_evidence_deferred_until_after_outp1"] is True
+    assert fields["sample_setpoint_bias_enabled"] is True
+    assert fields["nominal_target_hpa"] == pytest.approx(1100.0)
+    assert fields["control_setpoint_hpa"] == pytest.approx(1100.5)
+
+
+def test_passive_dwell_does_not_interrupt_fast_setpoint_to_outp1(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "fast_outp1_after_route_close_enabled": True,
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        },
+    )
+    point = _co2_point(pressure=1100.0)
+    runner._last_vent_exit_reference_ts = time.time()
+    assert runner._prearm_sealed_control_setpoint(
+        point=point,
+        phase="co2",
+        pressure_target_hpa=1100.0,
+    ) is True
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+
+    assert runner._start_fast_control_after_route_close(
+        point,
+        phase="co2",
+        pressure_target_hpa=1100.0,
+        ready_fields={
+            "positive_supply_direction_pressure_hpa": 1249.059,
+            "pace_vent_status": 2,
+            "pace_isolation_state": 1,
+        },
+    ) is True
+
+    assert ("output", True) in pace.calls
+    assert "sealed_passive_deadline_exceeded" not in _trace_stages(runner)
 
 
 def test_outp1_delay_trace_records_blocking_steps(monkeypatch) -> None:
@@ -3508,6 +3608,38 @@ def test_first_sealed_point_1100_uses_larger_slow_zone() -> None:
     assert fields["slow_slew_trigger_pressure_expected_hpa"] == pytest.approx(1180.0)
     assert fields["slow_slew_trigger_before_crossing"] is True
     assert fields["slow_slew_too_late"] is False
+    assert ("set_slew_rate", 1.0) in pace.calls
+
+
+def test_high_pressure_profile_enabled_at_delta_149() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["current_pressure_before_point_hpa"] = 1249.059
+
+    ok, fields, reason = runner._maybe_trigger_sealed_slow_slew_near_target(
+        point,
+        phase="co2",
+        target=1100.0,
+        pressure_hpa=1179.5,
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert fields["first_sealed_point_high_pressure_profile_enabled"] is True
+    assert fields["pressure_delta_to_target_hpa"] == pytest.approx(149.059)
+    assert fields["high_profile_threshold_hpa"] == pytest.approx(150.0)
+    assert fields["high_profile_threshold_tolerance_hpa"] == pytest.approx(10.0)
+    assert fields["high_profile_enabled_reason"] == "delta_at_or_above_high_threshold_with_tolerance"
+    assert fields["adaptive_slow_zone_hpa"] == pytest.approx(80.0)
+    assert fields["slow_slew_trigger_pressure_expected_hpa"] == pytest.approx(1180.0)
     assert ("set_slew_rate", 1.0) in pace.calls
 
 
