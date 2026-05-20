@@ -66,6 +66,10 @@ class FakePace:
         self.calls.append(("output", bool(on)))
         self.output_state = 1 if on else 0
 
+    def set_output_mode_active(self) -> None:
+        self.calls.append(("set_output_mode_active",))
+        self.output_mode = "ACT"
+
     def set_isolation_open(self, is_open: bool) -> None:
         self.calls.append(("isolation", bool(is_open)))
         self.isolation_state = 1 if is_open else 0
@@ -239,6 +243,14 @@ class SetpointPrearmFailPace(FakePace):
     def set_setpoint(self, value: float) -> None:
         self.calls.append(("setpoint_failed", float(value)))
         raise RuntimeError("setpoint prearm failed")
+
+
+class BlockingStatePrimePace(FakePace):
+    def get_output_state(self) -> int:
+        raise AssertionError(":OUTP:STAT? must be deferred during open-flow keepalive")
+
+    def get_isolation_state(self) -> int:
+        raise AssertionError(":OUTP:ISOL:STAT? must be deferred during open-flow keepalive")
 
 
 class Vent3AfterOutp1Pace(FakePace):
@@ -793,6 +805,37 @@ def test_open_flow_vent_keepalive_not_blocked_by_status_probe(monkeypatch) -> No
     ]
     assert "before CO2 pressure seal" not in start_reasons
     assert "after CO2 atmosphere exit" in start_reasons
+
+
+def test_pre_stop_hold_outp_stat_query_deferred_to_preserve_vent1_keepalive() -> None:
+    runner, _pace, _, _ = _runner(pace=BlockingStatePrimePace(), logger=OpenFlowGapLogger(max_gap_s=1.0))
+    point = _co2_point(pressure=1100.0)
+    plan = {
+        "fast_signal_enabled": False,
+        "active_entries": [],
+        "passive_entries": [],
+        "skip_slow_aux_prime": True,
+    }
+
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
+    runner._prime_sampling_window_context({"worker_plan": plan}, worker_plan=plan, reason="sampling window start")
+
+    fields = runner._open_flow_keepalive_scheduler_fields()
+    assert fields["open_flow_query_blocking_keepalive_prevented"] is True
+    assert fields["open_flow_cached_outp_state_used"] is True
+    assert fields["open_flow_cached_isol_state_used"] is True
+    assert "sampling_pace_state_prime" in fields["open_flow_critical_pace_query_deferred_types"]
+
+
+def test_open_flow_critical_window_uses_cached_outp_isol() -> None:
+    runner, _pace, _, _ = _runner(pace=BlockingStatePrimePace())
+    point = _co2_point(pressure=1100.0)
+
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
+    snapshot = runner._pace_state_snapshot(refresh=False)
+
+    assert snapshot["pace_output_state"] == ""
+    assert snapshot["pace_isolation_state"] == ""
 
 
 def test_mainthread_vent1_not_sent_during_keepalive_owner_active() -> None:
@@ -2768,6 +2811,47 @@ def test_route_close_to_outp1_not_consumed_by_slew_config(monkeypatch) -> None:
     assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
 
 
+def test_route_close_to_outp1_fast_path_when_setpoint_prearmed(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        gauge=FakeGauge([1112.0, 1112.0]),
+        pressure_overrides={"fast_outp1_after_route_close_enabled": True},
+    )
+    point = _co2_point(pressure=900.0)
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    fields = _last_stage_fields(runner, "sealed_control_output_enable_command_sent")
+    assert fields["outp1_fast_path_used"] is True
+    assert fields["setpoint_prearmed_fast_outp1_path"] is True
+    assert fields["route_close_to_outp1_s"] <= 2.0
+    assert ("enable_control_output",) not in pace.calls
+    assert ("output", True) in pace.calls
+    assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("output", True))
+
+
+def test_outp1_delay_trace_records_blocking_steps(monkeypatch) -> None:
+    runner, _pace, _, _ = _runner(
+        gauge=FakeGauge([1112.0, 1112.0]),
+        pressure_overrides={"fast_outp1_after_route_close_enabled": True},
+    )
+    point = _co2_point(pressure=900.0)
+    runner._apply_valve_states = MagicMock()
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    fields = _last_stage_fields(runner, "sealed_control_output_enable_command_sent")
+    assert fields["route_close_to_outp1_blocking_steps"]
+    assert "set_output_true" in fields["route_close_to_outp1_blocking_steps"]
+    assert fields["route_close_to_outp1_blocking_step_durations"]
+    assert fields["outp1_delay_reason"] in {
+        "fast_path",
+        "fast_path_serial_write_elapsed_above_target",
+    }
+
+
 def test_fast_control_chain_still_setpoint_before_outp1(monkeypatch) -> None:
     runner, pace, _, _ = _runner(gauge=FakeGauge([1112.0, 1112.0]))
     point = _co2_point(pressure=900.0)
@@ -2887,14 +2971,17 @@ def test_exhaust_only_above_target_candidate_detected() -> None:
 
     assert ok is True
     assert fields["exhaust_only_candidate_window_entered"] is True
-    assert fields["exhaust_only_candidate_sampling_allowed"] is True
+    assert fields["exhaust_only_candidate_sampling_allowed"] is False
     assert fields["exhaust_only_candidate_pressure_hpa"] == pytest.approx(1000.8)
     assert state["actual_pressure_used_for_sample"] == pytest.approx(1000.8)
 
 
 def test_exhaust_only_above_target_sampling_allowed_no_write() -> None:
     runner, pace, _, _ = _runner(
-        pressure_overrides={"exhaust_only_sample_above_target_enabled": True}
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
     )
     point = _co2_point(pressure=1000.0)
     pace.in_limits = [(1000.8, 0)]
@@ -2912,7 +2999,27 @@ def test_exhaust_only_above_target_sampling_allowed_no_write() -> None:
     assert fields["actual_pressure_used_for_sample"] == pytest.approx(1000.8)
     assert fields["nominal_target_hpa"] == pytest.approx(1000.0)
     assert fields["pressure_above_target_sample_offset_hpa"] == pytest.approx(0.8)
+    assert fields["sampled_from_above_target_window"] is True
     assert ("vent", True) not in pace.calls
+
+
+def test_above_target_sampling_allowed_in_limited_no_write() -> None:
+    test_exhaust_only_above_target_sampling_allowed_no_write()
+
+
+def test_above_target_sampling_not_enabled_by_default() -> None:
+    runner, _pace, _, _ = _runner()
+
+    _ok, _one_sided_ready, fields, _reason = runner._evaluate_exhaust_only_pressure_ready(
+        target=1000.0,
+        pressure_hpa=1000.736,
+        in_limits=0,
+        pressure_control_direction_expected="exhaust_only",
+    )
+
+    assert fields["exhaust_only_sample_above_target_enabled"] is False
+    assert fields["exhaust_only_candidate_window_entered"] is False
+    assert fields["exhaust_only_candidate_sampling_allowed"] is False
 
 
 def test_actual_pressure_recorded_for_above_target_sample() -> None:
@@ -2924,6 +3031,7 @@ def test_actual_pressure_recorded_for_above_target_sample() -> None:
     assert context is not None
     context["actual_pressure_used_for_sample"] = 1000.8
     context["nominal_target_hpa"] = 1000.0
+    context["sampled_from_above_target_window"] = True
     runner._all_gas_analyzers = MagicMock(return_value=[])
     runner._sampling_window_worker_plan = MagicMock(return_value={})
     runner._prime_sampling_window_context = MagicMock()
@@ -2951,6 +3059,11 @@ def test_actual_pressure_recorded_for_above_target_sample() -> None:
     assert samples[0]["actual_pressure_used_for_sample"] == pytest.approx(1000.8)
     assert samples[0]["nominal_target_hpa"] == pytest.approx(1000.0)
     assert samples[0]["pressure_above_target_sample_offset_hpa"] == pytest.approx(0.8)
+    assert samples[0]["sampled_from_above_target_window"] is True
+
+
+def test_above_target_sample_records_actual_pressure() -> None:
+    test_actual_pressure_recorded_for_above_target_sample()
 
 
 def test_exhaust_only_ready_blocks_below_target_undershoot() -> None:
@@ -3007,6 +3120,28 @@ def test_exhaust_only_blocks_any_target_crossing(monkeypatch) -> None:
 
 def test_target_crossing_fails_immediately_without_extra_wait_cycles(monkeypatch) -> None:
     test_exhaust_only_blocks_any_target_crossing(monkeypatch)
+
+
+def test_target_crossing_still_fails_even_with_above_target_enabled(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "stabilize_timeout_s": 0.2,
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.2, 0), (999.9, 0)]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._set_pressure_to_target(point) is False
+
+    fields = _last_stage_fields(runner, "sealed_pressure_control_state_fail")
+    assert fields["target_crossing_count"] == 1
+    assert fields["pressure_chatter_fail_closed"] is True
+    assert fields["exhaust_only_ready_failure_reason"] == "FAIL_CLOSED_PRESSURE_TARGET_CHATTER_EXHAUST_ONLY"
 
 
 def test_target_crossing_records_first_crossing_to_fail_seconds(monkeypatch) -> None:
@@ -3208,6 +3343,14 @@ def test_dewpoint_local_rise_detected_even_when_sampling_blocked(monkeypatch) ->
     assert fields["dewpoint_local_rise_detected"] is True
     assert fields["dewpoint_local_rise_max_c"] == pytest.approx(3.2)
     assert "dewpoint_abnormal_rise_detected" in fields
+
+
+def test_dewpoint_local_rise_detected_when_pressure_wait_rises(monkeypatch) -> None:
+    test_dewpoint_local_rise_detected_even_when_sampling_blocked(monkeypatch)
+
+
+def test_dewpoint_local_rise_not_equal_abnormal_rise() -> None:
+    test_local_dewpoint_rise_distinguished_from_abnormal_rise()
 
 
 def test_dewpoint_rise_still_fails_before_sampling() -> None:
