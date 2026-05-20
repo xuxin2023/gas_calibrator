@@ -473,8 +473,24 @@ _PRESSURE_TRACE_FIELDS = [
     "sample_invalidated_by_target_crossing",
     "sample_invalidated_by_positive_effort",
     "sample_invalidated_by_vent",
+    "sample_invalidated",
     "sample_valid_for_acceptance",
     "sample_invalidated_reason",
+    "dewpoint_candidate_missing",
+    "candidate_dewpoint_c",
+    "candidate_dewpoint_ts",
+    "candidate_dewpoint_age_ms",
+    "candidate_effort_pct",
+    "candidate_effort_ts",
+    "candidate_effort_age_ms",
+    "candidate_vent_status",
+    "candidate_outp_status",
+    "candidate_isol_status",
+    "candidate_pressure_ts",
+    "candidate_pressure_age_ms",
+    "candidate_positive_effort_seen",
+    "candidate_dewpoint_abnormal",
+    "candidate_sample_safe_precheck_result",
     "exhaust_only_candidate_vent_status",
     "exhaust_only_candidate_sampling_allowed",
     "candidate_primary_pressure_source",
@@ -519,6 +535,15 @@ _PRESSURE_TRACE_FIELDS = [
     "nominal_target_hpa",
     "pressure_above_target_sample_offset_hpa",
     "sampled_from_above_target_window",
+    "ultra_fast_snapshot_row_enabled",
+    "ultra_fast_snapshot_row_ts",
+    "ultra_fast_snapshot_anchor_ts",
+    "ultra_fast_snapshot_candidate_to_row_s",
+    "ultra_fast_snapshot_blocking_query_count",
+    "ultra_fast_snapshot_used_cache_only",
+    "ultra_fast_snapshot_live_query_count",
+    "ultra_fast_snapshot_quality_warning",
+    "ultra_fast_snapshot_acceptance_allowed",
     "exhaust_only_ready_result",
     "exhaust_only_ready_failure_reason",
     "pace_pressure_age_s",
@@ -10747,8 +10772,24 @@ class CalibrationRunner:
             "sample_invalidated_by_target_crossing": False,
             "sample_invalidated_by_positive_effort": False,
             "sample_invalidated_by_vent": False,
+            "sample_invalidated": False,
             "sample_valid_for_acceptance": "",
             "sample_invalidated_reason": "",
+            "dewpoint_candidate_missing": False,
+            "candidate_dewpoint_c": "",
+            "candidate_dewpoint_ts": "",
+            "candidate_dewpoint_age_ms": "",
+            "candidate_effort_pct": "",
+            "candidate_effort_ts": "",
+            "candidate_effort_age_ms": "",
+            "candidate_vent_status": "",
+            "candidate_outp_status": "",
+            "candidate_isol_status": "",
+            "candidate_pressure_ts": "",
+            "candidate_pressure_age_ms": "",
+            "candidate_positive_effort_seen": False,
+            "candidate_dewpoint_abnormal": False,
+            "candidate_sample_safe_precheck_result": "",
             "exhaust_only_candidate_vent_status": "",
             "exhaust_only_candidate_sampling_allowed": False,
             "candidate_primary_pressure_source": "",
@@ -10797,6 +10838,15 @@ class CalibrationRunner:
             "actual_pressure_offset_from_nominal_hpa": "",
             "pressure_above_target_sample_offset_hpa": "",
             "sampled_from_above_target_window": False,
+            "ultra_fast_snapshot_row_enabled": False,
+            "ultra_fast_snapshot_row_ts": "",
+            "ultra_fast_snapshot_anchor_ts": "",
+            "ultra_fast_snapshot_candidate_to_row_s": "",
+            "ultra_fast_snapshot_blocking_query_count": 0,
+            "ultra_fast_snapshot_used_cache_only": False,
+            "ultra_fast_snapshot_live_query_count": 0,
+            "ultra_fast_snapshot_quality_warning": "",
+            "ultra_fast_snapshot_acceptance_allowed": False,
         }
 
     def _above_target_candidate_safe_for_immediate_no_write_sampling(
@@ -10820,6 +10870,28 @@ class CalibrationRunner:
             return False
         return True
 
+    @staticmethod
+    def _normalized_sample_invalidation_reason(reason: str) -> str:
+        text = str(reason or "").strip()
+        if not text:
+            return ""
+        mapping = {
+            "positive_supply_effort": "positive_effort",
+            "dewpoint_abnormal_rise": "dewpoint_abnormal",
+        }
+        return mapping.get(text, text)
+
+    def _aggregate_sample_invalidation_reasons(self, existing: Any, reason: str) -> str:
+        parts: List[str] = []
+        for item in str(existing or "").split(";"):
+            text = self._normalized_sample_invalidation_reason(item)
+            if text and text not in parts:
+                parts.append(text)
+        text = self._normalized_sample_invalidation_reason(reason)
+        if text and text not in parts:
+            parts.append(text)
+        return ";".join(parts)
+
     def _mark_above_target_sample_invalidated(
         self,
         *,
@@ -10828,23 +10900,355 @@ class CalibrationRunner:
     ) -> Dict[str, Any]:
         context = self._sealed_sweep_context_for_counters()
         updates: Dict[str, Any] = {
+            "sample_invalidated": True,
             "sample_valid_for_acceptance": False,
-            "sample_invalidated_reason": str(reason or "above_target_sample_invalidated"),
         }
-        if reason == "dewpoint_abnormal_rise":
+        if reason in {"dewpoint_abnormal_rise", "dewpoint_abnormal"}:
             updates["dewpoint_abnormal_during_sample"] = True
             updates["sample_invalidated_by_dewpoint_rise"] = True
         if reason == "target_crossing":
             updates["sample_invalidated_by_target_crossing"] = True
-        if reason == "positive_supply_effort":
+        if reason in {"positive_supply_effort", "positive_effort"}:
             updates["sample_invalidated_by_positive_effort"] = True
         if reason == "vent":
             updates["sample_invalidated_by_vent"] = True
         if fields:
             updates.update(dict(fields))
+        existing_reason = ""
+        if isinstance(context, dict):
+            existing_reason = str(context.get("sample_invalidated_reason") or "")
+        if not existing_reason and fields:
+            existing_reason = str(fields.get("sample_invalidated_reason") or "")
+        updates["sample_invalidated_reason"] = self._aggregate_sample_invalidation_reasons(
+            existing_reason,
+            reason,
+        )
         if isinstance(context, dict):
             context.update(updates)
         return updates
+
+    @staticmethod
+    def _wall_ts_from_any(value: Any) -> Optional[float]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, (int, float)):
+            parsed = float(value)
+            return parsed if parsed > 0 else None
+        text = str(value or "").strip()
+        if not text:
+            return None
+        try:
+            parsed = float(text)
+            return parsed if parsed > 0 else None
+        except Exception:
+            pass
+        try:
+            return datetime.fromisoformat(text).timestamp()
+        except Exception:
+            return None
+
+    def _candidate_anchor_wall_ts(self, context: Mapping[str, Any]) -> Optional[float]:
+        for key in (
+            "fast_candidate_ts",
+            "exhaust_only_candidate_ts",
+            "candidate_pressure_ts",
+        ):
+            parsed = self._wall_ts_from_any(context.get(key))
+            if parsed is not None:
+                return parsed
+        return None
+
+    def _ultra_fast_candidate_snapshot_active(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+    ) -> bool:
+        phase_text = str(phase or "").strip().lower()
+        context = self._sealed_sweep_context_for_counters()
+        return bool(
+            phase_text == "co2"
+            and self._co2_sealed_no_vent_guard_active
+            and self._limited_no_write_workflow_active()
+            and isinstance(context, dict)
+            and self._above_target_candidate_safe_for_immediate_no_write_sampling(point)
+            and bool(
+                context.get("fast_candidate_detected")
+                or context.get("exhaust_only_candidate_window_entered")
+            )
+        )
+
+    def _candidate_cached_pace_state_fields(self, context: Mapping[str, Any]) -> Dict[str, Any]:
+        cache = self._pace_state_cache_snapshot()
+        return {
+            "pace_output_state": context.get("candidate_outp_status", cache.get("pace_output_state", "")),
+            "pace_isolation_state": context.get("candidate_isol_status", cache.get("pace_isolation_state", "")),
+            "pace_vent_status": context.get(
+                "candidate_vent_status",
+                context.get("exhaust_only_candidate_vent_status", cache.get("pace_vent_status", "")),
+            ),
+        }
+
+    def _collect_ultra_fast_candidate_snapshot_rows(
+        self,
+        point: CalibrationPoint,
+        *,
+        requested_rows: int,
+        requested_interval_s: float,
+        phase: str,
+        point_tag: str,
+    ) -> List[Dict[str, Any]]:
+        context = self._sealed_sweep_context_for_counters()
+        if not isinstance(context, dict):
+            return []
+
+        gas_analyzers = self._all_gas_analyzers()
+        row_now_s = time.time()
+        row_now_mono = time.monotonic()
+        anchor_s = self._candidate_anchor_wall_ts(context) or row_now_s
+        anchor_dt = datetime.fromtimestamp(anchor_s)
+        anchor_ts = self._ts_from_datetime(anchor_dt)
+        row_ts = self._ts_from_datetime(datetime.fromtimestamp(row_now_s))
+        candidate_to_row_s = max(0.0, row_now_s - float(anchor_s))
+        nominal_target = self._as_float(context.get("nominal_target_hpa")) or self._as_float(
+            getattr(point, "target_pressure_hpa", None)
+        )
+        candidate_pressure = self._as_float(
+            context.get("actual_pressure_used_for_sample")
+            if context.get("actual_pressure_used_for_sample") not in (None, "")
+            else context.get("exhaust_only_candidate_pressure_hpa")
+        )
+        if candidate_pressure is None:
+            candidate_pressure = self._as_float(context.get("fast_candidate_pressure_hpa"))
+        candidate_offset = (
+            max(0.0, float(candidate_pressure) - float(nominal_target))
+            if candidate_pressure is not None and nominal_target is not None
+            else ""
+        )
+        candidate_dewpoint = self._as_float(
+            context.get("candidate_dewpoint_c")
+            if context.get("candidate_dewpoint_c") not in (None, "")
+            else context.get("dewpoint_at_candidate")
+        )
+        candidate_effort = self._as_float(
+            context.get("candidate_effort_pct")
+            if context.get("candidate_effort_pct") not in (None, "")
+            else context.get("exhaust_only_candidate_effort_pct")
+        )
+        quality_warnings: List[str] = []
+        dewpoint_missing = candidate_dewpoint is None
+        if dewpoint_missing:
+            quality_warnings.append("dewpoint_candidate_missing")
+        if candidate_effort is None:
+            quality_warnings.append("effort_candidate_missing")
+
+        data: Dict[str, Any] = {
+            "point_title": self._point_title(point, phase=phase, point_tag=point_tag),
+            "sample_index": 1,
+            "sample_ts": anchor_ts,
+            "sample_due_ts": anchor_ts,
+            "sample_start_ts": anchor_ts,
+            "sample_lag_ms": round(candidate_to_row_s * 1000.0, 3),
+            "point_phase": phase,
+            "point_tag": point_tag,
+            "point_row": point.index,
+            "trace_stage": "sampling_row",
+            "route": phase,
+            "pressure_mode": self._pressure_mode_for_point(point),
+            "pressure_target_label": self._pressure_target_label(point),
+            "fast_group_anchor_ts": anchor_ts,
+            "fast_group_start_ts": anchor_ts,
+            "fast_group_end_ts": row_ts,
+            "fast_group_span_ms": round(candidate_to_row_s * 1000.0, 3),
+            "pressure_hpa": candidate_pressure if candidate_pressure is not None else "",
+            "pace_sample_ts": anchor_ts if candidate_pressure is not None else "",
+            "pace_anchor_delta_ms": 0.0 if candidate_pressure is not None else "",
+            "dewpoint_live_c": candidate_dewpoint if candidate_dewpoint is not None else "",
+            "dewpoint_c": candidate_dewpoint if candidate_dewpoint is not None else "",
+            "dewpoint_live_sample_ts": context.get("candidate_dewpoint_ts", ""),
+            "dewpoint_sample_ts": context.get("candidate_dewpoint_ts", ""),
+            "co2_ppm_target": point.co2_ppm,
+            "h2o_mmol_target": point.h2o_mmol,
+            "pressure_target_hpa": point.target_pressure_hpa,
+            "temp_set_c": point.temp_chamber_c,
+            "point_is_h2o": point.is_h2o_point,
+            "candidate_pressure_hpa": candidate_pressure if candidate_pressure is not None else "",
+            "candidate_pressure_offset_hpa": candidate_offset,
+            "sample_snapshot_pressure_hpa": candidate_pressure if candidate_pressure is not None else "",
+            "sample_snapshot_pressure_offset_hpa": candidate_offset,
+            "actual_pressure_used_for_sample": candidate_pressure if candidate_pressure is not None else "",
+            "actual_pressure_source_for_sample": "candidate" if candidate_pressure is not None else "",
+            "nominal_target_hpa": nominal_target if nominal_target is not None else "",
+            "control_setpoint_hpa": context.get("control_setpoint_hpa", ""),
+            "actual_pressure_offset_from_nominal_hpa": candidate_offset,
+            "pressure_above_target_sample_offset_hpa": candidate_offset,
+            "sampled_from_above_target_window": True,
+            "sample_trigger": "fast_above_target_candidate",
+            "sealed_fast_sample_mode": self._sealed_fast_sample_mode(),
+            "sealed_fast_sample_rows_requested": int(requested_rows),
+            "sealed_fast_sample_interval_s": float(requested_interval_s),
+            "sample_valid_for_acceptance": False,
+            "sample_invalidated": bool(context.get("sample_invalidated") is True),
+            "sample_invalidated_reason": context.get("sample_invalidated_reason", ""),
+            "sample_invalidated_by_target_crossing": bool(
+                context.get("sample_invalidated_by_target_crossing") is True
+            ),
+            "sample_invalidated_by_positive_effort": bool(
+                context.get("sample_invalidated_by_positive_effort") is True
+            ),
+            "sample_invalidated_by_dewpoint_rise": bool(
+                context.get("sample_invalidated_by_dewpoint_rise") is True
+            ),
+            "sample_invalidated_by_vent": bool(context.get("sample_invalidated_by_vent") is True),
+            "ultra_fast_snapshot_row_enabled": True,
+            "ultra_fast_snapshot_row_ts": row_ts,
+            "ultra_fast_snapshot_anchor_ts": anchor_ts,
+            "ultra_fast_snapshot_candidate_to_row_s": candidate_to_row_s,
+            "ultra_fast_snapshot_blocking_query_count": 0,
+            "ultra_fast_snapshot_used_cache_only": True,
+            "ultra_fast_snapshot_live_query_count": 0,
+            "ultra_fast_snapshot_quality_warning": ";".join(quality_warnings),
+            "ultra_fast_snapshot_acceptance_allowed": False,
+            "dewpoint_candidate_missing": dewpoint_missing,
+        }
+        data.update(self._candidate_cached_pace_state_fields(context))
+        for key in (
+            "exhaust_only_candidate_pressure_hpa",
+            "exhaust_only_candidate_ts",
+            "exhaust_only_candidate_effort_pct",
+            "exhaust_only_candidate_dewpoint_c",
+            "dewpoint_at_candidate",
+            "candidate_dewpoint_ts",
+            "candidate_dewpoint_age_ms",
+            "candidate_effort_pct",
+            "candidate_effort_ts",
+            "candidate_effort_age_ms",
+            "candidate_vent_status",
+            "candidate_outp_status",
+            "candidate_isol_status",
+            "candidate_pressure_ts",
+            "candidate_pressure_age_ms",
+            "candidate_target_crossing_count",
+            "candidate_positive_effort_seen",
+            "candidate_dewpoint_abnormal",
+            "candidate_sample_safe_precheck_result",
+            "dewpoint_abnormal_at_candidate",
+            "dewpoint_abnormal_during_sample",
+            "candidate_primary_pressure_source",
+            "candidate_secondary_pressure_source",
+            "candidate_com22_waited",
+            "candidate_com22_age_ms",
+            "candidate_pressure_source_delta_hpa",
+            "candidate_pressure_source_mismatch",
+            "fast_candidate_to_sampling_begin_s",
+            "fast_candidate_to_first_sample_s",
+            "sample_setpoint_bias_enabled",
+            "sample_setpoint_bias_hpa",
+            "setpoint_bias_reason",
+            "in_limits_at_candidate",
+            "in_limits_at_sample",
+            "in_limits_age_ms",
+            "in_limits_source",
+            "higher_quality_sample_candidate",
+        ):
+            if key in context:
+                data[key] = context.get(key)
+
+        frame_issues = self._merge_analyzer_cache_into_sample(
+            data,
+            gas_analyzers,
+            context=None,
+            sample_anchor_mono=row_now_mono,
+            row_time_s=row_now_s,
+        )
+        self._add_sampling_timing_evidence(data, gas_analyzers, row_time_s=row_now_s)
+        if frame_issues:
+            data["ultra_fast_snapshot_quality_warning"] = ";".join(
+                item
+                for item in [
+                    data.get("ultra_fast_snapshot_quality_warning", ""),
+                    "analyzer_cache_issue",
+                ]
+                if item
+            )
+        if data.get("sample_alignment_failure_reason"):
+            data["ultra_fast_snapshot_quality_warning"] = ";".join(
+                item
+                for item in [
+                    data.get("ultra_fast_snapshot_quality_warning", ""),
+                    str(data.get("sample_alignment_failure_reason")),
+                ]
+                if item
+            )
+        data["sample_end_ts"] = row_ts
+        data["sample_elapsed_ms"] = round(max(0.0, (time.time() - row_now_s) * 1000.0), 3)
+
+        context_updates = {
+            "ultra_fast_snapshot_row_enabled": True,
+            "ultra_fast_snapshot_row_ts": row_ts,
+            "ultra_fast_snapshot_anchor_ts": anchor_ts,
+            "ultra_fast_snapshot_candidate_to_row_s": candidate_to_row_s,
+            "ultra_fast_snapshot_blocking_query_count": 0,
+            "ultra_fast_snapshot_used_cache_only": True,
+            "ultra_fast_snapshot_live_query_count": 0,
+            "ultra_fast_snapshot_quality_warning": data.get("ultra_fast_snapshot_quality_warning", ""),
+            "ultra_fast_snapshot_acceptance_allowed": False,
+            "fast_candidate_to_first_sample_s": candidate_to_row_s,
+            "sample_valid_for_acceptance": False,
+        }
+        context.update(context_updates)
+        data.update(context_updates)
+
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            point_tag=point_tag,
+            trace_stage="first_sample_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            pace_pressure_hpa=self._as_float(data.get("pressure_hpa")),
+            pressure_gauge_hpa=self._as_float(data.get("pressure_gauge_hpa")),
+            dewpoint_c=self._as_float(data.get("dewpoint_c")),
+            pace_output_state=data.get("pace_output_state"),
+            pace_isolation_state=data.get("pace_isolation_state"),
+            pace_vent_status=data.get("pace_vent_status"),
+            refresh_pace_state=False,
+            fast_group_span_ms=self._as_float(data.get("fast_group_span_ms")),
+            sample_lag_ms=self._as_float(data.get("sample_lag_ms")),
+            extra_fields=self._sealed_sweep_trace_extra(context_updates),
+            event_ts=anchor_s,
+            note="ultra_fast_candidate_snapshot row=1",
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            point_tag=point_tag,
+            trace_stage="sampling_row",
+            pressure_target_hpa=point.target_pressure_hpa,
+            pace_pressure_hpa=self._as_float(data.get("pressure_hpa")),
+            pressure_gauge_hpa=self._as_float(data.get("pressure_gauge_hpa")),
+            dewpoint_c=self._as_float(data.get("dewpoint_c")),
+            pace_output_state=data.get("pace_output_state"),
+            pace_isolation_state=data.get("pace_isolation_state"),
+            pace_vent_status=data.get("pace_vent_status"),
+            refresh_pace_state=False,
+            fast_group_span_ms=self._as_float(data.get("fast_group_span_ms")),
+            sample_lag_ms=self._as_float(data.get("sample_lag_ms")),
+            extra_fields=self._sealed_sweep_trace_extra(context_updates),
+            event_ts=anchor_s,
+            note="sample_index=1/1 ultra_fast_candidate_snapshot",
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            first_valid_pace_ms=0.0 if candidate_pressure is not None else None,
+            first_valid_pressure_gauge_ms=None,
+            first_valid_dewpoint_ms=0.0 if candidate_dewpoint is not None else None,
+            first_valid_analyzer_ms=None,
+            effective_sample_started_on_row=1,
+        )
+        return [data]
 
     def _dewpoint_lag_compensation_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.dewpoint_lag_compensation_enabled", True))
@@ -12493,6 +12897,27 @@ class CalibrationRunner:
                     (candidate_context or {}).get("current_candidate_primary_pressure_source")
                     or ("PACE:read_pressure" if (candidate_context or {}).get("fast_candidate_monitor_enabled") else "PACE:in_limits")
                 )
+                cached_effort_ok, cached_effort_fields, _cached_effort_reason = (
+                    self._sealed_positive_supply_effort_cached_guard_fields(stage="candidate")
+                )
+                candidate_effort_pct = self._as_float(
+                    cached_effort_fields.get("positive_supply_effort_cached_pct")
+                )
+                candidate_dew_frame = self._latest_fast_signal_frame(
+                    "dewpoint",
+                    context=candidate_context if isinstance(candidate_context, dict) else None,
+                )
+                candidate_dewpoint_ts = ""
+                candidate_dewpoint_age_ms: Any = ""
+                if isinstance(candidate_dew_frame, dict):
+                    candidate_dewpoint_ts = str(candidate_dew_frame.get("recv_wall_ts") or "")
+                    candidate_dew_mono_s = self._as_float(candidate_dew_frame.get("recv_mono_s"))
+                    if candidate_dew_mono_s is not None:
+                        candidate_dewpoint_age_ms = round(
+                            max(0.0, time.monotonic() - candidate_dew_mono_s) * 1000.0,
+                            3,
+                        )
+                cached_pace_state = self._pace_state_cache_snapshot()
                 secondary_pressure = self._as_float((candidate_context or {}).get("candidate_secondary_pressure_hpa"))
                 secondary_age_s = self._as_float((candidate_context or {}).get("candidate_secondary_pressure_age_s"))
                 source_delta = (
@@ -12528,6 +12953,31 @@ class CalibrationRunner:
                 state["pressure_above_target_sample_offset_hpa"] = max(0.0, float(pressure_hpa) - float(target))
                 state["dewpoint_at_candidate"] = candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
                 state["dewpoint_abnormal_at_candidate"] = candidate_dewpoint_abnormal
+                state["dewpoint_candidate_missing"] = candidate_dewpoint_c is None
+                state["candidate_dewpoint_c"] = candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
+                state["candidate_dewpoint_ts"] = candidate_dewpoint_ts
+                state["candidate_dewpoint_age_ms"] = candidate_dewpoint_age_ms
+                state["candidate_effort_pct"] = candidate_effort_pct if candidate_effort_pct is not None else ""
+                state["candidate_effort_ts"] = ""
+                state["candidate_effort_age_ms"] = ""
+                state["candidate_vent_status"] = (
+                    (candidate_context or {}).get("candidate_vent_status")
+                    if (candidate_context or {}).get("candidate_vent_status") not in (None, "")
+                    else cached_pace_state.get("pace_vent_status", "")
+                )
+                state["candidate_outp_status"] = cached_pace_state.get("pace_output_state", "")
+                state["candidate_isol_status"] = cached_pace_state.get("pace_isolation_state", "")
+                state["candidate_pressure_ts"] = self._iso_ts_from_wall(evaluation_ts)
+                state["candidate_pressure_age_ms"] = 0.0
+                state["candidate_target_crossing_count"] = crossing_count
+                state["candidate_positive_effort_seen"] = bool(
+                    cached_effort_fields.get("positive_effort_any_seen")
+                    or cached_effort_fields.get("positive_effort_fail_closed")
+                )
+                state["candidate_dewpoint_abnormal"] = candidate_dewpoint_abnormal
+                state["candidate_sample_safe_precheck_result"] = (
+                    "pass" if candidate_sampling_allowed and cached_effort_ok else "blocked"
+                )
                 state["candidate_primary_pressure_source"] = candidate_source
                 state["candidate_secondary_pressure_source"] = (
                     "COM22:cached" if secondary_pressure is not None else "COM22:secondary_unavailable"
@@ -12571,8 +13021,57 @@ class CalibrationRunner:
                         candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
                     ),
                     "dewpoint_at_candidate": candidate_dewpoint_c if candidate_dewpoint_c is not None else "",
+                    "dewpoint_candidate_missing": bool(candidate_entered and candidate_dewpoint_c is None),
+                    "candidate_dewpoint_c": (
+                        candidate_dewpoint_c if candidate_entered and candidate_dewpoint_c is not None else ""
+                    ),
+                    "candidate_dewpoint_ts": (
+                        state.get("candidate_dewpoint_ts", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_dewpoint_age_ms": (
+                        state.get("candidate_dewpoint_age_ms", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_effort_pct": (
+                        state.get("candidate_effort_pct", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_effort_ts": (
+                        state.get("candidate_effort_ts", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_effort_age_ms": (
+                        state.get("candidate_effort_age_ms", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_vent_status": (
+                        state.get("candidate_vent_status", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_outp_status": (
+                        state.get("candidate_outp_status", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_isol_status": (
+                        state.get("candidate_isol_status", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_pressure_ts": (
+                        state.get("candidate_pressure_ts", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_pressure_age_ms": (
+                        state.get("candidate_pressure_age_ms", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_target_crossing_count": crossing_count if candidate_entered else "",
+                    "candidate_positive_effort_seen": bool(
+                        state is not None and candidate_entered and state.get("candidate_positive_effort_seen")
+                    ),
+                    "candidate_dewpoint_abnormal": bool(candidate_entered and candidate_dewpoint_abnormal),
+                    "candidate_sample_safe_precheck_result": (
+                        state.get("candidate_sample_safe_precheck_result", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
                     "dewpoint_abnormal_at_candidate": bool(
                         candidate_entered and candidate_dewpoint_abnormal
+                    ),
+                    "exhaust_only_candidate_effort_pct": (
+                        state.get("candidate_effort_pct", "")
+                        if state is not None and candidate_entered
+                        else ""
                     ),
                     "exhaust_only_candidate_sampling_allowed": candidate_sampling_allowed,
                     "candidate_primary_pressure_source": (
@@ -28717,6 +29216,23 @@ class CalibrationRunner:
                         "sample_invalidated_by_dewpoint_rise",
                         "sample_valid_for_acceptance",
                         "sample_invalidated_reason",
+                        "sample_invalidated",
+                        "dewpoint_candidate_missing",
+                        "candidate_dewpoint_c",
+                        "candidate_dewpoint_ts",
+                        "candidate_dewpoint_age_ms",
+                        "candidate_effort_pct",
+                        "candidate_effort_ts",
+                        "candidate_effort_age_ms",
+                        "candidate_vent_status",
+                        "candidate_outp_status",
+                        "candidate_isol_status",
+                        "candidate_pressure_ts",
+                        "candidate_pressure_age_ms",
+                        "candidate_target_crossing_count",
+                        "candidate_positive_effort_seen",
+                        "candidate_dewpoint_abnormal",
+                        "candidate_sample_safe_precheck_result",
                         "sample_invalidated_by_target_crossing",
                         "sample_invalidated_by_positive_effort",
                         "sample_invalidated_by_vent",
@@ -28728,6 +29244,15 @@ class CalibrationRunner:
                         "candidate_pressure_source_mismatch",
                         "fast_candidate_to_sampling_begin_s",
                         "fast_candidate_to_first_sample_s",
+                        "ultra_fast_snapshot_row_enabled",
+                        "ultra_fast_snapshot_row_ts",
+                        "ultra_fast_snapshot_anchor_ts",
+                        "ultra_fast_snapshot_candidate_to_row_s",
+                        "ultra_fast_snapshot_blocking_query_count",
+                        "ultra_fast_snapshot_used_cache_only",
+                        "ultra_fast_snapshot_live_query_count",
+                        "ultra_fast_snapshot_quality_warning",
+                        "ultra_fast_snapshot_acceptance_allowed",
                     ):
                         if key in sealed_context:
                             data[key] = sealed_context.get(key)
@@ -29122,91 +29647,108 @@ class CalibrationRunner:
             refresh_pace_state=False,
             note=f"count={count} interval_s={interval:g}",
         )
-        sampling_context = self._start_sampling_window_context(
-            point=point,
-            phase=phase_text,
-            point_tag=point_tag,
-        )
-        self._sampling_window_context = sampling_context
-        soft_cfg = self._pressure_soft_control_trace_context()
-        self.log(
-            "Sampling window config: "
-            f"phase={phase_text} count={count} interval_s={interval:g} "
-            f"fixed_rate_enabled={self._sampling_fixed_rate_enabled()} "
-            f"slow_aux_cache_enabled={self._sampling_slow_aux_cache_enabled()} "
-            f"slow_aux_cache_interval_s={self._sampling_slow_aux_cache_interval_s():g} "
-            f"pace_state_every_n_samples={self._sampling_pace_state_every_n_samples()} "
-            f"pace_state_cache_enabled={self._sampling_pace_state_cache_enabled()} "
-            f"pace_state_strategy={self._sampling_pace_state_strategy_text()} "
-            f"soft_control_enabled={soft_cfg['soft_control_enabled']} "
-            f"soft_control_linear_slew_hpa_per_s={soft_cfg['soft_control_linear_slew_hpa_per_s']}"
-        )
-        prime_metrics = self._wait_for_sampling_freshness_gate(
-            point=point,
-            phase=phase_text,
-            point_tag=point_tag,
-            context=sampling_context,
-        )
-        prime_trace_deferred = str(prime_metrics.get("status") or "skipped") == "timeout"
-        prime_trace_written = False
-        if not prime_trace_deferred:
-            self._append_sampling_prime_ready_trace(
-                point,
-                phase=phase_text,
-                point_tag=point_tag,
-                metrics=prime_metrics,
+        if self._ultra_fast_candidate_snapshot_active(point, phase=phase_text):
+            self.log(
+                "Sampling window ultra-fast candidate snapshot: "
+                f"phase={phase_text} count=1 requested_count={count} "
+                f"requested_interval_s={interval:g}"
             )
-            prime_trace_written = True
-        try:
-            try:
-                for attempt in range(retries + 1):
-                    collected = self._collect_samples(point, count, interval, phase=phase, point_tag=point_tag)
-                    if collected is None:
-                        if prime_trace_deferred and not prime_trace_written:
-                            self._append_sampling_prime_ready_trace(
-                                point,
-                                phase=phase_text,
-                                point_tag=point_tag,
-                                metrics=prime_metrics,
-                            )
-                            prime_trace_written = True
-                        return
-
-                    ok, spans = self._evaluate_sample_quality(collected)
-                    samples = collected
-                    if ok:
-                        break
-
-                    if attempt < retries:
-                        self.log(f"Sample quality not met, retry {attempt + 1}/{retries}: spans={spans}")
-                    else:
-                        self.log(f"Sample quality not met, using last batch: spans={spans}")
-            except Exception:
-                if prime_trace_deferred and not prime_trace_written:
-                    self._append_sampling_prime_ready_trace(
-                        point,
-                        phase=phase_text,
-                        point_tag=point_tag,
-                        metrics=prime_metrics,
-                    )
-                    prime_trace_written = True
-                raise
-        finally:
-            self._sampling_window_context = previous_sampling_context
-            self._stop_sampling_window_context(sampling_context)
-
-        if prime_trace_deferred and not prime_trace_written:
-            self._append_sampling_prime_ready_trace(
+            samples = self._collect_ultra_fast_candidate_snapshot_rows(
                 point,
+                requested_rows=count,
+                requested_interval_s=interval,
                 phase=phase_text,
                 point_tag=point_tag,
-                metrics=self._finalize_sampling_prime_metrics_after_collection(
+            )
+        else:
+            sampling_context = self._start_sampling_window_context(
+                point=point,
+                phase=phase_text,
+                point_tag=point_tag,
+            )
+            self._sampling_window_context = sampling_context
+            soft_cfg = self._pressure_soft_control_trace_context()
+            self.log(
+                "Sampling window config: "
+                f"phase={phase_text} count={count} interval_s={interval:g} "
+                f"fixed_rate_enabled={self._sampling_fixed_rate_enabled()} "
+                f"slow_aux_cache_enabled={self._sampling_slow_aux_cache_enabled()} "
+                f"slow_aux_cache_interval_s={self._sampling_slow_aux_cache_interval_s():g} "
+                f"pace_state_every_n_samples={self._sampling_pace_state_every_n_samples()} "
+                f"pace_state_cache_enabled={self._sampling_pace_state_cache_enabled()} "
+                f"pace_state_strategy={self._sampling_pace_state_strategy_text()} "
+                f"soft_control_enabled={soft_cfg['soft_control_enabled']} "
+                f"soft_control_linear_slew_hpa_per_s={soft_cfg['soft_control_linear_slew_hpa_per_s']}"
+            )
+            prime_metrics = self._wait_for_sampling_freshness_gate(
+                point=point,
+                phase=phase_text,
+                point_tag=point_tag,
+                context=sampling_context,
+            )
+            prime_trace_deferred = str(prime_metrics.get("status") or "skipped") == "timeout"
+            prime_trace_written = False
+            if not prime_trace_deferred:
+                self._append_sampling_prime_ready_trace(
                     point,
                     phase=phase_text,
+                    point_tag=point_tag,
                     metrics=prime_metrics,
-                    samples=samples,
-                ),
-            )
+                )
+                prime_trace_written = True
+            try:
+                try:
+                    for attempt in range(retries + 1):
+                        collected = self._collect_samples(point, count, interval, phase=phase, point_tag=point_tag)
+                        if collected is None:
+                            if prime_trace_deferred and not prime_trace_written:
+                                self._append_sampling_prime_ready_trace(
+                                    point,
+                                    phase=phase_text,
+                                    point_tag=point_tag,
+                                    metrics=prime_metrics,
+                                )
+                                prime_trace_written = True
+                            return
+
+                        ok, spans = self._evaluate_sample_quality(collected)
+                        samples = collected
+                        if ok:
+                            break
+
+                        if attempt < retries:
+                            self.log(f"Sample quality not met, retry {attempt + 1}/{retries}: spans={spans}")
+                        else:
+                            self.log(f"Sample quality not met, using last batch: spans={spans}")
+                except Exception:
+                    if prime_trace_deferred and not prime_trace_written:
+                        self._append_sampling_prime_ready_trace(
+                            point,
+                            phase=phase_text,
+                            point_tag=point_tag,
+                            metrics=prime_metrics,
+                        )
+                        prime_trace_written = True
+                    raise
+            finally:
+                self._sampling_window_context = previous_sampling_context
+                self._stop_sampling_window_context(sampling_context)
+
+            if prime_trace_deferred and not prime_trace_written:
+                self._append_sampling_prime_ready_trace(
+                    point,
+                    phase=phase_text,
+                    point_tag=point_tag,
+                    metrics=self._finalize_sampling_prime_metrics_after_collection(
+                        point,
+                        phase=phase_text,
+                        metrics=prime_metrics,
+                        samples=samples,
+                    ),
+                )
+
+        if not samples:
+            return
 
         last_sample = samples[-1] if samples else {}
         sample_done_ts = self._sample_row_wall_ts(last_sample) or time.time()
