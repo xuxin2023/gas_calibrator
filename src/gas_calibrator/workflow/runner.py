@@ -387,6 +387,14 @@ _PRESSURE_TRACE_FIELDS = [
     "exhaust_only_candidate_ts",
     "exhaust_only_candidate_effort_pct",
     "exhaust_only_candidate_dewpoint_c",
+    "dewpoint_at_candidate",
+    "dewpoint_abnormal_at_candidate",
+    "dewpoint_abnormal_during_sample",
+    "sample_invalidated_by_dewpoint_rise",
+    "sample_invalidated_by_target_crossing",
+    "sample_invalidated_by_positive_effort",
+    "sample_valid_for_acceptance",
+    "sample_invalidated_reason",
     "exhaust_only_candidate_vent_status",
     "exhaust_only_candidate_sampling_allowed",
     "actual_pressure_used_for_sample",
@@ -637,8 +645,15 @@ _PRESSURE_TRACE_FIELDS = [
     "open_flow_pre_stop_hold_outp_stat_query_count",
     "open_flow_pre_stop_hold_isol_query_count",
     "open_flow_pre_stop_hold_inl_query_count",
+    "open_flow_pre_stop_hold_pressure_query_count",
     "open_flow_pre_stop_hold_syst_err_query_count",
+    "open_flow_inl_query_deferred_for_keepalive_count",
+    "open_flow_pressure_query_deferred_for_keepalive_count",
+    "open_flow_critical_window_inl_query_blocked",
+    "open_flow_critical_window_pressure_query_blocked",
     "open_flow_vent1_gap_caused_by_query",
+    "open_flow_vent1_gap_caused_by_inl_query",
+    "open_flow_vent1_gap_caused_by_pressure_query",
     "open_flow_vent1_gap_fail_reason",
     "open_flow_vent1_gap_guard_passed",
     "open_flow_vent1_gap_guard_window_end_ts",
@@ -955,6 +970,10 @@ class CalibrationRunner:
         self._pace_query_deferred_for_keepalive_count = 0
         self._pace_query_deferred_for_keepalive_types: set[str] = set()
         self._pace_query_blocking_keepalive_count = 0
+        self._open_flow_inl_query_deferred_for_keepalive_count = 0
+        self._open_flow_pressure_query_deferred_for_keepalive_count = 0
+        self._open_flow_critical_window_inl_query_blocked = False
+        self._open_flow_critical_window_pressure_query_blocked = False
         self._open_flow_cached_outp_state_used = False
         self._open_flow_cached_isol_state_used = False
         self._last_atmosphere_hold_stop_request_ts: Optional[float] = None
@@ -996,6 +1015,33 @@ class CalibrationRunner:
         self._pace_query_deferred_for_keepalive_types.add(text)
         return True
 
+    def _record_open_flow_pressure_query_deferred_for_keepalive(
+        self,
+        query_type: str,
+        *,
+        pressure_query: bool = True,
+        inl_query: bool = False,
+    ) -> bool:
+        if not self._record_pace_query_deferred_for_keepalive(query_type):
+            return False
+        if pressure_query:
+            self._open_flow_pressure_query_deferred_for_keepalive_count += 1
+            self._open_flow_critical_window_pressure_query_blocked = True
+        if inl_query:
+            self._open_flow_inl_query_deferred_for_keepalive_count += 1
+            self._open_flow_critical_window_inl_query_blocked = True
+        return True
+
+    def _cached_open_flow_pace_pressure_for_keepalive(self) -> Optional[float]:
+        values = self._cached_ready_check_trace_values()
+        pace_pressure = self._as_float(values.get("pace_pressure_hpa"))
+        if pace_pressure is not None:
+            return pace_pressure
+        snapshot = self._preseal_dewpoint_snapshot
+        if isinstance(snapshot, dict):
+            return self._as_float(snapshot.get("pressure_hpa"))
+        return None
+
     def _open_flow_keepalive_scheduler_fields(self) -> Dict[str, Any]:
         owner = str(self._open_flow_keepalive_owner or "").strip()
         if not owner and self._co2_open_flow_until_preseal_raw_tap_window_active:
@@ -1019,6 +1065,18 @@ class CalibrationRunner:
             "open_flow_cached_isol_state_used": bool(self._open_flow_cached_isol_state_used),
             "open_flow_query_blocking_keepalive_prevented": bool(
                 self._pace_query_deferred_for_keepalive_count > 0
+            ),
+            "open_flow_inl_query_deferred_for_keepalive_count": int(
+                self._open_flow_inl_query_deferred_for_keepalive_count
+            ),
+            "open_flow_pressure_query_deferred_for_keepalive_count": int(
+                self._open_flow_pressure_query_deferred_for_keepalive_count
+            ),
+            "open_flow_critical_window_inl_query_blocked": bool(
+                self._open_flow_critical_window_inl_query_blocked
+            ),
+            "open_flow_critical_window_pressure_query_blocked": bool(
+                self._open_flow_critical_window_pressure_query_blocked
             ),
         }
 
@@ -2243,8 +2301,13 @@ class CalibrationRunner:
             read_pace_pressure
             and pace_pressure_hpa is None
             and pace
-            and self._record_pace_query_deferred_for_keepalive("trace_pace_pressure")
+            and self._record_open_flow_pressure_query_deferred_for_keepalive(
+                "trace_pace_pressure",
+                pressure_query=True,
+                inl_query=True,
+            )
         ):
+            pace_pressure_hpa = self._cached_open_flow_pace_pressure_for_keepalive()
             read_pace_pressure = False
         if (
             refresh_pace_state
@@ -10250,6 +10313,13 @@ class CalibrationRunner:
         raw = self._wf("workflow.pressure.exhaust_only_sample_above_target_lower_margin_hpa", 0.0)
         return max(0.0, float(0.0 if raw is None else raw))
 
+    def _exhaust_only_sample_above_target_requires_dewpoint_not_abnormal(self) -> bool:
+        raw = self._wf(
+            "workflow.pressure.exhaust_only_sample_above_target_requires_dewpoint_not_abnormal",
+            True,
+        )
+        return self._as_bool(raw, True)
+
     def _exhaust_only_above_target_candidate_base_fields(self) -> Dict[str, Any]:
         return {
             "exhaust_only_sample_above_target_enabled": self._exhaust_only_sample_above_target_enabled(),
@@ -10265,6 +10335,14 @@ class CalibrationRunner:
             "exhaust_only_candidate_ts": "",
             "exhaust_only_candidate_effort_pct": "",
             "exhaust_only_candidate_dewpoint_c": "",
+            "dewpoint_at_candidate": "",
+            "dewpoint_abnormal_at_candidate": False,
+            "dewpoint_abnormal_during_sample": False,
+            "sample_invalidated_by_dewpoint_rise": False,
+            "sample_invalidated_by_target_crossing": False,
+            "sample_invalidated_by_positive_effort": False,
+            "sample_valid_for_acceptance": "",
+            "sample_invalidated_reason": "",
             "exhaust_only_candidate_vent_status": "",
             "exhaust_only_candidate_sampling_allowed": False,
             "actual_pressure_used_for_sample": "",
@@ -10272,6 +10350,51 @@ class CalibrationRunner:
             "pressure_above_target_sample_offset_hpa": "",
             "sampled_from_above_target_window": False,
         }
+
+    def _above_target_candidate_safe_for_immediate_no_write_sampling(
+        self,
+        point: Optional[CalibrationPoint] = None,
+    ) -> bool:
+        context = self._sealed_sweep_context_for_counters()
+        if not isinstance(context, dict):
+            return False
+        if not self._exhaust_only_sample_above_target_allow_sampling():
+            return False
+        if not bool(context.get("sampled_from_above_target_window")):
+            return False
+        if not bool(context.get("exhaust_only_candidate_sampling_allowed")):
+            return False
+        if bool(context.get("dewpoint_abnormal_at_candidate")):
+            return False
+        target = self._as_float(getattr(point, "target_pressure_hpa", None)) if point is not None else None
+        actual = self._as_float(context.get("actual_pressure_used_for_sample"))
+        if target is not None and actual is not None and actual < target:
+            return False
+        return True
+
+    def _mark_above_target_sample_invalidated(
+        self,
+        *,
+        reason: str,
+        fields: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        context = self._sealed_sweep_context_for_counters()
+        updates: Dict[str, Any] = {
+            "sample_valid_for_acceptance": False,
+            "sample_invalidated_reason": str(reason or "above_target_sample_invalidated"),
+        }
+        if reason == "dewpoint_abnormal_rise":
+            updates["dewpoint_abnormal_during_sample"] = True
+            updates["sample_invalidated_by_dewpoint_rise"] = True
+        if reason == "target_crossing":
+            updates["sample_invalidated_by_target_crossing"] = True
+        if reason == "positive_supply_effort":
+            updates["sample_invalidated_by_positive_effort"] = True
+        if fields:
+            updates.update(dict(fields))
+        if isinstance(context, dict):
+            context.update(updates)
+        return updates
 
     def _dewpoint_lag_compensation_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.dewpoint_lag_compensation_enabled", True))
@@ -11237,6 +11360,7 @@ class CalibrationRunner:
         pressure_hpa: Optional[float],
         in_limits: Any,
         pressure_control_direction_expected: Any = "",
+        point: Optional[CalibrationPoint] = None,
     ) -> Tuple[bool, bool, Dict[str, Any], str]:
         direction = str(pressure_control_direction_expected or "").strip().lower()
         enabled = bool(
@@ -11304,6 +11428,15 @@ class CalibrationRunner:
             )
             candidate_upper = self._exhaust_only_sample_above_target_upper_window_hpa()
             candidate_lower_margin = self._exhaust_only_sample_above_target_lower_margin_hpa()
+            candidate_dewpoint_c = self._current_trace_dewpoint_c(point=point)
+            candidate_dewpoint_fields = self._sealed_dewpoint_rise_trace_fields(
+                current_dewpoint_c=candidate_dewpoint_c,
+                current_pressure_hpa=pressure_hpa,
+                point=point,
+            )
+            candidate_dewpoint_abnormal = bool(
+                candidate_dewpoint_fields.get("dewpoint_abnormal_rise_detected")
+            )
             candidate_entered = bool(
                 candidate_enabled
                 and not terminal
@@ -11311,7 +11444,17 @@ class CalibrationRunner:
                 and not undershoot_detected
                 and (float(target) - candidate_lower_margin) <= float(pressure_hpa) <= float(target) + candidate_upper
             )
-            candidate_sampling_allowed = bool(candidate_entered and candidate_allow_sampling)
+            if (
+                candidate_entered
+                and candidate_allow_sampling
+                and self._exhaust_only_sample_above_target_requires_dewpoint_not_abnormal()
+                and candidate_dewpoint_abnormal
+            ):
+                candidate_sampling_allowed = False
+                failure_reason = failure_reason or "FAIL_CLOSED_DEWPOINT_RISE_AT_ABOVE_TARGET_CANDIDATE"
+                terminal = True
+            else:
+                candidate_sampling_allowed = bool(candidate_entered and candidate_allow_sampling)
             if candidate_entered and state is not None:
                 state["exhaust_only_candidate_window_entered"] = True
                 state["exhaust_only_candidate_pressure_hpa"] = float(pressure_hpa)
@@ -11319,6 +11462,8 @@ class CalibrationRunner:
                 state["actual_pressure_used_for_sample"] = float(pressure_hpa)
                 state["nominal_target_hpa"] = float(target)
                 state["pressure_above_target_sample_offset_hpa"] = max(0.0, float(pressure_hpa) - float(target))
+                state["dewpoint_at_candidate"] = candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
+                state["dewpoint_abnormal_at_candidate"] = candidate_dewpoint_abnormal
             candidate_fields.update(
                 {
                     "exhaust_only_upper_window_hpa": candidate_upper,
@@ -11328,7 +11473,13 @@ class CalibrationRunner:
                     "exhaust_only_candidate_ts": (
                         self._iso_ts_from_wall(evaluation_ts) if candidate_entered else ""
                     ),
-                    "exhaust_only_candidate_dewpoint_c": self._current_trace_dewpoint_c(),
+                    "exhaust_only_candidate_dewpoint_c": (
+                        candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
+                    ),
+                    "dewpoint_at_candidate": candidate_dewpoint_c if candidate_dewpoint_c is not None else "",
+                    "dewpoint_abnormal_at_candidate": bool(
+                        candidate_entered and candidate_dewpoint_abnormal
+                    ),
                     "exhaust_only_candidate_sampling_allowed": candidate_sampling_allowed,
                     "actual_pressure_used_for_sample": float(pressure_hpa) if candidate_sampling_allowed else "",
                     "nominal_target_hpa": float(target) if candidate_sampling_allowed else "",
@@ -12097,6 +12248,13 @@ class CalibrationRunner:
         setpoint_sent = bool(self._sealed_first_setpoint_tx_ts is not None or sealed_setpoint_count > 0)
         pressure_ready = bool(self._sealed_pressure_ready_ts is not None)
         dewpoint_bad = self._sealed_dewpoint_rise_exceeded(point=point)
+        above_target_candidate_safe = self._above_target_candidate_safe_for_immediate_no_write_sampling(point)
+        dewpoint_blocking = bool(dewpoint_bad and not above_target_candidate_safe)
+        invalidation_fields: Dict[str, Any] = {}
+        if dewpoint_bad and above_target_candidate_safe:
+            invalidation_fields = self._mark_above_target_sample_invalidated(
+                reason="dewpoint_abnormal_rise",
+            )
         effort_ok, effort_fields, effort_reason = self._sealed_positive_supply_effort_guard(
             point,
             stage="before_sampling",
@@ -12123,7 +12281,7 @@ class CalibrationRunner:
             block_reason = "FAIL_CLOSED_SETPOINT_NOT_SENT_BEFORE_SAMPLING"
         elif blocked_by_pressure:
             block_reason = "FAIL_CLOSED_PRESSURE_NOT_READY_BEFORE_SAMPLING"
-        elif dewpoint_bad:
+        elif dewpoint_blocking:
             block_reason = "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
         elif not effort_ok:
             block_reason = effort_reason
@@ -12134,7 +12292,7 @@ class CalibrationRunner:
             "vent_status_before_sampling": vent_status if vent_status is not None else "",
             "vent2_watchlist_before_sampling": vent2_watchlist,
             "sampling_blocked_by_vent_watchlist": blocked_by_vent,
-            "sampling_blocked_by_dewpoint_rise": bool(dewpoint_bad),
+            "sampling_blocked_by_dewpoint_rise": bool(dewpoint_blocking),
             "sampling_blocked_by_pressure_not_ready": bool(blocked_by_pressure),
             "sample_blocked_by_positive_supply_effort": bool(not effort_ok and effort_reason),
             "sampling_blocked_reason": block_reason,
@@ -12145,6 +12303,7 @@ class CalibrationRunner:
             "pressure_in_limit_before_sampling": bool(pressure_ready),
             "dewpoint_stable_before_sampling": not bool(dewpoint_bad),
         }
+        fields.update(invalidation_fields)
         fields.update(effort_fields)
         fields.update(
             self._sealed_control_state_trace_fields(
@@ -12645,6 +12804,12 @@ class CalibrationRunner:
         return "manual_fallback", wait_status, wait_error
 
     def _read_pace_pressure_now(self, pace: Any) -> Optional[float]:
+        if self._record_open_flow_pressure_query_deferred_for_keepalive(
+            "pace_pressure_now",
+            pressure_query=True,
+            inl_query=True,
+        ):
+            return self._cached_open_flow_pace_pressure_for_keepalive()
         reader = getattr(pace, "read_pressure", None)
         if not callable(reader):
             return None
@@ -14605,6 +14770,7 @@ class CalibrationRunner:
                     pressure_hpa=pressure_value,
                     in_limits=inl,
                     pressure_control_direction_expected=pressure_control_direction_expected,
+                    point=point,
                 )
                 if phase == "co2" and self._co2_sealed_no_vent_guard_active
                 else (True, False, {}, "")
@@ -14712,7 +14878,14 @@ class CalibrationRunner:
                         failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_AFTER_OUTP1"
                     elif vent_status == 3:
                         failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_AFTER_OUTP1"
-                    elif self._sealed_dewpoint_rise_exceeded(point=point):
+                    elif above_target_candidate_ready and bool(
+                        exhaust_fields.get("dewpoint_abnormal_at_candidate")
+                    ):
+                        failure_reason = "FAIL_CLOSED_DEWPOINT_RISE_AT_ABOVE_TARGET_CANDIDATE"
+                    elif (
+                        not above_target_candidate_ready
+                        and self._sealed_dewpoint_rise_exceeded(point=point)
+                    ):
                         failure_reason = "FAIL_CLOSED_DEWPOINT_RISE_AFTER_OUTP1_BEFORE_SAMPLING"
                     if failure_reason:
                         if above_target_candidate_ready:
@@ -15016,6 +15189,7 @@ class CalibrationRunner:
                     pressure_hpa=pressure_value,
                     in_limits=inl,
                     pressure_control_direction_expected=pressure_control_direction_expected,
+                    point=point,
                 )
             )
             exhaust_fields = {
@@ -15113,7 +15287,14 @@ class CalibrationRunner:
                     failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_DURING_SEALED_SWEEP"
                 elif vent_status == 3:
                     failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_DURING_SEALED_SWEEP"
-                elif self._sealed_dewpoint_rise_exceeded(point=point):
+                elif above_target_candidate_ready and bool(
+                    exhaust_fields.get("dewpoint_abnormal_at_candidate")
+                ):
+                    failure_reason = "FAIL_CLOSED_DEWPOINT_RISE_AT_ABOVE_TARGET_CANDIDATE"
+                elif (
+                    not above_target_candidate_ready
+                    and self._sealed_dewpoint_rise_exceeded(point=point)
+                ):
                     failure_reason = "FAIL_CLOSED_DEWPOINT_RISE_DURING_SEALED_SWEEP_BEFORE_SAMPLING"
                 if failure_reason:
                     if above_target_candidate_ready:
@@ -19483,7 +19664,11 @@ class CalibrationRunner:
             )
         except Exception:
             row["pace_vent_status_nearest"] = ""
-        if pace is not None and self._record_pace_query_deferred_for_keepalive("base_soak_trace_pace_pressure"):
+        if pace is not None and self._record_open_flow_pressure_query_deferred_for_keepalive(
+            "base_soak_trace_pace_pressure",
+            pressure_query=True,
+            inl_query=True,
+        ):
             row["source"] = "co2_route_base_soak_dewpoint_trace_pace_deferred"
         else:
             try:
@@ -19693,7 +19878,11 @@ class CalibrationRunner:
         )
         summarize_fn = getattr(self.logger, "summarize_pace_raw_tap_window", None)
         pace = self.devices.get("pace")
-        if pace is not None and self._record_pace_query_deferred_for_keepalive("base_soak_boundary_pace_pressure"):
+        if pace is not None and self._record_open_flow_pressure_query_deferred_for_keepalive(
+            "base_soak_boundary_pace_pressure",
+            pressure_query=True,
+            inl_query=True,
+        ):
             pace_pressure = None
         else:
             pace_pressure = self._read_pace_pressure_now(pace) if pace is not None else None
@@ -20474,6 +20663,10 @@ class CalibrationRunner:
         self._pace_query_deferred_for_keepalive_count = 0
         self._pace_query_deferred_for_keepalive_types = set()
         self._pace_query_blocking_keepalive_count = 0
+        self._open_flow_inl_query_deferred_for_keepalive_count = 0
+        self._open_flow_pressure_query_deferred_for_keepalive_count = 0
+        self._open_flow_critical_window_inl_query_blocked = False
+        self._open_flow_critical_window_pressure_query_blocked = False
         self._open_flow_cached_outp_state_used = False
         self._open_flow_cached_isol_state_used = False
         fields.update(self._open_flow_keepalive_scheduler_fields())
@@ -20697,6 +20890,7 @@ class CalibrationRunner:
             "open_flow_pre_stop_hold_outp_stat_query_count": 0,
             "open_flow_pre_stop_hold_isol_query_count": 0,
             "open_flow_pre_stop_hold_inl_query_count": 0,
+            "open_flow_pre_stop_hold_pressure_query_count": 0,
             "open_flow_pre_stop_hold_syst_err_query_count": 0,
         }
         for row in rows:
@@ -20709,6 +20903,11 @@ class CalibrationRunner:
                 query_counts["open_flow_pre_stop_hold_isol_query_count"] += 1
             if ":SENS:PRES:INL?" in command:
                 query_counts["open_flow_pre_stop_hold_inl_query_count"] += 1
+            if (
+                (":SENS:PRES" in command or ":MEAS:PRES" in command or ":READ:PRES" in command)
+                and ":SENS:PRES:INL?" not in command
+            ):
+                query_counts["open_flow_pre_stop_hold_pressure_query_count"] += 1
             if ":SYST:ERR?" in command:
                 query_counts["open_flow_pre_stop_hold_syst_err_query_count"] += 1
         if rows and str(guard_end_ts or "") != str(raw_window_end_ts or ""):
@@ -20723,6 +20922,9 @@ class CalibrationRunner:
             "quiet_gap_window_uses_no_new_vent1_check": True,
         }
         if max_gap is not None:
+            blocking_text = str(fields.get("open_flow_vent_gap_blocking_operation") or "")
+            gap_caused_by_inl = "INL" in blocking_text.upper()
+            gap_caused_by_pressure = "PRESSURE" in blocking_text.upper()
             fail_count = 1 if max_gap > fail_gap_s else 0
             may_drop = bool(max_gap > target_gap_s)
             fail_reason = (
@@ -20754,6 +20956,8 @@ class CalibrationRunner:
                 "open_flow_vent1_gap_caused_by_query": bool(
                     fields.get("open_flow_vent_gap_blocking_operation")
                 ),
+                "open_flow_vent1_gap_caused_by_inl_query": gap_caused_by_inl,
+                "open_flow_vent1_gap_caused_by_pressure_query": gap_caused_by_pressure,
                 "open_flow_vent_gap_may_cause_flow_drop": may_drop,
                 "pre_vent_exit_flow_drop_suspected": bool(max_gap > fail_gap_s),
                 "pre_vent_exit_flow_drop_reason": (
@@ -20803,6 +21007,8 @@ class CalibrationRunner:
                 next_match = [row for row in vent_rows if str(row.get("wall_ts") or "") == worst[2]]
                 stage = str((next_match[0].get("workflow_stage") if next_match else "") or "")
         blocking = self._open_flow_gap_blocking_operation(worst_rows)
+        gap_caused_by_inl = bool("INL" in str(blocking or "").upper())
+        gap_caused_by_pressure = bool("PRESSURE" in str(blocking or "").upper())
         violation_times = [
             {"gap_s": round(gap[0], 3), "from": gap[1], "to": gap[2]}
             for gap in violations[:20]
@@ -20843,6 +21049,8 @@ class CalibrationRunner:
             "open_flow_vent_gap_stage": stage,
             "open_flow_vent_gap_blocking_operation": blocking,
             "open_flow_vent1_gap_caused_by_query": bool(blocking and blocking != "none_observed"),
+            "open_flow_vent1_gap_caused_by_inl_query": gap_caused_by_inl,
+            "open_flow_vent1_gap_caused_by_pressure_query": gap_caused_by_pressure,
             "open_flow_vent_gap_may_cause_flow_drop": bool(max_gap_s > target_gap_s),
             "pre_vent_exit_flow_drop_suspected": bool(max_gap_s > fail_gap_s),
             "pre_vent_exit_flow_drop_reason": drop_reason,
@@ -22744,6 +22952,14 @@ class CalibrationRunner:
                 dew_rh_live_pct=sampling_begin_values.get("dew_rh_live_pct"),
                 note=note,
             )
+        if self._above_target_candidate_safe_for_immediate_no_write_sampling(point):
+            _record_sampling_begin(
+                "above_target_candidate_immediate_no_write",
+                "above-target exhaust-only candidate was safe at detection; "
+                "limited no-write sampling starts without waiting for a later dewpoint guard window; "
+                "dewpoint remains monitored during sampling and may invalidate this point",
+            )
+            return True
         if not self._wait_postseal_dewpoint_gate(point, phase=phase, context=transition_context):
             return False
         if not self._wait_co2_presample_long_guard(
@@ -23128,7 +23344,11 @@ class CalibrationRunner:
                     pass
         if preseal_pressure_hpa is None:
             pace = self.devices.get("pace")
-            if pace and not self._record_pace_query_deferred_for_keepalive("preseal_dewpoint_snapshot_pace_pressure"):
+            if pace and not self._record_open_flow_pressure_query_deferred_for_keepalive(
+                "preseal_dewpoint_snapshot_pace_pressure",
+                pressure_query=True,
+                inl_query=True,
+            ):
                 try:
                     pace_pressure = self._as_float(pace.read_pressure())
                     if pace_pressure is not None and math.isfinite(pace_pressure):
@@ -23588,10 +23808,17 @@ class CalibrationRunner:
         gauge_pressure: Optional[float] = None
         pace = self.devices.get("pace")
         if pace:
-            try:
-                pace_pressure = self._as_float(pace.read_pressure())
-            except Exception:
-                pace_pressure = None
+            if self._record_open_flow_pressure_query_deferred_for_keepalive(
+                "preseal_pressure_build_pace_pressure",
+                pressure_query=True,
+                inl_query=True,
+            ):
+                pace_pressure = self._cached_open_flow_pace_pressure_for_keepalive()
+            else:
+                try:
+                    pace_pressure = self._as_float(pace.read_pressure())
+                except Exception:
+                    pace_pressure = None
         gauge = self.devices.get("pressure_gauge")
         if gauge:
             try:
@@ -26460,6 +26687,7 @@ class CalibrationRunner:
                 fast_group_start_monotonic = time.monotonic()
                 data["fast_group_anchor_ts"] = self._ts_from_datetime(row_start_dt)
                 data["fast_group_start_ts"] = self._ts_from_datetime(fast_group_start_dt)
+                stop_after_this_sample = False
                 self._merge_fast_signal_cache_into_sample(
                     data,
                     sampling_context,
@@ -26487,6 +26715,13 @@ class CalibrationRunner:
                         False,
                     )
                     if not effort_ok:
+                        if self._above_target_candidate_safe_for_immediate_no_write_sampling(point):
+                            effort_fields.update(
+                                self._mark_above_target_sample_invalidated(
+                                    reason="positive_supply_effort",
+                                    fields=effort_fields,
+                                )
+                            )
                         self._append_pressure_trace_row(
                             point=point,
                             route=phase_text,
@@ -26619,6 +26854,44 @@ class CalibrationRunner:
                             and bool(sealed_context.get("exhaust_only_candidate_sampling_allowed"))
                         )
                     )
+                    for key in (
+                        "dewpoint_at_candidate",
+                        "dewpoint_abnormal_at_candidate",
+                        "dewpoint_abnormal_during_sample",
+                        "sample_invalidated_by_dewpoint_rise",
+                        "sample_valid_for_acceptance",
+                        "sample_invalidated_reason",
+                        "sample_invalidated_by_target_crossing",
+                        "sample_invalidated_by_positive_effort",
+                    ):
+                        if key in sealed_context:
+                            data[key] = sealed_context.get(key)
+                    if data["sampled_from_above_target_window"]:
+                        dewpoint_now = self._as_float(data.get("dewpoint_c"))
+                        dewpoint_bad_during_sample = self._sealed_dewpoint_rise_exceeded(
+                            current_dewpoint_c=dewpoint_now,
+                            point=point,
+                        )
+                        if dewpoint_bad_during_sample:
+                            invalidation = self._mark_above_target_sample_invalidated(
+                                reason="dewpoint_abnormal_rise",
+                            )
+                            data.update(invalidation)
+                            effort_fields.update(invalidation)
+                        live_pressure_for_crossing = self._as_float(data.get("pressure_hpa"))
+                        if live_pressure_for_crossing is None:
+                            live_pressure_for_crossing = self._as_float(data.get("pressure_gauge_hpa"))
+                        if (
+                            live_pressure_for_crossing is not None
+                            and nominal_target is not None
+                            and float(live_pressure_for_crossing) < float(nominal_target)
+                        ):
+                            invalidation = self._mark_above_target_sample_invalidated(
+                                reason="target_crossing",
+                            )
+                            data.update(invalidation)
+                            effort_fields.update(invalidation)
+                            stop_after_this_sample = True
                 data["temp_set_c"] = point.temp_chamber_c
                 data["point_is_h2o"] = point.is_h2o_point
                 analyzer_value_present = bool(
@@ -26725,6 +26998,24 @@ class CalibrationRunner:
                 )
 
                 samples.append(data)
+                if stop_after_this_sample:
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase_text,
+                        point_phase=phase_text,
+                        point_tag=point_tag,
+                        trace_stage="sampling_invalidated_by_target_crossing",
+                        pressure_target_hpa=point.target_pressure_hpa,
+                        pace_pressure_hpa=self._as_float(data.get("pressure_hpa")),
+                        pressure_gauge_hpa=self._as_float(data.get("pressure_gauge_hpa")),
+                        pace_output_state=data.get("pace_output_state"),
+                        pace_isolation_state=data.get("pace_isolation_state"),
+                        pace_vent_status=data.get("pace_vent_status"),
+                        refresh_pace_state=False,
+                        extra_fields=self._sealed_sweep_trace_extra(effort_fields),
+                        note="above-target sample crossed below nominal target during sampling",
+                    )
+                    break
                 self._emit_sample_progress_event(
                     sample_idx + 1,
                     count,
