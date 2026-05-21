@@ -393,6 +393,16 @@ _PRESSURE_TRACE_FIELDS = [
     "sealed_slow_slew_trigger_pressure_hpa",
     "sealed_slow_slew_command_sent",
     "sealed_slow_slew_syst_err",
+    "sealed_exhaust_profile",
+    "high_delta_fast_slew_hpa_per_s",
+    "final_slow_zone_hpa",
+    "final_slow_slew_hpa_per_s",
+    "max_slew_or_fast_slew_enabled",
+    "slow_slew_started_at_pressure_hpa",
+    "slow_slew_distance_to_target_hpa",
+    "outp1_to_candidate_s",
+    "dwell_reduction_target_s",
+    "dwell_reduction_expected",
     "effort_query_supported",
     "effort_before_outp1",
     "effort_after_outp1",
@@ -410,6 +420,19 @@ _PRESSURE_TRACE_FIELDS = [
     "positive_supply_effort_detected",
     "sample_blocked_by_positive_supply_effort",
     "effort_unavailable_control_risk",
+    "eff_positive_seen",
+    "eff_positive_duration_s",
+    "eff_positive_max_pct",
+    "eff_positive_integral_pct_s",
+    "eff_positive_first_ts",
+    "eff_positive_first_pressure_hpa",
+    "eff_positive_last_ts",
+    "eff_positive_pressure_range_hpa",
+    "eff_negative_duration_s",
+    "eff_negative_integral_pct_s",
+    "effort_sign_timeline_summary",
+    "possible_supply_involvement_during_exhaust",
+    "supply_involvement_confidence",
     "effort_query_before_outp1_skipped_or_zero_reason",
     "effort_guard_active_after_outp1",
     "pressure_in_limit_before_sampling",
@@ -469,6 +492,9 @@ _PRESSURE_TRACE_FIELDS = [
     "exhaust_only_candidate_dewpoint_c",
     "dewpoint_at_candidate",
     "dewpoint_abnormal_at_candidate",
+    "dewpoint_abnormal_at_candidate_row_materialized_for_diagnostic",
+    "dewpoint_abnormal_candidate_block_suppressed_for_diagnostic",
+    "row_materialized_despite_dewpoint_abnormal_for_trend",
     "dewpoint_abnormal_during_sample",
     "sample_invalidated_by_dewpoint_rise",
     "sample_invalidated_by_target_crossing",
@@ -637,6 +663,11 @@ _PRESSURE_TRACE_FIELDS = [
     "analyzer_snapshot_stale_count",
     "analyzer_snapshot_alignment_ok",
     "analyzer_snapshot_alignment_failure_reason",
+    "analyzer_cache_update_count_during_sealed",
+    "analyzer_latest_age_ms_at_candidate",
+    "analyzer_active_upload_alive",
+    "analyzer_snapshot_failure_phase",
+    "analyzer_snapshot_not_calibration_ready_reason",
     "secondary_evidence_status",
     "sampling_parallel_claim_allowed",
     "sampling_parallel_status",
@@ -11051,6 +11082,9 @@ class CalibrationRunner:
             "exhaust_only_candidate_dewpoint_c": "",
             "dewpoint_at_candidate": "",
             "dewpoint_abnormal_at_candidate": False,
+            "dewpoint_abnormal_at_candidate_row_materialized_for_diagnostic": False,
+            "dewpoint_abnormal_candidate_block_suppressed_for_diagnostic": False,
+            "row_materialized_despite_dewpoint_abnormal_for_trend": False,
             "dewpoint_abnormal_during_sample": False,
             "sample_invalidated_by_dewpoint_rise": False,
             "sample_invalidated_by_target_crossing": False,
@@ -11196,6 +11230,29 @@ class CalibrationRunner:
             "pace_comp_negative_source_hpa": "",
             "pace_comp_evidence_available": False,
             "pace_comp_evidence_todo": True,
+            "sealed_exhaust_profile": "",
+            "high_delta_fast_slew_hpa_per_s": "",
+            "final_slow_zone_hpa": "",
+            "final_slow_slew_hpa_per_s": "",
+            "max_slew_or_fast_slew_enabled": False,
+            "slow_slew_started_at_pressure_hpa": "",
+            "slow_slew_distance_to_target_hpa": "",
+            "outp1_to_candidate_s": "",
+            "dwell_reduction_target_s": "",
+            "dwell_reduction_expected": False,
+            "eff_positive_seen": False,
+            "eff_positive_duration_s": 0.0,
+            "eff_positive_max_pct": "",
+            "eff_positive_integral_pct_s": 0.0,
+            "eff_positive_first_ts": "",
+            "eff_positive_first_pressure_hpa": "",
+            "eff_positive_last_ts": "",
+            "eff_positive_pressure_range_hpa": "",
+            "eff_negative_duration_s": 0.0,
+            "eff_negative_integral_pct_s": 0.0,
+            "effort_sign_timeline_summary": "",
+            "possible_supply_involvement_during_exhaust": False,
+            "supply_involvement_confidence": "",
             "sample_data_quality_grade": "",
             "sample_data_quality_reason": "",
             "sample_data_quality_inputs_complete": False,
@@ -11219,6 +11276,11 @@ class CalibrationRunner:
             "analyzer_snapshot_stale_count": 0,
             "analyzer_snapshot_alignment_ok": False,
             "analyzer_snapshot_alignment_failure_reason": "",
+            "analyzer_cache_update_count_during_sealed": 0,
+            "analyzer_latest_age_ms_at_candidate": "",
+            "analyzer_active_upload_alive": False,
+            "analyzer_snapshot_failure_phase": "",
+            "analyzer_snapshot_not_calibration_ready_reason": "",
             "secondary_evidence_status": "",
             "sampling_parallel_claim_allowed": False,
             "sampling_parallel_status": "not_verified",
@@ -11357,13 +11419,21 @@ class CalibrationRunner:
             return False
         if not bool(context.get("exhaust_only_candidate_sampling_allowed")):
             return False
-        if bool(context.get("dewpoint_abnormal_at_candidate")):
+        if bool(context.get("dewpoint_abnormal_at_candidate")) and not bool(
+            context.get("dewpoint_abnormal_candidate_block_suppressed_for_diagnostic")
+        ):
             return False
         target = self._as_float(getattr(point, "target_pressure_hpa", None)) if point is not None else None
         actual = self._as_float(context.get("actual_pressure_used_for_sample"))
         if target is not None and actual is not None and actual < target:
             return False
         return True
+
+    def _dewpoint_candidate_diagnostic_materialization_enabled(self) -> bool:
+        return bool(
+            self._limited_no_write_workflow_active()
+            and self._exhaust_only_sample_above_target_allow_sampling()
+        )
 
     @staticmethod
     def _normalized_sample_invalidation_reason(reason: str) -> str:
@@ -11406,6 +11476,13 @@ class CalibrationRunner:
         coerced = self._coerce_internal_list(value)
         context[key] = coerced
         return coerced
+
+    def _aggregate_unique_semicolon(self, existing: Any, token: Any) -> str:
+        values = [str(item) for item in self._coerce_internal_list(existing) if str(item)]
+        token_text = str(token or "").strip()
+        if token_text and token_text not in values:
+            values.append(token_text)
+        return ";".join(values)
 
     def _normalized_sample_invalidation_token(
         self,
@@ -11742,7 +11819,16 @@ class CalibrationRunner:
                 reasons.append("target_crossing_post_row")
         residual_exceeds = bool(data.get("dewpoint_residual_exceeds_threshold") is True)
         if bool(data.get("post_row_dewpoint_abnormal")) or bool(data.get("sample_invalidated_by_dewpoint_rise")):
-            reasons.append("dewpoint_abnormal_post_row")
+            if "candidate" in phase_text:
+                reasons.append("dewpoint_abnormal_candidate")
+            else:
+                reasons.append("dewpoint_abnormal_post_row")
+        if bool(data.get("sealed_point_time_budget_exceeded")):
+            reasons.append("sealed_dwell_time_budget_exceeded")
+        if bool(data.get("possible_supply_involvement_during_exhaust")) and not bool(
+            data.get("positive_effort_fail_closed")
+        ):
+            reasons.append("possible_supply_involvement_during_exhaust")
         if bool(data.get("candidate_dewpoint_missing")):
             reasons.append("candidate_dewpoint_missing")
         if bool(data.get("candidate_dewpoint_cache_stale")):
@@ -11751,6 +11837,10 @@ class CalibrationRunner:
             reasons.append("sample_alignment_warning")
         if data.get("analyzer_snapshot_alignment_ok") is False and data.get("analyzer_snapshot_alignment_failure_reason"):
             reasons.append(str(data.get("analyzer_snapshot_alignment_failure_reason")))
+        if data.get("analyzer_snapshot_not_calibration_ready_reason") not in (None, ""):
+            reason = str(data.get("analyzer_snapshot_not_calibration_ready_reason"))
+            if reason and reason not in reasons:
+                reasons.append(reason)
         if data.get("pressure_drift_ok") is False:
             reasons.append("pressure_drift_exceeds_limit")
         secondary_status = str(data.get("secondary_evidence_status") or "")
@@ -12307,14 +12397,28 @@ class CalibrationRunner:
         if not gas_analyzers:
             alignment_ok = False
             failure = "no_analyzers"
-        elif valid_count < min_valid:
-            failure = f"valid_analyzers_below_min:{valid_count}/{min_valid}"
         elif stale_count:
             failure = "stale_analyzer_cache"
         elif missing_count:
             failure = "missing_analyzer_cache"
+        elif valid_count < min_valid:
+            failure = f"valid_analyzers_below_min:{valid_count}/{min_valid}"
         else:
             failure = ""
+        latest_age_ms = max(numeric_ages) if numeric_ages else ""
+        cache_update_count = sum(
+            1
+            for item in details
+            if str(item.get("analyzer_ts") or "").strip()
+            and str(item.get("analyzer_source") or "") != "missing"
+        )
+        active_upload_alive = bool(
+            any(
+                item.get("analyzer_in_anchor_window") is True
+                and str(item.get("analyzer_source") or "") == "active_upload_cache"
+                for item in details
+            )
+        )
         return {
             "analyzer_snapshot_mode": "anchor_window_cache",
             "analyzer_snapshot_window_before_s": self._analyzer_snapshot_window_before_s(),
@@ -12325,9 +12429,14 @@ class CalibrationRunner:
             "analyzer_snapshot_valid_count": valid_count,
             "analyzer_snapshot_missing_count": missing_count,
             "analyzer_snapshot_stale_count": stale_count,
-            "max_device_age_ms": max(numeric_ages) if numeric_ages else "",
+            "max_device_age_ms": latest_age_ms,
             "analyzer_snapshot_alignment_ok": alignment_ok,
             "analyzer_snapshot_alignment_failure_reason": failure,
+            "analyzer_cache_update_count_during_sealed": cache_update_count,
+            "analyzer_latest_age_ms_at_candidate": latest_age_ms,
+            "analyzer_active_upload_alive": active_upload_alive,
+            "analyzer_snapshot_failure_phase": "candidate_anchor_window" if failure else "",
+            "analyzer_snapshot_not_calibration_ready_reason": failure,
             "pressure_anchor_shared_sample_count": valid_count,
             "analyzer_rows_share_pressure_anchor": bool(valid_count > 0),
             "pressure_anchor_share_valid": alignment_ok,
@@ -12415,12 +12524,20 @@ class CalibrationRunner:
         ) or anchor_s
         budget = self._sealed_point_time_budget_s()
         dwell_s = max(0.0, packet_complete_s - float(dwell_begin_s))
+        outp1_to_candidate_s = (
+            max(0.0, float(anchor_s) - float(dwell_begin_s))
+            if dwell_begin_s is not None
+            else ""
+        )
         return {
             "sealed_point_dwell_begin_ts": self._iso_ts_from_wall(float(dwell_begin_s)),
             "sealed_point_dwell_end_ts": self._iso_ts_from_wall(packet_complete_s),
             "sealed_point_dwell_s": round(dwell_s, 6),
             "candidate_to_first_row_s": round(max(0.0, row_now_s - anchor_s), 6),
             "candidate_to_packet_complete_s": round(max(0.0, packet_complete_s - anchor_s), 6),
+            "outp1_to_candidate_s": round(float(outp1_to_candidate_s), 6)
+            if outp1_to_candidate_s != ""
+            else "",
             "packet_complete_to_next_point_s": "",
             "sealed_point_time_budget_s": budget,
             "sealed_point_time_budget_exceeded": bool(dwell_s > budget),
@@ -12861,6 +12978,9 @@ class CalibrationRunner:
             "classification_evidence",
             "classification_confidence",
             "dewpoint_abnormal_at_candidate",
+            "dewpoint_abnormal_at_candidate_row_materialized_for_diagnostic",
+            "dewpoint_abnormal_candidate_block_suppressed_for_diagnostic",
+            "row_materialized_despite_dewpoint_abnormal_for_trend",
             "dewpoint_abnormal_during_sample",
             "candidate_primary_pressure_source",
             "candidate_secondary_pressure_source",
@@ -12876,6 +12996,15 @@ class CalibrationRunner:
             "sample_setpoint_bias_enabled",
             "sample_setpoint_bias_hpa",
             "setpoint_bias_reason",
+            "sealed_exhaust_profile",
+            "high_delta_fast_slew_hpa_per_s",
+            "final_slow_zone_hpa",
+            "final_slow_slew_hpa_per_s",
+            "max_slew_or_fast_slew_enabled",
+            "slow_slew_started_at_pressure_hpa",
+            "slow_slew_distance_to_target_hpa",
+            "dwell_reduction_target_s",
+            "dwell_reduction_expected",
             "in_limits_at_candidate",
             "in_limits_at_sample",
             "in_limits_age_ms",
@@ -12899,6 +13028,19 @@ class CalibrationRunner:
             "pace_effort_pct_at_candidate",
             "pace_effort_sign",
             "pace_effort_pct_at_post_row",
+            "eff_positive_seen",
+            "eff_positive_duration_s",
+            "eff_positive_max_pct",
+            "eff_positive_integral_pct_s",
+            "eff_positive_first_ts",
+            "eff_positive_first_pressure_hpa",
+            "eff_positive_last_ts",
+            "eff_positive_pressure_range_hpa",
+            "eff_negative_duration_s",
+            "eff_negative_integral_pct_s",
+            "effort_sign_timeline_summary",
+            "possible_supply_involvement_during_exhaust",
+            "supply_involvement_confidence",
             "pace_slew_mode",
             "pace_slew_setpoint_hpa_per_s",
             "pace_overshoot_allowed",
@@ -13050,6 +13192,18 @@ class CalibrationRunner:
                 data.get("continue_after_dewpoint_post_row_invalid") is True
             ),
             "dewpoint_abnormal_policy": data.get("dewpoint_abnormal_policy", ""),
+            "dewpoint_abnormal_at_candidate_row_materialized_for_diagnostic": data.get(
+                "dewpoint_abnormal_at_candidate_row_materialized_for_diagnostic",
+                False,
+            ),
+            "dewpoint_abnormal_candidate_block_suppressed_for_diagnostic": data.get(
+                "dewpoint_abnormal_candidate_block_suppressed_for_diagnostic",
+                False,
+            ),
+            "row_materialized_despite_dewpoint_abnormal_for_trend": data.get(
+                "row_materialized_despite_dewpoint_abnormal_for_trend",
+                False,
+            ),
             "dewpoint_abnormal_group_abort_suppressed_for_diagnostic": bool(
                 data.get("dewpoint_abnormal_group_abort_suppressed_for_diagnostic") is True
             ),
@@ -13097,6 +13251,22 @@ class CalibrationRunner:
             "pace_effort_pct_at_candidate": candidate_effort if candidate_effort is not None else "",
             "pace_effort_sign": self._pace_effort_sign_from_pct(candidate_effort),
             "pace_effort_pct_at_post_row": data.get("pace_effort_pct_at_post_row", ""),
+            "eff_positive_seen": data.get("eff_positive_seen", False),
+            "eff_positive_duration_s": data.get("eff_positive_duration_s", 0.0),
+            "eff_positive_max_pct": data.get("eff_positive_max_pct", ""),
+            "eff_positive_integral_pct_s": data.get("eff_positive_integral_pct_s", 0.0),
+            "eff_positive_first_ts": data.get("eff_positive_first_ts", ""),
+            "eff_positive_first_pressure_hpa": data.get("eff_positive_first_pressure_hpa", ""),
+            "eff_positive_last_ts": data.get("eff_positive_last_ts", ""),
+            "eff_positive_pressure_range_hpa": data.get("eff_positive_pressure_range_hpa", ""),
+            "eff_negative_duration_s": data.get("eff_negative_duration_s", 0.0),
+            "eff_negative_integral_pct_s": data.get("eff_negative_integral_pct_s", 0.0),
+            "effort_sign_timeline_summary": data.get("effort_sign_timeline_summary", ""),
+            "possible_supply_involvement_during_exhaust": data.get(
+                "possible_supply_involvement_during_exhaust",
+                False,
+            ),
+            "supply_involvement_confidence": data.get("supply_involvement_confidence", ""),
             "pace_slew_mode": data.get("pace_slew_mode", ""),
             "pace_slew_setpoint_hpa_per_s": data.get("pace_slew_setpoint_hpa_per_s", ""),
             "pace_overshoot_allowed": data.get("pace_overshoot_allowed", ""),
@@ -13107,6 +13277,15 @@ class CalibrationRunner:
             "pace_comp_negative_source_hpa": data.get("pace_comp_negative_source_hpa", ""),
             "pace_comp_evidence_available": data.get("pace_comp_evidence_available", False),
             "pace_comp_evidence_todo": data.get("pace_comp_evidence_todo", True),
+            "sealed_exhaust_profile": data.get("sealed_exhaust_profile", ""),
+            "high_delta_fast_slew_hpa_per_s": data.get("high_delta_fast_slew_hpa_per_s", ""),
+            "final_slow_zone_hpa": data.get("final_slow_zone_hpa", ""),
+            "final_slow_slew_hpa_per_s": data.get("final_slow_slew_hpa_per_s", ""),
+            "max_slew_or_fast_slew_enabled": data.get("max_slew_or_fast_slew_enabled", False),
+            "slow_slew_started_at_pressure_hpa": data.get("slow_slew_started_at_pressure_hpa", ""),
+            "slow_slew_distance_to_target_hpa": data.get("slow_slew_distance_to_target_hpa", ""),
+            "dwell_reduction_target_s": data.get("dwell_reduction_target_s", ""),
+            "dwell_reduction_expected": data.get("dwell_reduction_expected", False),
             "sample_data_quality_grade": data.get("sample_data_quality_grade", ""),
             "sample_data_quality_reason": data.get("sample_data_quality_reason", ""),
             "sample_data_quality_inputs_complete": data.get("sample_data_quality_inputs_complete", False),
@@ -13228,6 +13407,11 @@ class CalibrationRunner:
             "analyzer_snapshot_stale_count",
             "analyzer_snapshot_alignment_ok",
             "analyzer_snapshot_alignment_failure_reason",
+            "analyzer_cache_update_count_during_sealed",
+            "analyzer_latest_age_ms_at_candidate",
+            "analyzer_active_upload_alive",
+            "analyzer_snapshot_failure_phase",
+            "analyzer_snapshot_not_calibration_ready_reason",
             "pressure_anchor_shared_sample_count",
             "analyzer_rows_share_pressure_anchor",
             "pressure_anchor_share_valid",
@@ -13255,6 +13439,7 @@ class CalibrationRunner:
             "sealed_point_dwell_s",
             "candidate_to_first_row_s",
             "candidate_to_packet_complete_s",
+            "outp1_to_candidate_s",
             "packet_complete_to_next_point_s",
             "sealed_point_time_budget_s",
             "sealed_point_time_budget_exceeded",
@@ -13379,14 +13564,56 @@ class CalibrationRunner:
     def _sealed_control_slew_mode(self) -> str:
         return str(self._wf("workflow.pressure.slew_mode", "LIN") or "LIN").strip().upper()
 
-    def _sealed_control_slew_rate_hpa_per_s(self) -> float:
-        if self._limited_no_write_workflow_active() and self._exhaust_only_sample_above_target_allow_sampling():
-            raw = self._wf(
+    def _sealed_fast_exhaust_profile_enabled(self) -> bool:
+        raw = self._wf("workflow.pressure.sealed_fast_exhaust_profile_enabled", None)
+        default = bool(
+            self._limited_no_write_workflow_active()
+            and self._exhaust_only_sample_above_target_allow_sampling()
+        )
+        return self._as_bool(raw, default)
+
+    def _sealed_exhaust_profile_name(self) -> str:
+        if not self._sealed_fast_exhaust_profile_enabled():
+            return ""
+        raw = self._wf(
+            "workflow.pressure.sealed_exhaust_profile",
+            "fast_then_short_final_slow",
+        )
+        name = str(raw or "fast_then_short_final_slow").strip()
+        return name or "fast_then_short_final_slow"
+
+    def _sealed_high_delta_fast_slew_hpa_per_s(self) -> float:
+        raw = self._wf(
+            "workflow.pressure.high_delta_fast_slew_hpa_per_s",
+            self._wf(
                 "workflow.pressure.sealed_exhaust_slew_rate_hpa_per_s",
                 self._wf("workflow.pressure.slew_rate_hpa_per_s", 5.0),
-            )
-            value = self._as_float(raw)
-            return max(0.1, float(5.0 if value is None else value))
+            ),
+        )
+        value = self._as_float(raw)
+        return max(0.1, float(5.0 if value is None else value))
+
+    def _sealed_final_slow_zone_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.final_slow_zone_hpa", 10.0)
+        value = self._as_float(raw)
+        return max(0.0, float(10.0 if value is None else value))
+
+    def _sealed_final_slow_slew_rate_hpa_per_s(self) -> float:
+        raw = self._wf(
+            "workflow.pressure.final_slow_slew_hpa_per_s",
+            self._wf("workflow.pressure.sealed_approach_slow_slew_rate_hpa_per_s", 1.0),
+        )
+        value = self._as_float(raw)
+        return max(0.1, float(1.0 if value is None else value))
+
+    def _sealed_dwell_reduction_target_s(self) -> float:
+        raw = self._wf("workflow.pressure.dwell_reduction_target_s", self._sealed_point_time_budget_s())
+        value = self._as_float(raw)
+        return max(0.0, float(self._sealed_point_time_budget_s() if value is None else value))
+
+    def _sealed_control_slew_rate_hpa_per_s(self) -> float:
+        if self._sealed_fast_exhaust_profile_enabled():
+            return self._sealed_high_delta_fast_slew_hpa_per_s()
         raw = self._wf(
             "workflow.pressure.slew_rate_hpa_per_s",
             self._wf("workflow.pressure.soft_control_linear_slew_hpa_per_s", 15.0),
@@ -13397,11 +13624,15 @@ class CalibrationRunner:
         return bool(self._wf("workflow.pressure.slew_overshoot_allowed", False))
 
     def _sealed_approach_slow_zone_hpa(self) -> float:
+        if self._sealed_fast_exhaust_profile_enabled():
+            return self._sealed_final_slow_zone_hpa()
         raw = self._wf("workflow.pressure.sealed_approach_slow_zone_hpa", 20.0)
         value = self._as_float(raw)
         return max(0.0, float(20.0 if value is None else value))
 
     def _sealed_approach_slow_slew_rate_hpa_per_s(self) -> float:
+        if self._sealed_fast_exhaust_profile_enabled():
+            return self._sealed_final_slow_slew_rate_hpa_per_s()
         raw = self._wf("workflow.pressure.sealed_approach_slow_slew_rate_hpa_per_s", 1.0)
         value = self._as_float(raw)
         return max(0.1, float(1.0 if value is None else value))
@@ -13418,11 +13649,15 @@ class CalibrationRunner:
         return self._as_bool(raw, default)
 
     def _sealed_high_pressure_slow_zone_hpa(self) -> float:
+        if self._sealed_fast_exhaust_profile_enabled():
+            return self._sealed_final_slow_zone_hpa()
         raw = self._wf("workflow.pressure.sealed_first_point_high_pressure_slow_zone_hpa", 80.0)
         value = self._as_float(raw)
         return max(self._sealed_approach_slow_zone_hpa(), float(80.0 if value is None else value))
 
     def _sealed_medium_pressure_slow_zone_hpa(self) -> float:
+        if self._sealed_fast_exhaust_profile_enabled():
+            return self._sealed_final_slow_zone_hpa()
         raw = self._wf("workflow.pressure.sealed_medium_pressure_slow_zone_hpa", 40.0)
         value = self._as_float(raw)
         return max(self._sealed_approach_slow_zone_hpa(), float(40.0 if value is None else value))
@@ -13485,13 +13720,17 @@ class CalibrationRunner:
         high_tolerance = self._sealed_high_pressure_profile_threshold_tolerance_hpa()
         high_effective_threshold = max(0.0, high_threshold - high_tolerance)
         enabled_reason = ""
+        fast_profile_enabled = self._sealed_fast_exhaust_profile_enabled()
         if (
             self._sealed_first_point_high_pressure_profile_enabled()
             and delta != ""
             and float(delta) >= 80.0
         ):
             profile_enabled = True
-            if float(delta) >= high_effective_threshold:
+            if fast_profile_enabled:
+                zone = self._sealed_final_slow_zone_hpa()
+                enabled_reason = "fast_exhaust_short_final_slow_zone"
+            elif float(delta) >= high_effective_threshold:
                 zone = self._sealed_high_pressure_slow_zone_hpa()
                 enabled_reason = "delta_at_or_above_high_threshold_with_tolerance"
             else:
@@ -13499,6 +13738,11 @@ class CalibrationRunner:
                 enabled_reason = "delta_at_or_above_medium_threshold"
         trigger_expected = float(target) + float(zone)
         actual = self._as_float(pressure_hpa)
+        slow_distance = (
+            max(0.0, float(actual) - float(target))
+            if actual is not None and actual >= float(target)
+            else ""
+        )
         return {
             "first_sealed_point_high_pressure_profile_enabled": profile_enabled,
             "pressure_delta_to_target_hpa": delta,
@@ -13515,6 +13759,16 @@ class CalibrationRunner:
                 else ""
             ),
             "slow_slew_too_late": bool(actual is not None and actual < float(target)),
+            "sealed_exhaust_profile": self._sealed_exhaust_profile_name(),
+            "high_delta_fast_slew_hpa_per_s": self._sealed_high_delta_fast_slew_hpa_per_s(),
+            "final_slow_zone_hpa": self._sealed_final_slow_zone_hpa(),
+            "final_slow_slew_hpa_per_s": self._sealed_final_slow_slew_rate_hpa_per_s(),
+            "max_slew_or_fast_slew_enabled": bool(fast_profile_enabled),
+            "sealed_slow_slew_command_sent": False,
+            "slow_slew_started_at_pressure_hpa": "",
+            "slow_slew_distance_to_target_hpa": slow_distance,
+            "dwell_reduction_target_s": self._sealed_dwell_reduction_target_s(),
+            "dwell_reduction_expected": bool(fast_profile_enabled),
         }
 
     def _sealed_sample_setpoint_bias_hpa(self) -> float:
@@ -13999,6 +14253,13 @@ class CalibrationRunner:
         fields.setdefault("sealed_slow_slew_rate_hpa_per_s", self._sealed_approach_slow_slew_rate_hpa_per_s())
         fields.setdefault("adaptive_slow_zone_hpa", fields.get("sealed_approach_slow_zone_hpa"))
         fields.setdefault("first_sealed_point_high_pressure_profile_enabled", False)
+        fields.setdefault("sealed_exhaust_profile", self._sealed_exhaust_profile_name())
+        fields.setdefault("high_delta_fast_slew_hpa_per_s", self._sealed_high_delta_fast_slew_hpa_per_s())
+        fields.setdefault("final_slow_zone_hpa", self._sealed_final_slow_zone_hpa())
+        fields.setdefault("final_slow_slew_hpa_per_s", self._sealed_final_slow_slew_rate_hpa_per_s())
+        fields.setdefault("max_slew_or_fast_slew_enabled", self._sealed_fast_exhaust_profile_enabled())
+        fields.setdefault("dwell_reduction_target_s", self._sealed_dwell_reduction_target_s())
+        fields.setdefault("dwell_reduction_expected", self._sealed_fast_exhaust_profile_enabled())
         return fields
 
     def _sealed_setpoint_prearm_trace_fields(self) -> Dict[str, Any]:
@@ -14195,6 +14456,15 @@ class CalibrationRunner:
             "adaptive_slow_zone_hpa": self._sealed_approach_slow_zone_hpa(),
             "first_sealed_point_high_pressure_profile_enabled": False,
             "sealed_slow_slew_rate_hpa_per_s": self._sealed_approach_slow_slew_rate_hpa_per_s(),
+            "sealed_exhaust_profile": self._sealed_exhaust_profile_name(),
+            "high_delta_fast_slew_hpa_per_s": self._sealed_high_delta_fast_slew_hpa_per_s(),
+            "final_slow_zone_hpa": self._sealed_final_slow_zone_hpa(),
+            "final_slow_slew_hpa_per_s": self._sealed_final_slow_slew_rate_hpa_per_s(),
+            "max_slew_or_fast_slew_enabled": self._sealed_fast_exhaust_profile_enabled(),
+            "slow_slew_started_at_pressure_hpa": "",
+            "slow_slew_distance_to_target_hpa": "",
+            "dwell_reduction_target_s": self._sealed_dwell_reduction_target_s(),
+            "dwell_reduction_expected": self._sealed_fast_exhaust_profile_enabled(),
         }
         failures: List[str] = []
         if pace is None:
@@ -14316,6 +14586,17 @@ class CalibrationRunner:
             "slew_mode_set": "",
             "slew_rate_set_hpa_per_s": "",
             "overshoot_allowed_set": "",
+            "sealed_initial_slew_rate_hpa_per_s": rate,
+            "sealed_approach_slow_zone_hpa": self._sealed_approach_slow_zone_hpa(),
+            "sealed_slow_slew_rate_hpa_per_s": self._sealed_approach_slow_slew_rate_hpa_per_s(),
+            "adaptive_slow_zone_hpa": self._sealed_approach_slow_zone_hpa(),
+            "sealed_exhaust_profile": self._sealed_exhaust_profile_name(),
+            "high_delta_fast_slew_hpa_per_s": self._sealed_high_delta_fast_slew_hpa_per_s(),
+            "final_slow_zone_hpa": self._sealed_final_slow_zone_hpa(),
+            "final_slow_slew_hpa_per_s": self._sealed_final_slow_slew_rate_hpa_per_s(),
+            "max_slew_or_fast_slew_enabled": self._sealed_fast_exhaust_profile_enabled(),
+            "dwell_reduction_target_s": self._sealed_dwell_reduction_target_s(),
+            "dwell_reduction_expected": self._sealed_fast_exhaust_profile_enabled(),
         }
         failures: List[str] = []
         if pace is not None:
@@ -14354,6 +14635,7 @@ class CalibrationRunner:
             context["slew_mode_set"] = fields["slew_mode_set"]
             context["slew_rate_set_hpa_per_s"] = fields["slew_rate_set_hpa_per_s"]
             context["overshoot_allowed_set"] = fields["overshoot_allowed_set"]
+            context.update(fields)
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -14365,6 +14647,110 @@ class CalibrationRunner:
             note=";".join(failures) if failures else "LIN slew and overshoot setting applied before sealed control",
         )
         return fields
+
+    def _effort_timeline_stats_fields(
+        self,
+        context: Optional[MutableMapping[str, Any]] = None,
+        *,
+        effort_pct: Optional[float] = None,
+        stage: str = "",
+        wall_ts: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        context_map = context if isinstance(context, MutableMapping) else None
+        now_s = time.time() if wall_ts is None else float(wall_ts)
+        if context_map is not None and effort_pct is not None:
+            pressure = self._first_numeric_value(
+                context_map.get("current_candidate_primary_pressure_hpa"),
+                context_map.get("fast_candidate_pressure_hpa"),
+                context_map.get("exhaust_only_candidate_pressure_hpa"),
+                context_map.get("current_pressure_before_point_hpa"),
+                context_map.get("fresh_post_close_pressure_value_hpa"),
+                context_map.get("post_route_first_fresh_pressure_hpa"),
+            )
+            previous_ts = self._as_float(context_map.get("_effort_timeline_last_wall_ts"))
+            previous_effort = self._as_float(context_map.get("_effort_timeline_last_effort_pct"))
+            if previous_ts is not None and previous_effort is not None:
+                dt_s = max(0.0, now_s - float(previous_ts))
+                if previous_effort > 0.0:
+                    context_map["eff_positive_duration_s"] = (
+                        float(context_map.get("eff_positive_duration_s") or 0.0) + dt_s
+                    )
+                    context_map["eff_positive_integral_pct_s"] = (
+                        float(context_map.get("eff_positive_integral_pct_s") or 0.0)
+                        + abs(float(previous_effort)) * dt_s
+                    )
+                elif previous_effort < 0.0:
+                    context_map["eff_negative_duration_s"] = (
+                        float(context_map.get("eff_negative_duration_s") or 0.0) + dt_s
+                    )
+                    context_map["eff_negative_integral_pct_s"] = (
+                        float(context_map.get("eff_negative_integral_pct_s") or 0.0)
+                        + abs(float(previous_effort)) * dt_s
+                    )
+            if effort_pct > 0.0:
+                context_map["eff_positive_seen"] = True
+                prior_max = self._as_float(context_map.get("eff_positive_max_pct"))
+                context_map["eff_positive_max_pct"] = (
+                    float(effort_pct) if prior_max is None else max(float(prior_max), float(effort_pct))
+                )
+                if not context_map.get("eff_positive_first_ts"):
+                    context_map["eff_positive_first_ts"] = self._iso_ts_from_wall(now_s)
+                    context_map["eff_positive_first_pressure_hpa"] = pressure if pressure is not None else ""
+                context_map["eff_positive_last_ts"] = self._iso_ts_from_wall(now_s)
+                pressures = self._context_list(context_map, "_eff_positive_pressures_hpa")
+                if pressure is not None:
+                    pressures.append(float(pressure))
+                    context_map["eff_positive_pressure_range_hpa"] = (
+                        f"{min(pressures):.6g}..{max(pressures):.6g}"
+                    )
+            timeline = self._context_list(context_map, "_effort_sign_timeline")
+            sign = "supply" if effort_pct > 0.0 else "exhaust" if effort_pct < 0.0 else "zero"
+            timeline.append(
+                {
+                    "stage": str(stage or ""),
+                    "ts": self._iso_ts_from_wall(now_s),
+                    "effort_pct": float(effort_pct),
+                    "sign": sign,
+                    "pressure_hpa": pressure if pressure is not None else "",
+                }
+            )
+            context_map["_effort_timeline_last_wall_ts"] = now_s
+            context_map["_effort_timeline_last_effort_pct"] = float(effort_pct)
+        source = context_map if context_map is not None else {}
+        positive_seen = bool(source.get("eff_positive_seen") is True)
+        positive_duration = float(source.get("eff_positive_duration_s") or 0.0)
+        positive_integral = float(source.get("eff_positive_integral_pct_s") or 0.0)
+        negative_duration = float(source.get("eff_negative_duration_s") or 0.0)
+        negative_integral = float(source.get("eff_negative_integral_pct_s") or 0.0)
+        positive_confidence = ""
+        if positive_seen:
+            positive_confidence = "medium" if positive_duration >= 0.5 or positive_integral > 0.05 else "low"
+        timeline_value = source.get("_effort_sign_timeline")
+        timeline_summary = ""
+        if isinstance(timeline_value, list):
+            parts = []
+            for item in timeline_value[-8:]:
+                if not isinstance(item, Mapping):
+                    continue
+                parts.append(
+                    f"{item.get('stage','')}:{item.get('sign','')}:{item.get('effort_pct','')}"
+                )
+            timeline_summary = "|".join(parts)
+        return {
+            "eff_positive_seen": positive_seen,
+            "eff_positive_duration_s": round(positive_duration, 6),
+            "eff_positive_max_pct": source.get("eff_positive_max_pct", ""),
+            "eff_positive_integral_pct_s": round(positive_integral, 6),
+            "eff_positive_first_ts": source.get("eff_positive_first_ts", ""),
+            "eff_positive_first_pressure_hpa": source.get("eff_positive_first_pressure_hpa", ""),
+            "eff_positive_last_ts": source.get("eff_positive_last_ts", ""),
+            "eff_positive_pressure_range_hpa": source.get("eff_positive_pressure_range_hpa", ""),
+            "eff_negative_duration_s": round(negative_duration, 6),
+            "eff_negative_integral_pct_s": round(negative_integral, 6),
+            "effort_sign_timeline_summary": timeline_summary,
+            "possible_supply_involvement_during_exhaust": positive_seen,
+            "supply_involvement_confidence": positive_confidence,
+        }
 
     def _sealed_positive_supply_effort_trace_fields(
         self,
@@ -14381,6 +14767,12 @@ class CalibrationRunner:
         fail_pct = self._positive_supply_effort_fail_pct()
         max_duration_s = self._positive_supply_effort_max_duration_s()
         strict_max_duration_s = self._positive_supply_effort_strict_max_duration_s()
+        effort_timeline_fields = self._effort_timeline_stats_fields(
+            context if isinstance(context, MutableMapping) else None,
+            effort_pct=effort_pct if effort_supported else None,
+            stage=stage,
+            wall_ts=now_s,
+        )
         effort_warning_positive = bool(effort_supported and effort_pct is not None and effort_pct >= warning_pct)
         effort_strict_positive = bool(effort_supported and effort_pct is not None and effort_pct >= fail_pct)
         effort_legacy_positive = bool(effort_supported and effort_pct is not None and effort_pct >= threshold)
@@ -14449,6 +14841,7 @@ class CalibrationRunner:
             "dewpoint_stable_before_sampling": "",
             "prevent_positive_supply_during_sampling": self._prevent_positive_supply_during_sampling(),
             "clean_positive_supply_confirmed": self._clean_positive_supply_confirmed(),
+            **effort_timeline_fields,
         }
         if stage == "before_outp1":
             fields["effort_before_outp1"] = effort_pct if effort_pct is not None else ""
@@ -14582,6 +14975,7 @@ class CalibrationRunner:
             "prevent_positive_supply_during_sampling": self._prevent_positive_supply_during_sampling(),
             "clean_positive_supply_confirmed": self._clean_positive_supply_confirmed(),
             "above_target_candidate_effort_guard_source": "cached_before_sampling",
+            **self._effort_timeline_stats_fields(context),
         }
         if stage == "before_sampling" and fields.get("effort_before_sampling", "") == "":
             fields["pressure_in_limit_before_sampling"] = bool(self._sealed_pressure_ready_ts is not None)
@@ -14798,6 +15192,8 @@ class CalibrationRunner:
             "sealed_slow_slew_rate_hpa_per_s": slow_rate,
             "sealed_slow_slew_trigger_ts": self._iso_ts_from_wall(time.time()),
             "sealed_slow_slew_trigger_pressure_hpa": float(pressure_hpa),
+            "slow_slew_started_at_pressure_hpa": float(pressure_hpa),
+            "slow_slew_distance_to_target_hpa": max(0.0, float(pressure_hpa) - float(target)),
             "slow_slew_trigger_pressure_actual_hpa": float(pressure_hpa),
             "slow_slew_trigger_before_crossing": bool(float(pressure_hpa) >= float(target)),
             "slow_slew_too_late": bool(float(pressure_hpa) < float(target)),
@@ -14885,6 +15281,24 @@ class CalibrationRunner:
             ),
             "sealed_slow_slew_command_sent": bool(context.get("sealed_slow_slew_command_sent")),
             "sealed_slow_slew_syst_err": context.get("sealed_slow_slew_syst_err", ""),
+            "sealed_exhaust_profile": context.get("sealed_exhaust_profile", self._sealed_exhaust_profile_name()),
+            "high_delta_fast_slew_hpa_per_s": context.get(
+                "high_delta_fast_slew_hpa_per_s",
+                self._sealed_high_delta_fast_slew_hpa_per_s(),
+            ),
+            "final_slow_zone_hpa": context.get("final_slow_zone_hpa", self._sealed_final_slow_zone_hpa()),
+            "final_slow_slew_hpa_per_s": context.get(
+                "final_slow_slew_hpa_per_s",
+                self._sealed_final_slow_slew_rate_hpa_per_s(),
+            ),
+            "max_slew_or_fast_slew_enabled": bool(context.get("max_slew_or_fast_slew_enabled")),
+            "slow_slew_started_at_pressure_hpa": context.get("slow_slew_started_at_pressure_hpa", ""),
+            "slow_slew_distance_to_target_hpa": context.get("slow_slew_distance_to_target_hpa", ""),
+            "dwell_reduction_target_s": context.get(
+                "dwell_reduction_target_s",
+                self._sealed_dwell_reduction_target_s(),
+            ),
+            "dwell_reduction_expected": bool(context.get("dwell_reduction_expected")),
         }
 
     def _exhaust_only_tracking_context(self, *, target: float) -> Dict[str, Any]:
@@ -15081,11 +15495,19 @@ class CalibrationRunner:
                 and not undershoot_detected
                 and (float(target) - candidate_lower_margin) <= float(pressure_hpa) <= float(target) + candidate_upper
             )
+            materialize_dewpoint_abnormal_for_diagnostic = bool(
+                candidate_entered
+                and candidate_allow_sampling
+                and candidate_dewpoint_abnormal
+                and self._exhaust_only_sample_above_target_requires_dewpoint_not_abnormal()
+                and self._dewpoint_candidate_diagnostic_materialization_enabled()
+            )
             if (
                 candidate_entered
                 and candidate_allow_sampling
                 and self._exhaust_only_sample_above_target_requires_dewpoint_not_abnormal()
                 and candidate_dewpoint_abnormal
+                and not materialize_dewpoint_abnormal_for_diagnostic
             ):
                 candidate_sampling_allowed = False
                 failure_reason = failure_reason or "FAIL_CLOSED_DEWPOINT_RISE_AT_ABOVE_TARGET_CANDIDATE"
@@ -15139,6 +15561,37 @@ class CalibrationRunner:
                 state["pressure_above_target_sample_offset_hpa"] = max(0.0, float(pressure_hpa) - float(target))
                 state["dewpoint_at_candidate"] = candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
                 state["dewpoint_abnormal_at_candidate"] = candidate_dewpoint_abnormal
+                state["dewpoint_abnormal_at_candidate_row_materialized_for_diagnostic"] = (
+                    materialize_dewpoint_abnormal_for_diagnostic
+                )
+                state["dewpoint_abnormal_candidate_block_suppressed_for_diagnostic"] = (
+                    materialize_dewpoint_abnormal_for_diagnostic
+                )
+                state["row_materialized_despite_dewpoint_abnormal_for_trend"] = (
+                    materialize_dewpoint_abnormal_for_diagnostic
+                )
+                if materialize_dewpoint_abnormal_for_diagnostic:
+                    state["sample_invalidated"] = True
+                    state["sample_valid_for_acceptance"] = False
+                    state["sample_invalidated_by_dewpoint_rise"] = True
+                    state["dewpoint_abnormal_during_sample"] = True
+                    state["sample_invalidated_reason"] = self._aggregate_sample_invalidation_reasons(
+                        state.get("sample_invalidated_reason", ""),
+                        "dewpoint_abnormal",
+                        phase="candidate",
+                    )
+                    state["sample_invalidated_phase"] = self._aggregate_unique_semicolon(
+                        state.get("sample_invalidated_phase", ""),
+                        "candidate",
+                    )
+                    state["invalidation_sources"] = self._aggregate_unique_semicolon(
+                        state.get("invalidation_sources", ""),
+                        "dewpoint_abnormal@candidate",
+                    )
+                    state["sample_quality_warning"] = self._aggregate_unique_semicolon(
+                        state.get("sample_quality_warning", ""),
+                        "dewpoint_abnormal@candidate",
+                    )
                 state["dewpoint_candidate_missing"] = candidate_dewpoint_c is None
                 state["candidate_dewpoint_missing"] = candidate_dewpoint_c is None
                 state["candidate_dewpoint_c"] = candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
@@ -15194,7 +15647,24 @@ class CalibrationRunner:
                 state["candidate_positive_effort_seen"] = bool(
                     cached_effort_fields.get("positive_effort_any_seen")
                     or cached_effort_fields.get("positive_effort_fail_closed")
+                    or cached_effort_fields.get("eff_positive_seen")
                 )
+                for effort_key in (
+                    "eff_positive_seen",
+                    "eff_positive_duration_s",
+                    "eff_positive_max_pct",
+                    "eff_positive_integral_pct_s",
+                    "eff_positive_first_ts",
+                    "eff_positive_first_pressure_hpa",
+                    "eff_positive_last_ts",
+                    "eff_positive_pressure_range_hpa",
+                    "eff_negative_duration_s",
+                    "eff_negative_integral_pct_s",
+                    "effort_sign_timeline_summary",
+                    "possible_supply_involvement_during_exhaust",
+                    "supply_involvement_confidence",
+                ):
+                    state[effort_key] = cached_effort_fields.get(effort_key, "")
                 state["candidate_dewpoint_abnormal"] = candidate_dewpoint_abnormal
                 state["candidate_sample_safe_precheck_result"] = (
                     "pass" if candidate_sampling_allowed and cached_effort_ok else "blocked"
@@ -15334,6 +15804,59 @@ class CalibrationRunner:
                     "candidate_positive_effort_seen": bool(
                         state is not None and candidate_entered and state.get("candidate_positive_effort_seen")
                     ),
+                    "eff_positive_seen": bool(
+                        state is not None and candidate_entered and state.get("eff_positive_seen")
+                    ),
+                    "eff_positive_duration_s": (
+                        state.get("eff_positive_duration_s", "") if state is not None and candidate_entered else ""
+                    ),
+                    "eff_positive_max_pct": (
+                        state.get("eff_positive_max_pct", "") if state is not None and candidate_entered else ""
+                    ),
+                    "eff_positive_integral_pct_s": (
+                        state.get("eff_positive_integral_pct_s", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "eff_positive_first_ts": (
+                        state.get("eff_positive_first_ts", "") if state is not None and candidate_entered else ""
+                    ),
+                    "eff_positive_first_pressure_hpa": (
+                        state.get("eff_positive_first_pressure_hpa", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "eff_positive_last_ts": (
+                        state.get("eff_positive_last_ts", "") if state is not None and candidate_entered else ""
+                    ),
+                    "eff_positive_pressure_range_hpa": (
+                        state.get("eff_positive_pressure_range_hpa", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "eff_negative_duration_s": (
+                        state.get("eff_negative_duration_s", "") if state is not None and candidate_entered else ""
+                    ),
+                    "eff_negative_integral_pct_s": (
+                        state.get("eff_negative_integral_pct_s", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "effort_sign_timeline_summary": (
+                        state.get("effort_sign_timeline_summary", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "possible_supply_involvement_during_exhaust": bool(
+                        state is not None
+                        and candidate_entered
+                        and state.get("possible_supply_involvement_during_exhaust")
+                    ),
+                    "supply_involvement_confidence": (
+                        state.get("supply_involvement_confidence", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
                     "candidate_dewpoint_abnormal": bool(candidate_entered and candidate_dewpoint_abnormal),
                     "candidate_sample_safe_precheck_result": (
                         state.get("candidate_sample_safe_precheck_result", "")
@@ -15366,6 +15889,40 @@ class CalibrationRunner:
                     ),
                     "dewpoint_abnormal_at_candidate": bool(
                         candidate_entered and candidate_dewpoint_abnormal
+                    ),
+                    "dewpoint_abnormal_at_candidate_row_materialized_for_diagnostic": bool(
+                        candidate_entered and materialize_dewpoint_abnormal_for_diagnostic
+                    ),
+                    "dewpoint_abnormal_candidate_block_suppressed_for_diagnostic": bool(
+                        candidate_entered and materialize_dewpoint_abnormal_for_diagnostic
+                    ),
+                    "row_materialized_despite_dewpoint_abnormal_for_trend": bool(
+                        candidate_entered and materialize_dewpoint_abnormal_for_diagnostic
+                    ),
+                    "sample_invalidated": bool(
+                        state is not None and candidate_entered and state.get("sample_invalidated")
+                    ),
+                    "sample_valid_for_acceptance": (
+                        False if candidate_entered and materialize_dewpoint_abnormal_for_diagnostic else ""
+                    ),
+                    "sample_invalidated_by_dewpoint_rise": bool(
+                        state is not None
+                        and candidate_entered
+                        and state.get("sample_invalidated_by_dewpoint_rise")
+                    ),
+                    "dewpoint_abnormal_during_sample": bool(
+                        state is not None
+                        and candidate_entered
+                        and state.get("dewpoint_abnormal_during_sample")
+                    ),
+                    "sample_invalidated_reason": (
+                        state.get("sample_invalidated_reason", "") if state is not None and candidate_entered else ""
+                    ),
+                    "sample_invalidated_phase": (
+                        state.get("sample_invalidated_phase", "") if state is not None and candidate_entered else ""
+                    ),
+                    "invalidation_sources": (
+                        state.get("invalidation_sources", "") if state is not None and candidate_entered else ""
                     ),
                     "exhaust_only_candidate_effort_pct": (
                         state.get("candidate_effort_pct", "")
@@ -19436,6 +19993,8 @@ class CalibrationRunner:
                         failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_AFTER_OUTP1"
                     elif above_target_candidate_ready and bool(
                         exhaust_fields.get("dewpoint_abnormal_at_candidate")
+                    ) and not bool(
+                        exhaust_fields.get("dewpoint_abnormal_candidate_block_suppressed_for_diagnostic")
                     ):
                         failure_reason = "FAIL_CLOSED_DEWPOINT_RISE_AT_ABOVE_TARGET_CANDIDATE"
                     elif (
@@ -19933,6 +20492,8 @@ class CalibrationRunner:
                     failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_DURING_SEALED_SWEEP"
                 elif above_target_candidate_ready and bool(
                     exhaust_fields.get("dewpoint_abnormal_at_candidate")
+                ) and not bool(
+                    exhaust_fields.get("dewpoint_abnormal_candidate_block_suppressed_for_diagnostic")
                 ):
                     failure_reason = "FAIL_CLOSED_DEWPOINT_RISE_AT_ABOVE_TARGET_CANDIDATE"
                 elif (
