@@ -6975,6 +6975,120 @@ def test_analyzer_parallel_snapshot_does_not_block_candidate_row() -> None:
     assert rows[0]["a1_co2_ppm"] == pytest.approx(999.9)
 
 
+def test_sealed_pressure_transition_starts_parallel_snapshot_workers() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    analyzer = object()
+    runner._all_gas_analyzers = MagicMock(return_value=[("A1", analyzer, {"active_send": True})])
+    runner._sampling_window_analyzer_worker = MagicMock()
+    context = runner._new_sampling_window_context(point=point, phase="co2", point_tag="")
+
+    runner._start_pressure_transition_parallel_snapshot_workers(context, phase="co2")
+    runner._stop_sampling_window_context(context)
+
+    assert context["_pressure_transition_parallel_snapshot_enabled"] is True
+    assert context["_pressure_transition_parallel_snapshot_worker_count"] >= 1
+    assert "analyzer" in context["_pressure_transition_parallel_snapshot_roles"]
+
+
+def test_candidate_row_uses_pressure_transition_parallel_analyzer_window() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    sealed_context = _arm_safe_1100_candidate(runner, point)
+    transition_context = runner._new_sampling_window_context(point=point, phase="co2", point_tag="")
+    transition_context.update(
+        {
+            "_pressure_transition_parallel_snapshot_enabled": True,
+            "_pressure_transition_parallel_snapshot_roles": "fast_signal:pressure_gauge,analyzer,slow_aux",
+            "_pressure_transition_parallel_snapshot_worker_count": 3,
+            "analyzer_cache_update_count_during_sealed": 2,
+            "analyzer_collector_thread_alive": True,
+        }
+    )
+    a1 = object()
+    a2 = object()
+    runner._all_gas_analyzers = MagicMock(
+        return_value=[
+            ("A1", a1, {"active_send": True, "id": "A1", "port": "COMA"}),
+            ("A2", a2, {"active_send": True, "id": "A2", "port": "COMB"}),
+        ]
+    )
+    runner._record_active_analyzer_frame(
+        transition_context,
+        "A1",
+        a1,
+        line="a1",
+        parsed={"co2_ppm": 999.9, "co2_ratio_f": 1.0},
+        category="parsed",
+    )
+    runner._record_active_analyzer_frame(
+        transition_context,
+        "A2",
+        a2,
+        line="a2",
+        parsed={"co2_ppm": 1000.1, "co2_ratio_f": 1.0},
+        category="parsed",
+    )
+    runner._append_fast_signal_frame(
+        transition_context,
+        "pressure_gauge",
+        values={"pressure_gauge_hpa": 1100.48},
+        source="pressure_gauge_transition_read",
+    )
+    runner._update_slow_aux_cache_entry(
+        transition_context,
+        "thermometer",
+        values={"thermometer_temp_c": 20.0, "chamber_temp_c": 20.0},
+    )
+    anchor_s = time.time()
+    anchor_ts = datetime.fromtimestamp(anchor_s).isoformat(timespec="milliseconds")
+    sealed_context.update(
+        {
+            "fast_candidate_ts": anchor_ts,
+            "exhaust_only_candidate_ts": anchor_ts,
+            "candidate_pressure_ts": anchor_ts,
+            "candidate_dewpoint_ts": anchor_ts,
+            "candidate_dewpoint_cache_fresh": True,
+            "candidate_dewpoint_cache_stale": False,
+            "candidate_dewpoint_quality_ok": True,
+            "dewpoint_candidate_evidence_quality": "fresh_cache",
+            "in_limits_at_candidate": 1,
+        }
+    )
+    runner._pressure_transition_fast_signal_context_active = MagicMock(return_value=transition_context)
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=10,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["sealed_parallel_snapshot_enabled"] is True
+    assert row["sealed_parallel_snapshot_source_context"] == "pressure_transition"
+    assert row["sealed_parallel_snapshot_candidate_aligned"] is True
+    assert row["sampling_parallel_status"] == "parallel_cache_window"
+    assert row["sampling_parallel_claim_allowed"] is True
+    assert row["analyzer_snapshot_alignment_ok"] is True
+    assert row["sample_data_quality_grade"] == "A_calibration_eligible"
+    assert row["sample_can_enter_calibration_fit"] is True
+    assert row["requested_sample_count"] == 10
+    assert row["actual_sample_count"] == 1
+    assert row["first_row_candidate_to_append_s"] <= 0.5
+    assert row["sampling_architecture_compared_to_v2"] == "v2_like_candidate_anchor_parallel_cache_window"
+
+
 def test_com22_inl_live_dewpoint_are_secondary_evidence_not_row_blockers() -> None:
     runner, _pace, _, _ = _runner(
         pressure_overrides={

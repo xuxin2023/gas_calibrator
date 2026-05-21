@@ -719,6 +719,13 @@ _PRESSURE_TRACE_FIELDS = [
             "analyzer_cache_stopped_phase",
             "analyzer_collector_thread_alive",
             "analyzer_sealed_freshness_blocker",
+            "sealed_parallel_snapshot_enabled",
+            "sealed_parallel_snapshot_worker_count",
+            "sealed_parallel_snapshot_roles",
+            "sealed_parallel_snapshot_source_context",
+            "sealed_parallel_snapshot_blocked_first_row",
+            "sealed_parallel_snapshot_candidate_aligned",
+            "sampling_architecture_compared_to_v2",
             "per_device_ts",
     "per_device_age_ms",
     "per_device_source",
@@ -5039,6 +5046,129 @@ class CalibrationRunner:
             "slow_aux_devices": slow_aux_devices,
         }
 
+    def _sealed_parallel_snapshot_enabled(self, phase: str = "") -> bool:
+        phase_text = str(phase or "").strip().lower()
+        if phase_text not in {"co2", "h2o"}:
+            return False
+        if not self._limited_no_write_workflow_active():
+            return False
+        return bool(self._wf("workflow.pressure.sealed_parallel_snapshot_enabled", True))
+
+    def _mark_sampling_context_analyzer_update(
+        self,
+        context: Optional[Dict[str, Any]],
+        label: str,
+    ) -> None:
+        if not isinstance(context, dict):
+            return
+        if not bool(context.get("_pressure_transition_parallel_snapshot_enabled")):
+            return
+        context["analyzer_cache_update_count_during_sealed"] = int(
+            context.get("analyzer_cache_update_count_during_sealed") or 0
+        ) + 1
+        context["analyzer_collector_thread_alive"] = True
+        context["analyzer_last_parallel_update_label"] = str(label or "")
+        context["analyzer_last_parallel_update_ts"] = self._ts_from_datetime(datetime.now())
+
+    def _start_pressure_transition_parallel_snapshot_workers(
+        self,
+        context: Dict[str, Any],
+        *,
+        phase: str,
+    ) -> None:
+        if not isinstance(context, dict):
+            return
+        if context.get("_pressure_transition_parallel_snapshot_workers_started"):
+            return
+        if not self._sealed_parallel_snapshot_enabled(phase):
+            return
+        plan = self._sampling_window_worker_plan()
+        context["worker_plan"] = plan
+        context["_pressure_transition_parallel_snapshot_enabled"] = True
+        roles: List[str] = []
+
+        if plan.get("analyzer_worker_enabled"):
+            worker = threading.Thread(
+                target=self._run_sampling_window_worker,
+                kwargs={
+                    "context": context,
+                    "worker_key": "pressure_transition_analyzer",
+                    "role": "pressure_transition_analyzer",
+                    "target": self._sampling_window_analyzer_worker,
+                },
+                name="pressure-transition-analyzer-cache",
+                daemon=True,
+            )
+            worker.start()
+            context["workers"].append(
+                {"key": "pressure_transition_analyzer", "role": "pressure_transition_analyzer", "thread": worker}
+            )
+            roles.append("analyzer")
+
+        if plan.get("slow_aux_enabled"):
+            worker = threading.Thread(
+                target=self._run_sampling_window_worker,
+                kwargs={
+                    "context": context,
+                    "worker_key": "pressure_transition_slow_aux",
+                    "role": "pressure_transition_slow_aux",
+                    "target": self._sampling_window_slow_aux_worker,
+                },
+                name="pressure-transition-slow-aux-cache",
+                daemon=True,
+            )
+            worker.start()
+            context["workers"].append(
+                {"key": "pressure_transition_slow_aux", "role": "pressure_transition_slow_aux", "thread": worker}
+            )
+            roles.append("slow_aux")
+
+        fast_roles = list(context.get("_pressure_transition_fast_signal_worker_roles") or [])
+        roles = fast_roles + roles
+        context["_pressure_transition_parallel_snapshot_workers_started"] = True
+        context["_pressure_transition_parallel_snapshot_roles"] = ",".join(roles)
+        context["_pressure_transition_parallel_snapshot_worker_count"] = len(roles)
+
+    def _sealed_parallel_snapshot_fields(
+        self,
+        context: Optional[Dict[str, Any]],
+        gas_analyzers: List[Tuple[str, Any, Dict[str, Any]]],
+        *,
+        source_context: str,
+        analyzer_alignment_ok: bool,
+    ) -> Dict[str, Any]:
+        context_map = context if isinstance(context, dict) else {}
+        enabled = bool(context_map.get("_pressure_transition_parallel_snapshot_enabled"))
+        worker_count = int(context_map.get("_pressure_transition_parallel_snapshot_worker_count") or 0)
+        roles = str(context_map.get("_pressure_transition_parallel_snapshot_roles") or "")
+        has_analyzers = bool(gas_analyzers)
+        aligned = bool(analyzer_alignment_ok and (not has_analyzers or enabled))
+        if enabled and aligned:
+            status = "parallel_cache_window"
+            reason = ""
+        elif enabled:
+            status = "partial_parallel_cache_window"
+            reason = "parallel_context_available_but_alignment_incomplete"
+        else:
+            status = "cache_based"
+            reason = "pressure_transition_parallel_context_unavailable"
+        return {
+            "sealed_parallel_snapshot_enabled": enabled,
+            "sealed_parallel_snapshot_worker_count": worker_count,
+            "sealed_parallel_snapshot_roles": roles,
+            "sealed_parallel_snapshot_source_context": source_context,
+            "sealed_parallel_snapshot_blocked_first_row": False,
+            "sealed_parallel_snapshot_candidate_aligned": aligned,
+            "sampling_architecture_compared_to_v2": (
+                "v2_like_candidate_anchor_parallel_cache_window"
+                if enabled
+                else "v2_gap_candidate_row_uses_global_cache_without_transition_parallel_context"
+            ),
+            "sampling_parallel_claim_allowed": bool(enabled and aligned),
+            "sampling_parallel_status": status,
+            "sampling_parallel_not_verified_reason": reason,
+        }
+
     def _sampling_row_pace_state_snapshot(self, pace: Any, *, sample_idx: int) -> Dict[str, Any]:
         every_n = self._sampling_pace_state_every_n_samples()
         refresh = every_n > 0 and (sample_idx == 0 or (sample_idx % every_n) == 0)
@@ -5430,6 +5560,7 @@ class CalibrationRunner:
         else:
             buffer.append(entry)
         if isinstance(parsed, dict) and parsed:
+            self._mark_sampling_context_analyzer_update(context, label)
             self._cache_live_analyzer_frame(
                 ga,
                 line,
@@ -5792,6 +5923,7 @@ class CalibrationRunner:
                 line, parsed = self._read_sensor_parsed(ga)
         category = self._classify_sensor_read_line(ga, line, parsed)
         if parsed:
+            self._mark_sampling_context_analyzer_update(context, label)
             self._cache_live_analyzer_frame(
                 ga,
                 line,
@@ -6353,6 +6485,7 @@ class CalibrationRunner:
                     skip_keys=skip_keys,
                 )
             if self._sampling_fast_signal_worker_enabled() and worker_devices:
+                fast_worker_roles: List[str] = []
                 for signal_key in worker_devices:
                     worker_key = f"pressure_transition_fast_signal:{signal_key}"
                     worker = threading.Thread(
@@ -6375,6 +6508,12 @@ class CalibrationRunner:
                         }
                     )
                     worker.start()
+                    fast_worker_roles.append(f"fast_signal:{signal_key}")
+                context["_pressure_transition_fast_signal_worker_roles"] = fast_worker_roles
+            self._start_pressure_transition_parallel_snapshot_workers(
+                context,
+                phase=phase,
+            )
             extra = f" ({reason})" if reason else ""
             self.log(
                 "Pressure transition fast-signal start"
@@ -6388,6 +6527,10 @@ class CalibrationRunner:
         context["point"] = point
         context["phase"] = str(phase or "").strip().lower()
         context["point_tag"] = str(point_tag or "")
+        self._start_pressure_transition_parallel_snapshot_workers(
+            context,
+            phase=phase,
+        )
         return context
 
     def _stop_pressure_transition_fast_signal_context(self, *, reason: str = "") -> None:
@@ -11498,6 +11641,13 @@ class CalibrationRunner:
             "sampling_parallel_claim_allowed": False,
             "sampling_parallel_status": "not_verified",
             "sampling_parallel_not_verified_reason": "",
+            "sealed_parallel_snapshot_enabled": False,
+            "sealed_parallel_snapshot_worker_count": 0,
+            "sealed_parallel_snapshot_roles": "",
+            "sealed_parallel_snapshot_source_context": "",
+            "sealed_parallel_snapshot_blocked_first_row": False,
+            "sealed_parallel_snapshot_candidate_aligned": False,
+            "sampling_architecture_compared_to_v2": "",
             "per_device_ts": "",
             "per_device_age_ms": "",
             "per_device_source": "",
@@ -13099,6 +13249,13 @@ class CalibrationRunner:
                 "sampling_parallel_claim_allowed",
                 "sampling_parallel_status",
                 "sampling_parallel_not_verified_reason",
+                "sealed_parallel_snapshot_enabled",
+                "sealed_parallel_snapshot_worker_count",
+                "sealed_parallel_snapshot_roles",
+                "sealed_parallel_snapshot_source_context",
+                "sealed_parallel_snapshot_blocked_first_row",
+                "sealed_parallel_snapshot_candidate_aligned",
+                "sampling_architecture_compared_to_v2",
                 "requested_sample_count",
                 "actual_sample_count",
                 "first_row_candidate_to_append_s",
@@ -13134,6 +13291,12 @@ class CalibrationRunner:
         row_now_s = time.time()
         row_now_mono = time.monotonic()
         anchor_s = self._candidate_anchor_wall_ts(context) or row_now_s
+        anchor_mono = row_now_mono - max(0.0, row_now_s - float(anchor_s))
+        snapshot_context = self._pressure_transition_fast_signal_context_active()
+        snapshot_source_context = "pressure_transition"
+        if not isinstance(snapshot_context, dict):
+            snapshot_context = self._sampling_window_context if isinstance(self._sampling_window_context, dict) else None
+            snapshot_source_context = "sampling_window" if isinstance(snapshot_context, dict) else "global_cache"
         anchor_dt = datetime.fromtimestamp(anchor_s)
         anchor_ts = self._ts_from_datetime(anchor_dt)
         row_ts = self._ts_from_datetime(datetime.fromtimestamp(row_now_s))
@@ -13399,6 +13562,29 @@ class CalibrationRunner:
             "sampling_parallel_claim_allowed": False,
             "sampling_parallel_status": "cache_based",
             "sampling_parallel_not_verified_reason": "candidate_row_uses_cache_secondary_evidence",
+            "sealed_parallel_snapshot_enabled": bool(
+                isinstance(snapshot_context, dict)
+                and snapshot_context.get("_pressure_transition_parallel_snapshot_enabled")
+            ),
+            "sealed_parallel_snapshot_worker_count": (
+                int(snapshot_context.get("_pressure_transition_parallel_snapshot_worker_count") or 0)
+                if isinstance(snapshot_context, dict)
+                else 0
+            ),
+            "sealed_parallel_snapshot_roles": (
+                snapshot_context.get("_pressure_transition_parallel_snapshot_roles", "")
+                if isinstance(snapshot_context, dict)
+                else ""
+            ),
+            "sealed_parallel_snapshot_source_context": snapshot_source_context,
+            "sealed_parallel_snapshot_blocked_first_row": False,
+            "sealed_parallel_snapshot_candidate_aligned": False,
+            "sampling_architecture_compared_to_v2": (
+                "v2_like_candidate_anchor_parallel_cache_window"
+                if isinstance(snapshot_context, dict)
+                and snapshot_context.get("_pressure_transition_parallel_snapshot_enabled")
+                else "v2_gap_candidate_row_uses_global_cache_without_transition_parallel_context"
+            ),
         }
         data.update(self._candidate_cached_pace_state_fields(context))
         for key in (
@@ -13595,13 +13781,26 @@ class CalibrationRunner:
         context["ultra_fast_snapshot_rows"] = [dict(data)]
 
         analyzer_snapshot_start_mono = time.monotonic()
+        if isinstance(snapshot_context, dict):
+            self._merge_fast_signal_cache_into_sample(
+                data,
+                snapshot_context,
+                sample_anchor_mono=anchor_mono,
+                row_time_s=row_now_s,
+            )
         frame_issues = self._merge_analyzer_cache_into_sample(
             data,
             gas_analyzers,
-            context=None,
-            sample_anchor_mono=row_now_mono,
+            context=snapshot_context if isinstance(snapshot_context, dict) else None,
+            sample_anchor_mono=anchor_mono,
             row_time_s=row_now_s,
         )
+        if isinstance(snapshot_context, dict):
+            self._merge_slow_aux_cache_into_sample(
+                data,
+                snapshot_context,
+                row_time_s=row_now_s,
+            )
         analyzer_snapshot_duration_ms = round(
             max(0.0, (time.monotonic() - analyzer_snapshot_start_mono) * 1000.0),
             3,
@@ -13620,6 +13819,14 @@ class CalibrationRunner:
         self._add_sampling_timing_evidence(data, gas_analyzers, row_time_s=row_now_s)
         analyzer_anchor_fields = self._sealed_analyzer_anchor_window_fields(data, gas_analyzers)
         data.update(analyzer_anchor_fields)
+        data.update(
+            self._sealed_parallel_snapshot_fields(
+                snapshot_context if isinstance(snapshot_context, dict) else None,
+                gas_analyzers,
+                source_context=snapshot_source_context,
+                analyzer_alignment_ok=bool(data.get("analyzer_snapshot_alignment_ok") is True),
+            )
+        )
         secondary_fields = self._sealed_secondary_evidence_fields(
             data,
             context,
@@ -13643,9 +13850,12 @@ class CalibrationRunner:
         data["per_device_age_ms"] = data.get("per_device_age_ms", "")
         data["per_device_source"] = data.get("per_device_source", "")
         data["max_device_age_ms"] = data.get("max_device_age_ms") or data.get("sampling_time_alignment_max_age_ms", "")
-        data["sampling_parallel_claim_allowed"] = False
-        data["sampling_parallel_status"] = "cache_based"
-        data["sampling_parallel_not_verified_reason"] = "first row anchored to fast candidate with cache/post-row evidence"
+        data["sampling_parallel_claim_allowed"] = bool(data.get("sampling_parallel_claim_allowed") is True)
+        data["sampling_parallel_status"] = data.get("sampling_parallel_status") or "cache_based"
+        data["sampling_parallel_not_verified_reason"] = data.get(
+            "sampling_parallel_not_verified_reason",
+            "first row anchored to fast candidate with cache/post-row evidence",
+        )
         data["analyzer_snapshot_status"] = (
             "partial" if frame_issues or not data.get("analyzer_snapshot_alignment_ok") else "cache_only"
         )
@@ -13863,6 +14073,19 @@ class CalibrationRunner:
             "sampling_parallel_claim_allowed": data.get("sampling_parallel_claim_allowed", False),
             "sampling_parallel_status": data.get("sampling_parallel_status", "cache_based"),
             "sampling_parallel_not_verified_reason": data.get("sampling_parallel_not_verified_reason", ""),
+            "sealed_parallel_snapshot_enabled": data.get("sealed_parallel_snapshot_enabled", False),
+            "sealed_parallel_snapshot_worker_count": data.get("sealed_parallel_snapshot_worker_count", 0),
+            "sealed_parallel_snapshot_roles": data.get("sealed_parallel_snapshot_roles", ""),
+            "sealed_parallel_snapshot_source_context": data.get("sealed_parallel_snapshot_source_context", ""),
+            "sealed_parallel_snapshot_blocked_first_row": data.get(
+                "sealed_parallel_snapshot_blocked_first_row",
+                False,
+            ),
+            "sealed_parallel_snapshot_candidate_aligned": data.get(
+                "sealed_parallel_snapshot_candidate_aligned",
+                False,
+            ),
+            "sampling_architecture_compared_to_v2": data.get("sampling_architecture_compared_to_v2", ""),
             "analyzer_cache_update_count_during_open_flow": data.get(
                 "analyzer_cache_update_count_during_open_flow",
                 0,
@@ -32923,12 +33146,29 @@ class CalibrationRunner:
             device_age[name] = age_ms if age_ms is not None else ""
             device_source[name] = source if sample_ts else "missing"
 
-        add_device("pace_pressure", "pace_sample_ts", "pace_anchor_delta_ms", "background_poll")
-        add_device("com22_pressure", "pressure_gauge_sample_ts", "pressure_gauge_anchor_delta_ms", "background_poll")
-        add_device("dewpoint", "dewpoint_sample_ts", "dewpoint_live_anchor_delta_ms", "background_poll")
-        add_device("chamber", "chamber_sample_ts", "chamber_cache_age_ms", "cache")
-        add_device("thermometer", "thermometer_sample_ts", "thermometer_cache_age_ms", "cache")
-        add_device("hgen", "hgen_sample_ts", "hgen_cache_age_ms", "cache")
+        def add_present_device(
+            name: str,
+            device_key: str,
+            ts_key: str,
+            age_key: str = "",
+            source: str = "cache",
+        ) -> None:
+            if self.devices.get(device_key) is None and data.get(ts_key) in (None, ""):
+                return
+            add_device(name, ts_key, age_key, source)
+
+        add_present_device("pace_pressure", "pace", "pace_sample_ts", "pace_anchor_delta_ms", "background_poll")
+        add_present_device(
+            "com22_pressure",
+            "pressure_gauge",
+            "pressure_gauge_sample_ts",
+            "pressure_gauge_anchor_delta_ms",
+            "background_poll",
+        )
+        add_present_device("dewpoint", "dewpoint", "dewpoint_sample_ts", "dewpoint_live_anchor_delta_ms", "background_poll")
+        add_present_device("chamber", "temp_chamber", "chamber_sample_ts", "chamber_cache_age_ms", "cache")
+        add_present_device("thermometer", "thermometer", "thermometer_sample_ts", "thermometer_cache_age_ms", "cache")
+        add_present_device("hgen", "humidity_gen", "hgen_sample_ts", "hgen_cache_age_ms", "cache")
 
         analyzer_age_by_port: Dict[str, Any] = {}
         for label, _ga, _cfg in gas_analyzers:
