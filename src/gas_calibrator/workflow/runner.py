@@ -396,6 +396,16 @@ _PRESSURE_TRACE_FIELDS = [
     "sealed_slow_slew_syst_err",
     "sealed_exhaust_profile",
     "sealed_exhaust_fast_mode",
+    "pace_mode_requested",
+    "pace_mode_confirmed",
+    "pace_mode_source",
+    "slew_mode_requested",
+    "slew_mode_confirmed",
+    "slew_over_requested",
+    "slew_over_confirmed",
+    "profile_matches_v2_or_approved_strategy",
+    "profile_difference_from_v2",
+    "profile_difference_reason",
     "high_delta_fast_slew_hpa_per_s",
     "final_slow_zone_hpa",
     "final_slow_slew_hpa_per_s",
@@ -627,6 +637,11 @@ _PRESSURE_TRACE_FIELDS = [
     "dewpoint_change_from_previous_point_c",
     "pressure_effect_expected_dewpoint_change_c",
     "residual_dewpoint_change_after_pressure_effect_c",
+    "observed_dewpoint_change_c",
+    "expected_dewpoint_change_from_pressure_c",
+    "residual_change_c",
+    "trend_should_decrease",
+    "trend_observed",
     "dewpoint_trend_after_1100",
     "trend_matches_physical_expectation",
     "trend_supports_continue_sweep_strategy",
@@ -737,6 +752,14 @@ _PRESSURE_TRACE_FIELDS = [
     "packet_complete_to_next_point_s",
     "sealed_point_time_budget_s",
     "sealed_point_time_budget_exceeded",
+    "requested_sample_count",
+    "actual_sample_count",
+    "first_row_candidate_to_append_s",
+    "sample_burst_duration_s",
+    "sample_count_used_for_fit",
+    "sample_count_used_for_diagnostic",
+    "sampling_time_budget_exceeded",
+    "sampling_strategy_learned_from_v2",
     "time_compression_strategy",
     "actual_temperature_c",
     "actual_dewpoint_c",
@@ -1159,6 +1182,12 @@ _PRESSURE_TRACE_FIELDS = [
     "dewpoint_freshness_age_s",
     "dewpoint_delta_since_gate_c",
     "preseal_dewpoint_delta_vs_tail_reference_c",
+    "dewpoint_before_seal_c",
+    "dewpoint_tail_span_c",
+    "dewpoint_tail_slope_c_per_s",
+    "dewpoint_rebound_detected",
+    "preseal_dewpoint_gate_pass",
+    "preseal_dewpoint_gate_reason",
     "preseal_dewpoint_rebound_warning",
     "preseal_dewpoint_hard_rebound_c",
     "preseal_dewpoint_hard_rebound_warning",
@@ -11139,16 +11168,59 @@ class CalibrationRunner:
         return mode if mode in {"single_snapshot", "short_burst"} else "short_burst"
 
     def _sealed_fast_sample_rows(self) -> int:
-        raw = self._wf("workflow.pressure.sealed_fast_sample_rows", 3)
+        raw = self._wf("workflow.pressure.sealed_fast_sample_rows", 10)
         try:
             return max(1, int(raw))
         except Exception:
-            return 3
+            return 10
 
     def _sealed_fast_sample_interval_s(self) -> float:
         raw = self._wf("workflow.pressure.sealed_fast_sample_interval_s", 0.2)
         value = self._as_float(raw)
         return max(0.0, float(0.2 if value is None else value))
+
+    def _sealed_profile_alignment_fields(
+        self,
+        context: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        source = context if isinstance(context, Mapping) else {}
+        requested_slew = str(source.get("slew_mode_set") or self._sealed_control_slew_mode() or "").upper()
+        if not requested_slew:
+            requested_slew = "MAX" if self._sealed_profile_uses_max_mode() else "LIN"
+        over_requested = 0 if self._sealed_over0_enabled() else 1
+        over_confirmed: Any = ""
+        if source.get("sealed_slew_over_not_allowed_configured") is True:
+            over_confirmed = 0
+        elif source.get("overshoot_allowed_set") not in (None, ""):
+            over_confirmed = 1 if self._as_bool(source.get("overshoot_allowed_set"), False) else 0
+        slew_confirmed = str(source.get("slew_mode_set") or requested_slew or "").upper()
+        pace_confirmed = str(source.get("pace_mode_confirmed") or source.get("pace_mode_requested") or "").strip()
+        matches = bool(
+            requested_slew in {"MAX", "LIN"}
+            and over_requested == 0
+            and str(pace_confirmed or "ACT").upper() == "ACT"
+        )
+        if requested_slew == "MAX" and over_requested == 0:
+            difference = "v2_slew_over_not_explicit_v1_5_explicit_max_over0"
+            reason = (
+                "V2 audit confirms ACT via enable_control_output and setpoint-before-OUTP1; "
+                "V2 SLEW/OVER evidence_not_found, so V1.5 uses pressure-only approved ACT+MAX+OVER0."
+            )
+        else:
+            difference = "v1_5_uses_approved_non_default_profile"
+            reason = "V1.5 limited no-write profile selected by approved pressure strategy guard."
+        return {
+            "pace_mode_requested": "ACT",
+            "pace_mode_confirmed": pace_confirmed or "ACT",
+            "pace_mode_source": "v2_audit_default_act_plus_pressure_only_diagnostic",
+            "slew_mode_requested": requested_slew,
+            "slew_mode_confirmed": slew_confirmed,
+            "slew_over_requested": over_requested,
+            "slew_over_confirmed": over_confirmed,
+            "profile_matches_v2_or_approved_strategy": matches,
+            "profile_difference_from_v2": difference,
+            "profile_difference_reason": reason,
+        }
 
     def _sealed_fast_short_burst_sampling_active(self, phase: str = "") -> bool:
         phase_text = str(phase or "").strip().lower()
@@ -11294,6 +11366,11 @@ class CalibrationRunner:
             "dewpoint_change_from_previous_point_c": "",
             "pressure_effect_expected_dewpoint_change_c": "",
             "residual_dewpoint_change_after_pressure_effect_c": "",
+            "observed_dewpoint_change_c": "",
+            "expected_dewpoint_change_from_pressure_c": "",
+            "residual_change_c": "",
+            "trend_should_decrease": "",
+            "trend_observed": "",
             "dewpoint_trend_after_1100": "",
             "trend_matches_physical_expectation": "",
             "trend_supports_continue_sweep_strategy": "",
@@ -11307,6 +11384,16 @@ class CalibrationRunner:
             "dwell_time_vs_dewpoint_rise_correlation": "",
             "trend_supports_time_compression_strategy": "",
             "current_point_after_prior_dewpoint_abnormal": False,
+            "pace_mode_requested": "ACT",
+            "pace_mode_confirmed": "",
+            "pace_mode_source": "v2_audit_default_act_plus_pressure_only_diagnostic",
+            "slew_mode_requested": self._sealed_control_slew_mode(),
+            "slew_mode_confirmed": "",
+            "slew_over_requested": 0,
+            "slew_over_confirmed": "",
+            "profile_matches_v2_or_approved_strategy": False,
+            "profile_difference_from_v2": "",
+            "profile_difference_reason": "",
             "pace_effort_pct_at_candidate": "",
             "pace_effort_sign": "",
             "pace_effort_pct_at_post_row": "",
@@ -11400,6 +11487,14 @@ class CalibrationRunner:
             "analyzer_snapshot_failure_phase": "",
             "analyzer_snapshot_not_calibration_ready_reason": "",
             "secondary_evidence_status": "",
+            "requested_sample_count": "",
+            "actual_sample_count": "",
+            "first_row_candidate_to_append_s": "",
+            "sample_burst_duration_s": "",
+            "sample_count_used_for_fit": "",
+            "sample_count_used_for_diagnostic": "",
+            "sampling_time_budget_exceeded": "",
+            "sampling_strategy_learned_from_v2": "",
             "sampling_parallel_claim_allowed": False,
             "sampling_parallel_status": "not_verified",
             "sampling_parallel_not_verified_reason": "",
@@ -11800,16 +11895,24 @@ class CalibrationRunner:
             current_candidate_dew,
         )
         previous_target = self._first_numeric_value(
-            context.get("previous_sealed_target_hpa") if isinstance(context, Mapping) else None
+            data.get("previous_sealed_target_hpa"),
+            context.get("previous_sealed_target_hpa") if isinstance(context, Mapping) else None,
+            getattr(self, "_last_sealed_point_target_hpa", None),
         )
         previous_candidate_dew = self._first_numeric_value(
-            context.get("previous_point_dewpoint_at_candidate") if isinstance(context, Mapping) else None
+            data.get("previous_point_dewpoint_at_candidate"),
+            context.get("previous_point_dewpoint_at_candidate") if isinstance(context, Mapping) else None,
+            getattr(self, "_last_sealed_point_dewpoint_at_candidate", None),
         )
         previous_row_dew = self._first_numeric_value(
-            context.get("previous_point_dewpoint_at_row") if isinstance(context, Mapping) else None
+            data.get("previous_point_dewpoint_at_row"),
+            context.get("previous_point_dewpoint_at_row") if isinstance(context, Mapping) else None,
+            getattr(self, "_last_sealed_point_dewpoint_at_row", None),
         )
         previous_post_dew = self._first_numeric_value(
-            context.get("previous_point_dewpoint_at_post_validation") if isinstance(context, Mapping) else None
+            data.get("previous_point_dewpoint_at_post_validation"),
+            context.get("previous_point_dewpoint_at_post_validation") if isinstance(context, Mapping) else None,
+            getattr(self, "_last_sealed_point_dewpoint_at_post_validation", None),
         )
         previous_dew = self._first_numeric_value(previous_post_dew, previous_row_dew, previous_candidate_dew)
         direction = ""
@@ -11838,7 +11941,18 @@ class CalibrationRunner:
         residual = ""
         if change != "":
             expected_change = 0.0
-            residual = round(float(change) - expected_change, 6)
+            if previous_dew is not None and previous_target is not None and current_target is not None:
+                try:
+                    expected_dew = predict_pressure_scaled_dewpoint_c(
+                        float(previous_dew),
+                        float(previous_target),
+                        float(current_target),
+                    )
+                except Exception:
+                    expected_dew = None
+                if expected_dew is not None:
+                    expected_change = round(float(expected_dew) - float(previous_dew), 6)
+            residual = round(float(change) - float(expected_change), 6)
         matches = ""
         if trend != "unknown":
             matches = bool(direction != "descending" or trend in {"decreasing", "stable"})
@@ -11879,6 +11993,11 @@ class CalibrationRunner:
             "dewpoint_change_from_previous_point_c": change,
             "pressure_effect_expected_dewpoint_change_c": expected_change,
             "residual_dewpoint_change_after_pressure_effect_c": residual,
+            "observed_dewpoint_change_c": change,
+            "expected_dewpoint_change_from_pressure_c": expected_change,
+            "residual_change_c": residual,
+            "trend_should_decrease": bool(direction == "descending") if direction else "",
+            "trend_observed": trend,
             "dewpoint_trend_after_1100": trend,
             "trend_matches_physical_expectation": matches,
             "trend_supports_continue_sweep_strategy": supports,
@@ -12136,6 +12255,14 @@ class CalibrationRunner:
             residual is not None and threshold is not None and abs(float(residual)) > float(threshold)
         )
         data.update(self._sealed_point_dewpoint_trend_fields(data, context, point=point))
+        trend_residual = self._as_float(data.get("residual_dewpoint_change_after_pressure_effect_c"))
+        if (
+            str(data.get("pressure_direction_from_previous_point") or "") == "descending"
+            and trend_residual is not None
+            and threshold is not None
+            and float(trend_residual) > float(threshold)
+        ):
+            data["dewpoint_residual_exceeds_threshold"] = True
         data.update(self._sealed_sample_quality_grade_fields(data, context=context))
         data.update(self._sealed_group_result_fields(context))
         data.update(self._sealed_point_result_fields(data, context=context))
@@ -12972,6 +13099,14 @@ class CalibrationRunner:
                 "sampling_parallel_claim_allowed",
                 "sampling_parallel_status",
                 "sampling_parallel_not_verified_reason",
+                "requested_sample_count",
+                "actual_sample_count",
+                "first_row_candidate_to_append_s",
+                "sample_burst_duration_s",
+                "sample_count_used_for_fit",
+                "sample_count_used_for_diagnostic",
+                "sampling_time_budget_exceeded",
+                "sampling_strategy_learned_from_v2",
                 "per_device_ts",
                 "per_device_age_ms",
                 "per_device_source",
@@ -13103,6 +13238,14 @@ class CalibrationRunner:
             "sealed_fast_sample_mode": self._sealed_fast_sample_mode(),
             "sealed_fast_sample_rows_requested": int(requested_rows),
             "sealed_fast_sample_interval_s": float(requested_interval_s),
+            "requested_sample_count": int(requested_rows),
+            "actual_sample_count": 1,
+            "first_row_candidate_to_append_s": candidate_to_append_s,
+            "sample_burst_duration_s": candidate_to_row_s,
+            "sample_count_used_for_fit": 0,
+            "sample_count_used_for_diagnostic": 1,
+            "sampling_time_budget_exceeded": False,
+            "sampling_strategy_learned_from_v2": "candidate_first_row_then_secondary_evidence_cache_window",
             "sample_valid_for_acceptance": False,
             "sample_invalidated": bool(context.get("sample_invalidated") is True),
             "sample_invalidated_reason": context.get("sample_invalidated_reason", ""),
@@ -13194,6 +13337,7 @@ class CalibrationRunner:
             "pace_comp_negative_source_hpa": "",
             "pace_comp_evidence_available": False,
             "pace_comp_evidence_todo": True,
+            **self._sealed_profile_alignment_fields(context),
             "sample_invalidated_by_target_crossing": bool(
                 context.get("sample_invalidated_by_target_crossing") is True
             ),
@@ -13318,6 +13462,16 @@ class CalibrationRunner:
             "setpoint_bias_reason",
             "sealed_exhaust_profile",
             "sealed_exhaust_fast_mode",
+            "pace_mode_requested",
+            "pace_mode_confirmed",
+            "pace_mode_source",
+            "slew_mode_requested",
+            "slew_mode_confirmed",
+            "slew_over_requested",
+            "slew_over_confirmed",
+            "profile_matches_v2_or_approved_strategy",
+            "profile_difference_from_v2",
+            "profile_difference_reason",
             "high_delta_fast_slew_hpa_per_s",
             "final_slow_zone_hpa",
             "final_slow_slew_hpa_per_s",
@@ -13387,9 +13541,18 @@ class CalibrationRunner:
             "pace_comp_negative_source_hpa",
             "pace_comp_evidence_available",
             "pace_comp_evidence_todo",
+            "requested_sample_count",
+            "actual_sample_count",
+            "first_row_candidate_to_append_s",
+            "sample_burst_duration_s",
+            "sample_count_used_for_fit",
+            "sample_count_used_for_diagnostic",
+            "sampling_time_budget_exceeded",
+            "sampling_strategy_learned_from_v2",
         ):
             if key in context:
                 data[key] = context.get(key)
+        data.update(self._sealed_profile_alignment_fields({**context, **data}))
 
         early_context_updates = {
             "ultra_fast_snapshot_row_enabled": True,
@@ -13408,6 +13571,14 @@ class CalibrationRunner:
             "row_object_created_ts": row_ts,
             "row_appended_ts": row_ts,
             "candidate_to_row_object_s": candidate_to_row_s,
+            "requested_sample_count": int(requested_rows),
+            "actual_sample_count": 1,
+            "first_row_candidate_to_append_s": candidate_to_append_s,
+            "sample_burst_duration_s": candidate_to_row_s,
+            "sample_count_used_for_fit": 0,
+            "sample_count_used_for_diagnostic": 1,
+            "sampling_time_budget_exceeded": False,
+            "sampling_strategy_learned_from_v2": "candidate_first_row_then_secondary_evidence_cache_window",
         }
         context.update(early_context_updates)
         self._increment_sealed_group_counter_once(
@@ -13463,6 +13634,11 @@ class CalibrationRunner:
             packet_complete_s=packet_complete_s,
         )
         data.update(time_budget_fields)
+        data["sample_burst_duration_s"] = data.get("candidate_to_packet_complete_s") or data.get(
+            "sample_burst_duration_s",
+            "",
+        )
+        data["sampling_time_budget_exceeded"] = bool(data.get("sealed_point_time_budget_exceeded") is True)
         data["per_device_ts"] = data.get("per_device_sample_ts", "")
         data["per_device_age_ms"] = data.get("per_device_age_ms", "")
         data["per_device_source"] = data.get("per_device_source", "")
@@ -13496,6 +13672,10 @@ class CalibrationRunner:
             )
         data["sample_quality_warning"] = data.get("ultra_fast_snapshot_quality_warning", "")
         self._apply_sealed_row_quality_fields(data, point=point, context=context)
+        fit_count = 1 if data.get("sample_can_enter_calibration_fit") is True else 0
+        diagnostic_count = 1 if data.get("sample_can_enter_diagnostic_model") is True and fit_count == 0 else 0
+        data["sample_count_used_for_fit"] = fit_count
+        data["sample_count_used_for_diagnostic"] = diagnostic_count
         data["trend_supports_calibration_acceptance"] = bool(
             data.get("trend_supports_continue_sweep_strategy") is True
             and data.get("sample_data_quality_grade") == "A_calibration_eligible"
@@ -13571,6 +13751,17 @@ class CalibrationRunner:
             "row_object_created_ts": row_ts,
             "row_appended_ts": row_ts,
             "candidate_to_row_object_s": candidate_to_row_s,
+            "requested_sample_count": data.get("requested_sample_count", int(requested_rows)),
+            "actual_sample_count": data.get("actual_sample_count", 1),
+            "first_row_candidate_to_append_s": data.get("first_row_candidate_to_append_s", candidate_to_append_s),
+            "sample_burst_duration_s": data.get("sample_burst_duration_s", ""),
+            "sample_count_used_for_fit": data.get("sample_count_used_for_fit", 0),
+            "sample_count_used_for_diagnostic": data.get("sample_count_used_for_diagnostic", 1),
+            "sampling_time_budget_exceeded": data.get("sampling_time_budget_exceeded", False),
+            "sampling_strategy_learned_from_v2": data.get(
+                "sampling_strategy_learned_from_v2",
+                "candidate_first_row_then_secondary_evidence_cache_window",
+            ),
             "pressure_offset_from_nominal_hpa": data.get("pressure_offset_from_nominal_hpa", ""),
             "dewpoint_trend_after_1100": data.get("dewpoint_trend_after_1100", ""),
             "trend_supports_calibration_acceptance": data.get("trend_supports_calibration_acceptance", False),
@@ -13619,6 +13810,19 @@ class CalibrationRunner:
             "pace_comp_negative_source_hpa": data.get("pace_comp_negative_source_hpa", ""),
             "pace_comp_evidence_available": data.get("pace_comp_evidence_available", False),
             "pace_comp_evidence_todo": data.get("pace_comp_evidence_todo", True),
+            "pace_mode_requested": data.get("pace_mode_requested", ""),
+            "pace_mode_confirmed": data.get("pace_mode_confirmed", ""),
+            "pace_mode_source": data.get("pace_mode_source", ""),
+            "slew_mode_requested": data.get("slew_mode_requested", ""),
+            "slew_mode_confirmed": data.get("slew_mode_confirmed", ""),
+            "slew_over_requested": data.get("slew_over_requested", ""),
+            "slew_over_confirmed": data.get("slew_over_confirmed", ""),
+            "profile_matches_v2_or_approved_strategy": data.get(
+                "profile_matches_v2_or_approved_strategy",
+                False,
+            ),
+            "profile_difference_from_v2": data.get("profile_difference_from_v2", ""),
+            "profile_difference_reason": data.get("profile_difference_reason", ""),
             "sealed_exhaust_profile": data.get("sealed_exhaust_profile", ""),
             "sealed_exhaust_fast_mode": data.get("sealed_exhaust_fast_mode", ""),
             "high_delta_fast_slew_hpa_per_s": data.get("high_delta_fast_slew_hpa_per_s", ""),
@@ -13730,6 +13934,14 @@ class CalibrationRunner:
                 "residual_dewpoint_change_after_pressure_effect_c",
                 "",
             ),
+            "observed_dewpoint_change_c": data.get("observed_dewpoint_change_c", ""),
+            "expected_dewpoint_change_from_pressure_c": data.get(
+                "expected_dewpoint_change_from_pressure_c",
+                "",
+            ),
+            "residual_change_c": data.get("residual_change_c", ""),
+            "trend_should_decrease": data.get("trend_should_decrease", ""),
+            "trend_observed": data.get("trend_observed", ""),
             "trend_matches_physical_expectation": data.get("trend_matches_physical_expectation", ""),
             "trend_supports_continue_sweep_strategy": data.get(
                 "trend_supports_continue_sweep_strategy",
@@ -13857,6 +14069,22 @@ class CalibrationRunner:
             data.get("current_point_dewpoint_at_post_validation", ""),
         )
         context["previous_point_dwell_s"] = data.get("current_point_dwell_s", data.get("sealed_point_dwell_s", ""))
+        self._last_sealed_point_target_hpa = context.get("previous_sealed_target_hpa", "")
+        self._last_sealed_point_dewpoint_at_candidate = context.get("previous_point_dewpoint_at_candidate", "")
+        self._last_sealed_point_dewpoint_at_row = context.get("previous_point_dewpoint_at_row", "")
+        self._last_sealed_point_dewpoint_at_post_validation = context.get(
+            "previous_point_dewpoint_at_post_validation",
+            "",
+        )
+        if isinstance(self._co2_sealed_no_vent_guard_context, dict):
+            for key in (
+                "previous_sealed_target_hpa",
+                "previous_point_dewpoint_at_candidate",
+                "previous_point_dewpoint_at_row",
+                "previous_point_dewpoint_at_post_validation",
+                "previous_point_dwell_s",
+            ):
+                self._co2_sealed_no_vent_guard_context[key] = context.get(key, "")
 
         self._append_pressure_trace_row(
             point=point,
@@ -14732,6 +14960,7 @@ class CalibrationRunner:
         fields.setdefault("first_sealed_point_high_pressure_profile_enabled", False)
         fields.setdefault("sealed_exhaust_profile", self._sealed_exhaust_profile_name())
         fields.setdefault("sealed_exhaust_fast_mode", self._sealed_exhaust_fast_mode())
+        fields.update({**self._sealed_profile_alignment_fields(fields), **fields})
         fields.setdefault("high_delta_fast_slew_hpa_per_s", self._sealed_high_delta_fast_slew_hpa_per_s())
         fields.setdefault("final_slow_zone_hpa", self._sealed_final_slow_zone_hpa())
         fields.setdefault("final_slow_slew_hpa_per_s", self._sealed_final_slow_slew_rate_hpa_per_s())
@@ -14905,6 +15134,7 @@ class CalibrationRunner:
         fields["pressure_descent_profile_active"] = self._sealed_fast_exhaust_profile_enabled()
         if pace is None:
             failures.append("pace_unavailable")
+            fields.update(self._sealed_profile_alignment_fields(fields))
             return
 
         if mode == "MAX":
@@ -14975,6 +15205,7 @@ class CalibrationRunner:
                 failures.append(f"overshoot:{exc}")
         else:
             failures.append("overshoot:unsupported")
+        fields.update(self._sealed_profile_alignment_fields(fields))
 
     def _prearm_sealed_control_config(
         self,
@@ -22348,6 +22579,11 @@ class CalibrationRunner:
         if isinstance(context, dict):
             context["outp1_first_tx_ts"] = self._sealed_first_outp1_tx_ts
             context["output_enabled_once"] = True
+            context.update(
+                self._sealed_profile_alignment_fields(
+                    {**context, "pace_mode_requested": "ACT", "pace_mode_confirmed": "ACT"}
+                )
+            )
         minimal_end_s = self._parse_iso_ts_to_wall_s(str(ready.get("minimal_ready_gate_end_ts") or ""))
         if minimal_end_s is not None:
             fields["minimal_ready_to_outp1_s"] = round(
@@ -22401,6 +22637,11 @@ class CalibrationRunner:
                 if isinstance(context, dict):
                     context["outp1_first_tx_ts"] = self._sealed_first_outp1_tx_ts
                     context["output_enabled_once"] = True
+                    context.update(
+                        self._sealed_profile_alignment_fields(
+                            {**context, "pace_mode_requested": "ACT", "pace_mode_confirmed": "ACT"}
+                        )
+                    )
             extra = f" ({reason})" if reason else ""
             self.log(f"Pressure controller output=ON{extra}")
             return True
@@ -24035,6 +24276,9 @@ class CalibrationRunner:
             "linear_slew_hpa_per_s": float(self._wf("workflow.pressure.soft_control_linear_slew_hpa_per_s", 10.0)),
             "disallow_overshoot": bool(self._wf("workflow.pressure.soft_control_disallow_overshoot", True)),
         }
+        if cfg["enabled"] and self._limited_no_write_workflow_active():
+            cfg["use_active_mode"] = True
+            cfg["disallow_overshoot"] = True
         if cfg["enabled"] and not self._soft_pressure_control_cfg_logged:
             self._soft_pressure_control_cfg_logged = True
             self.log(
@@ -29624,6 +29868,11 @@ class CalibrationRunner:
         gate_ts = self._as_float(runtime_state.get("dewpoint_gate_pass_ts"))
         gate_value_c = self._as_float(runtime_state.get("dewpoint_gate_pass_value_c"))
         tail_reference_c = self._as_float(runtime_state.get("dewpoint_gate_tail_reference_c"))
+        tail_span_c = self._as_float(runtime_state.get("dewpoint_gate_tail_span_c"))
+        tail_slope_c_per_min = self._as_float(runtime_state.get("dewpoint_gate_tail_slope_c_per_min"))
+        tail_slope_c_per_s = (
+            round(float(tail_slope_c_per_min) / 60.0, 9) if tail_slope_c_per_min is not None else ""
+        )
         snapshot = dict(self._preseal_dewpoint_snapshot or {})
         preseal_ts = self._as_float(snapshot.get("sample_wall_ts"))
         preseal_value_c = self._as_float(snapshot.get("dewpoint_c"))
@@ -29753,6 +30002,12 @@ class CalibrationRunner:
             "dewpoint_freshness_age_s": age_s,
             "dewpoint_delta_since_gate_c": delta_c,
             "preseal_dewpoint_delta_vs_tail_reference_c": delta_c,
+            "dewpoint_before_seal_c": preseal_value_c,
+            "dewpoint_tail_span_c": tail_span_c,
+            "dewpoint_tail_slope_c_per_s": tail_slope_c_per_s,
+            "dewpoint_rebound_detected": rebound_warning or hard_rebound_warning or rebound_exceeded,
+            "preseal_dewpoint_gate_pass": bool(decision == "pass"),
+            "preseal_dewpoint_gate_reason": freshness_gate_effect,
             "preseal_dewpoint_rebound_warning": rebound_warning,
             "preseal_dewpoint_hard_rebound_c": hard_rebound_c,
             "preseal_dewpoint_hard_rebound_warning": hard_rebound_warning,
