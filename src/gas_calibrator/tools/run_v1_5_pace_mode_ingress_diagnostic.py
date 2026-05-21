@@ -495,13 +495,13 @@ def _collect_sample(
     actual_open_valves: Sequence[str],
 ) -> dict[str, Any]:
     raw: dict[str, str] = {}
+    raw["sens_pres_inl"] = _query_text(pace, ":SENS:PRES:INL?")
+    pressure_hpa = _parse_float(raw["sens_pres_inl"])
     for field, command in (
         ("outp_state", ":OUTP:STAT?"),
         ("outp_mode", ":OUTP:MODE?"),
         ("vent_status", ":SOUR:PRES:LEV:IMM:AMPL:VENT?"),
         ("isolation_state", ":OUTP:ISOL:STAT?"),
-        ("sens_pres_cont_hpa", ":SENS:PRES:CONT?"),
-        ("sens_pres_inl", ":SENS:PRES:INL?"),
         ("sens_pres_slew", ":SENS:PRES:SLEW?"),
         ("sour_pres_eff_pct", ":SOUR:PRES:EFF?"),
         ("sour_pres_comp1_hpa", ":SOUR:PRES:COMP1?"),
@@ -521,7 +521,9 @@ def _collect_sample(
         "vent_status": raw["vent_status"],
         "isolation_state": raw["isolation_state"],
         "setpoint_hpa": setpoint_hpa,
-        "sens_pres_cont_hpa": _parse_float(raw["sens_pres_cont_hpa"]),
+        # This field keeps the historical column name, but uses INL?/readback
+        # pressure because this field unit returns -113 for SENS:PRES:CONT?.
+        "sens_pres_cont_hpa": pressure_hpa,
         "sens_pres_inl": raw["sens_pres_inl"],
         "sens_pres_slew": raw["sens_pres_slew"],
         "sour_pres_eff_pct": _parse_float(raw["sour_pres_eff_pct"]),
@@ -576,6 +578,27 @@ def _summarize_samples(
     vent_values = [str(row.get("vent_status", "")).strip() for row in samples]
     vent_violation = any(value.startswith("1") for value in vent_values)
     vent3_count = sum(1 for value in vent_values if value.startswith("3"))
+    outp_values = [_parse_float(str(row.get("outp_state"))) for row in samples]
+    crossing_count = 0
+    pressure_chatter = False
+    if target_hpa is not None and pressures:
+        crossing_count = sum(1 for value in pressures if value < float(target_hpa))
+        signs: list[int] = []
+        for value in pressures:
+            delta = value - float(target_hpa)
+            if abs(delta) <= TARGET_WINDOW_HIGH_HPA:
+                signs.append(0)
+            elif delta > 0:
+                signs.append(1)
+            else:
+                signs.append(-1)
+        non_zero_signs = [value for value in signs if value]
+        sign_changes = sum(
+            1
+            for before, after in zip(non_zero_signs, non_zero_signs[1:])
+            if before != after
+        )
+        pressure_chatter = sign_changes >= 2
     result = TrialResult(
         trial_id=plan.trial_id,
         mode_requested=plan.mode_requested,
@@ -586,7 +609,7 @@ def _summarize_samples(
         target_below_ambient=(target_hpa is None or target_hpa < ambient_hpa),
         syst_err_after_mode_set=syst_err_after_mode_set,
         outp1_sent=plan.outp1_sent,
-        controller_on_confirmed=any(str(row.get("outp_state", "")).strip().startswith("1") for row in samples),
+        controller_on_confirmed=any(value == 1.0 for value in outp_values),
         pressure_start_hpa=pressure_start,
         pressure_candidate_hpa=candidate_pressure,
         pressure_end_hpa=pressure_end,
@@ -607,14 +630,30 @@ def _summarize_samples(
         vent_violation=vent_violation,
         vent3_count=vent3_count,
         actual_open_valves_empty=all(not row.get("actual_open_valves") for row in samples),
-        target_crossing_count=0,
-        pressure_chatter_detected=False,
+        target_crossing_count=crossing_count,
+        pressure_chatter_detected=pressure_chatter,
         candidate_row_possible=candidate_pressure is not None,
         candidate_row_quality_grade="B" if candidate_pressure is not None else "C",
         overshoot_allowed=plan.overshoot_allowed,
         slew_mode=plan.slew_mode,
     )
     return score_trial_result(result)
+
+
+def _reset_to_atmosphere(pace: Any, *, timeout_s: float = 45.0, poll_s: float = 0.25) -> dict[str, Any]:
+    started = time.time()
+    status: dict[str, Any] = {"started_ts": started, "ok": False}
+    try:
+        enter = getattr(pace, "enter_atmosphere_mode", None)
+        if callable(enter):
+            status["enter_status"] = enter(timeout_s=timeout_s, poll_s=poll_s)
+        else:
+            pace.set_output(False)
+        status["ok"] = True
+    except Exception as exc:
+        status["error"] = f"{type(exc).__name__}:{exc}"
+    status["finished_ts"] = time.time()
+    return status
 
 
 def run_real_com_diagnostic(
@@ -628,6 +667,7 @@ def run_real_com_diagnostic(
     dewpoint_cache_path: str | Path | None = None,
     com22_cache_path: str | Path | None = None,
     actual_open_valves: Sequence[str] = (),
+    reset_to_atmosphere_between_trials: bool = True,
 ) -> dict[str, Any]:
     from gas_calibrator.devices.pace5000 import Pace5000
 
@@ -635,6 +675,7 @@ def run_real_com_diagnostic(
     plan = build_default_trial_plan(targets_hpa, ambient_hpa)
     all_samples: list[dict[str, Any]] = []
     all_results: list[TrialResult] = []
+    reset_events: list[dict[str, Any]] = []
     pace = Pace5000(pace_port)
     pace.open()
     original_mode = ""
@@ -647,7 +688,18 @@ def run_real_com_diagnostic(
             original_mode = pace.get_output_mode()
         except Exception:
             original_mode = "ACT"
-        for trial in plan:
+        for trial_index, trial in enumerate(plan):
+            if reset_to_atmosphere_between_trials and trial_index > 1:
+                reset_events.append(
+                    {
+                        "before_trial_id": trial.trial_id,
+                        **_reset_to_atmosphere(pace),
+                    }
+                )
+                try:
+                    original_mode = pace.get_output_mode()
+                except Exception:
+                    pass
             targets = trial.targets_hpa or (None,)
             for target in targets:
                 mode_confirmed = ""
@@ -721,6 +773,9 @@ def run_real_com_diagnostic(
                         trial_samples.append(sample)
                         all_samples.append(sample)
                         pressure = sample.get("sens_pres_cont_hpa")
+                        vent_status = _parse_float(str(sample.get("vent_status")))
+                        if vent_status in {1.0, 3.0}:
+                            break
                         if target is not None and pressure is not None:
                             if float(target) <= float(pressure) <= float(target) + TARGET_WINDOW_HIGH_HPA:
                                 candidate_ts = float(sample["ts"])
@@ -763,6 +818,8 @@ def run_real_com_diagnostic(
             pace.set_output(False)
         except Exception:
             pass
+        if reset_to_atmosphere_between_trials:
+            reset_events.append({"before_trial_id": "final_cleanup", **_reset_to_atmosphere(pace)})
         pace.close()
 
     summary = {
@@ -775,12 +832,15 @@ def run_real_com_diagnostic(
         "ambient_hpa": ambient_hpa,
         "results": [asdict(result) for result in all_results],
         "ranking": rank_trial_results(all_results),
+        "reset_events": reset_events,
     }
     _write_samples_csv(output_dir / "pace_mode_ingress_samples.csv", all_samples)
+    _write_raw_tap_jsonl(output_dir / "pace_mode_ingress_raw_tap.jsonl", all_samples)
     (output_dir / "pace_mode_ingress_summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    _write_summary_md(output_dir / "pace_mode_ingress_summary.md", summary)
     return summary
 
 
@@ -791,6 +851,68 @@ def _write_samples_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field) for field in REQUIRED_SAMPLE_FIELDS})
+
+
+def _write_raw_tap_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(
+                json.dumps(
+                    {
+                        "ts": row.get("ts"),
+                        "trial_id": row.get("trial_id"),
+                        "target_hpa": row.get("target_hpa"),
+                        "phase": row.get("phase"),
+                        "raw_tx": row.get("raw_tx"),
+                        "raw_rx": row.get("raw_rx"),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+
+
+def _write_summary_md(path: Path, summary: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# PACE Mode Ingress Diagnostic Summary",
+        "",
+        f"- diagnostic_only: {summary.get('diagnostic_only')}",
+        f"- not_real_acceptance_evidence: {summary.get('not_real_acceptance_evidence')}",
+        f"- no_write_clean: {summary.get('no_write_clean')}",
+        f"- ambient_hpa: {summary.get('ambient_hpa')}",
+        f"- targets_hpa: {summary.get('targets_hpa')}",
+        "",
+        "## Ranking",
+        "",
+        "```json",
+        json.dumps(summary.get("ranking", {}), indent=2, ensure_ascii=False),
+        "```",
+        "",
+        "## Results",
+        "",
+    ]
+    for result in summary.get("results", []):
+        lines.extend(
+            [
+                f"### {result.get('trial_id')} target={result.get('target_hpa')}",
+                "",
+                f"- mode: {result.get('mode_requested')} confirmed={result.get('mode_confirmed')} supported={result.get('mode_supported')}",
+                f"- outp1_to_candidate_s: {result.get('outp1_to_candidate_s')}",
+                f"- pressure_candidate_hpa: {result.get('pressure_candidate_hpa')}",
+                f"- dewpoint_delta_c: {result.get('dewpoint_delta_c')}",
+                f"- eff_positive_duration_s: {result.get('eff_positive_duration_s')}",
+                f"- eff_positive_integral_pct_s: {result.get('eff_positive_integral_pct_s')}",
+                f"- eff_negative_integral_pct_s: {result.get('eff_negative_integral_pct_s')}",
+                f"- target_crossing_count: {result.get('target_crossing_count')}",
+                f"- pressure_chatter_detected: {result.get('pressure_chatter_detected')}",
+                f"- candidate_row_possible: {result.get('candidate_row_possible')}",
+                f"- rejection_reasons: {result.get('rejection_reasons')}",
+                "",
+            ]
+        )
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def write_offline_plan(output_dir: Path, *, targets_hpa: Sequence[float], ambient_hpa: float) -> dict[str, Any]:
