@@ -480,6 +480,11 @@ _PRESSURE_TRACE_FIELDS = [
     "candidate_dewpoint_c",
     "candidate_dewpoint_ts",
     "candidate_dewpoint_age_ms",
+    "candidate_dewpoint_source",
+    "candidate_dewpoint_cache_fresh",
+    "candidate_dewpoint_cache_stale",
+    "candidate_dewpoint_quality_ok",
+    "dewpoint_candidate_evidence_quality",
     "candidate_effort_pct",
     "candidate_effort_ts",
     "candidate_effort_age_ms",
@@ -533,6 +538,10 @@ _PRESSURE_TRACE_FIELDS = [
     "fast_candidate_pressure_offset_hpa",
     "fast_candidate_to_sampling_begin_s",
     "fast_candidate_to_first_sample_s",
+    "legacy_fast_candidate_to_first_sample_s",
+    "normal_path_first_sample_s",
+    "legacy_sampling_path_metric",
+    "not_ultra_fast_row_metric",
     "crossing_detected_by_fast_monitor",
     "crossing_ts",
     "crossing_pressure_hpa",
@@ -10793,6 +10802,11 @@ class CalibrationRunner:
             "candidate_dewpoint_c": "",
             "candidate_dewpoint_ts": "",
             "candidate_dewpoint_age_ms": "",
+            "candidate_dewpoint_source": "",
+            "candidate_dewpoint_cache_fresh": False,
+            "candidate_dewpoint_cache_stale": False,
+            "candidate_dewpoint_quality_ok": False,
+            "dewpoint_candidate_evidence_quality": "",
             "candidate_effort_pct": "",
             "candidate_effort_ts": "",
             "candidate_effort_age_ms": "",
@@ -10845,6 +10859,10 @@ class CalibrationRunner:
             "fast_candidate_pressure_offset_hpa": "",
             "fast_candidate_to_sampling_begin_s": "",
             "fast_candidate_to_first_sample_s": "",
+            "legacy_fast_candidate_to_first_sample_s": "",
+            "normal_path_first_sample_s": "",
+            "legacy_sampling_path_metric": False,
+            "not_ultra_fast_row_metric": False,
             "crossing_detected_by_fast_monitor": False,
             "crossing_ts": "",
             "crossing_pressure_hpa": "",
@@ -11103,6 +11121,55 @@ class CalibrationRunner:
             ),
         }
 
+    def _candidate_dewpoint_cache_max_age_s(self) -> float:
+        raw = self._wf("workflow.pressure.candidate_dewpoint_cache_max_age_s", 5.0)
+        value = self._as_float(raw)
+        return max(0.0, float(5.0 if value is None else value))
+
+    def _candidate_dewpoint_cache_evidence(
+        self,
+        context: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        lookup_context = context if isinstance(context, dict) else None
+        frame = self._latest_fast_signal_frame("dewpoint", context=lookup_context, max_age_s=0.0)
+        if frame is None and lookup_context is not None:
+            frame = self._latest_fast_signal_frame("dewpoint", max_age_s=0.0)
+        dewpoint_c: Optional[float] = None
+        source = ""
+        ts = ""
+        age_ms: Any = ""
+        if isinstance(frame, dict):
+            values = frame.get("values", {})
+            if isinstance(values, dict):
+                dewpoint_c = self._as_float(values.get("dewpoint_live_c"))
+            source = str(frame.get("source") or "dewpoint_cache")
+            ts = str(frame.get("recv_wall_ts") or "")
+            recv_mono_s = self._as_float(frame.get("recv_mono_s"))
+            if recv_mono_s is not None:
+                age_ms = round(max(0.0, time.monotonic() - recv_mono_s) * 1000.0, 3)
+        missing = dewpoint_c is None
+        max_age_ms = self._candidate_dewpoint_cache_max_age_s() * 1000.0
+        stale = bool(not missing and age_ms not in ("", None) and float(age_ms) > max_age_ms)
+        fresh = bool(not missing and not stale)
+        if missing:
+            quality = "missing"
+        elif stale:
+            quality = "stale_cache"
+        else:
+            quality = "fresh_cache"
+        return {
+            "candidate_dewpoint_c": dewpoint_c if dewpoint_c is not None else "",
+            "candidate_dewpoint_ts": ts,
+            "candidate_dewpoint_age_ms": age_ms,
+            "candidate_dewpoint_source": source,
+            "candidate_dewpoint_missing": missing,
+            "dewpoint_candidate_missing": missing,
+            "candidate_dewpoint_cache_fresh": fresh,
+            "candidate_dewpoint_cache_stale": stale,
+            "candidate_dewpoint_quality_ok": fresh,
+            "dewpoint_candidate_evidence_quality": quality,
+        }
+
     def _collect_ultra_fast_candidate_snapshot_rows(
         self,
         point: CalibrationPoint,
@@ -11180,12 +11247,26 @@ class CalibrationRunner:
             if context.get("candidate_effort_pct") not in (None, "")
             else context.get("exhaust_only_candidate_effort_pct")
         )
+        candidate_dewpoint_source = str(context.get("candidate_dewpoint_source") or "")
+        candidate_dewpoint_cache_fresh = bool(context.get("candidate_dewpoint_cache_fresh") is True)
+        candidate_dewpoint_cache_stale = bool(context.get("candidate_dewpoint_cache_stale") is True)
+        candidate_dewpoint_quality = str(context.get("dewpoint_candidate_evidence_quality") or "")
+        candidate_dewpoint_quality_ok = bool(
+            context.get("candidate_dewpoint_quality_ok") is True
+            and not bool(context.get("candidate_dewpoint_abnormal") is True)
+        )
         quality_warnings: List[str] = []
         dewpoint_missing = candidate_dewpoint is None
         if dewpoint_missing:
             quality_warnings.append("dewpoint_candidate_missing")
+        elif candidate_dewpoint_cache_stale:
+            quality_warnings.append("dewpoint_cache_stale")
         if candidate_effort is None:
             quality_warnings.append("effort_candidate_missing")
+        legacy_first_sample_s = context.get("legacy_fast_candidate_to_first_sample_s", "")
+        if legacy_first_sample_s in (None, ""):
+            legacy_first_sample_s = context.get("fast_candidate_to_first_sample_s", "")
+        has_legacy_first_sample = legacy_first_sample_s not in (None, "")
 
         data: Dict[str, Any] = {
             "point_title": self._point_title(point, phase=phase, point_tag=point_tag),
@@ -11266,9 +11347,22 @@ class CalibrationRunner:
             "ultra_fast_snapshot_acceptance_allowed": False,
             "dewpoint_candidate_missing": dewpoint_missing,
             "candidate_dewpoint_missing": dewpoint_missing,
+            "candidate_dewpoint_source": candidate_dewpoint_source,
+            "candidate_dewpoint_cache_fresh": candidate_dewpoint_cache_fresh,
+            "candidate_dewpoint_cache_stale": candidate_dewpoint_cache_stale,
+            "candidate_dewpoint_quality_ok": candidate_dewpoint_quality_ok,
+            "dewpoint_candidate_evidence_quality": (
+                candidate_dewpoint_quality
+                or ("missing" if dewpoint_missing else "stale_cache" if candidate_dewpoint_cache_stale else "fresh_cache")
+            ),
             "post_row_dewpoint_abnormal": bool(context.get("post_row_dewpoint_abnormal") is True),
             "dewpoint_invalidation_phase": context.get("dewpoint_invalidation_phase", ""),
             "sample_quality_warning": ";".join(quality_warnings),
+            "fast_candidate_to_first_sample_s": "",
+            "legacy_fast_candidate_to_first_sample_s": legacy_first_sample_s,
+            "normal_path_first_sample_s": legacy_first_sample_s,
+            "legacy_sampling_path_metric": has_legacy_first_sample,
+            "not_ultra_fast_row_metric": has_legacy_first_sample,
         }
         data.update(self._candidate_cached_pace_state_fields(context))
         for key in (
@@ -11279,6 +11373,11 @@ class CalibrationRunner:
             "dewpoint_at_candidate",
             "candidate_dewpoint_ts",
             "candidate_dewpoint_age_ms",
+            "candidate_dewpoint_source",
+            "candidate_dewpoint_cache_fresh",
+            "candidate_dewpoint_cache_stale",
+            "candidate_dewpoint_quality_ok",
+            "dewpoint_candidate_evidence_quality",
             "candidate_effort_pct",
             "candidate_effort_ts",
             "candidate_effort_age_ms",
@@ -11306,7 +11405,10 @@ class CalibrationRunner:
             "candidate_pressure_source_delta_hpa",
             "candidate_pressure_source_mismatch",
             "fast_candidate_to_sampling_begin_s",
-            "fast_candidate_to_first_sample_s",
+            "legacy_fast_candidate_to_first_sample_s",
+            "normal_path_first_sample_s",
+            "legacy_sampling_path_metric",
+            "not_ultra_fast_row_metric",
             "sample_setpoint_bias_enabled",
             "sample_setpoint_bias_hpa",
             "setpoint_bias_reason",
@@ -11367,7 +11469,10 @@ class CalibrationRunner:
             "ultra_fast_snapshot_live_query_count": 0,
             "ultra_fast_snapshot_quality_warning": data.get("ultra_fast_snapshot_quality_warning", ""),
             "ultra_fast_snapshot_acceptance_allowed": False,
-            "fast_candidate_to_first_sample_s": candidate_to_row_s,
+            "legacy_fast_candidate_to_first_sample_s": legacy_first_sample_s,
+            "normal_path_first_sample_s": legacy_first_sample_s,
+            "legacy_sampling_path_metric": has_legacy_first_sample,
+            "not_ultra_fast_row_metric": has_legacy_first_sample,
             "sample_valid_for_acceptance": False,
         }
         context.update(context_updates)
@@ -12640,6 +12745,10 @@ class CalibrationRunner:
             interval_p50 = ordered[int((len(ordered) - 1) * 0.5)]
             interval_p95 = ordered[int((len(ordered) - 1) * 0.95)]
         pressures = self._coerce_internal_list(context.get("fast_candidate_monitor_pressures"))
+        legacy_first_sample_s = context.get("legacy_fast_candidate_to_first_sample_s", "")
+        if legacy_first_sample_s in (None, ""):
+            legacy_first_sample_s = context.get("fast_candidate_to_first_sample_s", "")
+        has_legacy_first_sample = legacy_first_sample_s not in (None, "")
         return {
             "fast_candidate_monitor_enabled": bool(context.get("fast_candidate_monitor_enabled")),
             "fast_candidate_monitor_begin_ts": self._iso_ts_from_wall(begin_s),
@@ -12661,7 +12770,11 @@ class CalibrationRunner:
             "fast_candidate_pressure_hpa": context.get("fast_candidate_pressure_hpa", ""),
             "fast_candidate_pressure_offset_hpa": context.get("fast_candidate_pressure_offset_hpa", ""),
             "fast_candidate_to_sampling_begin_s": context.get("fast_candidate_to_sampling_begin_s", ""),
-            "fast_candidate_to_first_sample_s": context.get("fast_candidate_to_first_sample_s", ""),
+            "fast_candidate_to_first_sample_s": "",
+            "legacy_fast_candidate_to_first_sample_s": legacy_first_sample_s,
+            "normal_path_first_sample_s": context.get("normal_path_first_sample_s", legacy_first_sample_s),
+            "legacy_sampling_path_metric": has_legacy_first_sample,
+            "not_ultra_fast_row_metric": has_legacy_first_sample,
             "crossing_detected_by_fast_monitor": bool(context.get("crossing_detected_by_fast_monitor")),
             "crossing_ts": str(context.get("crossing_ts") or ""),
             "crossing_pressure_hpa": context.get("crossing_pressure_hpa", ""),
@@ -13069,14 +13182,19 @@ class CalibrationRunner:
             )
             candidate_upper = self._exhaust_only_sample_above_target_upper_window_hpa()
             candidate_lower_margin = self._exhaust_only_sample_above_target_lower_margin_hpa()
-            candidate_dewpoint_c = self._current_trace_dewpoint_c(point=point)
+            candidate_context = self._sealed_sweep_context_for_counters()
+            candidate_dewpoint_evidence = self._candidate_dewpoint_cache_evidence(
+                candidate_context if isinstance(candidate_context, dict) else None
+            )
+            candidate_dewpoint_c = self._as_float(candidate_dewpoint_evidence.get("candidate_dewpoint_c"))
             candidate_dewpoint_fields = self._sealed_dewpoint_rise_trace_fields(
                 current_dewpoint_c=candidate_dewpoint_c,
                 current_pressure_hpa=pressure_hpa,
                 point=point,
             )
             candidate_dewpoint_abnormal = bool(
-                candidate_dewpoint_fields.get("dewpoint_abnormal_rise_detected")
+                candidate_dewpoint_evidence.get("candidate_dewpoint_cache_fresh")
+                and candidate_dewpoint_fields.get("dewpoint_abnormal_rise_detected")
             )
             candidate_entered = bool(
                 candidate_enabled
@@ -13096,7 +13214,6 @@ class CalibrationRunner:
                 terminal = True
             else:
                 candidate_sampling_allowed = bool(candidate_entered and candidate_allow_sampling)
-            candidate_context = self._sealed_sweep_context_for_counters()
             if candidate_entered and state is not None:
                 candidate_source = str(
                     (candidate_context or {}).get("current_candidate_primary_pressure_source")
@@ -13108,20 +13225,6 @@ class CalibrationRunner:
                 candidate_effort_pct = self._as_float(
                     cached_effort_fields.get("positive_supply_effort_cached_pct")
                 )
-                candidate_dew_frame = self._latest_fast_signal_frame(
-                    "dewpoint",
-                    context=candidate_context if isinstance(candidate_context, dict) else None,
-                )
-                candidate_dewpoint_ts = ""
-                candidate_dewpoint_age_ms: Any = ""
-                if isinstance(candidate_dew_frame, dict):
-                    candidate_dewpoint_ts = str(candidate_dew_frame.get("recv_wall_ts") or "")
-                    candidate_dew_mono_s = self._as_float(candidate_dew_frame.get("recv_mono_s"))
-                    if candidate_dew_mono_s is not None:
-                        candidate_dewpoint_age_ms = round(
-                            max(0.0, time.monotonic() - candidate_dew_mono_s) * 1000.0,
-                            3,
-                        )
                 cached_pace_state = self._pace_state_cache_snapshot()
                 secondary_pressure = self._as_float((candidate_context or {}).get("candidate_secondary_pressure_hpa"))
                 secondary_age_s = self._as_float((candidate_context or {}).get("candidate_secondary_pressure_age_s"))
@@ -13161,8 +13264,29 @@ class CalibrationRunner:
                 state["dewpoint_candidate_missing"] = candidate_dewpoint_c is None
                 state["candidate_dewpoint_missing"] = candidate_dewpoint_c is None
                 state["candidate_dewpoint_c"] = candidate_dewpoint_c if candidate_dewpoint_c is not None else ""
-                state["candidate_dewpoint_ts"] = candidate_dewpoint_ts
-                state["candidate_dewpoint_age_ms"] = candidate_dewpoint_age_ms
+                state["candidate_dewpoint_ts"] = candidate_dewpoint_evidence.get("candidate_dewpoint_ts", "")
+                state["candidate_dewpoint_age_ms"] = candidate_dewpoint_evidence.get(
+                    "candidate_dewpoint_age_ms",
+                    "",
+                )
+                state["candidate_dewpoint_source"] = candidate_dewpoint_evidence.get(
+                    "candidate_dewpoint_source",
+                    "",
+                )
+                state["candidate_dewpoint_cache_fresh"] = bool(
+                    candidate_dewpoint_evidence.get("candidate_dewpoint_cache_fresh")
+                )
+                state["candidate_dewpoint_cache_stale"] = bool(
+                    candidate_dewpoint_evidence.get("candidate_dewpoint_cache_stale")
+                )
+                state["candidate_dewpoint_quality_ok"] = bool(
+                    candidate_dewpoint_evidence.get("candidate_dewpoint_quality_ok")
+                    and not candidate_dewpoint_abnormal
+                )
+                state["dewpoint_candidate_evidence_quality"] = candidate_dewpoint_evidence.get(
+                    "dewpoint_candidate_evidence_quality",
+                    "",
+                )
                 state["candidate_effort_pct"] = candidate_effort_pct if candidate_effort_pct is not None else ""
                 state["candidate_effort_ts"] = ""
                 state["candidate_effort_age_ms"] = ""
@@ -13237,6 +13361,23 @@ class CalibrationRunner:
                     ),
                     "candidate_dewpoint_age_ms": (
                         state.get("candidate_dewpoint_age_ms", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_dewpoint_source": (
+                        state.get("candidate_dewpoint_source", "") if state is not None and candidate_entered else ""
+                    ),
+                    "candidate_dewpoint_cache_fresh": bool(
+                        state is not None and candidate_entered and state.get("candidate_dewpoint_cache_fresh")
+                    ),
+                    "candidate_dewpoint_cache_stale": bool(
+                        state is not None and candidate_entered and state.get("candidate_dewpoint_cache_stale")
+                    ),
+                    "candidate_dewpoint_quality_ok": bool(
+                        state is not None and candidate_entered and state.get("candidate_dewpoint_quality_ok")
+                    ),
+                    "dewpoint_candidate_evidence_quality": (
+                        state.get("dewpoint_candidate_evidence_quality", "")
+                        if state is not None and candidate_entered
+                        else ""
                     ),
                     "candidate_effort_pct": (
                         state.get("candidate_effort_pct", "") if state is not None and candidate_entered else ""
@@ -25437,7 +25578,10 @@ class CalibrationRunner:
                 if candidate_ref_s is not None:
                     delta_s = max(0.0, now_s - float(candidate_ref_s))
                     context["fast_candidate_to_sampling_begin_s"] = delta_s
-                    context["fast_candidate_to_first_sample_s"] = delta_s
+                    context["legacy_fast_candidate_to_first_sample_s"] = delta_s
+                    context["normal_path_first_sample_s"] = delta_s
+                    context["legacy_sampling_path_metric"] = True
+                    context["not_ultra_fast_row_metric"] = True
             sampling_begin_values = self._cached_ready_check_trace_values(context=transition_context, point=point)
             self._append_pressure_trace_row(
                 point=point,
@@ -29442,6 +29586,11 @@ class CalibrationRunner:
                         "candidate_dewpoint_c",
                         "candidate_dewpoint_ts",
                         "candidate_dewpoint_age_ms",
+                        "candidate_dewpoint_source",
+                        "candidate_dewpoint_cache_fresh",
+                        "candidate_dewpoint_cache_stale",
+                        "candidate_dewpoint_quality_ok",
+                        "dewpoint_candidate_evidence_quality",
                         "candidate_effort_pct",
                         "candidate_effort_ts",
                         "candidate_effort_age_ms",
@@ -29471,6 +29620,10 @@ class CalibrationRunner:
                         "candidate_pressure_source_mismatch",
                         "fast_candidate_to_sampling_begin_s",
                         "fast_candidate_to_first_sample_s",
+                        "legacy_fast_candidate_to_first_sample_s",
+                        "normal_path_first_sample_s",
+                        "legacy_sampling_path_metric",
+                        "not_ultra_fast_row_metric",
                         "ultra_fast_snapshot_row_enabled",
                         "ultra_fast_snapshot_row_ts",
                         "ultra_fast_snapshot_anchor_ts",

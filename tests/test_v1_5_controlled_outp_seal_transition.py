@@ -4325,7 +4325,12 @@ def test_candidate_dewpoint_eff_vent_evidence_frozen_when_available() -> None:
     assert context is not None
     context["fast_candidate_monitor_enabled"] = True
     context["effort_after_outp1"] = 0.003
-    runner._cached_ready_check_trace_values = MagicMock(return_value={"dewpoint_live_c": -38.34})
+    runner._append_fast_signal_frame(
+        context,
+        "dewpoint",
+        values={"dewpoint_live_c": -38.34},
+        source="dewpoint_cache",
+    )
     runner._pace_state_cache_snapshot = MagicMock(
         return_value={"pace_output_state": 1, "pace_isolation_state": 1, "pace_vent_status": 2}
     )
@@ -4341,11 +4346,151 @@ def test_candidate_dewpoint_eff_vent_evidence_frozen_when_available() -> None:
     assert ok is True
     assert reason == ""
     assert fields["candidate_dewpoint_c"] == pytest.approx(-38.34)
+    assert fields["candidate_dewpoint_source"] == "dewpoint_cache"
+    assert fields["candidate_dewpoint_cache_fresh"] is True
+    assert fields["candidate_dewpoint_cache_stale"] is False
+    assert fields["candidate_dewpoint_quality_ok"] is True
+    assert fields["dewpoint_candidate_evidence_quality"] == "fresh_cache"
     assert fields["candidate_effort_pct"] == pytest.approx(0.003)
     assert fields["candidate_vent_status"] == 2
     assert fields["candidate_outp_status"] == 1
     assert fields["candidate_isol_status"] == 1
     assert fields["candidate_sample_safe_precheck_result"] == "pass"
+
+
+def test_legacy_fast_candidate_to_first_sample_not_used_for_ultra_fast_success() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    context["fast_candidate_to_first_sample_s"] = 7.897
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    samples = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )
+
+    row = samples[0]
+    assert row["fast_candidate_to_first_sample_s"] == ""
+    assert row["legacy_fast_candidate_to_first_sample_s"] == pytest.approx(7.897)
+    assert row["normal_path_first_sample_s"] == pytest.approx(7.897)
+    assert row["legacy_sampling_path_metric"] is True
+    assert row["not_ultra_fast_row_metric"] is True
+    assert row["ultra_fast_snapshot_candidate_to_row_object_s"] <= 0.5
+    assert row["ultra_fast_snapshot_candidate_to_append_s"] <= 0.5
+
+
+def test_ultra_fast_success_uses_candidate_to_row_object_and_append() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    context["legacy_fast_candidate_to_first_sample_s"] = 8.0
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    samples = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )
+
+    row = samples[0]
+    assert row["ultra_fast_snapshot_candidate_to_row_object_s"] <= 0.5
+    assert row["ultra_fast_snapshot_candidate_to_append_s"] <= 0.5
+    assert row["legacy_fast_candidate_to_first_sample_s"] == pytest.approx(8.0)
+
+
+def test_candidate_dewpoint_cache_frozen_when_available() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["fast_candidate_monitor_enabled"] = True
+    runner._append_fast_signal_frame(
+        context,
+        "dewpoint",
+        values={"dewpoint_live_c": -38.4},
+        source="dewpoint_background_cache",
+    )
+
+    ok, _ready, fields, reason = runner._evaluate_exhaust_only_pressure_ready(
+        target=1100.0,
+        pressure_hpa=1100.2,
+        in_limits=0,
+        pressure_control_direction_expected="exhaust_only",
+        point=point,
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert fields["candidate_dewpoint_c"] == pytest.approx(-38.4)
+    assert fields["candidate_dewpoint_source"] == "dewpoint_background_cache"
+    assert fields["candidate_dewpoint_cache_fresh"] is True
+    assert fields["candidate_dewpoint_cache_stale"] is False
+    assert fields["candidate_dewpoint_quality_ok"] is True
+    assert fields["dewpoint_candidate_evidence_quality"] == "fresh_cache"
+
+
+def test_candidate_dewpoint_stale_quality_warning() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "candidate_dewpoint_cache_max_age_s": 2.0,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["fast_candidate_monitor_enabled"] = True
+    runner._append_fast_signal_frame(
+        context,
+        "dewpoint",
+        values={"dewpoint_live_c": -38.0},
+        source="dewpoint_background_cache",
+    )
+    frame = context["fast_signal_buffers"]["dewpoint"][-1]
+    frame["recv_mono_s"] = time.monotonic() - 10.0
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    ok, _ready, fields, reason = runner._evaluate_exhaust_only_pressure_ready(
+        target=1100.0,
+        pressure_hpa=1100.2,
+        in_limits=0,
+        pressure_control_direction_expected="exhaust_only",
+        point=point,
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert fields["candidate_dewpoint_cache_fresh"] is False
+    assert fields["candidate_dewpoint_cache_stale"] is True
+    assert fields["candidate_dewpoint_abnormal"] is False
+    assert fields["dewpoint_candidate_evidence_quality"] == "stale_cache"
+    row = context["ultra_fast_snapshot_rows"][0]
+    assert "dewpoint_cache_stale" in row["sample_quality_warning"]
+    assert row["sample_valid_for_acceptance"] is False
 
 
 def test_invalidated_reason_aggregates_multiple_causes() -> None:
@@ -4441,7 +4586,57 @@ def test_post_row_dewpoint_abnormal_invalidates_existing_row() -> None:
     assert updates["post_row_dewpoint_abnormal"] is True
     assert row["sample_invalidated_by_dewpoint_rise"] is True
     assert row["dewpoint_invalidation_phase"] == "post_row"
+    assert row["candidate_dewpoint_abnormal"] is False
+    assert row["post_row_dewpoint_abnormal"] is True
     assert "dewpoint_abnormal@post_row" in row["sample_invalidated_reason"]
+
+
+def test_post_row_dewpoint_abnormal_invalidates_without_overwriting_candidate_abnormal() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    context["candidate_dewpoint_abnormal"] = False
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    runner._materialize_ultra_fast_candidate_snapshot_row(point, phase="co2")
+    runner._mark_above_target_sample_invalidated(reason="dewpoint_abnormal_rise", phase="post_row")
+
+    row = context["ultra_fast_snapshot_rows"][0]
+    assert row["candidate_dewpoint_abnormal"] is False
+    assert row["post_row_dewpoint_abnormal"] is True
+    assert row["dewpoint_invalidation_phase"] == "post_row"
+
+
+def test_dewpoint_pressure_effect_qc_does_not_make_invalid_row_acceptance() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    context.update(
+        {
+            "dewpoint_pressure_effect_expected_c": 1.0,
+            "dewpoint_observed_change_c": 6.0,
+            "dewpoint_residual_after_pressure_effect_c": 5.0,
+            "dewpoint_compensation_applied_for_analysis_only": True,
+        }
+    )
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    runner._materialize_ultra_fast_candidate_snapshot_row(point, phase="co2")
+    runner._mark_above_target_sample_invalidated(reason="dewpoint_abnormal_rise", phase="post_row")
+
+    row = context["ultra_fast_snapshot_rows"][0]
+    assert row["sample_valid_for_acceptance"] is False
+    assert row["sample_invalidated_by_dewpoint_rise"] is True
 
 
 def test_invalidated_reason_includes_phase_and_multiple_causes() -> None:
@@ -4547,7 +4742,14 @@ def test_above_target_candidate_abnormal_at_detection_fails_before_sampling() ->
         "pressure_hpa": 1013.0,
         "sample_wall_ts": time.time() - 30.0,
     }
-    runner._cached_ready_check_trace_values = MagicMock(return_value={"dewpoint_c": -30.0})
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    runner._append_fast_signal_frame(
+        context,
+        "dewpoint",
+        values={"dewpoint_live_c": -30.0},
+        source="dewpoint_background_cache",
+    )
 
     ok, _one_sided_ready, fields, reason = runner._evaluate_exhaust_only_pressure_ready(
         target=1000.0,
