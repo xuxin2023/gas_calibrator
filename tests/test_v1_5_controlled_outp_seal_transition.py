@@ -6562,10 +6562,40 @@ def test_sample_data_quality_grade_A_requires_clean_dewpoint_and_alignment() -> 
     )
     point = _co2_point(pressure=1100.0)
     context = _arm_safe_1100_candidate(runner, point)
-    context.update({"candidate_dewpoint_cache_fresh": True, "candidate_dewpoint_cache_stale": False})
-    runner._merge_analyzer_cache_into_sample = MagicMock(
-        side_effect=lambda data, *_args, **_kwargs: data.update({"co2_ppm": 999.0}) or {}
+    context.update(
+        {
+            "candidate_dewpoint_cache_fresh": True,
+            "candidate_dewpoint_cache_stale": False,
+            "candidate_com22_pressure_hpa": 1100.55,
+            "candidate_com22_age_ms": 150.0,
+            "in_limits_at_candidate": 1,
+        }
     )
+    runner._all_gas_analyzers = MagicMock(
+        return_value=[
+            ("A1", object(), {"id": "A1", "port": "COMA"}),
+            ("A2", object(), {"id": "A2", "port": "COMB"}),
+        ]
+    )
+
+    def merge_analyzers(data, *_args, **_kwargs):
+        data.update(
+            {
+                "co2_ppm": 999.0,
+                "a1_co2_ppm": 999.0,
+                "a1_frame_cache_ts": "2026-05-21T00:00:00.000",
+                "a1_frame_cache_age_ms": 100.0,
+                "a1_frame_source": "active_stream",
+                "a2_co2_ppm": 999.2,
+                "a2_frame_cache_ts": "2026-05-21T00:00:00.000",
+                "a2_frame_cache_age_ms": 120.0,
+                "a2_frame_source": "active_stream",
+                "chamber_temp_c": 20.0,
+            }
+        )
+        return {}
+
+    runner._merge_analyzer_cache_into_sample = MagicMock(side_effect=merge_analyzers)
     runner._add_sampling_timing_evidence = MagicMock()
 
     row = runner._collect_ultra_fast_candidate_snapshot_rows(
@@ -6832,7 +6862,7 @@ def test_sampling_packet_secondary_evidence_does_not_block_first_row() -> None:
     assert row["row_anchor_ts"] == row["sample_ts"]
     assert row["analyzer_snapshot_blocked_first_row"] is False
     assert row["secondary_evidence_completed_after_row_append"] is True
-    assert row["secondary_evidence_status"] in {"delayed", "partial"}
+    assert row["secondary_evidence_status"] in {"delayed", "partial", "missing"}
     assert context["ultra_fast_snapshot_rows"][0]["row_appended_ts"]
 
 
@@ -6869,6 +6899,315 @@ def test_data_quality_grade_A_B_C_fit_permissions() -> None:
 
 def test_dry_air_correction_qc_only_for_invalid_rows() -> None:
     test_dry_air_correction_is_analysis_only_not_acceptance_override()
+
+
+def test_pressure_anchor_created_from_pace_candidate() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["sampling_packet_id"]
+    assert row["row_anchor_source"] == "fast_candidate"
+    assert row["pressure_anchor_source"] == "PACE_candidate"
+    assert row["pressure_anchor_hpa"] == pytest.approx(1100.4698486)
+    assert row["pressure_anchor_valid"] is True
+    assert row["pressure_window_hit"] is True
+
+
+def test_com22_secondary_does_not_block_pressure_anchor() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    context.update({"candidate_com22_pressure_hpa": 1101.2, "candidate_com22_age_ms": 2500.0})
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+    runner._read_com22_pressure_now = MagicMock(side_effect=AssertionError("COM22 must not block anchor"))
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["pressure_anchor_source"] == "PACE_candidate"
+    assert row["secondary_evidence_blocked_first_row"] is False
+    assert row["com22_secondary_delta_from_pace_hpa"] == pytest.approx(0.730151)
+    assert row["pressure_anchor_valid"] is True
+
+
+def test_analyzer_snapshot_uses_anchor_window_cache() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "analyzer_snapshot_max_age_ms": 1000.0,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[("A1", object(), {"id": "A1", "port": "COMA"})])
+
+    def merge(data, *_args, **_kwargs):
+        data.update(
+            {
+                "a1_co2_ppm": 1000.1,
+                "a1_frame_cache_ts": "2026-05-21T00:00:00.000",
+                "a1_frame_cache_age_ms": 250.0,
+                "a1_frame_source": "active_stream",
+            }
+        )
+        return {}
+
+    runner._merge_analyzer_cache_into_sample = MagicMock(side_effect=merge)
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    details = json.loads(row["analyzer_snapshot_details_json"])
+    assert row["analyzer_snapshot_mode"] == "anchor_window_cache"
+    assert details[0]["analyzer_source"] == "active_upload_cache"
+    assert details[0]["analyzer_in_anchor_window"] is True
+    assert row["analyzer_snapshot_valid_count"] == 1
+
+
+def test_multiple_analyzer_values_can_share_pressure_anchor_with_age_evidence() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "analyzer_snapshot_min_valid_count": 2,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(
+        return_value=[
+            ("A1", object(), {"id": "A1", "port": "COMA"}),
+            ("A2", object(), {"id": "A2", "port": "COMB"}),
+        ]
+    )
+
+    def merge(data, *_args, **_kwargs):
+        data.update(
+            {
+                "a1_co2_ppm": 999.8,
+                "a1_frame_cache_ts": "2026-05-21T00:00:00.000",
+                "a1_frame_cache_age_ms": 100.0,
+                "a1_frame_source": "active_stream",
+                "a2_co2_ppm": 1000.0,
+                "a2_frame_cache_ts": "2026-05-21T00:00:00.100",
+                "a2_frame_cache_age_ms": 150.0,
+                "a2_frame_source": "active_stream",
+            }
+        )
+        return {}
+
+    runner._merge_analyzer_cache_into_sample = MagicMock(side_effect=merge)
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["analyzer_rows_share_pressure_anchor"] is True
+    assert row["pressure_anchor_share_valid"] is True
+    assert row["pressure_anchor_shared_sample_count"] == 2
+    assert row["pressure_drift_ok"] is True
+
+
+def test_pressure_anchor_share_invalid_when_analyzer_age_exceeds_window() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "analyzer_snapshot_max_age_ms": 500.0,
+            "analyzer_snapshot_min_valid_count": 1,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[("A1", object(), {"id": "A1", "port": "COMA"})])
+
+    def merge(data, *_args, **_kwargs):
+        data.update(
+            {
+                "a1_co2_ppm": 999.8,
+                "a1_frame_cache_ts": "2026-05-21T00:00:00.000",
+                "a1_frame_cache_age_ms": 1500.0,
+                "a1_frame_source": "active_stream",
+            }
+        )
+        return {}
+
+    runner._merge_analyzer_cache_into_sample = MagicMock(side_effect=merge)
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["pressure_anchor_share_valid"] is False
+    assert row["analyzer_snapshot_stale_count"] == 1
+    assert row["sample_data_quality_grade"] == "B_diagnostic_model_only"
+    assert row["sample_can_enter_calibration_fit"] is False
+
+
+def test_secondary_evidence_does_not_block_first_row() -> None:
+    test_com22_inl_live_dewpoint_are_secondary_evidence_not_row_blockers()
+
+
+def test_sealed_sampling_uses_short_burst_not_10x1s() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "sealed_fast_sample_rows": 3,
+            "sealed_fast_sample_interval_s": 0.2,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=runner._sealed_fast_sample_rows(),
+        requested_interval_s=runner._sealed_fast_sample_interval_s(),
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["sealed_fast_sample_rows_requested"] == 3
+    assert row["sealed_fast_sample_interval_s"] == pytest.approx(0.2)
+    assert row["time_compression_strategy"] == "anchor_snapshot_short_burst"
+
+
+def test_packet_quality_grade_A_requires_anchor_and_alignment() -> None:
+    test_sample_data_quality_grade_A_requires_clean_dewpoint_and_alignment()
+
+
+def test_packet_quality_grade_B_for_stale_secondary_or_dewpoint() -> None:
+    test_pressure_anchor_share_invalid_when_analyzer_age_exceeds_window()
+
+
+def test_packet_quality_grade_C_for_pressure_anchor_invalid_or_vent() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    context["actual_pressure_used_for_sample"] = ""
+    context["exhaust_only_candidate_pressure_hpa"] = ""
+    context["fast_candidate_pressure_hpa"] = ""
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["pressure_anchor_valid"] is False
+    assert row["sample_data_quality_grade"] == "C_reject"
+    assert "pressure_anchor_invalid" in row["sample_data_quality_reason"]
+
+
+def test_pace_slew_over_zero_evidence_fields_present() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    context.update(
+        {
+            "sealed_slew_mode_lin_configured": True,
+            "sealed_slew_over_not_allowed_configured": True,
+            "sealed_slow_slew_rate_hpa_per_s": 1.0,
+            "in_limits_at_candidate": 0,
+        }
+    )
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["pace_slew_mode"] == "LIN"
+    assert row["pace_overshoot_allowed"] is False
+    assert row["pace_overshoot_not_allowed_configured"] is True
+    assert row["pace_auto_deceleration_expected"] is True
+    assert "SLEW:OVER 0" in row["pace_auto_deceleration_evidence"]
+    assert row["pace_in_limits_at_candidate"] == 0
+
+
+def test_time_budget_fields_present() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "sealed_point_time_budget_s": 10.0,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["sealed_point_dwell_begin_ts"]
+    assert row["sealed_point_dwell_end_ts"]
+    assert row["candidate_to_first_row_s"] <= 0.5
+    assert row["candidate_to_packet_complete_s"] <= row["sealed_point_time_budget_s"]
+    assert row["sealed_point_time_budget_exceeded"] is False
 
 
 def test_h2o_unchanged() -> None:

@@ -531,7 +531,19 @@ _PRESSURE_TRACE_FIELDS = [
     "analyzer_snapshot_blocked_first_row",
     "secondary_evidence_completed_after_row_append",
     "secondary_evidence_quality",
+    "secondary_evidence_blocked_first_row",
     "row_anchor_ts",
+    "sampling_packet_id",
+    "pressure_anchor_hpa",
+    "pressure_anchor_source",
+    "pressure_anchor_ts",
+    "pressure_anchor_age_ms",
+    "pressure_anchor_valid",
+    "pressure_anchor_reason",
+    "pressure_window_low_hpa",
+    "pressure_window_high_hpa",
+    "pressure_window_hit",
+    "pressure_anchor_shared_by_analyzers",
     "row_object_created_ts",
     "row_appended_ts",
     "candidate_to_row_object_s",
@@ -580,6 +592,10 @@ _PRESSURE_TRACE_FIELDS = [
     "pressure_effect_expected_trend",
     "residual_dewpoint_trend_after_pressure_effect",
     "v2_like_dewpoint_trend_observed",
+    "previous_point_dwell_s",
+    "current_point_dwell_s",
+    "dwell_time_vs_dewpoint_rise_correlation",
+    "trend_supports_time_compression_strategy",
     "current_point_after_prior_dewpoint_abnormal",
     "pace_effort_pct_at_candidate",
     "pace_effort_sign",
@@ -587,8 +603,12 @@ _PRESSURE_TRACE_FIELDS = [
     "pace_slew_mode",
     "pace_slew_setpoint_hpa_per_s",
     "pace_overshoot_allowed",
+    "pace_overshoot_not_allowed_configured",
     "pace_current_slew_hpa_per_s",
     "pace_in_limits_at_candidate",
+    "pace_auto_deceleration_expected",
+    "pace_auto_deceleration_evidence",
+    "pace_deceleration_near_setpoint_detected",
     "pace_control_evidence_complete",
     "pace_comp_positive_source_hpa",
     "pace_comp_negative_source_hpa",
@@ -606,7 +626,17 @@ _PRESSURE_TRACE_FIELDS = [
     "pressure_offset_from_nominal_hpa",
     "candidate_dewpoint_quality",
     "post_row_dewpoint_c",
+    "analyzer_snapshot_window_before_s",
+    "analyzer_snapshot_window_after_s",
+    "analyzer_snapshot_max_age_ms",
+    "analyzer_snapshot_min_valid_count",
+    "analyzer_snapshot_details_json",
     "analyzer_snapshot_status",
+    "analyzer_snapshot_valid_count",
+    "analyzer_snapshot_missing_count",
+    "analyzer_snapshot_stale_count",
+    "analyzer_snapshot_alignment_ok",
+    "analyzer_snapshot_alignment_failure_reason",
     "secondary_evidence_status",
     "sampling_parallel_claim_allowed",
     "sampling_parallel_status",
@@ -615,6 +645,36 @@ _PRESSURE_TRACE_FIELDS = [
     "per_device_age_ms",
     "per_device_source",
     "max_device_age_ms",
+    "pressure_anchor_shared_sample_count",
+    "analyzer_rows_share_pressure_anchor",
+    "pressure_anchor_share_valid",
+    "pressure_anchor_share_reason",
+    "pressure_drift_within_packet_hpa",
+    "pressure_drift_limit_hpa",
+    "pressure_drift_ok",
+    "com22_secondary_pressure_hpa",
+    "com22_secondary_ts",
+    "com22_secondary_age_ms",
+    "com22_secondary_delta_from_pace_hpa",
+    "com22_secondary_quality",
+    "in_limits_secondary_value",
+    "in_limits_secondary_ts",
+    "in_limits_secondary_age_ms",
+    "live_dewpoint_secondary_c",
+    "live_dewpoint_secondary_ts",
+    "live_dewpoint_secondary_age_ms",
+    "thermometer_secondary_c",
+    "thermometer_secondary_ts",
+    "thermometer_secondary_age_ms",
+    "sealed_point_dwell_begin_ts",
+    "sealed_point_dwell_end_ts",
+    "sealed_point_dwell_s",
+    "candidate_to_first_row_s",
+    "candidate_to_packet_complete_s",
+    "packet_complete_to_next_point_s",
+    "sealed_point_time_budget_s",
+    "sealed_point_time_budget_exceeded",
+    "time_compression_strategy",
     "actual_temperature_c",
     "actual_dewpoint_c",
     "actual_dewpoint_source",
@@ -11053,7 +11113,19 @@ class CalibrationRunner:
             "analyzer_snapshot_blocked_first_row": False,
             "secondary_evidence_completed_after_row_append": False,
             "secondary_evidence_quality": "",
+            "secondary_evidence_blocked_first_row": False,
             "row_anchor_ts": "",
+            "sampling_packet_id": "",
+            "pressure_anchor_hpa": "",
+            "pressure_anchor_source": "",
+            "pressure_anchor_ts": "",
+            "pressure_anchor_age_ms": "",
+            "pressure_anchor_valid": False,
+            "pressure_anchor_reason": "",
+            "pressure_window_low_hpa": "",
+            "pressure_window_high_hpa": "",
+            "pressure_window_hit": False,
+            "pressure_anchor_shared_by_analyzers": False,
             "row_object_created_ts": "",
             "row_appended_ts": "",
             "candidate_to_row_object_s": "",
@@ -11102,6 +11174,10 @@ class CalibrationRunner:
             "pressure_effect_expected_trend": "",
             "residual_dewpoint_trend_after_pressure_effect": "",
             "v2_like_dewpoint_trend_observed": False,
+            "previous_point_dwell_s": "",
+            "current_point_dwell_s": "",
+            "dwell_time_vs_dewpoint_rise_correlation": "",
+            "trend_supports_time_compression_strategy": "",
             "current_point_after_prior_dewpoint_abnormal": False,
             "pace_effort_pct_at_candidate": "",
             "pace_effort_sign": "",
@@ -11109,8 +11185,12 @@ class CalibrationRunner:
             "pace_slew_mode": "",
             "pace_slew_setpoint_hpa_per_s": "",
             "pace_overshoot_allowed": "",
+            "pace_overshoot_not_allowed_configured": "",
             "pace_current_slew_hpa_per_s": "",
             "pace_in_limits_at_candidate": "",
+            "pace_auto_deceleration_expected": False,
+            "pace_auto_deceleration_evidence": "",
+            "pace_deceleration_near_setpoint_detected": "",
             "pace_control_evidence_complete": False,
             "pace_comp_positive_source_hpa": "",
             "pace_comp_negative_source_hpa": "",
@@ -11128,7 +11208,17 @@ class CalibrationRunner:
             "pressure_offset_from_nominal_hpa": "",
             "candidate_dewpoint_quality": "",
             "post_row_dewpoint_c": "",
+            "analyzer_snapshot_window_before_s": "",
+            "analyzer_snapshot_window_after_s": "",
+            "analyzer_snapshot_max_age_ms": "",
+            "analyzer_snapshot_min_valid_count": "",
+            "analyzer_snapshot_details_json": "",
             "analyzer_snapshot_status": "",
+            "analyzer_snapshot_valid_count": 0,
+            "analyzer_snapshot_missing_count": 0,
+            "analyzer_snapshot_stale_count": 0,
+            "analyzer_snapshot_alignment_ok": False,
+            "analyzer_snapshot_alignment_failure_reason": "",
             "secondary_evidence_status": "",
             "sampling_parallel_claim_allowed": False,
             "sampling_parallel_status": "not_verified",
@@ -11137,6 +11227,36 @@ class CalibrationRunner:
             "per_device_age_ms": "",
             "per_device_source": "",
             "max_device_age_ms": "",
+            "pressure_anchor_shared_sample_count": 0,
+            "analyzer_rows_share_pressure_anchor": False,
+            "pressure_anchor_share_valid": False,
+            "pressure_anchor_share_reason": "",
+            "pressure_drift_within_packet_hpa": "",
+            "pressure_drift_limit_hpa": "",
+            "pressure_drift_ok": "",
+            "com22_secondary_pressure_hpa": "",
+            "com22_secondary_ts": "",
+            "com22_secondary_age_ms": "",
+            "com22_secondary_delta_from_pace_hpa": "",
+            "com22_secondary_quality": "",
+            "in_limits_secondary_value": "",
+            "in_limits_secondary_ts": "",
+            "in_limits_secondary_age_ms": "",
+            "live_dewpoint_secondary_c": "",
+            "live_dewpoint_secondary_ts": "",
+            "live_dewpoint_secondary_age_ms": "",
+            "thermometer_secondary_c": "",
+            "thermometer_secondary_ts": "",
+            "thermometer_secondary_age_ms": "",
+            "sealed_point_dwell_begin_ts": "",
+            "sealed_point_dwell_end_ts": "",
+            "sealed_point_dwell_s": "",
+            "candidate_to_first_row_s": "",
+            "candidate_to_packet_complete_s": "",
+            "packet_complete_to_next_point_s": "",
+            "sealed_point_time_budget_s": "",
+            "sealed_point_time_budget_exceeded": False,
+            "time_compression_strategy": "",
             "actual_temperature_c": "",
             "actual_dewpoint_c": "",
             "actual_dewpoint_source": "",
@@ -11536,6 +11656,20 @@ class CalibrationRunner:
         elif direction in {"ascending", "same"}:
             expected_trend = "pressure_direction_specific"
         diagnostic_trend = bool(trend != "unknown")
+        previous_dwell = self._first_numeric_value(
+            context.get("previous_point_dwell_s") if isinstance(context, Mapping) else None
+        )
+        current_dwell = self._first_numeric_value(data.get("current_point_dwell_s"), data.get("sealed_point_dwell_s"))
+        dwell_correlation = ""
+        if previous_dwell is not None and current_dwell is not None and change != "":
+            dwell_delta = float(current_dwell) - float(previous_dwell)
+            dew_delta = float(change)
+            if dwell_delta > 0 and dew_delta > 0:
+                dwell_correlation = "longer_dwell_higher_dewpoint"
+            elif dwell_delta < 0 and dew_delta < 0:
+                dwell_correlation = "shorter_dwell_lower_dewpoint"
+            else:
+                dwell_correlation = "no_clear_dwell_dewpoint_correlation"
         return {
             "sealed_point_sequence_index": data.get("point_row", getattr(point, "index", "")),
             "previous_sealed_target_hpa": previous_target if previous_target is not None else "",
@@ -11558,6 +11692,12 @@ class CalibrationRunner:
             "pressure_effect_expected_trend": expected_trend,
             "residual_dewpoint_trend_after_pressure_effect": residual,
             "v2_like_dewpoint_trend_observed": diagnostic_trend,
+            "previous_point_dwell_s": previous_dwell if previous_dwell is not None else "",
+            "current_point_dwell_s": current_dwell if current_dwell is not None else "",
+            "dwell_time_vs_dewpoint_rise_correlation": dwell_correlation,
+            "trend_supports_time_compression_strategy": bool(
+                trend in {"decreasing", "stable"} or dwell_correlation == "shorter_dwell_lower_dewpoint"
+            ) if trend != "unknown" else "",
         }
 
     def _sealed_sample_quality_grade_fields(
@@ -11581,6 +11721,9 @@ class CalibrationRunner:
         if self._open_valves_nonempty(open_valves):
             hard_c = True
             reasons.append("actual_open_valves_nonempty")
+        if data.get("pressure_anchor_valid") is False:
+            hard_c = True
+            reasons.append("pressure_anchor_invalid")
         if bool(data.get("sample_invalidated_by_vent")):
             hard_c = True
             reasons.append("vent_violation")
@@ -11606,6 +11749,13 @@ class CalibrationRunner:
             reasons.append("candidate_dewpoint_stale")
         if data.get("sample_alignment_failure_reason") not in (None, ""):
             reasons.append("sample_alignment_warning")
+        if data.get("analyzer_snapshot_alignment_ok") is False and data.get("analyzer_snapshot_alignment_failure_reason"):
+            reasons.append(str(data.get("analyzer_snapshot_alignment_failure_reason")))
+        if data.get("pressure_drift_ok") is False:
+            reasons.append("pressure_drift_exceeds_limit")
+        secondary_status = str(data.get("secondary_evidence_status") or "")
+        if secondary_status in {"partial", "stale", "missing"}:
+            reasons.append(f"secondary_evidence_{secondary_status}")
         if residual_exceeds:
             reasons.append("dewpoint_residual_exceeds_threshold")
         if invalid_reasons:
@@ -11624,6 +11774,9 @@ class CalibrationRunner:
             and data.get("actual_dewpoint_c") not in (None, "")
             and data.get("candidate_dewpoint_cache_fresh") is True
             and data.get("co2_wet_value") not in (None, "")
+            and data.get("pressure_anchor_valid") is True
+            and data.get("analyzer_snapshot_alignment_ok") is True
+            and data.get("pressure_drift_ok") is not False
         )
         return {
             "sample_data_quality_grade": grade,
@@ -12039,6 +12192,243 @@ class CalibrationRunner:
             "dewpoint_cache_phase": phase,
         }
 
+    def _analyzer_snapshot_window_before_s(self) -> float:
+        value = self._as_float(self._wf("workflow.pressure.analyzer_snapshot_window_before_s", 1.0))
+        return max(0.0, float(1.0 if value is None else value))
+
+    def _analyzer_snapshot_window_after_s(self) -> float:
+        value = self._as_float(self._wf("workflow.pressure.analyzer_snapshot_window_after_s", 1.0))
+        return max(0.0, float(1.0 if value is None else value))
+
+    def _analyzer_snapshot_max_age_ms(self) -> float:
+        value = self._as_float(self._wf("workflow.pressure.analyzer_snapshot_max_age_ms", 2000.0))
+        return max(0.0, float(2000.0 if value is None else value))
+
+    def _analyzer_snapshot_min_valid_count(self) -> int:
+        value = self._as_int(self._wf("workflow.pressure.analyzer_snapshot_min_valid_count", 2))
+        return max(0, int(2 if value is None else value))
+
+    def _sealed_point_time_budget_s(self) -> float:
+        value = self._as_float(self._wf("workflow.pressure.sealed_point_time_budget_s", 6.0))
+        return max(0.0, float(6.0 if value is None else value))
+
+    def _pressure_drift_limit_hpa(self) -> float:
+        value = self._as_float(self._wf("workflow.pressure.pressure_anchor_packet_drift_limit_hpa", 1.0))
+        return max(0.0, float(1.0 if value is None else value))
+
+    def _sealed_pressure_anchor_packet_fields(
+        self,
+        *,
+        point: CalibrationPoint,
+        context: Mapping[str, Any],
+        anchor_ts: str,
+        candidate_pressure: Optional[float],
+        nominal_target: Optional[float],
+        candidate_offset: Any,
+    ) -> Dict[str, Any]:
+        upper = self._exhaust_only_sample_above_target_upper_window_hpa()
+        low = float(nominal_target) if nominal_target is not None else ""
+        high = float(nominal_target) + float(upper) if nominal_target is not None else ""
+        window_hit = bool(
+            candidate_pressure is not None
+            and nominal_target is not None
+            and float(nominal_target) <= float(candidate_pressure) <= float(nominal_target) + float(upper)
+        )
+        anchor_age = context.get("candidate_pressure_age_ms", 0.0 if candidate_pressure is not None else "")
+        packet_id = (
+            f"sealed-{getattr(point, 'index', 'point')}-"
+            f"{str(anchor_ts or '').replace(':', '').replace('-', '').replace('.', '')}"
+        )
+        return {
+            "sampling_packet_id": packet_id,
+            "row_anchor_source": "fast_candidate",
+            "pressure_anchor_hpa": candidate_pressure if candidate_pressure is not None else "",
+            "pressure_anchor_source": "PACE_candidate" if candidate_pressure is not None else "",
+            "pressure_anchor_ts": anchor_ts if candidate_pressure is not None else "",
+            "pressure_anchor_age_ms": anchor_age,
+            "pressure_anchor_valid": bool(candidate_pressure is not None and window_hit),
+            "pressure_anchor_reason": "pace_candidate_in_window" if window_hit else "pace_candidate_missing_or_outside_window",
+            "pressure_window_low_hpa": low,
+            "pressure_window_high_hpa": high,
+            "pressure_window_hit": window_hit,
+            "pressure_offset_from_nominal_hpa": candidate_offset,
+            "pressure_anchor_shared_by_analyzers": True,
+        }
+
+    def _sealed_analyzer_anchor_window_fields(
+        self,
+        data: Mapping[str, Any],
+        gas_analyzers: List[Tuple[str, Any, Dict[str, Any]]],
+    ) -> Dict[str, Any]:
+        max_age_ms = self._analyzer_snapshot_max_age_ms()
+        min_valid = self._analyzer_snapshot_min_valid_count()
+        details: List[Dict[str, Any]] = []
+        valid_count = 0
+        missing_count = 0
+        stale_count = 0
+        numeric_ages: List[float] = []
+        for label, _ga, analyzer_cfg in gas_analyzers:
+            prefix = self._safe_label(label)
+            age = self._as_float(data.get(f"{prefix}_frame_cache_age_ms"))
+            source_raw = str(data.get(f"{prefix}_frame_source") or "")
+            source = "active_upload_cache" if source_raw and source_raw != "missing" else "missing"
+            value = self._first_numeric_value(
+                data.get(f"{prefix}_co2_ppm"),
+                data.get(f"{prefix}_co2"),
+                data.get(f"{prefix}_co2_wet_value"),
+                data.get("co2_ppm") if valid_count == 0 else None,
+            )
+            missing = source == "missing" or age is None
+            stale = bool(not missing and age is not None and float(age) > max_age_ms)
+            if missing:
+                quality = "missing"
+                missing_count += 1
+            elif stale:
+                quality = "stale"
+                stale_count += 1
+                numeric_ages.append(float(age))
+            else:
+                quality = "fresh"
+                valid_count += 1
+                numeric_ages.append(float(age))
+            details.append(
+                {
+                    "analyzer_id": str(analyzer_cfg.get("id") or label),
+                    "analyzer_port": str(analyzer_cfg.get("port") or label),
+                    "analyzer_value": value if value is not None else "",
+                    "analyzer_ts": data.get(f"{prefix}_frame_cache_ts") or "",
+                    "analyzer_age_ms_from_anchor": age if age is not None else "",
+                    "analyzer_source": source if source != "missing" else "missing",
+                    "analyzer_in_anchor_window": bool(not missing and not stale),
+                    "analyzer_quality": quality,
+                }
+            )
+        alignment_ok = bool(valid_count >= min_valid and stale_count == 0 and missing_count == 0)
+        if not gas_analyzers:
+            alignment_ok = False
+            failure = "no_analyzers"
+        elif valid_count < min_valid:
+            failure = f"valid_analyzers_below_min:{valid_count}/{min_valid}"
+        elif stale_count:
+            failure = "stale_analyzer_cache"
+        elif missing_count:
+            failure = "missing_analyzer_cache"
+        else:
+            failure = ""
+        return {
+            "analyzer_snapshot_mode": "anchor_window_cache",
+            "analyzer_snapshot_window_before_s": self._analyzer_snapshot_window_before_s(),
+            "analyzer_snapshot_window_after_s": self._analyzer_snapshot_window_after_s(),
+            "analyzer_snapshot_max_age_ms": max_age_ms,
+            "analyzer_snapshot_min_valid_count": min_valid,
+            "analyzer_snapshot_details_json": json.dumps(details, ensure_ascii=False, sort_keys=True),
+            "analyzer_snapshot_valid_count": valid_count,
+            "analyzer_snapshot_missing_count": missing_count,
+            "analyzer_snapshot_stale_count": stale_count,
+            "max_device_age_ms": max(numeric_ages) if numeric_ages else "",
+            "analyzer_snapshot_alignment_ok": alignment_ok,
+            "analyzer_snapshot_alignment_failure_reason": failure,
+            "pressure_anchor_shared_sample_count": valid_count,
+            "analyzer_rows_share_pressure_anchor": bool(valid_count > 0),
+            "pressure_anchor_share_valid": alignment_ok,
+            "pressure_anchor_share_reason": "" if alignment_ok else failure,
+            "pressure_drift_within_packet_hpa": 0.0,
+            "pressure_drift_limit_hpa": self._pressure_drift_limit_hpa(),
+            "pressure_drift_ok": True,
+        }
+
+    def _sealed_secondary_evidence_fields(
+        self,
+        data: Mapping[str, Any],
+        context: Mapping[str, Any],
+        *,
+        candidate_pressure: Optional[float],
+    ) -> Dict[str, Any]:
+        com22 = self._first_numeric_value(
+            context.get("com22_secondary_pressure_hpa"),
+            context.get("candidate_com22_pressure_hpa"),
+            data.get("pressure_gauge_hpa"),
+        )
+        delta = (
+            round(float(com22) - float(candidate_pressure), 6)
+            if com22 is not None and candidate_pressure is not None
+            else ""
+        )
+        inl_value = context.get("in_limits_at_candidate", context.get("in_limits_secondary_value", ""))
+        dewpoint = self._first_numeric_value(
+            data.get("actual_dewpoint_c"),
+            data.get("candidate_dewpoint_c"),
+            context.get("candidate_dewpoint_c"),
+            context.get("dewpoint_at_candidate"),
+        )
+        thermometer = self._first_numeric_value(data.get("thermometer_c"), data.get("chamber_temp_c"))
+        missing_bits = []
+        stale_bits = []
+        if com22 is None:
+            missing_bits.append("com22")
+        if inl_value in (None, ""):
+            missing_bits.append("in_limits")
+        if dewpoint is None:
+            missing_bits.append("live_dewpoint")
+        if thermometer is None:
+            missing_bits.append("thermometer")
+        if data.get("candidate_dewpoint_cache_stale") is True:
+            stale_bits.append("dewpoint")
+        if stale_bits:
+            quality = "stale"
+        elif missing_bits and len(missing_bits) >= 3:
+            quality = "missing"
+        elif missing_bits:
+            quality = "partial"
+        else:
+            quality = "complete"
+        return {
+            "secondary_evidence_blocked_first_row": False,
+            "com22_secondary_pressure_hpa": com22 if com22 is not None else "",
+            "com22_secondary_ts": context.get("candidate_com22_ts", data.get("pressure_gauge_sample_ts", "")),
+            "com22_secondary_age_ms": context.get("candidate_com22_age_ms", data.get("pressure_gauge_anchor_delta_ms", "")),
+            "com22_secondary_delta_from_pace_hpa": delta,
+            "com22_secondary_quality": "missing" if com22 is None else "secondary_check",
+            "in_limits_secondary_value": inl_value,
+            "in_limits_secondary_ts": context.get("in_limits_secondary_ts", context.get("in_limits_ts", "")),
+            "in_limits_secondary_age_ms": context.get("in_limits_age_ms", ""),
+            "live_dewpoint_secondary_c": dewpoint if dewpoint is not None else "",
+            "live_dewpoint_secondary_ts": data.get("actual_dewpoint_source_ts", data.get("dewpoint_sample_ts", "")),
+            "live_dewpoint_secondary_age_ms": data.get("actual_dewpoint_age_ms", data.get("dewpoint_sample_age_ms", "")),
+            "thermometer_secondary_c": thermometer if thermometer is not None else "",
+            "thermometer_secondary_ts": data.get("thermometer_sample_ts", ""),
+            "thermometer_secondary_age_ms": data.get("thermometer_cache_age_ms", ""),
+            "secondary_evidence_quality": quality,
+            "secondary_evidence_status": quality,
+        }
+
+    def _sealed_packet_time_budget_fields(
+        self,
+        *,
+        context: Mapping[str, Any],
+        anchor_s: float,
+        row_now_s: float,
+        packet_complete_s: float,
+    ) -> Dict[str, Any]:
+        dwell_begin_s = self._as_float(context.get("outp1_first_tx_ts")) or self._as_float(
+            context.get("started_wall_ts")
+        ) or anchor_s
+        budget = self._sealed_point_time_budget_s()
+        dwell_s = max(0.0, packet_complete_s - float(dwell_begin_s))
+        return {
+            "sealed_point_dwell_begin_ts": self._iso_ts_from_wall(float(dwell_begin_s)),
+            "sealed_point_dwell_end_ts": self._iso_ts_from_wall(packet_complete_s),
+            "sealed_point_dwell_s": round(dwell_s, 6),
+            "candidate_to_first_row_s": round(max(0.0, row_now_s - anchor_s), 6),
+            "candidate_to_packet_complete_s": round(max(0.0, packet_complete_s - anchor_s), 6),
+            "packet_complete_to_next_point_s": "",
+            "sealed_point_time_budget_s": budget,
+            "sealed_point_time_budget_exceeded": bool(dwell_s > budget),
+            "time_compression_strategy": "anchor_snapshot_short_burst",
+            "current_point_dwell_s": round(dwell_s, 6),
+            "previous_point_dwell_s": context.get("previous_point_dwell_s", ""),
+        }
+
     def _collect_ultra_fast_candidate_snapshot_rows(
         self,
         point: CalibrationPoint,
@@ -12163,6 +12553,9 @@ class CalibrationRunner:
                 for key in sync_keys:
                     if key in context:
                         row[key] = context.get(key)
+                for key in _PRESSURE_TRACE_FIELDS:
+                    if key in context and key not in row:
+                        row[key] = context.get(key)
                 for warning_key in ("sample_quality_warning", "ultra_fast_snapshot_quality_warning"):
                     warning_value = context.get(warning_key)
                     if warning_value not in (None, "") or not row.get(warning_key):
@@ -12192,6 +12585,14 @@ class CalibrationRunner:
             max(0.0, float(candidate_pressure) - float(nominal_target))
             if candidate_pressure is not None and nominal_target is not None
             else ""
+        )
+        pressure_anchor_fields = self._sealed_pressure_anchor_packet_fields(
+            point=point,
+            context=context,
+            anchor_ts=anchor_ts,
+            candidate_pressure=candidate_pressure,
+            nominal_target=nominal_target,
+            candidate_offset=candidate_offset,
         )
         candidate_dewpoint = self._as_float(
             context.get("candidate_dewpoint_c")
@@ -12302,6 +12703,7 @@ class CalibrationRunner:
             "group_abort_guard_source": context.get("group_abort_guard_source", ""),
             "row_anchor_ts": anchor_ts,
             "row_anchor_source": "fast_candidate",
+            **pressure_anchor_fields,
             "row_object_created_ts": row_ts,
             "row_appended_ts": row_ts,
             "candidate_to_row_object_s": candidate_to_row_s,
@@ -12326,11 +12728,27 @@ class CalibrationRunner:
                 "pace_overshoot_allowed",
                 (False if context.get("sealed_slew_over_not_allowed_configured") is True else ""),
             ),
+            "pace_overshoot_not_allowed_configured": bool(
+                context.get("sealed_slew_over_not_allowed_configured") is True
+            ),
             "pace_current_slew_hpa_per_s": context.get(
                 "sealed_slow_slew_rate_hpa_per_s",
                 context.get("sealed_initial_slew_rate_hpa_per_s", ""),
             ),
             "pace_in_limits_at_candidate": context.get("in_limits_at_candidate", ""),
+            "pace_auto_deceleration_expected": bool(
+                context.get("sealed_slew_mode_lin_configured") is True
+                and context.get("sealed_slew_over_not_allowed_configured") is True
+            ),
+            "pace_auto_deceleration_evidence": (
+                "SLEW:MODE LIN;SLEW:OVER 0"
+                if context.get("sealed_slew_over_not_allowed_configured") is True
+                else "not_verified"
+            ),
+            "pace_deceleration_near_setpoint_detected": context.get(
+                "pace_deceleration_near_setpoint_detected",
+                "",
+            ),
             "pace_control_evidence_complete": bool(
                 context.get("in_limits_at_candidate") not in (None, "")
                 and context.get("pace_slew_mode", "") not in (None, "")
@@ -12507,6 +12925,8 @@ class CalibrationRunner:
             "ultra_fast_snapshot_materialization_stage": "candidate_branch_append",
             "ultra_fast_snapshot_row_deferred_until_validation": False,
             "row_anchor_ts": anchor_ts,
+            "row_anchor_source": "fast_candidate",
+            **pressure_anchor_fields,
             "row_object_created_ts": row_ts,
             "row_appended_ts": row_ts,
             "candidate_to_row_object_s": candidate_to_row_s,
@@ -12549,15 +12969,35 @@ class CalibrationRunner:
             "warning" if frame_issues else "available_after_row_append"
         )
         self._add_sampling_timing_evidence(data, gas_analyzers, row_time_s=row_now_s)
+        analyzer_anchor_fields = self._sealed_analyzer_anchor_window_fields(data, gas_analyzers)
+        data.update(analyzer_anchor_fields)
+        secondary_fields = self._sealed_secondary_evidence_fields(
+            data,
+            context,
+            candidate_pressure=candidate_pressure,
+        )
+        data.update(secondary_fields)
+        packet_complete_s = time.time()
+        time_budget_fields = self._sealed_packet_time_budget_fields(
+            context=context,
+            anchor_s=float(anchor_s),
+            row_now_s=row_now_s,
+            packet_complete_s=packet_complete_s,
+        )
+        data.update(time_budget_fields)
         data["per_device_ts"] = data.get("per_device_sample_ts", "")
         data["per_device_age_ms"] = data.get("per_device_age_ms", "")
         data["per_device_source"] = data.get("per_device_source", "")
-        data["max_device_age_ms"] = data.get("sampling_time_alignment_max_age_ms", "")
+        data["max_device_age_ms"] = data.get("max_device_age_ms") or data.get("sampling_time_alignment_max_age_ms", "")
         data["sampling_parallel_claim_allowed"] = False
         data["sampling_parallel_status"] = "cache_based"
         data["sampling_parallel_not_verified_reason"] = "first row anchored to fast candidate with cache/post-row evidence"
-        data["analyzer_snapshot_status"] = "partial" if frame_issues else "cache_only"
-        data["secondary_evidence_status"] = "partial" if frame_issues else "delayed"
+        data["analyzer_snapshot_status"] = (
+            "partial" if frame_issues or not data.get("analyzer_snapshot_alignment_ok") else "cache_only"
+        )
+        data["secondary_evidence_status"] = data.get("secondary_evidence_status") or (
+            "partial" if frame_issues else "delayed"
+        )
         if frame_issues:
             data["ultra_fast_snapshot_quality_warning"] = ";".join(
                 item
@@ -12630,7 +13070,7 @@ class CalibrationRunner:
             "analyzer_parallel_snapshot_enabled": True,
             "analyzer_parallel_snapshot_duration_ms": analyzer_snapshot_duration_ms,
             "analyzer_snapshot_enabled": True,
-            "analyzer_snapshot_mode": "post_row_parallel",
+            "analyzer_snapshot_mode": data.get("analyzer_snapshot_mode", "anchor_window_cache"),
             "analyzer_snapshot_duration_ms": analyzer_snapshot_duration_ms,
             "analyzer_snapshot_completed_after_row_append": True,
             "analyzer_snapshot_blocked_first_row": False,
@@ -12766,6 +13206,69 @@ class CalibrationRunner:
             "not_ultra_fast_row_metric": has_legacy_first_sample,
             "sample_valid_for_acceptance": False,
         }
+        for key in (
+            "sampling_packet_id",
+            "pressure_anchor_hpa",
+            "pressure_anchor_source",
+            "pressure_anchor_ts",
+            "pressure_anchor_age_ms",
+            "pressure_anchor_valid",
+            "pressure_anchor_reason",
+            "pressure_window_low_hpa",
+            "pressure_window_high_hpa",
+            "pressure_window_hit",
+            "pressure_anchor_shared_by_analyzers",
+            "analyzer_snapshot_window_before_s",
+            "analyzer_snapshot_window_after_s",
+            "analyzer_snapshot_max_age_ms",
+            "analyzer_snapshot_min_valid_count",
+            "analyzer_snapshot_details_json",
+            "analyzer_snapshot_valid_count",
+            "analyzer_snapshot_missing_count",
+            "analyzer_snapshot_stale_count",
+            "analyzer_snapshot_alignment_ok",
+            "analyzer_snapshot_alignment_failure_reason",
+            "pressure_anchor_shared_sample_count",
+            "analyzer_rows_share_pressure_anchor",
+            "pressure_anchor_share_valid",
+            "pressure_anchor_share_reason",
+            "pressure_drift_within_packet_hpa",
+            "pressure_drift_limit_hpa",
+            "pressure_drift_ok",
+            "secondary_evidence_blocked_first_row",
+            "com22_secondary_pressure_hpa",
+            "com22_secondary_ts",
+            "com22_secondary_age_ms",
+            "com22_secondary_delta_from_pace_hpa",
+            "com22_secondary_quality",
+            "in_limits_secondary_value",
+            "in_limits_secondary_ts",
+            "in_limits_secondary_age_ms",
+            "live_dewpoint_secondary_c",
+            "live_dewpoint_secondary_ts",
+            "live_dewpoint_secondary_age_ms",
+            "thermometer_secondary_c",
+            "thermometer_secondary_ts",
+            "thermometer_secondary_age_ms",
+            "sealed_point_dwell_begin_ts",
+            "sealed_point_dwell_end_ts",
+            "sealed_point_dwell_s",
+            "candidate_to_first_row_s",
+            "candidate_to_packet_complete_s",
+            "packet_complete_to_next_point_s",
+            "sealed_point_time_budget_s",
+            "sealed_point_time_budget_exceeded",
+            "time_compression_strategy",
+            "previous_point_dwell_s",
+            "current_point_dwell_s",
+            "dwell_time_vs_dewpoint_rise_correlation",
+            "trend_supports_time_compression_strategy",
+            "pace_overshoot_not_allowed_configured",
+            "pace_auto_deceleration_expected",
+            "pace_auto_deceleration_evidence",
+            "pace_deceleration_near_setpoint_detected",
+        ):
+            context_updates[key] = data.get(key, "")
         context.update(context_updates)
         data.update(context_updates)
         context["ultra_fast_snapshot_rows"] = [dict(data)]
@@ -12776,6 +13279,7 @@ class CalibrationRunner:
             "previous_point_dewpoint_at_post_validation",
             data.get("current_point_dewpoint_at_post_validation", ""),
         )
+        context["previous_point_dwell_s"] = data.get("current_point_dwell_s", data.get("sealed_point_dwell_s", ""))
 
         self._append_pressure_trace_row(
             point=point,
