@@ -761,6 +761,11 @@ _PRESSURE_TRACE_FIELDS = [
     "sealed_point_time_budget_exceeded",
     "requested_sample_count",
     "actual_sample_count",
+    "sample_epoch_index",
+    "sample_epoch_count",
+    "sample_anchor_ts",
+    "sample_epoch_interval_s",
+    "sample_burst_mode",
     "first_row_candidate_to_append_s",
     "sample_burst_duration_s",
     "sample_count_used_for_fit",
@@ -10247,6 +10252,10 @@ class CalibrationRunner:
             "effort": ":SOUR:PRES:EFF?",
             "comp": ":SOUR:PRES:COMP?",
             "comp1": ":SOUR:PRES:COMP1?",
+            "comp2": ":SOUR:PRES:COMP2?",
+            "slew_mode": ":SOUR:PRES:SLEW:MODE?",
+            "slew_over": ":SOUR:PRES:SLEW:OVER?",
+            "system_error": ":SYST:ERR?",
         }
         for key, cmd in commands.items():
             try:
@@ -13264,6 +13273,11 @@ class CalibrationRunner:
                 "sample_count_used_for_diagnostic",
                 "sampling_time_budget_exceeded",
                 "sampling_strategy_learned_from_v2",
+                "sample_epoch_index",
+                "sample_epoch_count",
+                "sample_anchor_ts",
+                "sample_epoch_interval_s",
+                "sample_burst_mode",
                 "per_device_ts",
                 "per_device_age_ms",
                 "per_device_source",
@@ -13285,13 +13299,32 @@ class CalibrationRunner:
                     warning_value = context.get(warning_key)
                     if warning_value not in (None, "") or not row.get(warning_key):
                         row[warning_key] = warning_value or row.get(warning_key, "")
-            return rows[:1]
+            return rows
 
         gas_analyzers = self._all_gas_analyzers()
         row_now_s = time.time()
         row_now_mono = time.monotonic()
         anchor_s = self._candidate_anchor_wall_ts(context) or row_now_s
         anchor_mono = row_now_mono - max(0.0, row_now_s - float(anchor_s))
+        try:
+            requested_epoch_count = max(1, int(requested_rows))
+        except Exception:
+            requested_epoch_count = 1
+        epoch_count = requested_epoch_count
+        if any(
+            context.get(flag) is True
+            for flag in (
+                "sample_invalidated_by_target_crossing",
+                "sample_invalidated_by_positive_effort",
+                "sample_invalidated_by_vent",
+                "group_abort_required",
+            )
+        ):
+            epoch_count = 1
+        try:
+            epoch_interval_s = max(0.0, float(requested_interval_s))
+        except Exception:
+            epoch_interval_s = 0.0
         snapshot_context = self._pressure_transition_fast_signal_context_active()
         snapshot_source_context = "pressure_transition"
         if not isinstance(snapshot_context, dict):
@@ -13399,16 +13432,21 @@ class CalibrationRunner:
             "sampled_from_above_target_window": True,
             "sample_trigger": "fast_above_target_candidate",
             "sealed_fast_sample_mode": self._sealed_fast_sample_mode(),
-            "sealed_fast_sample_rows_requested": int(requested_rows),
-            "sealed_fast_sample_interval_s": float(requested_interval_s),
-            "requested_sample_count": int(requested_rows),
-            "actual_sample_count": 1,
+            "sealed_fast_sample_rows_requested": requested_epoch_count,
+            "sealed_fast_sample_interval_s": epoch_interval_s,
+            "requested_sample_count": requested_epoch_count,
+            "actual_sample_count": epoch_count,
+            "sample_epoch_index": 1,
+            "sample_epoch_count": epoch_count,
+            "sample_anchor_ts": anchor_ts,
+            "sample_epoch_interval_s": epoch_interval_s,
+            "sample_burst_mode": "pressure_anchor_short_window_parallel_cache",
             "first_row_candidate_to_append_s": candidate_to_append_s,
             "sample_burst_duration_s": candidate_to_row_s,
             "sample_count_used_for_fit": 0,
             "sample_count_used_for_diagnostic": 1,
             "sampling_time_budget_exceeded": False,
-            "sampling_strategy_learned_from_v2": "candidate_first_row_then_secondary_evidence_cache_window",
+            "sampling_strategy_learned_from_v2": "candidate_anchor_short_window_parallel_cache_burst",
             "sample_valid_for_acceptance": False,
             "sample_invalidated": bool(context.get("sample_invalidated") is True),
             "sample_invalidated_reason": context.get("sample_invalidated_reason", ""),
@@ -13757,14 +13795,19 @@ class CalibrationRunner:
             "row_object_created_ts": row_ts,
             "row_appended_ts": row_ts,
             "candidate_to_row_object_s": candidate_to_row_s,
-            "requested_sample_count": int(requested_rows),
-            "actual_sample_count": 1,
+            "requested_sample_count": requested_epoch_count,
+            "actual_sample_count": epoch_count,
+            "sample_epoch_index": 1,
+            "sample_epoch_count": epoch_count,
+            "sample_anchor_ts": anchor_ts,
+            "sample_epoch_interval_s": epoch_interval_s,
+            "sample_burst_mode": "pressure_anchor_short_window_parallel_cache",
             "first_row_candidate_to_append_s": candidate_to_append_s,
             "sample_burst_duration_s": candidate_to_row_s,
             "sample_count_used_for_fit": 0,
             "sample_count_used_for_diagnostic": 1,
             "sampling_time_budget_exceeded": False,
-            "sampling_strategy_learned_from_v2": "candidate_first_row_then_secondary_evidence_cache_window",
+            "sampling_strategy_learned_from_v2": "candidate_anchor_short_window_parallel_cache_burst",
         }
         context.update(early_context_updates)
         self._increment_sealed_group_counter_once(
@@ -13833,7 +13876,10 @@ class CalibrationRunner:
             candidate_pressure=candidate_pressure,
         )
         data.update(secondary_fields)
-        packet_complete_s = time.time()
+        packet_complete_s = max(
+            time.time(),
+            float(anchor_s) + max(0.0, (epoch_count - 1) * epoch_interval_s),
+        )
         time_budget_fields = self._sealed_packet_time_budget_fields(
             context=context,
             anchor_s=float(anchor_s),
@@ -13882,16 +13928,165 @@ class CalibrationRunner:
             )
         data["sample_quality_warning"] = data.get("ultra_fast_snapshot_quality_warning", "")
         self._apply_sealed_row_quality_fields(data, point=point, context=context)
-        fit_count = 1 if data.get("sample_can_enter_calibration_fit") is True else 0
-        diagnostic_count = 1 if data.get("sample_can_enter_diagnostic_model") is True and fit_count == 0 else 0
-        data["sample_count_used_for_fit"] = fit_count
-        data["sample_count_used_for_diagnostic"] = diagnostic_count
         data["trend_supports_calibration_acceptance"] = bool(
             data.get("trend_supports_continue_sweep_strategy") is True
             and data.get("sample_data_quality_grade") == "A_calibration_eligible"
         )
         data["sample_end_ts"] = row_ts
         data["sample_elapsed_ms"] = round(max(0.0, (time.time() - row_now_s) * 1000.0), 3)
+
+        def _epoch_row_from_base(base: Dict[str, Any], index: int) -> Dict[str, Any]:
+            row = dict(base)
+            epoch_offset_s = max(0.0, float(index) * epoch_interval_s)
+            epoch_wall_s = float(anchor_s) + epoch_offset_s
+            epoch_mono = float(anchor_mono) + epoch_offset_s
+            epoch_ts = self._ts_from_datetime(datetime.fromtimestamp(epoch_wall_s))
+            row.update(
+                {
+                    "sample_index": index + 1,
+                    "sample_epoch_index": index + 1,
+                    "sample_epoch_count": epoch_count,
+                    "sample_anchor_ts": anchor_ts,
+                    "sample_ts": epoch_ts,
+                    "sample_due_ts": epoch_ts,
+                    "sample_start_ts": epoch_ts,
+                    "sample_end_ts": epoch_ts,
+                    "sample_epoch_interval_s": epoch_interval_s,
+                    "sample_burst_mode": "pressure_anchor_short_window_parallel_cache",
+                    "fast_group_anchor_ts": anchor_ts,
+                    "fast_group_start_ts": anchor_ts,
+                    "fast_group_end_ts": epoch_ts,
+                    "fast_group_span_ms": round(epoch_offset_s * 1000.0, 3),
+                    "sample_lag_ms": round((candidate_to_row_s + epoch_offset_s) * 1000.0, 3),
+                    "requested_sample_count": requested_epoch_count,
+                    "actual_sample_count": epoch_count,
+                }
+            )
+            if index:
+                epoch_snapshot_start_mono = time.monotonic()
+                if isinstance(snapshot_context, dict):
+                    self._merge_fast_signal_cache_into_sample(
+                        row,
+                        snapshot_context,
+                        sample_anchor_mono=epoch_mono,
+                        row_time_s=epoch_wall_s,
+                    )
+                epoch_frame_issues = self._merge_analyzer_cache_into_sample(
+                    row,
+                    gas_analyzers,
+                    context=snapshot_context if isinstance(snapshot_context, dict) else None,
+                    sample_anchor_mono=epoch_mono,
+                    row_time_s=epoch_wall_s,
+                )
+                if isinstance(snapshot_context, dict):
+                    self._merge_slow_aux_cache_into_sample(
+                        row,
+                        snapshot_context,
+                        row_time_s=epoch_wall_s,
+                    )
+                epoch_snapshot_duration_ms = round(
+                    max(0.0, (time.monotonic() - epoch_snapshot_start_mono) * 1000.0),
+                    3,
+                )
+                row["analyzer_parallel_snapshot_enabled"] = True
+                row["analyzer_parallel_snapshot_duration_ms"] = epoch_snapshot_duration_ms
+                row["analyzer_snapshot_enabled"] = True
+                row["analyzer_snapshot_mode"] = "short_window_parallel_cache"
+                row["analyzer_snapshot_duration_ms"] = epoch_snapshot_duration_ms
+                row["analyzer_snapshot_completed_after_row_append"] = True
+                row["analyzer_snapshot_blocked_first_row"] = False
+                row["secondary_evidence_completed_after_row_append"] = True
+                row["secondary_evidence_quality"] = (
+                    "warning" if epoch_frame_issues else "available_after_row_append"
+                )
+                self._add_sampling_timing_evidence(row, gas_analyzers, row_time_s=epoch_wall_s)
+                row.update(self._sealed_analyzer_anchor_window_fields(row, gas_analyzers))
+                row.update(
+                    self._sealed_parallel_snapshot_fields(
+                        snapshot_context if isinstance(snapshot_context, dict) else None,
+                        gas_analyzers,
+                        source_context=snapshot_source_context,
+                        analyzer_alignment_ok=bool(row.get("analyzer_snapshot_alignment_ok") is True),
+                    )
+                )
+                row.update(
+                    self._sealed_secondary_evidence_fields(
+                        row,
+                        context,
+                        candidate_pressure=candidate_pressure,
+                    )
+                )
+                row.update(
+                    self._sealed_packet_time_budget_fields(
+                        context=context,
+                        anchor_s=float(anchor_s),
+                        row_now_s=epoch_wall_s,
+                        packet_complete_s=packet_complete_s,
+                    )
+                )
+                row["sample_burst_duration_s"] = row.get("candidate_to_packet_complete_s") or row.get(
+                    "sample_burst_duration_s",
+                    "",
+                )
+                row["sampling_time_budget_exceeded"] = bool(row.get("sealed_point_time_budget_exceeded") is True)
+                row["per_device_ts"] = row.get("per_device_sample_ts", "")
+                row["per_device_age_ms"] = row.get("per_device_age_ms", "")
+                row["per_device_source"] = row.get("per_device_source", "")
+                row["max_device_age_ms"] = row.get("max_device_age_ms") or row.get(
+                    "sampling_time_alignment_max_age_ms",
+                    "",
+                )
+                row["analyzer_snapshot_status"] = (
+                    "partial"
+                    if epoch_frame_issues or not row.get("analyzer_snapshot_alignment_ok")
+                    else "cache_only"
+                )
+                row["secondary_evidence_status"] = row.get("secondary_evidence_status") or (
+                    "partial" if epoch_frame_issues else "delayed"
+                )
+                if epoch_frame_issues:
+                    row["ultra_fast_snapshot_quality_warning"] = ";".join(
+                        item
+                        for item in [
+                            row.get("ultra_fast_snapshot_quality_warning", ""),
+                            "analyzer_cache_issue",
+                        ]
+                        if item
+                    )
+                if row.get("sample_alignment_failure_reason"):
+                    row["ultra_fast_snapshot_quality_warning"] = ";".join(
+                        item
+                        for item in [
+                            row.get("ultra_fast_snapshot_quality_warning", ""),
+                            str(row.get("sample_alignment_failure_reason")),
+                        ]
+                        if item
+                    )
+                row["sample_quality_warning"] = row.get("ultra_fast_snapshot_quality_warning", "")
+                self._apply_sealed_row_quality_fields(row, point=point, context=context)
+                row["trend_supports_calibration_acceptance"] = bool(
+                    row.get("trend_supports_continue_sweep_strategy") is True
+                    and row.get("sample_data_quality_grade") == "A_calibration_eligible"
+                )
+                row["sample_elapsed_ms"] = round(max(0.0, (time.time() - row_now_s) * 1000.0), 3)
+            return row
+
+        epoch_rows = [_epoch_row_from_base(data, index) for index in range(epoch_count)]
+        fit_count = sum(1 for row in epoch_rows if row.get("sample_can_enter_calibration_fit") is True)
+        diagnostic_count = sum(
+            1
+            for row in epoch_rows
+            if row.get("sample_can_enter_diagnostic_model") is True
+            and row.get("sample_can_enter_calibration_fit") is not True
+        )
+        for row in epoch_rows:
+            row["requested_sample_count"] = requested_epoch_count
+            row["actual_sample_count"] = epoch_count
+            row["sample_count_used_for_fit"] = fit_count
+            row["sample_count_used_for_diagnostic"] = diagnostic_count
+            row["sampling_strategy_learned_from_v2"] = "candidate_anchor_short_window_parallel_cache_burst"
+            row["sample_burst_mode"] = "pressure_anchor_short_window_parallel_cache"
+        data = epoch_rows[0]
 
         context_updates = {
             "ultra_fast_snapshot_row_enabled": True,
@@ -13961,8 +14156,13 @@ class CalibrationRunner:
             "row_object_created_ts": row_ts,
             "row_appended_ts": row_ts,
             "candidate_to_row_object_s": candidate_to_row_s,
-            "requested_sample_count": data.get("requested_sample_count", int(requested_rows)),
+            "requested_sample_count": data.get("requested_sample_count", epoch_count),
             "actual_sample_count": data.get("actual_sample_count", 1),
+            "sample_epoch_index": data.get("sample_epoch_index", 1),
+            "sample_epoch_count": data.get("sample_epoch_count", epoch_count),
+            "sample_anchor_ts": data.get("sample_anchor_ts", anchor_ts),
+            "sample_epoch_interval_s": data.get("sample_epoch_interval_s", epoch_interval_s),
+            "sample_burst_mode": data.get("sample_burst_mode", "pressure_anchor_short_window_parallel_cache"),
             "first_row_candidate_to_append_s": data.get("first_row_candidate_to_append_s", candidate_to_append_s),
             "sample_burst_duration_s": data.get("sample_burst_duration_s", ""),
             "sample_count_used_for_fit": data.get("sample_count_used_for_fit", 0),
@@ -13970,7 +14170,7 @@ class CalibrationRunner:
             "sampling_time_budget_exceeded": data.get("sampling_time_budget_exceeded", False),
             "sampling_strategy_learned_from_v2": data.get(
                 "sampling_strategy_learned_from_v2",
-                "candidate_first_row_then_secondary_evidence_cache_window",
+                "candidate_anchor_short_window_parallel_cache_burst",
             ),
             "pressure_offset_from_nominal_hpa": data.get("pressure_offset_from_nominal_hpa", ""),
             "dewpoint_trend_after_1100": data.get("dewpoint_trend_after_1100", ""),
@@ -14282,8 +14482,18 @@ class CalibrationRunner:
             or data.get("analyzer_collector_thread_alive", False)
         )
         context.update(context_updates)
-        data.update(context_updates)
-        context["ultra_fast_snapshot_rows"] = [dict(data)]
+        per_epoch_keys = {
+            "sample_epoch_index",
+            "sample_anchor_ts",
+            "sample_epoch_interval_s",
+            "sample_burst_mode",
+        }
+        for row in epoch_rows:
+            for key, value in context_updates.items():
+                if key not in per_epoch_keys:
+                    row[key] = value
+        data = epoch_rows[0]
+        context["ultra_fast_snapshot_rows"] = [dict(row) for row in epoch_rows]
         context["previous_sealed_target_hpa"] = data.get("current_target_hpa", data.get("nominal_target_hpa", ""))
         context["previous_point_dewpoint_at_candidate"] = data.get("current_point_dewpoint_at_candidate", "")
         context["previous_point_dewpoint_at_row"] = data.get("current_point_dewpoint_at_row", "")
@@ -14327,7 +14537,7 @@ class CalibrationRunner:
             sample_lag_ms=self._as_float(data.get("sample_lag_ms")),
             extra_fields=self._sealed_sweep_trace_extra(context_updates),
             event_ts=anchor_s,
-            note="ultra_fast_candidate_snapshot row=1",
+            note=f"ultra_fast_candidate_snapshot row=1/{epoch_count}",
         )
         self._append_pressure_trace_row(
             point=point,
@@ -14347,7 +14557,7 @@ class CalibrationRunner:
             sample_lag_ms=self._as_float(data.get("sample_lag_ms")),
             extra_fields=self._sealed_sweep_trace_extra(context_updates),
             event_ts=anchor_s,
-            note="sample_index=1/1 ultra_fast_candidate_snapshot",
+            note=f"sample_index=1/{epoch_count} ultra_fast_candidate_snapshot",
         )
         self._set_point_runtime_fields(
             point,
@@ -14358,7 +14568,7 @@ class CalibrationRunner:
             first_valid_analyzer_ms=None,
             effective_sample_started_on_row=1,
         )
-        return [data]
+        return epoch_rows
 
     def _materialize_ultra_fast_candidate_snapshot_row(
         self,

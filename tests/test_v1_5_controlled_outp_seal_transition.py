@@ -4578,7 +4578,7 @@ def test_ultra_fast_candidate_snapshot_row_created_immediately() -> None:
     runner._sample_and_log(point, phase="co2")
 
     samples = runner._perform_light_point_exports.call_args.args[1]
-    assert len(samples) == 1
+    assert len(samples) == 10
     row = samples[0]
     assert row["ultra_fast_snapshot_row_enabled"] is True
     assert row["ultra_fast_snapshot_candidate_to_row_s"] <= 1.0
@@ -4588,6 +4588,8 @@ def test_ultra_fast_candidate_snapshot_row_created_immediately() -> None:
     assert row["ultra_fast_snapshot_candidate_to_row_object_s"] <= 1.0
     assert row["ultra_fast_snapshot_candidate_to_append_s"] <= 1.0
     assert row["ultra_fast_snapshot_row_deferred_until_validation"] is False
+    assert row["sample_epoch_index"] == 1
+    assert samples[-1]["sample_epoch_index"] == 10
 
 
 def test_ultra_fast_row_object_created_in_candidate_branch() -> None:
@@ -4617,8 +4619,9 @@ def test_ultra_fast_row_object_created_in_candidate_branch() -> None:
     assert reason == ""
     rows = context.get("ultra_fast_snapshot_rows")
     assert isinstance(rows, list)
-    assert len(rows) == 1
+    assert len(rows) == 10
     assert rows[0]["actual_pressure_used_for_sample"] == pytest.approx(1100.47)
+    assert rows[-1]["sample_epoch_index"] == 10
     assert fields["fast_candidate_detected"] is True
     assert context["ultra_fast_snapshot_candidate_to_row_object_s"] <= 0.5
     assert context["ultra_fast_snapshot_candidate_to_append_s"] <= 0.5
@@ -4715,11 +4718,13 @@ def test_ultra_fast_row_uses_candidate_pressure_as_actual_pressure() -> None:
         point_tag="",
     )
 
-    assert len(samples) == 1
+    assert len(samples) == 3
     assert samples[0]["actual_pressure_used_for_sample"] == pytest.approx(1100.4698486)
     assert samples[0]["actual_pressure_source_for_sample"] == "candidate"
     assert samples[0]["sample_snapshot_pressure_hpa"] == pytest.approx(1100.4698486)
     assert samples[0]["sample_snapshot_pressure_offset_hpa"] == pytest.approx(0.4698486)
+    assert [row["sample_epoch_index"] for row in samples] == [1, 2, 3]
+    assert all(row["pressure_anchor_hpa"] == pytest.approx(1100.4698486) for row in samples)
 
 
 def test_ultra_fast_row_does_not_wait_for_dewpoint_live_query() -> None:
@@ -4746,7 +4751,7 @@ def test_ultra_fast_row_does_not_wait_for_dewpoint_live_query() -> None:
         point_tag="",
     )
 
-    assert len(samples) == 1
+    assert len(samples) == 3
     assert samples[0]["dewpoint_candidate_missing"] is True
     assert samples[0]["candidate_dewpoint_missing"] is True
     assert samples[0]["candidate_dewpoint_abnormal"] is False
@@ -4777,7 +4782,7 @@ def test_ultra_fast_row_does_not_wait_for_com22_or_inl_or_eff() -> None:
         point_tag="",
     )
 
-    assert len(samples) == 1
+    assert len(samples) == 3
     assert samples[0]["ultra_fast_snapshot_live_query_count"] == 0
 
 
@@ -5231,6 +5236,16 @@ def test_pace_comp_query_is_audit_only_if_no_driver_support() -> None:
 
     assert "comp" in snapshot
     assert "comp1" in snapshot
+    assert "comp2" in snapshot
+    assert "slew_mode" in snapshot
+    assert "slew_over" in snapshot
+    assert "system_error" in snapshot
+    queried = {call.args[0] for call in pace.query.call_args_list}
+    assert ":SOUR:PRES:COMP2?" in queried
+    assert ":SOUR:PRES:SLEW:MODE?" in queried
+    assert ":SOUR:PRES:SLEW:OVER?" in queried
+    assert ":SYST:ERR?" in queried
+    assert not any(str(call.args[0]).strip().endswith(" 1") for call in pace.query.call_args_list)
     assert not hasattr(pace, "set_comp")
 
 
@@ -7067,14 +7082,22 @@ def test_candidate_row_uses_pressure_transition_parallel_analyzer_window() -> No
     )
     runner._pressure_transition_fast_signal_context_active = MagicMock(return_value=transition_context)
 
-    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+    rows = runner._collect_ultra_fast_candidate_snapshot_rows(
         point,
         requested_rows=10,
         requested_interval_s=0.2,
         phase="co2",
         point_tag="",
-    )[0]
+    )
+    row = rows[0]
 
+    assert len(rows) == 10
+    assert [item["sample_epoch_index"] for item in rows] == list(range(1, 11))
+    assert {item["sampling_packet_id"] for item in rows} == {row["sampling_packet_id"]}
+    assert all(item["pressure_anchor_hpa"] == pytest.approx(row["pressure_anchor_hpa"]) for item in rows)
+    assert all(item["per_device_ts"] for item in rows)
+    assert all(item["per_device_age_ms"] for item in rows)
+    assert rows[-1]["sample_burst_duration_s"] <= 3.0
     assert row["sealed_parallel_snapshot_enabled"] is True
     assert row["sealed_parallel_snapshot_source_context"] == "pressure_transition"
     assert row["sealed_parallel_snapshot_candidate_aligned"] is True
@@ -7084,7 +7107,9 @@ def test_candidate_row_uses_pressure_transition_parallel_analyzer_window() -> No
     assert row["sample_data_quality_grade"] == "A_calibration_eligible"
     assert row["sample_can_enter_calibration_fit"] is True
     assert row["requested_sample_count"] == 10
-    assert row["actual_sample_count"] == 1
+    assert row["actual_sample_count"] == 10
+    assert row["sample_epoch_count"] == 10
+    assert row["sample_burst_mode"] == "pressure_anchor_short_window_parallel_cache"
     assert row["first_row_candidate_to_append_s"] <= 0.5
     assert row["sampling_architecture_compared_to_v2"] == "v2_like_candidate_anchor_parallel_cache_window"
 
@@ -7979,11 +8004,12 @@ def test_sampling_keeps_requested_10_but_has_time_budget() -> None:
     )[0]
 
     assert row["requested_sample_count"] == 10
-    assert row["actual_sample_count"] == 1
+    assert row["actual_sample_count"] == 10
+    assert row["sample_epoch_count"] == 10
     assert row["first_row_candidate_to_append_s"] <= row["candidate_to_packet_complete_s"]
     assert row["sample_burst_duration_s"] == row["candidate_to_packet_complete_s"]
     assert row["sampling_time_budget_exceeded"] is False
-    assert row["sampling_strategy_learned_from_v2"] == "candidate_first_row_then_secondary_evidence_cache_window"
+    assert row["sampling_strategy_learned_from_v2"] == "candidate_anchor_short_window_parallel_cache_burst"
 
 
 def test_sampling_time_budget_exceeded_blocks_A_grade() -> None:
