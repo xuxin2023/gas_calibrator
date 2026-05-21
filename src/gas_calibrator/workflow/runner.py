@@ -370,6 +370,7 @@ _PRESSURE_TRACE_FIELDS = [
     "slew_rate_set_hpa_per_s",
     "overshoot_allowed_set",
     "sealed_slew_mode_lin_configured",
+    "sealed_slew_mode_max_configured",
     "sealed_slew_over_not_allowed_configured",
     "sealed_initial_slew_rate_hpa_per_s",
     "sealed_approach_slow_zone_hpa",
@@ -394,9 +395,22 @@ _PRESSURE_TRACE_FIELDS = [
     "sealed_slow_slew_command_sent",
     "sealed_slow_slew_syst_err",
     "sealed_exhaust_profile",
+    "sealed_exhaust_fast_mode",
     "high_delta_fast_slew_hpa_per_s",
     "final_slow_zone_hpa",
     "final_slow_slew_hpa_per_s",
+    "final_slow_enabled",
+    "over0_enabled",
+    "max_mode_enabled",
+    "expected_controller_deceleration_by_over0",
+    "max_mode_set_ts",
+    "over0_set_ts",
+    "pressure_descent_profile_active",
+    "profile_expected_time_s",
+    "profile_actual_time_s",
+    "profile_too_slow",
+    "profile_too_aggressive",
+    "target_crossing_due_to_fast_profile",
     "max_slew_or_fast_slew_enabled",
     "slow_slew_started_at_pressure_hpa",
     "slow_slew_distance_to_target_hpa",
@@ -420,6 +434,7 @@ _PRESSURE_TRACE_FIELDS = [
     "positive_supply_effort_detected",
     "sample_blocked_by_positive_supply_effort",
     "effort_unavailable_control_risk",
+    "eff_sample_count",
     "eff_positive_seen",
     "eff_positive_duration_s",
     "eff_positive_max_pct",
@@ -428,11 +443,13 @@ _PRESSURE_TRACE_FIELDS = [
     "eff_positive_first_pressure_hpa",
     "eff_positive_last_ts",
     "eff_positive_pressure_range_hpa",
+    "eff_negative_seen",
     "eff_negative_duration_s",
     "eff_negative_integral_pct_s",
     "effort_sign_timeline_summary",
     "possible_supply_involvement_during_exhaust",
     "supply_involvement_confidence",
+    "supply_involvement_dewpoint_correlation",
     "effort_query_before_outp1_skipped_or_zero_reason",
     "effort_guard_active_after_outp1",
     "pressure_in_limit_before_sampling",
@@ -663,16 +680,31 @@ _PRESSURE_TRACE_FIELDS = [
     "analyzer_snapshot_stale_count",
     "analyzer_snapshot_alignment_ok",
     "analyzer_snapshot_alignment_failure_reason",
+    "analyzer_cache_update_count_during_open_flow",
     "analyzer_cache_update_count_during_sealed",
+    "analyzer_last_update_ts_before_candidate_by_port",
+    "analyzer_age_ms_at_candidate_by_port",
     "analyzer_latest_age_ms_at_candidate",
     "analyzer_active_upload_alive",
+    "analyzer_active_upload_alive_during_sealed",
+    "analyzer_cache_stopped_phase",
+    "analyzer_collector_thread_alive",
+    "analyzer_sealed_freshness_blocker",
     "analyzer_snapshot_failure_phase",
     "analyzer_snapshot_not_calibration_ready_reason",
     "secondary_evidence_status",
-    "sampling_parallel_claim_allowed",
-    "sampling_parallel_status",
-    "sampling_parallel_not_verified_reason",
-    "per_device_ts",
+            "sampling_parallel_claim_allowed",
+            "sampling_parallel_status",
+            "sampling_parallel_not_verified_reason",
+            "analyzer_cache_update_count_during_open_flow",
+            "analyzer_cache_update_count_during_sealed",
+            "analyzer_last_update_ts_before_candidate_by_port",
+            "analyzer_age_ms_at_candidate_by_port",
+            "analyzer_active_upload_alive_during_sealed",
+            "analyzer_cache_stopped_phase",
+            "analyzer_collector_thread_alive",
+            "analyzer_sealed_freshness_blocker",
+            "per_device_ts",
     "per_device_age_ms",
     "per_device_source",
     "max_device_age_ms",
@@ -9281,6 +9313,68 @@ class CalibrationRunner:
                 extra = f" ({reason})" if reason else ""
                 self.log(f"Analyzer live snapshot failed: {label}{extra} err={exc}")
 
+    def _sealed_analyzer_cache_refresh_interval_s(self) -> float:
+        value = self._as_float(
+            self._wf("workflow.pressure.sealed_analyzer_cache_refresh_interval_s", 0.5)
+        )
+        return max(0.1, float(0.5 if value is None else value))
+
+    def _refresh_live_analyzer_snapshots_during_sealed_pressure_loop(
+        self,
+        context: Optional[MutableMapping[str, Any]],
+        *,
+        reason: str,
+    ) -> None:
+        if not isinstance(context, MutableMapping):
+            return
+        if not self._co2_sealed_no_vent_guard_active:
+            return
+        if not self._all_gas_analyzers():
+            return
+        now = time.time()
+        next_at = self._as_float(context.get("_next_sealed_analyzer_cache_refresh_wall_ts"))
+        if next_at is not None and now < float(next_at):
+            return
+        context["_next_sealed_analyzer_cache_refresh_wall_ts"] = (
+            now + self._sealed_analyzer_cache_refresh_interval_s()
+        )
+        if "_sealed_analyzer_cache_seq_at_route_close" not in context:
+            context["_sealed_analyzer_cache_seq_at_route_close"] = int(
+                getattr(self, "_live_analyzer_frame_seq", 0)
+            )
+        before = int(getattr(self, "_live_analyzer_frame_seq", 0))
+        try:
+            self._refresh_live_analyzer_snapshots(force=True, reason=reason)
+        finally:
+            after = int(getattr(self, "_live_analyzer_frame_seq", 0))
+            start_seq_raw = context.get("_sealed_analyzer_cache_seq_at_route_close")
+            if start_seq_raw in (None, ""):
+                start_seq = before
+            else:
+                try:
+                    start_seq = int(start_seq_raw)
+                except Exception:
+                    start_seq = before
+            sealed_updates = max(0, after - start_seq)
+            collector_alive = bool(after > before or sealed_updates > 0)
+            for update_context in (
+                context,
+                self._co2_sealed_no_vent_guard_context,
+                self._active_co2_sealed_sweep_context,
+            ):
+                if not isinstance(update_context, MutableMapping):
+                    continue
+                existing_updates = self._as_int(
+                    update_context.get("analyzer_cache_update_count_during_sealed")
+                )
+                update_context["analyzer_cache_update_count_during_sealed"] = max(
+                    int(existing_updates or 0),
+                    sealed_updates,
+                )
+                update_context["analyzer_collector_thread_alive"] = bool(
+                    update_context.get("analyzer_collector_thread_alive") or collector_alive
+                )
+
     @staticmethod
     def _as_int(value: Any) -> Optional[int]:
         try:
@@ -10692,10 +10786,10 @@ class CalibrationRunner:
         )
 
     def _sealed_sweep_context_for_counters(self) -> Optional[Dict[str, Any]]:
-        if isinstance(self._co2_sealed_no_vent_guard_context, dict):
-            return self._co2_sealed_no_vent_guard_context
         if isinstance(self._active_co2_sealed_sweep_context, dict):
             return self._active_co2_sealed_sweep_context
+        if isinstance(self._co2_sealed_no_vent_guard_context, dict):
+            return self._co2_sealed_no_vent_guard_context
         return None
 
     def _increment_sealed_sweep_counter(self, key: str, amount: int = 1) -> None:
@@ -11230,16 +11324,31 @@ class CalibrationRunner:
             "pace_comp_negative_source_hpa": "",
             "pace_comp_evidence_available": False,
             "pace_comp_evidence_todo": True,
+            "sealed_slew_mode_max_configured": False,
             "sealed_exhaust_profile": "",
+            "sealed_exhaust_fast_mode": "",
             "high_delta_fast_slew_hpa_per_s": "",
             "final_slow_zone_hpa": "",
             "final_slow_slew_hpa_per_s": "",
+            "final_slow_enabled": False,
+            "over0_enabled": False,
+            "max_mode_enabled": False,
+            "expected_controller_deceleration_by_over0": False,
+            "max_mode_set_ts": "",
+            "over0_set_ts": "",
+            "pressure_descent_profile_active": False,
+            "profile_expected_time_s": "",
+            "profile_actual_time_s": "",
+            "profile_too_slow": False,
+            "profile_too_aggressive": False,
+            "target_crossing_due_to_fast_profile": False,
             "max_slew_or_fast_slew_enabled": False,
             "slow_slew_started_at_pressure_hpa": "",
             "slow_slew_distance_to_target_hpa": "",
             "outp1_to_candidate_s": "",
             "dwell_reduction_target_s": "",
             "dwell_reduction_expected": False,
+            "eff_sample_count": 0,
             "eff_positive_seen": False,
             "eff_positive_duration_s": 0.0,
             "eff_positive_max_pct": "",
@@ -11248,11 +11357,13 @@ class CalibrationRunner:
             "eff_positive_first_pressure_hpa": "",
             "eff_positive_last_ts": "",
             "eff_positive_pressure_range_hpa": "",
+            "eff_negative_seen": False,
             "eff_negative_duration_s": 0.0,
             "eff_negative_integral_pct_s": 0.0,
             "effort_sign_timeline_summary": "",
             "possible_supply_involvement_during_exhaust": False,
             "supply_involvement_confidence": "",
+            "supply_involvement_dewpoint_correlation": "",
             "sample_data_quality_grade": "",
             "sample_data_quality_reason": "",
             "sample_data_quality_inputs_complete": False,
@@ -11276,9 +11387,16 @@ class CalibrationRunner:
             "analyzer_snapshot_stale_count": 0,
             "analyzer_snapshot_alignment_ok": False,
             "analyzer_snapshot_alignment_failure_reason": "",
+            "analyzer_cache_update_count_during_open_flow": 0,
             "analyzer_cache_update_count_during_sealed": 0,
+            "analyzer_last_update_ts_before_candidate_by_port": "",
+            "analyzer_age_ms_at_candidate_by_port": "",
             "analyzer_latest_age_ms_at_candidate": "",
             "analyzer_active_upload_alive": False,
+            "analyzer_active_upload_alive_during_sealed": False,
+            "analyzer_cache_stopped_phase": "",
+            "analyzer_collector_thread_alive": False,
+            "analyzer_sealed_freshness_blocker": "",
             "analyzer_snapshot_failure_phase": "",
             "analyzer_snapshot_not_calibration_ready_reason": "",
             "secondary_evidence_status": "",
@@ -11817,6 +11935,9 @@ class CalibrationRunner:
                 reasons.append("target_crossing_before_row")
             else:
                 reasons.append("target_crossing_post_row")
+        if bool(data.get("target_crossing_due_to_fast_profile")) or bool(data.get("profile_too_aggressive")):
+            hard_c = True
+            reasons.append("target_crossing_due_to_fast_profile")
         residual_exceeds = bool(data.get("dewpoint_residual_exceeds_threshold") is True)
         if bool(data.get("post_row_dewpoint_abnormal")) or bool(data.get("sample_invalidated_by_dewpoint_rise")):
             if "candidate" in phase_text:
@@ -11824,6 +11945,8 @@ class CalibrationRunner:
             else:
                 reasons.append("dewpoint_abnormal_post_row")
         if bool(data.get("sealed_point_time_budget_exceeded")):
+            reasons.append("sealed_dwell_time_budget_exceeded")
+        if bool(data.get("profile_too_slow")):
             reasons.append("sealed_dwell_time_budget_exceeded")
         if bool(data.get("possible_supply_involvement_during_exhaust")) and not bool(
             data.get("positive_effort_fail_closed")
@@ -12357,9 +12480,12 @@ class CalibrationRunner:
         missing_count = 0
         stale_count = 0
         numeric_ages: List[float] = []
+        age_by_port: Dict[str, Any] = {}
+        ts_by_port: Dict[str, Any] = {}
         for label, _ga, analyzer_cfg in gas_analyzers:
             prefix = self._safe_label(label)
             age = self._as_float(data.get(f"{prefix}_frame_cache_age_ms"))
+            port = str(analyzer_cfg.get("port") or label)
             source_raw = str(data.get(f"{prefix}_frame_source") or "")
             source = "active_upload_cache" if source_raw and source_raw != "missing" else "missing"
             value = self._first_numeric_value(
@@ -12384,7 +12510,7 @@ class CalibrationRunner:
             details.append(
                 {
                     "analyzer_id": str(analyzer_cfg.get("id") or label),
-                    "analyzer_port": str(analyzer_cfg.get("port") or label),
+                    "analyzer_port": port,
                     "analyzer_value": value if value is not None else "",
                     "analyzer_ts": data.get(f"{prefix}_frame_cache_ts") or "",
                     "analyzer_age_ms_from_anchor": age if age is not None else "",
@@ -12393,6 +12519,8 @@ class CalibrationRunner:
                     "analyzer_quality": quality,
                 }
             )
+            age_by_port[port] = age if age is not None else ""
+            ts_by_port[port] = data.get(f"{prefix}_frame_cache_ts") or ""
         alignment_ok = bool(valid_count >= min_valid and stale_count == 0 and missing_count == 0)
         if not gas_analyzers:
             alignment_ok = False
@@ -12419,6 +12547,28 @@ class CalibrationRunner:
                 for item in details
             )
         )
+        context = self._sealed_sweep_context_for_counters()
+        context_update_count = ""
+        open_flow_count = ""
+        collector_alive = active_upload_alive
+        if isinstance(context, Mapping):
+            open_flow_count = context.get("analyzer_cache_update_count_during_open_flow", 0)
+            context_update_count = context.get("analyzer_cache_update_count_during_sealed", "")
+            collector_alive = bool(
+                collector_alive
+                or context.get("analyzer_collector_thread_alive")
+                or int(context.get("analyzer_cache_update_count_during_sealed") or 0) > 0
+            )
+        sealed_update_count = (
+            context_update_count
+            if context_update_count not in (None, "")
+            else cache_update_count
+        )
+        cache_stopped_phase = (
+            "sealed_pressure_loop"
+            if gas_analyzers and not collector_alive and failure in {"stale_analyzer_cache", "missing_analyzer_cache"}
+            else ""
+        )
         return {
             "analyzer_snapshot_mode": "anchor_window_cache",
             "analyzer_snapshot_window_before_s": self._analyzer_snapshot_window_before_s(),
@@ -12432,9 +12582,16 @@ class CalibrationRunner:
             "max_device_age_ms": latest_age_ms,
             "analyzer_snapshot_alignment_ok": alignment_ok,
             "analyzer_snapshot_alignment_failure_reason": failure,
-            "analyzer_cache_update_count_during_sealed": cache_update_count,
+            "analyzer_cache_update_count_during_open_flow": open_flow_count,
+            "analyzer_cache_update_count_during_sealed": sealed_update_count,
+            "analyzer_last_update_ts_before_candidate_by_port": json.dumps(ts_by_port, ensure_ascii=False, sort_keys=True),
+            "analyzer_age_ms_at_candidate_by_port": json.dumps(age_by_port, ensure_ascii=False, sort_keys=True),
             "analyzer_latest_age_ms_at_candidate": latest_age_ms,
             "analyzer_active_upload_alive": active_upload_alive,
+            "analyzer_active_upload_alive_during_sealed": active_upload_alive,
+            "analyzer_cache_stopped_phase": cache_stopped_phase,
+            "analyzer_collector_thread_alive": collector_alive,
+            "analyzer_sealed_freshness_blocker": failure,
             "analyzer_snapshot_failure_phase": "candidate_anchor_window" if failure else "",
             "analyzer_snapshot_not_calibration_ready_reason": failure,
             "pressure_anchor_shared_sample_count": valid_count,
@@ -12541,10 +12698,121 @@ class CalibrationRunner:
             "packet_complete_to_next_point_s": "",
             "sealed_point_time_budget_s": budget,
             "sealed_point_time_budget_exceeded": bool(dwell_s > budget),
+            "profile_actual_time_s": round(float(outp1_to_candidate_s), 6)
+            if outp1_to_candidate_s != ""
+            else "",
+            "profile_too_slow": bool(dwell_s > budget),
             "time_compression_strategy": "anchor_snapshot_short_burst",
             "current_point_dwell_s": round(dwell_s, 6),
             "previous_point_dwell_s": context.get("previous_point_dwell_s", ""),
         }
+
+    def _stored_ultra_fast_rows_match_point(
+        self,
+        rows: Any,
+        point: Optional[CalibrationPoint],
+    ) -> bool:
+        if point is None or not isinstance(rows, list) or not rows:
+            return False
+        target = self._as_float(getattr(point, "target_pressure_hpa", None))
+        point_index = getattr(point, "index", None)
+        for row in rows:
+            if not isinstance(row, Mapping):
+                return False
+            row_target = self._first_numeric_value(
+                row.get("nominal_target_hpa"),
+                row.get("pressure_target_hpa"),
+                row.get("current_target_hpa"),
+            )
+            if target is not None and row_target is not None and abs(float(row_target) - float(target)) > 1e-6:
+                return False
+            row_index = row.get("point_row")
+            if row_index not in (None, "") and point_index is not None:
+                try:
+                    if int(row_index) != int(point_index):
+                        return False
+                except Exception:
+                    return False
+        return True
+
+    def _reset_sealed_point_packet_context(
+        self,
+        context: MutableMapping[str, Any],
+        point: Optional[CalibrationPoint],
+    ) -> None:
+        if not isinstance(context, MutableMapping):
+            return
+        for key in (
+            "ultra_fast_snapshot_rows",
+            "_sealed_point_attempted_counted",
+            "_sealed_point_row_counted",
+            "_sealed_point_invalidated_counted",
+            "_sealed_point_skipped_counted",
+            "exhaust_only_ready_tracking",
+            "exhaust_only_candidate_window_entered",
+            "exhaust_only_candidate_pressure_hpa",
+            "exhaust_only_candidate_ts",
+            "exhaust_only_candidate_effort_pct",
+            "exhaust_only_candidate_dewpoint_c",
+            "actual_pressure_used_for_sample",
+            "pressure_anchor_hpa",
+            "pressure_anchor_source",
+            "pressure_anchor_ts",
+            "pressure_anchor_wall_ts",
+            "candidate_pressure_hpa",
+            "candidate_ts",
+            "candidate_anchor_ts",
+            "candidate_anchor_wall_ts",
+            "current_candidate_primary_pressure_hpa",
+            "current_candidate_primary_pressure_source",
+            "current_candidate_primary_pressure_ts",
+            "fast_candidate_detected",
+            "fast_candidate_ts",
+            "fast_candidate_pressure_hpa",
+            "fast_candidate_pressure_offset_hpa",
+            "fast_candidate_to_sampling_begin_s",
+            "fast_candidate_to_first_sample_s",
+            "candidate_target_crossing_count",
+            "sample_data_quality_grade",
+            "sample_data_quality_reason",
+            "sample_can_enter_calibration_fit",
+            "sample_can_enter_diagnostic_model",
+            "sample_valid_for_acceptance",
+            "sample_invalidated",
+            "sample_invalidated_reason",
+            "sample_invalidated_phase",
+            "sample_invalidated_by_dewpoint_rise",
+            "sample_invalidated_by_target_crossing",
+            "sample_invalidated_by_positive_effort",
+            "sample_invalidated_by_vent",
+            "point_attempted",
+            "point_candidate_detected",
+            "point_row_created",
+            "point_row_appended",
+            "point_sample_csv_path",
+            "point_invalidated",
+            "point_invalidated_reason",
+            "point_skipped",
+            "point_skip_reason",
+            "point_result_status",
+            "point_result_reason",
+            "sealed_slow_slew_command_sent",
+            "sealed_slow_slew_trigger_ts",
+            "sealed_slow_slew_trigger_pressure_hpa",
+            "sealed_slow_slew_trigger_delta_hpa",
+            "sealed_slow_slew_syst_err",
+        ):
+            context.pop(key, None)
+        target = self._as_float(getattr(point, "target_pressure_hpa", None))
+        if target is not None:
+            context["target_pressure_hpa"] = float(target)
+            context["nominal_target_hpa"] = float(target)
+        if point is not None:
+            context["point_row"] = getattr(point, "index", "")
+            context["sampling_packet_id"] = (
+                f"sealed-pressure-point-{getattr(point, 'index', '')}-"
+                f"{datetime.now().isoformat(timespec='milliseconds').replace(':', '').replace('-', '').replace('T', '_')}"
+            )
 
     def _collect_ultra_fast_candidate_snapshot_rows(
         self,
@@ -12560,7 +12828,22 @@ class CalibrationRunner:
             return []
         stored_rows = context.get("ultra_fast_snapshot_rows")
         if isinstance(stored_rows, list) and stored_rows:
-            rows = [dict(row) for row in stored_rows if isinstance(row, dict)]
+            if not self._stored_ultra_fast_rows_match_point(stored_rows, point):
+                context.pop("ultra_fast_snapshot_rows", None)
+                for flag in (
+                    "_sealed_point_attempted_counted",
+                    "_sealed_point_row_counted",
+                    "_sealed_point_invalidated_counted",
+                    "_sealed_point_skipped_counted",
+                ):
+                    context.pop(flag, None)
+                stored_rows = []
+                rows = []
+            else:
+                rows = [dict(row) for row in stored_rows if isinstance(row, dict)]
+        else:
+            rows = []
+        if rows:
             sync_keys = (
                 "sample_invalidated",
                 "sample_valid_for_acceptance",
@@ -12835,7 +13118,11 @@ class CalibrationRunner:
             "pace_effort_pct_at_post_row": context.get("pace_effort_pct_at_post_row", ""),
             "pace_slew_mode": context.get(
                 "pace_slew_mode",
-                "LIN" if context.get("sealed_slew_mode_lin_configured") is True else "",
+                "MAX"
+                if context.get("sealed_slew_mode_max_configured") is True
+                else "LIN"
+                if context.get("sealed_slew_mode_lin_configured") is True
+                else "",
             ),
             "pace_slew_setpoint_hpa_per_s": context.get(
                 "sealed_slow_slew_rate_hpa_per_s",
@@ -12854,11 +13141,11 @@ class CalibrationRunner:
             ),
             "pace_in_limits_at_candidate": context.get("in_limits_at_candidate", ""),
             "pace_auto_deceleration_expected": bool(
-                context.get("sealed_slew_mode_lin_configured") is True
+                context.get("sealed_slew_mode_max_configured") is True
                 and context.get("sealed_slew_over_not_allowed_configured") is True
             ),
             "pace_auto_deceleration_evidence": (
-                "SLEW:MODE LIN;SLEW:OVER 0"
+                "SLEW:MODE MAX;SLEW:OVER 0"
                 if context.get("sealed_slew_over_not_allowed_configured") is True
                 else "not_verified"
             ),
@@ -12997,9 +13284,22 @@ class CalibrationRunner:
             "sample_setpoint_bias_hpa",
             "setpoint_bias_reason",
             "sealed_exhaust_profile",
+            "sealed_exhaust_fast_mode",
             "high_delta_fast_slew_hpa_per_s",
             "final_slow_zone_hpa",
             "final_slow_slew_hpa_per_s",
+            "final_slow_enabled",
+            "over0_enabled",
+            "max_mode_enabled",
+            "expected_controller_deceleration_by_over0",
+            "max_mode_set_ts",
+            "over0_set_ts",
+            "pressure_descent_profile_active",
+            "profile_expected_time_s",
+            "profile_actual_time_s",
+            "profile_too_slow",
+            "profile_too_aggressive",
+            "target_crossing_due_to_fast_profile",
             "max_slew_or_fast_slew_enabled",
             "slow_slew_started_at_pressure_hpa",
             "slow_slew_distance_to_target_hpa",
@@ -13028,6 +13328,7 @@ class CalibrationRunner:
             "pace_effort_pct_at_candidate",
             "pace_effort_sign",
             "pace_effort_pct_at_post_row",
+            "eff_sample_count",
             "eff_positive_seen",
             "eff_positive_duration_s",
             "eff_positive_max_pct",
@@ -13036,11 +13337,13 @@ class CalibrationRunner:
             "eff_positive_first_pressure_hpa",
             "eff_positive_last_ts",
             "eff_positive_pressure_range_hpa",
+            "eff_negative_seen",
             "eff_negative_duration_s",
             "eff_negative_integral_pct_s",
             "effort_sign_timeline_summary",
             "possible_supply_involvement_during_exhaust",
             "supply_involvement_confidence",
+            "supply_involvement_dewpoint_correlation",
             "pace_slew_mode",
             "pace_slew_setpoint_hpa_per_s",
             "pace_overshoot_allowed",
@@ -13251,6 +13554,7 @@ class CalibrationRunner:
             "pace_effort_pct_at_candidate": candidate_effort if candidate_effort is not None else "",
             "pace_effort_sign": self._pace_effort_sign_from_pct(candidate_effort),
             "pace_effort_pct_at_post_row": data.get("pace_effort_pct_at_post_row", ""),
+            "eff_sample_count": data.get("eff_sample_count", 0),
             "eff_positive_seen": data.get("eff_positive_seen", False),
             "eff_positive_duration_s": data.get("eff_positive_duration_s", 0.0),
             "eff_positive_max_pct": data.get("eff_positive_max_pct", ""),
@@ -13259,6 +13563,7 @@ class CalibrationRunner:
             "eff_positive_first_pressure_hpa": data.get("eff_positive_first_pressure_hpa", ""),
             "eff_positive_last_ts": data.get("eff_positive_last_ts", ""),
             "eff_positive_pressure_range_hpa": data.get("eff_positive_pressure_range_hpa", ""),
+            "eff_negative_seen": data.get("eff_negative_seen", False),
             "eff_negative_duration_s": data.get("eff_negative_duration_s", 0.0),
             "eff_negative_integral_pct_s": data.get("eff_negative_integral_pct_s", 0.0),
             "effort_sign_timeline_summary": data.get("effort_sign_timeline_summary", ""),
@@ -13267,6 +13572,10 @@ class CalibrationRunner:
                 False,
             ),
             "supply_involvement_confidence": data.get("supply_involvement_confidence", ""),
+            "supply_involvement_dewpoint_correlation": data.get(
+                "supply_involvement_dewpoint_correlation",
+                "",
+            ),
             "pace_slew_mode": data.get("pace_slew_mode", ""),
             "pace_slew_setpoint_hpa_per_s": data.get("pace_slew_setpoint_hpa_per_s", ""),
             "pace_overshoot_allowed": data.get("pace_overshoot_allowed", ""),
@@ -13278,9 +13587,25 @@ class CalibrationRunner:
             "pace_comp_evidence_available": data.get("pace_comp_evidence_available", False),
             "pace_comp_evidence_todo": data.get("pace_comp_evidence_todo", True),
             "sealed_exhaust_profile": data.get("sealed_exhaust_profile", ""),
+            "sealed_exhaust_fast_mode": data.get("sealed_exhaust_fast_mode", ""),
             "high_delta_fast_slew_hpa_per_s": data.get("high_delta_fast_slew_hpa_per_s", ""),
             "final_slow_zone_hpa": data.get("final_slow_zone_hpa", ""),
             "final_slow_slew_hpa_per_s": data.get("final_slow_slew_hpa_per_s", ""),
+            "final_slow_enabled": data.get("final_slow_enabled", False),
+            "over0_enabled": data.get("over0_enabled", False),
+            "max_mode_enabled": data.get("max_mode_enabled", False),
+            "expected_controller_deceleration_by_over0": data.get(
+                "expected_controller_deceleration_by_over0",
+                False,
+            ),
+            "max_mode_set_ts": data.get("max_mode_set_ts", ""),
+            "over0_set_ts": data.get("over0_set_ts", ""),
+            "pressure_descent_profile_active": data.get("pressure_descent_profile_active", False),
+            "profile_expected_time_s": data.get("profile_expected_time_s", ""),
+            "profile_actual_time_s": data.get("profile_actual_time_s", ""),
+            "profile_too_slow": data.get("profile_too_slow", False),
+            "profile_too_aggressive": data.get("profile_too_aggressive", False),
+            "target_crossing_due_to_fast_profile": data.get("target_crossing_due_to_fast_profile", False),
             "max_slew_or_fast_slew_enabled": data.get("max_slew_or_fast_slew_enabled", False),
             "slow_slew_started_at_pressure_hpa": data.get("slow_slew_started_at_pressure_hpa", ""),
             "slow_slew_distance_to_target_hpa": data.get("slow_slew_distance_to_target_hpa", ""),
@@ -13301,6 +13626,32 @@ class CalibrationRunner:
             "sampling_parallel_claim_allowed": data.get("sampling_parallel_claim_allowed", False),
             "sampling_parallel_status": data.get("sampling_parallel_status", "cache_based"),
             "sampling_parallel_not_verified_reason": data.get("sampling_parallel_not_verified_reason", ""),
+            "analyzer_cache_update_count_during_open_flow": data.get(
+                "analyzer_cache_update_count_during_open_flow",
+                0,
+            ),
+            "analyzer_cache_update_count_during_sealed": max(
+                int(self._as_int(context.get("analyzer_cache_update_count_during_sealed")) or 0),
+                int(self._as_int(data.get("analyzer_cache_update_count_during_sealed")) or 0),
+            ),
+            "analyzer_last_update_ts_before_candidate_by_port": data.get(
+                "analyzer_last_update_ts_before_candidate_by_port",
+                "",
+            ),
+            "analyzer_age_ms_at_candidate_by_port": data.get(
+                "analyzer_age_ms_at_candidate_by_port",
+                "",
+            ),
+            "analyzer_active_upload_alive_during_sealed": data.get(
+                "analyzer_active_upload_alive_during_sealed",
+                False,
+            ),
+            "analyzer_cache_stopped_phase": data.get("analyzer_cache_stopped_phase", ""),
+            "analyzer_collector_thread_alive": bool(
+                context.get("analyzer_collector_thread_alive")
+                or data.get("analyzer_collector_thread_alive", False)
+            ),
+            "analyzer_sealed_freshness_blocker": data.get("analyzer_sealed_freshness_blocker", ""),
             "per_device_ts": data.get("per_device_ts", ""),
             "per_device_age_ms": data.get("per_device_age_ms", ""),
             "per_device_source": data.get("per_device_source", ""),
@@ -13454,6 +13805,14 @@ class CalibrationRunner:
             "pace_deceleration_near_setpoint_detected",
         ):
             context_updates[key] = data.get(key, "")
+        context_updates["analyzer_cache_update_count_during_sealed"] = max(
+            int(self._as_int(context.get("analyzer_cache_update_count_during_sealed")) or 0),
+            int(self._as_int(data.get("analyzer_cache_update_count_during_sealed")) or 0),
+        )
+        context_updates["analyzer_collector_thread_alive"] = bool(
+            context.get("analyzer_collector_thread_alive")
+            or data.get("analyzer_collector_thread_alive", False)
+        )
         context.update(context_updates)
         data.update(context_updates)
         context["ultra_fast_snapshot_rows"] = [dict(data)]
@@ -13530,7 +13889,16 @@ class CalibrationRunner:
         if not isinstance(context, dict):
             return
         if isinstance(context.get("ultra_fast_snapshot_rows"), list) and context.get("ultra_fast_snapshot_rows"):
-            return
+            if self._stored_ultra_fast_rows_match_point(context.get("ultra_fast_snapshot_rows"), point):
+                return
+            context.pop("ultra_fast_snapshot_rows", None)
+            for flag in (
+                "_sealed_point_attempted_counted",
+                "_sealed_point_row_counted",
+                "_sealed_point_invalidated_counted",
+                "_sealed_point_skipped_counted",
+            ):
+                context.pop(flag, None)
         if not self._ultra_fast_candidate_snapshot_active(point, phase=phase):
             return
         self._collect_ultra_fast_candidate_snapshot_rows(
@@ -13562,6 +13930,12 @@ class CalibrationRunner:
         return bool(self._wf("workflow.pressure.clean_positive_supply_confirmed", False))
 
     def _sealed_control_slew_mode(self) -> str:
+        if self._sealed_fast_exhaust_profile_enabled():
+            fast_mode = self._sealed_exhaust_fast_mode()
+            if fast_mode == "MAX":
+                return "MAX"
+            if fast_mode == "LIN_FAST":
+                return "LIN"
         return str(self._wf("workflow.pressure.slew_mode", "LIN") or "LIN").strip().upper()
 
     def _sealed_fast_exhaust_profile_enabled(self) -> bool:
@@ -13577,26 +13951,48 @@ class CalibrationRunner:
             return ""
         raw = self._wf(
             "workflow.pressure.sealed_exhaust_profile",
-            "fast_then_short_final_slow",
+            "max_with_overshoot_not_allowed",
         )
-        name = str(raw or "fast_then_short_final_slow").strip()
-        return name or "fast_then_short_final_slow"
+        name = str(raw or "max_with_overshoot_not_allowed").strip()
+        return name or "max_with_overshoot_not_allowed"
+
+    def _sealed_exhaust_fast_mode(self) -> str:
+        if not self._sealed_fast_exhaust_profile_enabled():
+            return ""
+        raw = self._wf("workflow.pressure.sealed_exhaust_fast_mode", "MAX")
+        mode = str(raw or "MAX").strip().upper()
+        return mode if mode in {"MAX", "LIN_FAST"} else "MAX"
 
     def _sealed_high_delta_fast_slew_hpa_per_s(self) -> float:
         raw = self._wf(
             "workflow.pressure.high_delta_fast_slew_hpa_per_s",
             self._wf(
                 "workflow.pressure.sealed_exhaust_slew_rate_hpa_per_s",
-                self._wf("workflow.pressure.slew_rate_hpa_per_s", 5.0),
+                self._wf("workflow.pressure.slew_rate_hpa_per_s", 20.0),
             ),
         )
         value = self._as_float(raw)
-        return max(0.1, float(5.0 if value is None else value))
+        floor = 20.0 if self._sealed_fast_exhaust_profile_enabled() else 0.1
+        default = 20.0 if self._sealed_fast_exhaust_profile_enabled() else 5.0
+        return max(floor, float(default if value is None else value))
+
+    def _sealed_final_slow_enabled(self) -> bool:
+        if not self._sealed_fast_exhaust_profile_enabled():
+            return True
+        raw = self._wf("workflow.pressure.final_slow_enabled", None)
+        default = self._sealed_exhaust_fast_mode() != "MAX"
+        return self._as_bool(raw, default)
 
     def _sealed_final_slow_zone_hpa(self) -> float:
-        raw = self._wf("workflow.pressure.final_slow_zone_hpa", 10.0)
+        if not self._sealed_final_slow_enabled():
+            return 0.0
+        default = 5.0 if self._sealed_fast_exhaust_profile_enabled() else 10.0
+        raw = self._wf("workflow.pressure.final_slow_zone_hpa", default)
         value = self._as_float(raw)
-        return max(0.0, float(10.0 if value is None else value))
+        zone = float(default if value is None else value)
+        if self._sealed_fast_exhaust_profile_enabled():
+            zone = min(zone, 5.0)
+        return max(0.0, zone)
 
     def _sealed_final_slow_slew_rate_hpa_per_s(self) -> float:
         raw = self._wf(
@@ -13622,6 +14018,12 @@ class CalibrationRunner:
 
     def _sealed_control_overshoot_allowed(self) -> bool:
         return bool(self._wf("workflow.pressure.slew_overshoot_allowed", False))
+
+    def _sealed_over0_enabled(self) -> bool:
+        return not self._sealed_control_overshoot_allowed()
+
+    def _sealed_profile_uses_max_mode(self) -> bool:
+        return self._sealed_control_slew_mode() == "MAX"
 
     def _sealed_approach_slow_zone_hpa(self) -> float:
         if self._sealed_fast_exhaust_profile_enabled():
@@ -13699,6 +14101,28 @@ class CalibrationRunner:
                     return value
         return None
 
+    def _sealed_pressure_profile_expected_time_s(
+        self,
+        *,
+        target: float,
+        reference_pressure_hpa: Optional[float],
+    ) -> Any:
+        if reference_pressure_hpa is None:
+            return ""
+        delta = max(0.0, float(reference_pressure_hpa) - float(target))
+        if delta <= 0.0:
+            return 0.0
+        fast_rate = self._sealed_high_delta_fast_slew_hpa_per_s()
+        slow_zone = self._sealed_final_slow_zone_hpa() if self._sealed_final_slow_enabled() else 0.0
+        slow_rate = self._sealed_final_slow_slew_rate_hpa_per_s()
+        if self._sealed_profile_uses_max_mode():
+            fast_rate = max(fast_rate, 20.0)
+        if slow_zone <= 0.0:
+            return round(delta / max(fast_rate, 0.1), 6)
+        fast_delta = max(0.0, delta - slow_zone)
+        slow_delta = min(delta, slow_zone)
+        return round((fast_delta / max(fast_rate, 0.1)) + (slow_delta / max(slow_rate, 0.1)), 6)
+
     def _sealed_adaptive_slow_zone_fields(
         self,
         *,
@@ -13729,7 +14153,7 @@ class CalibrationRunner:
             profile_enabled = True
             if fast_profile_enabled:
                 zone = self._sealed_final_slow_zone_hpa()
-                enabled_reason = "fast_exhaust_short_final_slow_zone"
+                enabled_reason = "max_or_fast_exhaust_with_over0"
             elif float(delta) >= high_effective_threshold:
                 zone = self._sealed_high_pressure_slow_zone_hpa()
                 enabled_reason = "delta_at_or_above_high_threshold_with_tolerance"
@@ -13760,9 +14184,25 @@ class CalibrationRunner:
             ),
             "slow_slew_too_late": bool(actual is not None and actual < float(target)),
             "sealed_exhaust_profile": self._sealed_exhaust_profile_name(),
+            "sealed_exhaust_fast_mode": self._sealed_exhaust_fast_mode(),
             "high_delta_fast_slew_hpa_per_s": self._sealed_high_delta_fast_slew_hpa_per_s(),
             "final_slow_zone_hpa": self._sealed_final_slow_zone_hpa(),
             "final_slow_slew_hpa_per_s": self._sealed_final_slow_slew_rate_hpa_per_s(),
+            "final_slow_enabled": self._sealed_final_slow_enabled(),
+            "over0_enabled": self._sealed_over0_enabled(),
+            "max_mode_enabled": self._sealed_profile_uses_max_mode(),
+            "expected_controller_deceleration_by_over0": bool(
+                self._sealed_over0_enabled() and self._sealed_profile_uses_max_mode()
+            ),
+            "pressure_descent_profile_active": bool(fast_profile_enabled),
+            "profile_expected_time_s": self._sealed_pressure_profile_expected_time_s(
+                target=float(target),
+                reference_pressure_hpa=reference,
+            ),
+            "profile_actual_time_s": "",
+            "profile_too_slow": False,
+            "profile_too_aggressive": False,
+            "target_crossing_due_to_fast_profile": False,
             "max_slew_or_fast_slew_enabled": bool(fast_profile_enabled),
             "sealed_slow_slew_command_sent": False,
             "slow_slew_started_at_pressure_hpa": "",
@@ -14237,13 +14677,17 @@ class CalibrationRunner:
         fields.setdefault("slew_config_deferred_before_route_close", bool(fields.get("slew_rate_preconfigured")))
         fields["slew_config_after_route_close_count"] = int(self._sealed_control_slew_config_after_route_close_count)
         fields.setdefault("sealed_control_prearm_syst_err", "")
-        fields.setdefault("slew_mode_set", "LIN" if fields.get("slew_mode_preconfigured") else "")
+        fields.setdefault(
+            "slew_mode_set",
+            self._sealed_control_slew_mode() if fields.get("slew_mode_preconfigured") else "",
+        )
         fields.setdefault(
             "slew_rate_set_hpa_per_s",
             self._sealed_control_slew_rate_hpa_per_s() if fields.get("slew_rate_preconfigured") else "",
         )
         fields.setdefault("overshoot_allowed_set", False if fields.get("overshoot_not_allowed_preconfigured") else "")
-        fields.setdefault("sealed_slew_mode_lin_configured", bool(fields.get("slew_mode_preconfigured")))
+        fields.setdefault("sealed_slew_mode_lin_configured", fields.get("slew_mode_set") == "LIN")
+        fields.setdefault("sealed_slew_mode_max_configured", fields.get("slew_mode_set") == "MAX")
         fields.setdefault(
             "sealed_slew_over_not_allowed_configured",
             bool(fields.get("overshoot_not_allowed_preconfigured")),
@@ -14254,9 +14698,20 @@ class CalibrationRunner:
         fields.setdefault("adaptive_slow_zone_hpa", fields.get("sealed_approach_slow_zone_hpa"))
         fields.setdefault("first_sealed_point_high_pressure_profile_enabled", False)
         fields.setdefault("sealed_exhaust_profile", self._sealed_exhaust_profile_name())
+        fields.setdefault("sealed_exhaust_fast_mode", self._sealed_exhaust_fast_mode())
         fields.setdefault("high_delta_fast_slew_hpa_per_s", self._sealed_high_delta_fast_slew_hpa_per_s())
         fields.setdefault("final_slow_zone_hpa", self._sealed_final_slow_zone_hpa())
         fields.setdefault("final_slow_slew_hpa_per_s", self._sealed_final_slow_slew_rate_hpa_per_s())
+        fields.setdefault("final_slow_enabled", self._sealed_final_slow_enabled())
+        fields.setdefault("over0_enabled", self._sealed_over0_enabled())
+        fields.setdefault("max_mode_enabled", self._sealed_profile_uses_max_mode())
+        fields.setdefault(
+            "expected_controller_deceleration_by_over0",
+            bool(self._sealed_over0_enabled() and self._sealed_profile_uses_max_mode()),
+        )
+        fields.setdefault("max_mode_set_ts", "")
+        fields.setdefault("over0_set_ts", "")
+        fields.setdefault("pressure_descent_profile_active", self._sealed_fast_exhaust_profile_enabled())
         fields.setdefault("max_slew_or_fast_slew_enabled", self._sealed_fast_exhaust_profile_enabled())
         fields.setdefault("dwell_reduction_target_s", self._sealed_dwell_reduction_target_s())
         fields.setdefault("dwell_reduction_expected", self._sealed_fast_exhaust_profile_enabled())
@@ -14396,6 +14851,98 @@ class CalibrationRunner:
         )
         return True
 
+    def _apply_sealed_pressure_profile_config(
+        self,
+        pace: Any,
+        fields: MutableMapping[str, Any],
+        failures: List[str],
+        *,
+        record_startup_config: bool,
+    ) -> None:
+        mode = self._sealed_control_slew_mode()
+        rate = self._sealed_control_slew_rate_hpa_per_s()
+        overshoot_allowed = self._sealed_control_overshoot_allowed()
+        fields["sealed_exhaust_fast_mode"] = self._sealed_exhaust_fast_mode()
+        fields["final_slow_enabled"] = self._sealed_final_slow_enabled()
+        fields["over0_enabled"] = self._sealed_over0_enabled()
+        fields["max_mode_enabled"] = mode == "MAX"
+        fields["expected_controller_deceleration_by_over0"] = bool(
+            mode == "MAX" and not bool(overshoot_allowed)
+        )
+        fields["pressure_descent_profile_active"] = self._sealed_fast_exhaust_profile_enabled()
+        if pace is None:
+            failures.append("pace_unavailable")
+            return
+
+        if mode == "MAX":
+            fn = getattr(pace, "set_slew_mode_max", None)
+            if callable(fn):
+                try:
+                    if record_startup_config:
+                        self._record_pace_startup_config_command(":SOUR:PRES:SLEW:MODE MAX")
+                    fn()
+                    fields["slew_mode_preconfigured"] = bool(fields.get("slew_mode_preconfigured", False)) or True
+                    fields["slew_mode_set"] = "MAX"
+                    fields["sealed_slew_mode_max_configured"] = True
+                    fields["max_mode_set_ts"] = self._iso_ts_from_wall(time.time())
+                    fields["slew_rate_preconfigured"] = bool(
+                        fields.get("slew_rate_preconfigured", False)
+                    ) or True
+                except Exception as exc:
+                    failures.append(f"slew_mode:{exc}")
+            else:
+                # Older controller adapters fall back to a high linear slew profile.
+                mode = "LIN"
+                fields["sealed_exhaust_fast_mode"] = "LIN_FAST"
+                fields["max_mode_enabled"] = False
+                fields["expected_controller_deceleration_by_over0"] = False
+
+        if mode == "LIN":
+            fn = getattr(pace, "set_slew_mode_linear", None)
+            if callable(fn):
+                try:
+                    if record_startup_config:
+                        self._record_pace_startup_config_command(":SOUR:PRES:SLEW:MODE LIN")
+                    fn()
+                    fields["slew_mode_preconfigured"] = bool(fields.get("slew_mode_preconfigured", False)) or True
+                    fields["slew_mode_set"] = "LIN"
+                    fields["sealed_slew_mode_lin_configured"] = True
+                except Exception as exc:
+                    failures.append(f"slew_mode:{exc}")
+            else:
+                failures.append("slew_mode:unsupported")
+            set_rate = getattr(pace, "set_slew_rate", None)
+            if callable(set_rate):
+                try:
+                    if record_startup_config:
+                        self._record_pace_startup_config_command(f":SOUR:PRES:SLEW {rate}")
+                    set_rate(rate)
+                    fields["slew_rate_preconfigured"] = bool(fields.get("slew_rate_preconfigured", False)) or True
+                    fields["slew_rate_set_hpa_per_s"] = rate
+                except Exception as exc:
+                    failures.append(f"slew_rate:{exc}")
+            else:
+                failures.append("slew_rate:unsupported")
+
+        set_overshoot = getattr(pace, "set_overshoot_allowed", None)
+        if callable(set_overshoot):
+            try:
+                if record_startup_config:
+                    self._record_pace_startup_config_command(
+                        f":SOUR:PRES:SLEW:OVER {1 if overshoot_allowed else 0}"
+                    )
+                set_overshoot(overshoot_allowed)
+                fields["overshoot_allowed_set"] = overshoot_allowed
+                fields["over0_set_ts"] = self._iso_ts_from_wall(time.time())
+                fields["overshoot_not_allowed_preconfigured"] = bool(
+                    fields.get("overshoot_not_allowed_preconfigured", False)
+                ) or not bool(overshoot_allowed)
+                fields["sealed_slew_over_not_allowed_configured"] = not bool(overshoot_allowed)
+            except Exception as exc:
+                failures.append(f"overshoot:{exc}")
+        else:
+            failures.append("overshoot:unsupported")
+
     def _prearm_sealed_control_config(
         self,
         point: Optional[CalibrationPoint] = None,
@@ -14450,6 +14997,7 @@ class CalibrationRunner:
             "slew_rate_set_hpa_per_s": "",
             "overshoot_allowed_set": "",
             "sealed_slew_mode_lin_configured": False,
+            "sealed_slew_mode_max_configured": False,
             "sealed_slew_over_not_allowed_configured": False,
             "sealed_initial_slew_rate_hpa_per_s": rate,
             "sealed_approach_slow_zone_hpa": self._sealed_approach_slow_zone_hpa(),
@@ -14457,9 +15005,19 @@ class CalibrationRunner:
             "first_sealed_point_high_pressure_profile_enabled": False,
             "sealed_slow_slew_rate_hpa_per_s": self._sealed_approach_slow_slew_rate_hpa_per_s(),
             "sealed_exhaust_profile": self._sealed_exhaust_profile_name(),
+            "sealed_exhaust_fast_mode": self._sealed_exhaust_fast_mode(),
             "high_delta_fast_slew_hpa_per_s": self._sealed_high_delta_fast_slew_hpa_per_s(),
             "final_slow_zone_hpa": self._sealed_final_slow_zone_hpa(),
             "final_slow_slew_hpa_per_s": self._sealed_final_slow_slew_rate_hpa_per_s(),
+            "final_slow_enabled": self._sealed_final_slow_enabled(),
+            "over0_enabled": self._sealed_over0_enabled(),
+            "max_mode_enabled": self._sealed_profile_uses_max_mode(),
+            "expected_controller_deceleration_by_over0": bool(
+                self._sealed_over0_enabled() and self._sealed_profile_uses_max_mode()
+            ),
+            "max_mode_set_ts": "",
+            "over0_set_ts": "",
+            "pressure_descent_profile_active": self._sealed_fast_exhaust_profile_enabled(),
             "max_slew_or_fast_slew_enabled": self._sealed_fast_exhaust_profile_enabled(),
             "slow_slew_started_at_pressure_hpa": "",
             "slow_slew_distance_to_target_hpa": "",
@@ -14467,47 +15025,13 @@ class CalibrationRunner:
             "dwell_reduction_expected": self._sealed_fast_exhaust_profile_enabled(),
         }
         failures: List[str] = []
-        if pace is None:
-            failures.append("pace_unavailable")
-        else:
-            if mode == "LIN":
-                fn = getattr(pace, "set_slew_mode_linear", None)
-                if callable(fn):
-                    try:
-                        self._record_pace_startup_config_command(":SOUR:PRES:SLEW:MODE LIN")
-                        fn()
-                        fields["slew_mode_preconfigured"] = True
-                        fields["slew_mode_set"] = "LIN"
-                        fields["sealed_slew_mode_lin_configured"] = True
-                    except Exception as exc:
-                        failures.append(f"slew_mode:{exc}")
-                else:
-                    failures.append("slew_mode:unsupported")
-            set_rate = getattr(pace, "set_slew_rate", None)
-            if callable(set_rate):
-                try:
-                    self._record_pace_startup_config_command(f":SOUR:PRES:SLEW {rate}")
-                    set_rate(rate)
-                    fields["slew_rate_preconfigured"] = True
-                    fields["slew_rate_set_hpa_per_s"] = rate
-                except Exception as exc:
-                    failures.append(f"slew_rate:{exc}")
-            else:
-                failures.append("slew_rate:unsupported")
-            set_overshoot = getattr(pace, "set_overshoot_allowed", None)
-            if callable(set_overshoot):
-                try:
-                    self._record_pace_startup_config_command(
-                        f":SOUR:PRES:SLEW:OVER {1 if overshoot_allowed else 0}"
-                    )
-                    set_overshoot(overshoot_allowed)
-                    fields["overshoot_allowed_set"] = overshoot_allowed
-                    fields["overshoot_not_allowed_preconfigured"] = not bool(overshoot_allowed)
-                    fields["sealed_slew_over_not_allowed_configured"] = not bool(overshoot_allowed)
-                except Exception as exc:
-                    failures.append(f"overshoot:{exc}")
-            else:
-                failures.append("overshoot:unsupported")
+        self._apply_sealed_pressure_profile_config(
+            pace,
+            fields,
+            failures,
+            record_startup_config=True,
+        )
+        if pace is not None:
             syst = self._pace_manual_query(pace, ":SYST:ERR?")
             fields["sealed_control_prearm_syst_err"] = syst.get("response") or syst.get("error") or ""
             if not bool(syst.get("ok")):
@@ -14581,55 +15105,45 @@ class CalibrationRunner:
         pace = self.devices.get("pace")
         mode = self._sealed_control_slew_mode()
         rate = self._sealed_control_slew_rate_hpa_per_s()
-        overshoot_allowed = self._sealed_control_overshoot_allowed()
         fields: Dict[str, Any] = {
             "slew_mode_set": "",
             "slew_rate_set_hpa_per_s": "",
             "overshoot_allowed_set": "",
+            "slew_mode_preconfigured": False,
+            "slew_rate_preconfigured": False,
+            "overshoot_not_allowed_preconfigured": False,
+            "sealed_slew_mode_lin_configured": False,
+            "sealed_slew_mode_max_configured": False,
+            "sealed_slew_over_not_allowed_configured": False,
             "sealed_initial_slew_rate_hpa_per_s": rate,
             "sealed_approach_slow_zone_hpa": self._sealed_approach_slow_zone_hpa(),
             "sealed_slow_slew_rate_hpa_per_s": self._sealed_approach_slow_slew_rate_hpa_per_s(),
             "adaptive_slow_zone_hpa": self._sealed_approach_slow_zone_hpa(),
             "sealed_exhaust_profile": self._sealed_exhaust_profile_name(),
+            "sealed_exhaust_fast_mode": self._sealed_exhaust_fast_mode(),
             "high_delta_fast_slew_hpa_per_s": self._sealed_high_delta_fast_slew_hpa_per_s(),
             "final_slow_zone_hpa": self._sealed_final_slow_zone_hpa(),
             "final_slow_slew_hpa_per_s": self._sealed_final_slow_slew_rate_hpa_per_s(),
+            "final_slow_enabled": self._sealed_final_slow_enabled(),
+            "over0_enabled": self._sealed_over0_enabled(),
+            "max_mode_enabled": self._sealed_profile_uses_max_mode(),
+            "expected_controller_deceleration_by_over0": bool(
+                self._sealed_over0_enabled() and self._sealed_profile_uses_max_mode()
+            ),
+            "max_mode_set_ts": "",
+            "over0_set_ts": "",
+            "pressure_descent_profile_active": self._sealed_fast_exhaust_profile_enabled(),
             "max_slew_or_fast_slew_enabled": self._sealed_fast_exhaust_profile_enabled(),
             "dwell_reduction_target_s": self._sealed_dwell_reduction_target_s(),
             "dwell_reduction_expected": self._sealed_fast_exhaust_profile_enabled(),
         }
         failures: List[str] = []
-        if pace is not None:
-            if mode == "LIN":
-                fn = getattr(pace, "set_slew_mode_linear", None)
-                if callable(fn):
-                    try:
-                        fn()
-                        fields["slew_mode_set"] = "LIN"
-                    except Exception as exc:
-                        failures.append(f"slew_mode:{exc}")
-                else:
-                    failures.append("slew_mode:unsupported")
-            set_rate = getattr(pace, "set_slew_rate", None)
-            if callable(set_rate):
-                try:
-                    set_rate(rate)
-                    fields["slew_rate_set_hpa_per_s"] = rate
-                except Exception as exc:
-                    failures.append(f"slew_rate:{exc}")
-            else:
-                failures.append("slew_rate:unsupported")
-            set_overshoot = getattr(pace, "set_overshoot_allowed", None)
-            if callable(set_overshoot):
-                try:
-                    set_overshoot(overshoot_allowed)
-                    fields["overshoot_allowed_set"] = overshoot_allowed
-                except Exception as exc:
-                    failures.append(f"overshoot:{exc}")
-            else:
-                failures.append("overshoot:unsupported")
-        else:
-            failures.append("pace_unavailable")
+        self._apply_sealed_pressure_profile_config(
+            pace,
+            fields,
+            failures,
+            record_startup_config=False,
+        )
         if isinstance(self._sealed_sweep_context_for_counters(), dict):
             context = self._sealed_sweep_context_for_counters()
             context["slew_mode_set"] = fields["slew_mode_set"]
@@ -14644,7 +15158,7 @@ class CalibrationRunner:
             pressure_target_hpa=pressure_target_hpa,
             refresh_pace_state=False,
             extra_fields=self._sealed_sweep_trace_extra({**dict(extra_fields or {}), **fields}),
-            note=";".join(failures) if failures else "LIN slew and overshoot setting applied before sealed control",
+            note=";".join(failures) if failures else "sealed pressure profile and overshoot setting applied before control",
         )
         return fields
 
@@ -14659,6 +15173,7 @@ class CalibrationRunner:
         context_map = context if isinstance(context, MutableMapping) else None
         now_s = time.time() if wall_ts is None else float(wall_ts)
         if context_map is not None and effort_pct is not None:
+            context_map["eff_sample_count"] = int(context_map.get("eff_sample_count") or 0) + 1
             pressure = self._first_numeric_value(
                 context_map.get("current_candidate_primary_pressure_hpa"),
                 context_map.get("fast_candidate_pressure_hpa"),
@@ -14703,6 +15218,8 @@ class CalibrationRunner:
                     context_map["eff_positive_pressure_range_hpa"] = (
                         f"{min(pressures):.6g}..{max(pressures):.6g}"
                     )
+            elif effort_pct < 0.0:
+                context_map["eff_negative_seen"] = True
             timeline = self._context_list(context_map, "_effort_sign_timeline")
             sign = "supply" if effort_pct > 0.0 else "exhaust" if effort_pct < 0.0 else "zero"
             timeline.append(
@@ -14722,6 +15239,15 @@ class CalibrationRunner:
         positive_integral = float(source.get("eff_positive_integral_pct_s") or 0.0)
         negative_duration = float(source.get("eff_negative_duration_s") or 0.0)
         negative_integral = float(source.get("eff_negative_integral_pct_s") or 0.0)
+        dewpoint_correlation = ""
+        if positive_seen:
+            dewpoint_correlation = (
+                "positive_effort_with_dewpoint_abnormal"
+                if bool(source.get("dewpoint_abnormal_at_candidate") or source.get("dewpoint_residual_exceeds_threshold"))
+                else "positive_effort_without_dewpoint_correlation"
+            )
+        elif bool(source.get("eff_negative_seen")):
+            dewpoint_correlation = "exhaust_dominant_no_positive_effort"
         positive_confidence = ""
         if positive_seen:
             positive_confidence = "medium" if positive_duration >= 0.5 or positive_integral > 0.05 else "low"
@@ -14737,6 +15263,7 @@ class CalibrationRunner:
                 )
             timeline_summary = "|".join(parts)
         return {
+            "eff_sample_count": int(source.get("eff_sample_count") or 0),
             "eff_positive_seen": positive_seen,
             "eff_positive_duration_s": round(positive_duration, 6),
             "eff_positive_max_pct": source.get("eff_positive_max_pct", ""),
@@ -14745,11 +15272,13 @@ class CalibrationRunner:
             "eff_positive_first_pressure_hpa": source.get("eff_positive_first_pressure_hpa", ""),
             "eff_positive_last_ts": source.get("eff_positive_last_ts", ""),
             "eff_positive_pressure_range_hpa": source.get("eff_positive_pressure_range_hpa", ""),
+            "eff_negative_seen": bool(source.get("eff_negative_seen")),
             "eff_negative_duration_s": round(negative_duration, 6),
             "eff_negative_integral_pct_s": round(negative_integral, 6),
             "effort_sign_timeline_summary": timeline_summary,
             "possible_supply_involvement_during_exhaust": positive_seen,
             "supply_involvement_confidence": positive_confidence,
+            "supply_involvement_dewpoint_correlation": dewpoint_correlation,
         }
 
     def _sealed_positive_supply_effort_trace_fields(
@@ -15066,6 +15595,11 @@ class CalibrationRunner:
             "fast_monitor_deferred_eff": bool(context.get("fast_monitor_deferred_eff")),
             "fast_monitor_deferred_dewpoint": bool(context.get("fast_monitor_deferred_dewpoint")),
             "fast_monitor_deferred_inl": bool(context.get("fast_monitor_deferred_inl")),
+            "profile_expected_time_s": context.get("profile_expected_time_s", ""),
+            "profile_actual_time_s": context.get("profile_actual_time_s", ""),
+            "profile_too_slow": bool(context.get("profile_too_slow")),
+            "profile_too_aggressive": bool(context.get("profile_too_aggressive")),
+            "target_crossing_due_to_fast_profile": bool(context.get("target_crossing_due_to_fast_profile")),
         }
 
     def _record_sealed_fast_candidate_monitor_pressure(
@@ -15145,6 +15679,8 @@ class CalibrationRunner:
             context["crossing_detected_by_fast_monitor"] = True
             context["crossing_ts"] = self._iso_ts_from_wall(now_s)
             context["crossing_pressure_hpa"] = float(pressure_hpa)
+            context["target_crossing_due_to_fast_profile"] = bool(self._sealed_fast_exhaust_profile_enabled())
+            context["profile_too_aggressive"] = bool(self._sealed_fast_exhaust_profile_enabled())
         return self._sealed_fast_candidate_monitor_context_fields()
 
     def _maybe_trigger_sealed_slow_slew_near_target(
@@ -15169,10 +15705,12 @@ class CalibrationRunner:
             target=target,
             pressure_hpa=pressure_hpa,
         )
+        context.update(zone_fields)
+        if not self._sealed_final_slow_enabled():
+            return True, zone_fields, ""
         zone = float(zone_fields.get("adaptive_slow_zone_hpa") or self._sealed_approach_slow_zone_hpa())
         slow_rate = self._sealed_approach_slow_slew_rate_hpa_per_s()
         initial_rate = self._sealed_control_slew_rate_hpa_per_s()
-        context.update(zone_fields)
         if zone <= 0.0 or float(pressure_hpa) > float(target) + zone:
             return True, zone_fields, ""
         if context.get("sealed_slow_slew_command_sent") is True:
@@ -15466,6 +16004,9 @@ class CalibrationRunner:
                         state["crossing_failure_ts"] = evaluation_ts
                 failure_reason = failure_reason or "FAIL_CLOSED_PRESSURE_TARGET_CHATTER_EXHAUST_ONLY"
                 terminal = True
+            if state is not None and (crossing_count > 0 or undershoot_detected):
+                state["target_crossing_due_to_fast_profile"] = bool(self._sealed_fast_exhaust_profile_enabled())
+                state["profile_too_aggressive"] = bool(self._sealed_fast_exhaust_profile_enabled())
             upper_limit = float(target) + self._one_sided_upper_tolerance_hpa()
             one_sided_ready = bool(float(target) <= float(pressure_hpa) <= upper_limit)
             candidate_enabled = bool(candidate_fields.get("exhaust_only_sample_above_target_enabled"))
@@ -15644,12 +16185,27 @@ class CalibrationRunner:
                 state["candidate_pressure_ts"] = self._iso_ts_from_wall(evaluation_ts)
                 state["candidate_pressure_age_ms"] = 0.0
                 state["candidate_target_crossing_count"] = crossing_count
+                outp1_s = self._as_float((candidate_context or {}).get("outp1_first_tx_ts"))
+                profile_actual_s = (
+                    round(max(0.0, float(evaluation_ts) - float(outp1_s)), 6)
+                    if outp1_s is not None
+                    else ""
+                )
+                state["profile_actual_time_s"] = profile_actual_s
+                state["profile_too_slow"] = bool(
+                    profile_actual_s != "" and float(profile_actual_s) > self._sealed_point_time_budget_s()
+                )
+                state["profile_too_aggressive"] = bool(state.get("profile_too_aggressive"))
+                state["target_crossing_due_to_fast_profile"] = bool(
+                    state.get("target_crossing_due_to_fast_profile")
+                )
                 state["candidate_positive_effort_seen"] = bool(
                     cached_effort_fields.get("positive_effort_any_seen")
                     or cached_effort_fields.get("positive_effort_fail_closed")
                     or cached_effort_fields.get("eff_positive_seen")
                 )
                 for effort_key in (
+                    "eff_sample_count",
                     "eff_positive_seen",
                     "eff_positive_duration_s",
                     "eff_positive_max_pct",
@@ -15658,11 +16214,13 @@ class CalibrationRunner:
                     "eff_positive_first_pressure_hpa",
                     "eff_positive_last_ts",
                     "eff_positive_pressure_range_hpa",
+                    "eff_negative_seen",
                     "eff_negative_duration_s",
                     "eff_negative_integral_pct_s",
                     "effort_sign_timeline_summary",
                     "possible_supply_involvement_during_exhaust",
                     "supply_involvement_confidence",
+                    "supply_involvement_dewpoint_correlation",
                 ):
                     state[effort_key] = cached_effort_fields.get(effort_key, "")
                 state["candidate_dewpoint_abnormal"] = candidate_dewpoint_abnormal
@@ -15685,7 +16243,11 @@ class CalibrationRunner:
                 state["in_limits_source"] = "quality_evidence_only"
                 state["higher_quality_sample_candidate"] = bool(int(in_limits or 0) == 1)
                 state["pace_slew_mode"] = (
-                    "LIN" if (candidate_context or {}).get("sealed_slew_mode_lin_configured") is True else ""
+                    "MAX"
+                    if (candidate_context or {}).get("sealed_slew_mode_max_configured") is True
+                    else "LIN"
+                    if (candidate_context or {}).get("sealed_slew_mode_lin_configured") is True
+                    else ""
                 )
                 state["pace_overshoot_allowed"] = (
                     False
@@ -15804,6 +16366,9 @@ class CalibrationRunner:
                     "candidate_positive_effort_seen": bool(
                         state is not None and candidate_entered and state.get("candidate_positive_effort_seen")
                     ),
+                    "eff_sample_count": (
+                        state.get("eff_sample_count", "") if state is not None and candidate_entered else ""
+                    ),
                     "eff_positive_seen": bool(
                         state is not None and candidate_entered and state.get("eff_positive_seen")
                     ),
@@ -15834,6 +16399,9 @@ class CalibrationRunner:
                         if state is not None and candidate_entered
                         else ""
                     ),
+                    "eff_negative_seen": bool(
+                        state is not None and candidate_entered and state.get("eff_negative_seen")
+                    ),
                     "eff_negative_duration_s": (
                         state.get("eff_negative_duration_s", "") if state is not None and candidate_entered else ""
                     ),
@@ -15854,6 +16422,11 @@ class CalibrationRunner:
                     ),
                     "supply_involvement_confidence": (
                         state.get("supply_involvement_confidence", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "supply_involvement_dewpoint_correlation": (
+                        state.get("supply_involvement_dewpoint_correlation", "")
                         if state is not None and candidate_entered
                         else ""
                     ),
@@ -15978,6 +16551,18 @@ class CalibrationRunner:
                     "pace_control_evidence_complete": bool(
                         state is not None and candidate_entered and state.get("pace_control_evidence_complete")
                     ),
+                    "profile_actual_time_s": (
+                        state.get("profile_actual_time_s", "") if state is not None and candidate_entered else ""
+                    ),
+                    "profile_too_slow": bool(
+                        state is not None and candidate_entered and state.get("profile_too_slow")
+                    ),
+                    "profile_too_aggressive": bool(
+                        state is not None and state.get("profile_too_aggressive")
+                    ),
+                    "target_crossing_due_to_fast_profile": bool(
+                        state is not None and state.get("target_crossing_due_to_fast_profile")
+                    ),
                     "pace_comp_positive_source_hpa": "",
                     "pace_comp_negative_source_hpa": "",
                     "pace_comp_evidence_available": False,
@@ -16056,8 +16641,29 @@ class CalibrationRunner:
                 }
             )
             candidate_fields.update(self._sealed_fast_candidate_monitor_context_fields())
+            if state is not None and candidate_entered:
+                for analyzer_key in (
+                    "analyzer_cache_update_count_during_open_flow",
+                    "analyzer_cache_update_count_during_sealed",
+                    "analyzer_collector_thread_alive",
+                    "analyzer_active_upload_alive_during_sealed",
+                    "analyzer_cache_stopped_phase",
+                    "analyzer_sealed_freshness_blocker",
+                ):
+                    if analyzer_key in state:
+                        candidate_fields[analyzer_key] = state.get(analyzer_key)
             context = self._sealed_sweep_context_for_counters()
             if isinstance(context, dict) and candidate_entered:
+                for analyzer_key in (
+                    "analyzer_cache_update_count_during_open_flow",
+                    "analyzer_cache_update_count_during_sealed",
+                    "analyzer_collector_thread_alive",
+                    "analyzer_active_upload_alive_during_sealed",
+                    "analyzer_cache_stopped_phase",
+                    "analyzer_sealed_freshness_blocker",
+                ):
+                    if analyzer_key in context:
+                        candidate_fields[analyzer_key] = context.get(analyzer_key)
                 context.update(candidate_fields)
                 if candidate_sampling_allowed and cached_effort_ok:
                     self._materialize_ultra_fast_candidate_snapshot_row(
@@ -16746,6 +17352,14 @@ class CalibrationRunner:
             "output_enabled_once": False,
             "route_close_verified": True,
             "sealed_actual_open_valves": self._cached_actual_open_valves(),
+            "analyzer_cache_update_count_during_open_flow": int(
+                getattr(self, "_live_analyzer_frame_seq", 0)
+            ),
+            "analyzer_cache_update_count_during_sealed": 0,
+            "_sealed_analyzer_cache_seq_at_route_close": int(
+                getattr(self, "_live_analyzer_frame_seq", 0)
+            ),
+            "analyzer_collector_thread_alive": False,
         }
         for key in self._sealed_sweep_counter_names():
             self._co2_sealed_no_vent_guard_context.setdefault(key, 0)
@@ -16932,6 +17546,10 @@ class CalibrationRunner:
                 "previous_point_dewpoint_at_candidate",
                 "previous_point_dewpoint_at_row",
                 "previous_point_dewpoint_at_post_validation",
+                "analyzer_cache_update_count_during_open_flow",
+                "analyzer_cache_update_count_during_sealed",
+                "_sealed_analyzer_cache_seq_at_route_close",
+                "analyzer_collector_thread_alive",
             ):
                 if state_key in self._co2_sealed_no_vent_guard_context:
                     self._active_co2_sealed_sweep_context[state_key] = self._co2_sealed_no_vent_guard_context.get(
@@ -19816,6 +20434,11 @@ class CalibrationRunner:
                     if closest_error_hpa is None or error_hpa < closest_error_hpa:
                         closest_error_hpa = error_hpa
                         closest_pressure_now = pressure_value
+            loop_context = self._sealed_sweep_context_for_counters()
+            self._refresh_live_analyzer_snapshots_during_sealed_pressure_loop(
+                loop_context if isinstance(loop_context, MutableMapping) else None,
+                reason="pressure_control_wait",
+            )
             loop_now = time.time()
             fast_monitor_fields: Dict[str, Any] = {}
             if fast_candidate_monitor_active:
@@ -20207,6 +20830,9 @@ class CalibrationRunner:
             return False
 
         target = float(point.target_pressure_hpa)
+        context = self._sealed_sweep_context_for_counters()
+        if isinstance(context, dict):
+            self._reset_sealed_point_packet_context(context, point)
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -20327,6 +20953,11 @@ class CalibrationRunner:
                     pressure_value = float(pressure_now)
                 except Exception:
                     pressure_value = None
+            loop_context = self._sealed_sweep_context_for_counters()
+            self._refresh_live_analyzer_snapshots_during_sealed_pressure_loop(
+                loop_context if isinstance(loop_context, MutableMapping) else None,
+                reason="sealed_sweep_pressure_control_wait",
+            )
             loop_now = time.time()
             fast_monitor_fields: Dict[str, Any] = {}
             if fast_candidate_monitor_active:

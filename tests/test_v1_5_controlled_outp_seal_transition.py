@@ -111,6 +111,10 @@ class FakePace:
         self.calls.append(("set_slew_mode_linear",))
         self.slew_mode = "LIN"
 
+    def set_slew_mode_max(self) -> None:
+        self.calls.append(("set_slew_mode_max",))
+        self.slew_mode = "MAX"
+
     def set_slew_rate(self, value: float) -> None:
         self.calls.append(("set_slew_rate", float(value)))
         self.slew_rate = float(value)
@@ -245,6 +249,10 @@ class SequenceVentStatusPace(FakePace):
 
 
 class SlewConfigFailPace(FakePace):
+    def set_slew_mode_max(self) -> None:
+        self.calls.append(("set_slew_mode_max_failed",))
+        raise RuntimeError("slew mode max failed")
+
     def set_slew_rate(self, value: float) -> None:
         self.calls.append(("set_slew_rate_failed", float(value)))
         raise RuntimeError("slew rate failed")
@@ -3470,11 +3478,13 @@ def test_migrates_900_tuning_params_to_limited_sealed_workflow() -> None:
         }
     )
 
-    assert runner._sealed_control_slew_rate_hpa_per_s() == pytest.approx(5.0)
-    assert runner._sealed_approach_slow_zone_hpa() == pytest.approx(10.0)
+    assert runner._sealed_control_slew_rate_hpa_per_s() == pytest.approx(20.0)
+    assert runner._sealed_approach_slow_zone_hpa() == pytest.approx(0.0)
     assert runner._sealed_approach_slow_slew_rate_hpa_per_s() == pytest.approx(1.0)
-    assert runner._sealed_exhaust_profile_name() == "fast_then_short_final_slow"
-    assert runner._sealed_high_delta_fast_slew_hpa_per_s() == pytest.approx(5.0)
+    assert runner._sealed_exhaust_profile_name() == "max_with_overshoot_not_allowed"
+    assert runner._sealed_exhaust_fast_mode() == "MAX"
+    assert runner._sealed_high_delta_fast_slew_hpa_per_s() == pytest.approx(20.0)
+    assert runner._sealed_final_slow_enabled() is False
     assert runner._sealed_fast_exhaust_profile_enabled() is True
     assert runner._sealed_fast_candidate_monitor_enabled() is True
     assert runner._sealed_fast_candidate_pressure_source() == "PACE"
@@ -3565,6 +3575,8 @@ def test_slow_slew_triggers_near_target() -> None:
         pressure_overrides={
             "exhaust_only_sample_above_target_enabled": True,
             "exhaust_only_sample_above_target_allow_sampling": True,
+            "sealed_exhaust_fast_mode": "LIN_FAST",
+            "final_slow_enabled": True,
         }
     )
     point = _co2_point(pressure=1100.0)
@@ -3574,7 +3586,7 @@ def test_slow_slew_triggers_near_target() -> None:
         point,
         phase="co2",
         target=1100.0,
-        pressure_hpa=1109.5,
+        pressure_hpa=1104.5,
     )
 
     assert ok is True
@@ -3607,17 +3619,17 @@ def test_fast_exhaust_profile_uses_short_final_slow_zone() -> None:
     assert reason == ""
     assert fields["first_sealed_point_high_pressure_profile_enabled"] is True
     assert fields["pressure_delta_to_target_hpa"] == pytest.approx(201.0)
-    assert fields["sealed_exhaust_profile"] == "fast_then_short_final_slow"
+    assert fields["sealed_exhaust_profile"] == "max_with_overshoot_not_allowed"
+    assert fields["sealed_exhaust_fast_mode"] == "MAX"
     assert fields["max_slew_or_fast_slew_enabled"] is True
-    assert fields["high_delta_fast_slew_hpa_per_s"] == pytest.approx(5.0)
-    assert fields["final_slow_zone_hpa"] == pytest.approx(10.0)
-    assert fields["adaptive_slow_zone_hpa"] == pytest.approx(10.0)
-    assert fields["slow_slew_trigger_pressure_expected_hpa"] == pytest.approx(1110.0)
-    assert fields["slow_slew_started_at_pressure_hpa"] == pytest.approx(1109.5)
-    assert fields["slow_slew_distance_to_target_hpa"] == pytest.approx(9.5)
-    assert fields["slow_slew_trigger_before_crossing"] is True
-    assert fields["slow_slew_too_late"] is False
-    assert ("set_slew_rate", 1.0) in pace.calls
+    assert fields["high_delta_fast_slew_hpa_per_s"] == pytest.approx(20.0)
+    assert fields["final_slow_enabled"] is False
+    assert fields["final_slow_zone_hpa"] == pytest.approx(0.0)
+    assert fields["adaptive_slow_zone_hpa"] == pytest.approx(0.0)
+    assert fields["slow_slew_trigger_pressure_expected_hpa"] == pytest.approx(1100.0)
+    assert fields["over0_enabled"] is True
+    assert fields["expected_controller_deceleration_by_over0"] is True
+    assert not any(call[0] == "set_slew_rate" for call in pace.calls)
 
 
 def test_slow_slew_not_started_too_early_for_1100_high_delta() -> None:
@@ -3646,9 +3658,9 @@ def test_slow_slew_not_started_too_early_for_1100_high_delta() -> None:
     assert fields["pressure_delta_to_target_hpa"] == pytest.approx(149.059)
     assert fields["high_profile_threshold_hpa"] == pytest.approx(150.0)
     assert fields["high_profile_threshold_tolerance_hpa"] == pytest.approx(10.0)
-    assert fields["high_profile_enabled_reason"] == "fast_exhaust_short_final_slow_zone"
-    assert fields["adaptive_slow_zone_hpa"] == pytest.approx(10.0)
-    assert fields["slow_slew_trigger_pressure_expected_hpa"] == pytest.approx(1110.0)
+    assert fields["high_profile_enabled_reason"] == "max_or_fast_exhaust_with_over0"
+    assert fields["adaptive_slow_zone_hpa"] == pytest.approx(0.0)
+    assert fields["slow_slew_trigger_pressure_expected_hpa"] == pytest.approx(1100.0)
     assert fields["sealed_slow_slew_command_sent"] is False
     assert ("set_slew_rate", 1.0) not in pace.calls
 
@@ -3677,8 +3689,8 @@ def test_later_pressure_points_keep_smaller_slow_zone() -> None:
     assert ok is True
     assert reason == ""
     assert fields["first_sealed_point_high_pressure_profile_enabled"] is False
-    assert fields["adaptive_slow_zone_hpa"] == pytest.approx(10.0)
-    assert ("set_slew_rate", 1.0) in pace.calls
+    assert fields["adaptive_slow_zone_hpa"] == pytest.approx(0.0)
+    assert ("set_slew_rate", 1.0) not in pace.calls
 
 
 def test_sample_setpoint_bias_for_first_high_pressure_point() -> None:
@@ -3807,7 +3819,7 @@ def test_fast_monitor_latency_records_blocking_operation() -> None:
     assert "PACE:read_pressure" in fields["fast_monitor_loop_latency_audit"]
 
 
-def test_slew_over_zero_and_linear_mode_prearmed() -> None:
+def test_slew_over_zero_and_max_mode_prearmed() -> None:
     runner, pace, _, _ = _runner(
         pressure_overrides={
             "exhaust_only_sample_above_target_enabled": True,
@@ -3819,10 +3831,11 @@ def test_slew_over_zero_and_linear_mode_prearmed() -> None:
     assert runner._prearm_sealed_control_config(point, phase="co2", pressure_target_hpa=1100.0) is True
 
     fields = runner._sealed_control_prearm_trace_fields()
-    assert fields["sealed_slew_mode_lin_configured"] is True
+    assert fields["sealed_slew_mode_max_configured"] is True
     assert fields["sealed_slew_over_not_allowed_configured"] is True
-    assert fields["sealed_initial_slew_rate_hpa_per_s"] == pytest.approx(5.0)
-    assert ("set_slew_mode_linear",) in pace.calls
+    assert fields["sealed_initial_slew_rate_hpa_per_s"] == pytest.approx(20.0)
+    assert ("set_slew_mode_max",) in pace.calls
+    assert not any(call[0] == "set_slew_rate" for call in pace.calls)
     assert ("set_overshoot_allowed", False) in pace.calls
 
 
@@ -4092,6 +4105,265 @@ def _arm_safe_1100_candidate(runner: CalibrationRunner, point: CalibrationPoint)
     )
     return context
 
+
+def _set_candidate_context(
+    runner: CalibrationRunner,
+    point: CalibrationPoint,
+    *,
+    pressure_hpa: float,
+    dewpoint_c: float = -38.34,
+    dewpoint_abnormal: bool = False,
+) -> dict:
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    anchor_s = time.time() - 0.2
+    anchor_ts = datetime.fromtimestamp(anchor_s).isoformat(timespec="milliseconds")
+    target = float(point.target_pressure_hpa)
+    context.update(
+        {
+            "point_row": point.index,
+            "target_pressure_hpa": target,
+            "fast_candidate_detected": True,
+            "fast_candidate_ts": anchor_ts,
+            "fast_candidate_pressure_hpa": pressure_hpa,
+            "exhaust_only_candidate_window_entered": True,
+            "exhaust_only_candidate_ts": anchor_ts,
+            "exhaust_only_candidate_pressure_hpa": pressure_hpa,
+            "exhaust_only_candidate_sampling_allowed": True,
+            "sampled_from_above_target_window": True,
+            "actual_pressure_used_for_sample": pressure_hpa,
+            "nominal_target_hpa": target,
+            "control_setpoint_hpa": target + 0.5,
+            "candidate_pressure_ts": anchor_ts,
+            "candidate_pressure_age_ms": 0.0,
+            "candidate_pressure_hpa": pressure_hpa,
+            "candidate_dewpoint_c": dewpoint_c,
+            "dewpoint_at_candidate": dewpoint_c,
+            "candidate_dewpoint_ts": anchor_ts,
+            "candidate_dewpoint_age_ms": 100.0,
+            "candidate_dewpoint_cache_fresh": True,
+            "candidate_dewpoint_cache_stale": False,
+            "candidate_dewpoint_quality_ok": not dewpoint_abnormal,
+            "dewpoint_candidate_evidence_quality": "fresh_cache",
+            "candidate_effort_pct": 0.003,
+            "candidate_effort_ts": anchor_ts,
+            "candidate_effort_age_ms": 100.0,
+            "candidate_vent_status": 2,
+            "candidate_outp_status": 1,
+            "candidate_isol_status": 1,
+            "candidate_target_crossing_count": 0,
+            "candidate_positive_effort_seen": False,
+            "candidate_dewpoint_abnormal": dewpoint_abnormal,
+            "dewpoint_abnormal_at_candidate": dewpoint_abnormal,
+            "candidate_sample_safe_precheck_result": "pass",
+            "sample_setpoint_bias_enabled": True,
+            "sample_setpoint_bias_hpa": 0.5,
+        }
+    )
+    if dewpoint_abnormal:
+        context.update(
+            {
+                "sample_invalidated": True,
+                "sample_valid_for_acceptance": False,
+                "sample_invalidated_by_dewpoint_rise": True,
+                "dewpoint_abnormal_during_sample": True,
+                "sample_invalidated_reason": "dewpoint_abnormal@candidate",
+                "sample_invalidated_phase": "candidate",
+                "invalidation_sources": "dewpoint_abnormal@candidate",
+                "sample_quality_warning": "dewpoint_abnormal@candidate",
+                "dewpoint_abnormal_at_candidate_row_materialized_for_diagnostic": True,
+                "dewpoint_abnormal_candidate_block_suppressed_for_diagnostic": True,
+                "row_materialized_despite_dewpoint_abnormal_for_trend": True,
+            }
+        )
+    return context
+
+
+def test_fast_profile_uses_max_or_high_slew_not_5hpa_for_large_descent() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+
+    assert runner._prearm_sealed_control_config(point, phase="co2", pressure_target_hpa=1100.0) is True
+
+    fields = runner._sealed_control_prearm_trace_fields()
+    assert fields["sealed_exhaust_profile"] == "max_with_overshoot_not_allowed"
+    assert fields["sealed_exhaust_fast_mode"] == "MAX"
+    assert fields["sealed_initial_slew_rate_hpa_per_s"] >= 20.0
+    assert ("set_slew_mode_max",) in pace.calls
+    assert not any(call == ("set_slew_rate", 5.0) for call in pace.calls)
+
+
+def test_over0_kept_with_max_mode() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+
+    assert runner._prearm_sealed_control_config(point, phase="co2", pressure_target_hpa=1100.0) is True
+
+    fields = runner._sealed_control_prearm_trace_fields()
+    assert fields["max_mode_enabled"] is True
+    assert fields["over0_enabled"] is True
+    assert fields["expected_controller_deceleration_by_over0"] is True
+    assert ("set_overshoot_allowed", False) in pace.calls
+
+
+def test_profile_expected_time_less_than_old_47s() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["current_pressure_before_point_hpa"] = 1295.53
+
+    fields = runner._sealed_adaptive_slow_zone_fields(target=1100.0, pressure_hpa=1295.53)
+
+    assert fields["profile_expected_time_s"] < 10.0
+    assert fields["profile_expected_time_s"] < 47.0
+
+
+def test_1000_candidate_materializes_independent_packet() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point1100 = _co2_point(index=3, pressure=1100.0)
+    point1000 = _co2_point(index=4, pressure=1000.0)
+    _arm_safe_1100_candidate(runner, point1100)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+    row1100 = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point1100, requested_rows=3, requested_interval_s=0.2, phase="co2", point_tag=""
+    )[0]
+
+    _set_candidate_context(runner, point1000, pressure_hpa=1000.500061)
+    row1000 = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point1000, requested_rows=3, requested_interval_s=0.2, phase="co2", point_tag=""
+    )[0]
+
+    assert row1100["sampling_packet_id"] != row1000["sampling_packet_id"]
+    assert row1000["point_row"] == 4
+    assert row1000["nominal_target_hpa"] == pytest.approx(1000.0)
+    assert row1000["control_setpoint_hpa"] == pytest.approx(1000.5)
+    assert row1000["pressure_anchor_hpa"] == pytest.approx(1000.500061)
+    assert row1000["pressure_anchor_source"] == "PACE_candidate"
+
+
+def test_point_context_reset_between_1100_and_1000() -> None:
+    runner, _pace, _, _ = _runner()
+    point1100 = _co2_point(index=3, pressure=1100.0)
+    point1000 = _co2_point(index=4, pressure=1000.0)
+    runner._activate_co2_sealed_no_vent_guard(point1100, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context.update(
+        {
+            "ultra_fast_snapshot_rows": [{"point_row": 3, "nominal_target_hpa": 1100.0}],
+            "pressure_anchor_hpa": 1100.3929443,
+            "candidate_ts": "old",
+            "sample_data_quality_grade": "B_diagnostic_model_only",
+            "_sealed_point_row_counted": True,
+        }
+    )
+
+    runner._reset_sealed_point_packet_context(context, point1000)
+
+    assert "ultra_fast_snapshot_rows" not in context
+    assert "pressure_anchor_hpa" not in context
+    assert "candidate_ts" not in context
+    assert "sample_data_quality_grade" not in context
+    assert "_sealed_point_row_counted" not in context
+    assert context["point_row"] == 4
+    assert context["nominal_target_hpa"] == pytest.approx(1000.0)
+
+
+def test_point_0004_csv_uses_1000_anchor_not_1100() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point1100 = _co2_point(index=3, pressure=1100.0)
+    point1000 = _co2_point(index=4, pressure=1000.0)
+    _arm_safe_1100_candidate(runner, point1100)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+    runner._collect_ultra_fast_candidate_snapshot_rows(
+        point1100, requested_rows=3, requested_interval_s=0.2, phase="co2", point_tag=""
+    )
+
+    _set_candidate_context(runner, point1000, pressure_hpa=1000.500061)
+    row1000 = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point1000, requested_rows=3, requested_interval_s=0.2, phase="co2", point_tag=""
+    )[0]
+
+    assert "1000hpa" in row1000["point_title"].lower()
+    assert row1000["point_row"] == 4
+    assert row1000["nominal_target_hpa"] == pytest.approx(1000.0)
+    assert row1000["pressure_anchor_hpa"] != pytest.approx(1100.3929443)
+
+
+def test_previous_point_anchor_not_reused() -> None:
+    test_point_0004_csv_uses_1000_anchor_not_1100()
+
+
+def test_dewpoint_abnormal_1000_candidate_materializes_diagnostic_row() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(index=4, pressure=1000.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    _set_candidate_context(runner, point, pressure_hpa=1000.500061, dewpoint_c=-20.34, dewpoint_abnormal=True)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point, requested_rows=3, requested_interval_s=0.2, phase="co2", point_tag=""
+    )[0]
+
+    assert row["nominal_target_hpa"] == pytest.approx(1000.0)
+    assert row["pressure_anchor_hpa"] == pytest.approx(1000.500061)
+    assert row["sample_valid_for_acceptance"] is False
+    assert row["sample_can_enter_calibration_fit"] is False
+    assert row["sample_data_quality_grade"] in {"B_diagnostic_model_only", "C_reject"}
+    assert "dewpoint_abnormal" in row["sample_invalidated_reason"]
+    assert "dewpoint_abnormal@candidate" in row["invalidation_sources"]
+
+
+def test_eff_timeline_statistics_present() -> None:
+    runner, _pace, _, _ = _runner()
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+
+    runner._effort_timeline_stats_fields(context, effort_pct=-1.5, stage="after_outp1", wall_ts=100.0)
+    runner._effort_timeline_stats_fields(context, effort_pct=0.02, stage="candidate", wall_ts=101.0)
+    fields = runner._effort_timeline_stats_fields(context, effort_pct=0.02, stage="packet", wall_ts=102.5)
+
+    assert fields["eff_sample_count"] == 3
+    assert fields["eff_negative_seen"] is True
+    assert fields["eff_positive_seen"] is True
+    assert fields["eff_positive_duration_s"] == pytest.approx(1.5)
+    assert fields["eff_positive_integral_pct_s"] == pytest.approx(0.03)
+    assert "candidate:supply" in fields["effort_sign_timeline_summary"]
+    assert fields["possible_supply_involvement_during_exhaust"] is True
 
 def test_ultra_fast_candidate_snapshot_row_created_immediately() -> None:
     runner, _pace, _, _ = _runner(
@@ -5993,7 +6265,7 @@ def test_overshoot_disabled_before_sealed_control() -> None:
 
 def test_slew_linear_mode_set_before_sealed_control() -> None:
     runner, pace, _, _ = _runner(
-        pressure_overrides={"slew_rate_hpa_per_s": 12.5}
+        pressure_overrides={"sealed_fast_exhaust_profile_enabled": False, "slew_rate_hpa_per_s": 12.5}
     )
     point = _co2_point(pressure=900.0)
     runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
@@ -6175,7 +6447,6 @@ def test_sealed_sweep_subsequent_points_setpoint_only() -> None:
     assert runner._set_pressure_to_target_in_active_co2_sealed_sweep(later) is True
     assert ("set_slew_mode_linear",) in pace.calls
     assert ("set_slew_rate", 15.0) in pace.calls
-    assert ("set_overshoot_allowed", False) in pace.calls
     assert ("setpoint", 700.0) in pace.calls
     assert pace.calls.index(("set_slew_mode_linear",)) < pace.calls.index(("setpoint", 700.0))
     assert not any(call[0] in {"output", "vent", "enable_control_output"} for call in pace.calls)
@@ -7250,6 +7521,83 @@ def test_analyzer_snapshot_stale_blocks_A_grade() -> None:
     test_pressure_anchor_share_invalid_when_analyzer_age_exceeds_window()
 
 
+def test_analyzer_cache_update_continues_during_sealed_pressure_loop(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "sealed_analyzer_cache_refresh_interval_s": 0.1,
+            "stabilize_timeout_s": 0.2,
+        }
+    )
+    point = _co2_point(index=4, pressure=1000.0)
+    pace.pressures = [1000.5] * 200
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._begin_active_co2_sealed_sweep_context(point)
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["pressure_control_direction_expected"] = "exhaust_only"
+    runner._sealed_first_outp1_tx_ts = time.time() - 0.5
+    runner._all_gas_analyzers = MagicMock(return_value=[("A1", object(), {"id": "A1", "port": "COMA"})])
+
+    def _refresh(**_kwargs):
+        runner._live_analyzer_frame_seq += 1
+
+    runner._refresh_live_analyzer_snapshots = MagicMock(side_effect=_refresh)
+    runner._cached_ready_check_trace_values = MagicMock(return_value={"dewpoint_c": -38.0})
+    runner._merge_analyzer_cache_into_sample = MagicMock(return_value={})
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._set_pressure_to_target_in_active_co2_sealed_sweep(point) is True
+
+    assert runner._refresh_live_analyzer_snapshots.called
+    updated_context = runner._sealed_sweep_context_for_counters()
+    assert updated_context is not None
+    assert updated_context["analyzer_cache_update_count_during_sealed"] >= 1
+    assert updated_context["analyzer_collector_thread_alive"] is True
+
+
+def test_sealed_candidate_uses_recent_analyzer_cache() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "analyzer_snapshot_min_valid_count": 1,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context["analyzer_cache_update_count_during_open_flow"] = 4
+    context["analyzer_cache_update_count_during_sealed"] = 3
+    context["analyzer_collector_thread_alive"] = True
+    runner._all_gas_analyzers = MagicMock(return_value=[("A1", object(), {"id": "A1", "port": "COMA"})])
+
+    def merge(data, *_args, **_kwargs):
+        data.update(
+            {
+                "a1_co2_ppm": 1000.1,
+                "a1_frame_cache_age_ms": 120.0,
+                "a1_frame_cache_ts": "2026-05-21T00:00:00.000",
+                "a1_frame_source": "active_upload_cache",
+            }
+        )
+        return {}
+
+    runner._merge_analyzer_cache_into_sample = MagicMock(side_effect=merge)
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point, requested_rows=3, requested_interval_s=0.2, phase="co2", point_tag=""
+    )[0]
+
+    assert row["analyzer_active_upload_alive_during_sealed"] is True
+    assert row["analyzer_collector_thread_alive"] is True
+    assert row["analyzer_cache_update_count_during_sealed"] == 3
+    assert json.loads(row["analyzer_age_ms_at_candidate_by_port"])["COMA"] == pytest.approx(120.0)
+    assert row["analyzer_sealed_freshness_blocker"] == ""
+
+
 def test_secondary_evidence_does_not_block_first_row() -> None:
     test_com22_inl_live_dewpoint_are_secondary_evidence_not_row_blockers()
 
@@ -7326,9 +7674,9 @@ def test_pace_slew_over_zero_evidence_fields_present() -> None:
     context = _arm_safe_1100_candidate(runner, point)
     context.update(
         {
-            "sealed_slew_mode_lin_configured": True,
+            "sealed_slew_mode_max_configured": True,
             "sealed_slew_over_not_allowed_configured": True,
-            "sealed_slow_slew_rate_hpa_per_s": 1.0,
+            "sealed_initial_slew_rate_hpa_per_s": 20.0,
             "in_limits_at_candidate": 0,
         }
     )
@@ -7342,10 +7690,11 @@ def test_pace_slew_over_zero_evidence_fields_present() -> None:
         point_tag="",
     )[0]
 
-    assert row["pace_slew_mode"] == "LIN"
+    assert row["pace_slew_mode"] == "MAX"
     assert row["pace_overshoot_allowed"] is False
     assert row["pace_overshoot_not_allowed_configured"] is True
     assert row["pace_auto_deceleration_expected"] is True
+    assert "SLEW:MODE MAX" in row["pace_auto_deceleration_evidence"]
     assert "SLEW:OVER 0" in row["pace_auto_deceleration_evidence"]
     assert row["pace_in_limits_at_candidate"] == 0
 
@@ -7450,7 +7799,7 @@ def test_no_write_guard_still_holds() -> None:
     assert workflow["postrun_corrected_delivery"]["write_pressure_coefficients"] is False
 
 
-def test_no_forbidden_writes_added() -> None:
+def test_no_forbidden_device_parameter_writes_added_in_profile_guard() -> None:
     runner, pace, _, _ = _runner(
         pressure_overrides={
             "exhaust_only_sample_above_target_enabled": True,
