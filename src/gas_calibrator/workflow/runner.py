@@ -31,6 +31,7 @@ from ..coefficients.fit_ratio_poly_evolved import fit_ratio_poly_rt_p_evolved
 from ..data.points import CalibrationPoint, load_points_from_excel, reorder_points, validate_points
 from ..export.temperature_compensation_export import export_temperature_compensation_artifacts
 from ..h2o_summary_selection import normalize_h2o_summary_selection
+from ..humidity_math import dewpoint_to_h2o_mmol_per_mol
 from ..logging_utils import RunLogger
 from ..senco_format import format_senco_values, rounded_senco_values
 from ..validation.dewpoint_flush_gate import (
@@ -508,6 +509,83 @@ _PRESSURE_TRACE_FIELDS = [
     "sample_invalidated_phase",
     "sample_quality_warning",
     "invalidation_sources",
+    "v2_strategy_reference",
+    "sealed_point_failure_scope",
+    "sealed_group_abort_reason",
+    "continue_after_dewpoint_post_row_invalid",
+    "dewpoint_abnormal_policy",
+    "dewpoint_abnormal_group_abort_suppressed_for_diagnostic",
+    "sealed_sweep_continued_after_dewpoint_abnormal",
+    "prior_point_dewpoint_abnormal",
+    "prior_point_invalidated_reason",
+    "sealed_group_fail_closed_hard_safety_reason",
+    "point_level_invalid_continue_allowed",
+    "group_abort_required",
+    "group_abort_guard_source",
+    "analyzer_parallel_snapshot_enabled",
+    "analyzer_parallel_snapshot_duration_ms",
+    "analyzer_snapshot_enabled",
+    "analyzer_snapshot_mode",
+    "analyzer_snapshot_duration_ms",
+    "analyzer_snapshot_completed_after_row_append",
+    "analyzer_snapshot_blocked_first_row",
+    "secondary_evidence_completed_after_row_append",
+    "secondary_evidence_quality",
+    "row_anchor_ts",
+    "row_object_created_ts",
+    "row_appended_ts",
+    "candidate_to_row_object_s",
+    "sealed_point_sequence_index",
+    "previous_sealed_target_hpa",
+    "current_target_hpa",
+    "pressure_direction_from_previous_point",
+    "previous_point_dewpoint_at_candidate",
+    "previous_point_dewpoint_at_row",
+    "previous_point_dewpoint_at_post_validation",
+    "current_point_dewpoint_at_candidate",
+    "current_point_dewpoint_at_row",
+    "current_point_dewpoint_at_post_validation",
+    "dewpoint_change_from_previous_point_c",
+    "pressure_effect_expected_dewpoint_change_c",
+    "residual_dewpoint_change_after_pressure_effect_c",
+    "dewpoint_trend_after_1100",
+    "trend_matches_physical_expectation",
+    "trend_supports_continue_sweep_strategy",
+    "current_point_after_prior_dewpoint_abnormal",
+    "pace_effort_pct_at_candidate",
+    "pace_effort_sign",
+    "pace_effort_pct_at_post_row",
+    "pace_slew_mode",
+    "pace_slew_setpoint_hpa_per_s",
+    "pace_overshoot_allowed",
+    "pace_current_slew_hpa_per_s",
+    "pace_in_limits_at_candidate",
+    "pace_control_evidence_complete",
+    "pace_comp_positive_source_hpa",
+    "pace_comp_negative_source_hpa",
+    "pace_comp_evidence_available",
+    "pace_comp_evidence_todo",
+    "sample_data_quality_grade",
+    "sample_data_quality_reason",
+    "sample_data_quality_inputs_complete",
+    "sample_can_enter_calibration_fit",
+    "sample_can_enter_diagnostic_model",
+    "sample_reject_reason",
+    "actual_pressure_hpa",
+    "actual_pressure_source",
+    "actual_temperature_c",
+    "actual_dewpoint_c",
+    "actual_dewpoint_source",
+    "actual_dewpoint_age_ms",
+    "water_vapor_pressure_hpa",
+    "h2o_mole_fraction",
+    "co2_wet_value",
+    "co2_dry_corrected_value",
+    "dry_air_correction_applied_for_analysis_only",
+    "dewpoint_residual_threshold_c",
+    "dewpoint_residual_exceeds_threshold",
+    "correction_allowed_for_calibration",
+    "correction_only_for_qc",
     "dewpoint_abnormal_classification",
     "classification_evidence",
     "classification_confidence",
@@ -10910,6 +10988,83 @@ class CalibrationRunner:
             "sample_invalidated_phase": "",
             "sample_quality_warning": "",
             "invalidation_sources": "",
+            "v2_strategy_reference": "sealed_point_loop_and_secondary_evidence",
+            "sealed_point_failure_scope": "",
+            "sealed_group_abort_reason": "",
+            "continue_after_dewpoint_post_row_invalid": False,
+            "dewpoint_abnormal_policy": "",
+            "dewpoint_abnormal_group_abort_suppressed_for_diagnostic": False,
+            "sealed_sweep_continued_after_dewpoint_abnormal": False,
+            "prior_point_dewpoint_abnormal": False,
+            "prior_point_invalidated_reason": "",
+            "sealed_group_fail_closed_hard_safety_reason": "",
+            "point_level_invalid_continue_allowed": False,
+            "group_abort_required": False,
+            "group_abort_guard_source": "",
+            "analyzer_parallel_snapshot_enabled": False,
+            "analyzer_parallel_snapshot_duration_ms": "",
+            "analyzer_snapshot_enabled": False,
+            "analyzer_snapshot_mode": "",
+            "analyzer_snapshot_duration_ms": "",
+            "analyzer_snapshot_completed_after_row_append": False,
+            "analyzer_snapshot_blocked_first_row": False,
+            "secondary_evidence_completed_after_row_append": False,
+            "secondary_evidence_quality": "",
+            "row_anchor_ts": "",
+            "row_object_created_ts": "",
+            "row_appended_ts": "",
+            "candidate_to_row_object_s": "",
+            "sealed_point_sequence_index": "",
+            "previous_sealed_target_hpa": "",
+            "current_target_hpa": "",
+            "pressure_direction_from_previous_point": "",
+            "previous_point_dewpoint_at_candidate": "",
+            "previous_point_dewpoint_at_row": "",
+            "previous_point_dewpoint_at_post_validation": "",
+            "current_point_dewpoint_at_candidate": "",
+            "current_point_dewpoint_at_row": "",
+            "current_point_dewpoint_at_post_validation": "",
+            "dewpoint_change_from_previous_point_c": "",
+            "pressure_effect_expected_dewpoint_change_c": "",
+            "residual_dewpoint_change_after_pressure_effect_c": "",
+            "dewpoint_trend_after_1100": "",
+            "trend_matches_physical_expectation": "",
+            "trend_supports_continue_sweep_strategy": "",
+            "current_point_after_prior_dewpoint_abnormal": False,
+            "pace_effort_pct_at_candidate": "",
+            "pace_effort_sign": "",
+            "pace_effort_pct_at_post_row": "",
+            "pace_slew_mode": "",
+            "pace_slew_setpoint_hpa_per_s": "",
+            "pace_overshoot_allowed": "",
+            "pace_current_slew_hpa_per_s": "",
+            "pace_in_limits_at_candidate": "",
+            "pace_control_evidence_complete": False,
+            "pace_comp_positive_source_hpa": "",
+            "pace_comp_negative_source_hpa": "",
+            "pace_comp_evidence_available": False,
+            "pace_comp_evidence_todo": True,
+            "sample_data_quality_grade": "",
+            "sample_data_quality_reason": "",
+            "sample_data_quality_inputs_complete": False,
+            "sample_can_enter_calibration_fit": False,
+            "sample_can_enter_diagnostic_model": False,
+            "sample_reject_reason": "",
+            "actual_pressure_hpa": "",
+            "actual_pressure_source": "",
+            "actual_temperature_c": "",
+            "actual_dewpoint_c": "",
+            "actual_dewpoint_source": "",
+            "actual_dewpoint_age_ms": "",
+            "water_vapor_pressure_hpa": "",
+            "h2o_mole_fraction": "",
+            "co2_wet_value": "",
+            "co2_dry_corrected_value": "",
+            "dry_air_correction_applied_for_analysis_only": False,
+            "dewpoint_residual_threshold_c": "",
+            "dewpoint_residual_exceeds_threshold": False,
+            "correction_allowed_for_calibration": False,
+            "correction_only_for_qc": True,
             "dewpoint_abnormal_classification": "",
             "classification_evidence": "",
             "classification_confidence": "",
@@ -11080,6 +11235,333 @@ class CalibrationRunner:
             parts.append(text)
         return ";".join(parts)
 
+    def _pace_effort_sign_from_pct(self, effort_pct: Any) -> str:
+        effort = self._as_float(effort_pct)
+        if effort is None:
+            return ""
+        if effort > 0.0:
+            return "supply"
+        if effort < 0.0:
+            return "exhaust"
+        return "neutral"
+
+    def _append_dewpoint_trend_after_1100(
+        self,
+        context: MutableMapping[str, Any],
+        *,
+        target_hpa: Any,
+        reason: str,
+    ) -> str:
+        target = self._as_float(target_hpa)
+        label = f"{target:g}" if target is not None else "unknown"
+        token = f"{label}:{reason}"
+        parts = self._coerce_internal_list(context.get("dewpoint_trend_after_1100"))
+        if token not in parts:
+            parts.append(token)
+        trend = ";".join(str(item) for item in parts if str(item))
+        context["dewpoint_trend_after_1100"] = trend
+        return trend
+
+    def _append_quality_warning(self, existing: Any, *warnings: Any) -> str:
+        parts: List[str] = []
+        for item in self._coerce_internal_list(existing):
+            text = str(item or "").strip()
+            if text and text not in parts:
+                parts.append(text)
+        for warning in warnings:
+            for item in self._coerce_internal_list(warning):
+                text = str(item or "").strip()
+                if text and text not in parts:
+                    parts.append(text)
+        return ";".join(parts)
+
+    def _first_numeric_value(self, *values: Any) -> Optional[float]:
+        for value in values:
+            numeric = self._as_float(value)
+            if numeric is not None:
+                return numeric
+        return None
+
+    def _open_valves_nonempty(self, value: Any) -> bool:
+        if value in (None, "", [], (), set()):
+            return False
+        if isinstance(value, str):
+            text = value.strip()
+            if not text or text == "[]":
+                return False
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, (list, tuple, set)):
+                return bool(parsed)
+            return bool(text)
+        if isinstance(value, Mapping):
+            return bool(value)
+        if hasattr(value, "__iter__"):
+            try:
+                return bool(list(value))
+            except Exception:
+                return True
+        return True
+
+    def _sealed_sample_water_vapor_evidence_fields(
+        self,
+        data: Mapping[str, Any],
+        *,
+        point: Optional[CalibrationPoint] = None,
+    ) -> Dict[str, Any]:
+        pressure = self._first_numeric_value(
+            data.get("actual_pressure_used_for_sample"),
+            data.get("actual_pressure_hpa"),
+            data.get("pressure_hpa"),
+            data.get("pace_pressure_hpa"),
+        )
+        dewpoint = self._first_numeric_value(
+            data.get("actual_dewpoint_c"),
+            data.get("candidate_dewpoint_c"),
+            data.get("dewpoint_c"),
+            data.get("dewpoint_live_c"),
+        )
+        temperature = self._first_numeric_value(
+            data.get("actual_temperature_c"),
+            data.get("thermometer_temp_c"),
+            data.get("chamber_temp_c"),
+            data.get("env_chamber_temp_c"),
+            data.get("dew_temp_live_c"),
+            data.get("dew_temp_c"),
+            getattr(point, "temp_chamber_c", None) if point is not None else None,
+        )
+        co2_wet = self._first_numeric_value(
+            data.get("co2_wet_value"),
+            data.get("co2_ppm"),
+            data.get("co2_ratio_f"),
+            data.get("a1_co2_ppm"),
+            data.get("a1_co2_ratio_f"),
+        )
+        source = str(
+            data.get("actual_dewpoint_source")
+            or data.get("candidate_dewpoint_source")
+            or data.get("dewpoint_candidate_evidence_quality")
+            or ""
+        )
+        age_ms = data.get("actual_dewpoint_age_ms")
+        if age_ms in (None, ""):
+            age_ms = data.get("candidate_dewpoint_age_ms", "")
+        fields: Dict[str, Any] = {
+            "actual_pressure_hpa": pressure if pressure is not None else "",
+            "actual_pressure_source": data.get("actual_pressure_source_for_sample")
+            or data.get("actual_pressure_source")
+            or ("candidate" if pressure is not None else ""),
+            "actual_temperature_c": temperature if temperature is not None else "",
+            "actual_dewpoint_c": dewpoint if dewpoint is not None else "",
+            "actual_dewpoint_source": source,
+            "actual_dewpoint_age_ms": age_ms,
+            "water_vapor_pressure_hpa": "",
+            "h2o_mole_fraction": "",
+            "co2_wet_value": co2_wet if co2_wet is not None else "",
+            "co2_dry_corrected_value": "",
+            "dry_air_correction_applied_for_analysis_only": False,
+            "correction_allowed_for_calibration": False,
+            "correction_only_for_qc": True,
+        }
+        if pressure is None or pressure <= 0.0 or dewpoint is None:
+            return fields
+        try:
+            h2o_mmol_per_mol = dewpoint_to_h2o_mmol_per_mol(dewpoint, pressure)
+        except Exception:
+            return fields
+        h2o_x = float(h2o_mmol_per_mol) / 1000.0
+        fields["h2o_mole_fraction"] = round(h2o_x, 9)
+        fields["water_vapor_pressure_hpa"] = round(float(pressure) * h2o_x, 6)
+        if co2_wet is not None and 0.0 <= h2o_x < 1.0:
+            fields["co2_dry_corrected_value"] = round(float(co2_wet) / (1.0 - h2o_x), 6)
+            fields["dry_air_correction_applied_for_analysis_only"] = True
+        return fields
+
+    def _sealed_point_dewpoint_trend_fields(
+        self,
+        data: Mapping[str, Any],
+        context: Optional[Mapping[str, Any]],
+        *,
+        point: Optional[CalibrationPoint] = None,
+    ) -> Dict[str, Any]:
+        current_target = self._first_numeric_value(
+            data.get("nominal_target_hpa"),
+            getattr(point, "target_pressure_hpa", None) if point is not None else None,
+        )
+        current_candidate_dew = self._first_numeric_value(
+            data.get("candidate_dewpoint_c"),
+            data.get("dewpoint_at_candidate"),
+        )
+        current_row_dew = self._first_numeric_value(
+            data.get("actual_dewpoint_c"),
+            data.get("dewpoint_c"),
+            current_candidate_dew,
+        )
+        previous_target = self._first_numeric_value(
+            context.get("previous_sealed_target_hpa") if isinstance(context, Mapping) else None
+        )
+        previous_candidate_dew = self._first_numeric_value(
+            context.get("previous_point_dewpoint_at_candidate") if isinstance(context, Mapping) else None
+        )
+        previous_row_dew = self._first_numeric_value(
+            context.get("previous_point_dewpoint_at_row") if isinstance(context, Mapping) else None
+        )
+        previous_post_dew = self._first_numeric_value(
+            context.get("previous_point_dewpoint_at_post_validation") if isinstance(context, Mapping) else None
+        )
+        previous_dew = self._first_numeric_value(previous_post_dew, previous_row_dew, previous_candidate_dew)
+        direction = ""
+        if previous_target is not None and current_target is not None:
+            if current_target < previous_target:
+                direction = "descending"
+            elif current_target > previous_target:
+                direction = "ascending"
+            else:
+                direction = "same"
+        change = (
+            round(float(current_row_dew) - float(previous_dew), 6)
+            if current_row_dew is not None and previous_dew is not None
+            else ""
+        )
+        threshold = 0.2
+        trend = "unknown"
+        if change != "":
+            if float(change) < -threshold:
+                trend = "decreasing"
+            elif float(change) > threshold:
+                trend = "increasing"
+            else:
+                trend = "stable"
+        expected_change = ""
+        residual = ""
+        if change != "":
+            expected_change = 0.0
+            residual = round(float(change) - expected_change, 6)
+        matches = ""
+        if trend != "unknown":
+            matches = bool(direction != "descending" or trend in {"decreasing", "stable"})
+        supports = ""
+        if trend != "unknown":
+            supports = bool(trend in {"decreasing", "stable"})
+        return {
+            "sealed_point_sequence_index": data.get("point_row", getattr(point, "index", "")),
+            "previous_sealed_target_hpa": previous_target if previous_target is not None else "",
+            "current_target_hpa": current_target if current_target is not None else "",
+            "pressure_direction_from_previous_point": direction,
+            "previous_point_dewpoint_at_candidate": previous_candidate_dew if previous_candidate_dew is not None else "",
+            "previous_point_dewpoint_at_row": previous_row_dew if previous_row_dew is not None else "",
+            "previous_point_dewpoint_at_post_validation": previous_post_dew if previous_post_dew is not None else "",
+            "current_point_dewpoint_at_candidate": current_candidate_dew if current_candidate_dew is not None else "",
+            "current_point_dewpoint_at_row": current_row_dew if current_row_dew is not None else "",
+            "current_point_dewpoint_at_post_validation": data.get("current_point_dewpoint_at_post_validation", ""),
+            "dewpoint_change_from_previous_point_c": change,
+            "pressure_effect_expected_dewpoint_change_c": expected_change,
+            "residual_dewpoint_change_after_pressure_effect_c": residual,
+            "dewpoint_trend_after_1100": trend,
+            "trend_matches_physical_expectation": matches,
+            "trend_supports_continue_sweep_strategy": supports,
+        }
+
+    def _sealed_sample_quality_grade_fields(
+        self,
+        data: Mapping[str, Any],
+        *,
+        context: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        reasons: List[str] = []
+        warnings = self._coerce_internal_list(data.get("sample_quality_warning"))
+        invalid_reasons = self._coerce_internal_list(data.get("sample_invalidated_reason"))
+        classification = str(data.get("dewpoint_abnormal_classification") or "")
+        open_valves = (
+            data.get("actual_open_valves")
+            if data.get("actual_open_valves") not in (None, "")
+            else data.get("sealed_actual_open_valves")
+        )
+        if open_valves in (None, "") and isinstance(context, Mapping):
+            open_valves = context.get("sealed_actual_open_valves")
+        hard_c = False
+        if self._open_valves_nonempty(open_valves):
+            hard_c = True
+            reasons.append("actual_open_valves_nonempty")
+        if bool(data.get("sample_invalidated_by_vent")):
+            hard_c = True
+            reasons.append("vent_violation")
+        if bool(data.get("sample_invalidated_by_positive_effort")):
+            hard_c = True
+            reasons.append("positive_supply_effort")
+        if classification == "probable_external_air_ingress":
+            hard_c = True
+            reasons.append("probable_external_air_ingress")
+        phase_text = str(data.get("sample_invalidated_phase") or "")
+        if bool(data.get("sample_invalidated_by_target_crossing")):
+            if "before" in phase_text or "candidate" in phase_text:
+                hard_c = True
+                reasons.append("target_crossing_before_row")
+            else:
+                reasons.append("target_crossing_post_row")
+        residual_exceeds = bool(data.get("dewpoint_residual_exceeds_threshold") is True)
+        if bool(data.get("post_row_dewpoint_abnormal")) or bool(data.get("sample_invalidated_by_dewpoint_rise")):
+            reasons.append("dewpoint_abnormal_post_row")
+        if bool(data.get("candidate_dewpoint_missing")):
+            reasons.append("candidate_dewpoint_missing")
+        if bool(data.get("candidate_dewpoint_cache_stale")):
+            reasons.append("candidate_dewpoint_stale")
+        if data.get("sample_alignment_failure_reason") not in (None, ""):
+            reasons.append("sample_alignment_warning")
+        if residual_exceeds:
+            reasons.append("dewpoint_residual_exceeds_threshold")
+        if invalid_reasons:
+            for item in invalid_reasons:
+                text = str(item or "").strip()
+                if text and text not in reasons:
+                    reasons.append(text)
+        if hard_c:
+            grade = "C_reject"
+        elif reasons or warnings:
+            grade = "B_diagnostic_model_only"
+        else:
+            grade = "A_calibration_eligible"
+        inputs_complete = bool(
+            data.get("actual_pressure_hpa") not in (None, "")
+            and data.get("actual_dewpoint_c") not in (None, "")
+            and data.get("candidate_dewpoint_cache_fresh") is True
+            and data.get("co2_wet_value") not in (None, "")
+        )
+        return {
+            "sample_data_quality_grade": grade,
+            "sample_data_quality_reason": ";".join(reasons),
+            "sample_data_quality_inputs_complete": inputs_complete,
+            "sample_can_enter_calibration_fit": bool(grade == "A_calibration_eligible"),
+            "sample_can_enter_diagnostic_model": bool(grade in {"A_calibration_eligible", "B_diagnostic_model_only"}),
+            "sample_reject_reason": ";".join(reasons) if grade == "C_reject" else "",
+            "correction_allowed_for_calibration": bool(
+                grade == "A_calibration_eligible"
+                and data.get("dry_air_correction_applied_for_analysis_only") is True
+            ),
+            "correction_only_for_qc": True,
+        }
+
+    def _apply_sealed_row_quality_fields(
+        self,
+        data: MutableMapping[str, Any],
+        *,
+        point: Optional[CalibrationPoint] = None,
+        context: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        data.update(self._sealed_sample_water_vapor_evidence_fields(data, point=point))
+        residual = self._as_float(data.get("dewpoint_residual_after_pressure_effect_c"))
+        threshold = self._as_float(data.get("dewpoint_residual_threshold_c"))
+        if threshold is None:
+            threshold = self._sealed_dewpoint_rise_fail_threshold_c()
+            data["dewpoint_residual_threshold_c"] = threshold
+        data["dewpoint_residual_exceeds_threshold"] = bool(
+            residual is not None and threshold is not None and abs(float(residual)) > float(threshold)
+        )
+        data.update(self._sealed_point_dewpoint_trend_fields(data, context, point=point))
+        data.update(self._sealed_sample_quality_grade_fields(data, context=context))
+
     def _apply_ultra_fast_row_context_updates(
         self,
         context: MutableMapping[str, Any],
@@ -11112,6 +11594,18 @@ class CalibrationRunner:
             updates["sample_invalidated_by_dewpoint_rise"] = True
             if phase_text == "post_row":
                 updates["post_row_dewpoint_abnormal"] = True
+                if self._limited_no_write_workflow_active():
+                    updates["continue_after_dewpoint_post_row_invalid"] = True
+                    updates["sealed_point_failure_scope"] = "point_level_invalid_continue"
+                    updates["sealed_group_abort_reason"] = ""
+                    updates["dewpoint_abnormal_policy"] = "point_invalidate_continue_sealed_sweep"
+                    updates["dewpoint_abnormal_group_abort_suppressed_for_diagnostic"] = True
+                    updates["sealed_sweep_continued_after_dewpoint_abnormal"] = True
+                    updates["prior_point_dewpoint_abnormal"] = True
+                    updates["prior_point_invalidated_reason"] = "dewpoint_abnormal@post_row"
+                    updates["point_level_invalid_continue_allowed"] = True
+                    updates["group_abort_required"] = False
+                    updates["group_abort_guard_source"] = "dewpoint_post_row_diagnostic"
             updates["dewpoint_invalidation_phase"] = phase_text
             if not fields or "dewpoint_abnormal_classification" not in fields:
                 classification = self._sealed_dewpoint_rise_trace_fields()
@@ -11158,8 +11652,29 @@ class CalibrationRunner:
             existing_sources.append(source_token)
         updates["invalidation_sources"] = ";".join(str(item) for item in existing_sources if str(item))
         if isinstance(context, dict):
+            if (
+                normalized_reason == "dewpoint_abnormal"
+                and phase_text == "post_row"
+                and self._limited_no_write_workflow_active()
+            ):
+                context["prior_dewpoint_post_row_invalid"] = True
+                context["prior_point_dewpoint_abnormal"] = True
+                context["prior_point_invalidated_reason"] = "dewpoint_abnormal@post_row"
+                updates["current_point_after_prior_dewpoint_abnormal"] = bool(
+                    context.get("current_point_after_prior_dewpoint_abnormal")
+                )
+                updates["dewpoint_trend_after_1100"] = self._append_dewpoint_trend_after_1100(
+                    context,
+                    target_hpa=context.get("nominal_target_hpa") or context.get("target_pressure_hpa"),
+                    reason="post_row_dewpoint_abnormal",
+                )
             context.update(updates)
             self._apply_ultra_fast_row_context_updates(context, updates)
+            rows = context.get("ultra_fast_snapshot_rows")
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, dict):
+                        self._apply_sealed_row_quality_fields(row, context=context)
         return updates
 
     @staticmethod
@@ -11335,6 +11850,45 @@ class CalibrationRunner:
                 "ultra_fast_snapshot_candidate_to_append_s",
                 "ultra_fast_snapshot_materialization_stage",
                 "ultra_fast_snapshot_row_deferred_until_validation",
+                "v2_strategy_reference",
+                "sealed_point_failure_scope",
+                "sealed_group_abort_reason",
+                "continue_after_dewpoint_post_row_invalid",
+                "dewpoint_abnormal_policy",
+                "dewpoint_abnormal_group_abort_suppressed_for_diagnostic",
+                "sealed_sweep_continued_after_dewpoint_abnormal",
+                "prior_point_dewpoint_abnormal",
+                "prior_point_invalidated_reason",
+                "sealed_group_fail_closed_hard_safety_reason",
+                "point_level_invalid_continue_allowed",
+                "group_abort_required",
+                "group_abort_guard_source",
+                "analyzer_parallel_snapshot_enabled",
+                "analyzer_parallel_snapshot_duration_ms",
+                "analyzer_snapshot_enabled",
+                "analyzer_snapshot_mode",
+                "analyzer_snapshot_duration_ms",
+                "analyzer_snapshot_completed_after_row_append",
+                "analyzer_snapshot_blocked_first_row",
+                "secondary_evidence_completed_after_row_append",
+                "secondary_evidence_quality",
+                "row_anchor_ts",
+                "row_object_created_ts",
+                "row_appended_ts",
+                "candidate_to_row_object_s",
+                "sample_data_quality_grade",
+                "sample_data_quality_reason",
+                "sample_data_quality_inputs_complete",
+                "sample_can_enter_calibration_fit",
+                "sample_can_enter_diagnostic_model",
+                "sample_reject_reason",
+                "dewpoint_trend_after_1100",
+                "current_point_after_prior_dewpoint_abnormal",
+                "pace_effort_pct_at_candidate",
+                "pace_effort_sign",
+                "pace_slew_mode",
+                "pace_overshoot_allowed",
+                "pace_in_limits_at_candidate",
             )
             for row in rows:
                 for key in sync_keys:
@@ -11391,9 +11945,9 @@ class CalibrationRunner:
         quality_warnings: List[str] = []
         dewpoint_missing = candidate_dewpoint is None
         if dewpoint_missing:
-            quality_warnings.append("dewpoint_candidate_missing")
+            quality_warnings.append("candidate_dewpoint_missing")
         elif candidate_dewpoint_cache_stale:
-            quality_warnings.append("dewpoint_cache_stale")
+            quality_warnings.append("candidate_dewpoint_stale")
         if candidate_effort is None:
             quality_warnings.append("effort_candidate_missing")
         legacy_first_sample_s = context.get("legacy_fast_candidate_to_first_sample_s", "")
@@ -11451,6 +12005,69 @@ class CalibrationRunner:
             "sample_invalidated_reason": context.get("sample_invalidated_reason", ""),
             "sample_invalidated_phase": context.get("sample_invalidated_phase", ""),
             "invalidation_sources": context.get("invalidation_sources", ""),
+            "v2_strategy_reference": "sealed_point_loop_and_secondary_evidence",
+            "sealed_point_failure_scope": context.get("sealed_point_failure_scope", ""),
+            "sealed_group_abort_reason": context.get("sealed_group_abort_reason", ""),
+            "continue_after_dewpoint_post_row_invalid": bool(
+                context.get("continue_after_dewpoint_post_row_invalid") is True
+            ),
+            "dewpoint_abnormal_policy": context.get("dewpoint_abnormal_policy", ""),
+            "dewpoint_abnormal_group_abort_suppressed_for_diagnostic": bool(
+                context.get("dewpoint_abnormal_group_abort_suppressed_for_diagnostic") is True
+            ),
+            "sealed_sweep_continued_after_dewpoint_abnormal": bool(
+                context.get("sealed_sweep_continued_after_dewpoint_abnormal") is True
+            ),
+            "prior_point_dewpoint_abnormal": bool(
+                context.get("prior_point_dewpoint_abnormal") or context.get("prior_dewpoint_post_row_invalid")
+            ),
+            "prior_point_invalidated_reason": context.get("prior_point_invalidated_reason", ""),
+            "sealed_group_fail_closed_hard_safety_reason": context.get(
+                "sealed_group_fail_closed_hard_safety_reason",
+                "",
+            ),
+            "point_level_invalid_continue_allowed": bool(
+                context.get("point_level_invalid_continue_allowed") is True
+            ),
+            "group_abort_required": bool(context.get("group_abort_required") is True),
+            "group_abort_guard_source": context.get("group_abort_guard_source", ""),
+            "row_anchor_ts": anchor_ts,
+            "row_object_created_ts": row_ts,
+            "row_appended_ts": row_ts,
+            "candidate_to_row_object_s": candidate_to_row_s,
+            "dewpoint_trend_after_1100": context.get("dewpoint_trend_after_1100", ""),
+            "current_point_after_prior_dewpoint_abnormal": bool(
+                context.get("prior_dewpoint_post_row_invalid")
+                or context.get("current_point_after_prior_dewpoint_abnormal")
+            ),
+            "pace_effort_pct_at_candidate": candidate_effort if candidate_effort is not None else "",
+            "pace_effort_sign": self._pace_effort_sign_from_pct(candidate_effort),
+            "pace_effort_pct_at_post_row": context.get("pace_effort_pct_at_post_row", ""),
+            "pace_slew_mode": context.get(
+                "pace_slew_mode",
+                "LIN" if context.get("sealed_slew_mode_lin_configured") is True else "",
+            ),
+            "pace_slew_setpoint_hpa_per_s": context.get(
+                "sealed_slow_slew_rate_hpa_per_s",
+                context.get("sealed_initial_slew_rate_hpa_per_s", ""),
+            ),
+            "pace_overshoot_allowed": context.get(
+                "pace_overshoot_allowed",
+                (False if context.get("sealed_slew_over_not_allowed_configured") is True else ""),
+            ),
+            "pace_current_slew_hpa_per_s": context.get(
+                "sealed_slow_slew_rate_hpa_per_s",
+                context.get("sealed_initial_slew_rate_hpa_per_s", ""),
+            ),
+            "pace_in_limits_at_candidate": context.get("in_limits_at_candidate", ""),
+            "pace_control_evidence_complete": bool(
+                context.get("in_limits_at_candidate") not in (None, "")
+                and context.get("pace_slew_mode", "") not in (None, "")
+            ),
+            "pace_comp_positive_source_hpa": "",
+            "pace_comp_negative_source_hpa": "",
+            "pace_comp_evidence_available": False,
+            "pace_comp_evidence_todo": True,
             "sample_invalidated_by_target_crossing": bool(
                 context.get("sample_invalidated_by_target_crossing") is True
             ),
@@ -11565,16 +12182,80 @@ class CalibrationRunner:
             "in_limits_age_ms",
             "in_limits_source",
             "higher_quality_sample_candidate",
+            "v2_strategy_reference",
+            "sealed_point_failure_scope",
+            "sealed_group_abort_reason",
+            "continue_after_dewpoint_post_row_invalid",
+            "dewpoint_abnormal_policy",
+            "dewpoint_abnormal_group_abort_suppressed_for_diagnostic",
+            "sealed_sweep_continued_after_dewpoint_abnormal",
+            "prior_point_dewpoint_abnormal",
+            "prior_point_invalidated_reason",
+            "sealed_group_fail_closed_hard_safety_reason",
+            "point_level_invalid_continue_allowed",
+            "group_abort_required",
+            "group_abort_guard_source",
+            "dewpoint_trend_after_1100",
+            "current_point_after_prior_dewpoint_abnormal",
+            "pace_effort_pct_at_candidate",
+            "pace_effort_sign",
+            "pace_effort_pct_at_post_row",
+            "pace_slew_mode",
+            "pace_slew_setpoint_hpa_per_s",
+            "pace_overshoot_allowed",
+            "pace_current_slew_hpa_per_s",
+            "pace_in_limits_at_candidate",
+            "pace_control_evidence_complete",
+            "pace_comp_positive_source_hpa",
+            "pace_comp_negative_source_hpa",
+            "pace_comp_evidence_available",
+            "pace_comp_evidence_todo",
         ):
             if key in context:
                 data[key] = context.get(key)
 
+        early_context_updates = {
+            "ultra_fast_snapshot_row_enabled": True,
+            "ultra_fast_snapshot_row_ts": row_ts,
+            "ultra_fast_snapshot_anchor_ts": anchor_ts,
+            "ultra_fast_snapshot_candidate_to_row_s": candidate_to_row_s,
+            "ultra_fast_snapshot_row_object_created_ts": row_ts,
+            "ultra_fast_snapshot_row_appended_ts": row_ts,
+            "ultra_fast_snapshot_candidate_to_row_object_s": candidate_to_row_s,
+            "ultra_fast_snapshot_candidate_to_append_s": candidate_to_append_s,
+            "ultra_fast_snapshot_materialization_stage": "candidate_branch_append",
+            "ultra_fast_snapshot_row_deferred_until_validation": False,
+            "row_anchor_ts": anchor_ts,
+            "row_object_created_ts": row_ts,
+            "row_appended_ts": row_ts,
+            "candidate_to_row_object_s": candidate_to_row_s,
+        }
+        context.update(early_context_updates)
+        data.update(early_context_updates)
+        context["ultra_fast_snapshot_rows"] = [dict(data)]
+
+        analyzer_snapshot_start_mono = time.monotonic()
         frame_issues = self._merge_analyzer_cache_into_sample(
             data,
             gas_analyzers,
             context=None,
             sample_anchor_mono=row_now_mono,
             row_time_s=row_now_s,
+        )
+        analyzer_snapshot_duration_ms = round(
+            max(0.0, (time.monotonic() - analyzer_snapshot_start_mono) * 1000.0),
+            3,
+        )
+        data["analyzer_parallel_snapshot_enabled"] = True
+        data["analyzer_parallel_snapshot_duration_ms"] = analyzer_snapshot_duration_ms
+        data["analyzer_snapshot_enabled"] = True
+        data["analyzer_snapshot_mode"] = "post_row_parallel"
+        data["analyzer_snapshot_duration_ms"] = analyzer_snapshot_duration_ms
+        data["analyzer_snapshot_completed_after_row_append"] = True
+        data["analyzer_snapshot_blocked_first_row"] = False
+        data["secondary_evidence_completed_after_row_append"] = True
+        data["secondary_evidence_quality"] = (
+            "warning" if frame_issues else "available_after_row_append"
         )
         self._add_sampling_timing_evidence(data, gas_analyzers, row_time_s=row_now_s)
         if frame_issues:
@@ -11596,6 +12277,7 @@ class CalibrationRunner:
                 if item
             )
         data["sample_quality_warning"] = data.get("ultra_fast_snapshot_quality_warning", "")
+        self._apply_sealed_row_quality_fields(data, point=point, context=context)
         data["sample_end_ts"] = row_ts
         data["sample_elapsed_ms"] = round(max(0.0, (time.time() - row_now_s) * 1000.0), 3)
 
@@ -11617,6 +12299,114 @@ class CalibrationRunner:
             "ultra_fast_snapshot_live_query_count": 0,
             "ultra_fast_snapshot_quality_warning": data.get("ultra_fast_snapshot_quality_warning", ""),
             "ultra_fast_snapshot_acceptance_allowed": False,
+            "v2_strategy_reference": data.get("v2_strategy_reference", "sealed_point_loop_and_secondary_evidence"),
+            "sealed_point_failure_scope": data.get("sealed_point_failure_scope", ""),
+            "sealed_group_abort_reason": data.get("sealed_group_abort_reason", ""),
+            "continue_after_dewpoint_post_row_invalid": bool(
+                data.get("continue_after_dewpoint_post_row_invalid") is True
+            ),
+            "dewpoint_abnormal_policy": data.get("dewpoint_abnormal_policy", ""),
+            "dewpoint_abnormal_group_abort_suppressed_for_diagnostic": bool(
+                data.get("dewpoint_abnormal_group_abort_suppressed_for_diagnostic") is True
+            ),
+            "sealed_sweep_continued_after_dewpoint_abnormal": bool(
+                data.get("sealed_sweep_continued_after_dewpoint_abnormal") is True
+            ),
+            "prior_point_dewpoint_abnormal": bool(data.get("prior_point_dewpoint_abnormal") is True),
+            "prior_point_invalidated_reason": data.get("prior_point_invalidated_reason", ""),
+            "sealed_group_fail_closed_hard_safety_reason": data.get(
+                "sealed_group_fail_closed_hard_safety_reason",
+                "",
+            ),
+            "point_level_invalid_continue_allowed": bool(
+                data.get("point_level_invalid_continue_allowed") is True
+            ),
+            "group_abort_required": bool(data.get("group_abort_required") is True),
+            "group_abort_guard_source": data.get("group_abort_guard_source", ""),
+            "analyzer_parallel_snapshot_enabled": True,
+            "analyzer_parallel_snapshot_duration_ms": analyzer_snapshot_duration_ms,
+            "analyzer_snapshot_enabled": True,
+            "analyzer_snapshot_mode": "post_row_parallel",
+            "analyzer_snapshot_duration_ms": analyzer_snapshot_duration_ms,
+            "analyzer_snapshot_completed_after_row_append": True,
+            "analyzer_snapshot_blocked_first_row": False,
+            "secondary_evidence_completed_after_row_append": True,
+            "secondary_evidence_quality": data.get("secondary_evidence_quality", ""),
+            "row_anchor_ts": anchor_ts,
+            "row_object_created_ts": row_ts,
+            "row_appended_ts": row_ts,
+            "candidate_to_row_object_s": candidate_to_row_s,
+            "dewpoint_trend_after_1100": data.get("dewpoint_trend_after_1100", ""),
+            "current_point_after_prior_dewpoint_abnormal": bool(
+                data.get("current_point_after_prior_dewpoint_abnormal") is True
+            ),
+            "pace_effort_pct_at_candidate": candidate_effort if candidate_effort is not None else "",
+            "pace_effort_sign": self._pace_effort_sign_from_pct(candidate_effort),
+            "pace_effort_pct_at_post_row": data.get("pace_effort_pct_at_post_row", ""),
+            "pace_slew_mode": data.get("pace_slew_mode", ""),
+            "pace_slew_setpoint_hpa_per_s": data.get("pace_slew_setpoint_hpa_per_s", ""),
+            "pace_overshoot_allowed": data.get("pace_overshoot_allowed", ""),
+            "pace_current_slew_hpa_per_s": data.get("pace_current_slew_hpa_per_s", ""),
+            "pace_in_limits_at_candidate": data.get("pace_in_limits_at_candidate", ""),
+            "pace_control_evidence_complete": data.get("pace_control_evidence_complete", False),
+            "pace_comp_positive_source_hpa": data.get("pace_comp_positive_source_hpa", ""),
+            "pace_comp_negative_source_hpa": data.get("pace_comp_negative_source_hpa", ""),
+            "pace_comp_evidence_available": data.get("pace_comp_evidence_available", False),
+            "pace_comp_evidence_todo": data.get("pace_comp_evidence_todo", True),
+            "sample_data_quality_grade": data.get("sample_data_quality_grade", ""),
+            "sample_data_quality_reason": data.get("sample_data_quality_reason", ""),
+            "sample_data_quality_inputs_complete": data.get("sample_data_quality_inputs_complete", False),
+            "sample_can_enter_calibration_fit": data.get("sample_can_enter_calibration_fit", False),
+            "sample_can_enter_diagnostic_model": data.get("sample_can_enter_diagnostic_model", False),
+            "sample_reject_reason": data.get("sample_reject_reason", ""),
+            "actual_pressure_hpa": data.get("actual_pressure_hpa", ""),
+            "actual_pressure_source": data.get("actual_pressure_source", ""),
+            "actual_temperature_c": data.get("actual_temperature_c", ""),
+            "actual_dewpoint_c": data.get("actual_dewpoint_c", ""),
+            "actual_dewpoint_source": data.get("actual_dewpoint_source", ""),
+            "actual_dewpoint_age_ms": data.get("actual_dewpoint_age_ms", ""),
+            "water_vapor_pressure_hpa": data.get("water_vapor_pressure_hpa", ""),
+            "h2o_mole_fraction": data.get("h2o_mole_fraction", ""),
+            "co2_wet_value": data.get("co2_wet_value", ""),
+            "co2_dry_corrected_value": data.get("co2_dry_corrected_value", ""),
+            "dry_air_correction_applied_for_analysis_only": data.get(
+                "dry_air_correction_applied_for_analysis_only",
+                False,
+            ),
+            "dewpoint_residual_threshold_c": data.get("dewpoint_residual_threshold_c", ""),
+            "dewpoint_residual_exceeds_threshold": data.get("dewpoint_residual_exceeds_threshold", False),
+            "correction_allowed_for_calibration": data.get("correction_allowed_for_calibration", False),
+            "correction_only_for_qc": data.get("correction_only_for_qc", True),
+            "sealed_point_sequence_index": data.get("sealed_point_sequence_index", ""),
+            "previous_sealed_target_hpa": data.get("previous_sealed_target_hpa", ""),
+            "current_target_hpa": data.get("current_target_hpa", ""),
+            "pressure_direction_from_previous_point": data.get("pressure_direction_from_previous_point", ""),
+            "previous_point_dewpoint_at_candidate": data.get("previous_point_dewpoint_at_candidate", ""),
+            "previous_point_dewpoint_at_row": data.get("previous_point_dewpoint_at_row", ""),
+            "previous_point_dewpoint_at_post_validation": data.get(
+                "previous_point_dewpoint_at_post_validation",
+                "",
+            ),
+            "current_point_dewpoint_at_candidate": data.get("current_point_dewpoint_at_candidate", ""),
+            "current_point_dewpoint_at_row": data.get("current_point_dewpoint_at_row", ""),
+            "current_point_dewpoint_at_post_validation": data.get(
+                "current_point_dewpoint_at_post_validation",
+                "",
+            ),
+            "dewpoint_change_from_previous_point_c": data.get("dewpoint_change_from_previous_point_c", ""),
+            "pressure_effect_expected_dewpoint_change_c": data.get(
+                "pressure_effect_expected_dewpoint_change_c",
+                "",
+            ),
+            "residual_dewpoint_change_after_pressure_effect_c": data.get(
+                "residual_dewpoint_change_after_pressure_effect_c",
+                "",
+            ),
+            "trend_matches_physical_expectation": data.get("trend_matches_physical_expectation", ""),
+            "trend_supports_continue_sweep_strategy": data.get(
+                "trend_supports_continue_sweep_strategy",
+                "",
+            ),
             "sample_quality_warning": data.get("sample_quality_warning", ""),
             "legacy_fast_candidate_to_first_sample_s": legacy_first_sample_s,
             "normal_path_first_sample_s": legacy_first_sample_s,
@@ -11627,6 +12417,13 @@ class CalibrationRunner:
         context.update(context_updates)
         data.update(context_updates)
         context["ultra_fast_snapshot_rows"] = [dict(data)]
+        context["previous_sealed_target_hpa"] = data.get("current_target_hpa", data.get("nominal_target_hpa", ""))
+        context["previous_point_dewpoint_at_candidate"] = data.get("current_point_dewpoint_at_candidate", "")
+        context["previous_point_dewpoint_at_row"] = data.get("current_point_dewpoint_at_row", "")
+        context.setdefault(
+            "previous_point_dewpoint_at_post_validation",
+            data.get("current_point_dewpoint_at_post_validation", ""),
+        )
 
         self._append_pressure_trace_row(
             point=point,
@@ -13522,6 +14319,10 @@ class CalibrationRunner:
                 ):
                     state[cache_key] = candidate_dewpoint_evidence.get(cache_key, "")
                 state["candidate_effort_pct"] = candidate_effort_pct if candidate_effort_pct is not None else ""
+                state["pace_effort_pct_at_candidate"] = (
+                    candidate_effort_pct if candidate_effort_pct is not None else ""
+                )
+                state["pace_effort_sign"] = self._pace_effort_sign_from_pct(candidate_effort_pct)
                 state["candidate_effort_ts"] = ""
                 state["candidate_effort_age_ms"] = ""
                 state["candidate_vent_status"] = (
@@ -13553,9 +14354,37 @@ class CalibrationRunner:
                 state["candidate_pressure_source_delta_hpa"] = source_delta if source_delta is not None else ""
                 state["candidate_pressure_source_mismatch"] = source_mismatch
                 state["in_limits_at_candidate"] = int(in_limits or 0)
+                state["pace_in_limits_at_candidate"] = int(in_limits or 0)
                 state["in_limits_age_ms"] = 0.0
                 state["in_limits_source"] = "quality_evidence_only"
                 state["higher_quality_sample_candidate"] = bool(int(in_limits or 0) == 1)
+                state["pace_slew_mode"] = (
+                    "LIN" if (candidate_context or {}).get("sealed_slew_mode_lin_configured") is True else ""
+                )
+                state["pace_overshoot_allowed"] = (
+                    False
+                    if (candidate_context or {}).get("sealed_slew_over_not_allowed_configured") is True
+                    else ""
+                )
+                state["pace_slew_setpoint_hpa_per_s"] = (candidate_context or {}).get(
+                    "sealed_slow_slew_rate_hpa_per_s",
+                    (candidate_context or {}).get("sealed_initial_slew_rate_hpa_per_s", ""),
+                )
+                state["pace_current_slew_hpa_per_s"] = state.get("pace_slew_setpoint_hpa_per_s", "")
+                state["pace_control_evidence_complete"] = bool(state.get("pace_slew_mode") or int(in_limits or 0) in {0, 1})
+                state["pace_comp_positive_source_hpa"] = ""
+                state["pace_comp_negative_source_hpa"] = ""
+                state["pace_comp_evidence_available"] = False
+                state["pace_comp_evidence_todo"] = True
+                state.setdefault("v2_strategy_reference", "sealed_point_loop_and_secondary_evidence")
+                state.setdefault("sealed_point_failure_scope", "")
+                state.setdefault("sealed_group_abort_reason", "")
+                state.setdefault("continue_after_dewpoint_post_row_invalid", False)
+                state["current_point_after_prior_dewpoint_abnormal"] = bool(
+                    state.get("prior_dewpoint_post_row_invalid")
+                    or (candidate_context or {}).get("prior_dewpoint_post_row_invalid")
+                    or (candidate_context or {}).get("current_point_after_prior_dewpoint_abnormal")
+                )
                 if (candidate_context or {}).get("fast_candidate_monitor_enabled"):
                     state["fast_candidate_detected"] = True
                     state["fast_candidate_ts"] = self._iso_ts_from_wall(evaluation_ts)
@@ -13615,6 +14444,14 @@ class CalibrationRunner:
                     ),
                     "candidate_effort_pct": (
                         state.get("candidate_effort_pct", "") if state is not None and candidate_entered else ""
+                    ),
+                    "pace_effort_pct_at_candidate": (
+                        state.get("pace_effort_pct_at_candidate", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "pace_effort_sign": (
+                        state.get("pace_effort_sign", "") if state is not None and candidate_entered else ""
                     ),
                     "candidate_effort_ts": (
                         state.get("candidate_effort_ts", "") if state is not None and candidate_entered else ""
@@ -13705,9 +14542,53 @@ class CalibrationRunner:
                         and state.get("candidate_pressure_source_mismatch")
                     ),
                     "in_limits_at_candidate": int(in_limits or 0) if candidate_entered else "",
+                    "pace_in_limits_at_candidate": int(in_limits or 0) if candidate_entered else "",
                     "in_limits_age_ms": 0.0 if candidate_entered else "",
                     "in_limits_source": "quality_evidence_only" if candidate_entered else "",
                     "higher_quality_sample_candidate": bool(candidate_entered and int(in_limits or 0) == 1),
+                    "pace_slew_mode": (
+                        state.get("pace_slew_mode", "") if state is not None and candidate_entered else ""
+                    ),
+                    "pace_overshoot_allowed": (
+                        state.get("pace_overshoot_allowed", "") if state is not None and candidate_entered else ""
+                    ),
+                    "pace_slew_setpoint_hpa_per_s": (
+                        state.get("pace_slew_setpoint_hpa_per_s", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "pace_current_slew_hpa_per_s": (
+                        state.get("pace_current_slew_hpa_per_s", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "pace_control_evidence_complete": bool(
+                        state is not None and candidate_entered and state.get("pace_control_evidence_complete")
+                    ),
+                    "pace_comp_positive_source_hpa": "",
+                    "pace_comp_negative_source_hpa": "",
+                    "pace_comp_evidence_available": False,
+                    "pace_comp_evidence_todo": True,
+                    "v2_strategy_reference": "sealed_point_loop_and_secondary_evidence",
+                    "sealed_point_failure_scope": (
+                        state.get("sealed_point_failure_scope", "") if state is not None and candidate_entered else ""
+                    ),
+                    "sealed_group_abort_reason": (
+                        state.get("sealed_group_abort_reason", "") if state is not None and candidate_entered else ""
+                    ),
+                    "continue_after_dewpoint_post_row_invalid": bool(
+                        state is not None
+                        and candidate_entered
+                        and state.get("continue_after_dewpoint_post_row_invalid")
+                    ),
+                    "dewpoint_trend_after_1100": (
+                        state.get("dewpoint_trend_after_1100", "") if state is not None and candidate_entered else ""
+                    ),
+                    "current_point_after_prior_dewpoint_abnormal": bool(
+                        state is not None
+                        and candidate_entered
+                        and state.get("current_point_after_prior_dewpoint_abnormal")
+                    ),
                     "actual_pressure_used_for_sample": float(pressure_hpa) if candidate_sampling_allowed else "",
                     "nominal_target_hpa": float(target) if candidate_sampling_allowed else "",
                     "control_setpoint_hpa": (
@@ -14499,6 +15380,70 @@ class CalibrationRunner:
         self._sealed_setpoint_prearmed_before_route_close = False
         self._sealed_prearmed_control_setpoint_hpa = None
 
+    def _limited_no_write_dewpoint_point_level_continue(self, reason: Any) -> bool:
+        text = str(reason or "").strip().upper()
+        return bool(
+            self._limited_no_write_workflow_active()
+            and self._exhaust_only_sample_above_target_allow_sampling()
+            and text.startswith("FAIL_CLOSED_DEWPOINT")
+        )
+
+    def _record_sealed_point_invalid_continue(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        point_tag: str,
+        reason: Any,
+        stage: str,
+    ) -> None:
+        reason_text = str(reason or "dewpoint_point_invalid_continue")
+        context = self._sealed_sweep_context_for_counters()
+        fields: Dict[str, Any] = {
+            "v2_strategy_reference": "sealed_point_loop_and_secondary_evidence",
+            "sealed_point_failure_scope": "point_level_invalid_continue",
+            "sealed_group_abort_reason": "",
+            "dewpoint_abnormal_policy": "point_invalidate_continue_sealed_sweep",
+            "dewpoint_abnormal_group_abort_suppressed_for_diagnostic": True,
+            "sealed_sweep_continued_after_dewpoint_abnormal": True,
+            "prior_point_dewpoint_abnormal": True,
+            "prior_point_invalidated_reason": reason_text,
+            "point_level_invalid_continue_allowed": True,
+            "group_abort_required": False,
+            "group_abort_guard_source": "dewpoint_post_row_diagnostic",
+            "current_point_after_prior_dewpoint_abnormal": bool(
+                isinstance(context, dict)
+                and (
+                    context.get("prior_dewpoint_post_row_invalid")
+                    or context.get("current_point_after_prior_dewpoint_abnormal")
+                )
+            ),
+            "sampling_blocked_by_dewpoint_rise": True,
+            "pressure_controller_control_state_failure_reason": reason_text,
+        }
+        if isinstance(context, dict):
+            context.update(fields)
+            context["prior_dewpoint_post_row_invalid"] = True
+            context["dewpoint_trend_after_1100"] = self._append_dewpoint_trend_after_1100(
+                context,
+                target_hpa=getattr(point, "target_pressure_hpa", None),
+                reason="dewpoint_point_invalid_continue",
+            )
+            fields["dewpoint_trend_after_1100"] = context.get("dewpoint_trend_after_1100", "")
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            point_tag=point_tag,
+            trace_stage="sealed_pressure_point_invalid_continue",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            refresh_pace_state=False,
+            extra_fields=self._sealed_sweep_trace_extra(fields),
+            note=f"{stage}: {reason_text}; limited no-write continues sealed pressure sweep",
+        )
+        self._controlled_exit_final_decision = ""
+        self._sealed_sampling_block_reason = ""
+
     def _begin_active_co2_sealed_sweep_context(self, point: CalibrationPoint) -> None:
         key = self._build_co2_sealed_sweep_key(point)
         self._active_co2_sealed_sweep_context = {
@@ -14530,11 +15475,31 @@ class CalibrationRunner:
                 "outp1_first_tx_ts",
                 "pressure_ready_wall_ts",
                 "vent2_watchlist_before_sampling",
+                "v2_strategy_reference",
+                "sealed_point_failure_scope",
+                "sealed_group_abort_reason",
+                "continue_after_dewpoint_post_row_invalid",
+                "dewpoint_abnormal_policy",
+                "dewpoint_abnormal_group_abort_suppressed_for_diagnostic",
+                "sealed_sweep_continued_after_dewpoint_abnormal",
+                "prior_point_dewpoint_abnormal",
+                "prior_point_invalidated_reason",
+                "point_level_invalid_continue_allowed",
+                "group_abort_required",
+                "group_abort_guard_source",
+                "prior_dewpoint_post_row_invalid",
+                "dewpoint_trend_after_1100",
+                "previous_sealed_target_hpa",
+                "previous_point_dewpoint_at_candidate",
+                "previous_point_dewpoint_at_row",
+                "previous_point_dewpoint_at_post_validation",
             ):
                 if state_key in self._co2_sealed_no_vent_guard_context:
                     self._active_co2_sealed_sweep_context[state_key] = self._co2_sealed_no_vent_guard_context.get(
                         state_key
                     )
+            if self._co2_sealed_no_vent_guard_context.get("prior_dewpoint_post_row_invalid"):
+                self._active_co2_sealed_sweep_context["current_point_after_prior_dewpoint_abnormal"] = True
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -14674,6 +15639,12 @@ class CalibrationRunner:
             "sealed_actual_open_valves": actual_open_valves,
             "pressure_in_limit_before_sampling": bool(pressure_ready),
             "dewpoint_stable_before_sampling": not bool(dewpoint_bad),
+            "group_abort_required": bool(block_reason),
+            "group_abort_guard_source": block_reason,
+            "sealed_group_fail_closed_hard_safety_reason": (
+                block_reason if block_reason and block_reason != "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING" else ""
+            ),
+            "point_level_invalid_continue_allowed": False,
         }
         fields.update(invalidation_fields)
         fields.update(effort_fields)
@@ -22021,6 +22992,25 @@ class CalibrationRunner:
                 pressure_ok = self._set_pressure_to_target_in_active_co2_sealed_sweep(sample_point)
 
             if not pressure_ok:
+                decision_text = str(
+                    getattr(self, "_controlled_exit_final_decision", "")
+                    or getattr(self, "_co2_route_terminal_failure_decision", "")
+                    or getattr(self, "_sealed_sampling_block_reason", "")
+                    or ""
+                )
+                if self._limited_no_write_dewpoint_point_level_continue(decision_text):
+                    self.log(
+                        f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa invalidated: "
+                        f"{decision_text}; continue limited no-write sealed sweep"
+                    )
+                    self._record_sealed_point_invalid_continue(
+                        sample_point,
+                        phase="co2",
+                        point_tag=point_tag,
+                        reason=decision_text,
+                        stage="pressure_control",
+                    )
+                    continue
                 self.log(
                     f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa skipped: "
                     f"pressure did not stabilize"
@@ -22030,6 +23020,24 @@ class CalibrationRunner:
                 return
 
             if not self._wait_after_pressure_stable_before_sampling(sample_point):
+                decision_text = str(
+                    getattr(self, "_controlled_exit_final_decision", "")
+                    or getattr(self, "_sealed_sampling_block_reason", "")
+                    or ""
+                )
+                if self._limited_no_write_dewpoint_point_level_continue(decision_text):
+                    self.log(
+                        f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa invalidated: "
+                        f"{decision_text}; continue limited no-write sealed sweep"
+                    )
+                    self._record_sealed_point_invalid_continue(
+                        sample_point,
+                        phase="co2",
+                        point_tag=point_tag,
+                        reason=decision_text,
+                        stage="post_pressure_hold",
+                    )
+                    continue
                 self.log(
                     f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa skipped: "
                     f"post-pressure hold before sampling interrupted"
@@ -22050,6 +23058,24 @@ class CalibrationRunner:
                     "armed": False,
                 }
             if not self._co2_sealed_sampling_ready(sample_point, point_tag=point_tag):
+                decision_text = str(
+                    getattr(self, "_sealed_sampling_block_reason", "")
+                    or getattr(self, "_controlled_exit_final_decision", "")
+                    or ""
+                )
+                if self._limited_no_write_dewpoint_point_level_continue(decision_text):
+                    self.log(
+                        f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa invalidated: "
+                        f"{decision_text}; continue limited no-write sealed sweep"
+                    )
+                    self._record_sealed_point_invalid_continue(
+                        sample_point,
+                        phase="co2",
+                        point_tag=point_tag,
+                        reason=decision_text,
+                        stage="sampling_ready",
+                    )
+                    continue
                 self.log(
                     f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa skipped: "
                     f"{self._sealed_sampling_block_reason or self._controlled_exit_final_decision}"
@@ -29882,6 +30908,23 @@ class CalibrationRunner:
                         "sample_invalidated_phase",
                         "sample_quality_warning",
                         "invalidation_sources",
+                        "v2_strategy_reference",
+                        "sealed_point_failure_scope",
+                        "sealed_group_abort_reason",
+                        "continue_after_dewpoint_post_row_invalid",
+                        "analyzer_parallel_snapshot_enabled",
+                        "analyzer_parallel_snapshot_duration_ms",
+                        "row_anchor_ts",
+                        "row_object_created_ts",
+                        "row_appended_ts",
+                        "candidate_to_row_object_s",
+                        "dewpoint_trend_after_1100",
+                        "current_point_after_prior_dewpoint_abnormal",
+                        "pace_effort_pct_at_candidate",
+                        "pace_effort_sign",
+                        "pace_slew_mode",
+                        "pace_overshoot_allowed",
+                        "pace_in_limits_at_candidate",
                         "dewpoint_abnormal_classification",
                         "classification_evidence",
                         "classification_confidence",
