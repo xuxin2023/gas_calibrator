@@ -7765,6 +7765,33 @@ def test_com22_secondary_does_not_block_pressure_anchor() -> None:
     assert row["pressure_anchor_valid"] is True
 
 
+def test_missing_com22_secondary_alone_does_not_block_A_when_pace_anchor_and_inl_valid() -> None:
+    runner, _pace, _, _ = _runner()
+    data = {
+        "actual_pressure_hpa": 1000.5,
+        "actual_dewpoint_c": -35.0,
+        "candidate_dewpoint_c": -35.0,
+        "candidate_dewpoint_cache_fresh": True,
+        "co2_wet_value": 100.0,
+        "pressure_anchor_valid": True,
+        "analyzer_snapshot_alignment_ok": True,
+        "pressure_drift_ok": True,
+        "thermometer_c": 20.0,
+    }
+    secondary = runner._sealed_secondary_evidence_fields(
+        data,
+        {"in_limits_at_candidate": 1},
+        candidate_pressure=1000.5,
+    )
+    data.update(secondary)
+    fields = runner._sealed_sample_quality_grade_fields(data)
+
+    assert data["secondary_evidence_status"] == "complete_optional_com22_missing"
+    assert data["com22_secondary_quality"] == "optional_missing"
+    assert fields["sample_data_quality_grade"] == "A_calibration_eligible"
+    assert fields["sample_can_enter_calibration_fit"] is True
+
+
 def test_analyzer_snapshot_uses_anchor_window_cache() -> None:
     runner, _pace, _, _ = _runner(
         pressure_overrides={

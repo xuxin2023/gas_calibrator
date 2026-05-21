@@ -12950,6 +12950,12 @@ class CalibrationRunner:
             stale_bits.append("dewpoint")
         if stale_bits:
             quality = "stale"
+        elif (
+            missing_bits == ["com22"]
+            and data.get("pressure_anchor_valid") is True
+            and inl_value not in (None, "")
+        ):
+            quality = "complete_optional_com22_missing"
         elif missing_bits and len(missing_bits) >= 3:
             quality = "missing"
         elif missing_bits:
@@ -12962,7 +12968,11 @@ class CalibrationRunner:
             "com22_secondary_ts": context.get("candidate_com22_ts", data.get("pressure_gauge_sample_ts", "")),
             "com22_secondary_age_ms": context.get("candidate_com22_age_ms", data.get("pressure_gauge_anchor_delta_ms", "")),
             "com22_secondary_delta_from_pace_hpa": delta,
-            "com22_secondary_quality": "missing" if com22 is None else "secondary_check",
+            "com22_secondary_quality": (
+                "optional_missing" if com22 is None and quality == "complete_optional_com22_missing"
+                else "missing" if com22 is None
+                else "secondary_check"
+            ),
             "in_limits_secondary_value": inl_value,
             "in_limits_secondary_ts": context.get("in_limits_secondary_ts", context.get("in_limits_ts", "")),
             "in_limits_secondary_age_ms": context.get("in_limits_age_ms", ""),
