@@ -4639,6 +4639,132 @@ def test_dewpoint_pressure_effect_qc_does_not_make_invalid_row_acceptance() -> N
     assert row["sample_invalidated_by_dewpoint_rise"] is True
 
 
+def test_pressure_effect_expected_dewpoint_rise_much_smaller_than_observed() -> None:
+    runner, _pace, _, _ = _runner()
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -33.0,
+        "pressure_hpa": 1012.0,
+        "sample_wall_ts": time.time() - 60.0,
+    }
+    runner._sealed_first_outp1_tx_ts = time.time() - 20.0
+
+    fields = runner._sealed_dewpoint_rise_trace_fields(
+        current_dewpoint_c=-20.0,
+        current_pressure_hpa=1100.0,
+        point=_co2_point(pressure=1100.0),
+    )
+
+    assert fields["dewpoint_abnormal_rise_detected"] is True
+    assert fields["dewpoint_observed_change_c"] > 10.0
+    assert abs(fields["dewpoint_pressure_effect_expected_c"]) < fields["dewpoint_observed_change_c"]
+    assert fields["dewpoint_residual_after_pressure_effect_c"] > runner._sealed_dewpoint_rise_fail_threshold_c()
+
+
+def test_dewpoint_timeline_classifies_phase_of_rise() -> None:
+    runner, _pace, _, _ = _runner()
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -33.0,
+        "pressure_hpa": 1012.0,
+        "sample_wall_ts": time.time() - 60.0,
+    }
+    runner._sealed_first_outp1_tx_ts = time.time() - 10.0
+
+    fields = runner._sealed_dewpoint_rise_trace_fields(
+        current_dewpoint_c=-20.0,
+        current_pressure_hpa=1100.0,
+        point=_co2_point(pressure=1100.0),
+    )
+
+    assert fields["dewpoint_rise_likely_phase"] == "OUTP1_after_pressure_ready_wait"
+    assert fields["dewpoint_abnormal_classification"] == "possible_pace_internal_moisture_or_dead_volume"
+
+
+def test_candidate_uses_dewpoint_cache_not_live_query() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    runner._update_dewpoint_latest_cache(
+        dewpoint_c=-38.2,
+        source="background_trace_cache",
+        wall_ts=time.time(),
+        phase="OUTP1_before_candidate",
+    )
+    dew = MagicMock()
+    dew.get_current = MagicMock(side_effect=AssertionError("candidate must not live-query dewpoint"))
+    runner.devices["dewpoint"] = dew
+
+    ok, _ready, fields, reason = runner._evaluate_exhaust_only_pressure_ready(
+        target=1100.0,
+        pressure_hpa=1100.2,
+        in_limits=0,
+        pressure_control_direction_expected="exhaust_only",
+        point=point,
+    )
+
+    assert ok is True
+    assert reason == ""
+    assert fields["candidate_dewpoint_c"] == pytest.approx(-38.2)
+    assert fields["candidate_dewpoint_source"] == "background_trace_cache"
+
+
+def test_actual_open_valves_nonempty_classifies_external_air_ingress() -> None:
+    runner, _pace, _, _ = _runner()
+    runner._cached_actual_open_valves = MagicMock(return_value=[4])
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -33.0,
+        "pressure_hpa": 1012.0,
+        "sample_wall_ts": time.time() - 60.0,
+    }
+    runner._sealed_first_outp1_tx_ts = time.time() - 10.0
+
+    fields = runner._sealed_dewpoint_rise_trace_fields(
+        current_dewpoint_c=-20.0,
+        current_pressure_hpa=1100.0,
+        point=_co2_point(pressure=1100.0),
+    )
+
+    assert fields["dewpoint_abnormal_classification"] == "probable_external_air_ingress"
+    assert "actual_open_valves=4" in fields["classification_evidence"]
+
+
+def test_no_vent_no_open_valves_eff_clean_classifies_internal_or_lag_not_external() -> None:
+    runner, _pace, _, _ = _runner()
+    runner._cached_actual_open_valves = MagicMock(return_value=[])
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -33.0,
+        "pressure_hpa": 1012.0,
+        "sample_wall_ts": time.time() - 60.0,
+    }
+    runner._sealed_first_outp1_tx_ts = time.time() - 10.0
+
+    fields = runner._sealed_dewpoint_rise_trace_fields(
+        current_dewpoint_c=-20.0,
+        current_pressure_hpa=1100.0,
+        point=_co2_point(pressure=1100.0),
+    )
+
+    assert fields["dewpoint_abnormal_classification"] == "possible_pace_internal_moisture_or_dead_volume"
+    assert "actual_open_valves=[]" in fields["classification_evidence"]
+
+
+def test_pace_comp_query_is_audit_only_if_no_driver_support() -> None:
+    runner, pace, _, _ = _runner()
+    pace.query = MagicMock(return_value="0")
+
+    snapshot = runner._pressure_snapshot()
+
+    assert "comp" in snapshot
+    assert "comp1" in snapshot
+    assert not hasattr(pace, "set_comp")
+
+
 def test_invalidated_reason_includes_phase_and_multiple_causes() -> None:
     runner, _pace, _, _ = _runner()
     point = _co2_point(pressure=1100.0)

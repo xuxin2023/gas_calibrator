@@ -15,7 +15,7 @@ from collections import Counter, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import mean, median, stdev
-from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional, Tuple
 
 from ..config import (
     V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
@@ -485,6 +485,12 @@ _PRESSURE_TRACE_FIELDS = [
     "candidate_dewpoint_cache_stale",
     "candidate_dewpoint_quality_ok",
     "dewpoint_candidate_evidence_quality",
+    "dewpoint_cache_update_count",
+    "dewpoint_cache_last_ts_before_candidate",
+    "dewpoint_cache_age_ms_at_candidate",
+    "dewpoint_cache_fresh_at_candidate",
+    "dewpoint_cache_missing_reason",
+    "dewpoint_cache_phase",
     "candidate_effort_pct",
     "candidate_effort_ts",
     "candidate_effort_age_ms",
@@ -502,6 +508,9 @@ _PRESSURE_TRACE_FIELDS = [
     "sample_invalidated_phase",
     "sample_quality_warning",
     "invalidation_sources",
+    "dewpoint_abnormal_classification",
+    "classification_evidence",
+    "classification_confidence",
     "exhaust_only_candidate_vent_status",
     "exhaust_only_candidate_sampling_allowed",
     "candidate_primary_pressure_source",
@@ -1084,6 +1093,8 @@ class CalibrationRunner:
         self._fast_signal_frame_seq = 0
         self._sensor_read_reject_states: Dict[Tuple[str, str, str, str, str], Dict[str, Any]] = {}
         self._preseal_dewpoint_snapshot: Optional[Dict[str, Any]] = None
+        self._dewpoint_latest_cache: Optional[Dict[str, Any]] = None
+        self._dewpoint_latest_cache_update_count = 0
         self._preseal_pressure_control_ready_state: Optional[Dict[str, Any]] = None
         self._temperature_wait_context: Optional[Dict[str, Any]] = None
         self._post_h2o_co2_zero_flush_pending = False
@@ -2945,6 +2956,18 @@ class CalibrationRunner:
         event_ts = self._trace_row_ts_epoch(row)
         if event_ts is None:
             return
+        dewpoint_value = self._as_float(row.get("dewpoint_live_c"))
+        if dewpoint_value is None:
+            dewpoint_value = self._as_float(row.get("dewpoint_c"))
+        if dewpoint_value is not None:
+            self._update_dewpoint_latest_cache(
+                dewpoint_c=dewpoint_value,
+                temp_c=row.get("dew_temp_live_c") if row.get("dew_temp_live_c") not in (None, "") else row.get("dew_temp_c"),
+                rh_pct=row.get("dew_rh_live_pct") if row.get("dew_rh_live_pct") not in (None, "") else row.get("dew_rh_pct"),
+                source=f"pressure_trace:{stage}",
+                wall_ts=event_ts,
+                phase=stage,
+            )
 
         point_key = self._point_runtime_key_from_values(
             phase=str(row.get("point_phase") or ""),
@@ -5003,6 +5026,41 @@ class CalibrationRunner:
         text = str(raw or "").replace("\r", "\n")
         return [line.strip() for line in text.split("\n") if line.strip()]
 
+    def _update_dewpoint_latest_cache(
+        self,
+        *,
+        dewpoint_c: Any,
+        temp_c: Any = None,
+        rh_pct: Any = None,
+        source: str,
+        wall_ts: Optional[float] = None,
+        mono_s: Optional[float] = None,
+        phase: str = "",
+    ) -> None:
+        dewpoint_value = self._as_float(dewpoint_c)
+        if dewpoint_value is None:
+            return
+        wall = self._as_float(wall_ts)
+        if wall is None:
+            wall = time.time()
+        mono = self._as_float(mono_s)
+        if mono is None:
+            mono = time.monotonic() - max(0.0, time.time() - float(wall))
+        self._dewpoint_latest_cache_update_count += 1
+        self._dewpoint_latest_cache = {
+            "recv_wall_ts": self._ts_from_datetime(datetime.fromtimestamp(float(wall))),
+            "timestamp": float(wall),
+            "recv_mono_s": float(mono),
+            "values": {
+                "dewpoint_live_c": float(dewpoint_value),
+                "dew_temp_live_c": self._as_float(temp_c),
+                "dew_rh_live_pct": self._as_float(rh_pct),
+            },
+            "source": str(source or "dewpoint_cache"),
+            "phase": str(phase or ""),
+            "seq": self._dewpoint_latest_cache_update_count,
+        }
+
     def _append_fast_signal_frame(
         self,
         context: Dict[str, Any],
@@ -5027,12 +5085,34 @@ class CalibrationRunner:
                     deque(maxlen=self._sampling_fast_signal_ring_buffer_size()),
                 ).append(entry)
                 context.setdefault("fast_signal_errors", {}).pop(key, None)
+            if str(key or "").strip().lower() == "dewpoint":
+                values_dict = dict(values or {})
+                self._update_dewpoint_latest_cache(
+                    dewpoint_c=values_dict.get("dewpoint_live_c"),
+                    temp_c=values_dict.get("dew_temp_live_c"),
+                    rh_pct=values_dict.get("dew_rh_live_pct"),
+                    source=str(source or "dewpoint_cache"),
+                    wall_ts=self._as_float(entry.get("timestamp")),
+                    mono_s=self._as_float(entry.get("recv_mono_s")),
+                    phase=str(context.get("phase") or context.get("trace_stage") or "fast_signal"),
+                )
             return
         context.setdefault("fast_signal_buffers", {}).setdefault(
             key,
             deque(maxlen=self._sampling_fast_signal_ring_buffer_size()),
         ).append(entry)
         context.setdefault("fast_signal_errors", {}).pop(key, None)
+        if str(key or "").strip().lower() == "dewpoint":
+            values_dict = dict(values or {})
+            self._update_dewpoint_latest_cache(
+                dewpoint_c=values_dict.get("dewpoint_live_c"),
+                temp_c=values_dict.get("dew_temp_live_c"),
+                rh_pct=values_dict.get("dew_rh_live_pct"),
+                source=str(source or "dewpoint_cache"),
+                wall_ts=self._as_float(entry.get("timestamp")),
+                mono_s=self._as_float(entry.get("recv_mono_s")),
+                phase=str(context.get("phase") or context.get("trace_stage") or "fast_signal"),
+            )
 
     def _record_fast_signal_error(self, context: Dict[str, Any], key: str, error: Any) -> None:
         entry = {
@@ -10807,6 +10887,12 @@ class CalibrationRunner:
             "candidate_dewpoint_cache_stale": False,
             "candidate_dewpoint_quality_ok": False,
             "dewpoint_candidate_evidence_quality": "",
+            "dewpoint_cache_update_count": 0,
+            "dewpoint_cache_last_ts_before_candidate": "",
+            "dewpoint_cache_age_ms_at_candidate": "",
+            "dewpoint_cache_fresh_at_candidate": False,
+            "dewpoint_cache_missing_reason": "",
+            "dewpoint_cache_phase": "",
             "candidate_effort_pct": "",
             "candidate_effort_ts": "",
             "candidate_effort_age_ms": "",
@@ -10824,6 +10910,9 @@ class CalibrationRunner:
             "sample_invalidated_phase": "",
             "sample_quality_warning": "",
             "invalidation_sources": "",
+            "dewpoint_abnormal_classification": "",
+            "classification_evidence": "",
+            "classification_confidence": "",
             "exhaust_only_candidate_vent_status": "",
             "exhaust_only_candidate_sampling_allowed": False,
             "candidate_primary_pressure_source": "",
@@ -11024,6 +11113,20 @@ class CalibrationRunner:
             if phase_text == "post_row":
                 updates["post_row_dewpoint_abnormal"] = True
             updates["dewpoint_invalidation_phase"] = phase_text
+            if not fields or "dewpoint_abnormal_classification" not in fields:
+                classification = self._sealed_dewpoint_rise_trace_fields()
+                for key in (
+                    "dewpoint_abnormal_classification",
+                    "classification_evidence",
+                    "classification_confidence",
+                    "dewpoint_pressure_effect_expected_c",
+                    "dewpoint_observed_change_c",
+                    "dewpoint_residual_after_pressure_effect_c",
+                    "dewpoint_compensation_applied_for_analysis_only",
+                    "probable_air_ingress_after_compensation",
+                ):
+                    if key in classification:
+                        updates[key] = classification.get(key)
         if reason == "target_crossing":
             updates["sample_invalidated_by_target_crossing"] = True
         if reason in {"positive_supply_effort", "positive_effort"}:
@@ -11134,19 +11237,37 @@ class CalibrationRunner:
         frame = self._latest_fast_signal_frame("dewpoint", context=lookup_context, max_age_s=0.0)
         if frame is None and lookup_context is not None:
             frame = self._latest_fast_signal_frame("dewpoint", max_age_s=0.0)
+        missing_reason = ""
+        if frame is None and isinstance(self._dewpoint_latest_cache, dict):
+            frame = dict(self._dewpoint_latest_cache)
+        elif frame is None:
+            missing_reason = "no_dewpoint_cache_frame"
         dewpoint_c: Optional[float] = None
         source = ""
         ts = ""
         age_ms: Any = ""
+        phase = ""
+        anchor_wall_s = self._candidate_anchor_wall_ts(lookup_context) if lookup_context is not None else None
+        if anchor_wall_s is None:
+            anchor_wall_s = time.time()
         if isinstance(frame, dict):
             values = frame.get("values", {})
             if isinstance(values, dict):
                 dewpoint_c = self._as_float(values.get("dewpoint_live_c"))
             source = str(frame.get("source") or "dewpoint_cache")
             ts = str(frame.get("recv_wall_ts") or "")
+            phase = str(frame.get("phase") or "")
+            frame_wall_s = self._as_float(frame.get("timestamp"))
             recv_mono_s = self._as_float(frame.get("recv_mono_s"))
+            age_candidates: List[float] = []
+            if frame_wall_s is not None:
+                age_candidates.append(max(0.0, float(anchor_wall_s) - float(frame_wall_s)))
             if recv_mono_s is not None:
-                age_ms = round(max(0.0, time.monotonic() - recv_mono_s) * 1000.0, 3)
+                age_candidates.append(max(0.0, time.monotonic() - recv_mono_s))
+            if age_candidates:
+                age_ms = round(max(age_candidates) * 1000.0, 3)
+            if dewpoint_c is None:
+                missing_reason = "dewpoint_cache_value_missing"
         missing = dewpoint_c is None
         max_age_ms = self._candidate_dewpoint_cache_max_age_s() * 1000.0
         stale = bool(not missing and age_ms not in ("", None) and float(age_ms) > max_age_ms)
@@ -11168,6 +11289,12 @@ class CalibrationRunner:
             "candidate_dewpoint_cache_stale": stale,
             "candidate_dewpoint_quality_ok": fresh,
             "dewpoint_candidate_evidence_quality": quality,
+            "dewpoint_cache_update_count": int(self._dewpoint_latest_cache_update_count),
+            "dewpoint_cache_last_ts_before_candidate": ts,
+            "dewpoint_cache_age_ms_at_candidate": age_ms,
+            "dewpoint_cache_fresh_at_candidate": fresh,
+            "dewpoint_cache_missing_reason": missing_reason,
+            "dewpoint_cache_phase": phase,
         }
 
     def _collect_ultra_fast_candidate_snapshot_rows(
@@ -11190,8 +11317,10 @@ class CalibrationRunner:
                 "sample_valid_for_acceptance",
                 "sample_invalidated_reason",
                 "sample_invalidated_phase",
-                "sample_quality_warning",
                 "invalidation_sources",
+                "dewpoint_abnormal_classification",
+                "classification_evidence",
+                "classification_confidence",
                 "sample_invalidated_by_target_crossing",
                 "sample_invalidated_by_positive_effort",
                 "sample_invalidated_by_dewpoint_rise",
@@ -11211,6 +11340,10 @@ class CalibrationRunner:
                 for key in sync_keys:
                     if key in context:
                         row[key] = context.get(key)
+                for warning_key in ("sample_quality_warning", "ultra_fast_snapshot_quality_warning"):
+                    warning_value = context.get(warning_key)
+                    if warning_value not in (None, "") or not row.get(warning_key):
+                        row[warning_key] = warning_value or row.get(warning_key, "")
             return rows[:1]
 
         gas_analyzers = self._all_gas_analyzers()
@@ -11355,6 +11488,12 @@ class CalibrationRunner:
                 candidate_dewpoint_quality
                 or ("missing" if dewpoint_missing else "stale_cache" if candidate_dewpoint_cache_stale else "fresh_cache")
             ),
+            "dewpoint_cache_update_count": context.get("dewpoint_cache_update_count", 0),
+            "dewpoint_cache_last_ts_before_candidate": context.get("dewpoint_cache_last_ts_before_candidate", ""),
+            "dewpoint_cache_age_ms_at_candidate": context.get("dewpoint_cache_age_ms_at_candidate", ""),
+            "dewpoint_cache_fresh_at_candidate": bool(context.get("dewpoint_cache_fresh_at_candidate") is True),
+            "dewpoint_cache_missing_reason": context.get("dewpoint_cache_missing_reason", ""),
+            "dewpoint_cache_phase": context.get("dewpoint_cache_phase", ""),
             "post_row_dewpoint_abnormal": bool(context.get("post_row_dewpoint_abnormal") is True),
             "dewpoint_invalidation_phase": context.get("dewpoint_invalidation_phase", ""),
             "sample_quality_warning": ";".join(quality_warnings),
@@ -11378,6 +11517,12 @@ class CalibrationRunner:
             "candidate_dewpoint_cache_stale",
             "candidate_dewpoint_quality_ok",
             "dewpoint_candidate_evidence_quality",
+            "dewpoint_cache_update_count",
+            "dewpoint_cache_last_ts_before_candidate",
+            "dewpoint_cache_age_ms_at_candidate",
+            "dewpoint_cache_fresh_at_candidate",
+            "dewpoint_cache_missing_reason",
+            "dewpoint_cache_phase",
             "candidate_effort_pct",
             "candidate_effort_ts",
             "candidate_effort_age_ms",
@@ -11396,6 +11541,9 @@ class CalibrationRunner:
             "sample_invalidated_phase",
             "invalidation_sources",
             "sample_quality_warning",
+            "dewpoint_abnormal_classification",
+            "classification_evidence",
+            "classification_confidence",
             "dewpoint_abnormal_at_candidate",
             "dewpoint_abnormal_during_sample",
             "candidate_primary_pressure_source",
@@ -11469,6 +11617,7 @@ class CalibrationRunner:
             "ultra_fast_snapshot_live_query_count": 0,
             "ultra_fast_snapshot_quality_warning": data.get("ultra_fast_snapshot_quality_warning", ""),
             "ultra_fast_snapshot_acceptance_allowed": False,
+            "sample_quality_warning": data.get("sample_quality_warning", ""),
             "legacy_fast_candidate_to_first_sample_s": legacy_first_sample_s,
             "normal_path_first_sample_s": legacy_first_sample_s,
             "legacy_sampling_path_metric": has_legacy_first_sample,
@@ -11792,6 +11941,60 @@ class CalibrationRunner:
             float(self._wf("workflow.pressure.sealed_dewpoint_rise_fail_threshold_c", 3.0) or 0.0),
         )
 
+    def _classify_sealed_dewpoint_abnormal_source(
+        self,
+        *,
+        abnormal_rise: bool,
+        rise_excess_c: Optional[float],
+        likely_phase: str,
+        actual_open_valves: Optional[Iterable[Any]] = None,
+        vent_status: Any = None,
+        positive_effort_detected: bool = False,
+        dewpoint_started_before_route_close: bool = False,
+    ) -> Dict[str, Any]:
+        valves = [str(v) for v in list(actual_open_valves or []) if str(v) != ""]
+        vent = self._as_int(vent_status)
+        evidence: List[str] = []
+        if rise_excess_c is not None:
+            evidence.append(f"residual_after_pressure_effect_c={round(float(rise_excess_c), 6)}")
+        if valves:
+            evidence.append(f"actual_open_valves={','.join(valves)}")
+        else:
+            evidence.append("actual_open_valves=[]")
+        if vent is not None:
+            evidence.append(f"pace_vent_status={vent}")
+        if positive_effort_detected:
+            evidence.append("positive_effort_detected=true")
+        phase_text = str(likely_phase or "")
+        if phase_text:
+            evidence.append(f"phase={phase_text}")
+        if not abnormal_rise:
+            classification = "pressure_effect_only"
+            confidence = "medium"
+        elif valves or vent in {1, 3}:
+            classification = "probable_external_air_ingress"
+            confidence = "high"
+        elif "OUTP1" in phase_text or "pressure" in phase_text:
+            classification = "possible_pace_internal_moisture_or_dead_volume"
+            confidence = "medium"
+        elif dewpoint_started_before_route_close or "before_outp1" in phase_text:
+            classification = "possible_dewpoint_lag_from_earlier_phase"
+            confidence = "medium"
+        elif positive_effort_detected:
+            classification = "possible_pace_internal_moisture_or_dead_volume"
+            confidence = "medium"
+        elif abnormal_rise:
+            classification = "insufficient_evidence"
+            confidence = "low"
+        else:
+            classification = "pressure_effect_only"
+            confidence = "low"
+        return {
+            "dewpoint_abnormal_classification": classification,
+            "classification_evidence": ";".join(evidence),
+            "classification_confidence": confidence,
+        }
+
     def _sealed_dewpoint_baseline_c(self) -> Optional[float]:
         return self._as_float(dict(self._preseal_dewpoint_snapshot or {}).get("dewpoint_c"))
 
@@ -11902,6 +12105,27 @@ class CalibrationRunner:
             else:
                 likely_phase = "safe_stop_or_unknown"
                 likely_safe_stop_artifact = True
+        actual_open_valves = self._cached_actual_open_valves()
+        vent_status: Any = ""
+        positive_effort_detected = False
+        if isinstance(context, dict):
+            vent_status = context.get("candidate_vent_status") or context.get("pace_vent_status") or ""
+            positive_effort_detected = bool(
+                context.get("sample_invalidated_by_positive_effort") is True
+                or context.get("positive_effort_fail_closed") is True
+                or context.get("candidate_positive_effort_seen") is True
+            )
+        classification_fields = self._classify_sealed_dewpoint_abnormal_source(
+            abnormal_rise=abnormal_rise,
+            rise_excess_c=rise_excess_c,
+            likely_phase=likely_phase,
+            actual_open_valves=actual_open_valves,
+            vent_status=vent_status,
+            positive_effort_detected=positive_effort_detected,
+            dewpoint_started_before_route_close=bool(
+                abnormal_rise and self._sealed_route_close_wall_ts() is None
+            ),
+        )
         return {
             "dewpoint_rise_after_route_close_c": rise_c if rise_c is not None else "",
             "dewpoint_rise_after_outp1_c": outp1_rise_c if outp1_rise_c is not None else "",
@@ -11929,6 +12153,7 @@ class CalibrationRunner:
             "likely_safe_stop_artifact": likely_safe_stop_artifact,
             "dewpoint_local_rise_detected": local_rise,
             "dewpoint_abnormal_rise_detected": abnormal_rise,
+            **classification_fields,
         }
 
     def _sealed_dewpoint_rise_exceeded(
@@ -13287,6 +13512,15 @@ class CalibrationRunner:
                     "dewpoint_candidate_evidence_quality",
                     "",
                 )
+                for cache_key in (
+                    "dewpoint_cache_update_count",
+                    "dewpoint_cache_last_ts_before_candidate",
+                    "dewpoint_cache_age_ms_at_candidate",
+                    "dewpoint_cache_fresh_at_candidate",
+                    "dewpoint_cache_missing_reason",
+                    "dewpoint_cache_phase",
+                ):
+                    state[cache_key] = candidate_dewpoint_evidence.get(cache_key, "")
                 state["candidate_effort_pct"] = candidate_effort_pct if candidate_effort_pct is not None else ""
                 state["candidate_effort_ts"] = ""
                 state["candidate_effort_age_ms"] = ""
@@ -13413,6 +13647,30 @@ class CalibrationRunner:
                         if state is not None and candidate_entered
                         else ""
                     ),
+                    "dewpoint_cache_update_count": (
+                        state.get("dewpoint_cache_update_count", "") if state is not None and candidate_entered else ""
+                    ),
+                    "dewpoint_cache_last_ts_before_candidate": (
+                        state.get("dewpoint_cache_last_ts_before_candidate", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "dewpoint_cache_age_ms_at_candidate": (
+                        state.get("dewpoint_cache_age_ms_at_candidate", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "dewpoint_cache_fresh_at_candidate": bool(
+                        state is not None and candidate_entered and state.get("dewpoint_cache_fresh_at_candidate")
+                    ),
+                    "dewpoint_cache_missing_reason": (
+                        state.get("dewpoint_cache_missing_reason", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
+                    "dewpoint_cache_phase": (
+                        state.get("dewpoint_cache_phase", "") if state is not None and candidate_entered else ""
+                    ),
                     "dewpoint_abnormal_at_candidate": bool(
                         candidate_entered and candidate_dewpoint_abnormal
                     ),
@@ -13495,6 +13753,12 @@ class CalibrationRunner:
                     "probable_air_ingress_after_compensation": bool(
                         candidate_dewpoint_fields.get("dewpoint_abnormal_rise_detected")
                     ),
+                    "dewpoint_abnormal_classification": candidate_dewpoint_fields.get(
+                        "dewpoint_abnormal_classification",
+                        "",
+                    ),
+                    "classification_evidence": candidate_dewpoint_fields.get("classification_evidence", ""),
+                    "classification_confidence": candidate_dewpoint_fields.get("classification_confidence", ""),
                 }
             )
             candidate_fields.update(self._sealed_fast_candidate_monitor_context_fields())
@@ -29591,6 +29855,12 @@ class CalibrationRunner:
                         "candidate_dewpoint_cache_stale",
                         "candidate_dewpoint_quality_ok",
                         "dewpoint_candidate_evidence_quality",
+                        "dewpoint_cache_update_count",
+                        "dewpoint_cache_last_ts_before_candidate",
+                        "dewpoint_cache_age_ms_at_candidate",
+                        "dewpoint_cache_fresh_at_candidate",
+                        "dewpoint_cache_missing_reason",
+                        "dewpoint_cache_phase",
                         "candidate_effort_pct",
                         "candidate_effort_ts",
                         "candidate_effort_age_ms",
@@ -29612,6 +29882,9 @@ class CalibrationRunner:
                         "sample_invalidated_phase",
                         "sample_quality_warning",
                         "invalidation_sources",
+                        "dewpoint_abnormal_classification",
+                        "classification_evidence",
+                        "classification_confidence",
                         "candidate_primary_pressure_source",
                         "candidate_secondary_pressure_source",
                         "candidate_com22_waited",
