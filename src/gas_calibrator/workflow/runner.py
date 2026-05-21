@@ -12676,9 +12676,7 @@ class CalibrationRunner:
         row_now_s: float,
         packet_complete_s: float,
     ) -> Dict[str, Any]:
-        dwell_begin_s = self._as_float(context.get("outp1_first_tx_ts")) or self._as_float(
-            context.get("started_wall_ts")
-        ) or anchor_s
+        dwell_begin_s = self._sealed_point_control_begin_wall_ts(context) or anchor_s
         budget = self._sealed_point_time_budget_s()
         dwell_s = max(0.0, packet_complete_s - float(dwell_begin_s))
         outp1_to_candidate_s = (
@@ -12706,6 +12704,20 @@ class CalibrationRunner:
             "current_point_dwell_s": round(dwell_s, 6),
             "previous_point_dwell_s": context.get("previous_point_dwell_s", ""),
         }
+
+    def _sealed_point_control_begin_wall_ts(self, context: Optional[Mapping[str, Any]]) -> Optional[float]:
+        if not isinstance(context, Mapping):
+            return None
+        for key in (
+            "current_point_control_begin_ts",
+            "current_point_setpoint_tx_ts",
+            "outp1_first_tx_ts",
+            "started_wall_ts",
+        ):
+            value = self._as_float(context.get(key))
+            if value is not None:
+                return float(value)
+        return None
 
     def _stored_ultra_fast_rows_match_point(
         self,
@@ -12801,6 +12813,27 @@ class CalibrationRunner:
             "sealed_slow_slew_trigger_pressure_hpa",
             "sealed_slow_slew_trigger_delta_hpa",
             "sealed_slow_slew_syst_err",
+            "current_point_control_begin_ts",
+            "current_point_setpoint_tx_ts",
+            "fast_candidate_monitor_enabled",
+            "fast_candidate_monitor_begin_wall_ts",
+            "fast_candidate_monitor_last_wall_ts",
+            "fast_candidate_monitor_intervals_s",
+            "fast_candidate_monitor_pressures",
+            "fast_monitor_loop_latency_audit",
+            "fast_candidate_monitor_requested_interval_s",
+            "fast_candidate_monitor_sample_count",
+            "fast_monitor_slow_operation_detected",
+            "fast_monitor_blocking_operation",
+            "fast_monitor_critical_loop_pace_only",
+            "fast_monitor_deferred_com22",
+            "fast_monitor_deferred_eff",
+            "fast_monitor_deferred_dewpoint",
+            "fast_monitor_deferred_inl",
+            "profile_actual_time_s",
+            "profile_too_slow",
+            "profile_too_aggressive",
+            "target_crossing_due_to_fast_profile",
         ):
             context.pop(key, None)
         target = self._as_float(getattr(point, "target_pressure_hpa", None))
@@ -15839,6 +15872,58 @@ class CalibrationRunner:
             "dwell_reduction_expected": bool(context.get("dwell_reduction_expected")),
         }
 
+    def _sealed_pressure_profile_runtime_fields(self) -> Dict[str, Any]:
+        context = self._sealed_sweep_context_for_counters()
+
+        def pick(key: str, default: Any = "") -> Any:
+            if isinstance(context, Mapping) and key in context and context.get(key) not in (None, ""):
+                return context.get(key)
+            return default
+
+        max_mode = bool(pick("max_mode_enabled", self._sealed_profile_uses_max_mode()))
+        over0 = bool(pick("over0_enabled", self._sealed_over0_enabled()))
+        return {
+            "sealed_exhaust_profile": pick("sealed_exhaust_profile", self._sealed_exhaust_profile_name()),
+            "sealed_exhaust_fast_mode": pick("sealed_exhaust_fast_mode", self._sealed_exhaust_fast_mode()),
+            "sealed_slew_mode_max_configured": bool(
+                pick("sealed_slew_mode_max_configured", self._sealed_profile_uses_max_mode())
+            ),
+            "sealed_slew_mode_lin_configured": bool(pick("sealed_slew_mode_lin_configured", False)),
+            "sealed_slew_over_not_allowed_configured": bool(
+                pick("sealed_slew_over_not_allowed_configured", self._sealed_over0_enabled())
+            ),
+            "high_delta_fast_slew_hpa_per_s": pick(
+                "high_delta_fast_slew_hpa_per_s",
+                self._sealed_high_delta_fast_slew_hpa_per_s(),
+            ),
+            "final_slow_zone_hpa": pick("final_slow_zone_hpa", self._sealed_final_slow_zone_hpa()),
+            "final_slow_slew_hpa_per_s": pick(
+                "final_slow_slew_hpa_per_s",
+                self._sealed_final_slow_slew_rate_hpa_per_s(),
+            ),
+            "final_slow_enabled": bool(pick("final_slow_enabled", self._sealed_final_slow_enabled())),
+            "over0_enabled": over0,
+            "max_mode_enabled": max_mode,
+            "expected_controller_deceleration_by_over0": bool(
+                pick("expected_controller_deceleration_by_over0", over0 and max_mode)
+            ),
+            "max_mode_set_ts": pick("max_mode_set_ts", ""),
+            "over0_set_ts": pick("over0_set_ts", ""),
+            "pressure_descent_profile_active": bool(
+                pick("pressure_descent_profile_active", self._sealed_fast_exhaust_profile_enabled())
+            ),
+            "max_slew_or_fast_slew_enabled": bool(
+                pick("max_slew_or_fast_slew_enabled", self._sealed_fast_exhaust_profile_enabled())
+            ),
+            "dwell_reduction_target_s": pick(
+                "dwell_reduction_target_s",
+                self._sealed_dwell_reduction_target_s(),
+            ),
+            "dwell_reduction_expected": bool(
+                pick("dwell_reduction_expected", self._sealed_fast_exhaust_profile_enabled())
+            ),
+        }
+
     def _exhaust_only_tracking_context(self, *, target: float) -> Dict[str, Any]:
         context = self._sealed_sweep_context_for_counters()
         if not isinstance(context, dict):
@@ -15933,6 +16018,7 @@ class CalibrationRunner:
         }
         base_candidate_fields = self._exhaust_only_above_target_candidate_base_fields()
         base_candidate_fields.update(dict(candidate_fields or {}))
+        base_candidate_fields.update(self._sealed_pressure_profile_runtime_fields())
         fields.update(base_candidate_fields)
         return fields
 
@@ -16185,7 +16271,7 @@ class CalibrationRunner:
                 state["candidate_pressure_ts"] = self._iso_ts_from_wall(evaluation_ts)
                 state["candidate_pressure_age_ms"] = 0.0
                 state["candidate_target_crossing_count"] = crossing_count
-                outp1_s = self._as_float((candidate_context or {}).get("outp1_first_tx_ts"))
+                outp1_s = self._sealed_point_control_begin_wall_ts(candidate_context)
                 profile_actual_s = (
                     round(max(0.0, float(evaluation_ts) - float(outp1_s)), 6)
                     if outp1_s is not None
@@ -16641,6 +16727,7 @@ class CalibrationRunner:
                 }
             )
             candidate_fields.update(self._sealed_fast_candidate_monitor_context_fields())
+            candidate_fields.update(self._sealed_pressure_profile_runtime_fields())
             if state is not None and candidate_entered:
                 for analyzer_key in (
                     "analyzer_cache_update_count_during_open_flow",
@@ -17236,6 +17323,7 @@ class CalibrationRunner:
             if isinstance(context, dict):
                 context["outp1_first_tx_ts"] = self._sealed_first_outp1_tx_ts
                 context["output_enabled_once"] = True
+                context["current_point_control_begin_ts"] = self._sealed_first_outp1_tx_ts
         self._controlled_outp_sealed_output_enabled = True
         first_pressure_ts = self._parse_iso_ts_to_wall_s(
             (ready_fields or {}).get("post_route_first_fresh_pressure_ts")
@@ -20906,6 +20994,11 @@ class CalibrationRunner:
         )
         self._increment_sealed_sweep_counter("sealed_setpoint_count")
         pace.set_setpoint(control_setpoint)
+        point_setpoint_tx_s = time.time()
+        context = self._sealed_sweep_context_for_counters()
+        if isinstance(context, dict):
+            context["current_point_setpoint_tx_ts"] = point_setpoint_tx_s
+            context["current_point_control_begin_ts"] = point_setpoint_tx_s
         self._append_pressure_trace_row(
             point=point,
             route="co2",

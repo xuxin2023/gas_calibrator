@@ -4291,6 +4291,106 @@ def test_point_context_reset_between_1100_and_1000() -> None:
     assert context["nominal_target_hpa"] == pytest.approx(1000.0)
 
 
+def test_point_context_reset_clears_timing_and_fast_monitor_state() -> None:
+    runner, _pace, _, _ = _runner()
+    point1100 = _co2_point(index=3, pressure=1100.0)
+    point1000 = _co2_point(index=4, pressure=1000.0)
+    runner._activate_co2_sealed_no_vent_guard(point1100, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context.update(
+        {
+            "current_point_control_begin_ts": 100.0,
+            "current_point_setpoint_tx_ts": 100.0,
+            "fast_candidate_monitor_begin_wall_ts": 101.0,
+            "fast_candidate_monitor_last_wall_ts": 102.0,
+            "fast_candidate_monitor_sample_count": 2,
+            "fast_candidate_monitor_pressures": [{"pressure_hpa": 1100.4}],
+            "profile_actual_time_s": 52.0,
+            "profile_too_slow": True,
+        }
+    )
+
+    runner._reset_sealed_point_packet_context(context, point1000)
+
+    for key in (
+        "current_point_control_begin_ts",
+        "current_point_setpoint_tx_ts",
+        "fast_candidate_monitor_begin_wall_ts",
+        "fast_candidate_monitor_last_wall_ts",
+        "fast_candidate_monitor_sample_count",
+        "fast_candidate_monitor_pressures",
+        "profile_actual_time_s",
+        "profile_too_slow",
+    ):
+        assert key not in context
+    assert context["point_row"] == 4
+    assert context["nominal_target_hpa"] == pytest.approx(1000.0)
+
+
+def test_1000_packet_dwell_uses_current_point_control_begin_not_first_outp1() -> None:
+    runner, _pace, _, _ = _runner()
+    point = _co2_point(index=4, pressure=1000.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context.update(
+        {
+            "outp1_first_tx_ts": 100.0,
+            "current_point_control_begin_ts": 145.0,
+        }
+    )
+
+    fields = runner._sealed_packet_time_budget_fields(
+        context=context,
+        anchor_s=155.0,
+        row_now_s=155.001,
+        packet_complete_s=156.0,
+    )
+
+    assert fields["outp1_to_candidate_s"] == pytest.approx(10.0)
+    assert fields["profile_actual_time_s"] == pytest.approx(10.0)
+    assert fields["sealed_point_dwell_s"] == pytest.approx(11.0)
+    assert fields["sealed_point_dwell_s"] != pytest.approx(56.0)
+
+
+def test_candidate_trace_preserves_max_over0_runtime_profile() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(index=3, pressure=1100.0)
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    context = runner._sealed_sweep_context_for_counters()
+    assert context is not None
+    context.update(
+        {
+            "sealed_exhaust_profile": "max_with_overshoot_not_allowed",
+            "sealed_exhaust_fast_mode": "MAX",
+            "sealed_slew_mode_max_configured": True,
+            "sealed_slew_over_not_allowed_configured": True,
+            "over0_enabled": True,
+            "max_mode_enabled": True,
+            "expected_controller_deceleration_by_over0": True,
+            "pressure_descent_profile_active": True,
+        }
+    )
+
+    fields = runner._exhaust_only_ready_trace_fields(
+        enabled=True,
+        candidate_fields=runner._exhaust_only_above_target_candidate_base_fields(),
+    )
+
+    assert fields["sealed_exhaust_profile"] == "max_with_overshoot_not_allowed"
+    assert fields["sealed_exhaust_fast_mode"] == "MAX"
+    assert fields["sealed_slew_mode_max_configured"] is True
+    assert fields["sealed_slew_over_not_allowed_configured"] is True
+    assert fields["over0_enabled"] is True
+    assert fields["max_mode_enabled"] is True
+
+
 def test_point_0004_csv_uses_1000_anchor_not_1100() -> None:
     runner, _pace, _, _ = _runner(
         pressure_overrides={
