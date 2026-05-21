@@ -6745,6 +6745,132 @@ def test_v2_like_secondary_evidence_does_not_block_first_row() -> None:
     assert context["ultra_fast_snapshot_rows"][0]["row_appended_ts"]
 
 
+def test_sealed_point_result_records_point_level_invalid_continue() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+    runner._materialize_ultra_fast_candidate_snapshot_row(point, phase="co2")
+
+    runner._mark_above_target_sample_invalidated(reason="dewpoint_abnormal_rise", phase="post_row")
+
+    row = context["ultra_fast_snapshot_rows"][0]
+    assert row["point_result_status"] == "sampled_invalid"
+    assert row["point_continue_next_allowed"] is True
+    assert row["point_group_abort_required"] is False
+    assert row["point_invalidated"] is True
+    assert "dewpoint_abnormal@post_row" in row["point_invalidated_reason"]
+
+
+def test_sealed_group_result_separates_point_invalid_from_group_abort() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+    runner._materialize_ultra_fast_candidate_snapshot_row(point, phase="co2")
+
+    runner._mark_above_target_sample_invalidated(reason="dewpoint_abnormal_rise", phase="post_row")
+
+    row = context["ultra_fast_snapshot_rows"][0]
+    assert row["sealed_group_result_status"] == "completed_with_invalid_points"
+    assert row["sealed_group_pressure_points_with_rows"] == 1
+    assert row["sealed_group_pressure_points_invalidated"] == 1
+    assert row["sealed_group_pressure_points_group_abort"] == 0
+    assert row["sealed_group_abort_reason"] == ""
+
+
+def test_post_row_dewpoint_abnormal_does_not_group_abort_in_limited_no_write() -> None:
+    test_post_row_dewpoint_abnormal_invalidates_point_but_continues_sweep_in_limited_no_write()
+
+
+def test_active_sealed_vent_group_aborts() -> None:
+    test_active_sealed_vent_still_group_aborts()
+
+
+def test_positive_effort_group_aborts() -> None:
+    test_positive_supply_effort_still_group_aborts()
+
+
+def test_actual_open_valves_group_aborts() -> None:
+    test_actual_open_valves_nonempty_still_group_aborts()
+
+
+def test_target_crossing_before_row_group_aborts() -> None:
+    test_target_crossing_before_row_still_group_aborts()
+
+
+def test_sampling_packet_secondary_evidence_does_not_block_first_row() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    context = _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["row_anchor_source"] == "fast_candidate"
+    assert row["row_anchor_ts"] == row["sample_ts"]
+    assert row["analyzer_snapshot_blocked_first_row"] is False
+    assert row["secondary_evidence_completed_after_row_append"] is True
+    assert row["secondary_evidence_status"] in {"delayed", "partial"}
+    assert context["ultra_fast_snapshot_rows"][0]["row_appended_ts"]
+
+
+def test_sampling_parallel_status_not_full_parallel_without_evidence() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    _arm_safe_1100_candidate(runner, point)
+    runner._all_gas_analyzers = MagicMock(return_value=[])
+
+    row = runner._collect_ultra_fast_candidate_snapshot_rows(
+        point,
+        requested_rows=3,
+        requested_interval_s=0.2,
+        phase="co2",
+        point_tag="",
+    )[0]
+
+    assert row["sampling_parallel_claim_allowed"] is False
+    assert row["sampling_parallel_status"] in {"cache_based", "partial_snapshot", "not_verified"}
+    assert row["sampling_parallel_status"] != "full_parallel_verified"
+    assert row["sampling_parallel_not_verified_reason"]
+
+
+def test_data_quality_grade_A_B_C_fit_permissions() -> None:
+    test_sample_data_quality_grade_A_requires_clean_dewpoint_and_alignment()
+    test_sample_data_quality_grade_B_for_post_row_dewpoint_abnormal_without_external_air_path()
+    test_sample_data_quality_grade_C_for_external_air_ingress()
+
+
+def test_dry_air_correction_qc_only_for_invalid_rows() -> None:
+    test_dry_air_correction_is_analysis_only_not_acceptance_override()
+
+
 def test_h2o_unchanged() -> None:
     runner, _, _, _ = _runner()
 
