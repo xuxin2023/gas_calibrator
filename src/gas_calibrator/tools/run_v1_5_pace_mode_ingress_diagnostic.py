@@ -13,6 +13,7 @@ import csv
 import json
 import math
 import re
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -25,6 +26,7 @@ DEFAULT_SAMPLE_INTERVAL_S = 0.25
 DEFAULT_HOLD_BASELINE_S = 45.0
 DEFAULT_MAX_CONTROL_S = 60.0
 TARGET_WINDOW_HIGH_HPA = 1.0
+DEFAULT_DEWPOINT_RESIDUAL_THRESHOLD_C = 1.0
 
 REQUIRED_SAMPLE_FIELDS = (
     "ts",
@@ -45,6 +47,11 @@ REQUIRED_SAMPLE_FIELDS = (
     "slew_mode",
     "slew_over",
     "dewpoint_latest_c",
+    "dewpoint_latest_ts",
+    "dewpoint_latest_age_ms",
+    "dewpoint_source",
+    "dewpoint_evidence_quality",
+    "dewpoint_evidence_missing",
     "com22_pressure_latest_hpa",
     "actual_open_valves",
     "raw_tx",
@@ -119,8 +126,21 @@ class TrialResult:
     dewpoint_start_c: float | None = None
     dewpoint_candidate_c: float | None = None
     dewpoint_end_c: float | None = None
-    dewpoint_delta_c: float = 0.0
-    dewpoint_rise_rate_c_per_s: float = 0.0
+    dewpoint_delta_c: float | None = None
+    dewpoint_rise_rate_c_per_s: float | None = None
+    dewpoint_pressure_effect_expected_c: float | None = None
+    dewpoint_residual_after_pressure_effect_c: float | None = None
+    dewpoint_residual_threshold_c: float = DEFAULT_DEWPOINT_RESIDUAL_THRESHOLD_C
+    dewpoint_residual_exceeds_threshold: bool = False
+    probable_air_ingress_after_compensation: bool = False
+    possible_internal_moisture_or_dead_volume: bool = False
+    possible_supply_involvement: bool = False
+    possible_dewpoint_lag: bool = False
+    dewpoint_latest_ts: float | None = None
+    dewpoint_latest_age_ms: float | None = None
+    dewpoint_source: str = ""
+    dewpoint_evidence_quality: str = "missing"
+    dewpoint_evidence_missing: bool = True
     eff_positive_seen: bool = False
     eff_positive_duration_s: float = 0.0
     eff_positive_max_pct: float = 0.0
@@ -233,6 +253,23 @@ def build_default_trial_plan(
     ]
 
 
+def build_act_gaug_trial_plan(
+    targets_hpa: Iterable[float | str] = DEFAULT_TARGETS_HPA,
+    ambient_hpa: float = DEFAULT_AMBIENT_HPA,
+) -> list[TrialPlan]:
+    trials = build_default_trial_plan(targets_hpa, ambient_hpa)
+    return [
+        trial
+        for trial in trials
+        if trial.trial_id
+        in {
+            "trial_0_outp0_sealed_hold",
+            "trial_1_act_over0_max",
+            "trial_4_gaug_cautious",
+        }
+    ]
+
+
 def planned_commands_for_trial(trial: TrialPlan, target_hpa: float | None = None) -> list[str]:
     commands = [
         ":OUTP:STAT?",
@@ -303,7 +340,9 @@ def should_continue_control_after_mode_set(
 
 def classify_supply_involvement(result: TrialResult) -> dict[str, str]:
     positive = result.eff_positive_seen or result.eff_positive_duration_s > 0.0 or result.eff_positive_integral_pct_s > 0.0
-    dewpoint_rising = result.dewpoint_delta_c > 0.5 or result.dewpoint_rise_rate_c_per_s > 0.02
+    dewpoint_delta = result.dewpoint_delta_c or 0.0
+    dewpoint_rise_rate = result.dewpoint_rise_rate_c_per_s or 0.0
+    dewpoint_rising = dewpoint_delta > 0.5 or dewpoint_rise_rate > 0.02
     if positive and dewpoint_rising:
         supply = "high"
     elif positive:
@@ -362,7 +401,11 @@ def score_trial_result(result: TrialResult) -> TrialResult:
         score -= min(40.0, max(0.0, result.outp1_to_candidate_s) * 1.5)
     else:
         score -= 25.0
-    score -= max(0.0, result.dewpoint_delta_c) * 18.0
+    if result.dewpoint_evidence_missing:
+        reasons.append("dewpoint_evidence_missing")
+        score -= 25.0
+    score -= max(0.0, result.dewpoint_delta_c or 0.0) * 18.0
+    score -= max(0.0, result.dewpoint_residual_after_pressure_effect_c or 0.0) * 20.0
     score -= max(0.0, result.eff_positive_duration_s) * 6.0
     score -= max(0.0, result.eff_positive_integral_pct_s) * 8.0
     score -= max(0.0, result.eff_positive_max_pct) * 0.5
@@ -391,6 +434,8 @@ def score_trial_result(result: TrialResult) -> TrialResult:
         and result.candidate_row_possible
         and result.score >= 65.0
         and result.supply_involvement_confidence in {"none", "unknown"}
+        and not result.dewpoint_evidence_missing
+        and not result.dewpoint_residual_exceeds_threshold
     )
     return result
 
@@ -424,6 +469,7 @@ def rank_trial_results(results: Sequence[TrialResult]) -> dict[str, Any]:
     max_over0_best = bool(best and best.slew_mode == "MAX" and best.overshoot_allowed is False)
     best_mode = _mode_key(best) if best else None
     best_target = best.target_hpa if best else None
+    mode_summary = _compare_act_gaug_modes(scored)
     return {
         "best_mode_for_clean_exhaust_control": best_mode,
         "best_target_for_mode_screening": best_target,
@@ -442,9 +488,67 @@ def rank_trial_results(results: Sequence[TrialResult]) -> dict[str, Any]:
         "whether_GAUG_is_not_control_capable": gaug_not_capable,
         "whether_OVER1_should_be_rejected_due_to_chatter": over1_reject,
         "whether_MAX_OVER0_is_best_current_candidate": max_over0_best,
+        **mode_summary,
         "diagnostic_only": True,
         "not_real_acceptance_evidence": True,
     }
+
+
+def _avg(values: Sequence[float | None]) -> float | None:
+    valid = [float(value) for value in values if value is not None and math.isfinite(float(value))]
+    if not valid:
+        return None
+    return sum(valid) / len(valid)
+
+
+def _compare_act_gaug_modes(results: Sequence[TrialResult]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for mode in ("ACT", "GAUG"):
+        rows = [
+            result
+            for result in results
+            if result.mode_requested == mode
+            and result.overshoot_allowed is False
+            and result.slew_mode == "MAX"
+            and result.target_hpa is not None
+        ]
+        prefix = f"{mode}_"
+        out[prefix + "avg_dewpoint_delta_c"] = _avg([row.dewpoint_delta_c for row in rows])
+        out[prefix + "avg_residual_after_pressure_effect_c"] = _avg(
+            [row.dewpoint_residual_after_pressure_effect_c for row in rows]
+        )
+        out[prefix + "total_eff_positive_integral"] = sum(row.eff_positive_integral_pct_s for row in rows)
+        out[prefix + "avg_outp1_to_candidate_s"] = _avg([row.outp1_to_candidate_s for row in rows])
+        out[prefix + "crossing_total"] = sum(row.target_crossing_count for row in rows)
+        out[prefix + "chatter_detected"] = any(row.pressure_chatter_detected for row in rows)
+        out[prefix + "success_targets"] = [row.target_hpa for row in rows if row.candidate_row_possible]
+    act_residual = out.get("ACT_avg_residual_after_pressure_effect_c")
+    gaug_residual = out.get("GAUG_avg_residual_after_pressure_effect_c")
+    gaug_success = len(out.get("GAUG_success_targets") or [])
+    act_success = len(out.get("ACT_success_targets") or [])
+    out["whether_GAUG_should_be_promoted_to_next_limited_workflow_test"] = (
+        gaug_success >= act_success
+        and gaug_success > 0
+        and (gaug_residual is not None and (act_residual is None or gaug_residual <= act_residual))
+        and float(out.get("GAUG_total_eff_positive_integral") or 0.0)
+        <= float(out.get("ACT_total_eff_positive_integral") or 0.0)
+        and int(out.get("GAUG_crossing_total") or 0) == 0
+        and not bool(out.get("GAUG_chatter_detected"))
+    )
+    out["whether_ACT_remains_preferred"] = (
+        act_success > gaug_success
+        or (
+            act_residual is not None
+            and gaug_residual is not None
+            and act_residual + 0.25 < gaug_residual
+        )
+    )
+    out["whether_pressure_only_dewpoint_problem_reproduced"] = any(
+        (row.dewpoint_residual_after_pressure_effect_c or 0.0) > row.dewpoint_residual_threshold_c
+        for row in results
+        if row.target_hpa is not None and not row.dewpoint_evidence_missing
+    )
+    return out
 
 
 def _parse_float(text: str | None) -> float | None:
@@ -483,6 +587,125 @@ def _load_latest_cache(path: str | Path | None, keys: Sequence[str]) -> Any:
     return current
 
 
+class LiveDewpointCache:
+    def __init__(
+        self,
+        meter: Any,
+        *,
+        source: str,
+        poll_s: float = 0.5,
+        timeout_s: float = 0.35,
+        latest_path: str | Path | None = None,
+    ) -> None:
+        self.meter = meter
+        self.source = source
+        self.poll_s = max(0.2, float(poll_s))
+        self.timeout_s = max(0.05, float(timeout_s))
+        self.latest_path = Path(latest_path) if latest_path else None
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        self._latest: dict[str, Any] = {
+            "ts": None,
+            "dewpoint_c": None,
+            "source": self.source,
+            "ok": False,
+            "evidence_quality": "missing",
+        }
+        self.samples: list[dict[str, Any]] = []
+
+    def start(self) -> None:
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, name="pace-mode-dewpoint-cache", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread:
+            thread.join(timeout=2.0)
+
+    def latest(self) -> dict[str, Any]:
+        with self._lock:
+            latest = dict(self._latest)
+        ts = latest.get("ts")
+        age_ms = None if ts is None else max(0.0, (time.time() - float(ts)) * 1000.0)
+        latest["age_ms"] = age_ms
+        if latest.get("dewpoint_c") is None:
+            latest["evidence_quality"] = "missing"
+            latest["evidence_missing"] = True
+        elif age_ms is not None and age_ms <= 2000.0:
+            latest["evidence_quality"] = "fresh"
+            latest["evidence_missing"] = False
+        else:
+            latest["evidence_quality"] = "stale"
+            latest["evidence_missing"] = False
+        return latest
+
+    def _record(self, row: Mapping[str, Any]) -> None:
+        payload = dict(row)
+        with self._lock:
+            self._latest = payload
+            self.samples.append(payload)
+        if self.latest_path:
+            try:
+                self.latest_path.parent.mkdir(parents=True, exist_ok=True)
+                self.latest_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            except Exception:
+                pass
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            ts = time.time()
+            try:
+                data = self.meter.get_current_fast(timeout_s=self.timeout_s)
+            except Exception as exc:
+                data = {"ok": False, "error": f"{type(exc).__name__}:{exc}"}
+            dewpoint = _parse_float(str(data.get("dewpoint_c")))
+            self._record(
+                {
+                    "ts": ts,
+                    "dewpoint_c": dewpoint,
+                    "temp_c": _parse_float(str(data.get("temp_c"))),
+                    "rh_pct": _parse_float(str(data.get("rh_pct"))),
+                    "source": self.source,
+                    "ok": bool(data.get("ok")) and dewpoint is not None,
+                    "raw": data.get("raw"),
+                    "error": data.get("error"),
+                }
+            )
+            self._stop.wait(self.poll_s)
+
+
+def _dewpoint_from_sources(dewpoint_cache: LiveDewpointCache | None, path: str | Path | None) -> dict[str, Any]:
+    if dewpoint_cache is not None:
+        return dewpoint_cache.latest()
+    if not path:
+        return {
+            "dewpoint_c": None,
+            "ts": None,
+            "age_ms": None,
+            "source": "",
+            "evidence_quality": "missing",
+            "evidence_missing": True,
+        }
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    dewpoint = _parse_float(str(payload.get("dewpoint_c")))
+    ts = _parse_float(str(payload.get("ts") or payload.get("timestamp")))
+    age_ms = None if ts is None else max(0.0, (time.time() - ts) * 1000.0)
+    return {
+        "dewpoint_c": dewpoint,
+        "ts": ts,
+        "age_ms": age_ms,
+        "source": payload.get("source") or str(path),
+        "evidence_quality": "fresh" if dewpoint is not None and (age_ms is None or age_ms <= 2000.0) else "missing",
+        "evidence_missing": dewpoint is None,
+    }
+
+
 def _collect_sample(
     pace: Any,
     *,
@@ -491,6 +714,7 @@ def _collect_sample(
     phase: str,
     setpoint_hpa: float | None,
     dewpoint_cache_path: str | Path | None,
+    dewpoint_cache: LiveDewpointCache | None,
     com22_cache_path: str | Path | None,
     actual_open_valves: Sequence[str],
 ) -> dict[str, Any]:
@@ -511,6 +735,7 @@ def _collect_sample(
         ("syst_err_after_command_group", ":SYST:ERR?"),
     ):
         raw[field] = _query_text(pace, command)
+    dewpoint = _dewpoint_from_sources(dewpoint_cache, dewpoint_cache_path)
     return {
         "ts": time.time(),
         "trial_id": trial_id,
@@ -531,7 +756,12 @@ def _collect_sample(
         "sour_pres_comp2_hpa": _parse_float(raw["sour_pres_comp2_hpa"]),
         "slew_mode": raw["slew_mode"],
         "slew_over": raw["slew_over"],
-        "dewpoint_latest_c": _load_latest_cache(dewpoint_cache_path, ("dewpoint_c",)),
+        "dewpoint_latest_c": dewpoint.get("dewpoint_c"),
+        "dewpoint_latest_ts": dewpoint.get("ts"),
+        "dewpoint_latest_age_ms": dewpoint.get("age_ms"),
+        "dewpoint_source": dewpoint.get("source"),
+        "dewpoint_evidence_quality": dewpoint.get("evidence_quality"),
+        "dewpoint_evidence_missing": bool(dewpoint.get("evidence_missing")),
         "com22_pressure_latest_hpa": _load_latest_cache(com22_cache_path, ("pressure_hpa",)),
         "actual_open_valves": list(actual_open_valves),
         "raw_tx": "",
@@ -553,6 +783,8 @@ def _summarize_samples(
     mode_supported: bool,
     syst_err_after_mode_set: str,
 ) -> TrialResult:
+    from gas_calibrator.validation.dewpoint_flush_gate import predict_pressure_scaled_dewpoint_c
+
     pressures = [_parse_float(str(row.get("sens_pres_cont_hpa"))) for row in samples]
     pressures = [value for value in pressures if value is not None]
     efforts = [_parse_float(str(row.get("sour_pres_eff_pct"))) for row in samples]
@@ -569,8 +801,13 @@ def _summarize_samples(
     pressure_end = pressures[-1] if pressures else None
     dewpoint_start = dewpoints[0] if dewpoints else None
     dewpoint_end = dewpoints[-1] if dewpoints else None
-    dewpoint_candidate = dewpoint_end
-    dewpoint_delta = (dewpoint_end - dewpoint_start) if dewpoint_start is not None and dewpoint_end is not None else 0.0
+    dewpoint_candidate = dewpoint_end if candidate_pressure is not None else None
+    dewpoint_observed_end = dewpoint_candidate if dewpoint_candidate is not None else dewpoint_end
+    dewpoint_delta = (
+        dewpoint_observed_end - dewpoint_start
+        if dewpoint_start is not None and dewpoint_observed_end is not None
+        else None
+    )
     pressure_rate = None
     if pressure_start is not None and candidate_pressure is not None and outp1_ts and candidate_ts and candidate_ts > outp1_ts:
         pressure_rate = (pressure_start - candidate_pressure) / (candidate_ts - outp1_ts)
@@ -599,6 +836,29 @@ def _summarize_samples(
             if before != after
         )
         pressure_chatter = sign_changes >= 2
+    pressure_for_dewpoint = candidate_pressure if candidate_pressure is not None else pressure_end
+    expected_dewpoint = predict_pressure_scaled_dewpoint_c(
+        dewpoint_start,
+        pressure_start,
+        pressure_for_dewpoint,
+    )
+    pressure_effect_expected = (
+        expected_dewpoint - dewpoint_start
+        if expected_dewpoint is not None and dewpoint_start is not None
+        else None
+    )
+    residual = (
+        dewpoint_delta - pressure_effect_expected
+        if dewpoint_delta is not None and pressure_effect_expected is not None
+        else None
+    )
+    residual_exceeds = residual is not None and residual > DEFAULT_DEWPOINT_RESIDUAL_THRESHOLD_C
+    latest_dewpoint_row = next((row for row in reversed(samples) if row.get("dewpoint_latest_c") is not None), None)
+    dewpoint_missing = not dewpoints
+    dewpoint_quality = "missing"
+    if not dewpoint_missing:
+        qualities = {str(row.get("dewpoint_evidence_quality") or "") for row in samples}
+        dewpoint_quality = "fresh" if qualities <= {"fresh"} or "fresh" in qualities else "partial"
     result = TrialResult(
         trial_id=plan.trial_id,
         mode_requested=plan.mode_requested,
@@ -620,7 +880,20 @@ def _summarize_samples(
         dewpoint_candidate_c=dewpoint_candidate,
         dewpoint_end_c=dewpoint_end,
         dewpoint_delta_c=dewpoint_delta,
-        dewpoint_rise_rate_c_per_s=(dewpoint_delta / dwell) if dwell > 0 else 0.0,
+        dewpoint_rise_rate_c_per_s=(dewpoint_delta / dwell) if dwell > 0 and dewpoint_delta is not None else None,
+        dewpoint_pressure_effect_expected_c=pressure_effect_expected,
+        dewpoint_residual_after_pressure_effect_c=residual,
+        dewpoint_residual_threshold_c=DEFAULT_DEWPOINT_RESIDUAL_THRESHOLD_C,
+        dewpoint_residual_exceeds_threshold=residual_exceeds,
+        probable_air_ingress_after_compensation=residual_exceeds,
+        possible_internal_moisture_or_dead_volume=residual_exceeds and not bool(positive),
+        possible_supply_involvement=residual_exceeds and bool(positive),
+        possible_dewpoint_lag=dewpoint_quality != "fresh",
+        dewpoint_latest_ts=_parse_float(str(latest_dewpoint_row.get("dewpoint_latest_ts"))) if latest_dewpoint_row else None,
+        dewpoint_latest_age_ms=_parse_float(str(latest_dewpoint_row.get("dewpoint_latest_age_ms"))) if latest_dewpoint_row else None,
+        dewpoint_source=str(latest_dewpoint_row.get("dewpoint_source") or "") if latest_dewpoint_row else "",
+        dewpoint_evidence_quality=dewpoint_quality,
+        dewpoint_evidence_missing=dewpoint_missing,
         eff_positive_seen=bool(positive),
         eff_positive_duration_s=len(positive) * sample_interval,
         eff_positive_max_pct=max(positive) if positive else 0.0,
@@ -665,19 +938,45 @@ def run_real_com_diagnostic(
     sample_interval_s: float = DEFAULT_SAMPLE_INTERVAL_S,
     max_control_s: float = DEFAULT_MAX_CONTROL_S,
     dewpoint_cache_path: str | Path | None = None,
+    dewpoint_port: str | None = None,
+    dewpoint_baud: int = 9600,
+    dewpoint_station: str = "001",
+    dewpoint_poll_s: float = 0.5,
+    dewpoint_timeout_s: float = 0.35,
     com22_cache_path: str | Path | None = None,
     actual_open_valves: Sequence[str] = (),
     reset_to_atmosphere_between_trials: bool = True,
+    act_gaug_only: bool = False,
 ) -> dict[str, Any]:
     from gas_calibrator.devices.pace5000 import Pace5000
+    from gas_calibrator.devices.dewpoint_meter import DewpointMeter
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    plan = build_default_trial_plan(targets_hpa, ambient_hpa)
+    plan = (
+        build_act_gaug_trial_plan(targets_hpa, ambient_hpa)
+        if act_gaug_only
+        else build_default_trial_plan(targets_hpa, ambient_hpa)
+    )
     all_samples: list[dict[str, Any]] = []
     all_results: list[TrialResult] = []
     reset_events: list[dict[str, Any]] = []
     pace = Pace5000(pace_port)
+    dewpoint_meter = None
+    dewpoint_cache = None
+    dewpoint_latest_path = output_dir / "dewpoint_live_latest.json"
     pace.open()
+    if dewpoint_port:
+        dewpoint_meter = DewpointMeter(dewpoint_port, baudrate=int(dewpoint_baud), station=dewpoint_station)
+        dewpoint_meter.open()
+        dewpoint_cache = LiveDewpointCache(
+            dewpoint_meter,
+            source=f"{dewpoint_port}:DewpointMeter",
+            poll_s=dewpoint_poll_s,
+            timeout_s=dewpoint_timeout_s,
+            latest_path=dewpoint_latest_path,
+        )
+        dewpoint_cache.start()
+        time.sleep(max(0.2, min(2.0, dewpoint_poll_s + dewpoint_timeout_s)))
     original_mode = ""
     try:
         try:
@@ -767,6 +1066,7 @@ def run_real_com_diagnostic(
                             phase="active_control" if trial.outp1_sent else "outp0_hold",
                             setpoint_hpa=target,
                             dewpoint_cache_path=dewpoint_cache_path,
+                            dewpoint_cache=dewpoint_cache,
                             com22_cache_path=com22_cache_path,
                             actual_open_valves=actual_open_valves,
                         )
@@ -821,6 +1121,10 @@ def run_real_com_diagnostic(
         if reset_to_atmosphere_between_trials:
             reset_events.append({"before_trial_id": "final_cleanup", **_reset_to_atmosphere(pace)})
         pace.close()
+        if dewpoint_cache is not None:
+            dewpoint_cache.stop()
+        if dewpoint_meter is not None:
+            dewpoint_meter.close()
 
     summary = {
         "diagnostic_only": True,
@@ -830,12 +1134,17 @@ def run_real_com_diagnostic(
         "next_run_requires_full_open_flow_flush": True,
         "targets_hpa": list(targets_hpa),
         "ambient_hpa": ambient_hpa,
+        "dewpoint_cache_path": str(dewpoint_latest_path) if dewpoint_cache is not None else str(dewpoint_cache_path or ""),
+        "dewpoint_source": f"{dewpoint_port}:DewpointMeter" if dewpoint_port else str(dewpoint_cache_path or ""),
+        "dewpoint_sample_count": len(dewpoint_cache.samples) if dewpoint_cache is not None else None,
         "results": [asdict(result) for result in all_results],
         "ranking": rank_trial_results(all_results),
         "reset_events": reset_events,
     }
     _write_samples_csv(output_dir / "pace_mode_ingress_samples.csv", all_samples)
     _write_raw_tap_jsonl(output_dir / "pace_mode_ingress_raw_tap.jsonl", all_samples)
+    if dewpoint_cache is not None:
+        _write_dewpoint_cache_csv(output_dir / "dewpoint_live_cache.csv", dewpoint_cache.samples)
     (output_dir / "pace_mode_ingress_summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -873,6 +1182,16 @@ def _write_raw_tap_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
             )
 
 
+def _write_dewpoint_cache_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fields = ["ts", "dewpoint_c", "temp_c", "rh_pct", "source", "ok", "raw", "error"]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field) for field in fields})
+
+
 def _write_summary_md(path: Path, summary: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
@@ -883,6 +1202,9 @@ def _write_summary_md(path: Path, summary: Mapping[str, Any]) -> None:
         f"- no_write_clean: {summary.get('no_write_clean')}",
         f"- ambient_hpa: {summary.get('ambient_hpa')}",
         f"- targets_hpa: {summary.get('targets_hpa')}",
+        f"- dewpoint_cache_path: {summary.get('dewpoint_cache_path')}",
+        f"- dewpoint_source: {summary.get('dewpoint_source')}",
+        f"- dewpoint_sample_count: {summary.get('dewpoint_sample_count')}",
         "",
         "## Ranking",
         "",
@@ -902,6 +1224,10 @@ def _write_summary_md(path: Path, summary: Mapping[str, Any]) -> None:
                 f"- outp1_to_candidate_s: {result.get('outp1_to_candidate_s')}",
                 f"- pressure_candidate_hpa: {result.get('pressure_candidate_hpa')}",
                 f"- dewpoint_delta_c: {result.get('dewpoint_delta_c')}",
+                f"- dewpoint_pressure_effect_expected_c: {result.get('dewpoint_pressure_effect_expected_c')}",
+                f"- dewpoint_residual_after_pressure_effect_c: {result.get('dewpoint_residual_after_pressure_effect_c')}",
+                f"- dewpoint_evidence_quality: {result.get('dewpoint_evidence_quality')}",
+                f"- dewpoint_evidence_missing: {result.get('dewpoint_evidence_missing')}",
                 f"- eff_positive_duration_s: {result.get('eff_positive_duration_s')}",
                 f"- eff_positive_integral_pct_s: {result.get('eff_positive_integral_pct_s')}",
                 f"- eff_negative_integral_pct_s: {result.get('eff_negative_integral_pct_s')}",
@@ -944,6 +1270,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--targets", nargs="+", type=float, default=list(DEFAULT_TARGETS_HPA))
     parser.add_argument("--output-dir", type=Path, default=Path("logs") / "pace_mode_ingress_diagnostic")
     parser.add_argument("--pace-port", default="COM23")
+    parser.add_argument("--dewpoint-port", default="COM17")
+    parser.add_argument("--dewpoint-baud", type=int, default=9600)
+    parser.add_argument("--dewpoint-station", default="001")
+    parser.add_argument("--dewpoint-poll-s", type=float, default=0.5)
+    parser.add_argument("--dewpoint-timeout-s", type=float, default=0.35)
     parser.add_argument("--sample-interval-s", type=float, default=DEFAULT_SAMPLE_INTERVAL_S)
     parser.add_argument("--max-control-s", type=float, default=DEFAULT_MAX_CONTROL_S)
     parser.add_argument("--dewpoint-cache-json")
@@ -958,6 +1289,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--operator-confirm-sealed-volume",
         action="store_true",
         help="Required with --real-com. Confirms the external route is safely sealed without CO2/HGEN.",
+    )
+    parser.add_argument(
+        "--act-gaug-only",
+        action="store_true",
+        help="Run only OUTP0 baseline, ACT+OVER0+MAX, and GAUG+OVER0+MAX.",
     )
     return parser
 
@@ -980,7 +1316,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         sample_interval_s=args.sample_interval_s,
         max_control_s=args.max_control_s,
         dewpoint_cache_path=args.dewpoint_cache_json,
+        dewpoint_port=args.dewpoint_port,
+        dewpoint_baud=args.dewpoint_baud,
+        dewpoint_station=args.dewpoint_station,
+        dewpoint_poll_s=args.dewpoint_poll_s,
+        dewpoint_timeout_s=args.dewpoint_timeout_s,
         com22_cache_path=args.com22_pressure_cache_json,
+        act_gaug_only=args.act_gaug_only,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0

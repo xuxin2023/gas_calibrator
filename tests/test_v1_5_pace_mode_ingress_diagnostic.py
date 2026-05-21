@@ -4,8 +4,11 @@ import pytest
 
 from gas_calibrator.tools.run_v1_5_pace_mode_ingress_diagnostic import (
     REQUIRED_SAMPLE_FIELDS,
+    TrialPlan,
     TrialResult,
+    _summarize_samples,
     assert_no_forbidden_writes,
+    build_act_gaug_trial_plan,
     build_default_trial_plan,
     classify_supply_involvement,
     planned_commands_for_trial,
@@ -122,6 +125,9 @@ def test_mode_ranking_prefers_low_dewpoint_low_positive_effort() -> None:
         eff_positive_integral_pct_s=1.0,
         eff_negative_integral_pct_s=0.2,
         candidate_row_possible=True,
+        dewpoint_evidence_missing=False,
+        dewpoint_residual_after_pressure_effect_c=5.0,
+        dewpoint_residual_exceeds_threshold=True,
         overshoot_allowed=False,
         slew_mode="MAX",
     )
@@ -136,6 +142,9 @@ def test_mode_ranking_prefers_low_dewpoint_low_positive_effort() -> None:
         eff_negative_integral_pct_s=4.0,
         eff_negative_duration_s=5.0,
         candidate_row_possible=True,
+        dewpoint_evidence_missing=False,
+        dewpoint_residual_after_pressure_effect_c=0.1,
+        dewpoint_residual_exceeds_threshold=False,
         overshoot_allowed=False,
         slew_mode="MAX",
     )
@@ -182,3 +191,104 @@ def test_no_forbidden_writes_added() -> None:
         for target in trial.targets_hpa or (None,):
             commands = planned_commands_for_trial(trial, target)
             assert_no_forbidden_writes(commands)
+
+
+def test_act_gaug_only_plan_excludes_pass_and_over1() -> None:
+    trials = build_act_gaug_trial_plan([900, 800, 700, 600, 500], ambient_hpa=1006)
+
+    assert [trial.trial_id for trial in trials] == [
+        "trial_0_outp0_sealed_hold",
+        "trial_1_act_over0_max",
+        "trial_4_gaug_cautious",
+    ]
+    assert all(trial.mode_requested != "PASS" for trial in trials)
+    assert all(trial.overshoot_allowed is not True for trial in trials)
+
+
+def test_dewpoint_residual_is_computed_after_pressure_effect() -> None:
+    plan = TrialPlan(
+        trial_id="trial_1_act_over0_max",
+        label="ACT + OVER0 + MAX",
+        mode_requested="ACT",
+        targets_hpa=(500.0,),
+        outp1_sent=True,
+        slew_mode="MAX",
+        overshoot_allowed=False,
+    )
+    samples = [
+        {
+            "ts": 10.0,
+            "sens_pres_cont_hpa": 1000.0,
+            "sour_pres_eff_pct": -0.1,
+            "dewpoint_latest_c": -20.0,
+            "dewpoint_latest_ts": 9.9,
+            "dewpoint_latest_age_ms": 100.0,
+            "dewpoint_source": "COM17:DewpointMeter",
+            "dewpoint_evidence_quality": "fresh",
+            "actual_open_valves": [],
+            "vent_status": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+            "outp_state": ":OUTP:STAT 1",
+        },
+        {
+            "ts": 20.0,
+            "sens_pres_cont_hpa": 500.5,
+            "sour_pres_eff_pct": -0.2,
+            "dewpoint_latest_c": -19.0,
+            "dewpoint_latest_ts": 19.9,
+            "dewpoint_latest_age_ms": 100.0,
+            "dewpoint_source": "COM17:DewpointMeter",
+            "dewpoint_evidence_quality": "fresh",
+            "actual_open_valves": [],
+            "vent_status": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+            "outp_state": ":OUTP:STAT 1",
+        },
+    ]
+
+    result = _summarize_samples(
+        samples,
+        plan=plan,
+        target_hpa=500.0,
+        ambient_hpa=1006.0,
+        outp1_ts=10.0,
+        candidate_ts=20.0,
+        candidate_pressure=500.5,
+        mode_confirmed="ACT",
+        mode_supported=True,
+        syst_err_after_mode_set="0,No error",
+    )
+
+    assert result.dewpoint_delta_c == 1.0
+    assert result.dewpoint_pressure_effect_expected_c is not None
+    assert result.dewpoint_residual_after_pressure_effect_c is not None
+    assert result.dewpoint_residual_after_pressure_effect_c > 1.0
+    assert result.probable_air_ingress_after_compensation is True
+    assert result.dewpoint_evidence_missing is False
+
+
+def test_missing_dewpoint_is_not_reported_as_zero_delta() -> None:
+    plan = build_act_gaug_trial_plan([900], ambient_hpa=1006)[1]
+    result = _summarize_samples(
+        [
+            {
+                "ts": 1.0,
+                "sens_pres_cont_hpa": 1000.0,
+                "sour_pres_eff_pct": -0.1,
+                "actual_open_valves": [],
+                "vent_status": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                "outp_state": ":OUTP:STAT 1",
+            }
+        ],
+        plan=plan,
+        target_hpa=900.0,
+        ambient_hpa=1006.0,
+        outp1_ts=1.0,
+        candidate_ts=None,
+        candidate_pressure=None,
+        mode_confirmed="ACT",
+        mode_supported=True,
+        syst_err_after_mode_set="0,No error",
+    )
+
+    assert result.dewpoint_delta_c is None
+    assert result.dewpoint_evidence_missing is True
+    assert "dewpoint_evidence_missing" in result.rejection_reasons
