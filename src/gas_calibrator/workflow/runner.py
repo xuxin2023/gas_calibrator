@@ -460,6 +460,10 @@ _PRESSURE_TRACE_FIELDS = [
     "possible_supply_involvement_during_exhaust",
     "supply_involvement_confidence",
     "supply_involvement_dewpoint_correlation",
+    "eff_positive_control_trim_allowed_for_calibration",
+    "eff_positive_control_trim_max_pct",
+    "eff_positive_control_trim_duration_limit_s",
+    "eff_positive_control_trim_integral_limit_pct_s",
     "effort_query_before_outp1_skipped_or_zero_reason",
     "effort_guard_active_after_outp1",
     "pressure_in_limit_before_sampling",
@@ -11236,6 +11240,18 @@ class CalibrationRunner:
         raw = self._wf("workflow.pressure.positive_supply_effort_strict_max_duration_s", 0.0)
         return max(0.0, float(0.0 if raw is None else raw))
 
+    def _positive_supply_effort_control_trim_max_pct(self) -> float:
+        raw = self._wf("workflow.pressure.positive_supply_effort_control_trim_max_pct", 0.02)
+        return max(0.0, float(0.02 if raw is None else raw))
+
+    def _positive_supply_effort_control_trim_duration_s(self) -> float:
+        raw = self._wf("workflow.pressure.positive_supply_effort_control_trim_duration_s", 2.0)
+        return max(0.0, float(2.0 if raw is None else raw))
+
+    def _positive_supply_effort_control_trim_integral_pct_s(self) -> float:
+        raw = self._wf("workflow.pressure.positive_supply_effort_control_trim_integral_pct_s", 0.01)
+        return max(0.0, float(0.01 if raw is None else raw))
+
     def _exhaust_only_ready_gate_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.exhaust_only_ready_gate_enabled", True))
 
@@ -11603,6 +11619,10 @@ class CalibrationRunner:
             "possible_supply_involvement_during_exhaust": False,
             "supply_involvement_confidence": "",
             "supply_involvement_dewpoint_correlation": "",
+            "eff_positive_control_trim_allowed_for_calibration": False,
+            "eff_positive_control_trim_max_pct": self._positive_supply_effort_control_trim_max_pct(),
+            "eff_positive_control_trim_duration_limit_s": self._positive_supply_effort_control_trim_duration_s(),
+            "eff_positive_control_trim_integral_limit_pct_s": self._positive_supply_effort_control_trim_integral_pct_s(),
             "sample_data_quality_grade": "",
             "sample_data_quality_reason": "",
             "sample_data_quality_inputs_complete": False,
@@ -12226,8 +12246,10 @@ class CalibrationRunner:
             reasons.append("sealed_dwell_time_budget_exceeded")
         if bool(data.get("profile_too_slow")):
             reasons.append("sealed_dwell_time_budget_exceeded")
-        if bool(data.get("possible_supply_involvement_during_exhaust")) and not bool(
-            data.get("positive_effort_fail_closed")
+        if (
+            bool(data.get("possible_supply_involvement_during_exhaust"))
+            and not bool(data.get("positive_effort_fail_closed"))
+            and not bool(data.get("eff_positive_control_trim_allowed_for_calibration"))
         ):
             reasons.append("possible_supply_involvement_during_exhaust")
         if bool(data.get("candidate_dewpoint_missing")):
@@ -13755,6 +13777,10 @@ class CalibrationRunner:
             "possible_supply_involvement_during_exhaust",
             "supply_involvement_confidence",
             "supply_involvement_dewpoint_correlation",
+            "eff_positive_control_trim_allowed_for_calibration",
+            "eff_positive_control_trim_max_pct",
+            "eff_positive_control_trim_duration_limit_s",
+            "eff_positive_control_trim_integral_limit_pct_s",
             "pace_slew_mode",
             "pace_slew_setpoint_hpa_per_s",
             "pace_overshoot_allowed",
@@ -14208,6 +14234,19 @@ class CalibrationRunner:
             "supply_involvement_confidence": data.get("supply_involvement_confidence", ""),
             "supply_involvement_dewpoint_correlation": data.get(
                 "supply_involvement_dewpoint_correlation",
+                "",
+            ),
+            "eff_positive_control_trim_allowed_for_calibration": data.get(
+                "eff_positive_control_trim_allowed_for_calibration",
+                False,
+            ),
+            "eff_positive_control_trim_max_pct": data.get("eff_positive_control_trim_max_pct", ""),
+            "eff_positive_control_trim_duration_limit_s": data.get(
+                "eff_positive_control_trim_duration_limit_s",
+                "",
+            ),
+            "eff_positive_control_trim_integral_limit_pct_s": data.get(
+                "eff_positive_control_trim_integral_limit_pct_s",
                 "",
             ),
             "pace_slew_mode": data.get("pace_slew_mode", ""),
@@ -15934,20 +15973,46 @@ class CalibrationRunner:
         positive_seen = bool(source.get("eff_positive_seen") is True)
         positive_duration = float(source.get("eff_positive_duration_s") or 0.0)
         positive_integral = float(source.get("eff_positive_integral_pct_s") or 0.0)
+        positive_max = self._as_float(source.get("eff_positive_max_pct"))
         negative_duration = float(source.get("eff_negative_duration_s") or 0.0)
         negative_integral = float(source.get("eff_negative_integral_pct_s") or 0.0)
+        trim_max_pct = min(
+            self._positive_supply_effort_warning_pct(),
+            self._positive_supply_effort_control_trim_max_pct(),
+        )
+        trim_duration_s = self._positive_supply_effort_control_trim_duration_s()
+        trim_integral_pct_s = self._positive_supply_effort_control_trim_integral_pct_s()
+        positive_with_dewpoint_abnormal = bool(
+            source.get("dewpoint_abnormal_at_candidate")
+            or source.get("dewpoint_residual_exceeds_threshold")
+            or source.get("sample_invalidated_by_dewpoint_rise")
+        )
+        positive_control_trim_allowed = bool(
+            positive_seen
+            and not positive_with_dewpoint_abnormal
+            and positive_max is not None
+            and float(positive_max) <= float(trim_max_pct)
+            and positive_duration <= float(trim_duration_s)
+            and positive_integral <= float(trim_integral_pct_s)
+        )
         dewpoint_correlation = ""
         if positive_seen:
-            dewpoint_correlation = (
-                "positive_effort_with_dewpoint_abnormal"
-                if bool(source.get("dewpoint_abnormal_at_candidate") or source.get("dewpoint_residual_exceeds_threshold"))
-                else "positive_effort_without_dewpoint_correlation"
-            )
+            if positive_control_trim_allowed:
+                dewpoint_correlation = "positive_effort_negligible_control_trim"
+            elif positive_with_dewpoint_abnormal:
+                dewpoint_correlation = "positive_effort_with_dewpoint_abnormal"
+            else:
+                dewpoint_correlation = "positive_effort_without_dewpoint_correlation"
         elif bool(source.get("eff_negative_seen")):
             dewpoint_correlation = "exhaust_dominant_no_positive_effort"
         positive_confidence = ""
         if positive_seen:
-            positive_confidence = "medium" if positive_duration >= 0.5 or positive_integral > 0.05 else "low"
+            if positive_control_trim_allowed:
+                positive_confidence = "negligible_control_trim"
+            elif positive_with_dewpoint_abnormal:
+                positive_confidence = "high"
+            else:
+                positive_confidence = "medium" if positive_duration >= 0.5 or positive_integral > 0.05 else "low"
         timeline_value = source.get("_effort_sign_timeline")
         timeline_summary = ""
         if isinstance(timeline_value, list):
@@ -15973,9 +16038,13 @@ class CalibrationRunner:
             "eff_negative_duration_s": round(negative_duration, 6),
             "eff_negative_integral_pct_s": round(negative_integral, 6),
             "effort_sign_timeline_summary": timeline_summary,
-            "possible_supply_involvement_during_exhaust": positive_seen,
+            "possible_supply_involvement_during_exhaust": bool(positive_seen and not positive_control_trim_allowed),
             "supply_involvement_confidence": positive_confidence,
             "supply_involvement_dewpoint_correlation": dewpoint_correlation,
+            "eff_positive_control_trim_allowed_for_calibration": positive_control_trim_allowed,
+            "eff_positive_control_trim_max_pct": trim_max_pct,
+            "eff_positive_control_trim_duration_limit_s": trim_duration_s,
+            "eff_positive_control_trim_integral_limit_pct_s": trim_integral_pct_s,
         }
 
     def _sealed_positive_supply_effort_trace_fields(
@@ -16971,6 +17040,10 @@ class CalibrationRunner:
                     "possible_supply_involvement_during_exhaust",
                     "supply_involvement_confidence",
                     "supply_involvement_dewpoint_correlation",
+                    "eff_positive_control_trim_allowed_for_calibration",
+                    "eff_positive_control_trim_max_pct",
+                    "eff_positive_control_trim_duration_limit_s",
+                    "eff_positive_control_trim_integral_limit_pct_s",
                 ):
                     state[effort_key] = cached_effort_fields.get(effort_key, "")
                 state["candidate_dewpoint_abnormal"] = candidate_dewpoint_abnormal

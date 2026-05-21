@@ -4551,6 +4551,8 @@ def test_eff_timeline_statistics_present() -> None:
     assert fields["eff_positive_integral_pct_s"] == pytest.approx(0.03)
     assert "candidate:supply" in fields["effort_sign_timeline_summary"]
     assert fields["possible_supply_involvement_during_exhaust"] is True
+    assert fields["eff_positive_control_trim_allowed_for_calibration"] is False
+    assert fields["supply_involvement_confidence"] == "medium"
 
 def test_ultra_fast_candidate_snapshot_row_created_immediately() -> None:
     runner, _pace, _, _ = _runner(
@@ -5746,7 +5748,9 @@ def test_positive_effort_timeline_statistics_present() -> None:
     assert fields["eff_positive_integral_pct_s"] == pytest.approx(0.004)
     assert fields["eff_positive_first_pressure_hpa"] == pytest.approx(1002.0)
     assert "after_outp1:supply" in fields["effort_sign_timeline_summary"]
-    assert fields["possible_supply_involvement_during_exhaust"] is True
+    assert fields["possible_supply_involvement_during_exhaust"] is False
+    assert fields["eff_positive_control_trim_allowed_for_calibration"] is True
+    assert fields["supply_involvement_confidence"] == "negligible_control_trim"
 
 
 def test_persistent_positive_effort_still_fail_closed() -> None:
@@ -7405,7 +7409,7 @@ def test_dewpoint_abnormal_candidate_row_never_enters_calibration_fit() -> None:
     assert "dewpoint_abnormal_candidate" in row["sample_data_quality_reason"]
 
 
-def test_low_positive_effort_duration_downgrades_quality() -> None:
+def test_micro_positive_effort_control_trim_does_not_add_supply_involvement_reason() -> None:
     runner, _pace, _, _ = _runner(
         pressure_overrides={
             "exhaust_only_sample_above_target_enabled": True,
@@ -7420,8 +7424,9 @@ def test_low_positive_effort_duration_downgrades_quality() -> None:
             "eff_positive_duration_s": 0.25,
             "eff_positive_max_pct": 0.002,
             "eff_positive_integral_pct_s": 0.0005,
-            "possible_supply_involvement_during_exhaust": True,
-            "supply_involvement_confidence": "low",
+            "possible_supply_involvement_during_exhaust": False,
+            "supply_involvement_confidence": "negligible_control_trim",
+            "eff_positive_control_trim_allowed_for_calibration": True,
         }
     )
     runner._all_gas_analyzers = MagicMock(return_value=[])
@@ -7434,9 +7439,57 @@ def test_low_positive_effort_duration_downgrades_quality() -> None:
         point_tag="",
     )[0]
 
-    assert row["sample_data_quality_grade"] == "B_diagnostic_model_only"
-    assert row["sample_can_enter_calibration_fit"] is False
-    assert "possible_supply_involvement_during_exhaust" in row["sample_data_quality_reason"]
+    assert row["eff_positive_control_trim_allowed_for_calibration"] is True
+    assert "possible_supply_involvement_during_exhaust" not in row["sample_data_quality_reason"]
+
+
+def test_micro_positive_effort_without_residual_can_remain_A_grade() -> None:
+    runner, _pace, _, _ = _runner()
+    fields = runner._sealed_sample_quality_grade_fields(
+        {
+            "actual_pressure_hpa": 1000.5,
+            "actual_dewpoint_c": -35.0,
+            "candidate_dewpoint_cache_fresh": True,
+            "co2_wet_value": 100.0,
+            "pressure_anchor_valid": True,
+            "analyzer_snapshot_alignment_ok": True,
+            "pressure_drift_ok": True,
+            "eff_positive_seen": True,
+            "eff_positive_duration_s": 0.25,
+            "eff_positive_max_pct": 0.002,
+            "eff_positive_integral_pct_s": 0.0005,
+            "possible_supply_involvement_during_exhaust": False,
+            "eff_positive_control_trim_allowed_for_calibration": True,
+        }
+    )
+
+    assert fields["sample_data_quality_grade"] == "A_calibration_eligible"
+    assert fields["sample_can_enter_calibration_fit"] is True
+
+
+def test_sustained_positive_effort_without_fail_closed_still_blocks_A_grade() -> None:
+    runner, _pace, _, _ = _runner()
+    fields = runner._sealed_sample_quality_grade_fields(
+        {
+            "actual_pressure_hpa": 1000.5,
+            "actual_dewpoint_c": -35.0,
+            "candidate_dewpoint_cache_fresh": True,
+            "co2_wet_value": 100.0,
+            "pressure_anchor_valid": True,
+            "analyzer_snapshot_alignment_ok": True,
+            "pressure_drift_ok": True,
+            "eff_positive_seen": True,
+            "eff_positive_duration_s": 1.5,
+            "eff_positive_max_pct": 0.02,
+            "eff_positive_integral_pct_s": 0.03,
+            "possible_supply_involvement_during_exhaust": True,
+            "eff_positive_control_trim_allowed_for_calibration": False,
+        }
+    )
+
+    assert fields["sample_data_quality_grade"] == "B_diagnostic_model_only"
+    assert fields["sample_can_enter_calibration_fit"] is False
+    assert "possible_supply_involvement_during_exhaust" in fields["sample_data_quality_reason"]
 
 
 def test_dewpoint_trend_after_1100_fields_present() -> None:
