@@ -5742,6 +5742,30 @@ def test_inlimit_micro_target_crossing_is_pressure_ready_not_chatter(monkeypatch
     assert fields["sampling_blocked_by_control_chatter"] is False
 
 
+def test_micro_target_crossing_without_inlimit_waits_instead_of_fail_closed(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(pressure_overrides={"stabilize_timeout_s": 0.3})
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 0), (999.998, 0), (1000.0, 1)]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    assert "sealed_pressure_control_state_fail" not in _trace_stages(runner)
+    wait_fields = [
+        call.kwargs.get("extra_fields", {})
+        for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "pressure_control_wait"
+    ]
+    assert any(
+        fields.get("target_crossing_count") == 1
+        and fields.get("micro_target_crossing_allowed_for_calibration") is True
+        and fields.get("pressure_chatter_fail_closed") is False
+        for fields in wait_fields
+    )
+
+
 def test_inlimit_non_micro_crossing_still_fails_closed(monkeypatch) -> None:
     runner, pace, _, _ = _runner(pressure_overrides={"stabilize_timeout_s": 0.2})
     point = _co2_point(pressure=1000.0)
