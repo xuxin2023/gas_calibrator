@@ -11,6 +11,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     DynamicTrialPlan,
     PACE_VENT_WRITE_RE,
     _collect_fast_pressure_sample,
+    _confirm_control_command_state,
     assert_no_forbidden_writes,
     build_arg_parser,
     build_default_trial_plan,
@@ -106,7 +107,7 @@ def test_direct_control_plan_excludes_outp0_baseline() -> None:
     assert plans[0].target_hpa == pytest.approx(1000.0)
 
 
-def test_direct_control_can_request_atmosphere_hold_during_control() -> None:
+def test_direct_control_atmosphere_flag_is_explicit() -> None:
     parser = build_arg_parser()
     args = parser.parse_args(
         [
@@ -123,6 +124,29 @@ def test_direct_control_can_request_atmosphere_hold_during_control() -> None:
     assert args.direct_control_only is True
     assert args.keep_atmosphere_hold_during_direct_control is True
     assert args.no_open_flow_atmosphere_hold is False
+
+
+def test_control_command_confirmation_requires_outp1_and_setpoint() -> None:
+    class FakePace:
+        def query(self, command: str) -> str:
+            return {
+                ":OUTP:STAT?": ":OUTP:STAT 1",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1001.34
+
+    confirmation = _confirm_control_command_state(FakePace(), target_hpa=1000.0)
+
+    assert confirmation["control_command_confirmed"] is True
+    assert confirmation["control_outp_state_after_command"] == 1
+    assert confirmation["control_setpoint_after_command_hpa"] == pytest.approx(1000.0)
+    assert confirmation["control_pressure_after_command_hpa"] == pytest.approx(1001.34)
+    assert confirmation["pace_vent_hold_during_outp1_allowed"] is False
 
 
 def test_fast_pressure_sample_uses_pace_read_without_slow_queries() -> None:

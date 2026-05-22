@@ -98,6 +98,14 @@ TELEMETRY_FIELDS = (
     "pressure_transient_elapsed_s",
     "pressure_soft_limit_hpa",
     "pressure_transient_limit_hpa",
+    "control_command_confirmed",
+    "control_outp_state_after_command",
+    "control_setpoint_after_command_hpa",
+    "control_vent_status_after_command",
+    "control_pressure_after_command_hpa",
+    "control_eff_after_command_pct",
+    "control_syst_err_after_command",
+    "pace_vent_hold_during_outp1_allowed",
     "open_flow_atmosphere_hold_active",
     "open_flow_atmosphere_hold_strategy",
     "atmosphere_hold_stopped_before_control",
@@ -833,6 +841,31 @@ def open_flow_pressure_abort_reason(
     )
 
 
+def _confirm_control_command_state(pace: Any, *, target_hpa: float | None) -> dict[str, Any]:
+    outp_state = _parse_first_float(_query_text(pace, ":OUTP:STAT?"))
+    setpoint = _parse_first_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL?"))
+    vent_status = _parse_first_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT?"))
+    pressure, _source = read_pace_pressure_hpa(pace)
+    eff = _parse_first_float(_query_text(pace, ":SOUR:PRES:EFF?"))
+    syst_err = _query_text(pace, ":SYST:ERR?")
+    target = _as_float(target_hpa)
+    setpoint_matches = bool(
+        target is not None
+        and setpoint is not None
+        and abs(float(setpoint) - float(target)) <= 0.05
+    )
+    return {
+        "control_command_confirmed": bool(outp_state == 1 and setpoint_matches),
+        "control_outp_state_after_command": outp_state,
+        "control_setpoint_after_command_hpa": setpoint,
+        "control_vent_status_after_command": vent_status,
+        "control_pressure_after_command_hpa": pressure,
+        "control_eff_after_command_pct": eff,
+        "control_syst_err_after_command": syst_err,
+        "pace_vent_hold_during_outp1_allowed": False,
+    }
+
+
 def _safe_abort_pace(pace: Any) -> None:
     for action in (
         lambda: pace.set_output(False),
@@ -993,6 +1026,14 @@ def _collect_sample(
         "pressure_transient_elapsed_s": "",
         "pressure_soft_limit_hpa": "",
         "pressure_transient_limit_hpa": "",
+        "control_command_confirmed": "",
+        "control_outp_state_after_command": "",
+        "control_setpoint_after_command_hpa": "",
+        "control_vent_status_after_command": "",
+        "control_pressure_after_command_hpa": "",
+        "control_eff_after_command_pct": "",
+        "control_syst_err_after_command": "",
+        "pace_vent_hold_during_outp1_allowed": False,
         "open_flow_atmosphere_hold_active": _pace_atmosphere_hold_active(pace),
         "open_flow_atmosphere_hold_strategy": "",
         "atmosphere_hold_stopped_before_control": False,
@@ -1053,6 +1094,14 @@ def _collect_fast_pressure_sample(
         "pressure_transient_elapsed_s": "",
         "pressure_soft_limit_hpa": "",
         "pressure_transient_limit_hpa": "",
+        "control_command_confirmed": "",
+        "control_outp_state_after_command": "",
+        "control_setpoint_after_command_hpa": "",
+        "control_vent_status_after_command": "",
+        "control_pressure_after_command_hpa": "",
+        "control_eff_after_command_pct": "",
+        "control_syst_err_after_command": "",
+        "pace_vent_hold_during_outp1_allowed": False,
         "open_flow_atmosphere_hold_active": False,
         "open_flow_atmosphere_hold_strategy": "disabled_for_direct_control",
         "atmosphere_hold_stopped_before_control": True,
@@ -1341,6 +1390,7 @@ def run_real_com_diagnostic(
             candidate_pressure = None
             outp1_ts = None
             source_open_ts = None
+            control_confirmation: dict[str, Any] = {}
             trial_samples: list[dict[str, Any]] = []
             if plan.mode_requested == "OUTP0":
                 pace.set_output(False)
@@ -1349,7 +1399,6 @@ def run_real_com_diagnostic(
                 if (
                     open_flow_atmosphere_hold
                     and not atmosphere_hold_stopped_before_control
-                    and not keep_atmosphere_hold_during_direct_control
                 ):
                     stop_info = stop_open_flow_atmosphere_hold_before_control(pace)
                     atmosphere_hold_stopped_before_control = True
@@ -1374,8 +1423,13 @@ def run_real_com_diagnostic(
                 elif plan.slew_mode == "LIN":
                     pace.set_slew_mode_linear()
                 pace.set_setpoint(float(plan.target_hpa))
-                pace.set_output(True)
+                enable_output = getattr(pace, "enable_control_output", None)
+                if callable(enable_output):
+                    enable_output(timeout_s=2.0, poll_s=0.1)
+                else:
+                    pace.set_output(True)
                 outp1_ts = time.time()
+                control_confirmation = _confirm_control_command_state(pace, target_hpa=plan.target_hpa)
                 if direct_control_only:
                     apply_logical_valves(cfg, devices, route["open_logical_valves"])
                     source_open_ts = time.time()
@@ -1401,6 +1455,7 @@ def run_real_com_diagnostic(
                 )
                 row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
                 row["atmosphere_hold_stopped_before_control"] = atmosphere_hold_stopped_before_control
+                row.update(control_confirmation)
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
@@ -1492,6 +1547,7 @@ def run_real_com_diagnostic(
                 )
                 row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
                 row["atmosphere_hold_stopped_before_control"] = atmosphere_hold_stopped_before_control
+                row.update(control_confirmation)
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
@@ -1591,13 +1647,15 @@ def run_real_com_diagnostic(
         "com22_secondary_pressure_enabled": bool(use_pressure_gauge_secondary),
         "direct_control_only": bool(direct_control_only),
         "keep_atmosphere_hold_during_direct_control": bool(keep_atmosphere_hold_during_direct_control),
+        "pace_vent_hold_during_outp1_allowed": False,
         "direct_control_sequence": (
             (
-                "atmosphere_hold -> path_open_without_source -> setpoint/profile/outp1 -> "
+                "atmosphere_hold_pre_equalize -> stop_pace_vent_hold -> path_open_without_source -> "
+                "setpoint/profile/outp1_confirmed -> "
                 "open_source -> fast_pace_pressure_samples"
             )
             if direct_control_only and keep_atmosphere_hold_during_direct_control
-            else "path_open_without_source -> setpoint/profile/outp1 -> open_source -> fast_pace_pressure_samples"
+            else "path_open_without_source -> setpoint/profile/outp1_confirmed -> open_source -> fast_pace_pressure_samples"
             if direct_control_only
             else "path_precheck -> source_open_outp0_observe -> setpoint_control"
         ),
@@ -1632,7 +1690,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--keep-atmosphere-hold-during-direct-control",
         action="store_true",
-        help="Diagnostic-only: keep PACE atmosphere hold active during direct-control source opening.",
+        help=(
+            "Diagnostic-only compatibility flag: pre-equalize with atmosphere hold, then stop PACE vent "
+            "before OUTP1 because VENT hold and pressure control are mutually exclusive."
+        ),
     )
     parser.add_argument("--output-dir", type=Path, default=Path("logs") / "v1_5_open_flow_dynamic_pressure")
     parser.add_argument("--run-id", default=None)
