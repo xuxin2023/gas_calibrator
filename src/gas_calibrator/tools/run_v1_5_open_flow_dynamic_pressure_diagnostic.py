@@ -777,12 +777,7 @@ def read_pace_pressure_hpa(pace: Any) -> tuple[float | None, str]:
 
 
 def _row_pressure_for_safety(row: Mapping[str, Any]) -> float | None:
-    values = [
-        _as_float(row.get("pace_pressure_hpa")),
-        _as_float(row.get("com22_pressure_hpa")),
-    ]
-    valid = [value for value in values if value is not None]
-    return max(valid) if valid else None
+    return _as_float(row.get("pace_pressure_hpa"))
 
 
 def row_exceeds_open_flow_pressure_safety(row: Mapping[str, Any], max_safe_pressure_hpa: float) -> bool:
@@ -1009,7 +1004,12 @@ def run_offline_plan(
     return payload
 
 
-def _build_live_devices(cfg: Mapping[str, Any], *, analyzer_label: str | None = None) -> dict[str, Any]:
+def _build_live_devices(
+    cfg: Mapping[str, Any],
+    *,
+    analyzer_label: str | None = None,
+    use_pressure_gauge_secondary: bool = False,
+) -> dict[str, Any]:
     from gas_calibrator.devices import DewpointMeter, GasAnalyzer, Pace5000, ParoscientificGauge, RelayController
 
     devices_cfg = cfg.get("devices", {}) if isinstance(cfg, Mapping) else {}
@@ -1026,7 +1026,7 @@ def _build_live_devices(cfg: Mapping[str, Any], *, analyzer_label: str | None = 
             timeout=float(pace_cfg.get("timeout", 1.0)),
         )
         built["pace"].open()
-        if isinstance(gauge_cfg, Mapping) and gauge_cfg.get("enabled", True):
+        if use_pressure_gauge_secondary and isinstance(gauge_cfg, Mapping) and gauge_cfg.get("enabled", True):
             built["pressure_gauge"] = ParoscientificGauge(
                 str(gauge_cfg.get("port", "COM22")),
                 int(gauge_cfg.get("baud", 9600)),
@@ -1121,6 +1121,7 @@ def run_real_com_diagnostic(
     open_flow_atmosphere_hold_interval_s: float = DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
     include_pass: bool = False,
     include_gaug: bool = False,
+    use_pressure_gauge_secondary: bool = False,
     restore_baseline: bool = True,
 ) -> dict[str, Any]:
     cfg = load_config(config_path)
@@ -1132,7 +1133,11 @@ def run_real_com_diagnostic(
         include_gaug=include_gaug,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
-    devices = _build_live_devices(cfg, analyzer_label=analyzer_label)
+    devices = _build_live_devices(
+        cfg,
+        analyzer_label=analyzer_label,
+        use_pressure_gauge_secondary=use_pressure_gauge_secondary,
+    )
     samples: list[dict[str, Any]] = []
     results: list[DynamicTrialResult] = []
     route = resolve_0ppm_open_flow_valves(cfg, gas_ppm=gas_ppm)
@@ -1407,6 +1412,9 @@ def run_real_com_diagnostic(
         "source_pressure_rise_abort_reason": source_rise_abort_reason,
         "max_safe_pressure_hpa": float(max_safe_pressure_hpa),
         "source_max_rise_hpa": float(source_max_rise_hpa),
+        "primary_pressure_source": "PACE",
+        "pressure_safety_source": "PACE",
+        "com22_secondary_pressure_enabled": bool(use_pressure_gauge_secondary),
         "open_flow_atmosphere_hold": atmosphere_hold_info,
         "atmosphere_hold_stopped_before_control": atmosphere_hold_stopped_before_control,
         "ranking": rank_results(results),
@@ -1438,6 +1446,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-control-s", type=float, default=DEFAULT_MAX_CONTROL_S)
     parser.add_argument("--max-safe-pressure-hpa", type=float, default=DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA)
     parser.add_argument("--source-max-rise-hpa", type=float, default=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA)
+    parser.add_argument(
+        "--use-com22-secondary-pressure",
+        action="store_true",
+        help="Optionally record COM22 as secondary evidence. PACE remains the control and safety pressure source.",
+    )
     parser.add_argument("--no-open-flow-atmosphere-hold", action="store_true")
     parser.add_argument(
         "--open-flow-atmosphere-hold-interval-s",
@@ -1491,6 +1504,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         open_flow_atmosphere_hold_interval_s=args.open_flow_atmosphere_hold_interval_s,
         include_pass=args.include_pass,
         include_gaug=args.include_gaug,
+        use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
         restore_baseline=not args.no_restore_baseline,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))

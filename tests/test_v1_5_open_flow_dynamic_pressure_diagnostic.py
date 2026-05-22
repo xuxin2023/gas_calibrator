@@ -244,12 +244,12 @@ def test_persistent_positive_effort_blocks_A_but_keeps_diagnostic_row() -> None:
     assert "positive_effort_diagnostic_only" in result.rejection_reasons
 
 
-def test_open_flow_pressure_safety_abort_uses_pace_or_com22_pressure() -> None:
+def test_open_flow_pressure_safety_abort_uses_pace_pressure_only() -> None:
     assert row_exceeds_open_flow_pressure_safety(
         {"pace_pressure_hpa": DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA + 0.1},
         DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     )
-    assert row_exceeds_open_flow_pressure_safety(
+    assert not row_exceeds_open_flow_pressure_safety(
         {"pace_pressure_hpa": 1002.0, "com22_pressure_hpa": DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA + 5.0},
         DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     )
@@ -267,6 +267,11 @@ def test_source_open_pressure_rise_blocks_dynamic_control_entry() -> None:
     )
     assert not row_exceeds_open_flow_source_rise(
         {"pace_pressure_hpa": 1018.0},
+        ambient_hpa=1006.0,
+        max_rise_hpa=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
+    )
+    assert not row_exceeds_open_flow_source_rise(
+        {"pace_pressure_hpa": 1006.5, "com22_pressure_hpa": 1064.0},
         ambient_hpa=1006.0,
         max_rise_hpa=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
     )
