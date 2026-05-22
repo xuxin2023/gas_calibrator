@@ -107,6 +107,7 @@ TELEMETRY_FIELDS = (
     "pressure_transient_limit_hpa",
     "control_command_confirmed",
     "control_outp_state_after_command",
+    "control_mode_after_command",
     "control_setpoint_after_command_hpa",
     "control_vent_status_after_command",
     "control_pressure_after_command_hpa",
@@ -946,6 +947,7 @@ def open_flow_dynamic_control_runaway_reason(
 
 def _confirm_control_command_state(pace: Any, *, target_hpa: float | None) -> dict[str, Any]:
     outp_state = _parse_scpi_value_float(_query_text(pace, ":OUTP:STAT?"))
+    mode = _query_text(pace, ":OUTP:MODE?")
     setpoint = _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL?"))
     vent_status = _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT?"))
     pressure, _source = read_pace_pressure_hpa(pace)
@@ -960,6 +962,7 @@ def _confirm_control_command_state(pace: Any, *, target_hpa: float | None) -> di
     return {
         "control_command_confirmed": bool(outp_state == 1 and setpoint_matches),
         "control_outp_state_after_command": outp_state,
+        "control_mode_after_command": mode,
         "control_setpoint_after_command_hpa": setpoint,
         "control_vent_status_after_command": vent_status,
         "control_pressure_after_command_hpa": pressure,
@@ -973,18 +976,33 @@ def _enable_control_output_confirmed(
     pace: Any,
     *,
     target_hpa: float | None,
+    mode_requested: str = "ACT",
     timeout_s: float = 5.0,
     poll_s: float = 0.25,
 ) -> dict[str, Any]:
     deadline = time.time() + max(0.5, float(timeout_s))
     confirmation: dict[str, Any] = {}
+    requested_mode = str(mode_requested or "ACT").strip().upper()
     while time.time() < deadline:
-        enable_output = getattr(pace, "enable_control_output", None)
         try:
-            if callable(enable_output):
+            if requested_mode == "ACT" and callable(getattr(pace, "enable_control_output", None)):
+                enable_output = getattr(pace, "enable_control_output")
                 enable_output(timeout_s=min(1.0, max(0.2, deadline - time.time())), poll_s=0.1)
             else:
-                pace.set_output(True)
+                set_isolation_open = getattr(pace, "set_isolation_open", None)
+                if callable(set_isolation_open):
+                    set_isolation_open(True)
+                wait_idle = getattr(pace, "wait_for_vent_idle", None)
+                if callable(wait_idle):
+                    try:
+                        wait_idle(timeout_s=0.5, poll_s=0.1)
+                    except Exception:
+                        pass
+                set_output = getattr(pace, "set_output", None)
+                if callable(set_output):
+                    set_output(True)
+                else:
+                    pace.write(":OUTP:STAT 1")
         except Exception:
             pass
         confirmation = _confirm_control_command_state(pace, target_hpa=target_hpa)
@@ -1193,6 +1211,7 @@ def _collect_sample(
         "pressure_transient_limit_hpa": "",
         "control_command_confirmed": "",
         "control_outp_state_after_command": "",
+        "control_mode_after_command": "",
         "control_setpoint_after_command_hpa": "",
         "control_vent_status_after_command": "",
         "control_pressure_after_command_hpa": "",
@@ -1277,6 +1296,7 @@ def _collect_fast_pressure_sample(
         "pressure_transient_limit_hpa": "",
         "control_command_confirmed": "",
         "control_outp_state_after_command": "",
+        "control_mode_after_command": "",
         "control_setpoint_after_command_hpa": "",
         "control_vent_status_after_command": "",
         "control_pressure_after_command_hpa": "",
@@ -1310,6 +1330,7 @@ def refresh_direct_control_keepalive(
     row["control_keepalive_checked"] = True
     confirmation = _confirm_control_command_state(pace, target_hpa=plan.target_hpa)
     row["outp_state"] = confirmation.get("control_outp_state_after_command")
+    row["outp_mode"] = confirmation.get("control_mode_after_command")
     row["vent_status"] = confirmation.get("control_vent_status_after_command")
     row["setpoint_hpa"] = confirmation.get("control_setpoint_after_command_hpa") or plan.target_hpa
     row["sour_pres_eff_pct"] = confirmation.get("control_eff_after_command_pct")
@@ -1331,11 +1352,18 @@ def refresh_direct_control_keepalive(
     if plan.target_hpa is not None and not confirmation.get("control_command_confirmed"):
         state["dropout_seen"] = True
         row["control_output_dropout_seen"] = True
-        retry = _enable_control_output_confirmed(pace, target_hpa=plan.target_hpa, timeout_s=2.0, poll_s=0.2)
+        retry = _enable_control_output_confirmed(
+            pace,
+            target_hpa=plan.target_hpa,
+            mode_requested=plan.mode_requested,
+            timeout_s=2.0,
+            poll_s=0.2,
+        )
         state["reassert_count"] = int(state.get("reassert_count") or 0) + 1
         row["control_output_reasserted"] = True
         row.update(retry)
         row["outp_state"] = retry.get("control_outp_state_after_command")
+        row["outp_mode"] = retry.get("control_mode_after_command")
         row["vent_status"] = retry.get("control_vent_status_after_command")
         row["setpoint_hpa"] = retry.get("control_setpoint_after_command_hpa") or plan.target_hpa
         row["sour_pres_eff_pct"] = retry.get("control_eff_after_command_pct")
@@ -1766,7 +1794,11 @@ def run_real_com_diagnostic(
                     if plan.slew_rate_hpa_per_s is not None:
                         pace.set_slew_rate(float(plan.slew_rate_hpa_per_s))
                 pace.set_setpoint(float(plan.target_hpa))
-                control_confirmation = _enable_control_output_confirmed(pace, target_hpa=plan.target_hpa)
+                control_confirmation = _enable_control_output_confirmed(
+                    pace,
+                    target_hpa=plan.target_hpa,
+                    mode_requested=plan.mode_requested,
+                )
                 outp1_ts = time.time()
                 if direct_control_only and not control_confirmation.get("control_command_confirmed"):
                     abort_reason = "pace_control_output_not_confirmed_before_source"

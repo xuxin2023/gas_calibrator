@@ -160,6 +160,7 @@ def test_control_command_confirmation_requires_outp1_and_setpoint() -> None:
         def query(self, command: str) -> str:
             return {
                 ":OUTP:STAT?": ":OUTP:STAT 1",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
                 ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
                 ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
@@ -173,6 +174,7 @@ def test_control_command_confirmation_requires_outp1_and_setpoint() -> None:
 
     assert confirmation["control_command_confirmed"] is True
     assert confirmation["control_outp_state_after_command"] == 1
+    assert confirmation["control_mode_after_command"] == ":OUTP:MODE ACT"
     assert confirmation["control_setpoint_after_command_hpa"] == pytest.approx(1000.0)
     assert confirmation["control_pressure_after_command_hpa"] == pytest.approx(1001.34)
     assert confirmation["pace_vent_hold_during_outp1_allowed"] is False
@@ -195,6 +197,7 @@ def test_enable_control_output_confirmation_retries_documented_outp_stat() -> No
         def query(self, command: str) -> str:
             return {
                 ":OUTP:STAT?": f":OUTP:STAT {self.outp}",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
                 ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
                 ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
@@ -209,6 +212,61 @@ def test_enable_control_output_confirmation_retries_documented_outp_stat() -> No
 
     assert confirmation["control_command_confirmed"] is True
     assert ":OUTP:STAT 1" in pace.writes
+
+
+def test_non_act_mode_enable_does_not_force_active_helper() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.outp = 0
+            self.mode = "GAUG"
+            self.calls: list[str] = []
+
+        def enable_control_output(self, **kwargs) -> None:
+            self.calls.append("enable_control_output")
+            self.mode = "ACT"
+            self.outp = 1
+
+        def set_isolation_open(self, is_open: bool) -> None:
+            self.calls.append(f"set_isolation_open:{is_open}")
+
+        def wait_for_vent_idle(self, **kwargs) -> int:
+            self.calls.append("wait_for_vent_idle")
+            return 2
+
+        def set_output(self, enabled: bool) -> None:
+            self.calls.append(f"set_output:{enabled}")
+            self.outp = 1 if enabled else 0
+
+        def write(self, command: str) -> None:
+            self.calls.append(command)
+
+        def query(self, command: str) -> str:
+            return {
+                ":OUTP:STAT?": f":OUTP:STAT {self.outp}",
+                ":OUTP:MODE?": f":OUTP:MODE {self.mode}",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1000.25
+
+    pace = FakePace()
+
+    confirmation = _enable_control_output_confirmed(
+        pace,
+        target_hpa=1000.0,
+        mode_requested="GAUG",
+        timeout_s=0.5,
+        poll_s=0.01,
+    )
+
+    assert confirmation["control_command_confirmed"] is True
+    assert confirmation["control_mode_after_command"] == ":OUTP:MODE GAUG"
+    assert "enable_control_output" not in pace.calls
+    assert "set_output:True" in pace.calls
 
 
 def test_enable_control_output_confirmation_accepts_delayed_outp_after_final_retry() -> None:
@@ -231,6 +289,7 @@ def test_enable_control_output_confirmation_accepts_delayed_outp_after_final_ret
                 value = 1 if self.outp_queries_after_raw >= 1 else 0
                 return f":OUTP:STAT {value}"
             return {
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
                 ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
                 ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
