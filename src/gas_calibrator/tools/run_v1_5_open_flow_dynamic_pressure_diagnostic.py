@@ -369,6 +369,7 @@ def build_default_trial_plan(
     include_pass: bool = False,
     include_gaug: bool = False,
     include_over1: bool = False,
+    only_over1: bool = False,
     set_slew_value_max: bool = False,
     allow_above_ambient: bool = False,
     include_outp0_baseline: bool = True,
@@ -393,17 +394,18 @@ def build_default_trial_plan(
             )
         )
     for target in targets:
-        plans.append(
-            DynamicTrialPlan(
-                trial_id=f"open_flow_act_over0_max_{target:g}",
-                label=f"open-flow ACT + OVER0 + MAX at {target:g} hPa",
-                mode_requested="ACT",
-                target_hpa=float(target),
-                gas_ppm=int(gas_ppm),
-                slew_value_max=bool(set_slew_value_max),
+        if not only_over1:
+            plans.append(
+                DynamicTrialPlan(
+                    trial_id=f"open_flow_act_over0_max_{target:g}",
+                    label=f"open-flow ACT + OVER0 + MAX at {target:g} hPa",
+                    mode_requested="ACT",
+                    target_hpa=float(target),
+                    gas_ppm=int(gas_ppm),
+                    slew_value_max=bool(set_slew_value_max),
+                )
             )
-        )
-        if include_over1:
+        if include_over1 or only_over1:
             plans.append(
                 DynamicTrialPlan(
                     trial_id=f"open_flow_act_over1_max_{target:g}",
@@ -1298,6 +1300,7 @@ def run_offline_plan(
     include_pass: bool = False,
     include_gaug: bool = False,
     include_over1: bool = False,
+    only_over1: bool = False,
     set_slew_value_max: bool = False,
     include_outp0_baseline: bool = True,
 ) -> dict[str, Any]:
@@ -1308,6 +1311,7 @@ def run_offline_plan(
         include_pass=include_pass,
         include_gaug=include_gaug,
         include_over1=include_over1,
+        only_over1=only_over1,
         set_slew_value_max=set_slew_value_max,
         include_outp0_baseline=include_outp0_baseline,
     )
@@ -1334,6 +1338,7 @@ def run_offline_plan(
         "pace_vent_control_strategy": "do_not_use_pace_vent_for_sampling_control",
         "set_slew_value_max": bool(set_slew_value_max),
         "include_over1": bool(include_over1),
+        "only_over1": bool(only_over1),
         "trial_plan": [asdict(plan) for plan in plans],
         "planned_commands": command_rows,
     }
@@ -1462,6 +1467,7 @@ def run_real_com_diagnostic(
     include_pass: bool = False,
     include_gaug: bool = False,
     include_over1: bool = False,
+    only_over1: bool = False,
     set_slew_value_max: bool = False,
     use_pressure_gauge_secondary: bool = False,
     direct_control_only: bool = False,
@@ -1476,6 +1482,7 @@ def run_real_com_diagnostic(
         include_pass=include_pass,
         include_gaug=include_gaug,
         include_over1=include_over1,
+        only_over1=only_over1,
         set_slew_value_max=set_slew_value_max,
         include_outp0_baseline=not direct_control_only,
     )
@@ -1924,6 +1931,7 @@ def run_real_com_diagnostic(
         "com22_secondary_pressure_enabled": bool(use_pressure_gauge_secondary),
         "set_slew_value_max": bool(set_slew_value_max),
         "include_over1": bool(include_over1),
+        "only_over1": bool(only_over1),
         "direct_control_only": bool(direct_control_only),
         "keep_atmosphere_hold_during_direct_control": bool(keep_atmosphere_hold_during_direct_control),
         "pace_vent_hold_during_outp1_allowed": False,
@@ -1961,6 +1969,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--include-pass", action="store_true")
     parser.add_argument("--include-gaug", action="store_true")
     parser.add_argument("--include-over1", action="store_true", help="Add ACT + OVER1 + MAX as a diagnostic-only fastest-response comparison.")
+    parser.add_argument("--only-over1", action="store_true", help="Run only ACT + OVER1 + MAX fastest diagnostic trials, skipping the OVER0 comparison.")
     parser.add_argument(
         "--set-slew-value-max",
         action="store_true",
@@ -2028,6 +2037,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             include_pass=args.include_pass,
             include_gaug=args.include_gaug,
             include_over1=args.include_over1,
+            only_over1=args.only_over1,
             set_slew_value_max=args.set_slew_value_max,
             include_outp0_baseline=not args.direct_control_only,
         )
@@ -2057,6 +2067,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_pass=args.include_pass,
         include_gaug=args.include_gaug,
         include_over1=args.include_over1,
+        only_over1=args.only_over1,
         set_slew_value_max=args.set_slew_value_max,
         use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
         direct_control_only=args.direct_control_only,

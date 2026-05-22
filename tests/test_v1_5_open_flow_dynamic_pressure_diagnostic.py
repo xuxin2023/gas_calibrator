@@ -134,6 +134,7 @@ def test_fastest_diagnostic_flags_are_explicit() -> None:
     args = parser.parse_args(
         [
             "--include-over1",
+            "--only-over1",
             "--set-slew-value-max",
             "--targets",
             "1000",
@@ -141,6 +142,7 @@ def test_fastest_diagnostic_flags_are_explicit() -> None:
     )
 
     assert args.include_over1 is True
+    assert args.only_over1 is True
     assert args.set_slew_value_max is True
 
 
@@ -337,6 +339,22 @@ def test_include_over1_adds_fastest_diagnostic_trial_without_changing_default() 
     assert over1[0].slew_mode == "MAX"
     assert over1[0].slew_value_max is True
     assert over1[0].diagnostic_only is True
+
+
+def test_only_over1_skips_over0_for_fastest_real_smoke() -> None:
+    plans = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        only_over1=True,
+        set_slew_value_max=True,
+        include_outp0_baseline=False,
+    )
+
+    assert len(plans) == 1
+    assert plans[0].mode_requested == "ACT"
+    assert plans[0].overshoot_allowed is True
+    assert plans[0].slew_mode == "MAX"
+    assert plans[0].slew_value_max is True
 
 
 def test_gaug_is_explicit_diagnostic_opt_in_not_default() -> None:
