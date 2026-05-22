@@ -894,6 +894,11 @@ def _enable_control_output_confirmed(
         except Exception:
             pass
         time.sleep(max(0.05, float(poll_s)))
+        confirmation = _confirm_control_command_state(pace, target_hpa=target_hpa)
+        if confirmation.get("control_command_confirmed"):
+            return confirmation
+    time.sleep(max(0.05, float(poll_s)))
+    confirmation = _confirm_control_command_state(pace, target_hpa=target_hpa)
     return confirmation
 
 

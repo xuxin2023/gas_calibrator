@@ -183,6 +183,46 @@ def test_enable_control_output_confirmation_retries_documented_outp_stat() -> No
     assert ":OUTP:STAT 1" in pace.writes
 
 
+def test_enable_control_output_confirmation_accepts_delayed_outp_after_final_retry() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.raw_outp_written = False
+            self.outp_queries_after_raw = 0
+
+        def enable_control_output(self, **kwargs) -> None:
+            pass
+
+        def write(self, command: str) -> None:
+            if command == ":OUTP:STAT 1":
+                self.raw_outp_written = True
+
+        def query(self, command: str) -> str:
+            if command == ":OUTP:STAT?":
+                if self.raw_outp_written:
+                    self.outp_queries_after_raw += 1
+                value = 1 if self.outp_queries_after_raw >= 1 else 0
+                return f":OUTP:STAT {value}"
+            return {
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1000.25
+
+    confirmation = _enable_control_output_confirmed(
+        FakePace(),
+        target_hpa=1000.0,
+        timeout_s=0.5,
+        poll_s=0.6,
+    )
+
+    assert confirmation["control_command_confirmed"] is True
+    assert confirmation["control_outp_state_after_command"] == 1
+
+
 def test_fast_pressure_sample_uses_pace_read_without_slow_queries() -> None:
     class FakePace:
         def read_pressure(self) -> float:
