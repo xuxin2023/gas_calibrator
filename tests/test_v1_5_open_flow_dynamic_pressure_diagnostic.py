@@ -123,6 +123,8 @@ def test_direct_control_atmosphere_flag_is_explicit() -> None:
             "--real-com",
             "--i-understand-open-flow-no-write",
             "--operator-confirm-0ppm-flow",
+            "--pace-timeout-s",
+            "0.12",
             "--targets",
             "1000",
         ]
@@ -133,6 +135,7 @@ def test_direct_control_atmosphere_flag_is_explicit() -> None:
     assert args.no_open_flow_atmosphere_hold is False
     assert args.rich_telemetry_interval_s == pytest.approx(DEFAULT_RICH_TELEMETRY_INTERVAL_S)
     assert args.rich_telemetry_initial_delay_s == pytest.approx(DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S)
+    assert args.pace_timeout_s == pytest.approx(0.12)
 
 
 def test_fastest_diagnostic_flags_are_explicit() -> None:

@@ -1431,6 +1431,7 @@ def _build_live_devices(
     *,
     analyzer_label: str | None = None,
     use_pressure_gauge_secondary: bool = False,
+    pace_timeout_s: float | None = None,
 ) -> dict[str, Any]:
     from gas_calibrator.devices import DewpointMeter, GasAnalyzer, Pace5000, ParoscientificGauge, RelayController
 
@@ -1445,7 +1446,7 @@ def _build_live_devices(
         built["pace"] = Pace5000(
             str(pace_cfg.get("port", "COM23")),
             int(pace_cfg.get("baud", 9600)),
-            timeout=float(pace_cfg.get("timeout", 1.0)),
+            timeout=float(pace_timeout_s if pace_timeout_s is not None else pace_cfg.get("timeout", 1.0)),
         )
         built["pace"].open()
         if use_pressure_gauge_secondary and isinstance(gauge_cfg, Mapping) and gauge_cfg.get("enabled", True):
@@ -1551,6 +1552,7 @@ def run_real_com_diagnostic(
     only_over1: bool = False,
     set_slew_value_max: bool = False,
     use_pressure_gauge_secondary: bool = False,
+    pace_timeout_s: float | None = None,
     direct_control_only: bool = False,
     keep_atmosphere_hold_during_direct_control: bool = False,
     restore_baseline: bool = True,
@@ -1572,6 +1574,7 @@ def run_real_com_diagnostic(
         cfg,
         analyzer_label=analyzer_label,
         use_pressure_gauge_secondary=use_pressure_gauge_secondary,
+        pace_timeout_s=pace_timeout_s,
     )
     samples: list[dict[str, Any]] = []
     results: list[DynamicTrialResult] = []
@@ -2054,6 +2057,9 @@ def run_real_com_diagnostic(
         "primary_pressure_source": "PACE",
         "pressure_safety_source": "PACE",
         "com22_secondary_pressure_enabled": bool(use_pressure_gauge_secondary),
+        "pace_serial_timeout_s": (
+            float(pace_timeout_s) if pace_timeout_s is not None else ""
+        ),
         "fast_pressure_loop_interval_s": float(sample_interval_s),
         "rich_telemetry_interval_s": float(rich_telemetry_interval_s),
         "rich_telemetry_initial_delay_s": float(
@@ -2153,6 +2159,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Optionally record COM22 as secondary evidence. PACE remains the control and safety pressure source.",
     )
+    parser.add_argument(
+        "--pace-timeout-s",
+        type=float,
+        default=None,
+        help="Diagnostic-only serial timeout override for PACE fast pressure reads.",
+    )
     parser.add_argument("--no-open-flow-atmosphere-hold", action="store_true")
     parser.add_argument(
         "--open-flow-atmosphere-hold-interval-s",
@@ -2221,6 +2233,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         only_over1=args.only_over1,
         set_slew_value_max=args.set_slew_value_max,
         use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
+        pace_timeout_s=args.pace_timeout_s,
         direct_control_only=args.direct_control_only,
         keep_atmosphere_hold_during_direct_control=args.keep_atmosphere_hold_during_direct_control,
         restore_baseline=not args.no_restore_baseline,
