@@ -335,24 +335,27 @@ def build_default_trial_plan(
     include_pass: bool = False,
     include_gaug: bool = False,
     allow_above_ambient: bool = False,
+    include_outp0_baseline: bool = True,
 ) -> list[DynamicTrialPlan]:
     targets = validate_dynamic_targets(
         targets_hpa,
         ambient_hpa=ambient_hpa,
         allow_above_ambient=allow_above_ambient,
     )
-    plans = [
-        DynamicTrialPlan(
-            trial_id="open_flow_outp0_observe",
-            label="open-flow OUTP0 observe-only baseline",
-            mode_requested="OUTP0",
-            target_hpa=None,
-            gas_ppm=int(gas_ppm),
-            slew_mode=None,
-            overshoot_allowed=None,
-            outp1_sent=False,
+    plans: list[DynamicTrialPlan] = []
+    if include_outp0_baseline:
+        plans.append(
+            DynamicTrialPlan(
+                trial_id="open_flow_outp0_observe",
+                label="open-flow OUTP0 observe-only baseline",
+                mode_requested="OUTP0",
+                target_hpa=None,
+                gas_ppm=int(gas_ppm),
+                slew_mode=None,
+                overshoot_allowed=None,
+                outp1_sent=False,
+            )
         )
-    ]
     for target in targets:
         plans.append(
             DynamicTrialPlan(
@@ -959,6 +962,62 @@ def _collect_sample(
     }
 
 
+def _collect_fast_pressure_sample(
+    pace: Any,
+    *,
+    plan: DynamicTrialPlan,
+    actual_open_valves: Sequence[int] = (),
+) -> dict[str, Any]:
+    ts = time.time()
+    pace_pressure, pace_pressure_source = read_pace_pressure_hpa(pace)
+    return {
+        "ts": ts,
+        "trial_id": plan.trial_id,
+        "mode_requested": plan.mode_requested,
+        "target_hpa": plan.target_hpa,
+        "gas_ppm": plan.gas_ppm,
+        "phase": "open_flow_dynamic_pressure_fast_control",
+        "open_flow_route_active": True,
+        "route_sealed": False,
+        "outp_state": "",
+        "outp_mode": plan.mode_requested,
+        "vent_status": "",
+        "isolation_state": "",
+        "setpoint_hpa": plan.target_hpa,
+        "pace_pressure_hpa": pace_pressure,
+        "pace_pressure_source": pace_pressure_source,
+        "com22_pressure_hpa": "",
+        "sour_pres_eff_pct": "",
+        "sour_pres_comp1_hpa": "",
+        "sour_pres_comp2_hpa": "",
+        "source_pressure_range": "",
+        "sense_pressure_range": "",
+        "slew_mode": plan.slew_mode or "",
+        "slew_over": 1 if plan.overshoot_allowed else 0 if plan.overshoot_allowed is not None else "",
+        "vent_rate": "",
+        "vent_rate_unit": "",
+        "dewpoint_c": "",
+        "dewpoint_ts": "",
+        "dewpoint_age_ms": "",
+        "dewpoint_source": "",
+        "analyzer_co2_ppm": "",
+        "analyzer_h2o_mmol": "",
+        "analyzer_ts": "",
+        "analyzer_age_ms": "",
+        "analyzer_source": "",
+        "actual_open_valves": ",".join(str(value) for value in actual_open_valves),
+        "syst_err": "",
+        "pressure_safety_abort": False,
+        "pressure_safety_abort_reason": "",
+        "precheck_abort_phase": "",
+        "source_pressure_rise_abort": False,
+        "source_pressure_rise_abort_reason": "",
+        "open_flow_atmosphere_hold_active": False,
+        "open_flow_atmosphere_hold_strategy": "disabled_for_direct_control",
+        "atmosphere_hold_stopped_before_control": True,
+    }
+
+
 def run_offline_plan(
     *,
     output_dir: Path,
@@ -967,6 +1026,7 @@ def run_offline_plan(
     gas_ppm: int = DEFAULT_GAS_PPM,
     include_pass: bool = False,
     include_gaug: bool = False,
+    include_outp0_baseline: bool = True,
 ) -> dict[str, Any]:
     plans = build_default_trial_plan(
         targets_hpa,
@@ -974,6 +1034,7 @@ def run_offline_plan(
         gas_ppm=gas_ppm,
         include_pass=include_pass,
         include_gaug=include_gaug,
+        include_outp0_baseline=include_outp0_baseline,
     )
     command_rows = [
         {
@@ -1122,6 +1183,7 @@ def run_real_com_diagnostic(
     include_pass: bool = False,
     include_gaug: bool = False,
     use_pressure_gauge_secondary: bool = False,
+    direct_control_only: bool = False,
     restore_baseline: bool = True,
 ) -> dict[str, Any]:
     cfg = load_config(config_path)
@@ -1131,6 +1193,7 @@ def run_real_com_diagnostic(
         gas_ppm=gas_ppm,
         include_pass=include_pass,
         include_gaug=include_gaug,
+        include_outp0_baseline=not direct_control_only,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     devices = _build_live_devices(
@@ -1167,61 +1230,64 @@ def run_real_com_diagnostic(
             original_mode = pace.get_output_mode()
         except Exception:
             original_mode = "ACT"
-        if open_flow_atmosphere_hold:
+        if open_flow_atmosphere_hold and not direct_control_only:
             atmosphere_hold_info = start_open_flow_atmosphere_hold(
                 pace,
                 interval_s=open_flow_atmosphere_hold_interval_s,
             )
-        apply_logical_valves(cfg, devices, route.get("path_open_logical_valves") or [])
-        path_precheck_plan = DynamicTrialPlan(
-            trial_id="open_flow_path_precheck_no_source",
-            label="open-flow path precheck without gas source",
-            mode_requested="OUTP0_PATH_PRECHECK",
-            target_hpa=None,
-            gas_ppm=int(gas_ppm),
-            slew_mode=None,
-            overshoot_allowed=None,
-            outp1_sent=False,
-        )
-        row = _collect_sample(
-            pace,
-            plan=path_precheck_plan,
-            dewpoint=devices.get("dewpoint"),
-            pressure_gauge=devices.get("pressure_gauge"),
-            analyzer=devices.get("analyzer"),
-            actual_open_valves=route.get("path_open_logical_valves") or [],
-        )
-        row["open_flow_atmosphere_hold_active"] = bool(atmosphere_hold_info.get("active"))
-        row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
-        samples.append(row)
-        safety_pressure = _row_pressure_for_safety(row)
-        if row_exceeds_open_flow_pressure_safety(row, max_safe_pressure_hpa):
-            precheck_abort_phase = "path_precheck_no_source"
-            abort_reason = (
-                f"open_flow_pressure_safety_abort:"
-                f"{float(safety_pressure or 0.0):.3f}>{float(max_safe_pressure_hpa):.3f}"
-            )
-            row["pressure_safety_abort"] = True
-            row["pressure_safety_abort_reason"] = abort_reason
-            row["precheck_abort_phase"] = precheck_abort_phase
-            _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
-            result = summarize_samples(
-                [row],
-                plan=path_precheck_plan,
-                ambient_hpa=ambient_hpa,
-                candidate_ts=None,
-                candidate_pressure_hpa=None,
-                outp1_ts=None,
-                mode_confirmed=path_precheck_plan.mode_requested,
-            )
-            result = _mark_pressure_safety_abort(result, abort_reason)
-            results.append(result)
-            _append_csv_row(result_csv_path, RESULT_FIELDS, asdict(result))
-            _safe_abort_pace(pace)
-            abort_all = True
+        if direct_control_only:
+            apply_logical_valves(cfg, devices, route.get("path_open_logical_valves") or [])
         else:
-            _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
-        if not abort_all:
+            apply_logical_valves(cfg, devices, route.get("path_open_logical_valves") or [])
+            path_precheck_plan = DynamicTrialPlan(
+                trial_id="open_flow_path_precheck_no_source",
+                label="open-flow path precheck without gas source",
+                mode_requested="OUTP0_PATH_PRECHECK",
+                target_hpa=None,
+                gas_ppm=int(gas_ppm),
+                slew_mode=None,
+                overshoot_allowed=None,
+                outp1_sent=False,
+            )
+            row = _collect_sample(
+                pace,
+                plan=path_precheck_plan,
+                dewpoint=devices.get("dewpoint"),
+                pressure_gauge=devices.get("pressure_gauge"),
+                analyzer=devices.get("analyzer"),
+                actual_open_valves=route.get("path_open_logical_valves") or [],
+            )
+            row["open_flow_atmosphere_hold_active"] = bool(atmosphere_hold_info.get("active"))
+            row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
+            samples.append(row)
+            safety_pressure = _row_pressure_for_safety(row)
+            if row_exceeds_open_flow_pressure_safety(row, max_safe_pressure_hpa):
+                precheck_abort_phase = "path_precheck_no_source"
+                abort_reason = (
+                    f"open_flow_pressure_safety_abort:"
+                    f"{float(safety_pressure or 0.0):.3f}>{float(max_safe_pressure_hpa):.3f}"
+                )
+                row["pressure_safety_abort"] = True
+                row["pressure_safety_abort_reason"] = abort_reason
+                row["precheck_abort_phase"] = precheck_abort_phase
+                _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+                result = summarize_samples(
+                    [row],
+                    plan=path_precheck_plan,
+                    ambient_hpa=ambient_hpa,
+                    candidate_ts=None,
+                    candidate_pressure_hpa=None,
+                    outp1_ts=None,
+                    mode_confirmed=path_precheck_plan.mode_requested,
+                )
+                result = _mark_pressure_safety_abort(result, abort_reason)
+                results.append(result)
+                _append_csv_row(result_csv_path, RESULT_FIELDS, asdict(result))
+                _safe_abort_pace(pace)
+                abort_all = True
+            else:
+                _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+        if not abort_all and not direct_control_only:
             apply_logical_valves(cfg, devices, route["open_logical_valves"])
         for plan in plans:
             if abort_all:
@@ -1261,16 +1327,25 @@ def run_real_com_diagnostic(
                 pace.set_setpoint(float(plan.target_hpa))
                 pace.set_output(True)
                 outp1_ts = time.time()
+                if direct_control_only:
+                    apply_logical_valves(cfg, devices, route["open_logical_valves"])
                 deadline = outp1_ts + max_control_s
             while time.time() < deadline:
-                row = _collect_sample(
-                    pace,
-                    plan=plan,
-                    dewpoint=devices.get("dewpoint"),
-                    pressure_gauge=devices.get("pressure_gauge"),
-                    analyzer=devices.get("analyzer"),
-                    actual_open_valves=route["open_logical_valves"],
-                )
+                if direct_control_only:
+                    row = _collect_fast_pressure_sample(
+                        pace,
+                        plan=plan,
+                        actual_open_valves=route["open_logical_valves"],
+                    )
+                else:
+                    row = _collect_sample(
+                        pace,
+                        plan=plan,
+                        dewpoint=devices.get("dewpoint"),
+                        pressure_gauge=devices.get("pressure_gauge"),
+                        analyzer=devices.get("analyzer"),
+                        actual_open_valves=route["open_logical_valves"],
+                    )
                 row["open_flow_atmosphere_hold_active"] = bool(
                     open_flow_atmosphere_hold and not atmosphere_hold_stopped_before_control
                 )
@@ -1325,14 +1400,21 @@ def run_real_com_diagnostic(
             for _ in range(max(0, int(sample_count) - len(trial_samples))):
                 if abort_all:
                     break
-                row = _collect_sample(
-                    pace,
-                    plan=plan,
-                    dewpoint=devices.get("dewpoint"),
-                    pressure_gauge=devices.get("pressure_gauge"),
-                    analyzer=devices.get("analyzer"),
-                    actual_open_valves=route["open_logical_valves"],
-                )
+                if direct_control_only:
+                    row = _collect_fast_pressure_sample(
+                        pace,
+                        plan=plan,
+                        actual_open_valves=route["open_logical_valves"],
+                    )
+                else:
+                    row = _collect_sample(
+                        pace,
+                        plan=plan,
+                        dewpoint=devices.get("dewpoint"),
+                        pressure_gauge=devices.get("pressure_gauge"),
+                        analyzer=devices.get("analyzer"),
+                        actual_open_valves=route["open_logical_valves"],
+                    )
                 row["open_flow_atmosphere_hold_active"] = bool(
                     open_flow_atmosphere_hold and not atmosphere_hold_stopped_before_control
                 )
@@ -1415,6 +1497,12 @@ def run_real_com_diagnostic(
         "primary_pressure_source": "PACE",
         "pressure_safety_source": "PACE",
         "com22_secondary_pressure_enabled": bool(use_pressure_gauge_secondary),
+        "direct_control_only": bool(direct_control_only),
+        "direct_control_sequence": (
+            "path_open_without_source -> setpoint/profile/outp1 -> open_source -> fast_pace_pressure_samples"
+            if direct_control_only
+            else "path_precheck -> source_open_outp0_observe -> setpoint_control"
+        ),
         "open_flow_atmosphere_hold": atmosphere_hold_info,
         "atmosphere_hold_stopped_before_control": atmosphere_hold_stopped_before_control,
         "ranking": rank_results(results),
@@ -1438,6 +1526,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--include-pass", action="store_true")
     parser.add_argument("--include-gaug", action="store_true")
     parser.add_argument("--allow-above-ambient", action="store_true")
+    parser.add_argument(
+        "--direct-control-only",
+        action="store_true",
+        help="Skip OUTP0 wash/observe phases; set PACE target first, then open source and sample PACE pressure quickly.",
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("logs") / "v1_5_open_flow_dynamic_pressure")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--analyzer", default=None, help="Optional analyzer label, e.g. ga01. Omit to avoid analyzer serial reads.")
@@ -1483,6 +1576,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             gas_ppm=args.gas_ppm,
             include_pass=args.include_pass,
             include_gaug=args.include_gaug,
+            include_outp0_baseline=not args.direct_control_only,
         )
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
@@ -1500,11 +1594,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_control_s=args.max_control_s,
         max_safe_pressure_hpa=args.max_safe_pressure_hpa,
         source_max_rise_hpa=args.source_max_rise_hpa,
-        open_flow_atmosphere_hold=not args.no_open_flow_atmosphere_hold,
+        open_flow_atmosphere_hold=(not args.no_open_flow_atmosphere_hold and not args.direct_control_only),
         open_flow_atmosphere_hold_interval_s=args.open_flow_atmosphere_hold_interval_s,
         include_pass=args.include_pass,
         include_gaug=args.include_gaug,
         use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
+        direct_control_only=args.direct_control_only,
         restore_baseline=not args.no_restore_baseline,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))

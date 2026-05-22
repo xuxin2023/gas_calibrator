@@ -10,6 +10,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
     DynamicTrialPlan,
     PACE_VENT_WRITE_RE,
+    _collect_fast_pressure_sample,
     assert_no_forbidden_writes,
     build_default_trial_plan,
     command_is_forbidden_write,
@@ -94,6 +95,36 @@ def test_default_plan_is_open_flow_not_sealed_and_uses_0ppm() -> None:
     assert all(item.open_flow_route_active is True for item in plan)
     assert all(item.route_sealed is False for item in plan)
     assert {item.mode_requested for item in plan} == {"OUTP0", "ACT"}
+
+
+def test_direct_control_plan_excludes_outp0_baseline() -> None:
+    plans = build_default_trial_plan([1000.0], ambient_hpa=1006.0, include_outp0_baseline=False)
+
+    assert [plan.mode_requested for plan in plans] == ["ACT"]
+    assert plans[0].target_hpa == pytest.approx(1000.0)
+
+
+def test_fast_pressure_sample_uses_pace_read_without_slow_queries() -> None:
+    class FakePace:
+        def read_pressure(self) -> float:
+            return 1000.25
+
+        def query(self, command: str) -> str:
+            raise AssertionError(f"slow query should not be used: {command}")
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+
+    row = _collect_fast_pressure_sample(FakePace(), plan=plan, actual_open_valves=[8, 11, 7, 1])
+
+    assert row["pace_pressure_hpa"] == pytest.approx(1000.25)
+    assert row["pace_pressure_source"] == "PACE::read_pressure"
+    assert row["phase"] == "open_flow_dynamic_pressure_fast_control"
+    assert row["actual_open_valves"] == "8,11,7,1"
 
 
 def test_gaug_is_explicit_diagnostic_opt_in_not_default() -> None:
