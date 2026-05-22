@@ -20,9 +20,11 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     build_arg_parser,
     build_default_trial_plan,
     command_is_forbidden_write,
+    configure_vent_pulse_rate,
     open_flow_dynamic_control_runaway_reason,
     planned_commands_for_trial,
     maybe_refresh_direct_control_rich_telemetry,
+    maybe_apply_vent_pulse_balance,
     maybe_reapply_direct_control,
     open_flow_pressure_abort_reason,
     rank_results,
@@ -32,6 +34,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     row_exceeds_open_flow_source_rise,
     row_exceeds_open_flow_pressure_safety,
     run_offline_plan,
+    restore_vent_pulse_rate,
     start_open_flow_atmosphere_hold,
     stop_open_flow_atmosphere_hold_before_control,
     summarize_samples,
@@ -632,6 +635,145 @@ def test_source_first_direct_control_parser_accepts_required_hold_flag() -> None
     assert args.direct_control_only is True
     assert args.keep_atmosphere_hold_during_direct_control is True
     assert args.direct_control_open_source_before_outp1 is True
+
+
+def test_vent_pulse_control_plan_is_explicit_and_not_default() -> None:
+    default_modes = {item.mode_requested for item in build_default_trial_plan([1000], ambient_hpa=1006)}
+    pulse_plan = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        include_outp0_baseline=False,
+        vent_pulse_control_only=True,
+    )
+
+    assert "VENT_PULSE" not in default_modes
+    assert len(pulse_plan) == 1
+    assert pulse_plan[0].mode_requested == "VENT_PULSE"
+    assert pulse_plan[0].outp1_sent is False
+    assert pulse_plan[0].use_pace_vent_for_control is True
+
+
+def test_vent_pulse_control_requires_direct_control_only() -> None:
+    parser = build_arg_parser()
+
+    with pytest.raises(SystemExit):
+        args = parser.parse_args(["--vent-pulse-control-only"])
+        validate_arg_combinations(args, parser)
+
+
+def test_vent_pulse_plan_can_explicitly_allow_1100_above_ambient() -> None:
+    plan = build_default_trial_plan(
+        [1100],
+        ambient_hpa=1006,
+        allow_above_ambient=True,
+        include_outp0_baseline=False,
+        vent_pulse_control_only=True,
+    )
+
+    assert plan[0].target_hpa == pytest.approx(1100.0)
+    assert plan[0].mode_requested == "VENT_PULSE"
+
+
+def test_vent_pulse_balance_sends_vent1_and_vent0_by_pressure_band() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.calls: list[bool] = []
+
+        def vent(self, on: bool) -> None:
+            self.calls.append(bool(on))
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_vent_pulse_balance_1000",
+        label="vent pulse",
+        mode_requested="VENT_PULSE",
+        target_hpa=1000.0,
+        outp1_sent=False,
+        slew_mode=None,
+        overshoot_allowed=None,
+        use_pace_vent_for_control=True,
+    )
+    state: dict[str, object] = {}
+    pace = FakePace()
+    high_row = {"ts": 100.0, "pace_pressure_hpa": 1004.0}
+    close_row = {"ts": 101.2, "pace_pressure_hpa": 1000.3}
+
+    maybe_apply_vent_pulse_balance(
+        pace,
+        high_row,
+        plan=plan,
+        state=state,
+        open_above_target_hpa=2.0,
+        close_above_target_hpa=0.5,
+        min_interval_s=1.0,
+    )
+    maybe_apply_vent_pulse_balance(
+        pace,
+        close_row,
+        plan=plan,
+        state=state,
+        open_above_target_hpa=2.0,
+        close_above_target_hpa=0.5,
+        min_interval_s=1.0,
+    )
+
+    assert pace.calls == [True, False]
+    assert high_row["vent_pulse_action"] == "VENT1_open_or_reassert"
+    assert close_row["vent_pulse_action"] == "VENT0_abort_close"
+    assert close_row["vent_pulse_count"] == 2
+
+
+def test_vent_pulse_rate_configures_and_restores_manual_vent_slew() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+
+        def query(self, command: str) -> str:
+            if command == ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?":
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE 250.0"
+            if command == ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?":
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT 0"
+            if command == ":SYST:ERR?":
+                return ":SYST:ERR 0, No error"
+            raise AssertionError(command)
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+
+    pace = FakePace()
+    info = configure_vent_pulse_rate(pace, rate_hpa_per_s=80.0)
+    restore_vent_pulse_rate(pace, info)
+
+    assert info["applied"] is True
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT 0" in pace.writes
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE 80" in pace.writes
+    assert pace.writes[-2:] == [
+        ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT 0",
+        ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE 250",
+    ]
+
+
+def test_vent_pulse_rate_does_not_write_when_query_is_unsupported() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.errs = iter([':SYST:ERR -102,"Syntax error"', ":SYST:ERR 0, No error"])
+
+        def query(self, command: str) -> str:
+            if command in {":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?", ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?"}:
+                return ""
+            if command == ":SYST:ERR?":
+                return next(self.errs)
+            raise AssertionError(command)
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+
+    pace = FakePace()
+    info = configure_vent_pulse_rate(pace, rate_hpa_per_s=80.0)
+
+    assert info["applied"] is False
+    assert info["error"] == "vent_rate_query_unsupported_or_blank"
+    assert pace.writes == []
 
 
 def test_include_over1_adds_fastest_diagnostic_trial_without_changing_default() -> None:

@@ -43,6 +43,9 @@ DEFAULT_OPEN_FLOW_TRANSIENT_LIMIT_HPA = 1150.0
 DEFAULT_RICH_TELEMETRY_INTERVAL_S = 5.0
 DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S = 5.0
 DEFAULT_DIRECT_CONTROL_REAPPLY_INTERVAL_S = 0.0
+DEFAULT_VENT_PULSE_OPEN_ABOVE_TARGET_HPA = 2.0
+DEFAULT_VENT_PULSE_CLOSE_ABOVE_TARGET_HPA = 0.5
+DEFAULT_VENT_PULSE_MIN_INTERVAL_S = 1.0
 
 FORBIDDEN_WRITE_PATTERNS = (
     re.compile(r"(?<!\*)\bID\b(?!N\?)", re.IGNORECASE),
@@ -137,6 +140,15 @@ TELEMETRY_FIELDS = (
     "open_flow_atmosphere_hold_active",
     "open_flow_atmosphere_hold_strategy",
     "atmosphere_hold_stopped_before_control",
+    "vent_pulse_control_enabled",
+    "vent_pulse_state_open",
+    "vent_pulse_action",
+    "vent_pulse_count",
+    "vent_pulse_open_above_target_hpa",
+    "vent_pulse_close_above_target_hpa",
+    "vent_pulse_min_interval_s",
+    "vent_pulse_rate_requested_hpa_per_s",
+    "vent_pulse_error",
 )
 
 RESULT_FIELDS = (
@@ -393,6 +405,7 @@ def build_default_trial_plan(
     only_over1: bool = False,
     only_gaug: bool = False,
     only_outp0_baseline: bool = False,
+    vent_pulse_control_only: bool = False,
     set_slew_value_max: bool = False,
     diagnostic_slew_mode: str = "MAX",
     lin_slew_hpa_per_s: float | None = None,
@@ -420,6 +433,21 @@ def build_default_trial_plan(
         )
     if only_outp0_baseline:
         return plans
+    if vent_pulse_control_only:
+        return [
+            DynamicTrialPlan(
+                trial_id=f"open_flow_vent_pulse_balance_{float(target):g}",
+                label=f"open-flow PACE vent-pulse balance diagnostic at {float(target):g} hPa",
+                mode_requested="VENT_PULSE",
+                target_hpa=float(target),
+                gas_ppm=int(gas_ppm),
+                slew_mode=None,
+                overshoot_allowed=None,
+                outp1_sent=False,
+                use_pace_vent_for_control=True,
+            )
+            for target in targets
+        ]
     selected_slew_mode = str(diagnostic_slew_mode or "MAX").strip().upper()
     if selected_slew_mode not in {"MAX", "LIN"}:
         raise ValueError(f"unsupported diagnostic slew mode: {diagnostic_slew_mode!r}")
@@ -1249,6 +1277,15 @@ def _collect_sample(
         "open_flow_atmosphere_hold_active": _pace_atmosphere_hold_active(pace),
         "open_flow_atmosphere_hold_strategy": "",
         "atmosphere_hold_stopped_before_control": False,
+        "vent_pulse_control_enabled": bool(plan.use_pace_vent_for_control),
+        "vent_pulse_state_open": False,
+        "vent_pulse_action": "",
+        "vent_pulse_count": 0,
+        "vent_pulse_open_above_target_hpa": "",
+        "vent_pulse_close_above_target_hpa": "",
+        "vent_pulse_min_interval_s": "",
+        "vent_pulse_rate_requested_hpa_per_s": "",
+        "vent_pulse_error": "",
     }
 
 
@@ -1334,7 +1371,157 @@ def _collect_fast_pressure_sample(
         "open_flow_atmosphere_hold_active": False,
         "open_flow_atmosphere_hold_strategy": "disabled_for_direct_control",
         "atmosphere_hold_stopped_before_control": True,
+        "vent_pulse_control_enabled": bool(plan.use_pace_vent_for_control),
+        "vent_pulse_state_open": False,
+        "vent_pulse_action": "",
+        "vent_pulse_count": 0,
+        "vent_pulse_open_above_target_hpa": "",
+        "vent_pulse_close_above_target_hpa": "",
+        "vent_pulse_min_interval_s": "",
+        "vent_pulse_rate_requested_hpa_per_s": "",
+        "vent_pulse_error": "",
     }
+
+
+def maybe_apply_vent_pulse_balance(
+    pace: Any,
+    row: MutableMapping[str, Any],
+    *,
+    plan: DynamicTrialPlan,
+    state: MutableMapping[str, Any],
+    open_above_target_hpa: float = DEFAULT_VENT_PULSE_OPEN_ABOVE_TARGET_HPA,
+    close_above_target_hpa: float = DEFAULT_VENT_PULSE_CLOSE_ABOVE_TARGET_HPA,
+    min_interval_s: float = DEFAULT_VENT_PULSE_MIN_INTERVAL_S,
+    rate_hpa_per_s: float | None = None,
+) -> MutableMapping[str, Any]:
+    """Diagnostic-only open-flow pressure balance using PACE vent pulses.
+
+    K0472 defines VENT as venting the user system, not as a setpoint controller.
+    This helper is therefore intentionally opt-in and limited to the sidecar
+    diagnostic. It lets us verify whether the internal vent path can maintain a
+    dynamic flow balance without pretending it is formal sealed pressure control.
+    """
+
+    enabled = bool(plan.use_pace_vent_for_control and plan.mode_requested == "VENT_PULSE")
+    row["vent_pulse_control_enabled"] = enabled
+    row["vent_pulse_action"] = ""
+    row["vent_pulse_error"] = ""
+    row["vent_pulse_open_above_target_hpa"] = float(open_above_target_hpa)
+    row["vent_pulse_close_above_target_hpa"] = float(close_above_target_hpa)
+    row["vent_pulse_min_interval_s"] = float(min_interval_s)
+    row["vent_pulse_rate_requested_hpa_per_s"] = (
+        float(rate_hpa_per_s) if rate_hpa_per_s is not None else ""
+    )
+    row["vent_pulse_count"] = int(state.get("vent_pulse_count") or 0)
+    row["vent_pulse_state_open"] = bool(state.get("vent_open"))
+    if not enabled or plan.target_hpa is None:
+        return row
+
+    pressure = _as_float(row.get("pace_pressure_hpa"))
+    if pressure is None:
+        return row
+    now_s = _as_float(row.get("ts")) or time.time()
+    last_action_s = _as_float(state.get("last_vent_pulse_ts"))
+    if last_action_s is not None and now_s - float(last_action_s) < max(0.0, float(min_interval_s)):
+        return row
+
+    target = float(plan.target_hpa)
+    vent_open = bool(state.get("vent_open"))
+    action = ""
+    if pressure > target + max(0.0, float(open_above_target_hpa)):
+        action = "VENT1_open_or_reassert"
+        vent_open = True
+    elif vent_open and pressure <= target + max(0.0, float(close_above_target_hpa)):
+        action = "VENT0_abort_close"
+        vent_open = False
+    if not action:
+        return row
+
+    try:
+        pace.vent(bool(vent_open))
+        state["vent_open"] = vent_open
+        state["last_vent_pulse_ts"] = now_s
+        state["vent_pulse_count"] = int(state.get("vent_pulse_count") or 0) + 1
+        row["vent_pulse_action"] = action
+        row["vent_pulse_state_open"] = vent_open
+        row["vent_pulse_count"] = int(state.get("vent_pulse_count") or 0)
+    except Exception as exc:
+        row["vent_pulse_error"] = str(exc)
+    return row
+
+
+def configure_vent_pulse_rate(
+    pace: Any,
+    *,
+    rate_hpa_per_s: float | None,
+) -> dict[str, Any]:
+    """Set K0472 vent slew rate for pulse-balance diagnostics, with restore info."""
+
+    info: dict[str, Any] = {
+        "requested_hpa_per_s": "" if rate_hpa_per_s is None else float(rate_hpa_per_s),
+        "applied": False,
+        "original_rate": "",
+        "original_unit": "",
+        "confirmed_rate": "",
+        "confirmed_unit": "",
+        "syst_err_after_probe": [],
+        "syst_err_after_write": [],
+        "error": "",
+    }
+    if rate_hpa_per_s is None:
+        return info
+    try:
+        info["original_rate"] = _query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?")
+        info["original_unit"] = _query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?")
+        if (
+            _parse_scpi_value_float(info.get("original_rate")) is None
+            or _parse_scpi_value_float(info.get("original_unit")) is None
+        ):
+            info["syst_err_after_probe"] = _drain_syst_err(pace)
+            info["error"] = "vent_rate_query_unsupported_or_blank"
+            return info
+        pace.write(":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT 0")
+        pace.write(f":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE {float(rate_hpa_per_s):g}")
+        info["confirmed_unit"] = _query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?")
+        info["confirmed_rate"] = _query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?")
+        info["syst_err_after_write"] = _drain_syst_err(pace)
+        info["applied"] = bool(
+            _parse_scpi_value_float(info.get("confirmed_rate")) is not None
+            and _parse_scpi_value_float(info.get("confirmed_unit")) is not None
+            and not any("No error" not in str(item) and not str(item).strip().startswith("0") for item in info["syst_err_after_write"])
+        )
+        if not info["applied"]:
+            info["error"] = "vent_rate_write_unconfirmed_or_syst_err"
+    except Exception as exc:
+        info["error"] = str(exc)
+    return info
+
+
+def _drain_syst_err(pace: Any, *, max_reads: int = 8) -> list[str]:
+    errors: list[str] = []
+    for _ in range(max(1, int(max_reads))):
+        resp = _query_text(pace, ":SYST:ERR?")
+        if resp == "":
+            break
+        errors.append(resp)
+        text = str(resp).strip()
+        if "No error" in text or text.startswith("0"):
+            break
+    return errors
+
+
+def restore_vent_pulse_rate(pace: Any, info: Mapping[str, Any]) -> None:
+    if not info or not info.get("applied"):
+        return
+    original_unit = _parse_scpi_value_float(info.get("original_unit"))
+    original_rate = _parse_scpi_value_float(info.get("original_rate"))
+    try:
+        if original_unit is not None:
+            pace.write(f":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT {int(original_unit)}")
+        if original_rate is not None:
+            pace.write(f":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE {float(original_rate):g}")
+    except Exception:
+        pass
 
 
 def maybe_reapply_direct_control(
@@ -1523,9 +1710,11 @@ def run_offline_plan(
     only_over1: bool = False,
     only_gaug: bool = False,
     only_outp0_baseline: bool = False,
+    vent_pulse_control_only: bool = False,
     set_slew_value_max: bool = False,
     diagnostic_slew_mode: str = "MAX",
     lin_slew_hpa_per_s: float | None = None,
+    allow_above_ambient: bool = False,
     include_outp0_baseline: bool = True,
 ) -> dict[str, Any]:
     plans = build_default_trial_plan(
@@ -1538,9 +1727,11 @@ def run_offline_plan(
         only_over1=only_over1,
         only_gaug=only_gaug,
         only_outp0_baseline=only_outp0_baseline,
+        vent_pulse_control_only=vent_pulse_control_only,
         set_slew_value_max=set_slew_value_max,
         diagnostic_slew_mode=diagnostic_slew_mode,
         lin_slew_hpa_per_s=lin_slew_hpa_per_s,
+        allow_above_ambient=allow_above_ambient,
         include_outp0_baseline=include_outp0_baseline,
     )
     command_rows = [
@@ -1569,6 +1760,7 @@ def run_offline_plan(
         "only_over1": bool(only_over1),
         "only_gaug": bool(only_gaug),
         "only_outp0_baseline": bool(only_outp0_baseline),
+        "vent_pulse_control_only": bool(vent_pulse_control_only),
         "trial_plan": [asdict(plan) for plan in plans],
         "planned_commands": command_rows,
     }
@@ -1704,14 +1896,20 @@ def run_real_com_diagnostic(
     only_over1: bool = False,
     only_gaug: bool = False,
     only_outp0_baseline: bool = False,
+    vent_pulse_control_only: bool = False,
     set_slew_value_max: bool = False,
     diagnostic_slew_mode: str = "MAX",
     lin_slew_hpa_per_s: float | None = None,
+    allow_above_ambient: bool = False,
     use_pressure_gauge_secondary: bool = False,
     pace_timeout_s: float | None = None,
     direct_control_only: bool = False,
     keep_atmosphere_hold_during_direct_control: bool = False,
     direct_control_open_source_before_outp1: bool = False,
+    vent_pulse_open_above_target_hpa: float = DEFAULT_VENT_PULSE_OPEN_ABOVE_TARGET_HPA,
+    vent_pulse_close_above_target_hpa: float = DEFAULT_VENT_PULSE_CLOSE_ABOVE_TARGET_HPA,
+    vent_pulse_min_interval_s: float = DEFAULT_VENT_PULSE_MIN_INTERVAL_S,
+    vent_pulse_rate_hpa_per_s: float | None = None,
     restore_baseline: bool = True,
 ) -> dict[str, Any]:
     cfg = load_config(config_path)
@@ -1725,9 +1923,11 @@ def run_real_com_diagnostic(
         only_over1=only_over1,
         only_gaug=only_gaug,
         only_outp0_baseline=only_outp0_baseline,
+        vent_pulse_control_only=vent_pulse_control_only,
         set_slew_value_max=set_slew_value_max,
         diagnostic_slew_mode=diagnostic_slew_mode,
         lin_slew_hpa_per_s=lin_slew_hpa_per_s,
+        allow_above_ambient=allow_above_ambient,
         include_outp0_baseline=not direct_control_only,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1755,6 +1955,7 @@ def run_real_com_diagnostic(
         "interval_s": "",
         "error": "",
     }
+    vent_pulse_rate_info: dict[str, Any] = {}
     atmosphere_hold_stopped_before_control = False
     source_first_open_ts: float | None = None
     try:
@@ -1767,6 +1968,11 @@ def run_real_com_diagnostic(
             original_mode = pace.get_output_mode()
         except Exception:
             original_mode = "ACT"
+        if vent_pulse_control_only:
+            vent_pulse_rate_info = configure_vent_pulse_rate(
+                pace,
+                rate_hpa_per_s=vent_pulse_rate_hpa_per_s,
+            )
         if open_flow_atmosphere_hold and (not direct_control_only or keep_atmosphere_hold_during_direct_control):
             atmosphere_hold_info = start_open_flow_atmosphere_hold(
                 pace,
@@ -1848,11 +2054,28 @@ def run_real_com_diagnostic(
                 "periodic_reapply_count": 0,
                 "last_periodic_reapply_ts": None,
             }
+            vent_pulse_state: dict[str, Any] = {
+                "vent_open": False,
+                "vent_pulse_count": 0,
+                "last_vent_pulse_ts": None,
+            }
             trial_samples: list[dict[str, Any]] = []
             fast_pressure_sample_index = 0
             if plan.mode_requested == "OUTP0":
                 pace.set_output(False)
                 deadline = time.time() + min(10.0, max_control_s)
+            elif plan.mode_requested == "VENT_PULSE":
+                try:
+                    pace.set_output(False)
+                except Exception:
+                    pass
+                if direct_control_only:
+                    apply_logical_valves(cfg, devices, route["open_logical_valves"])
+                    source_open_ts = time.time()
+                else:
+                    source_open_ts = time.time()
+                outp1_ts = source_open_ts
+                deadline = float(source_open_ts) + max_control_s
             else:
                 if (
                     open_flow_atmosphere_hold
@@ -2003,7 +2226,7 @@ def run_real_com_diagnostic(
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
-                if direct_control_only and plan.mode_requested != "OUTP0":
+                if direct_control_only and plan.mode_requested != "OUTP0" and not plan.use_pace_vent_for_control:
                     maybe_reapply_direct_control(
                         pace,
                         row,
@@ -2011,6 +2234,17 @@ def run_real_com_diagnostic(
                         state=periodic_reapply_state,
                         source_open_ts=source_open_ts,
                         reapply_interval_s=direct_control_reapply_interval_s,
+                    )
+                if plan.use_pace_vent_for_control:
+                    maybe_apply_vent_pulse_balance(
+                        pace,
+                        row,
+                        plan=plan,
+                        state=vent_pulse_state,
+                        open_above_target_hpa=vent_pulse_open_above_target_hpa,
+                        close_above_target_hpa=vent_pulse_close_above_target_hpa,
+                        min_interval_s=vent_pulse_min_interval_s,
+                        rate_hpa_per_s=vent_pulse_rate_hpa_per_s,
                     )
                 runaway_reason = open_flow_dynamic_control_runaway_reason(
                     row,
@@ -2050,7 +2284,7 @@ def run_real_com_diagnostic(
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
-                if direct_control_only and plan.mode_requested != "OUTP0":
+                if direct_control_only and plan.mode_requested != "OUTP0" and not plan.use_pace_vent_for_control:
                     maybe_refresh_direct_control_rich_telemetry(
                         pace,
                         row,
@@ -2149,7 +2383,7 @@ def run_real_com_diagnostic(
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
-                if direct_control_only and plan.mode_requested != "OUTP0":
+                if direct_control_only and plan.mode_requested != "OUTP0" and not plan.use_pace_vent_for_control:
                     maybe_reapply_direct_control(
                         pace,
                         row,
@@ -2157,6 +2391,17 @@ def run_real_com_diagnostic(
                         state=periodic_reapply_state,
                         source_open_ts=source_open_ts,
                         reapply_interval_s=direct_control_reapply_interval_s,
+                    )
+                if plan.use_pace_vent_for_control:
+                    maybe_apply_vent_pulse_balance(
+                        pace,
+                        row,
+                        plan=plan,
+                        state=vent_pulse_state,
+                        open_above_target_hpa=vent_pulse_open_above_target_hpa,
+                        close_above_target_hpa=vent_pulse_close_above_target_hpa,
+                        min_interval_s=vent_pulse_min_interval_s,
+                        rate_hpa_per_s=vent_pulse_rate_hpa_per_s,
                     )
                 runaway_reason = open_flow_dynamic_control_runaway_reason(
                     row,
@@ -2175,7 +2420,7 @@ def run_real_com_diagnostic(
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
-                if direct_control_only and plan.mode_requested != "OUTP0":
+                if direct_control_only and plan.mode_requested != "OUTP0" and not plan.use_pace_vent_for_control:
                     maybe_refresh_direct_control_rich_telemetry(
                         pace,
                         row,
@@ -2211,6 +2456,11 @@ def run_real_com_diagnostic(
                 pace.set_output(False)
             except Exception:
                 pass
+            if plan.use_pace_vent_for_control:
+                try:
+                    pace.vent(False)
+                except Exception:
+                    pass
             if abort_all:
                 break
         try:
@@ -2230,6 +2480,10 @@ def run_real_com_diagnostic(
             except Exception:
                 pass
         if pace is not None:
+            try:
+                restore_vent_pulse_rate(pace, vent_pulse_rate_info)
+            except Exception:
+                pass
             try:
                 _safe_abort_pace(pace)
             except Exception:
@@ -2291,11 +2545,27 @@ def run_real_com_diagnostic(
         "only_over1": bool(only_over1),
         "only_gaug": bool(only_gaug),
         "only_outp0_baseline": bool(only_outp0_baseline),
+        "vent_pulse_control_only": bool(vent_pulse_control_only),
         "direct_control_only": bool(direct_control_only),
         "keep_atmosphere_hold_during_direct_control": bool(keep_atmosphere_hold_during_direct_control),
         "direct_control_open_source_before_outp1": bool(direct_control_open_source_before_outp1),
+        "vent_pulse_control": {
+            "enabled": bool(vent_pulse_control_only),
+            "open_above_target_hpa": float(vent_pulse_open_above_target_hpa),
+            "close_above_target_hpa": float(vent_pulse_close_above_target_hpa),
+            "min_interval_s": float(vent_pulse_min_interval_s),
+            "rate_hpa_per_s": (
+                float(vent_pulse_rate_hpa_per_s) if vent_pulse_rate_hpa_per_s is not None else ""
+            ),
+            "rate_config": vent_pulse_rate_info,
+            "diagnostic_only": True,
+            "manual_semantics": "K0472 VENT vents user system; this is pulse-balance screening, not sealed setpoint control.",
+        },
         "pace_vent_hold_during_outp1_allowed": False,
         "direct_control_sequence": (
+            "path_open_without_source -> open_source -> pressure-triggered_PACE_VENT1_or_VENT0_pulses -> fast_pace_pressure_samples"
+            if direct_control_only and vent_pulse_control_only
+            else
             (
                 "atmosphere_hold_pre_equalize -> open_source_under_pace_vent_hold -> "
                 "stop_pace_vent_hold -> setpoint/profile/outp1_confirmed -> fast_pace_pressure_samples"
@@ -2337,6 +2607,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--only-over1", action="store_true", help="Run only ACT + OVER1 + MAX fastest diagnostic trials, skipping the OVER0 comparison.")
     parser.add_argument("--only-gaug", action="store_true", help="Run only GAUG + OVER0 + MAX diagnostic trials, skipping ACT/PASS plans.")
     parser.add_argument("--only-outp0-baseline", action="store_true", help="Run only OUTP0 open-flow atmosphere-hold baseline, with no setpoint control trial.")
+    parser.add_argument(
+        "--vent-pulse-control-only",
+        action="store_true",
+        help=(
+            "Diagnostic-only open-flow balance test using pressure-triggered PACE VENT1/VENT0 pulses. "
+            "Requires --direct-control-only and is never formal acceptance evidence."
+        ),
+    )
     parser.add_argument(
         "--set-slew-value-max",
         action="store_true",
@@ -2402,6 +2680,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "and OUTP:STAT 1, mirroring V2 restabilize keepalive without using VENT."
         ),
     )
+    parser.add_argument(
+        "--vent-pulse-open-above-target-hpa",
+        type=float,
+        default=DEFAULT_VENT_PULSE_OPEN_ABOVE_TARGET_HPA,
+        help="VENT pulse diagnostic: send/reassert VENT1 when PACE pressure is this far above target.",
+    )
+    parser.add_argument(
+        "--vent-pulse-close-above-target-hpa",
+        type=float,
+        default=DEFAULT_VENT_PULSE_CLOSE_ABOVE_TARGET_HPA,
+        help="VENT pulse diagnostic: send VENT0 once pressure falls to target plus this margin.",
+    )
+    parser.add_argument(
+        "--vent-pulse-min-interval-s",
+        type=float,
+        default=DEFAULT_VENT_PULSE_MIN_INTERVAL_S,
+        help="VENT pulse diagnostic: minimum interval between VENT1/VENT0 pulse commands.",
+    )
+    parser.add_argument(
+        "--vent-pulse-rate-hpa-per-s",
+        type=float,
+        default=None,
+        help=(
+            "VENT pulse diagnostic: set K0472 VENT:UNIT 0 and VENT:RATE before the trial, "
+            "then restore the original values at safe stop."
+        ),
+    )
     parser.add_argument("--max-control-s", type=float, default=DEFAULT_MAX_CONTROL_S)
     parser.add_argument("--max-safe-pressure-hpa", type=float, default=DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA)
     parser.add_argument("--source-max-rise-hpa", type=float, default=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA)
@@ -2441,6 +2746,10 @@ def validate_arg_combinations(args: argparse.Namespace, parser: argparse.Argumen
             "--direct-control-open-source-before-outp1 requires "
             "--direct-control-only and --keep-atmosphere-hold-during-direct-control"
         )
+    if args.vent_pulse_control_only and not args.direct_control_only:
+        parser.error("--vent-pulse-control-only requires --direct-control-only")
+    if args.vent_pulse_control_only and args.direct_control_reapply_interval_s:
+        parser.error("--vent-pulse-control-only cannot combine with setpoint/OUTP1 reapply")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -2453,9 +2762,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.gas_ppm != 0:
         parser.error("this diagnostic defaults to 0ppm; pass gas-ppm=0 for the current approved run")
-    only_mode_flags = [args.only_over1, args.only_gaug, args.only_outp0_baseline]
+    only_mode_flags = [args.only_over1, args.only_gaug, args.only_outp0_baseline, args.vent_pulse_control_only]
     if sum(1 for flag in only_mode_flags if flag) > 1:
-        parser.error("--only-over1, --only-gaug, and --only-outp0-baseline are mutually exclusive")
+        parser.error("--only-over1, --only-gaug, --only-outp0-baseline, and --vent-pulse-control-only are mutually exclusive")
     validate_arg_combinations(args, parser)
     run_root = args.output_dir / (args.run_id or f"run_{_stamp()}")
     if not args.real_com:
@@ -2470,9 +2779,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             only_over1=args.only_over1,
             only_gaug=args.only_gaug,
             only_outp0_baseline=args.only_outp0_baseline,
+            vent_pulse_control_only=args.vent_pulse_control_only,
             set_slew_value_max=args.set_slew_value_max,
             diagnostic_slew_mode=args.diagnostic_slew_mode,
             lin_slew_hpa_per_s=args.lin_slew_hpa_per_s,
+            allow_above_ambient=args.allow_above_ambient,
             include_outp0_baseline=not args.direct_control_only,
         )
         print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -2507,14 +2818,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         only_over1=args.only_over1,
         only_gaug=args.only_gaug,
         only_outp0_baseline=args.only_outp0_baseline,
+        vent_pulse_control_only=args.vent_pulse_control_only,
         set_slew_value_max=args.set_slew_value_max,
         diagnostic_slew_mode=args.diagnostic_slew_mode,
         lin_slew_hpa_per_s=args.lin_slew_hpa_per_s,
+        allow_above_ambient=args.allow_above_ambient,
         use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
         pace_timeout_s=args.pace_timeout_s,
         direct_control_only=args.direct_control_only,
         keep_atmosphere_hold_during_direct_control=args.keep_atmosphere_hold_during_direct_control,
         direct_control_open_source_before_outp1=args.direct_control_open_source_before_outp1,
+        vent_pulse_open_above_target_hpa=args.vent_pulse_open_above_target_hpa,
+        vent_pulse_close_above_target_hpa=args.vent_pulse_close_above_target_hpa,
+        vent_pulse_min_interval_s=args.vent_pulse_min_interval_s,
+        vent_pulse_rate_hpa_per_s=args.vent_pulse_rate_hpa_per_s,
         restore_baseline=not args.no_restore_baseline,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
