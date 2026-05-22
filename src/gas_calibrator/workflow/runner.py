@@ -1383,6 +1383,7 @@ class CalibrationRunner:
         self._last_hgen_setpoint_ready = False
         self._last_hgen_dewpoint_ready = False
         self._h2o_pressure_prepared_target: Optional[float] = None
+        self._h2o_pressure_anchor_packet_counter = 0
         self._last_pressure_atmosphere_refresh_ts = 0.0
         self._pressure_atmosphere_hold_enabled = False
         self._pressure_atmosphere_refresh_error_logged = False
@@ -11289,6 +11290,98 @@ class CalibrationRunner:
         if self._as_bool(self._wf("workflow.controlled_write", False), False):
             return False
         return True
+
+    def _h2o_pressure_anchor_short_window_active(
+        self,
+        point: Optional[CalibrationPoint] = None,
+        *,
+        phase: str = "",
+    ) -> bool:
+        phase_text = str(phase or ("h2o" if getattr(point, "is_h2o_point", False) else "")).strip().lower()
+        if phase_text and phase_text != "h2o":
+            return False
+        if point is not None and not getattr(point, "is_h2o_point", False):
+            return False
+        if point is not None and getattr(point, "target_pressure_hpa", None) is None:
+            return False
+        if not self._limited_no_write_workflow_active():
+            return False
+        return self._as_bool(
+            self._wf("workflow.pressure.h2o_pressure_anchor_short_window_enabled", True),
+            True,
+        )
+
+    def _h2o_pressure_anchor_sampling_time_budget_s(self) -> float:
+        raw = self._wf(
+            "workflow.pressure.h2o_pressure_anchor_sampling_time_budget_s",
+            self._wf(
+                "workflow.pressure.sealed_short_burst_window_s",
+                max(3.0, self._sealed_fast_sample_rows() * self._sealed_fast_sample_interval_s()),
+            ),
+        )
+        parsed = self._as_float(raw)
+        return max(0.0, float(3.0 if parsed is None else parsed))
+
+    def _record_h2o_pressure_anchor_candidate(
+        self,
+        point: CalibrationPoint,
+        *,
+        target_hpa: float,
+        pressure_hpa: Optional[float],
+        in_limits: Any,
+        source: str,
+        event_wall_ts: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if not self._h2o_pressure_anchor_short_window_active(point, phase="h2o"):
+            return {}
+        now_s = float(event_wall_ts or time.time())
+        anchor_ts = self._iso_ts_from_wall(now_s)
+        pressure_value = self._as_float(pressure_hpa)
+        window_hit = bool(in_limits == 1 and pressure_value is not None)
+        self._h2o_pressure_anchor_packet_counter += 1
+        packet_id = (
+            f"h2o-sealed-{getattr(point, 'index', 'point')}-"
+            f"{self._h2o_pressure_anchor_packet_counter}-"
+            f"{str(anchor_ts or '').replace(':', '').replace('-', '').replace('.', '')}"
+        )
+        fields: Dict[str, Any] = {
+            "sampling_packet_id": packet_id,
+            "row_anchor_source": "h2o_pressure_in_limits",
+            "pressure_anchor_hpa": pressure_value if pressure_value is not None else "",
+            "pressure_anchor_source": source if pressure_value is not None else "",
+            "pressure_anchor_ts": anchor_ts if pressure_value is not None else "",
+            "pressure_anchor_age_ms": 0.0 if pressure_value is not None else "",
+            "pressure_anchor_valid": window_hit,
+            "pressure_anchor_reason": (
+                "h2o_pace_in_limits_candidate" if window_hit else "h2o_pace_candidate_missing_or_not_in_limits"
+            ),
+            "pressure_window_low_hpa": target_hpa,
+            "pressure_window_high_hpa": target_hpa,
+            "pressure_window_hit": window_hit,
+            "pressure_anchor_shared_by_analyzers": True,
+            "nominal_target_hpa": target_hpa,
+            "control_setpoint_hpa": target_hpa,
+            "current_target_hpa": target_hpa,
+            "candidate_pressure_hpa": pressure_value if pressure_value is not None else "",
+            "candidate_pressure_ts": anchor_ts if pressure_value is not None else "",
+            "candidate_pressure_age_ms": 0.0 if pressure_value is not None else "",
+            "in_limits_at_sample": in_limits,
+            "in_limits_at_candidate": in_limits,
+            "in_limits_age_ms": 0.0 if in_limits not in (None, "") else "",
+            "in_limits_source": "PACE:SENS:PRES:INL?",
+            "point_candidate_detected": window_hit,
+            "point_result_status": "candidate_detected" if window_hit else "candidate_not_ready",
+            "sample_burst_mode": "h2o_pressure_anchor_short_window_parallel_cache",
+            "sampling_strategy_learned_from_v2": "pressure_anchor_short_window_parallel_cache_burst",
+            "time_compression_strategy": "h2o_pressure_anchor_short_burst",
+            "dewpoint_abnormal_policy": "h2o_route_target_alignment_not_dry_gas_residual",
+            "trend_should_decrease": "",
+            "trend_matches_physical_expectation": "",
+            "sample_can_enter_calibration_fit": "",
+            "sample_can_enter_diagnostic_model": True,
+        }
+        self._set_point_runtime_fields(point, phase="h2o", **fields)
+        return fields
 
     def _prevent_positive_supply_during_sampling(self) -> bool:
         return bool(self._wf("workflow.pressure.prevent_positive_supply_during_sampling", True))
@@ -22022,6 +22115,16 @@ class CalibrationRunner:
                     phase=phase,
                     wait_reason="压力已达稳",
                 )
+                h2o_anchor_extra: Dict[str, Any] = {}
+                if phase == "h2o":
+                    h2o_anchor_extra = self._record_h2o_pressure_anchor_candidate(
+                        point,
+                        target_hpa=target,
+                        pressure_hpa=pressure_value,
+                        in_limits=inl,
+                        source="PACE_in_limits",
+                        event_wall_ts=loop_now,
+                    )
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -22034,6 +22137,8 @@ class CalibrationRunner:
                     extra_fields=(
                         sealed_extra
                         if phase == "co2" and self._co2_sealed_no_vent_guard_active
+                        else h2o_anchor_extra
+                        if h2o_anchor_extra
                         else None
                     ),
                     note=f"pace_in_limits={inl}",
@@ -34125,6 +34230,136 @@ class CalibrationRunner:
             sort_keys=True,
         )
 
+    def _h2o_pressure_anchor_sample_fields(
+        self,
+        point: CalibrationPoint,
+        *,
+        count: int,
+        interval: float,
+        sample_idx: int,
+        sample_anchor_ts: str,
+        row_time_s: float,
+    ) -> Dict[str, Any]:
+        if not self._h2o_pressure_anchor_short_window_active(point, phase="h2o"):
+            return {}
+        state = self._point_runtime_state(point, phase="h2o", create=False) or {}
+        anchor_ts = str(state.get("pressure_anchor_ts") or "").strip()
+        if not anchor_ts:
+            return {}
+        anchor_s = self._parse_iso_ts_to_wall_s(anchor_ts)
+        candidate_to_row_s = (
+            round(max(0.0, float(row_time_s) - float(anchor_s)), 6)
+            if anchor_s is not None
+            else ""
+        )
+        fields: Dict[str, Any] = {
+            key: state.get(key, "")
+            for key in (
+                "sampling_packet_id",
+                "row_anchor_source",
+                "pressure_anchor_hpa",
+                "pressure_anchor_source",
+                "pressure_anchor_ts",
+                "pressure_anchor_age_ms",
+                "pressure_anchor_valid",
+                "pressure_anchor_reason",
+                "pressure_window_low_hpa",
+                "pressure_window_high_hpa",
+                "pressure_window_hit",
+                "pressure_anchor_shared_by_analyzers",
+                "nominal_target_hpa",
+                "control_setpoint_hpa",
+                "current_target_hpa",
+                "candidate_pressure_hpa",
+                "candidate_pressure_ts",
+                "candidate_pressure_age_ms",
+                "in_limits_at_sample",
+                "in_limits_at_candidate",
+                "in_limits_age_ms",
+                "in_limits_source",
+                "point_candidate_detected",
+                "point_result_status",
+                "dewpoint_abnormal_policy",
+                "trend_should_decrease",
+                "trend_matches_physical_expectation",
+                "sample_can_enter_calibration_fit",
+                "sample_can_enter_diagnostic_model",
+            )
+        }
+        fields.update(
+            {
+                "requested_sample_count": count,
+                "sample_epoch_count": count,
+                "sample_epoch_index": sample_idx + 1,
+                "sample_anchor_ts": sample_anchor_ts,
+                "sample_epoch_interval_s": interval,
+                "sample_burst_mode": "h2o_pressure_anchor_short_window_parallel_cache",
+                "sampling_strategy_learned_from_v2": "pressure_anchor_short_window_parallel_cache_burst",
+                "time_compression_strategy": "h2o_pressure_anchor_short_burst",
+                "candidate_to_first_row_s": candidate_to_row_s if sample_idx == 0 else state.get("candidate_to_first_row_s", ""),
+                "candidate_to_row_object_s": candidate_to_row_s if sample_idx == 0 else "",
+                "secondary_evidence_blocked_first_row": False,
+                "secondary_evidence_completed_after_row_append": True,
+                "secondary_evidence_status": "cache_window",
+            }
+        )
+        return fields
+
+    def _finalize_h2o_pressure_anchor_samples(self, point: CalibrationPoint, samples: List[Dict[str, Any]]) -> None:
+        if not samples or not self._h2o_pressure_anchor_short_window_active(point, phase="h2o"):
+            return
+        first = samples[0]
+        last = samples[-1]
+        anchor_s = self._parse_iso_ts_to_wall_s(first.get("pressure_anchor_ts"))
+        first_s = self._sample_row_wall_ts(first, key="sample_start_ts") or self._sample_row_wall_ts(first)
+        last_s = self._sample_row_wall_ts(last, key="sample_end_ts") or self._sample_row_wall_ts(last)
+        burst_duration_s = (
+            round(max(0.0, float(last_s) - float(first_s)), 6)
+            if first_s is not None and last_s is not None
+            else ""
+        )
+        packet_complete_s = last_s if last_s is not None else time.time()
+        candidate_to_packet_s = (
+            round(max(0.0, float(packet_complete_s) - float(anchor_s)), 6)
+            if anchor_s is not None
+            else ""
+        )
+        candidate_to_first_s = (
+            round(max(0.0, float(first_s) - float(anchor_s)), 6)
+            if anchor_s is not None and first_s is not None
+            else ""
+        )
+        budget_s = self._h2o_pressure_anchor_sampling_time_budget_s()
+        budget_exceeded = bool(
+            candidate_to_packet_s != "" and budget_s > 0.0 and float(candidate_to_packet_s) > budget_s
+        )
+        all_alignment_ok = all(sample.get("sample_alignment_ok") is not False for sample in samples)
+        fit_count = len(samples) if all_alignment_ok and not budget_exceeded else 0
+        for sample in samples:
+            sample["actual_sample_count"] = len(samples)
+            sample["sample_burst_duration_s"] = burst_duration_s
+            sample["candidate_to_first_row_s"] = candidate_to_first_s
+            sample["candidate_to_packet_complete_s"] = candidate_to_packet_s
+            sample["sealed_point_time_budget_s"] = budget_s
+            sample["sealed_point_time_budget_exceeded"] = budget_exceeded
+            sample["sampling_time_budget_exceeded"] = budget_exceeded
+            sample["sample_count_used_for_fit"] = fit_count
+            sample["sample_count_used_for_diagnostic"] = len(samples)
+            sample["pressure_anchor_share_valid"] = bool(sample.get("pressure_anchor_valid") is True)
+            sample["pressure_anchor_share_reason"] = "" if sample.get("pressure_anchor_valid") is True else "h2o_pressure_anchor_invalid"
+            sample["analyzer_rows_share_pressure_anchor"] = bool(sample.get("pressure_anchor_valid") is True)
+        self._set_point_runtime_fields(
+            point,
+            phase="h2o",
+            actual_sample_count=len(samples),
+            sample_burst_duration_s=burst_duration_s,
+            candidate_to_first_row_s=candidate_to_first_s,
+            candidate_to_packet_complete_s=candidate_to_packet_s,
+            sampling_time_budget_exceeded=budget_exceeded,
+            sample_count_used_for_fit=fit_count,
+            sample_count_used_for_diagnostic=len(samples),
+        )
+
     def _collect_samples(
         self,
         point: CalibrationPoint,
@@ -34381,6 +34616,17 @@ class CalibrationRunner:
                     gas_analyzers,
                     row_time_s=row_time_s,
                 )
+                if phase_text == "h2o":
+                    data.update(
+                        self._h2o_pressure_anchor_sample_fields(
+                            point,
+                            count=count,
+                            interval=interval,
+                            sample_idx=sample_idx,
+                            sample_anchor_ts=data.get("sample_anchor_ts") or data.get("sample_start_ts") or "",
+                            row_time_s=row_time_s,
+                        )
+                    )
 
                 data["co2_ppm_target"] = point.co2_ppm
                 data["h2o_mmol_target"] = point.h2o_mmol
@@ -34783,6 +35029,8 @@ class CalibrationRunner:
                         f"analyzer_first_valid_ms={first_valid_offsets_ms['analyzer']}"
                     ),
                 )
+            if phase_text == "h2o":
+                self._finalize_h2o_pressure_anchor_samples(point, samples)
             self._set_point_runtime_fields(
                 point,
                 phase=phase_text,
@@ -34812,6 +35060,13 @@ class CalibrationRunner:
         elif phase == "h2o":
             interval = float(scfg.get("h2o_interval_s", interval))
         return count, interval
+
+    def _sampling_params_for_point(self, point: CalibrationPoint, phase: str = "") -> Tuple[int, float]:
+        phase_text = str(phase or ("h2o" if point.is_h2o_point else "co2")).strip().lower()
+        if self._h2o_pressure_anchor_short_window_active(point, phase=phase_text):
+            rows = 1 if self._sealed_fast_sample_mode() == "single_snapshot" else self._sealed_fast_sample_rows()
+            return int(rows), self._sealed_fast_sample_interval_s()
+        return self._sampling_params(phase=phase_text)
 
     def _finalize_sampling_prime_metrics_after_collection(
         self,
@@ -34906,7 +35161,7 @@ class CalibrationRunner:
         )
 
     def _sample_and_log(self, point: CalibrationPoint, phase: str = "", point_tag: str = "") -> None:
-        count, interval = self._sampling_params(phase=phase)
+        count, interval = self._sampling_params_for_point(point, phase=phase)
         scfg = self.cfg["workflow"]["sampling"]
         qcfg = self.cfg.get("workflow", {}).get("sampling", {}).get("quality", {})
         retries = int(qcfg.get("retries", 0) or 0) if qcfg.get("enabled", False) else 0

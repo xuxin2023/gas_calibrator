@@ -4305,6 +4305,191 @@ def test_wait_after_pressure_stable_h2o_runs_postseal_dewpoint_gate_with_live_va
     assert state["dewpoint_gate_count"] == 3
 
 
+def test_h2o_no_write_pressure_anchor_uses_short_burst_sampling_params(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "collect_only": True,
+                "production": False,
+                "controlled_write": False,
+                "pressure": {
+                    "h2o_pressure_anchor_short_window_enabled": True,
+                    "sealed_fast_sample_rows": 10,
+                    "sealed_fast_sample_interval_s": 0.2,
+                },
+                "sampling": {"stable_count": 10, "interval_s": 1.0, "h2o_interval_s": 1.0},
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+
+    count, interval = runner._sampling_params_for_point(_point_h2o(), phase="h2o")
+    logger.close()
+
+    assert count == 10
+    assert abs(interval - 0.2) < 1e-9
+
+
+def test_set_pressure_to_target_h2o_records_pressure_anchor_candidate(tmp_path: Path) -> None:
+    class _FakePace:
+        def __init__(self):
+            self.calls: list[tuple[str, object]] = []
+            self.output_state = 0
+            self.isolation_state = 1
+            self.vent_status = 0
+
+        def exit_atmosphere_mode(self, timeout_s=0.0):
+            self.calls.append(("vent_off", float(timeout_s)))
+            self.vent_status = 0
+
+        def set_setpoint(self, value):
+            self.calls.append(("setpoint", float(value)))
+
+        def enable_control_output(self):
+            self.calls.append(("output_on", True))
+            self.output_state = 1
+
+        def get_output_state(self):
+            return self.output_state
+
+        def get_isolation_state(self):
+            return self.isolation_state
+
+        def get_vent_status(self):
+            return self.vent_status
+
+        def get_in_limits(self):
+            return 1000.2, 1
+
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "collect_only": True,
+                "production": False,
+                "controlled_write": False,
+                "pressure": {
+                    "vent_time_s": 0.0,
+                    "vent_transition_timeout_s": 0.0,
+                    "stabilize_timeout_s": 0.5,
+                    "restabilize_retries": 0,
+                    "h2o_pressure_anchor_short_window_enabled": True,
+                },
+            }
+        },
+        {"pace": _FakePace()},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+
+    point = _point_h2o()
+    assert runner._set_pressure_to_target(point) is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="h2o")
+    assert state is not None
+    assert state["pressure_anchor_hpa"] == 1000.2
+    assert state["pressure_anchor_source"] == "PACE_in_limits"
+    assert state["pressure_anchor_valid"] is True
+    assert state["nominal_target_hpa"] == 1000.0
+    assert state["control_setpoint_hpa"] == 1000.0
+    assert state["dewpoint_abnormal_policy"] == "h2o_route_target_alignment_not_dry_gas_residual"
+
+    trace_rows = _load_pressure_trace_rows(logger)
+    inlimit_rows = [row for row in trace_rows if row["trace_stage"] == "pressure_in_limits"]
+    assert len(inlimit_rows) == 1
+    assert inlimit_rows[0]["pressure_anchor_source"] == "PACE_in_limits"
+    assert inlimit_rows[0]["pressure_anchor_reason"] == "h2o_pace_in_limits_candidate"
+
+
+def test_h2o_anchor_rows_include_short_window_metadata_without_dry_gas_residual_gate(tmp_path: Path) -> None:
+    class _FakePace:
+        def read_pressure(self):
+            return 1000.1
+
+        def get_output_state(self):
+            return 1
+
+        def get_isolation_state(self):
+            return 1
+
+        def get_vent_status(self):
+            return 0
+
+    class _FakeDew:
+        def get_current(self, timeout_s=None, attempts=None):
+            return {"dewpoint_c": -8.6, "temp_c": 20.0, "rh_pct": 40.0}
+
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "collect_only": True,
+                "production": False,
+                "controlled_write": False,
+                "pressure": {
+                    "h2o_pressure_anchor_short_window_enabled": True,
+                    "h2o_pressure_anchor_sampling_time_budget_s": 3.0,
+                },
+                "sampling": {
+                    "stable_count": 3,
+                    "interval_s": 0.0,
+                    "quality": {"enabled": False},
+                },
+            }
+        },
+        {
+            "gas_analyzer": object(),
+            "pace": _FakePace(),
+            "dewpoint": _FakeDew(),
+        },
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_h2o()
+    runner._preseal_dewpoint_snapshot = {
+        "sample_ts": "2026-05-22T08:00:00.000",
+        "dewpoint_c": -8.8,
+        "temp_c": 20.0,
+        "rh_pct": 40.0,
+        "pressure_hpa": 1000.0,
+    }
+    runner._read_sensor_parsed = types.MethodType(
+        lambda self, _ga, required_key=None: ("ROW", {"co2_ppm": 1.0, "h2o_mmol": 6.2}),
+        runner,
+    )
+    runner._record_h2o_pressure_anchor_candidate(
+        point,
+        target_hpa=1000.0,
+        pressure_hpa=1000.1,
+        in_limits=1,
+        source="PACE_in_limits",
+        event_wall_ts=runner_module.time.time(),
+    )
+
+    rows = runner._collect_samples(point, 3, 0.0, phase="h2o", point_tag="h2o_20c_30rh_1000hpa")
+    logger.close()
+
+    assert rows is not None
+    assert len(rows) == 3
+    assert [row["sample_epoch_index"] for row in rows] == [1, 2, 3]
+    assert all(row["requested_sample_count"] == 3 for row in rows)
+    assert all(row["actual_sample_count"] == 3 for row in rows)
+    assert all(row["pressure_anchor_hpa"] == 1000.1 for row in rows)
+    assert all(row["pressure_anchor_source"] == "PACE_in_limits" for row in rows)
+    assert all(row["sample_burst_mode"] == "h2o_pressure_anchor_short_window_parallel_cache" for row in rows)
+    assert all(row["dewpoint_abnormal_policy"] == "h2o_route_target_alignment_not_dry_gas_residual" for row in rows)
+    assert all(row["trend_should_decrease"] == "" for row in rows)
+    assert all(row["sampling_time_budget_exceeded"] is False for row in rows)
+    assert rows[0]["sample_count_used_for_fit"] == 3
+
+
 def test_collect_samples_records_device_timestamps_and_sampling_trace(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
 
