@@ -7,6 +7,7 @@ import pytest
 from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import (
     DEFAULT_GAS_PPM,
     DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
     DynamicTrialPlan,
     PACE_VENT_WRITE_RE,
     assert_no_forbidden_writes,
@@ -16,6 +17,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     rank_results,
     read_pace_pressure_hpa,
     resolve_0ppm_open_flow_valves,
+    row_exceeds_open_flow_source_rise,
     row_exceeds_open_flow_pressure_safety,
     run_offline_plan,
     summarize_samples,
@@ -139,6 +141,7 @@ def test_resolve_0ppm_route_opens_source_and_open_flow_path() -> None:
     assert route["group"] == "A"
     assert route["source_valve"] == 1
     assert route["path_valve"] == 7
+    assert route["path_open_logical_valves"] == [8, 11, 7]
     assert route["open_logical_valves"] == [8, 11, 7, 1]
 
 
@@ -251,6 +254,19 @@ def test_open_flow_pressure_safety_abort_uses_pace_or_com22_pressure() -> None:
     assert not row_exceeds_open_flow_pressure_safety(
         {"pace_pressure_hpa": 1002.0, "com22_pressure_hpa": 1003.0},
         DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    )
+
+
+def test_source_open_pressure_rise_blocks_dynamic_control_entry() -> None:
+    assert row_exceeds_open_flow_source_rise(
+        {"pace_pressure_hpa": 1027.0},
+        ambient_hpa=1006.0,
+        max_rise_hpa=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
+    )
+    assert not row_exceeds_open_flow_source_rise(
+        {"pace_pressure_hpa": 1018.0},
+        ambient_hpa=1006.0,
+        max_rise_hpa=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
     )
 
 

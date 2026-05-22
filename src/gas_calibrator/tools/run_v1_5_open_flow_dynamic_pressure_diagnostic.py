@@ -35,6 +35,7 @@ DEFAULT_POSITIVE_EFFORT_A_MAX_PCT = 0.3
 DEFAULT_POSITIVE_EFFORT_A_INTEGRAL_PCT_S = 0.5
 DEFAULT_POSITIVE_EFFORT_FAIL_PCT = 3.0
 DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA = 1050.0
+DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA = 20.0
 
 FORBIDDEN_WRITE_PATTERNS = (
     re.compile(r"(?<!\*)\bID\b(?!N\?)", re.IGNORECASE),
@@ -86,6 +87,8 @@ TELEMETRY_FIELDS = (
     "syst_err",
     "pressure_safety_abort",
     "pressure_safety_abort_reason",
+    "source_pressure_rise_abort",
+    "source_pressure_rise_abort_reason",
 )
 
 RESULT_FIELDS = (
@@ -714,12 +717,14 @@ def resolve_0ppm_open_flow_valves(cfg: Mapping[str, Any], *, gas_ppm: int = DEFA
         path = _as_int(path_valve)
         gas_main = _as_int(valves_cfg.get("gas_main"))
         h2o_path = _as_int(valves_cfg.get("h2o_path"))
-        open_valves = [value for value in (h2o_path, gas_main, path, source) if value is not None]
+        path_open_valves = [value for value in (h2o_path, gas_main, path) if value is not None]
+        open_valves = [value for value in (*path_open_valves, source) if value is not None]
         return {
             "gas_ppm": int(gas_ppm),
             "group": group,
             "source_valve": source,
             "path_valve": path,
+            "path_open_logical_valves": path_open_valves,
             "open_logical_valves": open_valves,
         }
     raise RuntimeError(f"0ppm gas valve mapping not found for gas_ppm={gas_ppm}")
@@ -778,6 +783,18 @@ def _row_pressure_for_safety(row: Mapping[str, Any]) -> float | None:
 def row_exceeds_open_flow_pressure_safety(row: Mapping[str, Any], max_safe_pressure_hpa: float) -> bool:
     pressure = _row_pressure_for_safety(row)
     return bool(pressure is not None and pressure > float(max_safe_pressure_hpa))
+
+
+def row_exceeds_open_flow_source_rise(
+    row: Mapping[str, Any],
+    *,
+    ambient_hpa: float,
+    max_rise_hpa: float,
+) -> bool:
+    pressure = _row_pressure_for_safety(row)
+    if pressure is None:
+        return False
+    return bool(float(pressure) > float(ambient_hpa) + max(0.0, float(max_rise_hpa)))
 
 
 def _safe_abort_pace(pace: Any) -> None:
@@ -873,6 +890,8 @@ def _collect_sample(
         "syst_err": _query_text(pace, ":SYST:ERR?"),
         "pressure_safety_abort": False,
         "pressure_safety_abort_reason": "",
+        "source_pressure_rise_abort": False,
+        "source_pressure_rise_abort_reason": "",
     }
 
 
@@ -1028,6 +1047,7 @@ def run_real_com_diagnostic(
     sample_interval_s: float = DEFAULT_SAMPLE_INTERVAL_S,
     max_control_s: float = DEFAULT_MAX_CONTROL_S,
     max_safe_pressure_hpa: float = DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    source_max_rise_hpa: float = DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
     include_pass: bool = False,
     include_gaug: bool = False,
     restore_baseline: bool = True,
@@ -1050,6 +1070,8 @@ def run_real_com_diagnostic(
     result_csv_path = output_dir / "open_flow_dynamic_pressure_trial_results.csv"
     abort_all = False
     abort_reason = ""
+    source_rise_abort = False
+    source_rise_abort_reason = ""
     try:
         pace = devices["pace"]
         try:
@@ -1060,7 +1082,41 @@ def run_real_com_diagnostic(
             original_mode = pace.get_output_mode()
         except Exception:
             original_mode = "ACT"
-        apply_logical_valves(cfg, devices, route["open_logical_valves"])
+        apply_logical_valves(cfg, devices, route.get("path_open_logical_valves") or [])
+        path_precheck_plan = DynamicTrialPlan(
+            trial_id="open_flow_path_precheck_no_source",
+            label="open-flow path precheck without gas source",
+            mode_requested="OUTP0_PATH_PRECHECK",
+            target_hpa=None,
+            gas_ppm=int(gas_ppm),
+            slew_mode=None,
+            overshoot_allowed=None,
+            outp1_sent=False,
+        )
+        row = _collect_sample(
+            pace,
+            plan=path_precheck_plan,
+            dewpoint=devices.get("dewpoint"),
+            pressure_gauge=devices.get("pressure_gauge"),
+            analyzer=devices.get("analyzer"),
+            actual_open_valves=route.get("path_open_logical_valves") or [],
+        )
+        samples.append(row)
+        safety_pressure = _row_pressure_for_safety(row)
+        if row_exceeds_open_flow_pressure_safety(row, max_safe_pressure_hpa):
+            abort_reason = (
+                f"open_flow_pressure_safety_abort:"
+                f"{float(safety_pressure or 0.0):.3f}>{float(max_safe_pressure_hpa):.3f}"
+            )
+            row["pressure_safety_abort"] = True
+            row["pressure_safety_abort_reason"] = abort_reason
+            _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+            _safe_abort_pace(pace)
+            abort_all = True
+        else:
+            _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+        if not abort_all:
+            apply_logical_valves(cfg, devices, route["open_logical_valves"])
         for plan in plans:
             if abort_all:
                 break
@@ -1116,6 +1172,26 @@ def run_real_com_diagnostic(
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
+                if (
+                    plan.mode_requested == "OUTP0"
+                    and row_exceeds_open_flow_source_rise(
+                        row,
+                        ambient_hpa=ambient_hpa,
+                        max_rise_hpa=source_max_rise_hpa,
+                    )
+                ):
+                    source_rise_abort = True
+                    source_rise_abort_reason = (
+                        f"open_flow_source_pressure_rise_abort:"
+                        f"{float(safety_pressure or 0.0):.3f}>"
+                        f"{float(ambient_hpa) + max(0.0, float(source_max_rise_hpa)):.3f}"
+                    )
+                    row["source_pressure_rise_abort"] = True
+                    row["source_pressure_rise_abort_reason"] = source_rise_abort_reason
+                    _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+                    _safe_abort_pace(pace)
+                    abort_all = True
+                    break
                 _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                 pressure = _as_float(row.get("pace_pressure_hpa"))
                 if plan.target_hpa is not None and pressure is not None:
@@ -1166,6 +1242,10 @@ def run_real_com_diagnostic(
             )
             if abort_all:
                 result = _mark_pressure_safety_abort(result, abort_reason)
+                if source_rise_abort:
+                    result.pressure_safety_abort_reason = source_rise_abort_reason
+                    if "open_flow_source_pressure_rise_abort" not in result.rejection_reasons:
+                        result.rejection_reasons.append("open_flow_source_pressure_rise_abort")
             results.append(result)
             _append_csv_row(result_csv_path, RESULT_FIELDS, asdict(result))
             try:
@@ -1203,8 +1283,11 @@ def run_real_com_diagnostic(
         "targets_hpa": list(targets_hpa),
         "uses_1100": any(abs(float(target) - 1100.0) < 0.001 for target in targets_hpa),
         "pressure_safety_abort": abort_all,
-        "pressure_safety_abort_reason": abort_reason,
+        "pressure_safety_abort_reason": source_rise_abort_reason or abort_reason,
+        "source_pressure_rise_abort": source_rise_abort,
+        "source_pressure_rise_abort_reason": source_rise_abort_reason,
         "max_safe_pressure_hpa": float(max_safe_pressure_hpa),
+        "source_max_rise_hpa": float(source_max_rise_hpa),
         "ranking": rank_results(results),
         "result_csv": str(result_csv_path.resolve()),
         "sample_csv": str(sample_csv_path.resolve()),
@@ -1233,6 +1316,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-interval-s", type=float, default=DEFAULT_SAMPLE_INTERVAL_S)
     parser.add_argument("--max-control-s", type=float, default=DEFAULT_MAX_CONTROL_S)
     parser.add_argument("--max-safe-pressure-hpa", type=float, default=DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA)
+    parser.add_argument("--source-max-rise-hpa", type=float, default=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA)
     parser.add_argument("--real-com", action="store_true")
     parser.add_argument("--i-understand-open-flow-no-write", action="store_true")
     parser.add_argument("--operator-confirm-0ppm-flow", action="store_true")
@@ -1275,6 +1359,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sample_interval_s=args.sample_interval_s,
         max_control_s=args.max_control_s,
         max_safe_pressure_hpa=args.max_safe_pressure_hpa,
+        source_max_rise_hpa=args.source_max_rise_hpa,
         include_pass=args.include_pass,
         include_gaug=args.include_gaug,
         restore_baseline=not args.no_restore_baseline,
