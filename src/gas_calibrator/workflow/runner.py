@@ -18438,6 +18438,24 @@ class CalibrationRunner:
             and text.startswith("FAIL_CLOSED_DEWPOINT")
         )
 
+    def _limited_no_write_positive_effort_point_level_continue(self, reason: Any) -> bool:
+        text = str(reason or "").strip().upper()
+        return bool(
+            self._limited_no_write_workflow_active()
+            and self._exhaust_only_sample_above_target_allow_sampling()
+            and self._as_bool(
+                self._wf("workflow.pressure.positive_supply_effort_point_level_continue_enabled", False),
+                False,
+            )
+            and text == "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
+        )
+
+    def _limited_no_write_pressure_point_level_continue(self, reason: Any) -> bool:
+        return bool(
+            self._limited_no_write_dewpoint_point_level_continue(reason)
+            or self._limited_no_write_positive_effort_point_level_continue(reason)
+        )
+
     def _limited_no_write_dewpoint_sampling_ready_continue(
         self,
         *,
@@ -18451,6 +18469,13 @@ class CalibrationRunner:
             and self._limited_no_write_dewpoint_point_level_continue(block_reason)
         )
 
+    def _limited_no_write_positive_effort_sampling_ready_continue(
+        self,
+        *,
+        block_reason: Any,
+    ) -> bool:
+        return self._limited_no_write_positive_effort_point_level_continue(block_reason)
+
     def _record_sealed_point_invalid_continue(
         self,
         point: CalibrationPoint,
@@ -18461,19 +18486,30 @@ class CalibrationRunner:
         stage: str,
     ) -> None:
         reason_text = str(reason or "dewpoint_point_invalid_continue")
+        reason_upper = reason_text.strip().upper()
+        dewpoint_reason = reason_upper.startswith("FAIL_CLOSED_DEWPOINT")
+        positive_effort_reason = reason_upper == "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
         context = self._sealed_sweep_context_for_counters()
         fields: Dict[str, Any] = {
             "v2_strategy_reference": "sealed_point_loop_and_secondary_evidence",
             "sealed_point_failure_scope": "point_level_invalid_continue",
             "sealed_group_abort_reason": "",
-            "dewpoint_abnormal_policy": "point_invalidate_continue_sealed_sweep",
-            "dewpoint_abnormal_group_abort_suppressed_for_diagnostic": True,
-            "sealed_sweep_continued_after_dewpoint_abnormal": True,
-            "prior_point_dewpoint_abnormal": True,
+            "dewpoint_abnormal_policy": (
+                "point_invalidate_continue_sealed_sweep" if dewpoint_reason else ""
+            ),
+            "dewpoint_abnormal_group_abort_suppressed_for_diagnostic": bool(dewpoint_reason),
+            "positive_supply_effort_policy": (
+                "point_invalidate_continue_sealed_sweep" if positive_effort_reason else ""
+            ),
+            "positive_supply_effort_group_abort_suppressed_for_diagnostic": bool(positive_effort_reason),
+            "sealed_sweep_continued_after_dewpoint_abnormal": bool(dewpoint_reason),
+            "sealed_sweep_continued_after_positive_effort": bool(positive_effort_reason),
+            "prior_point_dewpoint_abnormal": bool(dewpoint_reason),
+            "prior_point_positive_effort_invalid": bool(positive_effort_reason),
             "prior_point_invalidated_reason": reason_text,
             "point_level_invalid_continue_allowed": True,
             "group_abort_required": False,
-            "group_abort_guard_source": "dewpoint_point_level_continue",
+            "group_abort_guard_source": "point_level_invalid_continue",
             "current_point_after_prior_dewpoint_abnormal": bool(
                 isinstance(context, dict)
                 and (
@@ -18482,7 +18518,11 @@ class CalibrationRunner:
                     or context.get("current_point_after_prior_dewpoint_abnormal")
                 )
             ),
-            "sampling_blocked_by_dewpoint_rise": True,
+            "sampling_blocked_by_dewpoint_rise": bool(dewpoint_reason),
+            "sample_blocked_by_positive_supply_effort": bool(positive_effort_reason),
+            "sample_invalidated_by_positive_effort": bool(positive_effort_reason),
+            "sample_valid_for_acceptance": False,
+            "sample_can_enter_calibration_fit": False,
             "pressure_controller_control_state_failure_reason": reason_text,
         }
         if isinstance(context, dict):
@@ -18497,14 +18537,17 @@ class CalibrationRunner:
                 "_sealed_point_skipped_counted",
             )
             context.update(fields)
-            context["prior_dewpoint_post_row_invalid"] = True
-            context["prior_dewpoint_point_invalid"] = True
-            context["dewpoint_trend_after_1100"] = self._append_dewpoint_trend_after_1100(
-                context,
-                target_hpa=getattr(point, "target_pressure_hpa", None),
-                reason="dewpoint_point_invalid_continue",
-            )
-            fields["dewpoint_trend_after_1100"] = context.get("dewpoint_trend_after_1100", "")
+            if dewpoint_reason:
+                context["prior_dewpoint_post_row_invalid"] = True
+                context["prior_dewpoint_point_invalid"] = True
+                context["dewpoint_trend_after_1100"] = self._append_dewpoint_trend_after_1100(
+                    context,
+                    target_hpa=getattr(point, "target_pressure_hpa", None),
+                    reason="dewpoint_point_invalid_continue",
+                )
+                fields["dewpoint_trend_after_1100"] = context.get("dewpoint_trend_after_1100", "")
+            if positive_effort_reason:
+                context["prior_positive_effort_point_invalid"] = True
             fields.update(
                 self._sealed_point_result_fields(
                     {
@@ -18580,6 +18623,7 @@ class CalibrationRunner:
                 "group_abort_guard_source",
                 "prior_dewpoint_post_row_invalid",
                 "prior_dewpoint_point_invalid",
+                "prior_positive_effort_point_invalid",
                 "dewpoint_trend_after_1100",
                 "previous_sealed_target_hpa",
                 "previous_point_dewpoint_at_candidate",
@@ -18728,6 +18772,10 @@ class CalibrationRunner:
             block_reason=block_reason,
             effort_ok=effort_ok,
         )
+        positive_effort_point_level_continue = self._limited_no_write_positive_effort_sampling_ready_continue(
+            block_reason=block_reason,
+        )
+        point_level_continue = bool(dewpoint_point_level_continue or positive_effort_point_level_continue)
         fields: Dict[str, Any] = {
             "vent_status_before_sampling": vent_status if vent_status is not None else "",
             "vent2_watchlist_before_sampling": vent2_watchlist,
@@ -18742,17 +18790,17 @@ class CalibrationRunner:
             "sealed_actual_open_valves": actual_open_valves,
             "pressure_in_limit_before_sampling": bool(pressure_ready),
             "dewpoint_stable_before_sampling": not bool(dewpoint_bad),
-            "group_abort_required": bool(block_reason and not dewpoint_point_level_continue),
+            "group_abort_required": bool(block_reason and not point_level_continue),
             "group_abort_guard_source": (
-                "dewpoint_point_level_continue" if dewpoint_point_level_continue else block_reason
+                "point_level_invalid_continue" if point_level_continue else block_reason
             ),
             "sealed_group_fail_closed_hard_safety_reason": (
                 block_reason
-                if block_reason and not dewpoint_point_level_continue
+                if block_reason and not point_level_continue
                 and block_reason != "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
                 else ""
             ),
-            "point_level_invalid_continue_allowed": bool(dewpoint_point_level_continue),
+            "point_level_invalid_continue_allowed": bool(point_level_continue),
         }
         if dewpoint_point_level_continue:
             fields.update(
@@ -18768,6 +18816,21 @@ class CalibrationRunner:
                     "sample_can_enter_diagnostic_model": True,
                     "sample_data_quality_grade": "B_diagnostic_model_only",
                     "sample_data_quality_reason": "dewpoint_abnormal_before_sampling_point_invalid_continue",
+                }
+            )
+        if positive_effort_point_level_continue:
+            fields.update(
+                {
+                    "sealed_point_failure_scope": "point_level_invalid_continue",
+                    "positive_supply_effort_policy": "point_invalidate_continue_sealed_sweep",
+                    "positive_supply_effort_group_abort_suppressed_for_diagnostic": True,
+                    "sealed_sweep_continued_after_positive_effort": True,
+                    "sample_invalidated_by_positive_effort": True,
+                    "sample_valid_for_acceptance": False,
+                    "sample_can_enter_calibration_fit": False,
+                    "sample_can_enter_diagnostic_model": True,
+                    "sample_data_quality_grade": "B_diagnostic_model_only",
+                    "sample_data_quality_reason": "positive_supply_effort_before_sampling_point_invalid_continue",
                 }
             )
         fields.update(invalidation_fields)
@@ -18788,9 +18851,12 @@ class CalibrationRunner:
                 "sealed_group_pressure_points_attempted",
                 "_sealed_point_attempted_counted",
             )
-            if dewpoint_point_level_continue:
+            if point_level_continue:
                 context.update(fields)
-                context["prior_dewpoint_point_invalid"] = True
+                if dewpoint_point_level_continue:
+                    context["prior_dewpoint_point_invalid"] = True
+                if positive_effort_point_level_continue:
+                    context["prior_positive_effort_point_invalid"] = True
                 fields.update(self._sealed_group_result_fields(context))
                 fields.update(
                     self._sealed_point_result_fields(
@@ -26218,7 +26284,7 @@ class CalibrationRunner:
                     or getattr(self, "_sealed_sampling_block_reason", "")
                     or ""
                 )
-                if self._limited_no_write_dewpoint_point_level_continue(decision_text):
+                if self._limited_no_write_pressure_point_level_continue(decision_text):
                     self.log(
                         f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa invalidated: "
                         f"{decision_text}; continue limited no-write sealed sweep"
@@ -26245,7 +26311,7 @@ class CalibrationRunner:
                     or getattr(self, "_sealed_sampling_block_reason", "")
                     or ""
                 )
-                if self._limited_no_write_dewpoint_point_level_continue(decision_text):
+                if self._limited_no_write_pressure_point_level_continue(decision_text):
                     self.log(
                         f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa invalidated: "
                         f"{decision_text}; continue limited no-write sealed sweep"
@@ -26283,7 +26349,7 @@ class CalibrationRunner:
                     or getattr(self, "_controlled_exit_final_decision", "")
                     or ""
                 )
-                if self._limited_no_write_dewpoint_point_level_continue(decision_text):
+                if self._limited_no_write_pressure_point_level_continue(decision_text):
                     self.log(
                         f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa invalidated: "
                         f"{decision_text}; continue limited no-write sealed sweep"

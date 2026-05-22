@@ -4070,6 +4070,35 @@ def test_positive_effort_before_sampling_still_fails() -> None:
     assert fields["sample_blocked_by_positive_supply_effort"] is True
 
 
+def test_limited_no_write_positive_effort_can_continue_point_when_opted_in() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "positive_supply_effort_point_level_continue_enabled": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 1100.0
+    pace.efforts = [1.85]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._sealed_first_setpoint_tx_ts = time.time()
+    runner._sealed_first_outp1_tx_ts = time.time()
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="positive-effort-continue") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["sampling_blocked_reason"] == "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
+    assert fields["point_level_invalid_continue_allowed"] is True
+    assert fields["group_abort_required"] is False
+    assert fields["positive_supply_effort_group_abort_suppressed_for_diagnostic"] is True
+    assert fields["sample_invalidated_by_positive_effort"] is True
+    assert fields["sample_can_enter_calibration_fit"] is False
+
+
 def test_above_target_sampling_allowed_in_limited_no_write() -> None:
     test_exhaust_only_above_target_sampling_allowed_no_write()
 
@@ -7446,6 +7475,46 @@ def test_1100_dewpoint_invalid_then_1000_attempted() -> None:
     fields = _last_stage_fields(runner, "sealed_pressure_point_invalid_continue")
     assert fields["sealed_point_failure_scope"] == "point_level_invalid_continue"
     assert fields["dewpoint_abnormal_policy"] == "point_invalidate_continue_sealed_sweep"
+
+
+def test_1100_positive_effort_invalid_then_1000_attempted_when_opted_in() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "positive_supply_effort_point_level_continue_enabled": True,
+        }
+    )
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+    p1100 = _co2_point(index=11, pressure=1100.0)
+    p1000 = _co2_point(index=12, pressure=1000.0)
+    attempted: list[float] = []
+
+    def preseal(point, *, route, sealed_control_refs):
+        runner._activate_co2_sealed_no_vent_guard(point, reason="test preseal", route_close_ts=time.time())
+        return True
+
+    def sampling_ready(point, *, point_tag=""):
+        attempted.append(float(point.target_pressure_hpa))
+        if float(point.target_pressure_hpa) == 1100.0:
+            runner._sealed_sampling_block_reason = "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
+            return False
+        return True
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=preseal)
+    runner._set_pressure_to_target = MagicMock(return_value=True)
+    runner._set_pressure_to_target_in_active_co2_sealed_sweep = MagicMock(return_value=True)
+    runner._wait_after_pressure_stable_before_sampling = MagicMock(return_value=True)
+    runner._co2_sealed_sampling_ready = MagicMock(side_effect=sampling_ready)
+    runner._sample_and_log = MagicMock()
+
+    runner._run_co2_point(p1100, pressure_points=[p1100, p1000])
+
+    assert attempted == [1100.0, 1000.0]
+    fields = _last_stage_fields(runner, "sealed_pressure_point_invalid_continue")
+    assert fields["sealed_point_failure_scope"] == "point_level_invalid_continue"
+    assert fields["positive_supply_effort_policy"] == "point_invalidate_continue_sealed_sweep"
+    assert fields["group_abort_required"] is False
 
 
 def test_actual_open_valves_nonempty_still_group_aborts() -> None:
