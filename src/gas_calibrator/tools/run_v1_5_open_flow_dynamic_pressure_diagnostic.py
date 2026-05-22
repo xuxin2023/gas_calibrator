@@ -42,6 +42,7 @@ DEFAULT_OPEN_FLOW_TRANSIENT_GRACE_S = 3.0
 DEFAULT_OPEN_FLOW_TRANSIENT_LIMIT_HPA = 1150.0
 DEFAULT_RICH_TELEMETRY_INTERVAL_S = 5.0
 DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S = 5.0
+DEFAULT_DIRECT_CONTROL_REAPPLY_INTERVAL_S = 0.0
 
 FORBIDDEN_WRITE_PATTERNS = (
     re.compile(r"(?<!\*)\bID\b(?!N\?)", re.IGNORECASE),
@@ -114,6 +115,14 @@ TELEMETRY_FIELDS = (
     "control_eff_after_command_pct",
     "control_syst_err_after_command",
     "control_keepalive_checked",
+    "control_periodic_reapply_enabled",
+    "control_periodic_reapply_due",
+    "control_setpoint_reapplied",
+    "control_output_reasserted_periodic",
+    "control_reapply_count",
+    "control_reapply_interval_s",
+    "control_reapply_reason",
+    "control_reapply_error",
     "control_output_dropout_seen",
     "control_output_reasserted",
     "control_output_reassert_count",
@@ -1218,6 +1227,14 @@ def _collect_sample(
         "control_eff_after_command_pct": "",
         "control_syst_err_after_command": "",
         "control_keepalive_checked": False,
+        "control_periodic_reapply_enabled": False,
+        "control_periodic_reapply_due": False,
+        "control_setpoint_reapplied": False,
+        "control_output_reasserted_periodic": False,
+        "control_reapply_count": 0,
+        "control_reapply_interval_s": "",
+        "control_reapply_reason": "",
+        "control_reapply_error": "",
         "control_output_dropout_seen": False,
         "control_output_reasserted": False,
         "control_output_reassert_count": 0,
@@ -1318,6 +1335,72 @@ def _collect_fast_pressure_sample(
         "open_flow_atmosphere_hold_strategy": "disabled_for_direct_control",
         "atmosphere_hold_stopped_before_control": True,
     }
+
+
+def maybe_reapply_direct_control(
+    pace: Any,
+    row: MutableMapping[str, Any],
+    *,
+    plan: DynamicTrialPlan,
+    state: MutableMapping[str, Any],
+    source_open_ts: float | None,
+    reapply_interval_s: float,
+    reason: str = "periodic_setpoint_outp1_reapply",
+) -> MutableMapping[str, Any]:
+    """Lightweight V2-style pressure-control keepalive for direct diagnostics.
+
+    V2's protected pressure loop re-applies the setpoint and enables output
+    when pressure does not settle. This helper mirrors only that control
+    heartbeat for the sidecar diagnostic: no vent command and no calibration
+    writes, just the documented pressure setpoint and OUTP:STAT 1.
+    """
+
+    interval = max(0.0, float(reapply_interval_s or 0.0))
+    row["control_periodic_reapply_enabled"] = bool(interval > 0.0 and plan.mode_requested != "OUTP0")
+    row["control_periodic_reapply_due"] = False
+    row["control_setpoint_reapplied"] = False
+    row["control_output_reasserted_periodic"] = False
+    row["control_reapply_interval_s"] = interval if interval > 0.0 else ""
+    row["control_reapply_reason"] = ""
+    row["control_reapply_error"] = ""
+    row["control_reapply_count"] = int(state.get("periodic_reapply_count") or 0)
+    if interval <= 0.0 or plan.mode_requested == "OUTP0" or plan.target_hpa is None:
+        return row
+    now_s = _as_float(row.get("ts")) or time.time()
+    anchor_s = _as_float(state.get("last_periodic_reapply_ts"))
+    if anchor_s is None:
+        anchor_s = _as_float(source_open_ts)
+    if anchor_s is None:
+        anchor_s = now_s
+        state["last_periodic_reapply_ts"] = anchor_s
+    if now_s - float(anchor_s) < interval:
+        return row
+
+    row["control_periodic_reapply_due"] = True
+    errors: list[str] = []
+    try:
+        set_setpoint = getattr(pace, "set_setpoint", None)
+        if callable(set_setpoint):
+            set_setpoint(float(plan.target_hpa))
+        else:
+            pace.write(f":SOUR:PRES:LEV:IMM:AMPL {float(plan.target_hpa):g}")
+        row["control_setpoint_reapplied"] = True
+    except Exception as exc:
+        errors.append(f"setpoint:{exc}")
+    try:
+        # Use the documented boolean OUTP command directly so PASS/GAUG
+        # diagnostic modes are not silently forced back to ACT by the driver
+        # convenience helper.
+        pace.write(":OUTP:STAT 1")
+        row["control_output_reasserted_periodic"] = True
+    except Exception as exc:
+        errors.append(f"outp1:{exc}")
+    state["periodic_reapply_count"] = int(state.get("periodic_reapply_count") or 0) + 1
+    state["last_periodic_reapply_ts"] = time.time()
+    row["control_reapply_count"] = int(state.get("periodic_reapply_count") or 0)
+    row["control_reapply_reason"] = reason
+    row["control_reapply_error"] = ";".join(errors)
+    return row
 
 
 def refresh_direct_control_keepalive(
@@ -1607,6 +1690,7 @@ def run_real_com_diagnostic(
     sample_interval_s: float = DEFAULT_SAMPLE_INTERVAL_S,
     rich_telemetry_interval_s: float = DEFAULT_RICH_TELEMETRY_INTERVAL_S,
     rich_telemetry_initial_delay_s: float = DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S,
+    direct_control_reapply_interval_s: float = DEFAULT_DIRECT_CONTROL_REAPPLY_INTERVAL_S,
     max_control_s: float = DEFAULT_MAX_CONTROL_S,
     max_safe_pressure_hpa: float = DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     source_max_rise_hpa: float = DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
@@ -1753,6 +1837,10 @@ def run_real_com_diagnostic(
                 "dropout_seen": False,
                 "reassert_count": 0,
                 "last_rich_telemetry_ts": None,
+            }
+            periodic_reapply_state: dict[str, Any] = {
+                "periodic_reapply_count": 0,
+                "last_periodic_reapply_ts": None,
             }
             trial_samples: list[dict[str, Any]] = []
             fast_pressure_sample_index = 0
@@ -1903,6 +1991,15 @@ def run_real_com_diagnostic(
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
+                if direct_control_only and plan.mode_requested != "OUTP0":
+                    maybe_reapply_direct_control(
+                        pace,
+                        row,
+                        plan=plan,
+                        state=periodic_reapply_state,
+                        source_open_ts=source_open_ts,
+                        reapply_interval_s=direct_control_reapply_interval_s,
+                    )
                 runaway_reason = open_flow_dynamic_control_runaway_reason(
                     row,
                     target_hpa=plan.target_hpa,
@@ -2040,6 +2137,15 @@ def run_real_com_diagnostic(
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
+                if direct_control_only and plan.mode_requested != "OUTP0":
+                    maybe_reapply_direct_control(
+                        pace,
+                        row,
+                        plan=plan,
+                        state=periodic_reapply_state,
+                        source_open_ts=source_open_ts,
+                        reapply_interval_s=direct_control_reapply_interval_s,
+                    )
                 runaway_reason = open_flow_dynamic_control_runaway_reason(
                     row,
                     target_hpa=plan.target_hpa,
@@ -2156,6 +2262,16 @@ def run_real_com_diagnostic(
             if direct_control_only
             else "standard_serial_snapshot_per_sample"
         ),
+        "direct_control_reapply_interval_s": (
+            float(direct_control_reapply_interval_s)
+            if direct_control_only and float(direct_control_reapply_interval_s or 0.0) > 0.0
+            else ""
+        ),
+        "direct_control_reapply_strategy": (
+            "periodic_setpoint_plus_outp1_keepalive"
+            if direct_control_only and float(direct_control_reapply_interval_s or 0.0) > 0.0
+            else "disabled"
+        ),
         "set_slew_value_max": bool(set_slew_value_max),
         "diagnostic_slew_mode": str(diagnostic_slew_mode or "MAX").strip().upper(),
         "lin_slew_hpa_per_s": float(lin_slew_hpa_per_s) if lin_slew_hpa_per_s is not None else "",
@@ -2251,6 +2367,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S,
         help="Direct-control mode: delay slow telemetry until the early pressure transient has passed.",
     )
+    parser.add_argument(
+        "--direct-control-reapply-interval-s",
+        type=float,
+        default=DEFAULT_DIRECT_CONTROL_REAPPLY_INTERVAL_S,
+        help=(
+            "Direct-control diagnostic only: periodically re-send the same pressure setpoint "
+            "and OUTP:STAT 1, mirroring V2 restabilize keepalive without using VENT."
+        ),
+    )
     parser.add_argument("--max-control-s", type=float, default=DEFAULT_MAX_CONTROL_S)
     parser.add_argument("--max-safe-pressure-hpa", type=float, default=DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA)
     parser.add_argument("--source-max-rise-hpa", type=float, default=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA)
@@ -2328,6 +2453,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sample_interval_s=args.sample_interval_s,
         rich_telemetry_interval_s=args.rich_telemetry_interval_s,
         rich_telemetry_initial_delay_s=args.rich_telemetry_initial_delay_s,
+        direct_control_reapply_interval_s=args.direct_control_reapply_interval_s,
         max_control_s=args.max_control_s,
         max_safe_pressure_hpa=args.max_safe_pressure_hpa,
         source_max_rise_hpa=args.source_max_rise_hpa,

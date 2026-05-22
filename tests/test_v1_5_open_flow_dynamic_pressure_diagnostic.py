@@ -23,6 +23,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     open_flow_dynamic_control_runaway_reason,
     planned_commands_for_trial,
     maybe_refresh_direct_control_rich_telemetry,
+    maybe_reapply_direct_control,
     open_flow_pressure_abort_reason,
     rank_results,
     read_pace_pressure_hpa,
@@ -512,6 +513,97 @@ def test_direct_control_keepalive_reasserts_only_when_output_drops() -> None:
     assert row["sens_pressure_slew_hpa_per_s"] == pytest.approx(-20.0)
     assert row["slew_mode"] == ":SOUR:PRES:SLEW:MODE MAX"
     assert ":OUTP:STAT 1" in pace.writes
+
+
+def test_direct_control_periodic_reapply_reasserts_setpoint_and_outp1_when_due() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.setpoints: list[float] = []
+            self.writes: list[str] = []
+
+        def set_setpoint(self, target: float) -> None:
+            self.setpoints.append(float(target))
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 101.25}
+    state = {"last_periodic_reapply_ts": 100.0, "periodic_reapply_count": 0}
+    pace = FakePace()
+
+    maybe_reapply_direct_control(
+        pace,
+        row,
+        plan=plan,
+        state=state,
+        source_open_ts=100.0,
+        reapply_interval_s=1.0,
+    )
+
+    assert row["control_periodic_reapply_enabled"] is True
+    assert row["control_periodic_reapply_due"] is True
+    assert row["control_setpoint_reapplied"] is True
+    assert row["control_output_reasserted_periodic"] is True
+    assert row["control_reapply_count"] == 1
+    assert row["control_reapply_error"] == ""
+    assert pace.setpoints == [1000.0]
+    assert pace.writes == [":OUTP:STAT 1"]
+
+
+def test_direct_control_periodic_reapply_waits_for_interval() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+
+        def set_setpoint(self, target: float) -> None:
+            self.writes.append(f"setpoint:{target}")
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 100.4}
+    state = {"last_periodic_reapply_ts": 100.0, "periodic_reapply_count": 0}
+    pace = FakePace()
+
+    maybe_reapply_direct_control(
+        pace,
+        row,
+        plan=plan,
+        state=state,
+        source_open_ts=100.0,
+        reapply_interval_s=1.0,
+    )
+
+    assert row["control_periodic_reapply_enabled"] is True
+    assert row["control_periodic_reapply_due"] is False
+    assert row["control_setpoint_reapplied"] is False
+    assert row["control_reapply_count"] == 0
+    assert pace.writes == []
+
+
+def test_parser_accepts_direct_control_reapply_interval() -> None:
+    args = build_arg_parser().parse_args(
+        [
+            "--direct-control-only",
+            "--direct-control-reapply-interval-s",
+            "1.0",
+        ]
+    )
+
+    assert args.direct_control_only is True
+    assert args.direct_control_reapply_interval_s == pytest.approx(1.0)
 
 
 def test_include_over1_adds_fastest_diagnostic_trial_without_changing_default() -> None:
