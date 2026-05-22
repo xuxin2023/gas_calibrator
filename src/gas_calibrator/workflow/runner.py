@@ -12386,6 +12386,59 @@ class CalibrationRunner:
             ) if trend != "unknown" else "",
         }
 
+    def _sealed_time_budget_overrun_can_remain_calibration_eligible(self, data: Mapping[str, Any]) -> bool:
+        if not self._as_bool(
+            self._wf("workflow.pressure.sealed_time_budget_overrun_clean_evidence_allows_calibration", True),
+            True,
+        ):
+            return False
+        if not (
+            bool(data.get("sealed_point_time_budget_exceeded"))
+            or bool(data.get("profile_too_slow"))
+            or bool(data.get("sampling_time_budget_exceeded"))
+        ):
+            return False
+        if data.get("pressure_anchor_valid") is not True:
+            return False
+        if data.get("analyzer_snapshot_alignment_ok") is not True:
+            return False
+        if data.get("candidate_dewpoint_cache_fresh") is not True:
+            return False
+        if data.get("pressure_drift_ok") is False:
+            return False
+        if data.get("sample_alignment_failure_reason") not in (None, ""):
+            return False
+        if self._first_numeric_value(data.get("actual_pressure_hpa")) is None:
+            return False
+        if self._first_numeric_value(data.get("actual_dewpoint_c")) is None:
+            return False
+        if self._first_numeric_value(data.get("co2_wet_value")) is None:
+            return False
+        if bool(data.get("dewpoint_residual_exceeds_threshold")):
+            return False
+        if bool(data.get("post_row_dewpoint_abnormal")) or bool(data.get("sample_invalidated_by_dewpoint_rise")):
+            return False
+        if bool(data.get("sample_invalidated_by_vent")):
+            return False
+        if bool(data.get("sample_invalidated_by_positive_effort")):
+            return False
+        if bool(data.get("sample_invalidated_by_target_crossing")) and not bool(
+            data.get("micro_target_crossing_allowed_for_calibration")
+        ):
+            return False
+        if bool(data.get("possible_supply_involvement_during_exhaust")) and not bool(
+            data.get("eff_positive_control_trim_allowed_for_calibration")
+        ):
+            return False
+        open_valves = (
+            data.get("actual_open_valves")
+            if data.get("actual_open_valves") not in (None, "")
+            else data.get("sealed_actual_open_valves")
+        )
+        if self._open_valves_nonempty(open_valves):
+            return False
+        return True
+
     def _sealed_sample_quality_grade_fields(
         self,
         data: Mapping[str, Any],
@@ -12439,9 +12492,13 @@ class CalibrationRunner:
                 reasons.append("dewpoint_abnormal_candidate")
             else:
                 reasons.append("dewpoint_abnormal_post_row")
-        if bool(data.get("sealed_point_time_budget_exceeded")):
-            reasons.append("sealed_dwell_time_budget_exceeded")
-        if bool(data.get("profile_too_slow")):
+        time_budget_exceeded = bool(
+            bool(data.get("sealed_point_time_budget_exceeded"))
+            or bool(data.get("profile_too_slow"))
+            or bool(data.get("sampling_time_budget_exceeded"))
+        )
+        time_budget_overrun_allowed = self._sealed_time_budget_overrun_can_remain_calibration_eligible(data)
+        if time_budget_exceeded and not time_budget_overrun_allowed:
             reasons.append("sealed_dwell_time_budget_exceeded")
         if (
             bool(data.get("possible_supply_involvement_during_exhaust"))
@@ -12494,6 +12551,14 @@ class CalibrationRunner:
             "sample_data_quality_grade": grade,
             "sample_data_quality_reason": ";".join(reasons),
             "sample_data_quality_inputs_complete": inputs_complete,
+            "sealed_time_budget_overrun_allowed_for_calibration": bool(time_budget_overrun_allowed),
+            "sealed_time_budget_overrun_policy": (
+                "clean_physical_evidence_allows_calibration"
+                if time_budget_overrun_allowed
+                else "blocks_A_when_evidence_incomplete_or_risky"
+                if time_budget_exceeded
+                else ""
+            ),
             "sample_can_enter_calibration_fit": bool(grade == "A_calibration_eligible"),
             "sample_can_enter_diagnostic_model": bool(grade in {"A_calibration_eligible", "B_diagnostic_model_only"}),
             "sample_reject_reason": ";".join(reasons) if grade == "C_reject" else "",
@@ -12632,7 +12697,7 @@ class CalibrationRunner:
             threshold = self._sealed_dewpoint_rise_fail_threshold_c()
             data["dewpoint_residual_threshold_c"] = threshold
         data["dewpoint_residual_exceeds_threshold"] = bool(
-            residual is not None and threshold is not None and abs(float(residual)) > float(threshold)
+            residual is not None and threshold is not None and float(residual) > float(threshold)
         )
         data.update(self._sealed_point_dewpoint_trend_fields(data, context, point=point))
         trend_residual = self._as_float(data.get("residual_dewpoint_change_after_pressure_effect_c"))

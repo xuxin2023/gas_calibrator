@@ -8799,6 +8799,65 @@ def test_positive_residual_blocks_calibration_fit() -> None:
     assert row["sample_data_quality_grade"] == "B_diagnostic_model_only"
 
 
+def test_negative_dewpoint_residual_does_not_block_calibration_fit() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "sealed_dewpoint_rise_fail_threshold_c": 3.0,
+        }
+    )
+    row = {
+        "point_row": 4,
+        "actual_pressure_hpa": 1000.5,
+        "actual_dewpoint_c": -39.0,
+        "candidate_dewpoint_cache_fresh": True,
+        "co2_wet_value": 1000.0,
+        "pressure_anchor_valid": True,
+        "analyzer_snapshot_alignment_ok": True,
+        "pressure_drift_ok": True,
+        "dewpoint_residual_after_pressure_effect_c": -4.0,
+    }
+
+    runner._apply_sealed_row_quality_fields(row, point=_co2_point(index=4, pressure=1000.0), context={})
+
+    assert row["dewpoint_residual_threshold_c"] == pytest.approx(3.0)
+    assert row["dewpoint_residual_exceeds_threshold"] is False
+    assert row["sample_data_quality_grade"] == "A_calibration_eligible"
+    assert row["sample_can_enter_calibration_fit"] is True
+
+
+def test_time_budget_overrun_with_clean_physical_evidence_can_remain_A_grade() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "sealed_time_budget_overrun_clean_evidence_allows_calibration": True,
+        }
+    )
+
+    fields = runner._sealed_sample_quality_grade_fields(
+        {
+            "actual_pressure_hpa": 1000.5,
+            "actual_dewpoint_c": -35.0,
+            "candidate_dewpoint_cache_fresh": True,
+            "co2_wet_value": 1000.0,
+            "pressure_anchor_valid": True,
+            "analyzer_snapshot_alignment_ok": True,
+            "pressure_drift_ok": True,
+            "sealed_point_time_budget_exceeded": True,
+            "sampling_time_budget_exceeded": True,
+            "dewpoint_residual_exceeds_threshold": False,
+            "eff_positive_control_trim_allowed_for_calibration": True,
+            "possible_supply_involvement_during_exhaust": False,
+        }
+    )
+
+    assert fields["sealed_time_budget_overrun_allowed_for_calibration"] is True
+    assert fields["sealed_time_budget_overrun_policy"] == "clean_physical_evidence_allows_calibration"
+    assert fields["sample_data_quality_grade"] == "A_calibration_eligible"
+    assert fields["sample_can_enter_calibration_fit"] is True
+    assert "sealed_dwell_time_budget_exceeded" not in fields["sample_data_quality_reason"]
+
+
 def test_packet_quality_grade_A_requires_anchor_and_alignment() -> None:
     test_sample_data_quality_grade_A_requires_clean_dewpoint_and_alignment()
 
