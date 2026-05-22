@@ -507,6 +507,9 @@ _PRESSURE_TRACE_FIELDS = [
     "pressure_chatter_detected",
     "pressure_chatter_blocks_sampling",
     "pressure_chatter_fail_closed",
+    "micro_target_crossing_allowed_for_calibration",
+    "pressure_anchor_micro_crossing_tolerance_hpa",
+    "target_crossing_classification",
     "first_target_crossing_ts",
     "target_crossing_to_fail_s",
     "target_crossing_to_safe_stop_s",
@@ -7586,7 +7589,22 @@ class CalibrationRunner:
     def _route_requires_preseal_topoff(self, points: Optional[List[CalibrationPoint]]) -> bool:
         if not points:
             return True
-        return self._sealed_pressure_points_include_target(points, self._PRESEAL_TOPOFF_TARGET_HPA)
+        reference_raw = self._wf(
+            "workflow.pressure.preseal_topoff_reference_hpa",
+            self._wf("workflow.pressure.ambient_reference_hpa", 1013.25),
+        )
+        margin_raw = self._wf("workflow.pressure.preseal_topoff_above_reference_margin_hpa", 2.0)
+        reference_hpa = float(1013.25 if reference_raw is None else reference_raw)
+        margin_hpa = max(0.0, float(2.0 if margin_raw is None else margin_raw))
+        for point in points or []:
+            if self._is_ambient_pressure_point(point):
+                continue
+            pressure_hpa = self._as_float(getattr(point, "target_pressure_hpa", None))
+            if pressure_hpa is None:
+                continue
+            if float(pressure_hpa) > reference_hpa + margin_hpa:
+                return True
+        return False
 
     def _pressurize_route_for_sealed_points(
         self,
@@ -7599,14 +7617,12 @@ class CalibrationRunner:
         route_label = str(route or ("h2o" if point.is_h2o_point else "co2")).strip().upper()
         if require_preseal_topoff:
             self.log(
-                f"{route_label} sealed pressure set includes "
-                f"{int(round(float(self._PRESEAL_TOPOFF_TARGET_HPA)))} hPa; "
+                f"{route_label} sealed pressure set contains above-reference target; "
                 "keep preseal top-off before sealing"
             )
         else:
             self.log(
-                f"{route_label} sealed pressure set excludes "
-                f"{int(round(float(self._PRESEAL_TOPOFF_TARGET_HPA)))} hPa; "
+                f"{route_label} sealed pressure set is at/below preseal reference; "
                 "skip preseal top-off and seal immediately after vent off"
             )
 
@@ -11269,6 +11285,23 @@ class CalibrationRunner:
         )
         return max(0.0, float(0.2 if raw is None else raw))
 
+    def _pressure_anchor_micro_crossing_tolerance_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.pressure_anchor_micro_crossing_tolerance_hpa", 0.02)
+        return max(0.0, float(0.02 if raw is None else raw))
+
+    def _pressure_anchor_micro_crossing_allowed(
+        self,
+        *,
+        target: float,
+        pressure_hpa: Optional[float],
+        in_limits: Any,
+    ) -> bool:
+        pressure = self._as_float(pressure_hpa)
+        if pressure is None or self._as_int(in_limits) != 1:
+            return False
+        undershoot_hpa = float(target) - float(pressure)
+        return bool(0.0 < undershoot_hpa <= self._pressure_anchor_micro_crossing_tolerance_hpa())
+
     def _pressure_target_crossing_fail_count(self) -> int:
         raw = self._wf("workflow.pressure.pressure_target_crossing_fail_count", 1)
         return max(1, int(1 if raw is None else raw))
@@ -12227,13 +12260,17 @@ class CalibrationRunner:
             hard_c = True
             reasons.append("probable_external_air_ingress")
         phase_text = str(data.get("sample_invalidated_phase") or "")
-        if bool(data.get("sample_invalidated_by_target_crossing")):
+        micro_crossing_allowed = bool(data.get("micro_target_crossing_allowed_for_calibration"))
+        if bool(data.get("sample_invalidated_by_target_crossing")) and not micro_crossing_allowed:
             if "before" in phase_text or "candidate" in phase_text:
                 hard_c = True
                 reasons.append("target_crossing_before_row")
             else:
                 reasons.append("target_crossing_post_row")
-        if bool(data.get("target_crossing_due_to_fast_profile")) or bool(data.get("profile_too_aggressive")):
+        if (
+            bool(data.get("target_crossing_due_to_fast_profile"))
+            or bool(data.get("profile_too_aggressive"))
+        ) and not micro_crossing_allowed:
             hard_c = True
             reasons.append("target_crossing_due_to_fast_profile")
         residual_exceeds = bool(data.get("dewpoint_residual_exceeds_threshold") is True)
@@ -12748,12 +12785,22 @@ class CalibrationRunner:
         candidate_offset: Any,
     ) -> Dict[str, Any]:
         upper = self._exhaust_only_sample_above_target_upper_window_hpa()
-        low = float(nominal_target) if nominal_target is not None else ""
+        micro_allowed = bool(context.get("micro_target_crossing_allowed_for_calibration"))
+        micro_tol = self._as_float(context.get("pressure_anchor_micro_crossing_tolerance_hpa"))
+        if micro_tol is None:
+            micro_tol = self._pressure_anchor_micro_crossing_tolerance_hpa()
+        low = (
+            float(nominal_target) - float(micro_tol)
+            if nominal_target is not None and micro_allowed
+            else float(nominal_target)
+            if nominal_target is not None
+            else ""
+        )
         high = float(nominal_target) + float(upper) if nominal_target is not None else ""
         window_hit = bool(
             candidate_pressure is not None
             and nominal_target is not None
-            and float(nominal_target) <= float(candidate_pressure) <= float(nominal_target) + float(upper)
+            and float(low) <= float(candidate_pressure) <= float(nominal_target) + float(upper)
         )
         anchor_age = context.get("candidate_pressure_age_ms", 0.0 if candidate_pressure is not None else "")
         packet_id = (
@@ -12768,10 +12815,19 @@ class CalibrationRunner:
             "pressure_anchor_ts": anchor_ts if candidate_pressure is not None else "",
             "pressure_anchor_age_ms": anchor_age,
             "pressure_anchor_valid": bool(candidate_pressure is not None and window_hit),
-            "pressure_anchor_reason": "pace_candidate_in_window" if window_hit else "pace_candidate_missing_or_outside_window",
+            "pressure_anchor_reason": (
+                "pace_candidate_micro_inlimit_trim"
+                if window_hit and micro_allowed and candidate_pressure is not None and float(candidate_pressure) < float(nominal_target)
+                else "pace_candidate_in_window"
+                if window_hit
+                else "pace_candidate_missing_or_outside_window"
+            ),
             "pressure_window_low_hpa": low,
             "pressure_window_high_hpa": high,
             "pressure_window_hit": window_hit,
+            "micro_target_crossing_allowed_for_calibration": micro_allowed,
+            "pressure_anchor_micro_crossing_tolerance_hpa": micro_tol,
+            "target_crossing_classification": context.get("target_crossing_classification", ""),
             "pressure_offset_from_nominal_hpa": candidate_offset,
             "pressure_anchor_shared_by_analyzers": True,
         }
@@ -13152,6 +13208,9 @@ class CalibrationRunner:
             "profile_too_slow",
             "profile_too_aggressive",
             "target_crossing_due_to_fast_profile",
+            "micro_target_crossing_allowed_for_calibration",
+            "pressure_anchor_micro_crossing_tolerance_hpa",
+            "target_crossing_classification",
         ):
             context.pop(key, None)
         target = self._as_float(getattr(point, "target_pressure_hpa", None))
@@ -13257,6 +13316,9 @@ class CalibrationRunner:
                 "pace_slew_mode",
                 "pace_overshoot_allowed",
                 "pace_in_limits_at_candidate",
+                "micro_target_crossing_allowed_for_calibration",
+                "pressure_anchor_micro_crossing_tolerance_hpa",
+                "target_crossing_classification",
                 "point_attempted",
                 "point_started_after_route_closed",
                 "point_candidate_detected",
@@ -16712,6 +16774,9 @@ class CalibrationRunner:
         undershoot_min_hpa: Any = "",
         crossing_count: int = 0,
         chatter_detected: bool = False,
+        micro_crossing_allowed: bool = False,
+        micro_crossing_tolerance_hpa: Any = "",
+        target_crossing_classification: str = "",
         first_target_crossing_ts: Any = "",
         crossing_to_fail_s: Any = "",
         crossing_to_safe_stop_s: Any = "",
@@ -16723,9 +16788,21 @@ class CalibrationRunner:
         monotonic_to_target = bool(
             enabled
             and not undershoot_detected
-            and int(crossing_count or 0) == 0
+            and (int(crossing_count or 0) == 0 or micro_crossing_allowed)
             and not chatter_detected
         )
+        crossing_class = str(target_crossing_classification or "").strip()
+        if not crossing_class:
+            if micro_crossing_allowed:
+                crossing_class = "micro_inlimit_trim"
+            elif chatter_detected:
+                crossing_class = "control_chatter"
+            elif undershoot_detected:
+                crossing_class = "undershoot"
+            elif int(crossing_count or 0) > 0:
+                crossing_class = "crossing_observed"
+            else:
+                crossing_class = "none"
         fields = {
             "exhaust_only_ready_gate_enabled": bool(enabled),
             "one_sided_pressure_ready": one_sided_ready,
@@ -16740,6 +16817,9 @@ class CalibrationRunner:
             "pressure_chatter_detected": bool(chatter_detected),
             "pressure_chatter_blocks_sampling": bool(chatter_detected),
             "pressure_chatter_fail_closed": bool(chatter_detected and failure_reason),
+            "micro_target_crossing_allowed_for_calibration": bool(micro_crossing_allowed),
+            "pressure_anchor_micro_crossing_tolerance_hpa": micro_crossing_tolerance_hpa,
+            "target_crossing_classification": crossing_class,
             "first_target_crossing_ts": first_target_crossing_ts,
             "target_crossing_to_fail_s": crossing_to_fail_s,
             "target_crossing_to_safe_stop_s": crossing_to_safe_stop_s,
@@ -16796,9 +16876,16 @@ class CalibrationRunner:
         candidate_fields: Dict[str, Any] = self._exhaust_only_above_target_candidate_base_fields()
         candidate_sampling_allowed = False
         cached_effort_ok = True
+        micro_crossing_allowed = False
+        micro_crossing_tolerance_hpa = self._pressure_anchor_micro_crossing_tolerance_hpa()
         if pressure_hpa is not None:
             diff = float(pressure_hpa) - float(target)
             sign = 1 if diff > 0.0 else -1 if diff < 0.0 else 0
+            micro_crossing_allowed = self._pressure_anchor_micro_crossing_allowed(
+                target=float(target),
+                pressure_hpa=pressure_hpa,
+                in_limits=in_limits,
+            )
             if state is not None and sign != 0:
                 last_sign = state.get("last_sign")
                 if last_sign in {-1, 1} and int(last_sign) != sign:
@@ -16825,7 +16912,10 @@ class CalibrationRunner:
                     state["undershoot_min_hpa"] = undershoot_min
                 failure_reason = "FAIL_CLOSED_PRESSURE_UNDERSHOOT_EXHAUST_ONLY"
                 terminal = True
-            if crossing_count >= self._pressure_target_crossing_fail_count():
+            if (
+                crossing_count >= self._pressure_target_crossing_fail_count()
+                and not micro_crossing_allowed
+            ):
                 chatter_detected = True
                 if state is not None:
                     state["pressure_chatter_detected"] = True
@@ -16834,10 +16924,28 @@ class CalibrationRunner:
                 failure_reason = failure_reason or "FAIL_CLOSED_PRESSURE_TARGET_CHATTER_EXHAUST_ONLY"
                 terminal = True
             if state is not None and (crossing_count > 0 or undershoot_detected):
-                state["target_crossing_due_to_fast_profile"] = bool(self._sealed_fast_exhaust_profile_enabled())
-                state["profile_too_aggressive"] = bool(self._sealed_fast_exhaust_profile_enabled())
+                significant_crossing = bool(crossing_count > 0 and not micro_crossing_allowed)
+                state["target_crossing_due_to_fast_profile"] = bool(
+                    significant_crossing and self._sealed_fast_exhaust_profile_enabled()
+                )
+                state["profile_too_aggressive"] = bool(
+                    (significant_crossing or undershoot_detected)
+                    and self._sealed_fast_exhaust_profile_enabled()
+                )
+                state["micro_target_crossing_allowed_for_calibration"] = bool(micro_crossing_allowed)
+                state["pressure_anchor_micro_crossing_tolerance_hpa"] = micro_crossing_tolerance_hpa
+                state["target_crossing_classification"] = (
+                    "micro_inlimit_trim"
+                    if micro_crossing_allowed
+                    else "undershoot"
+                    if undershoot_detected
+                    else "control_chatter"
+                )
             upper_limit = float(target) + self._one_sided_upper_tolerance_hpa()
-            one_sided_ready = bool(float(target) <= float(pressure_hpa) <= upper_limit)
+            one_sided_ready = bool(
+                float(target) <= float(pressure_hpa) <= upper_limit
+                or micro_crossing_allowed
+            )
             candidate_enabled = bool(candidate_fields.get("exhaust_only_sample_above_target_enabled"))
             candidate_allow_sampling = bool(
                 candidate_fields.get("exhaust_only_sample_above_target_allow_sampling")
@@ -16861,9 +16969,18 @@ class CalibrationRunner:
             candidate_entered = bool(
                 candidate_enabled
                 and not terminal
-                and crossing_count == 0
+                and (crossing_count == 0 or micro_crossing_allowed)
                 and not undershoot_detected
-                and (float(target) - candidate_lower_margin) <= float(pressure_hpa) <= float(target) + candidate_upper
+                and (
+                    float(target)
+                    - (
+                        micro_crossing_tolerance_hpa
+                        if micro_crossing_allowed
+                        else candidate_lower_margin
+                    )
+                )
+                <= float(pressure_hpa)
+                <= float(target) + candidate_upper
             )
             materialize_dewpoint_abnormal_for_diagnostic = bool(
                 candidate_entered
@@ -17014,6 +17131,13 @@ class CalibrationRunner:
                 state["candidate_pressure_ts"] = self._iso_ts_from_wall(evaluation_ts)
                 state["candidate_pressure_age_ms"] = 0.0
                 state["candidate_target_crossing_count"] = crossing_count
+                state["micro_target_crossing_allowed_for_calibration"] = bool(micro_crossing_allowed)
+                state["pressure_anchor_micro_crossing_tolerance_hpa"] = micro_crossing_tolerance_hpa
+                state["target_crossing_classification"] = (
+                    "micro_inlimit_trim"
+                    if micro_crossing_allowed
+                    else state.get("target_crossing_classification", "")
+                )
                 outp1_s = self._sealed_point_control_begin_wall_ts(candidate_context)
                 profile_actual_s = (
                     round(max(0.0, float(evaluation_ts) - float(outp1_s)), 6)
@@ -17196,6 +17320,17 @@ class CalibrationRunner:
                         state.get("candidate_pressure_age_ms", "") if state is not None and candidate_entered else ""
                     ),
                     "candidate_target_crossing_count": crossing_count if candidate_entered else "",
+                    "micro_target_crossing_allowed_for_calibration": bool(micro_crossing_allowed),
+                    "pressure_anchor_micro_crossing_tolerance_hpa": (
+                        micro_crossing_tolerance_hpa if micro_crossing_allowed else ""
+                    ),
+                    "target_crossing_classification": (
+                        "micro_inlimit_trim"
+                        if micro_crossing_allowed
+                        else state.get("target_crossing_classification", "")
+                        if state is not None and candidate_entered
+                        else ""
+                    ),
                     "candidate_positive_effort_seen": bool(
                         state is not None and candidate_entered and state.get("candidate_positive_effort_seen")
                     ),
@@ -17515,6 +17650,17 @@ class CalibrationRunner:
             undershoot_min_hpa=undershoot_min if undershoot_min is not None else "",
             crossing_count=crossing_count,
             chatter_detected=chatter_detected,
+            micro_crossing_allowed=micro_crossing_allowed,
+            micro_crossing_tolerance_hpa=micro_crossing_tolerance_hpa,
+            target_crossing_classification=(
+                "micro_inlimit_trim"
+                if micro_crossing_allowed
+                else "control_chatter"
+                if chatter_detected
+                else "undershoot"
+                if undershoot_detected
+                else ""
+            ),
             first_target_crossing_ts=self._iso_ts_from_wall(first_crossing_ts) if first_crossing_ts is not None else "",
             crossing_to_fail_s=(
                 max(0.0, evaluation_ts - float(first_crossing_ts))
@@ -33913,6 +34059,9 @@ class CalibrationRunner:
                         "candidate_pressure_ts",
                         "candidate_pressure_age_ms",
                         "candidate_target_crossing_count",
+                        "micro_target_crossing_allowed_for_calibration",
+                        "pressure_anchor_micro_crossing_tolerance_hpa",
+                        "target_crossing_classification",
                         "candidate_positive_effort_seen",
                         "candidate_dewpoint_abnormal",
                         "candidate_sample_safe_precheck_result",

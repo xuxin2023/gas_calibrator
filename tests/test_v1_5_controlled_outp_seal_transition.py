@@ -5723,6 +5723,42 @@ def test_target_crossing_records_first_crossing_to_fail_seconds(monkeypatch) -> 
     assert fields["target_crossing_to_safe_stop_s"] <= 1.0
 
 
+def test_inlimit_micro_target_crossing_is_pressure_ready_not_chatter(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(pressure_overrides={"stabilize_timeout_s": 0.2})
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 0), (999.999, 1)]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    assert "sealed_pressure_control_state_fail" not in _trace_stages(runner)
+    fields = _last_stage_fields(runner, "pressure_in_limits")
+    assert fields["target_crossing_count"] == 1
+    assert fields["micro_target_crossing_allowed_for_calibration"] is True
+    assert fields["target_crossing_classification"] == "micro_inlimit_trim"
+    assert fields["pressure_chatter_fail_closed"] is False
+    assert fields["sampling_blocked_by_control_chatter"] is False
+
+
+def test_inlimit_non_micro_crossing_still_fails_closed(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(pressure_overrides={"stabilize_timeout_s": 0.2})
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 0), (999.9, 1)]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._set_pressure_to_target(point) is False
+
+    fields = _last_stage_fields(runner, "sealed_pressure_control_state_fail")
+    assert fields["target_crossing_count"] == 1
+    assert fields["micro_target_crossing_allowed_for_calibration"] is False
+    assert fields["pressure_chatter_fail_closed"] is True
+    assert fields["exhaust_only_ready_failure_reason"] == "FAIL_CLOSED_PRESSURE_TARGET_CHATTER_EXHAUST_ONLY"
+
+
 def test_exhaust_only_blocks_below_target_duration() -> None:
     runner, pace, _, _ = _runner()
     point = _co2_point(pressure=1000.0)
@@ -7531,6 +7567,28 @@ def test_micro_positive_effort_without_residual_can_remain_A_grade() -> None:
     assert fields["sample_can_enter_calibration_fit"] is True
 
 
+def test_micro_target_crossing_without_residual_can_remain_A_grade() -> None:
+    runner, _pace, _, _ = _runner()
+    fields = runner._sealed_sample_quality_grade_fields(
+        {
+            "actual_pressure_hpa": 999.999,
+            "actual_dewpoint_c": -35.0,
+            "candidate_dewpoint_cache_fresh": True,
+            "co2_wet_value": 100.0,
+            "pressure_anchor_valid": True,
+            "analyzer_snapshot_alignment_ok": True,
+            "pressure_drift_ok": True,
+            "micro_target_crossing_allowed_for_calibration": True,
+            "target_crossing_due_to_fast_profile": True,
+            "profile_too_aggressive": True,
+            "target_crossing_classification": "micro_inlimit_trim",
+        }
+    )
+
+    assert fields["sample_data_quality_grade"] == "A_calibration_eligible"
+    assert fields["sample_can_enter_calibration_fit"] is True
+
+
 def test_sustained_positive_effort_without_fail_closed_still_blocks_A_grade() -> None:
     runner, _pace, _, _ = _runner()
     fields = runner._sealed_sample_quality_grade_fields(
@@ -7800,6 +7858,31 @@ def test_pressure_anchor_created_from_pace_candidate() -> None:
     assert row["pressure_anchor_hpa"] == pytest.approx(1100.4698486)
     assert row["pressure_anchor_valid"] is True
     assert row["pressure_window_hit"] is True
+
+
+def test_micro_inlimit_candidate_below_target_is_valid_pressure_anchor() -> None:
+    runner, _pace, _, _ = _runner()
+    point = _co2_point(index=4, pressure=1000.0)
+    context = {
+        "candidate_pressure_age_ms": 0.0,
+        "micro_target_crossing_allowed_for_calibration": True,
+        "pressure_anchor_micro_crossing_tolerance_hpa": 0.02,
+        "target_crossing_classification": "micro_inlimit_trim",
+    }
+
+    row = runner._sealed_pressure_anchor_packet_fields(
+        point=point,
+        context=context,
+        anchor_ts=datetime.now().isoformat(timespec="milliseconds"),
+        candidate_pressure=999.999,
+        nominal_target=1000.0,
+        candidate_offset=0.0,
+    )
+
+    assert row["pressure_anchor_valid"] is True
+    assert row["pressure_anchor_reason"] == "pace_candidate_micro_inlimit_trim"
+    assert row["pressure_window_low_hpa"] == pytest.approx(999.98)
+    assert row["micro_target_crossing_allowed_for_calibration"] is True
 
 
 def test_com22_secondary_does_not_block_pressure_anchor() -> None:
