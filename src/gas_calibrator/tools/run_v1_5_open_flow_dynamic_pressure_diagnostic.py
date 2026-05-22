@@ -87,6 +87,7 @@ TELEMETRY_FIELDS = (
     "syst_err",
     "pressure_safety_abort",
     "pressure_safety_abort_reason",
+    "precheck_abort_phase",
     "source_pressure_rise_abort",
     "source_pressure_rise_abort_reason",
 )
@@ -890,6 +891,7 @@ def _collect_sample(
         "syst_err": _query_text(pace, ":SYST:ERR?"),
         "pressure_safety_abort": False,
         "pressure_safety_abort_reason": "",
+        "precheck_abort_phase": "",
         "source_pressure_rise_abort": False,
         "source_pressure_rise_abort_reason": "",
     }
@@ -1070,6 +1072,7 @@ def run_real_com_diagnostic(
     result_csv_path = output_dir / "open_flow_dynamic_pressure_trial_results.csv"
     abort_all = False
     abort_reason = ""
+    precheck_abort_phase = ""
     source_rise_abort = False
     source_rise_abort_reason = ""
     try:
@@ -1104,13 +1107,27 @@ def run_real_com_diagnostic(
         samples.append(row)
         safety_pressure = _row_pressure_for_safety(row)
         if row_exceeds_open_flow_pressure_safety(row, max_safe_pressure_hpa):
+            precheck_abort_phase = "path_precheck_no_source"
             abort_reason = (
                 f"open_flow_pressure_safety_abort:"
                 f"{float(safety_pressure or 0.0):.3f}>{float(max_safe_pressure_hpa):.3f}"
             )
             row["pressure_safety_abort"] = True
             row["pressure_safety_abort_reason"] = abort_reason
+            row["precheck_abort_phase"] = precheck_abort_phase
             _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+            result = summarize_samples(
+                [row],
+                plan=path_precheck_plan,
+                ambient_hpa=ambient_hpa,
+                candidate_ts=None,
+                candidate_pressure_hpa=None,
+                outp1_ts=None,
+                mode_confirmed=path_precheck_plan.mode_requested,
+            )
+            result = _mark_pressure_safety_abort(result, abort_reason)
+            results.append(result)
+            _append_csv_row(result_csv_path, RESULT_FIELDS, asdict(result))
             _safe_abort_pace(pace)
             abort_all = True
         else:
@@ -1284,6 +1301,7 @@ def run_real_com_diagnostic(
         "uses_1100": any(abs(float(target) - 1100.0) < 0.001 for target in targets_hpa),
         "pressure_safety_abort": abort_all,
         "pressure_safety_abort_reason": source_rise_abort_reason or abort_reason,
+        "precheck_abort_phase": precheck_abort_phase,
         "source_pressure_rise_abort": source_rise_abort,
         "source_pressure_rise_abort_reason": source_rise_abort_reason,
         "max_safe_pressure_hpa": float(max_safe_pressure_hpa),
