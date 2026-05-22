@@ -12,6 +12,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     PACE_VENT_WRITE_RE,
     _collect_fast_pressure_sample,
     assert_no_forbidden_writes,
+    build_arg_parser,
     build_default_trial_plan,
     command_is_forbidden_write,
     planned_commands_for_trial,
@@ -103,6 +104,25 @@ def test_direct_control_plan_excludes_outp0_baseline() -> None:
 
     assert [plan.mode_requested for plan in plans] == ["ACT"]
     assert plans[0].target_hpa == pytest.approx(1000.0)
+
+
+def test_direct_control_can_request_atmosphere_hold_during_control() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args(
+        [
+            "--direct-control-only",
+            "--keep-atmosphere-hold-during-direct-control",
+            "--real-com",
+            "--i-understand-open-flow-no-write",
+            "--operator-confirm-0ppm-flow",
+            "--targets",
+            "1000",
+        ]
+    )
+
+    assert args.direct_control_only is True
+    assert args.keep_atmosphere_hold_during_direct_control is True
+    assert args.no_open_flow_atmosphere_hold is False
 
 
 def test_fast_pressure_sample_uses_pace_read_without_slow_queries() -> None:

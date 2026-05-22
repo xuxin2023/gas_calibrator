@@ -1227,6 +1227,7 @@ def run_real_com_diagnostic(
     include_gaug: bool = False,
     use_pressure_gauge_secondary: bool = False,
     direct_control_only: bool = False,
+    keep_atmosphere_hold_during_direct_control: bool = False,
     restore_baseline: bool = True,
 ) -> dict[str, Any]:
     cfg = load_config(config_path)
@@ -1273,7 +1274,7 @@ def run_real_com_diagnostic(
             original_mode = pace.get_output_mode()
         except Exception:
             original_mode = "ACT"
-        if open_flow_atmosphere_hold and not direct_control_only:
+        if open_flow_atmosphere_hold and (not direct_control_only or keep_atmosphere_hold_during_direct_control):
             atmosphere_hold_info = start_open_flow_atmosphere_hold(
                 pace,
                 interval_s=open_flow_atmosphere_hold_interval_s,
@@ -1345,7 +1346,11 @@ def run_real_com_diagnostic(
                 pace.set_output(False)
                 deadline = time.time() + min(10.0, max_control_s)
             else:
-                if open_flow_atmosphere_hold and not atmosphere_hold_stopped_before_control:
+                if (
+                    open_flow_atmosphere_hold
+                    and not atmosphere_hold_stopped_before_control
+                    and not keep_atmosphere_hold_during_direct_control
+                ):
                     stop_info = stop_open_flow_atmosphere_hold_before_control(pace)
                     atmosphere_hold_stopped_before_control = True
                     if stop_info.get("error"):
@@ -1585,8 +1590,14 @@ def run_real_com_diagnostic(
         "pressure_safety_source": "PACE",
         "com22_secondary_pressure_enabled": bool(use_pressure_gauge_secondary),
         "direct_control_only": bool(direct_control_only),
+        "keep_atmosphere_hold_during_direct_control": bool(keep_atmosphere_hold_during_direct_control),
         "direct_control_sequence": (
-            "path_open_without_source -> setpoint/profile/outp1 -> open_source -> fast_pace_pressure_samples"
+            (
+                "atmosphere_hold -> path_open_without_source -> setpoint/profile/outp1 -> "
+                "open_source -> fast_pace_pressure_samples"
+            )
+            if direct_control_only and keep_atmosphere_hold_during_direct_control
+            else "path_open_without_source -> setpoint/profile/outp1 -> open_source -> fast_pace_pressure_samples"
             if direct_control_only
             else "path_precheck -> source_open_outp0_observe -> setpoint_control"
         ),
@@ -1617,6 +1628,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--direct-control-only",
         action="store_true",
         help="Skip OUTP0 wash/observe phases; set PACE target first, then open source and sample PACE pressure quickly.",
+    )
+    parser.add_argument(
+        "--keep-atmosphere-hold-during-direct-control",
+        action="store_true",
+        help="Diagnostic-only: keep PACE atmosphere hold active during direct-control source opening.",
     )
     parser.add_argument("--output-dir", type=Path, default=Path("logs") / "v1_5_open_flow_dynamic_pressure")
     parser.add_argument("--run-id", default=None)
@@ -1685,12 +1701,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_max_rise_hpa=args.source_max_rise_hpa,
         transient_grace_s=args.transient_grace_s,
         transient_limit_hpa=args.transient_limit_hpa,
-        open_flow_atmosphere_hold=(not args.no_open_flow_atmosphere_hold and not args.direct_control_only),
+        open_flow_atmosphere_hold=(
+            not args.no_open_flow_atmosphere_hold
+            and (not args.direct_control_only or args.keep_atmosphere_hold_during_direct_control)
+        ),
         open_flow_atmosphere_hold_interval_s=args.open_flow_atmosphere_hold_interval_s,
         include_pass=args.include_pass,
         include_gaug=args.include_gaug,
         use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
         direct_control_only=args.direct_control_only,
+        keep_atmosphere_hold_during_direct_control=args.keep_atmosphere_hold_during_direct_control,
         restore_baseline=not args.no_restore_baseline,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
