@@ -1711,6 +1711,7 @@ def run_real_com_diagnostic(
     pace_timeout_s: float | None = None,
     direct_control_only: bool = False,
     keep_atmosphere_hold_during_direct_control: bool = False,
+    direct_control_open_source_before_outp1: bool = False,
     restore_baseline: bool = True,
 ) -> dict[str, Any]:
     cfg = load_config(config_path)
@@ -1755,6 +1756,7 @@ def run_real_com_diagnostic(
         "error": "",
     }
     atmosphere_hold_stopped_before_control = False
+    source_first_open_ts: float | None = None
     try:
         pace = devices["pace"]
         try:
@@ -1771,7 +1773,11 @@ def run_real_com_diagnostic(
                 interval_s=open_flow_atmosphere_hold_interval_s,
             )
         if direct_control_only:
-            apply_logical_valves(cfg, devices, route.get("path_open_logical_valves") or [])
+            if direct_control_open_source_before_outp1:
+                apply_logical_valves(cfg, devices, route["open_logical_valves"])
+                source_first_open_ts = time.time()
+            else:
+                apply_logical_valves(cfg, devices, route.get("path_open_logical_valves") or [])
         else:
             apply_logical_valves(cfg, devices, route.get("path_open_logical_valves") or [])
             path_precheck_plan = DynamicTrialPlan(
@@ -1893,7 +1899,11 @@ def run_real_com_diagnostic(
                     row = _collect_fast_pressure_sample(
                         pace,
                         plan=plan,
-                        actual_open_valves=route.get("path_open_logical_valves") or [],
+                        actual_open_valves=(
+                            route["open_logical_valves"]
+                            if direct_control_open_source_before_outp1
+                            else route.get("path_open_logical_valves") or []
+                        ),
                     )
                     row["open_flow_atmosphere_hold_active"] = bool(
                         open_flow_atmosphere_hold and not atmosphere_hold_stopped_before_control
@@ -1921,7 +1931,9 @@ def run_real_com_diagnostic(
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
-                if direct_control_only:
+                if direct_control_only and direct_control_open_source_before_outp1:
+                    source_open_ts = source_first_open_ts or time.time()
+                elif direct_control_only:
                     apply_logical_valves(cfg, devices, route["open_logical_valves"])
                     source_open_ts = time.time()
                 deadline = outp1_ts + max_control_s
@@ -2281,9 +2293,15 @@ def run_real_com_diagnostic(
         "only_outp0_baseline": bool(only_outp0_baseline),
         "direct_control_only": bool(direct_control_only),
         "keep_atmosphere_hold_during_direct_control": bool(keep_atmosphere_hold_during_direct_control),
+        "direct_control_open_source_before_outp1": bool(direct_control_open_source_before_outp1),
         "pace_vent_hold_during_outp1_allowed": False,
         "direct_control_sequence": (
             (
+                "atmosphere_hold_pre_equalize -> open_source_under_pace_vent_hold -> "
+                "stop_pace_vent_hold -> setpoint/profile/outp1_confirmed -> fast_pace_pressure_samples"
+            )
+            if direct_control_only and direct_control_open_source_before_outp1
+            else (
                 "atmosphere_hold_pre_equalize -> stop_pace_vent_hold -> path_open_without_source -> "
                 "setpoint/profile/outp1_confirmed -> "
                 "open_source -> fast_pace_pressure_samples"
@@ -2350,6 +2368,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "before OUTP1 because VENT hold and pressure control are mutually exclusive."
         ),
     )
+    parser.add_argument(
+        "--direct-control-open-source-before-outp1",
+        action="store_true",
+        help=(
+            "Diagnostic-only source-first sequence: open 0ppm flow while PACE atmosphere hold is active, "
+            "then stop VENT and enable setpoint control. Requires --keep-atmosphere-hold-during-direct-control."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("logs") / "v1_5_open_flow_dynamic_pressure")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--analyzer", default=None, help="Optional analyzer label, e.g. ga01. Omit to avoid analyzer serial reads.")
@@ -2405,6 +2431,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def validate_arg_combinations(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    if args.diagnostic_slew_mode == "LIN" and args.lin_slew_hpa_per_s is None:
+        parser.error("--diagnostic-slew-mode LIN requires --lin-slew-hpa-per-s")
+    if args.direct_control_open_source_before_outp1 and (
+        not args.direct_control_only or not args.keep_atmosphere_hold_during_direct_control
+    ):
+        parser.error(
+            "--direct-control-open-source-before-outp1 requires "
+            "--direct-control-only and --keep-atmosphere-hold-during-direct-control"
+        )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
@@ -2418,8 +2456,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     only_mode_flags = [args.only_over1, args.only_gaug, args.only_outp0_baseline]
     if sum(1 for flag in only_mode_flags if flag) > 1:
         parser.error("--only-over1, --only-gaug, and --only-outp0-baseline are mutually exclusive")
-    if args.diagnostic_slew_mode == "LIN" and args.lin_slew_hpa_per_s is None:
-        parser.error("--diagnostic-slew-mode LIN requires --lin-slew-hpa-per-s")
+    validate_arg_combinations(args, parser)
     run_root = args.output_dir / (args.run_id or f"run_{_stamp()}")
     if not args.real_com:
         payload = run_offline_plan(
@@ -2477,6 +2514,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         pace_timeout_s=args.pace_timeout_s,
         direct_control_only=args.direct_control_only,
         keep_atmosphere_hold_during_direct_control=args.keep_atmosphere_hold_during_direct_control,
+        direct_control_open_source_before_outp1=args.direct_control_open_source_before_outp1,
         restore_baseline=not args.no_restore_baseline,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))

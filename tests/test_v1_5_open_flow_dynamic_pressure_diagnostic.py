@@ -35,6 +35,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     start_open_flow_atmosphere_hold,
     stop_open_flow_atmosphere_hold_before_control,
     summarize_samples,
+    validate_arg_combinations,
     validate_dynamic_targets,
 )
 
@@ -604,6 +605,33 @@ def test_parser_accepts_direct_control_reapply_interval() -> None:
 
     assert args.direct_control_only is True
     assert args.direct_control_reapply_interval_s == pytest.approx(1.0)
+
+
+def test_source_first_direct_control_requires_atmosphere_hold() -> None:
+    parser = build_arg_parser()
+
+    with pytest.raises(SystemExit):
+        args = parser.parse_args(
+            [
+                "--direct-control-only",
+                "--direct-control-open-source-before-outp1",
+            ]
+        )
+        validate_arg_combinations(args, parser)
+
+
+def test_source_first_direct_control_parser_accepts_required_hold_flag() -> None:
+    args = build_arg_parser().parse_args(
+        [
+            "--direct-control-only",
+            "--keep-atmosphere-hold-during-direct-control",
+            "--direct-control-open-source-before-outp1",
+        ]
+    )
+
+    assert args.direct_control_only is True
+    assert args.keep_atmosphere_hold_during_direct_control is True
+    assert args.direct_control_open_source_before_outp1 is True
 
 
 def test_include_over1_adds_fastest_diagnostic_trial_without_changing_default() -> None:
