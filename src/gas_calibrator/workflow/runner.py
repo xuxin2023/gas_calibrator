@@ -7591,16 +7591,7 @@ class CalibrationRunner:
                 return True
         return False
 
-    def _limited_no_write_seal_then_control_preseal_topoff_disabled(self) -> bool:
-        raw = self._wf("workflow.pressure.disable_preseal_topoff_for_limited_no_write", None)
-        default = bool(self._limited_no_write_workflow_active() and self._controlled_outp_transition())
-        return self._as_bool(raw, default)
-
-    def _route_requires_preseal_topoff(self, points: Optional[List[CalibrationPoint]]) -> bool:
-        if not points:
-            return True
-        if self._limited_no_write_seal_then_control_preseal_topoff_disabled():
-            return False
+    def _points_require_preseal_topoff(self, points: Optional[List[CalibrationPoint]]) -> bool:
         reference_raw = self._wf(
             "workflow.pressure.preseal_topoff_reference_hpa",
             self._wf("workflow.pressure.ambient_reference_hpa", 1013.25),
@@ -7618,6 +7609,25 @@ class CalibrationRunner:
                 return True
         return False
 
+    def _limited_no_write_seal_then_control_preseal_topoff_disabled(
+        self,
+        points: Optional[List[CalibrationPoint]] = None,
+    ) -> bool:
+        if self._points_require_preseal_topoff(points):
+            return False
+        raw = self._wf("workflow.pressure.disable_preseal_topoff_for_limited_no_write", None)
+        default = bool(self._limited_no_write_workflow_active() and self._controlled_outp_transition())
+        return self._as_bool(raw, default)
+
+    def _route_requires_preseal_topoff(self, points: Optional[List[CalibrationPoint]]) -> bool:
+        if not points:
+            return True
+        if self._points_require_preseal_topoff(points):
+            return True
+        if self._limited_no_write_seal_then_control_preseal_topoff_disabled(points):
+            return False
+        return False
+
     def _pressurize_route_for_sealed_points(
         self,
         point: CalibrationPoint,
@@ -7632,7 +7642,7 @@ class CalibrationRunner:
                 f"{route_label} sealed pressure set contains above-reference target; "
                 "keep preseal top-off before sealing"
             )
-        elif self._limited_no_write_seal_then_control_preseal_topoff_disabled():
+        elif self._limited_no_write_seal_then_control_preseal_topoff_disabled(sealed_control_refs or [point]):
             self.log(
                 f"{route_label} limited no-write seal-then-control strategy active; "
                 "skip preseal top-off and seal immediately after vent off"

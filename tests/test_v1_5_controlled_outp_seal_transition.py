@@ -2197,12 +2197,12 @@ def test_preseal_pressure_build_timeout_uses_1p5s_not_5s(monkeypatch) -> None:
     assert fields["route_close_timeout_without_pressure_trigger"] is True
 
 
-def test_limited_no_write_1100_seals_without_preseal_topoff(monkeypatch) -> None:
+def test_limited_no_write_descent_only_seals_without_preseal_topoff(monkeypatch) -> None:
     runner, _, _, logs = _runner(
         gauge=FakeGauge([1013.0, 1013.0]),
         pressure_overrides={"positive_supply_required_point_level_continue_enabled": True},
     )
-    point = _co2_point(pressure=1100.0)
+    point = _co2_point(pressure=1000.0)
     events: list[tuple[str, object]] = []
     runner._apply_valve_states = MagicMock(side_effect=lambda valves: events.append(("close_valves", list(valves))))
     monkeypatch.setattr("time.sleep", lambda seconds: events.append(("sleep", seconds)))
@@ -2217,7 +2217,31 @@ def test_limited_no_write_1100_seals_without_preseal_topoff(monkeypatch) -> None
     assert wait_fields["preseal_pressure_build_max_wait_s"] == pytest.approx(0.0)
     assert wait_fields["preseal_route_close_trigger_source"] == "no_wait"
     stages = _trace_stages(runner)
-    assert "sealed_fast_control_start_deferred_positive_supply" in stages
+    assert "sealed_fast_control_start_deferred_positive_supply" not in stages
+
+
+def test_limited_no_write_1100_keeps_preseal_topoff_for_exhaust_entry(monkeypatch) -> None:
+    runner, _, _, logs = _runner(
+        gauge=FakeGauge([1010.0, 1040.0, 1112.0, 1112.0]),
+        pressure_overrides={
+            "disable_preseal_topoff_for_limited_no_write": True,
+            "positive_supply_required_point_level_continue_enabled": True,
+        },
+    )
+    point = _co2_point(pressure=1100.0)
+    events: list[tuple[str, object]] = []
+    runner._apply_valve_states = MagicMock(side_effect=lambda valves: events.append(("close_valves", list(valves))))
+    monkeypatch.setattr("time.sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    close_index = events.index(("close_valves", []))
+    assert any(event[0] == "sleep" for event in events[:close_index])
+    assert any("contains above-reference target" in message for message in logs)
+    fields = _last_stage_fields(runner, "route_valves_closed_after_vent0")
+    assert fields["preseal_topoff_required"] is True
+    assert fields["preseal_route_close_trigger_source"] == "pressure_gauge_threshold"
+    assert fields["route_close_pressure_at_close_hpa"] == pytest.approx(1112.0)
 
 
 def test_descent_only_selection_closes_route_without_preseal_build_wait(monkeypatch) -> None:
