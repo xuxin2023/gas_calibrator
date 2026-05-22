@@ -11402,7 +11402,10 @@ class CalibrationRunner:
         raw = self._wf("workflow.pressure.sealed_fast_candidate_monitor_enabled", None)
         default = bool(
             self._limited_no_write_workflow_active()
-            and self._exhaust_only_sample_above_target_allow_sampling()
+            and (
+                self._exhaust_only_sample_above_target_allow_sampling()
+                or self._sealed_over1_diagnostic_enabled()
+            )
         )
         return self._as_bool(raw, default)
 
@@ -14813,7 +14816,10 @@ class CalibrationRunner:
         raw = self._wf("workflow.pressure.sealed_fast_exhaust_profile_enabled", None)
         default = bool(
             self._limited_no_write_workflow_active()
-            and self._exhaust_only_sample_above_target_allow_sampling()
+            and (
+                self._exhaust_only_sample_above_target_allow_sampling()
+                or self._sealed_over1_diagnostic_enabled()
+            )
         )
         return self._as_bool(raw, default)
 

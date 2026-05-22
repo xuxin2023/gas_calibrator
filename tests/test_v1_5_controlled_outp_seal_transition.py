@@ -3962,6 +3962,31 @@ def test_over1_diagnostic_can_disable_over0_but_blocks_A_grade() -> None:
     assert "over1_diagnostic_only" in quality["sample_data_quality_reason"]
 
 
+def test_over1_diagnostic_keeps_max_fast_profile_without_sampling_flag() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "slew_overshoot_allowed": True,
+            "sealed_over1_diagnostic_enabled": True,
+        }
+    )
+    point = _co2_point(pressure=900.0)
+
+    assert runner._sealed_fast_exhaust_profile_enabled() is True
+    assert runner._sealed_fast_candidate_monitor_enabled() is True
+    assert runner._prearm_sealed_control_config(point, phase="co2", pressure_target_hpa=900.0) is True
+
+    fields = runner._sealed_control_prearm_trace_fields()
+    assert ("set_slew_mode_max",) in pace.calls
+    assert not any(call[0] == "set_slew_mode_linear" for call in pace.calls)
+    assert ("set_overshoot_allowed", True) in pace.calls
+    assert fields["sealed_exhaust_fast_mode"] == "MAX"
+    assert fields["max_mode_enabled"] is True
+    assert fields["slew_mode_requested"] == "MAX"
+    assert fields["slew_over_requested"] == 1
+    assert fields["over1_diagnostic_only"] is True
+    assert fields["profile_difference_from_v2"] == "v1_5_over1_diagnostic_not_approved_workflow"
+
+
 def test_excel_workbook_rows_convert_empty_lists_and_structures() -> None:
     rows = [
         {
