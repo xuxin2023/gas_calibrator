@@ -6095,6 +6095,87 @@ def test_dewpoint_rise_still_fails_before_sampling() -> None:
     fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
     assert fields["sampling_blocked_by_dewpoint_rise"] is True
     assert fields["pressure_controller_control_state_failure_reason"] == "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
+    assert fields["group_abort_required"] is True
+    assert fields["point_level_invalid_continue_allowed"] is False
+
+
+def test_limited_no_write_dewpoint_rise_before_sampling_is_point_level_continue() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1000.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 1000.0
+    pace.efforts = [-1.0]
+    now = time.time()
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -36.0,
+        "pressure_hpa": 1110.0,
+        "sample_wall_ts": now - 60.0,
+    }
+    runner._cached_ready_check_trace_values = MagicMock(
+        return_value={"dewpoint_c": -28.0, "pace_pressure_hpa": 1000.0}
+    )
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=now - 50.0)
+    runner._sealed_first_setpoint_tx_ts = now - 49.0
+    runner._sealed_first_outp1_tx_ts = now - 48.0
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="dewpoint-rise") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["sampling_blocked_reason"] == "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
+    assert fields["point_level_invalid_continue_allowed"] is True
+    assert fields["group_abort_required"] is False
+    assert fields["sealed_point_failure_scope"] == "point_level_invalid_continue"
+    assert fields["dewpoint_abnormal_group_abort_suppressed_for_diagnostic"] is True
+    assert fields["sample_can_enter_calibration_fit"] is False
+    assert fields["sample_data_quality_grade"] == "B_diagnostic_model_only"
+
+
+def test_positive_effort_overrides_dewpoint_continue_before_sampling() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+        }
+    )
+    point = _co2_point(pressure=1000.0)
+    pace.output_state = 1
+    pace.vent_status = 2
+    pace.setpoint = 1000.0
+    now = time.time()
+    runner._preseal_dewpoint_snapshot = {
+        "dewpoint_c": -36.0,
+        "pressure_hpa": 1110.0,
+        "sample_wall_ts": now - 60.0,
+    }
+    runner._cached_ready_check_trace_values = MagicMock(
+        return_value={"dewpoint_c": -28.0, "pace_pressure_hpa": 1000.0}
+    )
+    runner._sealed_positive_supply_effort_guard = MagicMock(
+        return_value=(
+            False,
+            {"sample_blocked_by_positive_supply_effort": True},
+            "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING",
+        )
+    )
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=now - 50.0)
+    runner._sealed_first_setpoint_tx_ts = now - 49.0
+    runner._sealed_first_outp1_tx_ts = now - 48.0
+    runner._mark_sealed_pressure_ready(result="in_limits")
+
+    assert runner._co2_sealed_sampling_ready(point, point_tag="dewpoint-rise-effort") is False
+
+    fields = _last_stage_fields(runner, "sealed_sampling_ready_failed")
+    assert fields["sampling_blocked_reason"] == "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
+    assert fields["sample_blocked_by_positive_supply_effort"] is True
+    assert fields["group_abort_required"] is True
+    assert fields["point_level_invalid_continue_allowed"] is False
 
 
 def test_repeated_outp1_not_sent_when_already_on() -> None:

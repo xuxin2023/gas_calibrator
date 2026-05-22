@@ -18438,6 +18438,19 @@ class CalibrationRunner:
             and text.startswith("FAIL_CLOSED_DEWPOINT")
         )
 
+    def _limited_no_write_dewpoint_sampling_ready_continue(
+        self,
+        *,
+        block_reason: Any,
+        effort_ok: bool,
+    ) -> bool:
+        return bool(
+            effort_ok
+            and str(block_reason or "").strip().upper()
+            == "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
+            and self._limited_no_write_dewpoint_point_level_continue(block_reason)
+        )
+
     def _record_sealed_point_invalid_continue(
         self,
         point: CalibrationPoint,
@@ -18460,11 +18473,12 @@ class CalibrationRunner:
             "prior_point_invalidated_reason": reason_text,
             "point_level_invalid_continue_allowed": True,
             "group_abort_required": False,
-            "group_abort_guard_source": "dewpoint_post_row_diagnostic",
+            "group_abort_guard_source": "dewpoint_point_level_continue",
             "current_point_after_prior_dewpoint_abnormal": bool(
                 isinstance(context, dict)
                 and (
                     context.get("prior_dewpoint_post_row_invalid")
+                    or context.get("prior_dewpoint_point_invalid")
                     or context.get("current_point_after_prior_dewpoint_abnormal")
                 )
             ),
@@ -18484,6 +18498,7 @@ class CalibrationRunner:
             )
             context.update(fields)
             context["prior_dewpoint_post_row_invalid"] = True
+            context["prior_dewpoint_point_invalid"] = True
             context["dewpoint_trend_after_1100"] = self._append_dewpoint_trend_after_1100(
                 context,
                 target_hpa=getattr(point, "target_pressure_hpa", None),
@@ -18564,6 +18579,7 @@ class CalibrationRunner:
                 "group_abort_required",
                 "group_abort_guard_source",
                 "prior_dewpoint_post_row_invalid",
+                "prior_dewpoint_point_invalid",
                 "dewpoint_trend_after_1100",
                 "previous_sealed_target_hpa",
                 "previous_point_dewpoint_at_candidate",
@@ -18578,7 +18594,10 @@ class CalibrationRunner:
                     self._active_co2_sealed_sweep_context[state_key] = self._co2_sealed_no_vent_guard_context.get(
                         state_key
                     )
-            if self._co2_sealed_no_vent_guard_context.get("prior_dewpoint_post_row_invalid"):
+            if (
+                self._co2_sealed_no_vent_guard_context.get("prior_dewpoint_post_row_invalid")
+                or self._co2_sealed_no_vent_guard_context.get("prior_dewpoint_point_invalid")
+            ):
                 self._active_co2_sealed_sweep_context["current_point_after_prior_dewpoint_abnormal"] = True
         self._append_pressure_trace_row(
             point=point,
@@ -18698,13 +18717,17 @@ class CalibrationRunner:
             block_reason = "FAIL_CLOSED_SETPOINT_NOT_SENT_BEFORE_SAMPLING"
         elif blocked_by_pressure:
             block_reason = "FAIL_CLOSED_PRESSURE_NOT_READY_BEFORE_SAMPLING"
-        elif dewpoint_blocking:
-            block_reason = "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
         elif not effort_ok:
             block_reason = effort_reason
+        elif dewpoint_blocking:
+            block_reason = "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
         if isinstance(context, dict):
             context["vent2_watchlist_before_sampling"] = vent2_watchlist
         ready = not block_reason
+        dewpoint_point_level_continue = self._limited_no_write_dewpoint_sampling_ready_continue(
+            block_reason=block_reason,
+            effort_ok=effort_ok,
+        )
         fields: Dict[str, Any] = {
             "vent_status_before_sampling": vent_status if vent_status is not None else "",
             "vent2_watchlist_before_sampling": vent2_watchlist,
@@ -18719,13 +18742,34 @@ class CalibrationRunner:
             "sealed_actual_open_valves": actual_open_valves,
             "pressure_in_limit_before_sampling": bool(pressure_ready),
             "dewpoint_stable_before_sampling": not bool(dewpoint_bad),
-            "group_abort_required": bool(block_reason),
-            "group_abort_guard_source": block_reason,
-            "sealed_group_fail_closed_hard_safety_reason": (
-                block_reason if block_reason and block_reason != "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING" else ""
+            "group_abort_required": bool(block_reason and not dewpoint_point_level_continue),
+            "group_abort_guard_source": (
+                "dewpoint_point_level_continue" if dewpoint_point_level_continue else block_reason
             ),
-            "point_level_invalid_continue_allowed": False,
+            "sealed_group_fail_closed_hard_safety_reason": (
+                block_reason
+                if block_reason and not dewpoint_point_level_continue
+                and block_reason != "FAIL_CLOSED_DEWPOINT_RISE_BEFORE_SAMPLING"
+                else ""
+            ),
+            "point_level_invalid_continue_allowed": bool(dewpoint_point_level_continue),
         }
+        if dewpoint_point_level_continue:
+            fields.update(
+                {
+                    "sealed_point_failure_scope": "point_level_invalid_continue",
+                    "dewpoint_abnormal_policy": "point_invalidate_continue_sealed_sweep",
+                    "dewpoint_abnormal_group_abort_suppressed_for_diagnostic": True,
+                    "sealed_sweep_continued_after_dewpoint_abnormal": True,
+                    "first_sealed_control_transient_possible": True,
+                    "pace_internal_path_release_suspect": True,
+                    "sample_valid_for_acceptance": False,
+                    "sample_can_enter_calibration_fit": False,
+                    "sample_can_enter_diagnostic_model": True,
+                    "sample_data_quality_grade": "B_diagnostic_model_only",
+                    "sample_data_quality_reason": "dewpoint_abnormal_before_sampling_point_invalid_continue",
+                }
+            )
         fields.update(invalidation_fields)
         fields.update(effort_fields)
         fields.update(
@@ -18744,28 +18788,45 @@ class CalibrationRunner:
                 "sealed_group_pressure_points_attempted",
                 "_sealed_point_attempted_counted",
             )
-            self._increment_sealed_group_counter_once(
-                context,
-                "sealed_group_pressure_points_group_abort",
-                "_sealed_point_group_abort_counted",
-            )
-            context["sealed_group_abort_reason"] = block_reason
-            context["group_abort_required"] = True
-            context["group_abort_guard_source"] = block_reason
-            fields.update(self._sealed_group_result_fields(context))
-            fields.update(
-                self._sealed_point_result_fields(
-                    {
-                        "point_attempted": True,
-                        "point_group_abort_required": True,
-                        "group_abort_required": True,
-                        "sealed_group_abort_reason": block_reason,
-                    },
-                    context=context,
-                    status="group_abort",
-                    reason=block_reason,
+            if dewpoint_point_level_continue:
+                context.update(fields)
+                context["prior_dewpoint_point_invalid"] = True
+                fields.update(self._sealed_group_result_fields(context))
+                fields.update(
+                    self._sealed_point_result_fields(
+                        {
+                            "point_attempted": True,
+                            "point_skipped": False,
+                            "point_skip_reason": block_reason,
+                        },
+                        context=context,
+                        status="invalid_continue_pending",
+                        reason=block_reason,
+                    )
                 )
-            )
+            else:
+                self._increment_sealed_group_counter_once(
+                    context,
+                    "sealed_group_pressure_points_group_abort",
+                    "_sealed_point_group_abort_counted",
+                )
+                context["sealed_group_abort_reason"] = block_reason
+                context["group_abort_required"] = True
+                context["group_abort_guard_source"] = block_reason
+                fields.update(self._sealed_group_result_fields(context))
+                fields.update(
+                    self._sealed_point_result_fields(
+                        {
+                            "point_attempted": True,
+                            "point_group_abort_required": True,
+                            "group_abort_required": True,
+                            "sealed_group_abort_reason": block_reason,
+                        },
+                        context=context,
+                        status="group_abort",
+                        reason=block_reason,
+                    )
+                )
         self._append_pressure_trace_row(
             point=point,
             route="co2",
