@@ -42,6 +42,7 @@ DEFAULT_OPEN_FLOW_TRANSIENT_GRACE_S = 3.0
 DEFAULT_OPEN_FLOW_TRANSIENT_LIMIT_HPA = 1150.0
 DEFAULT_RICH_TELEMETRY_INTERVAL_S = 5.0
 DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S = 5.0
+DEFAULT_RICH_TELEMETRY_PROFILE = "standard"
 DEFAULT_DIRECT_CONTROL_REAPPLY_INTERVAL_S = 0.0
 DEFAULT_VENT_PULSE_OPEN_ABOVE_TARGET_HPA = 2.0
 DEFAULT_VENT_PULSE_CLOSE_ABOVE_TARGET_HPA = 0.5
@@ -131,11 +132,21 @@ TELEMETRY_FIELDS = (
     "control_output_reassert_count",
     "rich_telemetry_collected",
     "rich_telemetry_reason",
+    "rich_telemetry_profile",
     "rich_telemetry_interval_s",
     "rich_telemetry_initial_delay_s",
+    "rich_telemetry_query_count",
+    "rich_telemetry_duration_ms",
+    "rich_telemetry_query_rate_hz",
+    "rich_telemetry_timing_fraction_of_loop",
+    "query_load_may_disturb_control",
     "fast_pressure_loop_interval_s",
     "fast_pressure_sample_index",
     "runaway_detected_elapsed_s",
+    "control_authority_state",
+    "pressure_above_target_while_negative_effort",
+    "pressure_rising_while_negative_effort",
+    "control_authority_interpretation",
     "pace_vent_hold_during_outp1_allowed",
     "open_flow_atmosphere_hold_active",
     "open_flow_atmosphere_hold_strategy",
@@ -189,6 +200,14 @@ RESULT_FIELDS = (
     "eff_negative_integral_pct_s",
     "positive_effort_class",
     "possible_supply_involvement",
+    "rich_telemetry_rows",
+    "rich_telemetry_query_count",
+    "rich_telemetry_duration_ms",
+    "rich_telemetry_query_rate_hz",
+    "query_load_may_disturb_control",
+    "pressure_above_target_while_negative_effort_count",
+    "pressure_rising_while_negative_effort_count",
+    "vacuum_authority_insufficient_or_path_limited",
     "pace_vent_used_for_control",
     "vent_violation",
     "target_crossing_count",
@@ -354,6 +373,14 @@ class DynamicTrialResult:
     eff_negative_integral_pct_s: float = 0.0
     positive_effort_class: str = "none"
     possible_supply_involvement: bool = False
+    rich_telemetry_rows: int = 0
+    rich_telemetry_query_count: int = 0
+    rich_telemetry_duration_ms: float = 0.0
+    rich_telemetry_query_rate_hz: float = 0.0
+    query_load_may_disturb_control: bool = False
+    pressure_above_target_while_negative_effort_count: int = 0
+    pressure_rising_while_negative_effort_count: int = 0
+    vacuum_authority_insufficient_or_path_limited: bool = False
     pace_vent_used_for_control: bool = False
     vent_violation: bool = False
     target_crossing_count: int = 0
@@ -619,6 +646,22 @@ def summarize_samples(
     interval_s = _median_sample_interval(times) or DEFAULT_SAMPLE_INTERVAL_S
     pressure_span = (max(pressures) - min(pressures)) if pressures else None
     dewpoint_span = (max(dewpoints) - min(dewpoints)) if dewpoints else None
+    rich_rows = [row for row in samples if bool(row.get("rich_telemetry_collected"))]
+    rich_query_count = sum(int(_as_int(row.get("rich_telemetry_query_count")) or 0) for row in samples)
+    rich_duration_ms = sum(float(_as_float(row.get("rich_telemetry_duration_ms")) or 0.0) for row in samples)
+    sample_window_for_rate_s = (max(times) - min(times)) if len(times) >= 2 else 0.0
+    rich_query_rate_hz = (
+        float(rich_query_count) / float(sample_window_for_rate_s)
+        if sample_window_for_rate_s > 0.0
+        else 0.0
+    )
+    query_load_may_disturb = any(bool(row.get("query_load_may_disturb_control")) for row in samples)
+    pressure_above_negative_count = sum(
+        1 for row in samples if bool(row.get("pressure_above_target_while_negative_effort"))
+    )
+    pressure_rising_negative_count = sum(
+        1 for row in samples if bool(row.get("pressure_rising_while_negative_effort"))
+    )
     target = plan.target_hpa
     crossing_severity = 0.0
     crossing_count = 0
@@ -686,6 +729,15 @@ def summarize_samples(
         rejection_reasons.append("target_crossing_nontrivial")
     if backdiffusion_risk:
         rejection_reasons.append("below_ambient_open_flow_backdiffusion_risk")
+    vacuum_authority_limited = bool(
+        target is not None
+        and pressures
+        and negatives
+        and pressure_rising_negative_count > 0
+        and (candidate_pressure_hpa is None or (pressures[-1] > float(target) + DEFAULT_CANDIDATE_WINDOW_HIGH_HPA))
+    )
+    if vacuum_authority_limited:
+        rejection_reasons.append("vacuum_authority_insufficient_or_path_limited")
 
     fit_ready = bool(
         candidate_possible
@@ -747,6 +799,14 @@ def summarize_samples(
         eff_negative_integral_pct_s=sum(abs(value) for value in negatives) * interval_s,
         positive_effort_class=positive_class,
         possible_supply_involvement=positive_class in {"fail", "diagnostic_only"},
+        rich_telemetry_rows=len(rich_rows),
+        rich_telemetry_query_count=rich_query_count,
+        rich_telemetry_duration_ms=round(rich_duration_ms, 3),
+        rich_telemetry_query_rate_hz=round(rich_query_rate_hz, 3),
+        query_load_may_disturb_control=query_load_may_disturb,
+        pressure_above_target_while_negative_effort_count=pressure_above_negative_count,
+        pressure_rising_while_negative_effort_count=pressure_rising_negative_count,
+        vacuum_authority_insufficient_or_path_limited=vacuum_authority_limited,
         pace_vent_used_for_control=pace_vent_used,
         vent_violation=vent_violation,
         target_crossing_count=crossing_count,
@@ -893,6 +953,19 @@ def _query_text(pace: Any, command: str) -> str:
         return str(pace.query(command))
     except Exception as exc:
         return f"ERROR:{type(exc).__name__}:{exc}"
+
+
+class _QueryCountingPaceProxy:
+    def __init__(self, pace: Any) -> None:
+        self._pace = pace
+        self.query_count = 0
+
+    def query(self, command: str) -> Any:
+        self.query_count += 1
+        return self._pace.query(command)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._pace, name)
 
 
 def read_pace_pressure_hpa(pace: Any) -> tuple[float | None, str]:
@@ -1268,11 +1341,21 @@ def _collect_sample(
         "control_output_reassert_count": 0,
         "rich_telemetry_collected": True,
         "rich_telemetry_reason": "standard_sample",
+        "rich_telemetry_profile": "standard",
         "rich_telemetry_interval_s": "",
         "rich_telemetry_initial_delay_s": "",
+        "rich_telemetry_query_count": "",
+        "rich_telemetry_duration_ms": "",
+        "rich_telemetry_query_rate_hz": "",
+        "rich_telemetry_timing_fraction_of_loop": "",
+        "query_load_may_disturb_control": False,
         "fast_pressure_loop_interval_s": "",
         "fast_pressure_sample_index": "",
         "runaway_detected_elapsed_s": "",
+        "control_authority_state": "",
+        "pressure_above_target_while_negative_effort": False,
+        "pressure_rising_while_negative_effort": False,
+        "control_authority_interpretation": "",
         "pace_vent_hold_during_outp1_allowed": False,
         "open_flow_atmosphere_hold_active": _pace_atmosphere_hold_active(pace),
         "open_flow_atmosphere_hold_strategy": "",
@@ -1362,11 +1445,21 @@ def _collect_fast_pressure_sample(
         "control_output_reassert_count": 0,
         "rich_telemetry_collected": False,
         "rich_telemetry_reason": "",
+        "rich_telemetry_profile": "",
         "rich_telemetry_interval_s": "",
         "rich_telemetry_initial_delay_s": "",
+        "rich_telemetry_query_count": 0,
+        "rich_telemetry_duration_ms": 0.0,
+        "rich_telemetry_query_rate_hz": 0.0,
+        "rich_telemetry_timing_fraction_of_loop": 0.0,
+        "query_load_may_disturb_control": False,
         "fast_pressure_loop_interval_s": "",
         "fast_pressure_sample_index": "",
         "runaway_detected_elapsed_s": "",
+        "control_authority_state": "",
+        "pressure_above_target_while_negative_effort": False,
+        "pressure_rising_while_negative_effort": False,
+        "control_authority_interpretation": "",
         "pace_vent_hold_during_outp1_allowed": False,
         "open_flow_atmosphere_hold_active": False,
         "open_flow_atmosphere_hold_strategy": "disabled_for_direct_control",
@@ -1642,6 +1735,90 @@ def refresh_direct_control_keepalive(
     return row
 
 
+def refresh_direct_control_minimal_keepalive(
+    pace: Any,
+    row: MutableMapping[str, Any],
+    *,
+    plan: DynamicTrialPlan,
+    state: MutableMapping[str, Any],
+) -> MutableMapping[str, Any]:
+    """Query only the minimum state needed to prove the PACE loop is active."""
+
+    row["control_keepalive_checked"] = True
+    confirmation = _confirm_control_command_state(pace, target_hpa=plan.target_hpa)
+    row.update(confirmation)
+    row["outp_state"] = confirmation.get("control_outp_state_after_command")
+    row["outp_mode"] = confirmation.get("control_mode_after_command")
+    row["vent_status"] = confirmation.get("control_vent_status_after_command")
+    row["setpoint_hpa"] = confirmation.get("control_setpoint_after_command_hpa") or plan.target_hpa
+    row["pace_pressure_hpa"] = confirmation.get("control_pressure_after_command_hpa") or row.get("pace_pressure_hpa")
+    row["sour_pres_eff_pct"] = confirmation.get("control_eff_after_command_pct")
+    row["syst_err"] = confirmation.get("control_syst_err_after_command")
+    row["control_output_dropout_seen"] = False
+    row["control_output_reasserted"] = False
+    if plan.target_hpa is not None and not confirmation.get("control_command_confirmed"):
+        state["dropout_seen"] = True
+        row["control_output_dropout_seen"] = True
+        retry = _enable_control_output_confirmed(
+            pace,
+            target_hpa=plan.target_hpa,
+            mode_requested=plan.mode_requested,
+            timeout_s=2.0,
+            poll_s=0.2,
+        )
+        state["reassert_count"] = int(state.get("reassert_count") or 0) + 1
+        row["control_output_reasserted"] = True
+        row.update(retry)
+        row["outp_state"] = retry.get("control_outp_state_after_command")
+        row["outp_mode"] = retry.get("control_mode_after_command")
+        row["vent_status"] = retry.get("control_vent_status_after_command")
+        row["setpoint_hpa"] = retry.get("control_setpoint_after_command_hpa") or plan.target_hpa
+        row["pace_pressure_hpa"] = retry.get("control_pressure_after_command_hpa") or row.get("pace_pressure_hpa")
+        row["sour_pres_eff_pct"] = retry.get("control_eff_after_command_pct")
+        row["syst_err"] = retry.get("control_syst_err_after_command")
+    row["control_output_reassert_count"] = int(state.get("reassert_count") or 0)
+    return row
+
+
+def annotate_control_authority(
+    row: MutableMapping[str, Any],
+    *,
+    plan: DynamicTrialPlan,
+    state: MutableMapping[str, Any],
+    pressure_rise_epsilon_hpa: float = 0.05,
+    negative_effort_threshold_pct: float = -0.5,
+) -> MutableMapping[str, Any]:
+    pressure = _as_float(row.get("pace_pressure_hpa"))
+    effort = _as_float(row.get("sour_pres_eff_pct"))
+    target = _as_float(plan.target_hpa)
+    previous_pressure = _as_float(state.get("last_pressure_hpa"))
+    row["pressure_above_target_while_negative_effort"] = False
+    row["pressure_rising_while_negative_effort"] = False
+    row["control_authority_state"] = ""
+    row["control_authority_interpretation"] = ""
+    if pressure is None:
+        return row
+    if effort is not None and target is not None and pressure > target + DEFAULT_CANDIDATE_WINDOW_HIGH_HPA:
+        if effort <= float(negative_effort_threshold_pct):
+            row["pressure_above_target_while_negative_effort"] = True
+            row["control_authority_state"] = "negative_effort_active_above_target"
+            row["control_authority_interpretation"] = (
+                "PACE loop is actively exhausting/vacuuming; repeated OUTP1 is not the missing control action."
+            )
+            if previous_pressure is not None and pressure > previous_pressure + max(0.0, float(pressure_rise_epsilon_hpa)):
+                row["pressure_rising_while_negative_effort"] = True
+                row["control_authority_state"] = "pressure_rising_despite_negative_effort"
+                row["control_authority_interpretation"] = (
+                    "Pressure rose while PACE reported negative effort; suspect insufficient exhaust authority, "
+                    "pneumatic path limitation, or source flow exceeding the controller's sink capacity."
+                )
+        elif effort > 0.0:
+            row["control_authority_state"] = "positive_effort_above_target"
+            row["control_authority_interpretation"] = "Supply valve effort above target can contaminate open-flow pressure control evidence."
+    state["last_pressure_hpa"] = pressure
+    return row
+
+
 def annotate_fast_pressure_loop_row(
     row: MutableMapping[str, Any],
     *,
@@ -1656,6 +1833,12 @@ def annotate_fast_pressure_loop_row(
     row["rich_telemetry_initial_delay_s"] = float(rich_telemetry_initial_delay_s)
     row.setdefault("rich_telemetry_collected", False)
     row.setdefault("rich_telemetry_reason", "")
+    row.setdefault("rich_telemetry_profile", "")
+    row.setdefault("rich_telemetry_query_count", 0)
+    row.setdefault("rich_telemetry_duration_ms", 0.0)
+    row.setdefault("rich_telemetry_query_rate_hz", 0.0)
+    row.setdefault("rich_telemetry_timing_fraction_of_loop", 0.0)
+    row.setdefault("query_load_may_disturb_control", False)
     return row
 
 
@@ -1668,6 +1851,7 @@ def maybe_refresh_direct_control_rich_telemetry(
     source_open_ts: float | None,
     rich_telemetry_interval_s: float,
     rich_telemetry_initial_delay_s: float,
+    rich_telemetry_profile: str = DEFAULT_RICH_TELEMETRY_PROFILE,
     reason: str = "periodic",
 ) -> MutableMapping[str, Any]:
     """Attach slow SCPI telemetry only after the fast safety window is clear.
@@ -1681,8 +1865,17 @@ def maybe_refresh_direct_control_rich_telemetry(
     row["rich_telemetry_reason"] = ""
     interval_s = max(0.0, float(rich_telemetry_interval_s))
     initial_delay_s = max(0.0, float(rich_telemetry_initial_delay_s))
+    profile = str(rich_telemetry_profile or DEFAULT_RICH_TELEMETRY_PROFILE).strip().lower()
+    if profile not in {"minimal", "standard"}:
+        profile = DEFAULT_RICH_TELEMETRY_PROFILE
+    row["rich_telemetry_profile"] = profile
     row["rich_telemetry_interval_s"] = interval_s
     row["rich_telemetry_initial_delay_s"] = initial_delay_s
+    row["rich_telemetry_query_count"] = 0
+    row["rich_telemetry_duration_ms"] = 0.0
+    row["rich_telemetry_query_rate_hz"] = 0.0
+    row["rich_telemetry_timing_fraction_of_loop"] = 0.0
+    row["query_load_may_disturb_control"] = False
     if interval_s <= 0.0 or plan.mode_requested == "OUTP0":
         return row
     ts = _as_float(row.get("ts")) or time.time()
@@ -1691,7 +1884,21 @@ def maybe_refresh_direct_control_rich_telemetry(
     last_ts = _as_float(state.get("last_rich_telemetry_ts"))
     if last_ts is not None and ts - last_ts < interval_s:
         return row
-    refresh_direct_control_keepalive(pace, row, plan=plan, state=state)
+    probe = _QueryCountingPaceProxy(pace)
+    started = time.perf_counter()
+    if profile == "minimal":
+        refresh_direct_control_minimal_keepalive(probe, row, plan=plan, state=state)
+    else:
+        refresh_direct_control_keepalive(probe, row, plan=plan, state=state)
+    elapsed_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+    row["rich_telemetry_query_count"] = int(probe.query_count)
+    row["rich_telemetry_duration_ms"] = round(elapsed_ms, 3)
+    elapsed_s = elapsed_ms / 1000.0
+    row["rich_telemetry_query_rate_hz"] = round(float(probe.query_count) / elapsed_s, 3) if elapsed_s > 0.0 else 0.0
+    loop_interval = _as_float(row.get("fast_pressure_loop_interval_s")) or interval_s
+    timing_fraction = elapsed_s / max(0.001, float(loop_interval))
+    row["rich_telemetry_timing_fraction_of_loop"] = round(timing_fraction, 3)
+    row["query_load_may_disturb_control"] = bool(timing_fraction >= 0.5 or elapsed_s >= 0.5)
     row["rich_telemetry_collected"] = True
     row["rich_telemetry_reason"] = reason
     state["last_rich_telemetry_ts"] = time.time()
@@ -1882,6 +2089,7 @@ def run_real_com_diagnostic(
     sample_interval_s: float = DEFAULT_SAMPLE_INTERVAL_S,
     rich_telemetry_interval_s: float = DEFAULT_RICH_TELEMETRY_INTERVAL_S,
     rich_telemetry_initial_delay_s: float = DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S,
+    rich_telemetry_profile: str = DEFAULT_RICH_TELEMETRY_PROFILE,
     direct_control_reapply_interval_s: float = DEFAULT_DIRECT_CONTROL_REAPPLY_INTERVAL_S,
     max_control_s: float = DEFAULT_MAX_CONTROL_S,
     max_safe_pressure_hpa: float = DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
@@ -2049,6 +2257,7 @@ def run_real_com_diagnostic(
                 "dropout_seen": False,
                 "reassert_count": 0,
                 "last_rich_telemetry_ts": None,
+                "last_pressure_hpa": None,
             }
             periodic_reapply_state: dict[str, Any] = {
                 "periodic_reapply_count": 0,
@@ -2296,7 +2505,9 @@ def run_real_com_diagnostic(
                             float(rich_telemetry_initial_delay_s),
                             float(transient_grace_s),
                         ),
+                        rich_telemetry_profile=rich_telemetry_profile,
                     )
+                    annotate_control_authority(row, plan=plan, state=control_keepalive_state)
                 _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                 pressure = _as_float(row.get("pace_pressure_hpa"))
                 if plan.target_hpa is not None and pressure is not None:
@@ -2432,7 +2643,9 @@ def run_real_com_diagnostic(
                             float(rich_telemetry_initial_delay_s),
                             float(transient_grace_s),
                         ),
+                        rich_telemetry_profile=rich_telemetry_profile,
                     )
+                    annotate_control_authority(row, plan=plan, state=control_keepalive_state)
                 _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                 time.sleep(max(0.0, sample_interval_s))
             result = summarize_samples(
@@ -2523,11 +2736,37 @@ def run_real_com_diagnostic(
             if direct_control_only
             else float(rich_telemetry_initial_delay_s)
         ),
+        "rich_telemetry_profile": str(rich_telemetry_profile or DEFAULT_RICH_TELEMETRY_PROFILE).strip().lower(),
         "rich_telemetry_strategy": (
             "fast_pressure_safety_loop_with_delayed_sparse_scpi_telemetry"
             if direct_control_only
             else "standard_serial_snapshot_per_sample"
         ),
+        "query_load_diagnostic": {
+            "profile": str(rich_telemetry_profile or DEFAULT_RICH_TELEMETRY_PROFILE).strip().lower(),
+            "any_query_load_may_disturb_control": any(row.query_load_may_disturb_control for row in results),
+            "total_rich_telemetry_queries": sum(int(row.rich_telemetry_query_count) for row in results),
+            "total_rich_telemetry_duration_ms": round(
+                sum(float(row.rich_telemetry_duration_ms) for row in results),
+                3,
+            ),
+            "interpretation": (
+                "If high-query runs behave worse than rich-telemetry disabled/minimal runs, serial query load may be delaying the outer diagnostic loop. "
+                "PACE inner control should still continue after OUTP1, so query load is evidence of measurement-loop disturbance, not proof that OUTP1 was only sent once."
+            ),
+        },
+        "control_authority_diagnostic": {
+            "pressure_rising_while_negative_effort_count": sum(
+                int(row.pressure_rising_while_negative_effort_count) for row in results
+            ),
+            "vacuum_authority_insufficient_or_path_limited": any(
+                row.vacuum_authority_insufficient_or_path_limited for row in results
+            ),
+            "interpretation": (
+                "Pressure rising while EFF is negative means the PACE loop is trying to exhaust/vacuum; "
+                "the next suspect is sink authority, pneumatic path limitation, or source flow overwhelming the controller."
+            ),
+        },
         "direct_control_reapply_interval_s": (
             float(direct_control_reapply_interval_s)
             if direct_control_only and float(direct_control_reapply_interval_s or 0.0) > 0.0
@@ -2672,6 +2911,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Direct-control mode: delay slow telemetry until the early pressure transient has passed.",
     )
     parser.add_argument(
+        "--rich-telemetry-profile",
+        choices=("minimal", "standard"),
+        default=DEFAULT_RICH_TELEMETRY_PROFILE,
+        help=(
+            "Direct-control mode: 'minimal' queries only OUTP/MODE/setpoint/VENT/pressure/EFF/SYST:ERR; "
+            "'standard' also queries COMP/ranges/slew evidence."
+        ),
+    )
+    parser.add_argument(
         "--direct-control-reapply-interval-s",
         type=float,
         default=DEFAULT_DIRECT_CONTROL_REAPPLY_INTERVAL_S,
@@ -2801,6 +3049,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sample_interval_s=args.sample_interval_s,
         rich_telemetry_interval_s=args.rich_telemetry_interval_s,
         rich_telemetry_initial_delay_s=args.rich_telemetry_initial_delay_s,
+        rich_telemetry_profile=args.rich_telemetry_profile,
         direct_control_reapply_interval_s=args.direct_control_reapply_interval_s,
         max_control_s=args.max_control_s,
         max_safe_pressure_hpa=args.max_safe_pressure_hpa,

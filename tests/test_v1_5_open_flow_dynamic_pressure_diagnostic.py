@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,10 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
     DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S,
     DEFAULT_RICH_TELEMETRY_INTERVAL_S,
+    DEFAULT_RICH_TELEMETRY_PROFILE,
     DynamicTrialPlan,
     PACE_VENT_WRITE_RE,
+    annotate_control_authority,
     annotate_fast_pressure_loop_row,
     _collect_fast_pressure_sample,
     _confirm_control_command_state,
@@ -30,6 +33,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     rank_results,
     read_pace_pressure_hpa,
     refresh_direct_control_keepalive,
+    refresh_direct_control_minimal_keepalive,
     resolve_0ppm_open_flow_valves,
     row_exceeds_open_flow_source_rise,
     row_exceeds_open_flow_pressure_safety,
@@ -354,6 +358,16 @@ def test_fast_loop_rows_record_sparse_rich_telemetry_policy() -> None:
     assert row["rich_telemetry_interval_s"] == pytest.approx(7.0)
     assert row["rich_telemetry_initial_delay_s"] == pytest.approx(4.0)
     assert row["rich_telemetry_collected"] is False
+    assert row["rich_telemetry_profile"] == ""
+    assert row["query_load_may_disturb_control"] is False
+
+
+def test_default_rich_telemetry_profile_is_standard() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args([])
+
+    assert DEFAULT_RICH_TELEMETRY_PROFILE == "standard"
+    assert args.rich_telemetry_profile == "standard"
 
 
 def test_direct_control_rich_telemetry_waits_until_initial_delay() -> None:
@@ -456,8 +470,212 @@ def test_direct_control_rich_telemetry_collects_when_due() -> None:
 
     assert row["rich_telemetry_collected"] is True
     assert row["rich_telemetry_reason"] == "periodic"
+    assert row["rich_telemetry_profile"] == "standard"
+    assert row["rich_telemetry_query_count"] >= 10
+    assert row["rich_telemetry_duration_ms"] >= 0.0
     assert row["sour_pres_eff_pct"] == pytest.approx(-8.0)
     assert ":SOUR:PRES:COMP2?" in pace.commands
+
+
+def test_minimal_rich_telemetry_avoids_comp_range_slew_queries() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def query(self, command: str) -> str:
+            self.commands.append(command)
+            assert command not in {
+                ":SOUR:PRES:COMP1?",
+                ":SOUR:PRES:COMP2?",
+                ":SOUR:PRES:RANG?",
+                ":SENS:PRES:RANG?",
+                ":SOUR:PRES:SLEW?",
+                ":SENS:PRES:SLEW?",
+                ":SOUR:PRES:SLEW:MODE?",
+                ":SOUR:PRES:SLEW:OVER?",
+            }
+            return {
+                ":OUTP:STAT?": ":OUTP:STAT 1",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -8.0",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1002.5
+
+    pace = FakePace()
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 110.0, "fast_pressure_loop_interval_s": 0.5, "pace_pressure_hpa": 1003.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        pace,
+        row,
+        plan=plan,
+        state={"last_rich_telemetry_ts": 100.0},
+        source_open_ts=100.0,
+        rich_telemetry_interval_s=5.0,
+        rich_telemetry_initial_delay_s=3.0,
+        rich_telemetry_profile="minimal",
+    )
+
+    assert row["rich_telemetry_collected"] is True
+    assert row["rich_telemetry_profile"] == "minimal"
+    assert row["sour_pres_eff_pct"] == pytest.approx(-8.0)
+    assert ":SOUR:PRES:COMP2?" not in pace.commands
+
+
+def test_minimal_keepalive_reasserts_when_output_drops_with_fewer_queries() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.outp = 0
+            self.commands: list[str] = []
+            self.writes: list[str] = []
+
+        def query(self, command: str) -> str:
+            self.commands.append(command)
+            return {
+                ":OUTP:STAT?": f":OUTP:STAT {self.outp}",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -2.0",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1002.0
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+            if command == ":OUTP:STAT 1":
+                self.outp = 1
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"pace_pressure_hpa": 1002.4}
+    state: dict[str, object] = {}
+    pace = FakePace()
+
+    refresh_direct_control_minimal_keepalive(pace, row, plan=plan, state=state)
+
+    assert row["control_output_dropout_seen"] is True
+    assert row["control_output_reasserted"] is True
+    assert ":OUTP:STAT 1" in pace.writes
+    assert ":SOUR:PRES:COMP2?" not in pace.commands
+
+
+def test_control_authority_flags_pressure_rising_despite_negative_effort() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    state: dict[str, object] = {"last_pressure_hpa": 1003.0}
+    row = {"pace_pressure_hpa": 1004.0, "sour_pres_eff_pct": -8.0}
+
+    annotate_control_authority(row, plan=plan, state=state)
+
+    assert row["pressure_above_target_while_negative_effort"] is True
+    assert row["pressure_rising_while_negative_effort"] is True
+    assert row["control_authority_state"] == "pressure_rising_despite_negative_effort"
+
+
+def test_summary_marks_vacuum_authority_limited_when_pressure_rises_under_negative_effort() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    rows = [
+        {
+            "ts": 100.0,
+            "pace_pressure_hpa": 1002.0,
+            "sour_pres_eff_pct": -5.0,
+            "pressure_above_target_while_negative_effort": True,
+        },
+        {
+            "ts": 101.0,
+            "pace_pressure_hpa": 1004.0,
+            "sour_pres_eff_pct": -7.0,
+            "pressure_above_target_while_negative_effort": True,
+            "pressure_rising_while_negative_effort": True,
+            "rich_telemetry_collected": True,
+            "rich_telemetry_query_count": 7,
+            "rich_telemetry_duration_ms": 120.0,
+        },
+    ]
+
+    result = summarize_samples(rows, plan=plan, candidate_ts=None, candidate_pressure_hpa=None)
+
+    assert result.vacuum_authority_insufficient_or_path_limited is True
+    assert result.pressure_rising_while_negative_effort_count == 1
+    assert result.rich_telemetry_query_count == 7
+    assert "vacuum_authority_insufficient_or_path_limited" in result.rejection_reasons
+
+
+def test_query_load_fraction_flags_possible_control_disturbance() -> None:
+    class SlowPace:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def query(self, command: str) -> str:
+            time.sleep(0.001)
+            self.commands.append(command)
+            return {
+                ":OUTP:STAT?": ":OUTP:STAT 1",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -8.0",
+                ":SOUR:PRES:COMP1?": ":SOUR:PRES:COMP1 1747.0",
+                ":SOUR:PRES:COMP2?": ":SOUR:PRES:COMP2 120.0",
+                ":SOUR:PRES:RANG?": ':SOUR:PRES:RANG "3.50barg"',
+                ":SENS:PRES:RANG?": ':SENS:PRES:RANG "3.50barg"',
+                ":SOUR:PRES:SLEW?": ":SOUR:PRES:SLEW 99999999.0",
+                ":SENS:PRES:SLEW?": ":SENS:PRES:SLEW -20.0",
+                ":SOUR:PRES:SLEW:MODE?": ":SOUR:PRES:SLEW:MODE MAX",
+                ":SOUR:PRES:SLEW:OVER?": ":SOUR:PRES:SLEW:OVER:STAT 0",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1002.0
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 110.0, "fast_pressure_loop_interval_s": 0.0001, "pace_pressure_hpa": 1002.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        SlowPace(),
+        row,
+        plan=plan,
+        state={"last_rich_telemetry_ts": 100.0},
+        source_open_ts=100.0,
+        rich_telemetry_interval_s=5.0,
+        rich_telemetry_initial_delay_s=3.0,
+        rich_telemetry_profile="standard",
+    )
+
+    assert row["rich_telemetry_collected"] is True
+    assert row["query_load_may_disturb_control"] is True
 
 
 def test_direct_control_keepalive_reasserts_only_when_output_drops() -> None:
