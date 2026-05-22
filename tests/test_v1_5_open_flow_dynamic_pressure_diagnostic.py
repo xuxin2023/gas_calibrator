@@ -20,6 +20,8 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     row_exceeds_open_flow_source_rise,
     row_exceeds_open_flow_pressure_safety,
     run_offline_plan,
+    start_open_flow_atmosphere_hold,
+    stop_open_flow_atmosphere_hold_before_control,
     summarize_samples,
     validate_dynamic_targets,
 )
@@ -268,6 +270,57 @@ def test_source_open_pressure_rise_blocks_dynamic_control_entry() -> None:
         ambient_hpa=1006.0,
         max_rise_hpa=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
     )
+
+
+def test_open_flow_atmosphere_hold_uses_pace_hold_open_before_source() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.calls: list[tuple] = []
+            self.active = False
+
+        def enter_atmosphere_mode(self, **kwargs) -> None:
+            self.calls.append(("enter_atmosphere_mode", kwargs))
+            self.active = bool(kwargs.get("hold_open"))
+
+        def is_atmosphere_hold_active(self) -> bool:
+            return self.active
+
+    pace = FakePace()
+    result = start_open_flow_atmosphere_hold(pace, interval_s=0.2)
+
+    assert result["active"] is True
+    assert result["strategy"] == "enter_atmosphere_mode_hold_open"
+    assert pace.calls[0][0] == "enter_atmosphere_mode"
+    assert pace.calls[0][1]["hold_open"] is True
+    assert pace.calls[0][1]["hold_interval_s"] == pytest.approx(0.2)
+
+
+def test_atmosphere_hold_is_stopped_before_setpoint_control() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.calls: list[tuple] = []
+
+        def stop_atmosphere_hold(self, **kwargs) -> bool:
+            self.calls.append(("stop_atmosphere_hold", kwargs))
+            return True
+
+        def set_output(self, on: bool) -> None:
+            self.calls.append(("set_output", bool(on)))
+
+        def vent(self, on: bool) -> None:
+            self.calls.append(("vent", bool(on)))
+
+        def set_isolation_open(self, is_open: bool) -> None:
+            self.calls.append(("set_isolation_open", bool(is_open)))
+
+    pace = FakePace()
+    result = stop_open_flow_atmosphere_hold_before_control(pace)
+
+    assert result["stopped"] is True
+    assert result["vent_abort_sent"] is True
+    assert ("set_output", False) in pace.calls
+    assert ("vent", False) in pace.calls
+    assert ("set_isolation_open", True) in pace.calls
 
 
 def test_pace_pressure_reading_uses_driver_fallback_when_cont_query_is_blank() -> None:

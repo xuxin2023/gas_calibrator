@@ -36,6 +36,7 @@ DEFAULT_POSITIVE_EFFORT_A_INTEGRAL_PCT_S = 0.5
 DEFAULT_POSITIVE_EFFORT_FAIL_PCT = 3.0
 DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA = 1050.0
 DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA = 20.0
+DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S = 0.2
 
 FORBIDDEN_WRITE_PATTERNS = (
     re.compile(r"(?<!\*)\bID\b(?!N\?)", re.IGNORECASE),
@@ -90,6 +91,9 @@ TELEMETRY_FIELDS = (
     "precheck_abort_phase",
     "source_pressure_rise_abort",
     "source_pressure_rise_abort_reason",
+    "open_flow_atmosphere_hold_active",
+    "open_flow_atmosphere_hold_strategy",
+    "atmosphere_hold_stopped_before_control",
 )
 
 RESULT_FIELDS = (
@@ -810,6 +814,66 @@ def _safe_abort_pace(pace: Any) -> None:
             pass
 
 
+def start_open_flow_atmosphere_hold(pace: Any, *, interval_s: float) -> dict[str, Any]:
+    interval = max(0.1, float(interval_s or DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S))
+    strategy = "enter_atmosphere_mode_hold_open"
+    enter = getattr(pace, "enter_atmosphere_mode", None)
+    try:
+        if callable(enter):
+            try:
+                enter(timeout_s=10.0, hold_open=True, hold_interval_s=interval)
+            except TypeError:
+                enter(hold_open=True)
+        else:
+            set_output = getattr(pace, "set_output", None)
+            if callable(set_output):
+                set_output(False)
+            set_isolation_open = getattr(pace, "set_isolation_open", None)
+            if callable(set_isolation_open):
+                set_isolation_open(True)
+            pace.vent(True)
+            start_hold = getattr(pace, "start_atmosphere_hold", None)
+            if callable(start_hold):
+                start_hold(interval_s=interval)
+            strategy = "manual_vent_hold"
+    except Exception as exc:
+        return {"requested": True, "active": False, "strategy": strategy, "error": str(exc)}
+    checker = getattr(pace, "is_atmosphere_hold_active", None)
+    active = bool(checker()) if callable(checker) else True
+    return {"requested": True, "active": active, "strategy": strategy, "interval_s": interval, "error": ""}
+
+
+def stop_open_flow_atmosphere_hold_before_control(pace: Any) -> dict[str, Any]:
+    result = {"stopped": False, "vent_abort_sent": False, "error": ""}
+    try:
+        stopper = getattr(pace, "stop_atmosphere_hold", None)
+        if callable(stopper):
+            result["stopped"] = bool(stopper(timeout_s=2.0))
+        else:
+            result["stopped"] = True
+        set_output = getattr(pace, "set_output", None)
+        if callable(set_output):
+            set_output(False)
+        pace.vent(False)
+        result["vent_abort_sent"] = True
+        set_isolation_open = getattr(pace, "set_isolation_open", None)
+        if callable(set_isolation_open):
+            set_isolation_open(True)
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def _pace_atmosphere_hold_active(pace: Any) -> bool:
+    checker = getattr(pace, "is_atmosphere_hold_active", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker())
+    except Exception:
+        return False
+
+
 def _mark_pressure_safety_abort(result: DynamicTrialResult, reason: str) -> DynamicTrialResult:
     result.pressure_safety_abort = True
     result.pressure_safety_abort_reason = reason
@@ -894,6 +958,9 @@ def _collect_sample(
         "precheck_abort_phase": "",
         "source_pressure_rise_abort": False,
         "source_pressure_rise_abort_reason": "",
+        "open_flow_atmosphere_hold_active": _pace_atmosphere_hold_active(pace),
+        "open_flow_atmosphere_hold_strategy": "",
+        "atmosphere_hold_stopped_before_control": False,
     }
 
 
@@ -1050,6 +1117,8 @@ def run_real_com_diagnostic(
     max_control_s: float = DEFAULT_MAX_CONTROL_S,
     max_safe_pressure_hpa: float = DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     source_max_rise_hpa: float = DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
+    open_flow_atmosphere_hold: bool = True,
+    open_flow_atmosphere_hold_interval_s: float = DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
     include_pass: bool = False,
     include_gaug: bool = False,
     restore_baseline: bool = True,
@@ -1075,6 +1144,14 @@ def run_real_com_diagnostic(
     precheck_abort_phase = ""
     source_rise_abort = False
     source_rise_abort_reason = ""
+    atmosphere_hold_info: dict[str, Any] = {
+        "requested": bool(open_flow_atmosphere_hold),
+        "active": False,
+        "strategy": "disabled",
+        "interval_s": "",
+        "error": "",
+    }
+    atmosphere_hold_stopped_before_control = False
     try:
         pace = devices["pace"]
         try:
@@ -1085,6 +1162,11 @@ def run_real_com_diagnostic(
             original_mode = pace.get_output_mode()
         except Exception:
             original_mode = "ACT"
+        if open_flow_atmosphere_hold:
+            atmosphere_hold_info = start_open_flow_atmosphere_hold(
+                pace,
+                interval_s=open_flow_atmosphere_hold_interval_s,
+            )
         apply_logical_valves(cfg, devices, route.get("path_open_logical_valves") or [])
         path_precheck_plan = DynamicTrialPlan(
             trial_id="open_flow_path_precheck_no_source",
@@ -1104,6 +1186,8 @@ def run_real_com_diagnostic(
             analyzer=devices.get("analyzer"),
             actual_open_valves=route.get("path_open_logical_valves") or [],
         )
+        row["open_flow_atmosphere_hold_active"] = bool(atmosphere_hold_info.get("active"))
+        row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
         samples.append(row)
         safety_pressure = _row_pressure_for_safety(row)
         if row_exceeds_open_flow_pressure_safety(row, max_safe_pressure_hpa):
@@ -1146,6 +1230,13 @@ def run_real_com_diagnostic(
                 pace.set_output(False)
                 deadline = time.time() + min(10.0, max_control_s)
             else:
+                if open_flow_atmosphere_hold and not atmosphere_hold_stopped_before_control:
+                    stop_info = stop_open_flow_atmosphere_hold_before_control(pace)
+                    atmosphere_hold_stopped_before_control = True
+                    if stop_info.get("error"):
+                        abort_reason = f"open_flow_atmosphere_hold_stop_failed:{stop_info.get('error')}"
+                        abort_all = True
+                        break
                 if plan.mode_requested == "ACT":
                     pace.set_output_mode_active()
                 elif plan.mode_requested == "PASS":
@@ -1175,6 +1266,11 @@ def run_real_com_diagnostic(
                     analyzer=devices.get("analyzer"),
                     actual_open_valves=route["open_logical_valves"],
                 )
+                row["open_flow_atmosphere_hold_active"] = bool(
+                    open_flow_atmosphere_hold and not atmosphere_hold_stopped_before_control
+                )
+                row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
+                row["atmosphere_hold_stopped_before_control"] = atmosphere_hold_stopped_before_control
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
@@ -1232,6 +1328,11 @@ def run_real_com_diagnostic(
                     analyzer=devices.get("analyzer"),
                     actual_open_valves=route["open_logical_valves"],
                 )
+                row["open_flow_atmosphere_hold_active"] = bool(
+                    open_flow_atmosphere_hold and not atmosphere_hold_stopped_before_control
+                )
+                row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
+                row["atmosphere_hold_stopped_before_control"] = atmosphere_hold_stopped_before_control
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
@@ -1306,6 +1407,8 @@ def run_real_com_diagnostic(
         "source_pressure_rise_abort_reason": source_rise_abort_reason,
         "max_safe_pressure_hpa": float(max_safe_pressure_hpa),
         "source_max_rise_hpa": float(source_max_rise_hpa),
+        "open_flow_atmosphere_hold": atmosphere_hold_info,
+        "atmosphere_hold_stopped_before_control": atmosphere_hold_stopped_before_control,
         "ranking": rank_results(results),
         "result_csv": str(result_csv_path.resolve()),
         "sample_csv": str(sample_csv_path.resolve()),
@@ -1335,6 +1438,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-control-s", type=float, default=DEFAULT_MAX_CONTROL_S)
     parser.add_argument("--max-safe-pressure-hpa", type=float, default=DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA)
     parser.add_argument("--source-max-rise-hpa", type=float, default=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA)
+    parser.add_argument("--no-open-flow-atmosphere-hold", action="store_true")
+    parser.add_argument(
+        "--open-flow-atmosphere-hold-interval-s",
+        type=float,
+        default=DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
+    )
     parser.add_argument("--real-com", action="store_true")
     parser.add_argument("--i-understand-open-flow-no-write", action="store_true")
     parser.add_argument("--operator-confirm-0ppm-flow", action="store_true")
@@ -1378,6 +1487,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_control_s=args.max_control_s,
         max_safe_pressure_hpa=args.max_safe_pressure_hpa,
         source_max_rise_hpa=args.source_max_rise_hpa,
+        open_flow_atmosphere_hold=not args.no_open_flow_atmosphere_hold,
+        open_flow_atmosphere_hold_interval_s=args.open_flow_atmosphere_hold_interval_s,
         include_pass=args.include_pass,
         include_gaug=args.include_gaug,
         restore_baseline=not args.no_restore_baseline,
