@@ -37,7 +37,7 @@ DEFAULT_POSITIVE_EFFORT_A_INTEGRAL_PCT_S = 0.5
 DEFAULT_POSITIVE_EFFORT_FAIL_PCT = 3.0
 DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA = 1050.0
 DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA = 20.0
-DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S = 0.2
+DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S = 1.0
 DEFAULT_OPEN_FLOW_TRANSIENT_GRACE_S = 3.0
 DEFAULT_OPEN_FLOW_TRANSIENT_LIMIT_HPA = 1150.0
 
@@ -726,7 +726,12 @@ def _resolve_valve_target(cfg: Mapping[str, Any], logical_valve: int) -> tuple[s
     return relay_name, channel
 
 
-def resolve_0ppm_open_flow_valves(cfg: Mapping[str, Any], *, gas_ppm: int = DEFAULT_GAS_PPM) -> dict[str, Any]:
+def resolve_0ppm_open_flow_valves(
+    cfg: Mapping[str, Any],
+    *,
+    gas_ppm: int = DEFAULT_GAS_PPM,
+    open_external_atmosphere_path: bool = False,
+) -> dict[str, Any]:
     valves_cfg = cfg.get("valves", {}) if isinstance(cfg, Mapping) else {}
     ppm_key = str(int(gas_ppm))
     candidates = [
@@ -740,13 +745,22 @@ def resolve_0ppm_open_flow_valves(cfg: Mapping[str, Any], *, gas_ppm: int = DEFA
         path = _as_int(path_valve)
         gas_main = _as_int(valves_cfg.get("gas_main"))
         h2o_path = _as_int(valves_cfg.get("h2o_path"))
-        path_open_valves = [value for value in (h2o_path, gas_main, path) if value is not None]
+        hold = _as_int(valves_cfg.get("hold"))
+        flow_switch = _as_int(valves_cfg.get("flow_switch"))
+        external_path = [value for value in (hold, flow_switch) if value is not None]
+        path_parts = [h2o_path]
+        if open_external_atmosphere_path:
+            path_parts.extend(external_path)
+        path_parts.extend([gas_main, path])
+        path_open_valves = [value for value in path_parts if value is not None]
         open_valves = [value for value in (*path_open_valves, source) if value is not None]
         return {
             "gas_ppm": int(gas_ppm),
             "group": group,
             "source_valve": source,
             "path_valve": path,
+            "external_atmosphere_path_enabled": bool(open_external_atmosphere_path),
+            "external_atmosphere_logical_valves": external_path,
             "path_open_logical_valves": path_open_valves,
             "open_logical_valves": open_valves,
         }
@@ -866,6 +880,37 @@ def _confirm_control_command_state(pace: Any, *, target_hpa: float | None) -> di
     }
 
 
+def _enable_control_output_confirmed(
+    pace: Any,
+    *,
+    target_hpa: float | None,
+    timeout_s: float = 3.0,
+    poll_s: float = 0.25,
+) -> dict[str, Any]:
+    deadline = time.time() + max(0.5, float(timeout_s))
+    confirmation: dict[str, Any] = {}
+    while time.time() < deadline:
+        enable_output = getattr(pace, "enable_control_output", None)
+        try:
+            if callable(enable_output):
+                enable_output(timeout_s=min(1.0, max(0.2, deadline - time.time())), poll_s=0.1)
+            else:
+                pace.set_output(True)
+        except Exception:
+            pass
+        confirmation = _confirm_control_command_state(pace, target_hpa=target_hpa)
+        if confirmation.get("control_command_confirmed"):
+            return confirmation
+        try:
+            # K0472 documents OUTP:STAT 0/1; keep this as a confirmation retry
+            # in the sidecar without changing the shared driver shorthand.
+            pace.write(":OUTP:STAT 1")
+        except Exception:
+            pass
+        time.sleep(max(0.05, float(poll_s)))
+    return confirmation
+
+
 def _safe_abort_pace(pace: Any) -> None:
     for action in (
         lambda: pace.set_output(False),
@@ -907,8 +952,12 @@ def start_open_flow_atmosphere_hold(pace: Any, *, interval_s: float) -> dict[str
     return {"requested": True, "active": active, "strategy": strategy, "interval_s": interval, "error": ""}
 
 
-def stop_open_flow_atmosphere_hold_before_control(pace: Any) -> dict[str, Any]:
-    result = {"stopped": False, "vent_abort_sent": False, "error": ""}
+def stop_open_flow_atmosphere_hold_before_control(
+    pace: Any,
+    *,
+    force_output_off: bool = True,
+) -> dict[str, Any]:
+    result = {"stopped": False, "vent_abort_sent": False, "output_off_sent": False, "error": ""}
     try:
         stopper = getattr(pace, "stop_atmosphere_hold", None)
         if callable(stopper):
@@ -916,8 +965,9 @@ def stop_open_flow_atmosphere_hold_before_control(pace: Any) -> dict[str, Any]:
         else:
             result["stopped"] = True
         set_output = getattr(pace, "set_output", None)
-        if callable(set_output):
+        if force_output_off and callable(set_output):
             set_output(False)
+            result["output_off_sent"] = True
         pace.vent(False)
         result["vent_abort_sent"] = True
         set_isolation_open = getattr(pace, "set_isolation_open", None)
@@ -1277,6 +1327,7 @@ def run_real_com_diagnostic(
     use_pressure_gauge_secondary: bool = False,
     direct_control_only: bool = False,
     keep_atmosphere_hold_during_direct_control: bool = False,
+    open_external_atmosphere_path: bool = False,
     restore_baseline: bool = True,
 ) -> dict[str, Any]:
     cfg = load_config(config_path)
@@ -1296,7 +1347,11 @@ def run_real_com_diagnostic(
     )
     samples: list[dict[str, Any]] = []
     results: list[DynamicTrialResult] = []
-    route = resolve_0ppm_open_flow_valves(cfg, gas_ppm=gas_ppm)
+    route = resolve_0ppm_open_flow_valves(
+        cfg,
+        gas_ppm=gas_ppm,
+        open_external_atmosphere_path=open_external_atmosphere_path,
+    )
     original_mode = ""
     sample_csv_path = output_dir / "open_flow_dynamic_pressure_samples.csv"
     result_csv_path = output_dir / "open_flow_dynamic_pressure_trial_results.csv"
@@ -1400,7 +1455,10 @@ def run_real_com_diagnostic(
                     open_flow_atmosphere_hold
                     and not atmosphere_hold_stopped_before_control
                 ):
-                    stop_info = stop_open_flow_atmosphere_hold_before_control(pace)
+                    stop_info = stop_open_flow_atmosphere_hold_before_control(
+                        pace,
+                        force_output_off=not direct_control_only,
+                    )
                     atmosphere_hold_stopped_before_control = True
                     if stop_info.get("error"):
                         abort_reason = f"open_flow_atmosphere_hold_stop_failed:{stop_info.get('error')}"
@@ -1423,13 +1481,41 @@ def run_real_com_diagnostic(
                 elif plan.slew_mode == "LIN":
                     pace.set_slew_mode_linear()
                 pace.set_setpoint(float(plan.target_hpa))
-                enable_output = getattr(pace, "enable_control_output", None)
-                if callable(enable_output):
-                    enable_output(timeout_s=2.0, poll_s=0.1)
-                else:
-                    pace.set_output(True)
+                control_confirmation = _enable_control_output_confirmed(pace, target_hpa=plan.target_hpa)
                 outp1_ts = time.time()
-                control_confirmation = _confirm_control_command_state(pace, target_hpa=plan.target_hpa)
+                if direct_control_only and not control_confirmation.get("control_command_confirmed"):
+                    abort_reason = "pace_control_output_not_confirmed_before_source"
+                    row = _collect_fast_pressure_sample(
+                        pace,
+                        plan=plan,
+                        actual_open_valves=route.get("path_open_logical_valves") or [],
+                    )
+                    row["open_flow_atmosphere_hold_active"] = bool(
+                        open_flow_atmosphere_hold and not atmosphere_hold_stopped_before_control
+                    )
+                    row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
+                    row["atmosphere_hold_stopped_before_control"] = atmosphere_hold_stopped_before_control
+                    row.update(control_confirmation)
+                    row["pressure_safety_abort"] = True
+                    row["pressure_safety_abort_reason"] = abort_reason
+                    samples.append(row)
+                    trial_samples.append(row)
+                    _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+                    result = summarize_samples(
+                        trial_samples,
+                        plan=plan,
+                        ambient_hpa=ambient_hpa,
+                        candidate_ts=None,
+                        candidate_pressure_hpa=None,
+                        outp1_ts=outp1_ts,
+                        mode_confirmed=mode_confirmed or plan.mode_requested,
+                    )
+                    result = _mark_pressure_safety_abort(result, abort_reason)
+                    results.append(result)
+                    _append_csv_row(result_csv_path, RESULT_FIELDS, asdict(result))
+                    _safe_abort_pace(pace)
+                    abort_all = True
+                    break
                 if direct_control_only:
                     apply_logical_valves(cfg, devices, route["open_logical_valves"])
                     source_open_ts = time.time()
@@ -1648,6 +1734,7 @@ def run_real_com_diagnostic(
         "direct_control_only": bool(direct_control_only),
         "keep_atmosphere_hold_during_direct_control": bool(keep_atmosphere_hold_during_direct_control),
         "pace_vent_hold_during_outp1_allowed": False,
+        "open_external_atmosphere_path": bool(open_external_atmosphere_path),
         "direct_control_sequence": (
             (
                 "atmosphere_hold_pre_equalize -> stop_pace_vent_hold -> path_open_without_source -> "
@@ -1694,6 +1781,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Diagnostic-only compatibility flag: pre-equalize with atmosphere hold, then stop PACE vent "
             "before OUTP1 because VENT hold and pressure control are mutually exclusive."
         ),
+    )
+    parser.add_argument(
+        "--open-external-atmosphere-path",
+        action="store_true",
+        help="Open the configured external open-flow atmosphere path valves, e.g. hold/flow_switch, during the diagnostic.",
     )
     parser.add_argument("--output-dir", type=Path, default=Path("logs") / "v1_5_open_flow_dynamic_pressure")
     parser.add_argument("--run-id", default=None)
@@ -1772,6 +1864,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
         direct_control_only=args.direct_control_only,
         keep_atmosphere_hold_during_direct_control=args.keep_atmosphere_hold_during_direct_control,
+        open_external_atmosphere_path=args.open_external_atmosphere_path,
         restore_baseline=not args.no_restore_baseline,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))

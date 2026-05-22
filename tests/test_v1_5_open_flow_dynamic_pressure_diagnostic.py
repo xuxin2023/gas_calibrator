@@ -12,6 +12,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     PACE_VENT_WRITE_RE,
     _collect_fast_pressure_sample,
     _confirm_control_command_state,
+    _enable_control_output_confirmed,
     assert_no_forbidden_writes,
     build_arg_parser,
     build_default_trial_plan,
@@ -100,6 +101,15 @@ def test_default_plan_is_open_flow_not_sealed_and_uses_0ppm() -> None:
     assert {item.mode_requested for item in plan} == {"OUTP0", "ACT"}
 
 
+def test_external_atmosphere_path_adds_hold_and_flow_switch_valves() -> None:
+    route = resolve_0ppm_open_flow_valves(_cfg(), gas_ppm=0, open_external_atmosphere_path=True)
+
+    assert route["external_atmosphere_path_enabled"] is True
+    assert route["external_atmosphere_logical_valves"] == [9, 10]
+    assert route["path_open_logical_valves"] == [8, 9, 10, 11, 7]
+    assert route["open_logical_valves"] == [8, 9, 10, 11, 7, 1]
+
+
 def test_direct_control_plan_excludes_outp0_baseline() -> None:
     plans = build_default_trial_plan([1000.0], ambient_hpa=1006.0, include_outp0_baseline=False)
 
@@ -147,6 +157,39 @@ def test_control_command_confirmation_requires_outp1_and_setpoint() -> None:
     assert confirmation["control_setpoint_after_command_hpa"] == pytest.approx(1000.0)
     assert confirmation["control_pressure_after_command_hpa"] == pytest.approx(1001.34)
     assert confirmation["pace_vent_hold_during_outp1_allowed"] is False
+
+
+def test_enable_control_output_confirmation_retries_documented_outp_stat() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.outp = 0
+            self.writes: list[str] = []
+
+        def enable_control_output(self, **kwargs) -> None:
+            self.writes.append("enable_control_output")
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+            if command == ":OUTP:STAT 1":
+                self.outp = 1
+
+        def query(self, command: str) -> str:
+            return {
+                ":OUTP:STAT?": f":OUTP:STAT {self.outp}",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1001.34
+
+    pace = FakePace()
+    confirmation = _enable_control_output_confirmed(pace, target_hpa=1000.0, timeout_s=1.0, poll_s=0.01)
+
+    assert confirmation["control_command_confirmed"] is True
+    assert ":OUTP:STAT 1" in pace.writes
 
 
 def test_fast_pressure_sample_uses_pace_read_without_slow_queries() -> None:
@@ -428,7 +471,37 @@ def test_atmosphere_hold_is_stopped_before_setpoint_control() -> None:
 
     assert result["stopped"] is True
     assert result["vent_abort_sent"] is True
+    assert result["output_off_sent"] is True
     assert ("set_output", False) in pace.calls
+    assert ("vent", False) in pace.calls
+    assert ("set_isolation_open", True) in pace.calls
+
+
+def test_atmosphere_hold_stop_can_skip_redundant_outp0_for_direct_control() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.calls: list[tuple] = []
+
+        def stop_atmosphere_hold(self, **kwargs) -> bool:
+            self.calls.append(("stop_atmosphere_hold", kwargs))
+            return True
+
+        def set_output(self, on: bool) -> None:
+            self.calls.append(("set_output", bool(on)))
+
+        def vent(self, on: bool) -> None:
+            self.calls.append(("vent", bool(on)))
+
+        def set_isolation_open(self, is_open: bool) -> None:
+            self.calls.append(("set_isolation_open", bool(is_open)))
+
+    pace = FakePace()
+    result = stop_open_flow_atmosphere_hold_before_control(pace, force_output_off=False)
+
+    assert result["stopped"] is True
+    assert result["vent_abort_sent"] is True
+    assert result["output_off_sent"] is False
+    assert ("set_output", False) not in pace.calls
     assert ("vent", False) in pace.calls
     assert ("set_isolation_open", True) in pace.calls
 
