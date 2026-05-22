@@ -488,6 +488,22 @@ def test_only_over1_skips_over0_for_fastest_real_smoke() -> None:
     assert plans[0].slew_value_max is True
 
 
+def test_only_gaug_skips_act_for_isolated_mode_screen() -> None:
+    plans = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        only_gaug=True,
+        set_slew_value_max=True,
+        include_outp0_baseline=False,
+    )
+
+    assert len(plans) == 1
+    assert plans[0].mode_requested == "GAUG"
+    assert plans[0].overshoot_allowed is False
+    assert plans[0].slew_mode == "MAX"
+    assert plans[0].slew_value_max is True
+
+
 def test_gaug_is_explicit_diagnostic_opt_in_not_default() -> None:
     default_plan = build_default_trial_plan([1000], ambient_hpa=1006)
     gaug_plan = build_default_trial_plan([1000], ambient_hpa=1006, include_gaug=True)
