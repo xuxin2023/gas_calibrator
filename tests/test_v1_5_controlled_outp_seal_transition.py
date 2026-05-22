@@ -2134,7 +2134,10 @@ def test_post_vent0_probe_does_not_delay_route_close() -> None:
 
 
 def test_preseal_pressure_build_waits_for_1110_before_route_close(monkeypatch) -> None:
-    runner, _, _, _ = _runner(gauge=FakeGauge([1010.0, 1040.0, 1112.0, 1112.0]))
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1010.0, 1040.0, 1112.0, 1112.0]),
+        pressure_overrides={"disable_preseal_topoff_for_limited_no_write": False},
+    )
     point = _co2_point()
     topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[str] = []
@@ -2168,7 +2171,10 @@ def test_preseal_pressure_build_safety_caps_configured_wait_and_hard_limit() -> 
 
 
 def test_preseal_pressure_build_timeout_uses_1p5s_not_5s(monkeypatch) -> None:
-    runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={"disable_preseal_topoff_for_limited_no_write": False},
+    )
     point = _co2_point()
     topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[str] = []
@@ -2189,6 +2195,29 @@ def test_preseal_pressure_build_timeout_uses_1p5s_not_5s(monkeypatch) -> None:
     assert fields["route_close_deadline_enforced"] is True
     assert fields["preseal_pressure_build_max_wait_s"] == pytest.approx(1.5)
     assert fields["route_close_timeout_without_pressure_trigger"] is True
+
+
+def test_limited_no_write_1100_seals_without_preseal_topoff(monkeypatch) -> None:
+    runner, _, _, logs = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={"positive_supply_required_point_level_continue_enabled": True},
+    )
+    point = _co2_point(pressure=1100.0)
+    events: list[tuple[str, object]] = []
+    runner._apply_valve_states = MagicMock(side_effect=lambda valves: events.append(("close_valves", list(valves))))
+    monkeypatch.setattr("time.sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    close_index = events.index(("close_valves", []))
+    assert not any(event[0] == "sleep" for event in events[:close_index])
+    assert any("seal-then-control strategy" in message for message in logs)
+    wait_fields = _last_stage_fields(runner, "controlled_outp_vent0_fixed_wait_before_seal")
+    assert wait_fields["preseal_topoff_required"] is False
+    assert wait_fields["preseal_pressure_build_max_wait_s"] == pytest.approx(0.0)
+    assert wait_fields["preseal_route_close_trigger_source"] == "no_wait"
+    stages = _trace_stages(runner)
+    assert "sealed_fast_control_start_deferred_positive_supply" in stages
 
 
 def test_descent_only_selection_closes_route_without_preseal_build_wait(monkeypatch) -> None:
@@ -2587,7 +2616,10 @@ def test_vent_status_3_is_watchlist_not_terminal() -> None:
 def test_operator_window_console_yes_allows_pressure_build_timeout_close(monkeypatch) -> None:
     runner, _, _, _ = _runner(
         gauge=FakeGauge([1013.0, 1013.0]),
-        pressure_overrides={"operator_window_confirm_mode": "console"},
+        pressure_overrides={
+            "operator_window_confirm_mode": "console",
+            "disable_preseal_topoff_for_limited_no_write": False,
+        },
     )
     events: list[str] = []
     runner._apply_valve_states = MagicMock(side_effect=lambda _valves: events.append("close_valves"))
@@ -2739,7 +2771,10 @@ def test_window_ui_residual_suspected_removed() -> None:
 
 
 def test_vent0_pressure_build_timeout_then_close_valves(monkeypatch) -> None:
-    runner, pace, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
+    runner, pace, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={"disable_preseal_topoff_for_limited_no_write": False},
+    )
     point = _co2_point()
     topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[tuple] = []
@@ -2764,7 +2799,10 @@ def test_vent0_pressure_build_timeout_then_close_valves(monkeypatch) -> None:
 
 
 def test_vent0_state_trace_recorded_at_route_close(monkeypatch) -> None:
-    runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0, 1013.0]))
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0, 1013.0]),
+        pressure_overrides={"disable_preseal_topoff_for_limited_no_write": False},
+    )
     point = _co2_point()
     topoff_ref = _co2_point(index=2, pressure=1100.0)
     runner._apply_valve_states = MagicMock()
@@ -2813,7 +2851,10 @@ def test_fast_control_order_preserved(monkeypatch) -> None:
 
 
 def test_verified_exit_then_pressure_build_timeout_close_valves(monkeypatch) -> None:
-    runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={"disable_preseal_topoff_for_limited_no_write": False},
+    )
     point = _co2_point()
     topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[str] = []
@@ -2885,7 +2926,10 @@ def test_pressure_rise_and_noninteractive_window_warn_not_block_route_close(monk
 
 
 def test_route_valves_remain_open_during_fixed_wait(monkeypatch) -> None:
-    runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
+    runner, _, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={"disable_preseal_topoff_for_limited_no_write": False},
+    )
     point = _co2_point()
     topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[str] = []
@@ -7514,6 +7558,49 @@ def test_1100_positive_effort_invalid_then_1000_attempted_when_opted_in() -> Non
     fields = _last_stage_fields(runner, "sealed_pressure_point_invalid_continue")
     assert fields["sealed_point_failure_scope"] == "point_level_invalid_continue"
     assert fields["positive_supply_effort_policy"] == "point_invalidate_continue_sealed_sweep"
+    assert fields["group_abort_required"] is False
+
+
+def test_1100_positive_supply_required_invalid_then_1000_attempted_when_opted_in() -> None:
+    runner, _pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "positive_supply_required_point_level_continue_enabled": True,
+        }
+    )
+    _prepare_co2_group_runner_for_seal_failure_tests(runner)
+    p1100 = _co2_point(index=11, pressure=1100.0)
+    p1000 = _co2_point(index=12, pressure=1000.0)
+    attempted: list[float] = []
+
+    def preseal(point, *, route, sealed_control_refs):
+        runner._activate_co2_sealed_no_vent_guard(point, reason="test preseal", route_close_ts=time.time())
+        return True
+
+    def set_pressure(point):
+        attempted.append(float(point.target_pressure_hpa))
+        if float(point.target_pressure_hpa) == 1100.0:
+            runner._controlled_exit_final_decision = (
+                "FAIL_CLOSED_POSITIVE_SUPPLY_REQUIRED_BUT_CLEAN_SUPPLY_NOT_CONFIRMED"
+            )
+            return False
+        return True
+
+    runner._pressurize_route_for_sealed_points = MagicMock(side_effect=preseal)
+    runner._set_pressure_to_target = MagicMock(side_effect=set_pressure)
+    runner._set_pressure_to_target_in_active_co2_sealed_sweep = MagicMock(side_effect=set_pressure)
+    runner._wait_after_pressure_stable_before_sampling = MagicMock(return_value=True)
+    runner._co2_sealed_sampling_ready = MagicMock(return_value=True)
+    runner._sample_and_log = MagicMock()
+
+    runner._run_co2_point(p1100, pressure_points=[p1100, p1000])
+
+    assert attempted == [1100.0, 1000.0]
+    fields = _last_stage_fields(runner, "sealed_pressure_point_invalid_continue")
+    assert fields["positive_supply_required_policy"] == "point_invalidate_continue_sealed_sweep"
+    assert fields["positive_supply_required_group_abort_suppressed_for_diagnostic"] is True
+    assert fields["sample_can_enter_calibration_fit"] is False
     assert fields["group_abort_required"] is False
 
 

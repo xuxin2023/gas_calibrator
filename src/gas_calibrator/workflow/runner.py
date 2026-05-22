@@ -7591,9 +7591,16 @@ class CalibrationRunner:
                 return True
         return False
 
+    def _limited_no_write_seal_then_control_preseal_topoff_disabled(self) -> bool:
+        raw = self._wf("workflow.pressure.disable_preseal_topoff_for_limited_no_write", None)
+        default = bool(self._limited_no_write_workflow_active() and self._controlled_outp_transition())
+        return self._as_bool(raw, default)
+
     def _route_requires_preseal_topoff(self, points: Optional[List[CalibrationPoint]]) -> bool:
         if not points:
             return True
+        if self._limited_no_write_seal_then_control_preseal_topoff_disabled():
+            return False
         reference_raw = self._wf(
             "workflow.pressure.preseal_topoff_reference_hpa",
             self._wf("workflow.pressure.ambient_reference_hpa", 1013.25),
@@ -7624,6 +7631,11 @@ class CalibrationRunner:
             self.log(
                 f"{route_label} sealed pressure set contains above-reference target; "
                 "keep preseal top-off before sealing"
+            )
+        elif self._limited_no_write_seal_then_control_preseal_topoff_disabled():
+            self.log(
+                f"{route_label} limited no-write seal-then-control strategy active; "
+                "skip preseal top-off and seal immediately after vent off"
             )
         else:
             self.log(
@@ -18079,6 +18091,28 @@ class CalibrationRunner:
             trace_stage="sealed_positive_supply_precheck_fast_control",
         )
         if not positive_ok:
+            decision_text = str(self._controlled_exit_final_decision or "")
+            if self._limited_no_write_positive_supply_required_point_level_continue(decision_text):
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="sealed_fast_control_start_deferred_positive_supply",
+                    pressure_target_hpa=target,
+                    refresh_pace_state=False,
+                    extra_fields=self._sealed_sweep_trace_extra(
+                        {
+                            **dict(ready_fields or {}),
+                            **positive_fields,
+                            "sealed_fast_control_start_deferred": True,
+                            "sealed_fast_control_start_deferred_reason": decision_text,
+                            "point_level_invalid_continue_allowed": True,
+                            "group_abort_required": False,
+                        }
+                    ),
+                    note="limited no-write leaves route sealed and defers positive-supply point to point-level handling",
+                )
+                return True
             return False
         setpoint_bias_fields = self._sealed_sample_setpoint_bias_fields(
             target=target,
@@ -18450,10 +18484,22 @@ class CalibrationRunner:
             and text == "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
         )
 
+    def _limited_no_write_positive_supply_required_point_level_continue(self, reason: Any) -> bool:
+        text = str(reason or "").strip().upper()
+        return bool(
+            self._limited_no_write_workflow_active()
+            and self._as_bool(
+                self._wf("workflow.pressure.positive_supply_required_point_level_continue_enabled", False),
+                False,
+            )
+            and text == "FAIL_CLOSED_POSITIVE_SUPPLY_REQUIRED_BUT_CLEAN_SUPPLY_NOT_CONFIRMED"
+        )
+
     def _limited_no_write_pressure_point_level_continue(self, reason: Any) -> bool:
         return bool(
             self._limited_no_write_dewpoint_point_level_continue(reason)
             or self._limited_no_write_positive_effort_point_level_continue(reason)
+            or self._limited_no_write_positive_supply_required_point_level_continue(reason)
         )
 
     def _limited_no_write_dewpoint_sampling_ready_continue(
@@ -18489,6 +18535,10 @@ class CalibrationRunner:
         reason_upper = reason_text.strip().upper()
         dewpoint_reason = reason_upper.startswith("FAIL_CLOSED_DEWPOINT")
         positive_effort_reason = reason_upper == "FAIL_CLOSED_POSITIVE_SUPPLY_EFFORT_DETECTED_BEFORE_SAMPLING"
+        positive_supply_required_reason = (
+            reason_upper == "FAIL_CLOSED_POSITIVE_SUPPLY_REQUIRED_BUT_CLEAN_SUPPLY_NOT_CONFIRMED"
+        )
+        positive_supply_risk_reason = bool(positive_effort_reason or positive_supply_required_reason)
         context = self._sealed_sweep_context_for_counters()
         fields: Dict[str, Any] = {
             "v2_strategy_reference": "sealed_point_loop_and_secondary_evidence",
@@ -18502,10 +18552,16 @@ class CalibrationRunner:
                 "point_invalidate_continue_sealed_sweep" if positive_effort_reason else ""
             ),
             "positive_supply_effort_group_abort_suppressed_for_diagnostic": bool(positive_effort_reason),
+            "positive_supply_required_policy": (
+                "point_invalidate_continue_sealed_sweep" if positive_supply_required_reason else ""
+            ),
+            "positive_supply_required_group_abort_suppressed_for_diagnostic": bool(
+                positive_supply_required_reason
+            ),
             "sealed_sweep_continued_after_dewpoint_abnormal": bool(dewpoint_reason),
-            "sealed_sweep_continued_after_positive_effort": bool(positive_effort_reason),
+            "sealed_sweep_continued_after_positive_effort": bool(positive_supply_risk_reason),
             "prior_point_dewpoint_abnormal": bool(dewpoint_reason),
-            "prior_point_positive_effort_invalid": bool(positive_effort_reason),
+            "prior_point_positive_effort_invalid": bool(positive_supply_risk_reason),
             "prior_point_invalidated_reason": reason_text,
             "point_level_invalid_continue_allowed": True,
             "group_abort_required": False,
@@ -18520,7 +18576,9 @@ class CalibrationRunner:
             ),
             "sampling_blocked_by_dewpoint_rise": bool(dewpoint_reason),
             "sample_blocked_by_positive_supply_effort": bool(positive_effort_reason),
-            "sample_invalidated_by_positive_effort": bool(positive_effort_reason),
+            "positive_supply_required": bool(positive_supply_required_reason),
+            "positive_supply_forbidden": bool(positive_supply_required_reason),
+            "sample_invalidated_by_positive_effort": bool(positive_supply_risk_reason),
             "sample_valid_for_acceptance": False,
             "sample_can_enter_calibration_fit": False,
             "pressure_controller_control_state_failure_reason": reason_text,
@@ -18546,7 +18604,7 @@ class CalibrationRunner:
                     reason="dewpoint_point_invalid_continue",
                 )
                 fields["dewpoint_trend_after_1100"] = context.get("dewpoint_trend_after_1100", "")
-            if positive_effort_reason:
+            if positive_supply_risk_reason:
                 context["prior_positive_effort_point_invalid"] = True
             fields.update(
                 self._sealed_point_result_fields(
@@ -26265,7 +26323,7 @@ class CalibrationRunner:
                         "FAIL_CLOSED_PRESSURE_TARGET_CHATTER_EXHAUST_ONLY",
                         "FAIL_CLOSED_PRESSURE_UNDERSHOOT_EXHAUST_ONLY",
                         "FAIL_CLOSED_EXHAUST_ONLY_INLIMIT_OUTSIDE_ONE_SIDED_WINDOW",
-                    }:
+                    } or self._limited_no_write_pressure_point_level_continue(decision_text):
                         break
                     retry_done += 1
                     pressure_ok = self._retry_co2_pressure_point_after_timeout(
