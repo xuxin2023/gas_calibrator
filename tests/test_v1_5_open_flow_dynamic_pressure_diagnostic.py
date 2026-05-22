@@ -1101,7 +1101,7 @@ def test_planned_commands_record_telemetry_without_pace_vent_control() -> None:
     assert_no_forbidden_writes(commands)
 
 
-def test_planned_fastest_commands_use_manual_slew_max_without_pace_vent() -> None:
+def test_planned_fastest_commands_use_slew_mode_max_without_invalid_rate_value() -> None:
     trial = next(
         item
         for item in build_default_trial_plan(
@@ -1114,10 +1114,9 @@ def test_planned_fastest_commands_use_manual_slew_max_without_pace_vent() -> Non
     )
     commands = planned_commands_for_trial(trial)
 
-    assert ":SOUR:PRES:SLEW max" in commands
+    assert ":SOUR:PRES:SLEW max" not in commands
     assert ":SOUR:PRES:SLEW:MODE MAX" in commands
     assert ":SOUR:PRES:SLEW:OVER 1" in commands
-    assert commands.index(":SOUR:PRES:SLEW max") < commands.index(":SOUR:PRES:SLEW:MODE MAX")
     assert not any(PACE_VENT_WRITE_RE.search(command) for command in commands)
     assert_no_forbidden_writes(commands)
 

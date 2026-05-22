@@ -572,9 +572,6 @@ def planned_commands_for_trial(plan: DynamicTrialPlan) -> list[str]:
         commands.append(f":SOUR:PRES:SLEW:OVER {1 if plan.overshoot_allowed else 0}")
         commands.append(":SOUR:PRES:SLEW:OVER?")
     if plan.slew_mode:
-        if plan.slew_value_max:
-            commands.append(":SOUR:PRES:SLEW max")
-            commands.append(":SOUR:PRES:SLEW?")
         commands.append(f":SOUR:PRES:SLEW:MODE {plan.slew_mode}")
         if plan.slew_mode == "LIN" and plan.slew_rate_hpa_per_s is not None:
             commands.append(f":SOUR:PRES:SLEW {float(plan.slew_rate_hpa_per_s):g}")
@@ -2311,8 +2308,6 @@ def run_real_com_diagnostic(
                     mode_confirmed = f"ERROR:{exc}"
                 if plan.overshoot_allowed is not None:
                     pace.set_overshoot_allowed(bool(plan.overshoot_allowed))
-                if plan.slew_value_max:
-                    pace.write(":SOUR:PRES:SLEW max")
                 if plan.slew_mode == "MAX":
                     pace.set_slew_mode_max()
                 elif plan.slew_mode == "LIN":
@@ -2857,7 +2852,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--set-slew-value-max",
         action="store_true",
-        help="Before SLEW:MODE MAX, also send documented ':SOUR:PRES:SLEW max' as a diagnostic rate-value ceiling.",
+        help=(
+            "Deprecated diagnostic flag retained for compatibility. Current K0472/PACE bench evidence rejects "
+            "':SOUR:PRES:SLEW max' with -222, so this records the request but only sends SLEW:MODE MAX."
+        ),
     )
     parser.add_argument(
         "--diagnostic-slew-mode",
