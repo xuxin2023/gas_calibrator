@@ -62,6 +62,7 @@ TELEMETRY_FIELDS = (
     "isolation_state",
     "setpoint_hpa",
     "pace_pressure_hpa",
+    "pace_pressure_source",
     "com22_pressure_hpa",
     "sour_pres_eff_pct",
     "sour_pres_comp1_hpa",
@@ -417,6 +418,7 @@ def planned_commands_for_trial(plan: DynamicTrialPlan) -> list[str]:
         commands.append(":OUTP:STAT 1")
     commands.extend(
         [
+            ":SENS:PRES:INL?",
             ":SENS:PRES:CONT?",
             ":SOUR:PRES:RANG?",
             ":SENS:PRES:RANG?",
@@ -748,6 +750,22 @@ def _query_text(pace: Any, command: str) -> str:
         return f"ERROR:{type(exc).__name__}:{exc}"
 
 
+def read_pace_pressure_hpa(pace: Any) -> tuple[float | None, str]:
+    reader = getattr(pace, "read_pressure", None)
+    if callable(reader):
+        try:
+            value = _as_float(reader())
+            if value is not None:
+                return value, "PACE::read_pressure"
+        except Exception:
+            pass
+    for command in (":SENS:PRES:INL?", ":SENS:PRES:CONT?", ":SENS:PRES?", ":MEAS:PRES?"):
+        value = _parse_first_float(_query_text(pace, command))
+        if value is not None:
+            return value, f"PACE:{command}"
+    return None, ""
+
+
 def _row_pressure_for_safety(row: Mapping[str, Any]) -> float | None:
     values = [
         _as_float(row.get("pace_pressure_hpa")),
@@ -815,6 +833,7 @@ def _collect_sample(
             gauge_pressure = pressure_gauge.read_pressure()
         except Exception:
             gauge_pressure = None
+    pace_pressure, pace_pressure_source = read_pace_pressure_hpa(pace)
     return {
         "ts": ts,
         "trial_id": plan.trial_id,
@@ -829,7 +848,8 @@ def _collect_sample(
         "vent_status": _parse_first_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT?")),
         "isolation_state": _parse_first_float(_query_text(pace, ":OUTP:ISOL:STAT?")),
         "setpoint_hpa": plan.target_hpa,
-        "pace_pressure_hpa": _parse_first_float(_query_text(pace, ":SENS:PRES:CONT?")),
+        "pace_pressure_hpa": pace_pressure,
+        "pace_pressure_source": pace_pressure_source,
         "com22_pressure_hpa": gauge_pressure,
         "sour_pres_eff_pct": _parse_first_float(_query_text(pace, ":SOUR:PRES:EFF?")),
         "sour_pres_comp1_hpa": _parse_first_float(_query_text(pace, ":SOUR:PRES:COMP1?")),

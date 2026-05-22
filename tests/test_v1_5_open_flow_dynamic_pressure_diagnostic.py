@@ -14,6 +14,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     command_is_forbidden_write,
     planned_commands_for_trial,
     rank_results,
+    read_pace_pressure_hpa,
     resolve_0ppm_open_flow_valves,
     row_exceeds_open_flow_pressure_safety,
     run_offline_plan,
@@ -106,6 +107,7 @@ def test_planned_commands_record_telemetry_without_pace_vent_control() -> None:
     assert ":SOUR:PRES:EFF?" in commands
     assert ":SOUR:PRES:COMP1?" in commands
     assert ":SOUR:PRES:COMP2?" in commands
+    assert ":SENS:PRES:INL?" in commands
     assert ":SOUR:PRES:RANG?" in commands
     assert ":SENS:PRES:RANG?" in commands
     assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?" in commands
@@ -250,6 +252,40 @@ def test_open_flow_pressure_safety_abort_uses_pace_or_com22_pressure() -> None:
         {"pace_pressure_hpa": 1002.0, "com22_pressure_hpa": 1003.0},
         DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     )
+
+
+def test_pace_pressure_reading_uses_driver_fallback_when_cont_query_is_blank() -> None:
+    class FakePace:
+        def read_pressure(self) -> float:
+            return 1003.9614868
+
+        def query(self, command: str) -> str:
+            if command == ":SENS:PRES:CONT?":
+                return ""
+            raise AssertionError(command)
+
+    value, source = read_pace_pressure_hpa(FakePace())
+
+    assert value == pytest.approx(1003.9614868)
+    assert source == "PACE::read_pressure"
+
+
+def test_pace_pressure_reading_falls_back_to_inl_query() -> None:
+    class FakePace:
+        def read_pressure(self) -> float:
+            raise RuntimeError("NO_RESPONSE")
+
+        def query(self, command: str) -> str:
+            if command == ":SENS:PRES:INL?":
+                return ":SENS:PRES:INL 1003.9614868, 0"
+            if command == ":SENS:PRES:CONT?":
+                return ""
+            return ""
+
+    value, source = read_pace_pressure_hpa(FakePace())
+
+    assert value == pytest.approx(1003.9614868)
+    assert source == "PACE::SENS:PRES:INL?"
 
 
 def test_missing_dewpoint_or_analyzer_blocks_A() -> None:
