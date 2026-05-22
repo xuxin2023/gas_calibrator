@@ -28,6 +28,7 @@ DEFAULT_TARGETS_HPA = (1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
 DEFAULT_SAMPLE_COUNT = 10
 DEFAULT_SAMPLE_INTERVAL_S = 0.2
 DEFAULT_MAX_CONTROL_S = 45.0
+DEFAULT_CANDIDATE_WINDOW_LOW_HPA = 0.2
 DEFAULT_CANDIDATE_WINDOW_HIGH_HPA = 1.0
 DEFAULT_DRY_DEWPOINT_MAX_C = -30.0
 DEFAULT_DEWPOINT_STABILITY_SPAN_C = 0.7
@@ -37,6 +38,8 @@ DEFAULT_POSITIVE_EFFORT_FAIL_PCT = 3.0
 DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA = 1050.0
 DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA = 20.0
 DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S = 0.2
+DEFAULT_OPEN_FLOW_TRANSIENT_GRACE_S = 3.0
+DEFAULT_OPEN_FLOW_TRANSIENT_LIMIT_HPA = 1150.0
 
 FORBIDDEN_WRITE_PATTERNS = (
     re.compile(r"(?<!\*)\bID\b(?!N\?)", re.IGNORECASE),
@@ -91,6 +94,10 @@ TELEMETRY_FIELDS = (
     "precheck_abort_phase",
     "source_pressure_rise_abort",
     "source_pressure_rise_abort_reason",
+    "pressure_transient_allowed",
+    "pressure_transient_elapsed_s",
+    "pressure_soft_limit_hpa",
+    "pressure_transient_limit_hpa",
     "open_flow_atmosphere_hold_active",
     "open_flow_atmosphere_hold_strategy",
     "atmosphere_hold_stopped_before_control",
@@ -800,6 +807,32 @@ def row_exceeds_open_flow_source_rise(
     return bool(float(pressure) > float(ambient_hpa) + max(0.0, float(max_rise_hpa)))
 
 
+def open_flow_pressure_abort_reason(
+    row: Mapping[str, Any],
+    *,
+    max_safe_pressure_hpa: float,
+    transient_limit_hpa: float = DEFAULT_OPEN_FLOW_TRANSIENT_LIMIT_HPA,
+    transient_grace_s: float = DEFAULT_OPEN_FLOW_TRANSIENT_GRACE_S,
+    transient_elapsed_s: float | None = None,
+) -> str:
+    pressure = _row_pressure_for_safety(row)
+    if pressure is None:
+        return ""
+    if float(pressure) > float(transient_limit_hpa):
+        return (
+            f"open_flow_pressure_hard_abort:"
+            f"{float(pressure):.3f}>{float(transient_limit_hpa):.3f}"
+        )
+    if float(pressure) <= float(max_safe_pressure_hpa):
+        return ""
+    if transient_elapsed_s is not None and float(transient_elapsed_s) <= max(0.0, float(transient_grace_s)):
+        return ""
+    return (
+        f"open_flow_pressure_safety_abort:"
+        f"{float(pressure):.3f}>{float(max_safe_pressure_hpa):.3f}"
+    )
+
+
 def _safe_abort_pace(pace: Any) -> None:
     for action in (
         lambda: pace.set_output(False),
@@ -956,6 +989,10 @@ def _collect_sample(
         "precheck_abort_phase": "",
         "source_pressure_rise_abort": False,
         "source_pressure_rise_abort_reason": "",
+        "pressure_transient_allowed": False,
+        "pressure_transient_elapsed_s": "",
+        "pressure_soft_limit_hpa": "",
+        "pressure_transient_limit_hpa": "",
         "open_flow_atmosphere_hold_active": _pace_atmosphere_hold_active(pace),
         "open_flow_atmosphere_hold_strategy": "",
         "atmosphere_hold_stopped_before_control": False,
@@ -1012,6 +1049,10 @@ def _collect_fast_pressure_sample(
         "precheck_abort_phase": "",
         "source_pressure_rise_abort": False,
         "source_pressure_rise_abort_reason": "",
+        "pressure_transient_allowed": False,
+        "pressure_transient_elapsed_s": "",
+        "pressure_soft_limit_hpa": "",
+        "pressure_transient_limit_hpa": "",
         "open_flow_atmosphere_hold_active": False,
         "open_flow_atmosphere_hold_strategy": "disabled_for_direct_control",
         "atmosphere_hold_stopped_before_control": True,
@@ -1178,6 +1219,8 @@ def run_real_com_diagnostic(
     max_control_s: float = DEFAULT_MAX_CONTROL_S,
     max_safe_pressure_hpa: float = DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     source_max_rise_hpa: float = DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
+    transient_grace_s: float = DEFAULT_OPEN_FLOW_TRANSIENT_GRACE_S,
+    transient_limit_hpa: float = DEFAULT_OPEN_FLOW_TRANSIENT_LIMIT_HPA,
     open_flow_atmosphere_hold: bool = True,
     open_flow_atmosphere_hold_interval_s: float = DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
     include_pass: bool = False,
@@ -1296,6 +1339,7 @@ def run_real_com_diagnostic(
             candidate_ts = None
             candidate_pressure = None
             outp1_ts = None
+            source_open_ts = None
             trial_samples: list[dict[str, Any]] = []
             if plan.mode_requested == "OUTP0":
                 pace.set_output(False)
@@ -1329,6 +1373,7 @@ def run_real_com_diagnostic(
                 outp1_ts = time.time()
                 if direct_control_only:
                     apply_logical_valves(cfg, devices, route["open_logical_valves"])
+                    source_open_ts = time.time()
                 deadline = outp1_ts + max_control_s
             while time.time() < deadline:
                 if direct_control_only:
@@ -1354,11 +1399,29 @@ def run_real_com_diagnostic(
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
-                if row_exceeds_open_flow_pressure_safety(row, max_safe_pressure_hpa):
-                    abort_reason = (
-                        f"open_flow_pressure_safety_abort:"
-                        f"{float(safety_pressure or 0.0):.3f}>{float(max_safe_pressure_hpa):.3f}"
-                    )
+                transient_elapsed = (
+                    max(0.0, float(row["ts"]) - float(source_open_ts))
+                    if direct_control_only and source_open_ts is not None
+                    else None
+                )
+                row["pressure_transient_elapsed_s"] = transient_elapsed if transient_elapsed is not None else ""
+                row["pressure_soft_limit_hpa"] = float(max_safe_pressure_hpa)
+                row["pressure_transient_limit_hpa"] = float(transient_limit_hpa)
+                row["pressure_transient_allowed"] = bool(
+                    direct_control_only
+                    and transient_elapsed is not None
+                    and safety_pressure is not None
+                    and float(max_safe_pressure_hpa) < float(safety_pressure) <= float(transient_limit_hpa)
+                    and transient_elapsed <= max(0.0, float(transient_grace_s))
+                )
+                abort_reason = open_flow_pressure_abort_reason(
+                    row,
+                    max_safe_pressure_hpa=max_safe_pressure_hpa,
+                    transient_limit_hpa=transient_limit_hpa,
+                    transient_grace_s=transient_grace_s if direct_control_only else 0.0,
+                    transient_elapsed_s=transient_elapsed,
+                )
+                if abort_reason:
                     row["pressure_safety_abort"] = True
                     row["pressure_safety_abort_reason"] = abort_reason
                     _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
@@ -1388,11 +1451,15 @@ def run_real_com_diagnostic(
                 _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                 pressure = _as_float(row.get("pace_pressure_hpa"))
                 if plan.target_hpa is not None and pressure is not None:
-                    if float(plan.target_hpa) <= pressure <= float(plan.target_hpa) + DEFAULT_CANDIDATE_WINDOW_HIGH_HPA:
+                    if (
+                        float(plan.target_hpa) - DEFAULT_CANDIDATE_WINDOW_LOW_HPA
+                        <= pressure
+                        <= float(plan.target_hpa) + DEFAULT_CANDIDATE_WINDOW_HIGH_HPA
+                    ):
                         candidate_ts = float(row["ts"])
                         candidate_pressure = pressure
                         break
-                    if pressure < float(plan.target_hpa) - 0.05:
+                    if pressure < float(plan.target_hpa) - DEFAULT_CANDIDATE_WINDOW_LOW_HPA:
                         candidate_ts = None
                         candidate_pressure = None
                         break
@@ -1423,11 +1490,29 @@ def run_real_com_diagnostic(
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
-                if row_exceeds_open_flow_pressure_safety(row, max_safe_pressure_hpa):
-                    abort_reason = (
-                        f"open_flow_pressure_safety_abort:"
-                        f"{float(safety_pressure or 0.0):.3f}>{float(max_safe_pressure_hpa):.3f}"
-                    )
+                transient_elapsed = (
+                    max(0.0, float(row["ts"]) - float(source_open_ts))
+                    if direct_control_only and source_open_ts is not None
+                    else None
+                )
+                row["pressure_transient_elapsed_s"] = transient_elapsed if transient_elapsed is not None else ""
+                row["pressure_soft_limit_hpa"] = float(max_safe_pressure_hpa)
+                row["pressure_transient_limit_hpa"] = float(transient_limit_hpa)
+                row["pressure_transient_allowed"] = bool(
+                    direct_control_only
+                    and transient_elapsed is not None
+                    and safety_pressure is not None
+                    and float(max_safe_pressure_hpa) < float(safety_pressure) <= float(transient_limit_hpa)
+                    and transient_elapsed <= max(0.0, float(transient_grace_s))
+                )
+                abort_reason = open_flow_pressure_abort_reason(
+                    row,
+                    max_safe_pressure_hpa=max_safe_pressure_hpa,
+                    transient_limit_hpa=transient_limit_hpa,
+                    transient_grace_s=transient_grace_s if direct_control_only else 0.0,
+                    transient_elapsed_s=transient_elapsed,
+                )
+                if abort_reason:
                     row["pressure_safety_abort"] = True
                     row["pressure_safety_abort_reason"] = abort_reason
                     _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
@@ -1494,6 +1579,8 @@ def run_real_com_diagnostic(
         "source_pressure_rise_abort_reason": source_rise_abort_reason,
         "max_safe_pressure_hpa": float(max_safe_pressure_hpa),
         "source_max_rise_hpa": float(source_max_rise_hpa),
+        "transient_grace_s": float(transient_grace_s),
+        "transient_limit_hpa": float(transient_limit_hpa),
         "primary_pressure_source": "PACE",
         "pressure_safety_source": "PACE",
         "com22_secondary_pressure_enabled": bool(use_pressure_gauge_secondary),
@@ -1539,6 +1626,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-control-s", type=float, default=DEFAULT_MAX_CONTROL_S)
     parser.add_argument("--max-safe-pressure-hpa", type=float, default=DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA)
     parser.add_argument("--source-max-rise-hpa", type=float, default=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA)
+    parser.add_argument("--transient-grace-s", type=float, default=DEFAULT_OPEN_FLOW_TRANSIENT_GRACE_S)
+    parser.add_argument("--transient-limit-hpa", type=float, default=DEFAULT_OPEN_FLOW_TRANSIENT_LIMIT_HPA)
     parser.add_argument(
         "--use-com22-secondary-pressure",
         action="store_true",
@@ -1594,6 +1683,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_control_s=args.max_control_s,
         max_safe_pressure_hpa=args.max_safe_pressure_hpa,
         source_max_rise_hpa=args.source_max_rise_hpa,
+        transient_grace_s=args.transient_grace_s,
+        transient_limit_hpa=args.transient_limit_hpa,
         open_flow_atmosphere_hold=(not args.no_open_flow_atmosphere_hold and not args.direct_control_only),
         open_flow_atmosphere_hold_interval_s=args.open_flow_atmosphere_hold_interval_s,
         include_pass=args.include_pass,

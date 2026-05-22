@@ -15,6 +15,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     build_default_trial_plan,
     command_is_forbidden_write,
     planned_commands_for_trial,
+    open_flow_pressure_abort_reason,
     rank_results,
     read_pace_pressure_hpa,
     resolve_0ppm_open_flow_valves,
@@ -287,6 +288,35 @@ def test_open_flow_pressure_safety_abort_uses_pace_pressure_only() -> None:
     assert not row_exceeds_open_flow_pressure_safety(
         {"pace_pressure_hpa": 1002.0, "com22_pressure_hpa": 1003.0},
         DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    )
+
+
+def test_direct_control_allows_short_source_open_pressure_transient() -> None:
+    row = {"pace_pressure_hpa": 1082.4}
+
+    assert (
+        open_flow_pressure_abort_reason(
+            row,
+            max_safe_pressure_hpa=1050.0,
+            transient_limit_hpa=1150.0,
+            transient_grace_s=3.0,
+            transient_elapsed_s=0.15,
+        )
+        == ""
+    )
+    assert "open_flow_pressure_safety_abort" in open_flow_pressure_abort_reason(
+        row,
+        max_safe_pressure_hpa=1050.0,
+        transient_limit_hpa=1150.0,
+        transient_grace_s=3.0,
+        transient_elapsed_s=3.2,
+    )
+    assert "open_flow_pressure_hard_abort" in open_flow_pressure_abort_reason(
+        {"pace_pressure_hpa": 1150.1},
+        max_safe_pressure_hpa=1050.0,
+        transient_limit_hpa=1150.0,
+        transient_grace_s=3.0,
+        transient_elapsed_s=0.1,
     )
 
 
