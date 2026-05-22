@@ -74,8 +74,12 @@ TELEMETRY_FIELDS = (
     "sour_pres_comp2_hpa",
     "source_pressure_range",
     "sense_pressure_range",
+    "sour_pres_slew_hpa_per_s",
+    "sens_pressure_slew_hpa_per_s",
     "slew_mode",
     "slew_over",
+    "slew_value_max_requested",
+    "control_fastest_profile_requested",
     "vent_rate",
     "vent_rate_unit",
     "dewpoint_c",
@@ -207,6 +211,16 @@ def _parse_first_float(text: Any) -> float | None:
     return _as_float(match.group(0))
 
 
+def _parse_scpi_value_float(text: Any) -> float | None:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    parts = raw.split(maxsplit=1)
+    tail = parts[1] if len(parts) > 1 else raw
+    value = _parse_first_float(tail)
+    return value if value is not None else _parse_first_float(raw)
+
+
 def _read_json(path: str | Path | None) -> Mapping[str, Any]:
     if not path:
         return {}
@@ -250,6 +264,7 @@ class DynamicTrialPlan:
     gas_ppm: int = DEFAULT_GAS_PPM
     slew_mode: str | None = "MAX"
     overshoot_allowed: bool | None = False
+    slew_value_max: bool = False
     outp1_sent: bool = True
     route_sealed: bool = False
     open_flow_route_active: bool = True
@@ -353,6 +368,8 @@ def build_default_trial_plan(
     gas_ppm: int = DEFAULT_GAS_PPM,
     include_pass: bool = False,
     include_gaug: bool = False,
+    include_over1: bool = False,
+    set_slew_value_max: bool = False,
     allow_above_ambient: bool = False,
     include_outp0_baseline: bool = True,
 ) -> list[DynamicTrialPlan]:
@@ -383,8 +400,21 @@ def build_default_trial_plan(
                 mode_requested="ACT",
                 target_hpa=float(target),
                 gas_ppm=int(gas_ppm),
+                slew_value_max=bool(set_slew_value_max),
             )
         )
+        if include_over1:
+            plans.append(
+                DynamicTrialPlan(
+                    trial_id=f"open_flow_act_over1_max_{target:g}",
+                    label=f"open-flow ACT + OVER1 + MAX fastest diagnostic at {target:g} hPa",
+                    mode_requested="ACT",
+                    target_hpa=float(target),
+                    gas_ppm=int(gas_ppm),
+                    overshoot_allowed=True,
+                    slew_value_max=bool(set_slew_value_max),
+                )
+            )
         if include_gaug:
             plans.append(
                 DynamicTrialPlan(
@@ -393,6 +423,7 @@ def build_default_trial_plan(
                     mode_requested="GAUG",
                     target_hpa=float(target),
                     gas_ppm=int(gas_ppm),
+                    slew_value_max=bool(set_slew_value_max),
                 )
             )
         if include_pass:
@@ -403,6 +434,7 @@ def build_default_trial_plan(
                     mode_requested="PASS",
                     target_hpa=float(target),
                     gas_ppm=int(gas_ppm),
+                    slew_value_max=bool(set_slew_value_max),
                 )
             )
     return plans
@@ -440,6 +472,9 @@ def planned_commands_for_trial(plan: DynamicTrialPlan) -> list[str]:
         commands.append(f":SOUR:PRES:SLEW:OVER {1 if plan.overshoot_allowed else 0}")
         commands.append(":SOUR:PRES:SLEW:OVER?")
     if plan.slew_mode:
+        if plan.slew_value_max:
+            commands.append(":SOUR:PRES:SLEW max")
+            commands.append(":SOUR:PRES:SLEW?")
         commands.append(f":SOUR:PRES:SLEW:MODE {plan.slew_mode}")
         commands.append(":SOUR:PRES:SLEW:MODE?")
     if plan.target_hpa is not None:
@@ -452,6 +487,8 @@ def planned_commands_for_trial(plan: DynamicTrialPlan) -> list[str]:
             ":SENS:PRES:CONT?",
             ":SOUR:PRES:RANG?",
             ":SENS:PRES:RANG?",
+            ":SOUR:PRES:SLEW?",
+            ":SENS:PRES:SLEW?",
             ":SOUR:PRES:EFF?",
             ":SOUR:PRES:COMP1?",
             ":SOUR:PRES:COMP2?",
@@ -792,7 +829,7 @@ def read_pace_pressure_hpa(pace: Any) -> tuple[float | None, str]:
         except Exception:
             pass
     for command in (":SENS:PRES:INL?", ":SENS:PRES:CONT?", ":SENS:PRES?", ":MEAS:PRES?"):
-        value = _parse_first_float(_query_text(pace, command))
+        value = _parse_scpi_value_float(_query_text(pace, command))
         if value is not None:
             return value, f"PACE:{command}"
     return None, ""
@@ -870,11 +907,11 @@ def open_flow_dynamic_control_runaway_reason(
 
 
 def _confirm_control_command_state(pace: Any, *, target_hpa: float | None) -> dict[str, Any]:
-    outp_state = _parse_first_float(_query_text(pace, ":OUTP:STAT?"))
-    setpoint = _parse_first_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL?"))
-    vent_status = _parse_first_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT?"))
+    outp_state = _parse_scpi_value_float(_query_text(pace, ":OUTP:STAT?"))
+    setpoint = _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL?"))
+    vent_status = _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT?"))
     pressure, _source = read_pace_pressure_hpa(pace)
-    eff = _parse_first_float(_query_text(pace, ":SOUR:PRES:EFF?"))
+    eff = _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:EFF?"))
     syst_err = _query_text(pace, ":SYST:ERR?")
     target = _as_float(target_hpa)
     setpoint_matches = bool(
@@ -1074,21 +1111,25 @@ def _collect_sample(
         "phase": "open_flow_dynamic_pressure",
         "open_flow_route_active": True,
         "route_sealed": False,
-        "outp_state": _parse_first_float(_query_text(pace, ":OUTP:STAT?")),
+        "outp_state": _parse_scpi_value_float(_query_text(pace, ":OUTP:STAT?")),
         "outp_mode": _query_text(pace, ":OUTP:MODE?"),
-        "vent_status": _parse_first_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT?")),
-        "isolation_state": _parse_first_float(_query_text(pace, ":OUTP:ISOL:STAT?")),
+        "vent_status": _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT?")),
+        "isolation_state": _parse_scpi_value_float(_query_text(pace, ":OUTP:ISOL:STAT?")),
         "setpoint_hpa": plan.target_hpa,
         "pace_pressure_hpa": pace_pressure,
         "pace_pressure_source": pace_pressure_source,
         "com22_pressure_hpa": gauge_pressure,
-        "sour_pres_eff_pct": _parse_first_float(_query_text(pace, ":SOUR:PRES:EFF?")),
-        "sour_pres_comp1_hpa": _parse_first_float(_query_text(pace, ":SOUR:PRES:COMP1?")),
-        "sour_pres_comp2_hpa": _parse_first_float(_query_text(pace, ":SOUR:PRES:COMP2?")),
+        "sour_pres_eff_pct": _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:EFF?")),
+        "sour_pres_comp1_hpa": _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:COMP1?")),
+        "sour_pres_comp2_hpa": _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:COMP2?")),
         "source_pressure_range": _query_text(pace, ":SOUR:PRES:RANG?"),
         "sense_pressure_range": _query_text(pace, ":SENS:PRES:RANG?"),
+        "sour_pres_slew_hpa_per_s": _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:SLEW?")),
+        "sens_pressure_slew_hpa_per_s": _parse_scpi_value_float(_query_text(pace, ":SENS:PRES:SLEW?")),
         "slew_mode": _query_text(pace, ":SOUR:PRES:SLEW:MODE?"),
         "slew_over": _query_text(pace, ":SOUR:PRES:SLEW:OVER?"),
+        "slew_value_max_requested": bool(plan.slew_value_max),
+        "control_fastest_profile_requested": bool(plan.slew_mode == "MAX" and plan.slew_value_max),
         "vent_rate": _query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?"),
         "vent_rate_unit": _query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?"),
         "dewpoint_c": _as_float(dew_row.get("dewpoint_c")),
@@ -1159,8 +1200,12 @@ def _collect_fast_pressure_sample(
         "sour_pres_comp2_hpa": "",
         "source_pressure_range": "",
         "sense_pressure_range": "",
+        "sour_pres_slew_hpa_per_s": "",
+        "sens_pressure_slew_hpa_per_s": "",
         "slew_mode": plan.slew_mode or "",
         "slew_over": 1 if plan.overshoot_allowed else 0 if plan.overshoot_allowed is not None else "",
+        "slew_value_max_requested": bool(plan.slew_value_max),
+        "control_fastest_profile_requested": bool(plan.slew_mode == "MAX" and plan.slew_value_max),
         "vent_rate": "",
         "vent_rate_unit": "",
         "dewpoint_c": "",
@@ -1215,6 +1260,16 @@ def refresh_direct_control_keepalive(
     row["setpoint_hpa"] = confirmation.get("control_setpoint_after_command_hpa") or plan.target_hpa
     row["sour_pres_eff_pct"] = confirmation.get("control_eff_after_command_pct")
     row["syst_err"] = confirmation.get("control_syst_err_after_command")
+    row["sour_pres_comp1_hpa"] = _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:COMP1?"))
+    row["sour_pres_comp2_hpa"] = _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:COMP2?"))
+    row["source_pressure_range"] = _query_text(pace, ":SOUR:PRES:RANG?")
+    row["sense_pressure_range"] = _query_text(pace, ":SENS:PRES:RANG?")
+    row["sour_pres_slew_hpa_per_s"] = _parse_scpi_value_float(_query_text(pace, ":SOUR:PRES:SLEW?"))
+    row["sens_pressure_slew_hpa_per_s"] = _parse_scpi_value_float(_query_text(pace, ":SENS:PRES:SLEW?"))
+    row["slew_mode"] = _query_text(pace, ":SOUR:PRES:SLEW:MODE?")
+    row["slew_over"] = _query_text(pace, ":SOUR:PRES:SLEW:OVER?")
+    row["slew_value_max_requested"] = bool(plan.slew_value_max)
+    row["control_fastest_profile_requested"] = bool(plan.slew_mode == "MAX" and plan.slew_value_max)
     row.update(confirmation)
     row["control_output_dropout_seen"] = False
     row["control_output_reasserted"] = False
@@ -1242,6 +1297,8 @@ def run_offline_plan(
     gas_ppm: int = DEFAULT_GAS_PPM,
     include_pass: bool = False,
     include_gaug: bool = False,
+    include_over1: bool = False,
+    set_slew_value_max: bool = False,
     include_outp0_baseline: bool = True,
 ) -> dict[str, Any]:
     plans = build_default_trial_plan(
@@ -1250,6 +1307,8 @@ def run_offline_plan(
         gas_ppm=gas_ppm,
         include_pass=include_pass,
         include_gaug=include_gaug,
+        include_over1=include_over1,
+        set_slew_value_max=set_slew_value_max,
         include_outp0_baseline=include_outp0_baseline,
     )
     command_rows = [
@@ -1273,6 +1332,8 @@ def run_offline_plan(
         "uses_1100": any(abs(float(target) - 1100.0) < 0.001 for target in targets_hpa),
         "route_strategy": "open_flow_dynamic_pressure",
         "pace_vent_control_strategy": "do_not_use_pace_vent_for_sampling_control",
+        "set_slew_value_max": bool(set_slew_value_max),
+        "include_over1": bool(include_over1),
         "trial_plan": [asdict(plan) for plan in plans],
         "planned_commands": command_rows,
     }
@@ -1400,6 +1461,8 @@ def run_real_com_diagnostic(
     open_flow_atmosphere_hold_interval_s: float = DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
     include_pass: bool = False,
     include_gaug: bool = False,
+    include_over1: bool = False,
+    set_slew_value_max: bool = False,
     use_pressure_gauge_secondary: bool = False,
     direct_control_only: bool = False,
     keep_atmosphere_hold_during_direct_control: bool = False,
@@ -1412,6 +1475,8 @@ def run_real_com_diagnostic(
         gas_ppm=gas_ppm,
         include_pass=include_pass,
         include_gaug=include_gaug,
+        include_over1=include_over1,
+        set_slew_value_max=set_slew_value_max,
         include_outp0_baseline=not direct_control_only,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1548,6 +1613,8 @@ def run_real_com_diagnostic(
                     mode_confirmed = f"ERROR:{exc}"
                 if plan.overshoot_allowed is not None:
                     pace.set_overshoot_allowed(bool(plan.overshoot_allowed))
+                if plan.slew_value_max:
+                    pace.write(":SOUR:PRES:SLEW max")
                 if plan.slew_mode == "MAX":
                     pace.set_slew_mode_max()
                 elif plan.slew_mode == "LIN":
@@ -1855,6 +1922,8 @@ def run_real_com_diagnostic(
         "primary_pressure_source": "PACE",
         "pressure_safety_source": "PACE",
         "com22_secondary_pressure_enabled": bool(use_pressure_gauge_secondary),
+        "set_slew_value_max": bool(set_slew_value_max),
+        "include_over1": bool(include_over1),
         "direct_control_only": bool(direct_control_only),
         "keep_atmosphere_hold_during_direct_control": bool(keep_atmosphere_hold_during_direct_control),
         "pace_vent_hold_during_outp1_allowed": False,
@@ -1891,6 +1960,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gas-ppm", type=int, default=DEFAULT_GAS_PPM)
     parser.add_argument("--include-pass", action="store_true")
     parser.add_argument("--include-gaug", action="store_true")
+    parser.add_argument("--include-over1", action="store_true", help="Add ACT + OVER1 + MAX as a diagnostic-only fastest-response comparison.")
+    parser.add_argument(
+        "--set-slew-value-max",
+        action="store_true",
+        help="Before SLEW:MODE MAX, also send documented ':SOUR:PRES:SLEW max' as a diagnostic rate-value ceiling.",
+    )
     parser.add_argument("--allow-above-ambient", action="store_true")
     parser.add_argument(
         "--direct-control-only",
@@ -1952,6 +2027,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             gas_ppm=args.gas_ppm,
             include_pass=args.include_pass,
             include_gaug=args.include_gaug,
+            include_over1=args.include_over1,
+            set_slew_value_max=args.set_slew_value_max,
             include_outp0_baseline=not args.direct_control_only,
         )
         print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -1979,6 +2056,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         open_flow_atmosphere_hold_interval_s=args.open_flow_atmosphere_hold_interval_s,
         include_pass=args.include_pass,
         include_gaug=args.include_gaug,
+        include_over1=args.include_over1,
+        set_slew_value_max=args.set_slew_value_max,
         use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
         direct_control_only=args.direct_control_only,
         keep_atmosphere_hold_during_direct_control=args.keep_atmosphere_hold_during_direct_control,

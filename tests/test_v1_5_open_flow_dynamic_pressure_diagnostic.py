@@ -129,6 +129,21 @@ def test_direct_control_atmosphere_flag_is_explicit() -> None:
     assert args.no_open_flow_atmosphere_hold is False
 
 
+def test_fastest_diagnostic_flags_are_explicit() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args(
+        [
+            "--include-over1",
+            "--set-slew-value-max",
+            "--targets",
+            "1000",
+        ]
+    )
+
+    assert args.include_over1 is True
+    assert args.set_slew_value_max is True
+
+
 def test_control_command_confirmation_requires_outp1_and_setpoint() -> None:
     class FakePace:
         def query(self, command: str) -> str:
@@ -268,6 +283,14 @@ def test_direct_control_keepalive_reasserts_only_when_output_drops() -> None:
                 ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
                 ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.2",
+                ":SOUR:PRES:COMP1?": ":SOUR:PRES:COMP1 3165.0",
+                ":SOUR:PRES:COMP2?": ":SOUR:PRES:COMP2 -964.0",
+                ":SOUR:PRES:RANG?": ':SOUR:PRES:RANG "3.50barg"',
+                ":SENS:PRES:RANG?": ':SENS:PRES:RANG "3.50barg"',
+                ":SOUR:PRES:SLEW?": ":SOUR:PRES:SLEW 99999999.0000000",
+                ":SENS:PRES:SLEW?": ":SENS:PRES:SLEW -20.0",
+                ":SOUR:PRES:SLEW:MODE?": ":SOUR:PRES:SLEW:MODE MAX",
+                ":SOUR:PRES:SLEW:OVER?": ":SOUR:PRES:SLEW:OVER:STAT 0",
                 ":SYST:ERR?": ":SYST:ERR 0, No error",
             }.get(command, "")
 
@@ -292,7 +315,28 @@ def test_direct_control_keepalive_reasserts_only_when_output_drops() -> None:
     assert row["control_output_reassert_count"] == 1
     assert row["outp_state"] == 1
     assert row["sour_pres_eff_pct"] == pytest.approx(-0.2)
+    assert row["sour_pres_comp2_hpa"] == pytest.approx(-964.0)
+    assert row["sour_pres_slew_hpa_per_s"] == pytest.approx(99999999.0)
+    assert row["sens_pressure_slew_hpa_per_s"] == pytest.approx(-20.0)
+    assert row["slew_mode"] == ":SOUR:PRES:SLEW:MODE MAX"
     assert ":OUTP:STAT 1" in pace.writes
+
+
+def test_include_over1_adds_fastest_diagnostic_trial_without_changing_default() -> None:
+    default_plan = build_default_trial_plan([1000], ambient_hpa=1006)
+    fastest_plan = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        include_over1=True,
+        set_slew_value_max=True,
+    )
+
+    assert all(item.overshoot_allowed is not True for item in default_plan)
+    over1 = [item for item in fastest_plan if item.mode_requested == "ACT" and item.overshoot_allowed is True]
+    assert len(over1) == 1
+    assert over1[0].slew_mode == "MAX"
+    assert over1[0].slew_value_max is True
+    assert over1[0].diagnostic_only is True
 
 
 def test_gaug_is_explicit_diagnostic_opt_in_not_default() -> None:
@@ -311,10 +355,33 @@ def test_planned_commands_record_telemetry_without_pace_vent_control() -> None:
     assert ":SOUR:PRES:COMP1?" in commands
     assert ":SOUR:PRES:COMP2?" in commands
     assert ":SENS:PRES:INL?" in commands
+    assert ":SOUR:PRES:SLEW?" in commands
+    assert ":SENS:PRES:SLEW?" in commands
     assert ":SOUR:PRES:RANG?" in commands
     assert ":SENS:PRES:RANG?" in commands
     assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?" in commands
     assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?" in commands
+    assert not any(PACE_VENT_WRITE_RE.search(command) for command in commands)
+    assert_no_forbidden_writes(commands)
+
+
+def test_planned_fastest_commands_use_manual_slew_max_without_pace_vent() -> None:
+    trial = next(
+        item
+        for item in build_default_trial_plan(
+            [1000],
+            ambient_hpa=1006,
+            include_over1=True,
+            set_slew_value_max=True,
+        )
+        if item.overshoot_allowed is True
+    )
+    commands = planned_commands_for_trial(trial)
+
+    assert ":SOUR:PRES:SLEW max" in commands
+    assert ":SOUR:PRES:SLEW:MODE MAX" in commands
+    assert ":SOUR:PRES:SLEW:OVER 1" in commands
+    assert commands.index(":SOUR:PRES:SLEW max") < commands.index(":SOUR:PRES:SLEW:MODE MAX")
     assert not any(PACE_VENT_WRITE_RE.search(command) for command in commands)
     assert_no_forbidden_writes(commands)
 
