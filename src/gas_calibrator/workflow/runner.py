@@ -4840,6 +4840,22 @@ class CalibrationRunner:
                     sampling_window_qc_reason or "sampling_window_qc",
                 )
 
+        if getattr(point, "is_h2o_point", False) and self._h2o_pressure_anchor_short_window_active(point, phase=phase):
+            h2o_gate_result = str(state.get("dewpoint_gate_result") or "").strip().lower()
+            if h2o_gate_result != "stable":
+                _add_issue(
+                    "h2o_postseal_dewpoint_gate_not_stable",
+                    "warn",
+                    f"h2o_postseal_dewpoint_gate_result={h2o_gate_result or 'missing'}",
+                )
+            h2o_preseal_status = str(state.get("flush_gate_status") or "").strip().lower()
+            if h2o_preseal_status and h2o_preseal_status != "pass":
+                _add_issue(
+                    "h2o_preseal_dewpoint_gate_not_pass",
+                    "warn",
+                    f"h2o_preseal_dewpoint_gate_status={h2o_preseal_status}",
+                )
+
         cold_co2_quality_gate_status = str(state.get("cold_co2_quality_gate_status") or "").strip().lower()
         cold_co2_quality_gate_reason = str(state.get("cold_co2_quality_gate_reason") or "").strip()
         if cold_co2_quality_gate_status == "warn":
@@ -4966,6 +4982,23 @@ class CalibrationRunner:
             "sampling_window_dewpoint_slope_c_per_s",
             "sampling_window_qc_status",
             "sampling_window_qc_reason",
+            "h2o_dewpoint_quality_model",
+            "h2o_dewpoint_stability_required_for_calibration",
+            "h2o_preseal_dewpoint_gate_status",
+            "h2o_preseal_dewpoint_gate_reason",
+            "h2o_preseal_dewpoint_tail_span_c",
+            "h2o_preseal_dewpoint_tail_slope_c_per_s",
+            "h2o_preseal_dewpoint_rebound_detected",
+            "h2o_postseal_dewpoint_gate_result",
+            "h2o_postseal_dewpoint_gate_count",
+            "h2o_postseal_dewpoint_gate_span_c",
+            "h2o_postseal_dewpoint_gate_slope_c_per_s",
+            "h2o_postseal_dewpoint_gate_pass_live_c",
+            "h2o_short_window_after_dewpoint_gate",
+            "h2o_dewpoint_stability_evidence_status",
+            "h2o_calibration_fit_blocked_reason",
+            "sample_can_enter_calibration_fit",
+            "sample_can_enter_diagnostic_model",
             "pressure_gauge_stale_count",
             "pressure_gauge_total_count",
             "pressure_gauge_stale_ratio",
@@ -11322,6 +11355,36 @@ class CalibrationRunner:
         parsed = self._as_float(raw)
         return max(0.0, float(3.0 if parsed is None else parsed))
 
+    def _h2o_dewpoint_stability_evidence_fields(self, point: CalibrationPoint) -> Dict[str, Any]:
+        state = self._point_runtime_state(point, phase="h2o", create=False) or {}
+        postseal_result = str(state.get("dewpoint_gate_result") or "").strip().lower()
+        preseal_status = str(state.get("flush_gate_status") or "").strip().lower()
+        postseal_stable = bool(postseal_result == "stable")
+        preseal_passed = bool(preseal_status in {"pass", ""})
+        fit_blockers: List[str] = []
+        if not postseal_stable:
+            fit_blockers.append("h2o_postseal_dewpoint_gate_not_stable")
+        if preseal_status and preseal_status != "pass":
+            fit_blockers.append(f"h2o_preseal_dewpoint_gate_{preseal_status}")
+        evidence_status = "stable" if postseal_stable and preseal_passed else "diagnostic_only"
+        return {
+            "h2o_dewpoint_quality_model": "water_route_target_stability_not_dry_gas_residual",
+            "h2o_dewpoint_stability_required_for_calibration": True,
+            "h2o_preseal_dewpoint_gate_status": state.get("flush_gate_status", ""),
+            "h2o_preseal_dewpoint_gate_reason": state.get("flush_gate_reason", ""),
+            "h2o_preseal_dewpoint_tail_span_c": state.get("dewpoint_tail_span_60s", ""),
+            "h2o_preseal_dewpoint_tail_slope_c_per_s": state.get("dewpoint_tail_slope_60s", ""),
+            "h2o_preseal_dewpoint_rebound_detected": state.get("dewpoint_rebound_detected", ""),
+            "h2o_postseal_dewpoint_gate_result": state.get("dewpoint_gate_result", ""),
+            "h2o_postseal_dewpoint_gate_count": state.get("dewpoint_gate_count", ""),
+            "h2o_postseal_dewpoint_gate_span_c": state.get("dewpoint_gate_span_c", ""),
+            "h2o_postseal_dewpoint_gate_slope_c_per_s": state.get("dewpoint_gate_slope_c_per_s", ""),
+            "h2o_postseal_dewpoint_gate_pass_live_c": state.get("dewpoint_gate_pass_live_c", ""),
+            "h2o_short_window_after_dewpoint_gate": postseal_stable,
+            "h2o_dewpoint_stability_evidence_status": evidence_status,
+            "h2o_calibration_fit_blocked_reason": ";".join(fit_blockers),
+        }
+
     def _record_h2o_pressure_anchor_candidate(
         self,
         point: CalibrationPoint,
@@ -11380,6 +11443,7 @@ class CalibrationRunner:
             "sample_can_enter_calibration_fit": "",
             "sample_can_enter_diagnostic_model": True,
         }
+        fields.update(self._h2o_dewpoint_stability_evidence_fields(point))
         self._set_point_runtime_fields(point, phase="h2o", **fields)
         return fields
 
@@ -30741,9 +30805,16 @@ class CalibrationRunner:
         pressure_tolerance = self._route_open_clean_atmosphere_pressure_tolerance_hpa()
         raw_tap_unexpected_write_count = 0
         failures: List[str] = []
+        freshness_source = str(freshness.get("vent1_last_refresh_source") or "").strip()
+        live_vent1_status_used = bool(
+            hold_active
+            and vent_status == 1
+            and freshness.get("vent1_freshness_decision") != "fresh"
+            and freshness_source != "raw_tap"
+        )
         if not hold_active:
             failures.append("ROUTE_OPEN_VENT1_HEARTBEAT_STALE")
-        if freshness.get("vent1_freshness_decision") != "fresh":
+        if freshness.get("vent1_freshness_decision") != "fresh" and not live_vent1_status_used:
             failures.append("ROUTE_OPEN_VENT1_HEARTBEAT_STALE")
         if output_state != 0:
             failures.append("ROUTE_OPEN_OUTPUT_NOT_OFF")
@@ -30783,6 +30854,12 @@ class CalibrationRunner:
             "vent1_last_refresh_runner_ts": freshness.get("vent1_last_refresh_runner_ts"),
             "vent1_freshness_threshold_s": freshness.get("vent1_freshness_threshold_s"),
             "vent1_freshness_decision": freshness.get("vent1_freshness_decision"),
+            "route_open_live_vent1_status_used": live_vent1_status_used,
+            "route_open_live_vent1_status_reason": (
+                "live VENT?=1 with active atmosphere hold accepted before route open"
+                if live_vent1_status_used
+                else ""
+            ),
             "vent1_freshness_source_mismatch": freshness.get("vent1_freshness_source_mismatch"),
             "vent1_freshness_source_mismatch_delta_s": freshness.get("vent1_freshness_source_mismatch_delta_s"),
             "actual_open_valves_before_route_open": ",".join(str(v) for v in actual_open_valves),
@@ -32956,6 +33033,33 @@ class CalibrationRunner:
             "sampling_window_dewpoint_slope_c_per_s": runtime_state.get("sampling_window_dewpoint_slope_c_per_s"),
             "sampling_window_qc_status": runtime_state.get("sampling_window_qc_status"),
             "sampling_window_qc_reason": runtime_state.get("sampling_window_qc_reason"),
+            "h2o_dewpoint_quality_model": runtime_state.get("h2o_dewpoint_quality_model"),
+            "h2o_dewpoint_stability_required_for_calibration": runtime_state.get(
+                "h2o_dewpoint_stability_required_for_calibration"
+            ),
+            "h2o_preseal_dewpoint_gate_status": runtime_state.get("h2o_preseal_dewpoint_gate_status"),
+            "h2o_preseal_dewpoint_gate_reason": runtime_state.get("h2o_preseal_dewpoint_gate_reason"),
+            "h2o_preseal_dewpoint_tail_span_c": runtime_state.get("h2o_preseal_dewpoint_tail_span_c"),
+            "h2o_preseal_dewpoint_tail_slope_c_per_s": runtime_state.get(
+                "h2o_preseal_dewpoint_tail_slope_c_per_s"
+            ),
+            "h2o_preseal_dewpoint_rebound_detected": runtime_state.get("h2o_preseal_dewpoint_rebound_detected"),
+            "h2o_postseal_dewpoint_gate_result": runtime_state.get("h2o_postseal_dewpoint_gate_result"),
+            "h2o_postseal_dewpoint_gate_count": runtime_state.get("h2o_postseal_dewpoint_gate_count"),
+            "h2o_postseal_dewpoint_gate_span_c": runtime_state.get("h2o_postseal_dewpoint_gate_span_c"),
+            "h2o_postseal_dewpoint_gate_slope_c_per_s": runtime_state.get(
+                "h2o_postseal_dewpoint_gate_slope_c_per_s"
+            ),
+            "h2o_postseal_dewpoint_gate_pass_live_c": runtime_state.get(
+                "h2o_postseal_dewpoint_gate_pass_live_c"
+            ),
+            "h2o_short_window_after_dewpoint_gate": runtime_state.get("h2o_short_window_after_dewpoint_gate"),
+            "h2o_dewpoint_stability_evidence_status": runtime_state.get(
+                "h2o_dewpoint_stability_evidence_status"
+            ),
+            "h2o_calibration_fit_blocked_reason": runtime_state.get("h2o_calibration_fit_blocked_reason"),
+            "sample_can_enter_calibration_fit": runtime_state.get("sample_can_enter_calibration_fit"),
+            "sample_can_enter_diagnostic_model": runtime_state.get("sample_can_enter_diagnostic_model"),
             "dewpoint_time_to_gate": runtime_state.get("dewpoint_time_to_gate"),
             "dewpoint_tail_span_60s": runtime_state.get("dewpoint_tail_span_60s"),
             "dewpoint_tail_slope_60s": runtime_state.get("dewpoint_tail_slope_60s"),
@@ -34351,6 +34455,9 @@ class CalibrationRunner:
                 "sample_can_enter_diagnostic_model",
             )
         }
+        fields.update(self._h2o_dewpoint_stability_evidence_fields(point))
+        h2o_gate_stable = bool(fields.get("h2o_short_window_after_dewpoint_gate") is True)
+        anchor_valid = bool(fields.get("pressure_anchor_valid") is True)
         fields.update(
             {
                 "requested_sample_count": count,
@@ -34366,6 +34473,8 @@ class CalibrationRunner:
                 "secondary_evidence_blocked_first_row": False,
                 "secondary_evidence_completed_after_row_append": True,
                 "secondary_evidence_status": "cache_window",
+                "sample_can_enter_calibration_fit": bool(anchor_valid and h2o_gate_stable),
+                "sample_can_enter_diagnostic_model": True,
             }
         )
         return fields
@@ -34399,7 +34508,19 @@ class CalibrationRunner:
             candidate_to_packet_s != "" and budget_s > 0.0 and float(candidate_to_packet_s) > budget_s
         )
         all_alignment_ok = all(sample.get("sample_alignment_ok") is not False for sample in samples)
-        fit_count = len(samples) if all_alignment_ok and not budget_exceeded else 0
+        all_anchor_valid = all(sample.get("pressure_anchor_valid") is True for sample in samples)
+        dewpoint_gate_stable = all(sample.get("h2o_short_window_after_dewpoint_gate") is True for sample in samples)
+        fit_ready = bool(all_alignment_ok and all_anchor_valid and dewpoint_gate_stable and not budget_exceeded)
+        fit_count = len(samples) if fit_ready else 0
+        fit_blockers: List[str] = []
+        if not all_anchor_valid:
+            fit_blockers.append("h2o_pressure_anchor_invalid")
+        if not dewpoint_gate_stable:
+            fit_blockers.append("h2o_postseal_dewpoint_gate_not_stable")
+        if not all_alignment_ok:
+            fit_blockers.append("h2o_sample_alignment_not_ok")
+        if budget_exceeded:
+            fit_blockers.append("h2o_sampling_time_budget_exceeded")
         for sample in samples:
             sample["actual_sample_count"] = len(samples)
             sample["sample_burst_duration_s"] = burst_duration_s
@@ -34413,6 +34534,11 @@ class CalibrationRunner:
             sample["pressure_anchor_share_valid"] = bool(sample.get("pressure_anchor_valid") is True)
             sample["pressure_anchor_share_reason"] = "" if sample.get("pressure_anchor_valid") is True else "h2o_pressure_anchor_invalid"
             sample["analyzer_rows_share_pressure_anchor"] = bool(sample.get("pressure_anchor_valid") is True)
+            sample["sample_can_enter_calibration_fit"] = bool(fit_ready)
+            sample["sample_can_enter_diagnostic_model"] = True
+            existing_blocker = str(sample.get("h2o_calibration_fit_blocked_reason") or "").strip()
+            blocker_text = ";".join(item for item in [existing_blocker, *fit_blockers] if item)
+            sample["h2o_calibration_fit_blocked_reason"] = blocker_text
         self._set_point_runtime_fields(
             point,
             phase="h2o",
@@ -34423,6 +34549,9 @@ class CalibrationRunner:
             sampling_time_budget_exceeded=budget_exceeded,
             sample_count_used_for_fit=fit_count,
             sample_count_used_for_diagnostic=len(samples),
+            sample_can_enter_calibration_fit=bool(fit_ready),
+            sample_can_enter_diagnostic_model=True,
+            h2o_calibration_fit_blocked_reason=";".join(fit_blockers),
         )
 
     def _collect_samples(

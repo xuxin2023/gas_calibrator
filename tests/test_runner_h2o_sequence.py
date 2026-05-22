@@ -4464,6 +4464,18 @@ def test_h2o_anchor_rows_include_short_window_metadata_without_dry_gas_residual_
         lambda self, _ga, required_key=None: ("ROW", {"co2_ppm": 1.0, "h2o_mmol": 6.2}),
         runner,
     )
+    runner._set_point_runtime_fields(
+        point,
+        phase="h2o",
+        flush_gate_status="pass",
+        dewpoint_tail_span_60s=0.02,
+        dewpoint_tail_slope_60s=0.001,
+        dewpoint_gate_result="stable",
+        dewpoint_gate_count=4,
+        dewpoint_gate_span_c=0.01,
+        dewpoint_gate_slope_c_per_s=0.002,
+        dewpoint_gate_pass_live_c=-8.62,
+    )
     runner._record_h2o_pressure_anchor_candidate(
         point,
         target_hpa=1000.0,
@@ -4486,8 +4498,93 @@ def test_h2o_anchor_rows_include_short_window_metadata_without_dry_gas_residual_
     assert all(row["sample_burst_mode"] == "h2o_pressure_anchor_short_window_parallel_cache" for row in rows)
     assert all(row["dewpoint_abnormal_policy"] == "h2o_route_target_alignment_not_dry_gas_residual" for row in rows)
     assert all(row["trend_should_decrease"] == "" for row in rows)
+    assert all(row["h2o_dewpoint_quality_model"] == "water_route_target_stability_not_dry_gas_residual" for row in rows)
+    assert all(row["h2o_postseal_dewpoint_gate_result"] == "stable" for row in rows)
+    assert all(row["h2o_short_window_after_dewpoint_gate"] is True for row in rows)
+    assert all(row["sample_can_enter_calibration_fit"] is True for row in rows)
     assert all(row["sampling_time_budget_exceeded"] is False for row in rows)
     assert rows[0]["sample_count_used_for_fit"] == 3
+
+
+def test_h2o_short_window_without_postseal_dewpoint_stability_is_diagnostic_only(tmp_path: Path) -> None:
+    class _FakePace:
+        def read_pressure(self):
+            return 1000.1
+
+        def get_output_state(self):
+            return 1
+
+        def get_isolation_state(self):
+            return 1
+
+        def get_vent_status(self):
+            return 0
+
+    class _FakeDew:
+        def get_current(self, timeout_s=None, attempts=None):
+            return {"dewpoint_c": -8.6, "temp_c": 20.0, "rh_pct": 40.0}
+
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "collect_only": True,
+                "production": False,
+                "controlled_write": False,
+                "pressure": {
+                    "h2o_pressure_anchor_short_window_enabled": True,
+                    "h2o_pressure_anchor_sampling_time_budget_s": 3.0,
+                },
+                "sampling": {
+                    "stable_count": 2,
+                    "interval_s": 0.0,
+                    "quality": {"enabled": False},
+                },
+            }
+        },
+        {
+            "gas_analyzer": object(),
+            "pace": _FakePace(),
+            "dewpoint": _FakeDew(),
+        },
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_h2o()
+    runner._read_sensor_parsed = types.MethodType(
+        lambda self, _ga, required_key=None: ("ROW", {"co2_ppm": 1.0, "h2o_mmol": 6.2}),
+        runner,
+    )
+    runner._set_point_runtime_fields(
+        point,
+        phase="h2o",
+        flush_gate_status="pass",
+        dewpoint_gate_result="timeout",
+        dewpoint_gate_count=1,
+        dewpoint_gate_span_c=0.4,
+        dewpoint_gate_slope_c_per_s=0.2,
+    )
+    runner._record_h2o_pressure_anchor_candidate(
+        point,
+        target_hpa=1000.0,
+        pressure_hpa=1000.1,
+        in_limits=1,
+        source="PACE_in_limits",
+        event_wall_ts=runner_module.time.time(),
+    )
+
+    rows = runner._collect_samples(point, 2, 0.0, phase="h2o", point_tag="h2o_20c_30rh_1000hpa")
+    logger.close()
+
+    assert rows is not None
+    assert len(rows) == 2
+    assert all(row["h2o_postseal_dewpoint_gate_result"] == "timeout" for row in rows)
+    assert all(row["h2o_short_window_after_dewpoint_gate"] is False for row in rows)
+    assert all(row["sample_can_enter_calibration_fit"] is False for row in rows)
+    assert all(row["sample_can_enter_diagnostic_model"] is True for row in rows)
+    assert rows[0]["sample_count_used_for_fit"] == 0
+    assert "h2o_postseal_dewpoint_gate_not_stable" in rows[0]["h2o_calibration_fit_blocked_reason"]
 
 
 def test_collect_samples_records_device_timestamps_and_sampling_trace(tmp_path: Path) -> None:

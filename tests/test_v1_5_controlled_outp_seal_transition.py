@@ -1305,21 +1305,38 @@ def test_route_open_fails_by_pressure_not_vent3() -> None:
     assert fields["route_open_block_reason"] == "ROUTE_OPEN_PRESSURE_NOT_AMBIENT"
 
 
-def test_co2_route_open_blocks_when_vent1_stale() -> None:
+def test_co2_route_open_allows_live_vent1_status_when_timestamp_stale() -> None:
     runner, pace, _, _ = _runner()
     point = _co2_point()
     runner._pressure_atmosphere_hold_enabled = True
     runner._last_pressure_atmosphere_refresh_ts = time.time() - 10.0
     pace.vent_status = 1
 
-    assert runner._co2_route_open_clean_atmosphere_gate(point, point_tag="co2-1000") is False
+    assert runner._co2_route_open_clean_atmosphere_gate(point, point_tag="co2-1000") is True
 
-    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_ROUTE_OPEN_PACE_ATMOSPHERE_NOT_CLEAN"
     gate_calls = [
         call for call in runner._append_pressure_trace_row.call_args_list
         if call.kwargs.get("trace_stage") == "route_open_clean_atmosphere_gate"
     ]
-    assert gate_calls[-1].kwargs.get("extra_fields", {})["route_open_block_reason"] == "ROUTE_OPEN_VENT1_HEARTBEAT_STALE"
+    fields = gate_calls[-1].kwargs.get("extra_fields", {})
+    assert fields["route_open_allowed"] is True
+    assert fields["route_open_live_vent1_status_used"] is True
+    assert fields["route_open_block_reason"] == ""
+
+
+def test_co2_route_open_blocks_when_vent1_stale_and_not_live() -> None:
+    runner, pace, _, _ = _runner()
+    point = _co2_point()
+    runner._pressure_atmosphere_hold_enabled = True
+    runner._last_pressure_atmosphere_refresh_ts = time.time() - 10.0
+    pace.vent_status = 2
+
+    assert runner._co2_route_open_clean_atmosphere_gate(point, point_tag="co2-1000") is False
+
+    assert runner._controlled_exit_final_decision == "FAIL_CLOSED_ROUTE_OPEN_PACE_ATMOSPHERE_NOT_CLEAN"
+    fields = _last_route_open_gate_fields(runner)
+    assert fields["route_open_block_reason"] == "ROUTE_OPEN_VENT1_HEARTBEAT_STALE"
+    assert fields["route_open_live_vent1_status_used"] is False
 
 
 def test_route_open_vent1_freshness_prefers_raw_tap() -> None:
