@@ -40,6 +40,8 @@ DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA = 20.0
 DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S = 1.0
 DEFAULT_OPEN_FLOW_TRANSIENT_GRACE_S = 3.0
 DEFAULT_OPEN_FLOW_TRANSIENT_LIMIT_HPA = 1150.0
+DEFAULT_RICH_TELEMETRY_INTERVAL_S = 5.0
+DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S = 5.0
 
 FORBIDDEN_WRITE_PATTERNS = (
     re.compile(r"(?<!\*)\bID\b(?!N\?)", re.IGNORECASE),
@@ -113,6 +115,13 @@ TELEMETRY_FIELDS = (
     "control_output_dropout_seen",
     "control_output_reasserted",
     "control_output_reassert_count",
+    "rich_telemetry_collected",
+    "rich_telemetry_reason",
+    "rich_telemetry_interval_s",
+    "rich_telemetry_initial_delay_s",
+    "fast_pressure_loop_interval_s",
+    "fast_pressure_sample_index",
+    "runaway_detected_elapsed_s",
     "pace_vent_hold_during_outp1_allowed",
     "open_flow_atmosphere_hold_active",
     "open_flow_atmosphere_hold_strategy",
@@ -1165,6 +1174,13 @@ def _collect_sample(
         "control_output_dropout_seen": False,
         "control_output_reasserted": False,
         "control_output_reassert_count": 0,
+        "rich_telemetry_collected": True,
+        "rich_telemetry_reason": "standard_sample",
+        "rich_telemetry_interval_s": "",
+        "rich_telemetry_initial_delay_s": "",
+        "fast_pressure_loop_interval_s": "",
+        "fast_pressure_sample_index": "",
+        "runaway_detected_elapsed_s": "",
         "pace_vent_hold_during_outp1_allowed": False,
         "open_flow_atmosphere_hold_active": _pace_atmosphere_hold_active(pace),
         "open_flow_atmosphere_hold_strategy": "",
@@ -1241,6 +1257,13 @@ def _collect_fast_pressure_sample(
         "control_output_dropout_seen": False,
         "control_output_reasserted": False,
         "control_output_reassert_count": 0,
+        "rich_telemetry_collected": False,
+        "rich_telemetry_reason": "",
+        "rich_telemetry_interval_s": "",
+        "rich_telemetry_initial_delay_s": "",
+        "fast_pressure_loop_interval_s": "",
+        "fast_pressure_sample_index": "",
+        "runaway_detected_elapsed_s": "",
         "pace_vent_hold_during_outp1_allowed": False,
         "open_flow_atmosphere_hold_active": False,
         "open_flow_atmosphere_hold_strategy": "disabled_for_direct_control",
@@ -1288,6 +1311,62 @@ def refresh_direct_control_keepalive(
         row["sour_pres_eff_pct"] = retry.get("control_eff_after_command_pct")
         row["syst_err"] = retry.get("control_syst_err_after_command")
     row["control_output_reassert_count"] = int(state.get("reassert_count") or 0)
+    return row
+
+
+def annotate_fast_pressure_loop_row(
+    row: MutableMapping[str, Any],
+    *,
+    sample_index: int,
+    sample_interval_s: float,
+    rich_telemetry_interval_s: float,
+    rich_telemetry_initial_delay_s: float,
+) -> MutableMapping[str, Any]:
+    row["fast_pressure_sample_index"] = int(sample_index)
+    row["fast_pressure_loop_interval_s"] = float(sample_interval_s)
+    row["rich_telemetry_interval_s"] = float(rich_telemetry_interval_s)
+    row["rich_telemetry_initial_delay_s"] = float(rich_telemetry_initial_delay_s)
+    row.setdefault("rich_telemetry_collected", False)
+    row.setdefault("rich_telemetry_reason", "")
+    return row
+
+
+def maybe_refresh_direct_control_rich_telemetry(
+    pace: Any,
+    row: MutableMapping[str, Any],
+    *,
+    plan: DynamicTrialPlan,
+    state: MutableMapping[str, Any],
+    source_open_ts: float | None,
+    rich_telemetry_interval_s: float,
+    rich_telemetry_initial_delay_s: float,
+    reason: str = "periodic",
+) -> MutableMapping[str, Any]:
+    """Attach slow SCPI telemetry only after the fast safety window is clear.
+
+    Full PACE telemetry requires several serial queries. During open-flow dynamic
+    pressure tests that can hide a fast runaway, so pressure safety is evaluated
+    from the PACE fast read first; rich telemetry is sampled sparsely afterward.
+    """
+
+    row["rich_telemetry_collected"] = False
+    row["rich_telemetry_reason"] = ""
+    interval_s = max(0.0, float(rich_telemetry_interval_s))
+    initial_delay_s = max(0.0, float(rich_telemetry_initial_delay_s))
+    row["rich_telemetry_interval_s"] = interval_s
+    row["rich_telemetry_initial_delay_s"] = initial_delay_s
+    if interval_s <= 0.0 or plan.mode_requested == "OUTP0":
+        return row
+    ts = _as_float(row.get("ts")) or time.time()
+    if source_open_ts is not None and ts - float(source_open_ts) < initial_delay_s:
+        return row
+    last_ts = _as_float(state.get("last_rich_telemetry_ts"))
+    if last_ts is not None and ts - last_ts < interval_s:
+        return row
+    refresh_direct_control_keepalive(pace, row, plan=plan, state=state)
+    row["rich_telemetry_collected"] = True
+    row["rich_telemetry_reason"] = reason
+    state["last_rich_telemetry_ts"] = time.time()
     return row
 
 
@@ -1457,6 +1536,8 @@ def run_real_com_diagnostic(
     analyzer_label: str | None = None,
     sample_count: int = DEFAULT_SAMPLE_COUNT,
     sample_interval_s: float = DEFAULT_SAMPLE_INTERVAL_S,
+    rich_telemetry_interval_s: float = DEFAULT_RICH_TELEMETRY_INTERVAL_S,
+    rich_telemetry_initial_delay_s: float = DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S,
     max_control_s: float = DEFAULT_MAX_CONTROL_S,
     max_safe_pressure_hpa: float = DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     source_max_rise_hpa: float = DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
@@ -1589,8 +1670,13 @@ def run_real_com_diagnostic(
             outp1_ts = None
             source_open_ts = None
             control_confirmation: dict[str, Any] = {}
-            control_keepalive_state: dict[str, Any] = {"dropout_seen": False, "reassert_count": 0}
+            control_keepalive_state: dict[str, Any] = {
+                "dropout_seen": False,
+                "reassert_count": 0,
+                "last_rich_telemetry_ts": None,
+            }
             trial_samples: list[dict[str, Any]] = []
+            fast_pressure_sample_index = 0
             if plan.mode_requested == "OUTP0":
                 pace.set_output(False)
                 deadline = time.time() + min(10.0, max_control_s)
@@ -1687,14 +1773,19 @@ def run_real_com_diagnostic(
                 )
                 row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
                 row["atmosphere_hold_stopped_before_control"] = atmosphere_hold_stopped_before_control
-                row.update(control_confirmation)
-                if direct_control_only and plan.mode_requested != "OUTP0":
-                    refresh_direct_control_keepalive(
-                        pace,
+                if direct_control_only:
+                    fast_pressure_sample_index += 1
+                    annotate_fast_pressure_loop_row(
                         row,
-                        plan=plan,
-                        state=control_keepalive_state,
+                        sample_index=fast_pressure_sample_index,
+                        sample_interval_s=sample_interval_s,
+                        rich_telemetry_interval_s=rich_telemetry_interval_s,
+                        rich_telemetry_initial_delay_s=max(
+                            float(rich_telemetry_initial_delay_s),
+                            float(transient_grace_s),
+                        ),
                     )
+                row.update(control_confirmation)
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
@@ -1739,6 +1830,7 @@ def run_real_com_diagnostic(
                     source_rise_abort_reason = runaway_reason
                     row["source_pressure_rise_abort"] = True
                     row["source_pressure_rise_abort_reason"] = runaway_reason
+                    row["runaway_detected_elapsed_s"] = transient_elapsed if transient_elapsed is not None else ""
                     _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                     _safe_abort_pace(pace)
                     abort_all = True
@@ -1759,10 +1851,24 @@ def run_real_com_diagnostic(
                     )
                     row["source_pressure_rise_abort"] = True
                     row["source_pressure_rise_abort_reason"] = source_rise_abort_reason
+                    row["runaway_detected_elapsed_s"] = transient_elapsed if transient_elapsed is not None else ""
                     _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
+                if direct_control_only and plan.mode_requested != "OUTP0":
+                    maybe_refresh_direct_control_rich_telemetry(
+                        pace,
+                        row,
+                        plan=plan,
+                        state=control_keepalive_state,
+                        source_open_ts=source_open_ts,
+                        rich_telemetry_interval_s=rich_telemetry_interval_s,
+                        rich_telemetry_initial_delay_s=max(
+                            float(rich_telemetry_initial_delay_s),
+                            float(transient_grace_s),
+                        ),
+                    )
                 _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                 pressure = _as_float(row.get("pace_pressure_hpa"))
                 if plan.target_hpa is not None and pressure is not None:
@@ -1802,14 +1908,19 @@ def run_real_com_diagnostic(
                 )
                 row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
                 row["atmosphere_hold_stopped_before_control"] = atmosphere_hold_stopped_before_control
-                row.update(control_confirmation)
-                if direct_control_only and plan.mode_requested != "OUTP0":
-                    refresh_direct_control_keepalive(
-                        pace,
+                if direct_control_only:
+                    fast_pressure_sample_index += 1
+                    annotate_fast_pressure_loop_row(
                         row,
-                        plan=plan,
-                        state=control_keepalive_state,
+                        sample_index=fast_pressure_sample_index,
+                        sample_interval_s=sample_interval_s,
+                        rich_telemetry_interval_s=rich_telemetry_interval_s,
+                        rich_telemetry_initial_delay_s=max(
+                            float(rich_telemetry_initial_delay_s),
+                            float(transient_grace_s),
+                        ),
                     )
+                row.update(control_confirmation)
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
@@ -1854,10 +1965,24 @@ def run_real_com_diagnostic(
                     source_rise_abort_reason = runaway_reason
                     row["source_pressure_rise_abort"] = True
                     row["source_pressure_rise_abort_reason"] = runaway_reason
+                    row["runaway_detected_elapsed_s"] = transient_elapsed if transient_elapsed is not None else ""
                     _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                     _safe_abort_pace(pace)
                     abort_all = True
                     break
+                if direct_control_only and plan.mode_requested != "OUTP0":
+                    maybe_refresh_direct_control_rich_telemetry(
+                        pace,
+                        row,
+                        plan=plan,
+                        state=control_keepalive_state,
+                        source_open_ts=source_open_ts,
+                        rich_telemetry_interval_s=rich_telemetry_interval_s,
+                        rich_telemetry_initial_delay_s=max(
+                            float(rich_telemetry_initial_delay_s),
+                            float(transient_grace_s),
+                        ),
+                    )
                 _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                 time.sleep(max(0.0, sample_interval_s))
             result = summarize_samples(
@@ -1929,6 +2054,18 @@ def run_real_com_diagnostic(
         "primary_pressure_source": "PACE",
         "pressure_safety_source": "PACE",
         "com22_secondary_pressure_enabled": bool(use_pressure_gauge_secondary),
+        "fast_pressure_loop_interval_s": float(sample_interval_s),
+        "rich_telemetry_interval_s": float(rich_telemetry_interval_s),
+        "rich_telemetry_initial_delay_s": float(
+            max(float(rich_telemetry_initial_delay_s), float(transient_grace_s))
+            if direct_control_only
+            else float(rich_telemetry_initial_delay_s)
+        ),
+        "rich_telemetry_strategy": (
+            "fast_pressure_safety_loop_with_delayed_sparse_scpi_telemetry"
+            if direct_control_only
+            else "standard_serial_snapshot_per_sample"
+        ),
         "set_slew_value_max": bool(set_slew_value_max),
         "include_over1": bool(include_over1),
         "only_over1": bool(only_over1),
@@ -1994,6 +2131,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--analyzer", default=None, help="Optional analyzer label, e.g. ga01. Omit to avoid analyzer serial reads.")
     parser.add_argument("--sample-count", type=int, default=DEFAULT_SAMPLE_COUNT)
     parser.add_argument("--sample-interval-s", type=float, default=DEFAULT_SAMPLE_INTERVAL_S)
+    parser.add_argument(
+        "--rich-telemetry-interval-s",
+        type=float,
+        default=DEFAULT_RICH_TELEMETRY_INTERVAL_S,
+        help="Direct-control mode: collect slow SCPI telemetry no more often than this; 0 disables it.",
+    )
+    parser.add_argument(
+        "--rich-telemetry-initial-delay-s",
+        type=float,
+        default=DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S,
+        help="Direct-control mode: delay slow telemetry until the early pressure transient has passed.",
+    )
     parser.add_argument("--max-control-s", type=float, default=DEFAULT_MAX_CONTROL_S)
     parser.add_argument("--max-safe-pressure-hpa", type=float, default=DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA)
     parser.add_argument("--source-max-rise-hpa", type=float, default=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA)
@@ -2054,6 +2203,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         analyzer_label=args.analyzer,
         sample_count=args.sample_count,
         sample_interval_s=args.sample_interval_s,
+        rich_telemetry_interval_s=args.rich_telemetry_interval_s,
+        rich_telemetry_initial_delay_s=args.rich_telemetry_initial_delay_s,
         max_control_s=args.max_control_s,
         max_safe_pressure_hpa=args.max_safe_pressure_hpa,
         source_max_rise_hpa=args.source_max_rise_hpa,

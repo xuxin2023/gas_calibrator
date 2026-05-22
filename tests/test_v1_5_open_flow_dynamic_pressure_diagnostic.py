@@ -8,8 +8,11 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     DEFAULT_GAS_PPM,
     DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
+    DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S,
+    DEFAULT_RICH_TELEMETRY_INTERVAL_S,
     DynamicTrialPlan,
     PACE_VENT_WRITE_RE,
+    annotate_fast_pressure_loop_row,
     _collect_fast_pressure_sample,
     _confirm_control_command_state,
     _enable_control_output_confirmed,
@@ -19,6 +22,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     command_is_forbidden_write,
     open_flow_dynamic_control_runaway_reason,
     planned_commands_for_trial,
+    maybe_refresh_direct_control_rich_telemetry,
     open_flow_pressure_abort_reason,
     rank_results,
     read_pace_pressure_hpa,
@@ -127,6 +131,8 @@ def test_direct_control_atmosphere_flag_is_explicit() -> None:
     assert args.direct_control_only is True
     assert args.keep_atmosphere_hold_during_direct_control is True
     assert args.no_open_flow_atmosphere_hold is False
+    assert args.rich_telemetry_interval_s == pytest.approx(DEFAULT_RICH_TELEMETRY_INTERVAL_S)
+    assert args.rich_telemetry_initial_delay_s == pytest.approx(DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S)
 
 
 def test_fastest_diagnostic_flags_are_explicit() -> None:
@@ -263,6 +269,128 @@ def test_fast_pressure_sample_uses_pace_read_without_slow_queries() -> None:
     assert row["pace_pressure_source"] == "PACE::read_pressure"
     assert row["phase"] == "open_flow_dynamic_pressure_fast_control"
     assert row["actual_open_valves"] == "8,11,7,1"
+
+
+def test_fast_loop_rows_record_sparse_rich_telemetry_policy() -> None:
+    row = {"ts": 100.0}
+
+    annotate_fast_pressure_loop_row(
+        row,
+        sample_index=3,
+        sample_interval_s=0.5,
+        rich_telemetry_interval_s=7.0,
+        rich_telemetry_initial_delay_s=4.0,
+    )
+
+    assert row["fast_pressure_sample_index"] == 3
+    assert row["fast_pressure_loop_interval_s"] == pytest.approx(0.5)
+    assert row["rich_telemetry_interval_s"] == pytest.approx(7.0)
+    assert row["rich_telemetry_initial_delay_s"] == pytest.approx(4.0)
+    assert row["rich_telemetry_collected"] is False
+
+
+def test_direct_control_rich_telemetry_waits_until_initial_delay() -> None:
+    class FakePace:
+        def query(self, command: str) -> str:
+            raise AssertionError(f"slow telemetry should wait: {command}")
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over1_max_1000",
+        label="ACT OVER1 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 101.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        FakePace(),
+        row,
+        plan=plan,
+        state={},
+        source_open_ts=100.0,
+        rich_telemetry_interval_s=1.0,
+        rich_telemetry_initial_delay_s=5.0,
+    )
+
+    assert row["rich_telemetry_collected"] is False
+
+
+def test_direct_control_rich_telemetry_interval_prevents_every_row() -> None:
+    class FakePace:
+        def query(self, command: str) -> str:
+            raise AssertionError(f"slow telemetry should stay sparse: {command}")
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over1_max_1000",
+        label="ACT OVER1 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 103.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        FakePace(),
+        row,
+        plan=plan,
+        state={"last_rich_telemetry_ts": 100.0},
+        source_open_ts=90.0,
+        rich_telemetry_interval_s=5.0,
+        rich_telemetry_initial_delay_s=1.0,
+    )
+
+    assert row["rich_telemetry_collected"] is False
+
+
+def test_direct_control_rich_telemetry_collects_when_due() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def query(self, command: str) -> str:
+            self.commands.append(command)
+            return {
+                ":OUTP:STAT?": ":OUTP:STAT 1",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -8.0",
+                ":SOUR:PRES:COMP1?": ":SOUR:PRES:COMP1 1747.0",
+                ":SOUR:PRES:COMP2?": ":SOUR:PRES:COMP2 120.0",
+                ":SOUR:PRES:RANG?": ':SOUR:PRES:RANG "3.50barg"',
+                ":SENS:PRES:RANG?": ':SENS:PRES:RANG "3.50barg"',
+                ":SOUR:PRES:SLEW?": ":SOUR:PRES:SLEW 10.0",
+                ":SENS:PRES:SLEW?": ":SENS:PRES:SLEW -20.0",
+                ":SOUR:PRES:SLEW:MODE?": ":SOUR:PRES:SLEW:MODE MAX",
+                ":SOUR:PRES:SLEW:OVER?": ":SOUR:PRES:SLEW:OVER:STAT 1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1000.1
+
+    pace = FakePace()
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over1_max_1000",
+        label="ACT OVER1 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 110.0}
+    state: dict[str, object] = {"last_rich_telemetry_ts": 100.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        pace,
+        row,
+        plan=plan,
+        state=state,
+        source_open_ts=100.0,
+        rich_telemetry_interval_s=5.0,
+        rich_telemetry_initial_delay_s=3.0,
+    )
+
+    assert row["rich_telemetry_collected"] is True
+    assert row["rich_telemetry_reason"] == "periodic"
+    assert row["sour_pres_eff_pct"] == pytest.approx(-8.0)
+    assert ":SOUR:PRES:COMP2?" in pace.commands
 
 
 def test_direct_control_keepalive_reasserts_only_when_output_drops() -> None:
