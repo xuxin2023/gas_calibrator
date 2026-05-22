@@ -34,6 +34,7 @@ DEFAULT_DEWPOINT_STABILITY_SPAN_C = 0.7
 DEFAULT_POSITIVE_EFFORT_A_MAX_PCT = 0.3
 DEFAULT_POSITIVE_EFFORT_A_INTEGRAL_PCT_S = 0.5
 DEFAULT_POSITIVE_EFFORT_FAIL_PCT = 3.0
+DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA = 1050.0
 
 FORBIDDEN_WRITE_PATTERNS = (
     re.compile(r"(?<!\*)\bID\b(?!N\?)", re.IGNORECASE),
@@ -65,6 +66,8 @@ TELEMETRY_FIELDS = (
     "sour_pres_eff_pct",
     "sour_pres_comp1_hpa",
     "sour_pres_comp2_hpa",
+    "source_pressure_range",
+    "sense_pressure_range",
     "slew_mode",
     "slew_over",
     "vent_rate",
@@ -80,6 +83,8 @@ TELEMETRY_FIELDS = (
     "analyzer_source",
     "actual_open_valves",
     "syst_err",
+    "pressure_safety_abort",
+    "pressure_safety_abort_reason",
 )
 
 RESULT_FIELDS = (
@@ -125,6 +130,8 @@ RESULT_FIELDS = (
     "target_crossing_count",
     "target_crossing_severity_hpa",
     "pressure_chatter_detected",
+    "pressure_safety_abort",
+    "pressure_safety_abort_reason",
     "backdiffusion_risk",
     "candidate_row_possible",
     "candidate_row_quality_grade",
@@ -194,6 +201,16 @@ def _write_csv(path: Path, fieldnames: Sequence[str], rows: Sequence[Mapping[str
         writer.writeheader()
         for row in rows:
             writer.writerow({key: row.get(key, "") for key in fieldnames})
+
+
+def _append_csv_row(path: Path, fieldnames: Sequence[str], row: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists()
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(fieldnames), extrasaction="ignore")
+        if write_header:
+            writer.writeheader()
+        writer.writerow({key: row.get(key, "") for key in fieldnames})
 
 
 @dataclass(frozen=True)
@@ -266,6 +283,8 @@ class DynamicTrialResult:
     target_crossing_count: int = 0
     target_crossing_severity_hpa: float = 0.0
     pressure_chatter_detected: bool = False
+    pressure_safety_abort: bool = False
+    pressure_safety_abort_reason: str = ""
     backdiffusion_risk: bool = False
     candidate_row_possible: bool = False
     candidate_row_quality_grade: str = "C"
@@ -305,6 +324,7 @@ def build_default_trial_plan(
     ambient_hpa: float = DEFAULT_AMBIENT_HPA,
     gas_ppm: int = DEFAULT_GAS_PPM,
     include_pass: bool = False,
+    include_gaug: bool = False,
     allow_above_ambient: bool = False,
 ) -> list[DynamicTrialPlan]:
     targets = validate_dynamic_targets(
@@ -327,15 +347,6 @@ def build_default_trial_plan(
     for target in targets:
         plans.append(
             DynamicTrialPlan(
-                trial_id=f"open_flow_gaug_over0_max_{target:g}",
-                label=f"open-flow GAUG + OVER0 + MAX at {target:g} hPa",
-                mode_requested="GAUG",
-                target_hpa=float(target),
-                gas_ppm=int(gas_ppm),
-            )
-        )
-        plans.append(
-            DynamicTrialPlan(
                 trial_id=f"open_flow_act_over0_max_{target:g}",
                 label=f"open-flow ACT + OVER0 + MAX at {target:g} hPa",
                 mode_requested="ACT",
@@ -343,6 +354,16 @@ def build_default_trial_plan(
                 gas_ppm=int(gas_ppm),
             )
         )
+        if include_gaug:
+            plans.append(
+                DynamicTrialPlan(
+                    trial_id=f"open_flow_gaug_over0_max_{target:g}",
+                    label=f"open-flow GAUG + OVER0 + MAX diagnostic at {target:g} hPa",
+                    mode_requested="GAUG",
+                    target_hpa=float(target),
+                    gas_ppm=int(gas_ppm),
+                )
+            )
         if include_pass:
             plans.append(
                 DynamicTrialPlan(
@@ -397,6 +418,8 @@ def planned_commands_for_trial(plan: DynamicTrialPlan) -> list[str]:
     commands.extend(
         [
             ":SENS:PRES:CONT?",
+            ":SOUR:PRES:RANG?",
+            ":SENS:PRES:RANG?",
             ":SOUR:PRES:EFF?",
             ":SOUR:PRES:COMP1?",
             ":SOUR:PRES:COMP2?",
@@ -584,6 +607,8 @@ def summarize_samples(
         target_crossing_count=crossing_count,
         target_crossing_severity_hpa=round(crossing_severity, 6),
         pressure_chatter_detected=bool(pressure_span is not None and pressure_span > 2.0),
+        pressure_safety_abort=False,
+        pressure_safety_abort_reason="",
         backdiffusion_risk=backdiffusion_risk,
         candidate_row_possible=candidate_possible,
         candidate_row_quality_grade=grade,
@@ -723,6 +748,43 @@ def _query_text(pace: Any, command: str) -> str:
         return f"ERROR:{type(exc).__name__}:{exc}"
 
 
+def _row_pressure_for_safety(row: Mapping[str, Any]) -> float | None:
+    values = [
+        _as_float(row.get("pace_pressure_hpa")),
+        _as_float(row.get("com22_pressure_hpa")),
+    ]
+    valid = [value for value in values if value is not None]
+    return max(valid) if valid else None
+
+
+def row_exceeds_open_flow_pressure_safety(row: Mapping[str, Any], max_safe_pressure_hpa: float) -> bool:
+    pressure = _row_pressure_for_safety(row)
+    return bool(pressure is not None and pressure > float(max_safe_pressure_hpa))
+
+
+def _safe_abort_pace(pace: Any) -> None:
+    for action in (
+        lambda: pace.set_output(False),
+        lambda: pace.set_isolation_open(True),
+        lambda: pace.vent(True),
+    ):
+        try:
+            action()
+        except Exception:
+            pass
+
+
+def _mark_pressure_safety_abort(result: DynamicTrialResult, reason: str) -> DynamicTrialResult:
+    result.pressure_safety_abort = True
+    result.pressure_safety_abort_reason = reason
+    result.candidate_row_quality_grade = "C_reject"
+    result.sample_can_enter_calibration_fit = False
+    result.sample_can_enter_diagnostic_model = False
+    if "pressure_safety_abort" not in result.rejection_reasons:
+        result.rejection_reasons.append("pressure_safety_abort")
+    return result
+
+
 def _collect_sample(
     pace: Any,
     *,
@@ -772,6 +834,8 @@ def _collect_sample(
         "sour_pres_eff_pct": _parse_first_float(_query_text(pace, ":SOUR:PRES:EFF?")),
         "sour_pres_comp1_hpa": _parse_first_float(_query_text(pace, ":SOUR:PRES:COMP1?")),
         "sour_pres_comp2_hpa": _parse_first_float(_query_text(pace, ":SOUR:PRES:COMP2?")),
+        "source_pressure_range": _query_text(pace, ":SOUR:PRES:RANG?"),
+        "sense_pressure_range": _query_text(pace, ":SENS:PRES:RANG?"),
         "slew_mode": _query_text(pace, ":SOUR:PRES:SLEW:MODE?"),
         "slew_over": _query_text(pace, ":SOUR:PRES:SLEW:OVER?"),
         "vent_rate": _query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?"),
@@ -787,6 +851,8 @@ def _collect_sample(
         "analyzer_source": "live_analyzer" if analyzer_row else "",
         "actual_open_valves": ",".join(str(value) for value in actual_open_valves),
         "syst_err": _query_text(pace, ":SYST:ERR?"),
+        "pressure_safety_abort": False,
+        "pressure_safety_abort_reason": "",
     }
 
 
@@ -797,12 +863,14 @@ def run_offline_plan(
     ambient_hpa: float,
     gas_ppm: int = DEFAULT_GAS_PPM,
     include_pass: bool = False,
+    include_gaug: bool = False,
 ) -> dict[str, Any]:
     plans = build_default_trial_plan(
         targets_hpa,
         ambient_hpa=ambient_hpa,
         gas_ppm=gas_ppm,
         include_pass=include_pass,
+        include_gaug=include_gaug,
     )
     command_rows = [
         {
@@ -939,7 +1007,9 @@ def run_real_com_diagnostic(
     sample_count: int = DEFAULT_SAMPLE_COUNT,
     sample_interval_s: float = DEFAULT_SAMPLE_INTERVAL_S,
     max_control_s: float = DEFAULT_MAX_CONTROL_S,
+    max_safe_pressure_hpa: float = DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     include_pass: bool = False,
+    include_gaug: bool = False,
     restore_baseline: bool = True,
 ) -> dict[str, Any]:
     cfg = load_config(config_path)
@@ -948,6 +1018,7 @@ def run_real_com_diagnostic(
         ambient_hpa=ambient_hpa,
         gas_ppm=gas_ppm,
         include_pass=include_pass,
+        include_gaug=include_gaug,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     devices = _build_live_devices(cfg, analyzer_label=analyzer_label)
@@ -955,6 +1026,10 @@ def run_real_com_diagnostic(
     results: list[DynamicTrialResult] = []
     route = resolve_0ppm_open_flow_valves(cfg, gas_ppm=gas_ppm)
     original_mode = ""
+    sample_csv_path = output_dir / "open_flow_dynamic_pressure_samples.csv"
+    result_csv_path = output_dir / "open_flow_dynamic_pressure_trial_results.csv"
+    abort_all = False
+    abort_reason = ""
     try:
         pace = devices["pace"]
         try:
@@ -967,6 +1042,8 @@ def run_real_com_diagnostic(
             original_mode = "ACT"
         apply_logical_valves(cfg, devices, route["open_logical_valves"])
         for plan in plans:
+            if abort_all:
+                break
             mode_confirmed = ""
             candidate_ts = None
             candidate_pressure = None
@@ -1007,6 +1084,19 @@ def run_real_com_diagnostic(
                 )
                 samples.append(row)
                 trial_samples.append(row)
+                safety_pressure = _row_pressure_for_safety(row)
+                if row_exceeds_open_flow_pressure_safety(row, max_safe_pressure_hpa):
+                    abort_reason = (
+                        f"open_flow_pressure_safety_abort:"
+                        f"{float(safety_pressure or 0.0):.3f}>{float(max_safe_pressure_hpa):.3f}"
+                    )
+                    row["pressure_safety_abort"] = True
+                    row["pressure_safety_abort_reason"] = abort_reason
+                    _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+                    _safe_abort_pace(pace)
+                    abort_all = True
+                    break
+                _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                 pressure = _as_float(row.get("pace_pressure_hpa"))
                 if plan.target_hpa is not None and pressure is not None:
                     if float(plan.target_hpa) <= pressure <= float(plan.target_hpa) + DEFAULT_CANDIDATE_WINDOW_HIGH_HPA:
@@ -1019,6 +1109,8 @@ def run_real_com_diagnostic(
                         break
                 time.sleep(max(0.0, sample_interval_s))
             for _ in range(max(0, int(sample_count) - len(trial_samples))):
+                if abort_all:
+                    break
                 row = _collect_sample(
                     pace,
                     plan=plan,
@@ -1029,22 +1121,39 @@ def run_real_com_diagnostic(
                 )
                 samples.append(row)
                 trial_samples.append(row)
+                safety_pressure = _row_pressure_for_safety(row)
+                if row_exceeds_open_flow_pressure_safety(row, max_safe_pressure_hpa):
+                    abort_reason = (
+                        f"open_flow_pressure_safety_abort:"
+                        f"{float(safety_pressure or 0.0):.3f}>{float(max_safe_pressure_hpa):.3f}"
+                    )
+                    row["pressure_safety_abort"] = True
+                    row["pressure_safety_abort_reason"] = abort_reason
+                    _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+                    _safe_abort_pace(pace)
+                    abort_all = True
+                    break
+                _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                 time.sleep(max(0.0, sample_interval_s))
-            results.append(
-                summarize_samples(
-                    trial_samples,
-                    plan=plan,
-                    ambient_hpa=ambient_hpa,
-                    candidate_ts=candidate_ts,
-                    candidate_pressure_hpa=candidate_pressure,
-                    outp1_ts=outp1_ts,
-                    mode_confirmed=mode_confirmed or plan.mode_requested,
-                )
+            result = summarize_samples(
+                trial_samples,
+                plan=plan,
+                ambient_hpa=ambient_hpa,
+                candidate_ts=candidate_ts,
+                candidate_pressure_hpa=candidate_pressure,
+                outp1_ts=outp1_ts,
+                mode_confirmed=mode_confirmed or plan.mode_requested,
             )
+            if abort_all:
+                result = _mark_pressure_safety_abort(result, abort_reason)
+            results.append(result)
+            _append_csv_row(result_csv_path, RESULT_FIELDS, asdict(result))
             try:
                 pace.set_output(False)
             except Exception:
                 pass
+            if abort_all:
+                break
         try:
             if original_mode == "PASS":
                 pace.set_output_mode_passive()
@@ -1073,12 +1182,17 @@ def run_real_com_diagnostic(
         "gas_route": route,
         "targets_hpa": list(targets_hpa),
         "uses_1100": any(abs(float(target) - 1100.0) < 0.001 for target in targets_hpa),
+        "pressure_safety_abort": abort_all,
+        "pressure_safety_abort_reason": abort_reason,
+        "max_safe_pressure_hpa": float(max_safe_pressure_hpa),
         "ranking": rank_results(results),
-        "result_csv": str((output_dir / "open_flow_dynamic_pressure_trial_results.csv").resolve()),
-        "sample_csv": str((output_dir / "open_flow_dynamic_pressure_samples.csv").resolve()),
+        "result_csv": str(result_csv_path.resolve()),
+        "sample_csv": str(sample_csv_path.resolve()),
     }
-    _write_csv(output_dir / "open_flow_dynamic_pressure_samples.csv", TELEMETRY_FIELDS, samples)
-    _write_csv(output_dir / "open_flow_dynamic_pressure_trial_results.csv", RESULT_FIELDS, result_rows)
+    if not sample_csv_path.exists():
+        _write_csv(sample_csv_path, TELEMETRY_FIELDS, samples)
+    if not result_csv_path.exists():
+        _write_csv(result_csv_path, RESULT_FIELDS, result_rows)
     _write_json(output_dir / "open_flow_dynamic_pressure_summary.json", {**summary, "results": result_rows})
     return summary
 
@@ -1090,6 +1204,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--targets", nargs="+", type=float, default=list(DEFAULT_TARGETS_HPA))
     parser.add_argument("--gas-ppm", type=int, default=DEFAULT_GAS_PPM)
     parser.add_argument("--include-pass", action="store_true")
+    parser.add_argument("--include-gaug", action="store_true")
     parser.add_argument("--allow-above-ambient", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=Path("logs") / "v1_5_open_flow_dynamic_pressure")
     parser.add_argument("--run-id", default=None)
@@ -1097,6 +1212,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-count", type=int, default=DEFAULT_SAMPLE_COUNT)
     parser.add_argument("--sample-interval-s", type=float, default=DEFAULT_SAMPLE_INTERVAL_S)
     parser.add_argument("--max-control-s", type=float, default=DEFAULT_MAX_CONTROL_S)
+    parser.add_argument("--max-safe-pressure-hpa", type=float, default=DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA)
     parser.add_argument("--real-com", action="store_true")
     parser.add_argument("--i-understand-open-flow-no-write", action="store_true")
     parser.add_argument("--operator-confirm-0ppm-flow", action="store_true")
@@ -1122,6 +1238,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ambient_hpa=args.ambient_hpa,
             gas_ppm=args.gas_ppm,
             include_pass=args.include_pass,
+            include_gaug=args.include_gaug,
         )
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
@@ -1137,7 +1254,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         sample_count=args.sample_count,
         sample_interval_s=args.sample_interval_s,
         max_control_s=args.max_control_s,
+        max_safe_pressure_hpa=args.max_safe_pressure_hpa,
         include_pass=args.include_pass,
+        include_gaug=args.include_gaug,
         restore_baseline=not args.no_restore_baseline,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))

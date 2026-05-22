@@ -6,6 +6,7 @@ import pytest
 
 from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import (
     DEFAULT_GAS_PPM,
+    DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
     DynamicTrialPlan,
     PACE_VENT_WRITE_RE,
     assert_no_forbidden_writes,
@@ -14,6 +15,7 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     planned_commands_for_trial,
     rank_results,
     resolve_0ppm_open_flow_valves,
+    row_exceeds_open_flow_pressure_safety,
     run_offline_plan,
     summarize_samples,
     validate_dynamic_targets,
@@ -86,20 +88,40 @@ def test_default_plan_is_open_flow_not_sealed_and_uses_0ppm() -> None:
     assert all(item.gas_ppm == 0 for item in plan)
     assert all(item.open_flow_route_active is True for item in plan)
     assert all(item.route_sealed is False for item in plan)
-    assert {item.mode_requested for item in plan} == {"OUTP0", "GAUG", "ACT"}
+    assert {item.mode_requested for item in plan} == {"OUTP0", "ACT"}
+
+
+def test_gaug_is_explicit_diagnostic_opt_in_not_default() -> None:
+    default_plan = build_default_trial_plan([1000], ambient_hpa=1006)
+    gaug_plan = build_default_trial_plan([1000], ambient_hpa=1006, include_gaug=True)
+
+    assert "GAUG" not in {item.mode_requested for item in default_plan}
+    assert "GAUG" in {item.mode_requested for item in gaug_plan}
 
 
 def test_planned_commands_record_telemetry_without_pace_vent_control() -> None:
-    trial = next(item for item in build_default_trial_plan([1000], ambient_hpa=1006) if item.mode_requested == "GAUG")
+    trial = next(item for item in build_default_trial_plan([1000], ambient_hpa=1006) if item.mode_requested == "ACT")
     commands = planned_commands_for_trial(trial)
 
     assert ":SOUR:PRES:EFF?" in commands
     assert ":SOUR:PRES:COMP1?" in commands
     assert ":SOUR:PRES:COMP2?" in commands
+    assert ":SOUR:PRES:RANG?" in commands
+    assert ":SENS:PRES:RANG?" in commands
     assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?" in commands
     assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?" in commands
     assert not any(PACE_VENT_WRITE_RE.search(command) for command in commands)
     assert_no_forbidden_writes(commands)
+
+
+def test_outp0_baseline_does_not_write_control_profile() -> None:
+    trial = build_default_trial_plan([1000], ambient_hpa=1006)[0]
+    commands = planned_commands_for_trial(trial)
+
+    assert trial.mode_requested == "OUTP0"
+    assert not any(command.startswith(":SOUR:PRES:SLEW:MODE ") for command in commands)
+    assert not any(command.startswith(":SOUR:PRES:SLEW:OVER ") for command in commands)
+    assert not any(command.startswith(":SOUR:PRES:LEV:IMM:AMPL ") for command in commands)
 
 
 def test_pace_vent_start_or_abort_is_forbidden_for_sampling_control() -> None:
@@ -165,6 +187,33 @@ def test_tiny_target_crossing_like_999_999_does_not_block_A() -> None:
     assert result.sample_can_enter_calibration_fit is True
 
 
+def test_candidate_hit_without_stable_hold_blocks_A() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    rows = _samples(target=1000.0, pressure=1000.2, dewpoint=-39.0, effort=0.0)
+    rows[0]["pace_pressure_hpa"] = 1000.2
+    rows[-1]["pace_pressure_hpa"] = 1003.4
+
+    result = summarize_samples(
+        rows,
+        plan=plan,
+        ambient_hpa=1006.0,
+        candidate_ts=100.0,
+        candidate_pressure_hpa=1000.2,
+        outp1_ts=99.0,
+        mode_confirmed="ACT",
+    )
+
+    assert result.candidate_detected is True
+    assert result.pressure_stable_for_calibration is False
+    assert result.sample_can_enter_calibration_fit is False
+    assert "pressure_not_stable_for_fit" in result.rejection_reasons
+
+
 def test_persistent_positive_effort_blocks_A_but_keeps_diagnostic_row() -> None:
     plan = DynamicTrialPlan(
         trial_id="open_flow_act_over0_max_1000",
@@ -186,6 +235,21 @@ def test_persistent_positive_effort_blocks_A_but_keeps_diagnostic_row() -> None:
     assert result.sample_can_enter_calibration_fit is False
     assert result.sample_can_enter_diagnostic_model is True
     assert "positive_effort_diagnostic_only" in result.rejection_reasons
+
+
+def test_open_flow_pressure_safety_abort_uses_pace_or_com22_pressure() -> None:
+    assert row_exceeds_open_flow_pressure_safety(
+        {"pace_pressure_hpa": DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA + 0.1},
+        DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    )
+    assert row_exceeds_open_flow_pressure_safety(
+        {"pace_pressure_hpa": 1002.0, "com22_pressure_hpa": DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA + 5.0},
+        DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    )
+    assert not row_exceeds_open_flow_pressure_safety(
+        {"pace_pressure_hpa": 1002.0, "com22_pressure_hpa": 1003.0},
+        DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    )
 
 
 def test_missing_dewpoint_or_analyzer_blocks_A() -> None:
@@ -272,4 +336,5 @@ def test_offline_plan_writes_json_without_real_com(tmp_path: Path) -> None:
 
     assert payload["gas_ppm"] == 0
     assert payload["uses_1100"] is False
+    assert "GAUG" not in {item["mode_requested"] for item in payload["trial_plan"]}
     assert (tmp_path / "open_flow_dynamic_pressure_plan.json").exists()
