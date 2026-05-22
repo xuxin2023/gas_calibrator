@@ -1938,10 +1938,16 @@ def test_preseal_buildup_closes_route_then_blocks_vent3_before_outp1(monkeypatch
         gauge=FakeGauge([1013.0, 1018.0, 1022.0, 1024.0, 1026.0, 1028.0, 1030.0]),
         logger=PostVent0RawTapLogger(vent1_count=0),
     )
+    point = _co2_point()
+    topoff_ref = _co2_point(index=2, pressure=1100.0)
     runner._apply_valve_states = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
 
-    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()]) is False
+    assert runner._pressurize_route_for_sealed_points(
+        point,
+        route="co2",
+        sealed_control_refs=[topoff_ref, point],
+    ) is False
 
     stages = _trace_stages(runner)
     assert ("vent", False) in pace.calls
@@ -2125,14 +2131,16 @@ def test_post_vent0_probe_does_not_delay_route_close() -> None:
 
 def test_preseal_pressure_build_waits_for_1110_before_route_close(monkeypatch) -> None:
     runner, _, _, _ = _runner(gauge=FakeGauge([1010.0, 1040.0, 1112.0, 1112.0]))
+    point = _co2_point()
+    topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[str] = []
     runner._apply_valve_states = MagicMock(side_effect=lambda _valves: events.append("close_valves"))
     monkeypatch.setattr("time.sleep", lambda seconds: events.append(f"sleep:{seconds:.3f}"))
 
     assert runner._pressurize_route_for_sealed_points(
-        _co2_point(),
+        point,
         route="co2",
-        sealed_control_refs=[_co2_point()],
+        sealed_control_refs=[topoff_ref, point],
     ) is True
 
     close_index = events.index("close_valves")
@@ -2157,14 +2165,16 @@ def test_preseal_pressure_build_safety_caps_configured_wait_and_hard_limit() -> 
 
 def test_preseal_pressure_build_timeout_uses_1p5s_not_5s(monkeypatch) -> None:
     runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
+    point = _co2_point()
+    topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[str] = []
     runner._apply_valve_states = MagicMock(side_effect=lambda _valves: events.append("close_valves"))
     monkeypatch.setattr("time.sleep", lambda seconds: events.append(f"sleep:{seconds:.3f}"))
 
     assert runner._pressurize_route_for_sealed_points(
-        _co2_point(),
+        point,
         route="co2",
-        sealed_control_refs=[_co2_point()],
+        sealed_control_refs=[topoff_ref, point],
     ) is True
 
     close_index = events.index("close_valves")
@@ -2175,6 +2185,30 @@ def test_preseal_pressure_build_timeout_uses_1p5s_not_5s(monkeypatch) -> None:
     assert fields["route_close_deadline_enforced"] is True
     assert fields["preseal_pressure_build_max_wait_s"] == pytest.approx(1.5)
     assert fields["route_close_timeout_without_pressure_trigger"] is True
+
+
+def test_descent_only_selection_closes_route_without_preseal_build_wait(monkeypatch) -> None:
+    runner, _, _, logs = _runner(gauge=FakeGauge([1013.0, 1013.0]))
+    point = _co2_point(pressure=1000.0)
+    events: list[tuple[str, object]] = []
+    runner._apply_valve_states = MagicMock(side_effect=lambda valves: events.append(("close_valves", list(valves))))
+    monkeypatch.setattr("time.sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    close_index = events.index(("close_valves", []))
+    assert not any(event[0] == "sleep" for event in events[:close_index])
+    assert any("skip preseal top-off" in message for message in logs)
+    wait_fields = _last_stage_fields(runner, "controlled_outp_vent0_fixed_wait_before_seal")
+    assert wait_fields["preseal_topoff_required"] is False
+    assert wait_fields["preseal_route_entry_strategy"] == "descent_only_immediate_route_close"
+    assert wait_fields["preseal_pressure_build_max_wait_s"] == pytest.approx(0.0)
+    assert wait_fields["preseal_route_close_trigger_source"] == "no_wait"
+    assert wait_fields["route_close_deadline_enforced"] is False
+    assert wait_fields["route_valves_open_during_vent0_wait"] is False
+    close_fields = _last_stage_fields(runner, "route_valves_closed_after_vent0")
+    assert close_fields["route_valves_still_open_during_wait"] is False
+    assert close_fields["route_closed_after_fixed_wait"] is False
 
 
 def test_route_close_not_delayed_by_preseal_exit_evidence(monkeypatch) -> None:
@@ -2270,13 +2304,15 @@ def test_vent_status_3_after_vent0_does_not_block_route_close(monkeypatch) -> No
         gauge=FakeGauge([1112.0, 1112.0]),
         logger=PostVent0RawTapLogger(vent1_count=0),
     )
+    point = _co2_point()
+    topoff_ref = _co2_point(index=2, pressure=1100.0)
     runner._apply_valve_states = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
 
     assert runner._pressurize_route_for_sealed_points(
-        _co2_point(),
+        point,
         route="co2",
-        sealed_control_refs=[_co2_point()],
+        sealed_control_refs=[topoff_ref, point],
     ) is False
 
     assert ("vent", False) in pace.calls
@@ -2511,8 +2547,14 @@ def test_operator_window_console_yes_allows_pressure_build_timeout_close(monkeyp
     runner._apply_valve_states = MagicMock(side_effect=lambda _valves: events.append("close_valves"))
     monkeypatch.setattr("time.sleep", lambda seconds: events.append(f"sleep:{seconds:.1f}"))
     monkeypatch.setattr("sys.stdin", FakeStdin("YES\n", interactive=True))
+    point = _co2_point()
+    topoff_ref = _co2_point(index=2, pressure=1100.0)
 
-    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
+    assert runner._pressurize_route_for_sealed_points(
+        point,
+        route="co2",
+        sealed_control_refs=[topoff_ref, point],
+    )
 
     assert runner._controlled_exit_final_decision == "ENGINEERING_EXIT_ATMOSPHERE_PASS"
     close_index = events.index("close_valves")
@@ -2653,6 +2695,7 @@ def test_window_ui_residual_suspected_removed() -> None:
 def test_vent0_pressure_build_timeout_then_close_valves(monkeypatch) -> None:
     runner, pace, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
     point = _co2_point()
+    topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[tuple] = []
     runner._apply_valve_states = MagicMock(side_effect=lambda valves: events.append(("close_valves", list(valves))))
     original_guard = runner._activate_co2_sealed_no_vent_guard
@@ -2661,7 +2704,11 @@ def test_vent0_pressure_build_timeout_then_close_valves(monkeypatch) -> None:
     )
     monkeypatch.setattr("time.sleep", lambda seconds: events.append(("sleep", seconds)))
 
-    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+    assert runner._pressurize_route_for_sealed_points(
+        point,
+        route="co2",
+        sealed_control_refs=[topoff_ref, point],
+    ) is True
 
     assert ("vent", False) in pace.calls
     assert ("exit_atmosphere_mode", 3.0, 0.2) not in pace.calls
@@ -2673,10 +2720,15 @@ def test_vent0_pressure_build_timeout_then_close_valves(monkeypatch) -> None:
 def test_vent0_state_trace_recorded_at_route_close(monkeypatch) -> None:
     runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0, 1013.0]))
     point = _co2_point()
+    topoff_ref = _co2_point(index=2, pressure=1100.0)
     runner._apply_valve_states = MagicMock()
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
 
-    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+    assert runner._pressurize_route_for_sealed_points(
+        point,
+        route="co2",
+        sealed_control_refs=[topoff_ref, point],
+    ) is True
 
     close_calls = [
         call.kwargs
@@ -2716,11 +2768,17 @@ def test_fast_control_order_preserved(monkeypatch) -> None:
 
 def test_verified_exit_then_pressure_build_timeout_close_valves(monkeypatch) -> None:
     runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
+    point = _co2_point()
+    topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[str] = []
     runner._apply_valve_states = MagicMock(side_effect=lambda _valves: events.append("close_valves"))
     monkeypatch.setattr("time.sleep", lambda seconds: events.append(f"sleep:{seconds:.1f}"))
 
-    assert runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
+    assert runner._pressurize_route_for_sealed_points(
+        point,
+        route="co2",
+        sealed_control_refs=[topoff_ref, point],
+    )
 
     stages = _trace_stages(runner)
     assert stages.index("controlled_outp_vent0_fixed_wait_before_seal") < stages.index(
@@ -2782,11 +2840,17 @@ def test_pressure_rise_and_noninteractive_window_warn_not_block_route_close(monk
 
 def test_route_valves_remain_open_during_fixed_wait(monkeypatch) -> None:
     runner, _, _, _ = _runner(gauge=FakeGauge([1013.0, 1013.0]))
+    point = _co2_point()
+    topoff_ref = _co2_point(index=2, pressure=1100.0)
     events: list[str] = []
     runner._apply_valve_states = MagicMock(side_effect=lambda _valves: events.append("close_valves"))
     monkeypatch.setattr("time.sleep", lambda seconds: events.append(f"sleep:{seconds:.1f}"))
 
-    runner._pressurize_route_for_sealed_points(_co2_point(), route="co2", sealed_control_refs=[_co2_point()])
+    runner._pressurize_route_for_sealed_points(
+        point,
+        route="co2",
+        sealed_control_refs=[topoff_ref, point],
+    )
 
     close_index = events.index("close_valves")
     assert close_index > 0

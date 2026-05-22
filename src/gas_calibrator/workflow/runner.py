@@ -30856,6 +30856,15 @@ class CalibrationRunner:
                     new_vent1_count = (
                         self._as_int(pre_route_close_probe_fields.get("post_vent0_new_vent1_count")) or 0
                     )
+                    route_valves_open_during_wait = bool(
+                        pre_route_close_probe_fields.get("route_valves_open_during_vent0_wait", True)
+                    )
+                    route_closed_after_fixed_wait = bool(
+                        pre_route_close_probe_fields.get(
+                            "route_closed_after_fixed_wait",
+                            controlled_fixed_wait_completed,
+                        )
+                    )
                     if self._sealed_passive_deadline_enabled():
                         route_close_after_vent_exit_s = max(0.0, route_valve_close_ts - float(vent0_wall_ts))
                         vent_status = self._as_int(pre_route_close_probe_fields.get("pre_vent0_vent_status"))
@@ -30875,7 +30884,7 @@ class CalibrationRunner:
                             ),
                             "outp_status_after_vent0": 0,
                             "isol_status_after_vent0": 1,
-                            "route_valves_still_open_during_wait": True,
+                            "route_valves_still_open_during_wait": route_valves_open_during_wait,
                             "fixed_wait_elapsed_s": fixed_wait_elapsed_s,
                             "route_valve_close_ts": self._iso_ts_from_wall(route_valve_close_ts),
                             "actual_open_valves_after_close": ",".join(self._cached_actual_open_valves()),
@@ -30889,8 +30898,8 @@ class CalibrationRunner:
                                 else ""
                             ),
                             "route_close_blocked_by_operator_window": False,
-                            "route_valves_open_during_vent0_wait": True,
-                            "route_closed_after_fixed_wait": bool(controlled_fixed_wait_completed),
+                            "route_valves_open_during_vent0_wait": route_valves_open_during_wait,
+                            "route_closed_after_fixed_wait": route_closed_after_fixed_wait,
                             "route_close_allowed_with_vent_status_3": bool(vent3_count > 0 and new_vent1_count == 0),
                             "route_close_after_vent0_delay_s": (
                                 max(0.0, route_valve_close_ts - float(vent0_command_ts))
@@ -30935,7 +30944,7 @@ class CalibrationRunner:
                             phase=phase,
                             vent0_command_ts=vent0_command_ts,
                             vent0_raw_response=vent0_raw_response,
-                            route_valves_still_open_during_wait=True,
+                            route_valves_still_open_during_wait=route_valves_open_during_wait,
                             fixed_wait_elapsed_s=fixed_wait_elapsed_s,
                             route_valve_close_ts=route_valve_close_ts,
                             actual_open_valves_after_close=",".join(self._cached_actual_open_valves()),
@@ -30943,8 +30952,8 @@ class CalibrationRunner:
                             post_vent0_probe_fields=pre_route_close_probe_fields,
                             route_close_deadline_ts=route_close_deadline_ts,
                             route_close_deadline_source=route_close_deadline_source,
-                            route_valves_open_during_vent0_wait=True,
-                            route_closed_after_fixed_wait=bool(controlled_fixed_wait_completed),
+                            route_valves_open_during_vent0_wait=route_valves_open_during_wait,
+                            route_closed_after_fixed_wait=route_closed_after_fixed_wait,
                             route_close_allowed_with_vent_status_3=bool(vent3_count > 0 and new_vent1_count == 0),
                             vent_abort_sent=vent_abort_sent,
                             vent_exit_reference_ts=vent0_wall_ts,
@@ -31108,7 +31117,8 @@ class CalibrationRunner:
                 self._controlled_outp_seal_transition_enabled(route_name)
                 and not self._pressure_rise_gate_blocks_seal()
             ):
-                fixed_wait_s = self._preseal_route_close_max_wait_s()
+                preseal_pressure_build_enabled = bool(use_preseal_topoff)
+                fixed_wait_s = self._preseal_route_close_max_wait_s() if preseal_pressure_build_enabled else 0.0
                 pressure_trigger_hpa = self._preseal_pressure_build_trigger_hpa()
                 pressure_hard_limit_hpa = self._preseal_pressure_build_hard_limit_hpa()
                 pressure_build_begin_ts = time.time()
@@ -31130,8 +31140,10 @@ class CalibrationRunner:
                     route_close_deadline_source = "vent_exit_reference"
                     if vent0_wall_ts is None:
                         vent0_wall_ts = time.time()
+                if not preseal_pressure_build_enabled:
+                    route_close_deadline_source = "descent_only_immediate_route_close"
                 route_close_deadline_ts = float(vent0_wall_ts) + fixed_wait_s
-                route_close_deadline_enforced = True
+                route_close_deadline_enforced = bool(preseal_pressure_build_enabled and fixed_wait_s > 0)
                 pressure_poll_s = self._preseal_pressure_build_poll_s()
                 pressure_build_observation: Dict[str, Any] = {
                     "pressure_hpa": None,
@@ -31160,7 +31172,11 @@ class CalibrationRunner:
                         preseal_pressure_build_hard_limit_hit = True
                         route_close_pressure_trigger_wall_s = time.time()
                         break
-                    if preseal_pressure_last is not None and preseal_pressure_last >= pressure_trigger_hpa:
+                    if (
+                        preseal_pressure_build_enabled
+                        and preseal_pressure_last is not None
+                        and preseal_pressure_last >= pressure_trigger_hpa
+                    ):
                         pressure_trigger_source = (
                             f"{pressure_source}_threshold"
                             if pressure_source in {"pressure_gauge", "pace"}
@@ -31206,19 +31222,29 @@ class CalibrationRunner:
                         "preseal_pressure_build_begin_ts": self._iso_ts_from_wall(pressure_build_begin_ts),
                         "preseal_pressure_build_max_wait_s": fixed_wait_s,
                         "preseal_pressure_build_pressure_source": pressure_source,
-                        "preseal_pressure_build_trigger_hpa": pressure_trigger_hpa,
+                        "preseal_pressure_build_trigger_hpa": (
+                            pressure_trigger_hpa if preseal_pressure_build_enabled else ""
+                        ),
                         "preseal_pressure_build_hard_limit_hpa": pressure_hard_limit_hpa,
                         "preseal_pressure_build_peak_hpa": preseal_pressure_peak,
                         "preseal_pressure_build_last_hpa": preseal_pressure_last,
                         "preseal_pressure_build_trigger_source": pressure_trigger_source,
                         "preseal_route_close_trigger_source": pressure_trigger_source,
+                        "preseal_topoff_required": preseal_pressure_build_enabled,
+                        "preseal_route_entry_strategy": (
+                            "preseal_topoff_pressure_build"
+                            if preseal_pressure_build_enabled
+                            else "descent_only_immediate_route_close"
+                        ),
                         "route_close_deadline_enforced": route_close_deadline_enforced,
                         "route_close_deadline_ts": self._iso_ts_from_wall(route_close_deadline_ts),
                         "route_close_deadline_source": route_close_deadline_source,
                         "route_close_blocked_by_operator_window": False,
                         "operator_window_gate_effect": "warning_only",
                         "operator_window_terminal": False,
-                        "route_valves_open_during_vent0_wait": True,
+                        "route_valves_open_during_vent0_wait": bool(
+                            preseal_pressure_build_enabled and fixed_wait_s > 0
+                        ),
                         "route_closed_after_fixed_wait": False,
                         "route_close_allowed_with_vent_status_3": bool(
                             (self._as_int(pre_route_close_probe_fields.get("post_vent0_vent3_count")) or 0) > 0
@@ -31237,6 +31263,11 @@ class CalibrationRunner:
                 )
                 elapsed_s = max(0.0, time.time() - float(vent0_wall_ts))
                 remaining_s = max(0.0, float(route_close_deadline_ts) - time.time())
+                route_close_wait_note = (
+                    "route valves remain open after vent exit; "
+                    if preseal_pressure_build_enabled and fixed_wait_s > 0
+                    else "route valves close immediately after vent exit; "
+                )
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -31250,7 +31281,7 @@ class CalibrationRunner:
                     note=(
                         f"fixed_wait_s={fixed_wait_s:.3f} elapsed_s={elapsed_s:.3f} "
                         f"remaining_s={remaining_s:.3f}; "
-                        f"trigger_source={pressure_trigger_source}; route valves remain open after vent exit; "
+                        f"trigger_source={pressure_trigger_source}; {route_close_wait_note}"
                         f"route_close_deadline_source={route_close_deadline_source}"
                     ),
                 )
@@ -31282,6 +31313,9 @@ class CalibrationRunner:
                     self._stop_pressure_transition_fast_signal_context(reason=self._controlled_exit_final_decision)
                     return False
                 controlled_fixed_wait_completed = True
+                pre_route_close_probe_fields["route_closed_after_fixed_wait"] = bool(
+                    preseal_pressure_build_enabled and fixed_wait_s > 0
+                )
                 preseal_trigger_source = pressure_trigger_source
                 _seal_route_now()
                 if preseal_pressure_build_hard_limit_hit:
