@@ -1897,6 +1897,8 @@ def run_real_com_diagnostic(
             for _ in range(max(0, int(sample_count) - len(trial_samples))):
                 if abort_all:
                     break
+                if time.time() >= deadline:
+                    break
                 if direct_control_only:
                     row = _collect_fast_pressure_sample(
                         pace,
