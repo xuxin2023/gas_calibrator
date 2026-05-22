@@ -870,7 +870,7 @@ def _enable_control_output_confirmed(
     pace: Any,
     *,
     target_hpa: float | None,
-    timeout_s: float = 3.0,
+    timeout_s: float = 5.0,
     poll_s: float = 0.25,
 ) -> dict[str, Any]:
     deadline = time.time() + max(0.5, float(timeout_s))
@@ -942,6 +942,7 @@ def stop_open_flow_atmosphere_hold_before_control(
     pace: Any,
     *,
     force_output_off: bool = True,
+    vent_idle_settle_s: float = 0.5,
 ) -> dict[str, Any]:
     result = {
         "stopped": False,
@@ -969,6 +970,8 @@ def stop_open_flow_atmosphere_hold_before_control(
                 result["vent_idle_status"] = wait_idle(timeout_s=5.0, poll_s=0.2)
             except Exception as exc:
                 result["vent_idle_wait_error"] = str(exc)
+        if float(vent_idle_settle_s) > 0.0:
+            time.sleep(float(vent_idle_settle_s))
         set_isolation_open = getattr(pace, "set_isolation_open", None)
         if callable(set_isolation_open):
             set_isolation_open(True)
