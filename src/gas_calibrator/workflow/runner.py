@@ -308,6 +308,7 @@ _PRESSURE_TRACE_FIELDS = [
     "slew_mode_preconfigured",
     "slew_rate_preconfigured",
     "overshoot_not_allowed_preconfigured",
+    "overshoot_configured_preconfigured",
     "slew_config_deferred_before_route_close",
     "slew_config_after_route_close_count",
     "sealed_control_prearm_syst_err",
@@ -394,6 +395,9 @@ _PRESSURE_TRACE_FIELDS = [
     "sample_setpoint_bias_hpa",
     "control_setpoint_hpa",
     "setpoint_bias_reason",
+    "setpoint_bias_physical_meaning",
+    "setpoint_bias_nominal_target_unchanged",
+    "setpoint_bias_pressure_anchor_required",
     "actual_pressure_offset_from_nominal_hpa",
     "sealed_slow_slew_trigger_ts",
     "sealed_slow_slew_trigger_pressure_hpa",
@@ -411,6 +415,15 @@ _PRESSURE_TRACE_FIELDS = [
     "profile_matches_v2_or_approved_strategy",
     "profile_difference_from_v2",
     "profile_difference_reason",
+    "over1_requested_by_config",
+    "over1_diagnostic_enabled",
+    "over1_diagnostic_only",
+    "over1_request_blocked_without_diagnostic_approval",
+    "over1_not_for_workflow",
+    "over0_disabled_for_diagnostic",
+    "overshoot_policy",
+    "overshoot_policy_reason",
+    "calibration_fit_blocked_by_over1_diagnostic",
     "high_delta_fast_slew_hpa_per_s",
     "final_slow_zone_hpa",
     "final_slow_slew_hpa_per_s",
@@ -11431,6 +11444,7 @@ class CalibrationRunner:
         requested_slew = str(source.get("slew_mode_set") or self._sealed_control_slew_mode() or "").upper()
         if not requested_slew:
             requested_slew = "MAX" if self._sealed_profile_uses_max_mode() else "LIN"
+        overshoot_policy = self._sealed_overshoot_policy_fields()
         over_requested = 0 if self._sealed_over0_enabled() else 1
         over_confirmed: Any = ""
         if source.get("sealed_slew_over_not_allowed_configured") is True:
@@ -11444,7 +11458,13 @@ class CalibrationRunner:
             and over_requested == 0
             and str(pace_confirmed or "ACT").upper() == "ACT"
         )
-        if requested_slew == "MAX" and over_requested == 0:
+        if over_requested == 1:
+            difference = "v1_5_over1_diagnostic_not_approved_workflow"
+            reason = (
+                "SLEW:OVER 1 is a limited no-write diagnostic comparison only; "
+                "the approved workflow profile remains ACT+MAX+OVER0 unless bench evidence promotes a change."
+            )
+        elif requested_slew == "MAX" and over_requested == 0:
             difference = "v2_slew_over_not_explicit_v1_5_explicit_max_over0"
             reason = (
                 "V2 audit confirms ACT via enable_control_output and setpoint-before-OUTP1; "
@@ -11464,6 +11484,7 @@ class CalibrationRunner:
             "profile_matches_v2_or_approved_strategy": matches,
             "profile_difference_from_v2": difference,
             "profile_difference_reason": reason,
+            **overshoot_policy,
         }
 
     def _sealed_fast_short_burst_sampling_active(self, phase: str = "") -> bool:
@@ -12351,6 +12372,8 @@ class CalibrationRunner:
             reasons.append(f"secondary_evidence_{secondary_status}")
         if residual_exceeds:
             reasons.append("dewpoint_residual_exceeds_threshold")
+        if bool(data.get("over1_diagnostic_only")) or bool(data.get("calibration_fit_blocked_by_over1_diagnostic")):
+            reasons.append("over1_diagnostic_only")
         if invalid_reasons:
             for item in invalid_reasons:
                 text = str(item or "").strip()
@@ -14864,11 +14887,50 @@ class CalibrationRunner:
         )
         return max(0.1, float(raw or 15.0))
 
+    def _sealed_over1_diagnostic_enabled(self) -> bool:
+        raw = self._wf("workflow.pressure.sealed_over1_diagnostic_enabled", False)
+        return bool(self._limited_no_write_workflow_active() and self._as_bool(raw, False))
+
     def _sealed_control_overshoot_allowed(self) -> bool:
-        return bool(self._wf("workflow.pressure.slew_overshoot_allowed", False))
+        requested = self._as_bool(self._wf("workflow.pressure.slew_overshoot_allowed", False), False)
+        if not requested:
+            return False
+        return self._sealed_over1_diagnostic_enabled()
 
     def _sealed_over0_enabled(self) -> bool:
         return not self._sealed_control_overshoot_allowed()
+
+    def _sealed_overshoot_policy_fields(self) -> Dict[str, Any]:
+        requested = self._as_bool(self._wf("workflow.pressure.slew_overshoot_allowed", False), False)
+        diagnostic_enabled = self._sealed_over1_diagnostic_enabled()
+        over1_active = bool(requested and diagnostic_enabled)
+        blocked_without_approval = bool(requested and not diagnostic_enabled)
+        if over1_active:
+            policy = "OVER1_DIAGNOSTIC_ONLY"
+            reason = (
+                "SLEW:OVER 1 is explicitly enabled only for limited no-write comparison; "
+                "rows are diagnostic-only until crossing/chatter/dewpoint residual evidence proves acceptable."
+            )
+        elif blocked_without_approval:
+            policy = "OVER0_FORCED"
+            reason = (
+                "slew_overshoot_allowed was requested, but sealed_over1_diagnostic_enabled is not true "
+                "or the run is not limited no-write; keep SLEW:OVER 0."
+            )
+        else:
+            policy = "OVER0_DEFAULT"
+            reason = "Default sealed profile keeps SLEW:OVER 0 so the controller decelerates near setpoint."
+        return {
+            "over1_requested_by_config": bool(requested),
+            "over1_diagnostic_enabled": bool(diagnostic_enabled),
+            "over1_diagnostic_only": bool(over1_active),
+            "over1_request_blocked_without_diagnostic_approval": bool(blocked_without_approval),
+            "over1_not_for_workflow": bool(over1_active),
+            "over0_disabled_for_diagnostic": bool(over1_active),
+            "overshoot_policy": policy,
+            "overshoot_policy_reason": reason,
+            "calibration_fit_blocked_by_over1_diagnostic": bool(over1_active),
+        }
 
     def _sealed_profile_uses_max_mode(self) -> bool:
         return self._sealed_control_slew_mode() == "MAX"
@@ -15042,6 +15104,7 @@ class CalibrationRunner:
             "expected_controller_deceleration_by_over0": bool(
                 self._sealed_over0_enabled() and self._sealed_profile_uses_max_mode()
             ),
+            **self._sealed_overshoot_policy_fields(),
             "pressure_descent_profile_active": bool(fast_profile_enabled),
             "profile_expected_time_s": self._sealed_pressure_profile_expected_time_s(
                 target=float(target),
@@ -15117,6 +15180,13 @@ class CalibrationRunner:
             "nominal_target_hpa": float(target),
             "control_setpoint_hpa": control_setpoint,
             "setpoint_bias_reason": reason,
+            "setpoint_bias_physical_meaning": (
+                "controller setpoint is biased above nominal to catch the first descending pressure-anchor window"
+                if enabled
+                else ""
+            ),
+            "setpoint_bias_nominal_target_unchanged": bool(enabled),
+            "setpoint_bias_pressure_anchor_required": bool(enabled),
         }
 
     def _effort_unsupported_blocks_sampling(self) -> bool:
@@ -15522,6 +15592,11 @@ class CalibrationRunner:
         fields.setdefault("slew_mode_preconfigured", False)
         fields.setdefault("slew_rate_preconfigured", False)
         fields.setdefault("overshoot_not_allowed_preconfigured", False)
+        fields.setdefault(
+            "overshoot_configured_preconfigured",
+            fields.get("overshoot_allowed_set") in (True, False)
+            or bool(fields.get("overshoot_not_allowed_preconfigured")),
+        )
         fields.setdefault("slew_config_deferred_before_route_close", bool(fields.get("slew_rate_preconfigured")))
         fields["slew_config_after_route_close_count"] = int(self._sealed_control_slew_config_after_route_close_count)
         fields.setdefault("sealed_control_prearm_syst_err", "")
@@ -15558,6 +15633,7 @@ class CalibrationRunner:
             "expected_controller_deceleration_by_over0",
             bool(self._sealed_over0_enabled() and self._sealed_profile_uses_max_mode()),
         )
+        fields.update({**self._sealed_overshoot_policy_fields(), **fields})
         fields.setdefault("max_mode_set_ts", "")
         fields.setdefault("over0_set_ts", "")
         fields.setdefault("pressure_descent_profile_active", self._sealed_fast_exhaust_profile_enabled())
@@ -15730,6 +15806,7 @@ class CalibrationRunner:
             mode == "MAX" and not bool(overshoot_allowed)
         )
         fields["pressure_descent_profile_active"] = self._sealed_fast_exhaust_profile_enabled()
+        fields.update(self._sealed_overshoot_policy_fields())
         if pace is None:
             failures.append("pace_unavailable")
             fields.update(self._sealed_profile_alignment_fields(fields))
@@ -15798,6 +15875,7 @@ class CalibrationRunner:
                 fields["overshoot_not_allowed_preconfigured"] = bool(
                     fields.get("overshoot_not_allowed_preconfigured", False)
                 ) or not bool(overshoot_allowed)
+                fields["overshoot_configured_preconfigured"] = True
                 fields["sealed_slew_over_not_allowed_configured"] = not bool(overshoot_allowed)
             except Exception as exc:
                 failures.append(f"overshoot:{exc}")
@@ -15852,6 +15930,7 @@ class CalibrationRunner:
             "slew_mode_preconfigured": False,
             "slew_rate_preconfigured": False,
             "overshoot_not_allowed_preconfigured": False,
+            "overshoot_configured_preconfigured": False,
             "slew_config_deferred_before_route_close": False,
             "slew_config_after_route_close_count": int(self._sealed_control_slew_config_after_route_close_count),
             "sealed_control_prearm_syst_err": "",
@@ -15904,10 +15983,16 @@ class CalibrationRunner:
         end_s = time.time()
         fields["sealed_control_prearm_config_end_ts"] = self._iso_ts_from_wall(end_s)
         fields["sealed_control_prearm_config_elapsed_s"] = max(0.0, end_s - begin_s)
+        overshoot_configured = bool(
+            fields.get("overshoot_configured_preconfigured")
+            or fields.get("overshoot_allowed_set") in (True, False)
+            or fields.get("sealed_slew_over_not_allowed_configured")
+        )
+        fields["overshoot_configured_preconfigured"] = overshoot_configured
         fields["slew_config_deferred_before_route_close"] = bool(
             fields.get("slew_mode_preconfigured")
             and fields.get("slew_rate_preconfigured")
-            and fields.get("overshoot_not_allowed_preconfigured")
+            and overshoot_configured
         )
         self._sealed_control_prearm_fields = fields
         if isinstance(self._sealed_sweep_context_for_counters(), dict):
@@ -15974,6 +16059,7 @@ class CalibrationRunner:
             "slew_mode_preconfigured": False,
             "slew_rate_preconfigured": False,
             "overshoot_not_allowed_preconfigured": False,
+            "overshoot_configured_preconfigured": False,
             "sealed_slew_mode_lin_configured": False,
             "sealed_slew_mode_max_configured": False,
             "sealed_slew_over_not_allowed_configured": False,
@@ -32776,6 +32862,25 @@ class CalibrationRunner:
                 return candidate
         return ""
 
+    @staticmethod
+    def _excel_safe_cell_value(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            if not value:
+                return ""
+            return json.dumps(dict(value), ensure_ascii=False, sort_keys=True, default=str)
+        if isinstance(value, (list, tuple, set)):
+            if not value:
+                return ""
+            return json.dumps(list(value), ensure_ascii=False, default=str)
+        return value
+
+    @classmethod
+    def _excel_safe_rows_for_workbook(cls, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [
+            {str(key): cls._excel_safe_cell_value(value) for key, value in dict(row).items()}
+            for row in rows
+        ]
+
     def _stable_flag_from_runtime_state(self, runtime_state: Dict[str, Any]) -> bool:
         if bool(runtime_state.get("point_quality_blocked", False)):
             return False
@@ -32836,8 +32941,9 @@ class CalibrationRunner:
         except Exception as exc:
             self.log(f"Point {point.index} analyzer summary save failed: {exc}")
         try:
+            workbook_samples = self._excel_safe_rows_for_workbook(samples)
             analyzer_book = self.logger.log_analyzer_workbook(
-                samples,
+                workbook_samples,
                 analyzer_labels=analyzer_labels,
                 phase=phase,
                 write_summary=False,

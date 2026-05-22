@@ -3897,6 +3897,86 @@ def test_sample_setpoint_bias_for_first_high_pressure_point() -> None:
     assert fields["control_setpoint_hpa"] == pytest.approx(1100.5)
     assert fields["sample_setpoint_bias_hpa"] == pytest.approx(0.5)
     assert fields["setpoint_bias_reason"] == "first_or_high_delta_exhaust_only_no_write"
+    assert fields["setpoint_bias_nominal_target_unchanged"] is True
+    assert fields["setpoint_bias_pressure_anchor_required"] is True
+    assert "pressure-anchor" in fields["setpoint_bias_physical_meaning"]
+
+
+def test_over1_request_without_diagnostic_approval_keeps_over0() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "slew_overshoot_allowed": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+
+    assert runner._prearm_sealed_control_config(point, phase="co2", pressure_target_hpa=1100.0) is True
+
+    fields = runner._sealed_control_prearm_trace_fields()
+    assert ("set_overshoot_allowed", False) in pace.calls
+    assert ("set_overshoot_allowed", True) not in pace.calls
+    assert fields["over0_enabled"] is True
+    assert fields["over1_requested_by_config"] is True
+    assert fields["over1_diagnostic_enabled"] is False
+    assert fields["over1_request_blocked_without_diagnostic_approval"] is True
+    assert fields["overshoot_policy"] == "OVER0_FORCED"
+
+
+def test_over1_diagnostic_can_disable_over0_but_blocks_A_grade() -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "exhaust_only_sample_above_target_enabled": True,
+            "exhaust_only_sample_above_target_allow_sampling": True,
+            "slew_overshoot_allowed": True,
+            "sealed_over1_diagnostic_enabled": True,
+        }
+    )
+    point = _co2_point(pressure=1100.0)
+
+    assert runner._prearm_sealed_control_config(point, phase="co2", pressure_target_hpa=1100.0) is True
+
+    fields = runner._sealed_control_prearm_trace_fields()
+    assert ("set_overshoot_allowed", True) in pace.calls
+    assert fields["over0_enabled"] is False
+    assert fields["over1_diagnostic_only"] is True
+    assert fields["over0_disabled_for_diagnostic"] is True
+    assert fields["profile_matches_v2_or_approved_strategy"] is False
+    assert fields["profile_difference_from_v2"] == "v1_5_over1_diagnostic_not_approved_workflow"
+
+    quality = runner._sealed_sample_quality_grade_fields(
+        {
+            "pressure_anchor_valid": True,
+            "actual_pressure_hpa": 1100.5,
+            "actual_dewpoint_c": -20.0,
+            "candidate_dewpoint_cache_fresh": True,
+            "co2_wet_value": 1000.0,
+            "analyzer_snapshot_alignment_ok": True,
+            "pressure_drift_ok": True,
+            "over1_diagnostic_only": True,
+        }
+    )
+    assert quality["sample_data_quality_grade"] == "B_diagnostic_model_only"
+    assert quality["sample_can_enter_calibration_fit"] is False
+    assert "over1_diagnostic_only" in quality["sample_data_quality_reason"]
+
+
+def test_excel_workbook_rows_convert_empty_lists_and_structures() -> None:
+    rows = [
+        {
+            "point_index": 1,
+            "actual_open_valves": [],
+            "eff_sign_timeline_summary": ["negative", "near_zero"],
+            "nested_payload": {"pressure": 1000.5},
+        }
+    ]
+
+    safe = CalibrationRunner._excel_safe_rows_for_workbook(rows)
+
+    assert safe[0]["actual_open_valves"] == ""
+    assert safe[0]["eff_sign_timeline_summary"] == '["negative", "near_zero"]'
+    assert safe[0]["nested_payload"] == '{"pressure": 1000.5}'
 
 
 def test_sample_setpoint_bias_does_not_change_nominal_target() -> None:
