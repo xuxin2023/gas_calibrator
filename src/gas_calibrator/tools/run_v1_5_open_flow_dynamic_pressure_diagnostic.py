@@ -81,6 +81,7 @@ TELEMETRY_FIELDS = (
     "slew_mode",
     "slew_over",
     "slew_value_max_requested",
+    "slew_rate_requested_hpa_per_s",
     "control_fastest_profile_requested",
     "vent_rate",
     "vent_rate_unit",
@@ -272,6 +273,7 @@ class DynamicTrialPlan:
     target_hpa: float | None
     gas_ppm: int = DEFAULT_GAS_PPM
     slew_mode: str | None = "MAX"
+    slew_rate_hpa_per_s: float | None = None
     overshoot_allowed: bool | None = False
     slew_value_max: bool = False
     outp1_sent: bool = True
@@ -382,6 +384,8 @@ def build_default_trial_plan(
     only_gaug: bool = False,
     only_outp0_baseline: bool = False,
     set_slew_value_max: bool = False,
+    diagnostic_slew_mode: str = "MAX",
+    lin_slew_hpa_per_s: float | None = None,
     allow_above_ambient: bool = False,
     include_outp0_baseline: bool = True,
 ) -> list[DynamicTrialPlan]:
@@ -406,26 +410,38 @@ def build_default_trial_plan(
         )
     if only_outp0_baseline:
         return plans
+    selected_slew_mode = str(diagnostic_slew_mode or "MAX").strip().upper()
+    if selected_slew_mode not in {"MAX", "LIN"}:
+        raise ValueError(f"unsupported diagnostic slew mode: {diagnostic_slew_mode!r}")
+    selected_slew_rate = (
+        float(lin_slew_hpa_per_s)
+        if selected_slew_mode == "LIN" and lin_slew_hpa_per_s is not None
+        else None
+    )
     for target in targets:
         if not only_over1 and not only_gaug:
             plans.append(
                 DynamicTrialPlan(
-                    trial_id=f"open_flow_act_over0_max_{target:g}",
-                    label=f"open-flow ACT + OVER0 + MAX at {target:g} hPa",
+                    trial_id=f"open_flow_act_over0_{selected_slew_mode.lower()}_{target:g}",
+                    label=f"open-flow ACT + OVER0 + {selected_slew_mode} at {target:g} hPa",
                     mode_requested="ACT",
                     target_hpa=float(target),
                     gas_ppm=int(gas_ppm),
+                    slew_mode=selected_slew_mode,
+                    slew_rate_hpa_per_s=selected_slew_rate,
                     slew_value_max=bool(set_slew_value_max),
                 )
             )
         if include_over1 or only_over1:
             plans.append(
                 DynamicTrialPlan(
-                    trial_id=f"open_flow_act_over1_max_{target:g}",
-                    label=f"open-flow ACT + OVER1 + MAX fastest diagnostic at {target:g} hPa",
+                    trial_id=f"open_flow_act_over1_{selected_slew_mode.lower()}_{target:g}",
+                    label=f"open-flow ACT + OVER1 + {selected_slew_mode} fastest diagnostic at {target:g} hPa",
                     mode_requested="ACT",
                     target_hpa=float(target),
                     gas_ppm=int(gas_ppm),
+                    slew_mode=selected_slew_mode,
+                    slew_rate_hpa_per_s=selected_slew_rate,
                     overshoot_allowed=True,
                     slew_value_max=bool(set_slew_value_max),
                 )
@@ -433,22 +449,26 @@ def build_default_trial_plan(
         if include_gaug or only_gaug:
             plans.append(
                 DynamicTrialPlan(
-                    trial_id=f"open_flow_gaug_over0_max_{target:g}",
-                    label=f"open-flow GAUG + OVER0 + MAX diagnostic at {target:g} hPa",
+                    trial_id=f"open_flow_gaug_over0_{selected_slew_mode.lower()}_{target:g}",
+                    label=f"open-flow GAUG + OVER0 + {selected_slew_mode} diagnostic at {target:g} hPa",
                     mode_requested="GAUG",
                     target_hpa=float(target),
                     gas_ppm=int(gas_ppm),
+                    slew_mode=selected_slew_mode,
+                    slew_rate_hpa_per_s=selected_slew_rate,
                     slew_value_max=bool(set_slew_value_max),
                 )
             )
         if include_pass:
             plans.append(
                 DynamicTrialPlan(
-                    trial_id=f"open_flow_pass_over0_max_{target:g}",
-                    label=f"open-flow PASS + OVER0 + MAX diagnostic at {target:g} hPa",
+                    trial_id=f"open_flow_pass_over0_{selected_slew_mode.lower()}_{target:g}",
+                    label=f"open-flow PASS + OVER0 + {selected_slew_mode} diagnostic at {target:g} hPa",
                     mode_requested="PASS",
                     target_hpa=float(target),
                     gas_ppm=int(gas_ppm),
+                    slew_mode=selected_slew_mode,
+                    slew_rate_hpa_per_s=selected_slew_rate,
                     slew_value_max=bool(set_slew_value_max),
                 )
             )
@@ -491,6 +511,9 @@ def planned_commands_for_trial(plan: DynamicTrialPlan) -> list[str]:
             commands.append(":SOUR:PRES:SLEW max")
             commands.append(":SOUR:PRES:SLEW?")
         commands.append(f":SOUR:PRES:SLEW:MODE {plan.slew_mode}")
+        if plan.slew_mode == "LIN" and plan.slew_rate_hpa_per_s is not None:
+            commands.append(f":SOUR:PRES:SLEW {float(plan.slew_rate_hpa_per_s):g}")
+            commands.append(":SOUR:PRES:SLEW?")
         commands.append(":SOUR:PRES:SLEW:MODE?")
     if plan.target_hpa is not None:
         commands.append(f":SOUR:PRES:LEV:IMM:AMPL {float(plan.target_hpa):g}")
@@ -1144,6 +1167,7 @@ def _collect_sample(
         "slew_mode": _query_text(pace, ":SOUR:PRES:SLEW:MODE?"),
         "slew_over": _query_text(pace, ":SOUR:PRES:SLEW:OVER?"),
         "slew_value_max_requested": bool(plan.slew_value_max),
+        "slew_rate_requested_hpa_per_s": plan.slew_rate_hpa_per_s or "",
         "control_fastest_profile_requested": bool(plan.slew_mode == "MAX" and plan.slew_value_max),
         "vent_rate": _query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?"),
         "vent_rate_unit": _query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?"),
@@ -1227,6 +1251,7 @@ def _collect_fast_pressure_sample(
         "slew_mode": plan.slew_mode or "",
         "slew_over": 1 if plan.overshoot_allowed else 0 if plan.overshoot_allowed is not None else "",
         "slew_value_max_requested": bool(plan.slew_value_max),
+        "slew_rate_requested_hpa_per_s": plan.slew_rate_hpa_per_s or "",
         "control_fastest_profile_requested": bool(plan.slew_mode == "MAX" and plan.slew_value_max),
         "vent_rate": "",
         "vent_rate_unit": "",
@@ -1298,6 +1323,7 @@ def refresh_direct_control_keepalive(
     row["slew_mode"] = _query_text(pace, ":SOUR:PRES:SLEW:MODE?")
     row["slew_over"] = _query_text(pace, ":SOUR:PRES:SLEW:OVER?")
     row["slew_value_max_requested"] = bool(plan.slew_value_max)
+    row["slew_rate_requested_hpa_per_s"] = plan.slew_rate_hpa_per_s or ""
     row["control_fastest_profile_requested"] = bool(plan.slew_mode == "MAX" and plan.slew_value_max)
     row.update(confirmation)
     row["control_output_dropout_seen"] = False
@@ -1387,6 +1413,8 @@ def run_offline_plan(
     only_gaug: bool = False,
     only_outp0_baseline: bool = False,
     set_slew_value_max: bool = False,
+    diagnostic_slew_mode: str = "MAX",
+    lin_slew_hpa_per_s: float | None = None,
     include_outp0_baseline: bool = True,
 ) -> dict[str, Any]:
     plans = build_default_trial_plan(
@@ -1400,6 +1428,8 @@ def run_offline_plan(
         only_gaug=only_gaug,
         only_outp0_baseline=only_outp0_baseline,
         set_slew_value_max=set_slew_value_max,
+        diagnostic_slew_mode=diagnostic_slew_mode,
+        lin_slew_hpa_per_s=lin_slew_hpa_per_s,
         include_outp0_baseline=include_outp0_baseline,
     )
     command_rows = [
@@ -1563,6 +1593,8 @@ def run_real_com_diagnostic(
     only_gaug: bool = False,
     only_outp0_baseline: bool = False,
     set_slew_value_max: bool = False,
+    diagnostic_slew_mode: str = "MAX",
+    lin_slew_hpa_per_s: float | None = None,
     use_pressure_gauge_secondary: bool = False,
     pace_timeout_s: float | None = None,
     direct_control_only: bool = False,
@@ -1581,6 +1613,8 @@ def run_real_com_diagnostic(
         only_gaug=only_gaug,
         only_outp0_baseline=only_outp0_baseline,
         set_slew_value_max=set_slew_value_max,
+        diagnostic_slew_mode=diagnostic_slew_mode,
+        lin_slew_hpa_per_s=lin_slew_hpa_per_s,
         include_outp0_baseline=not direct_control_only,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1729,6 +1763,8 @@ def run_real_com_diagnostic(
                     pace.set_slew_mode_max()
                 elif plan.slew_mode == "LIN":
                     pace.set_slew_mode_linear()
+                    if plan.slew_rate_hpa_per_s is not None:
+                        pace.set_slew_rate(float(plan.slew_rate_hpa_per_s))
                 pace.set_setpoint(float(plan.target_hpa))
                 control_confirmation = _enable_control_output_confirmed(pace, target_hpa=plan.target_hpa)
                 outp1_ts = time.time()
@@ -2089,6 +2125,8 @@ def run_real_com_diagnostic(
             else "standard_serial_snapshot_per_sample"
         ),
         "set_slew_value_max": bool(set_slew_value_max),
+        "diagnostic_slew_mode": str(diagnostic_slew_mode or "MAX").strip().upper(),
+        "lin_slew_hpa_per_s": float(lin_slew_hpa_per_s) if lin_slew_hpa_per_s is not None else "",
         "include_over1": bool(include_over1),
         "only_over1": bool(only_over1),
         "only_gaug": bool(only_gaug),
@@ -2137,6 +2175,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--set-slew-value-max",
         action="store_true",
         help="Before SLEW:MODE MAX, also send documented ':SOUR:PRES:SLEW max' as a diagnostic rate-value ceiling.",
+    )
+    parser.add_argument(
+        "--diagnostic-slew-mode",
+        choices=("MAX", "LIN"),
+        default="MAX",
+        help="Diagnostic slew mode for setpoint-control trials.",
+    )
+    parser.add_argument(
+        "--lin-slew-hpa-per-s",
+        type=float,
+        default=None,
+        help="When --diagnostic-slew-mode LIN is selected, set this linear slew rate before OUTP1.",
     )
     parser.add_argument("--allow-above-ambient", action="store_true")
     parser.add_argument(
@@ -2211,6 +2261,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     only_mode_flags = [args.only_over1, args.only_gaug, args.only_outp0_baseline]
     if sum(1 for flag in only_mode_flags if flag) > 1:
         parser.error("--only-over1, --only-gaug, and --only-outp0-baseline are mutually exclusive")
+    if args.diagnostic_slew_mode == "LIN" and args.lin_slew_hpa_per_s is None:
+        parser.error("--diagnostic-slew-mode LIN requires --lin-slew-hpa-per-s")
     run_root = args.output_dir / (args.run_id or f"run_{_stamp()}")
     if not args.real_com:
         payload = run_offline_plan(
@@ -2225,6 +2277,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             only_gaug=args.only_gaug,
             only_outp0_baseline=args.only_outp0_baseline,
             set_slew_value_max=args.set_slew_value_max,
+            diagnostic_slew_mode=args.diagnostic_slew_mode,
+            lin_slew_hpa_per_s=args.lin_slew_hpa_per_s,
             include_outp0_baseline=not args.direct_control_only,
         )
         print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -2259,6 +2313,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         only_gaug=args.only_gaug,
         only_outp0_baseline=args.only_outp0_baseline,
         set_slew_value_max=args.set_slew_value_max,
+        diagnostic_slew_mode=args.diagnostic_slew_mode,
+        lin_slew_hpa_per_s=args.lin_slew_hpa_per_s,
         use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
         pace_timeout_s=args.pace_timeout_s,
         direct_control_only=args.direct_control_only,

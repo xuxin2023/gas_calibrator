@@ -518,6 +518,24 @@ def test_only_outp0_baseline_skips_setpoint_control_trials() -> None:
     assert plans[0].outp1_sent is False
 
 
+def test_linear_slew_diagnostic_records_rate_command() -> None:
+    plans = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        diagnostic_slew_mode="LIN",
+        lin_slew_hpa_per_s=50.0,
+        include_outp0_baseline=False,
+    )
+
+    assert len(plans) == 1
+    assert plans[0].slew_mode == "LIN"
+    assert plans[0].slew_rate_hpa_per_s == pytest.approx(50.0)
+    commands = planned_commands_for_trial(plans[0])
+    assert ":SOUR:PRES:SLEW:MODE LIN" in commands
+    assert ":SOUR:PRES:SLEW 50" in commands
+    assert commands.index(":SOUR:PRES:SLEW:MODE LIN") < commands.index(":SOUR:PRES:SLEW 50")
+
+
 def test_gaug_is_explicit_diagnostic_opt_in_not_default() -> None:
     default_plan = build_default_trial_plan([1000], ambient_hpa=1006)
     gaug_plan = build_default_trial_plan([1000], ambient_hpa=1006, include_gaug=True)
