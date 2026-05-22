@@ -1583,7 +1583,11 @@ def test_pre_vent0_quiet_gap_interrupted_by_pressure_safety(monkeypatch) -> None
     now_s = time.time()
     runner, pace, _, _ = _runner(
         gauge=FakeGauge([1200.0, 1200.0, 1200.0]),
-        pressure_overrides={"pre_vent0_quiet_gap_s": 2.0, "pre_vent0_quiet_gap_max_s": 3.0},
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 2.0,
+            "pre_vent0_quiet_gap_max_s": 3.0,
+            "fast_seal_handoff_for_descent_only": False,
+        },
         logger=QuietGapRawTapLogger(latest_wall_s=now_s - 0.01),
     )
     runner._apply_valve_states = MagicMock()
@@ -2209,6 +2213,48 @@ def test_descent_only_selection_closes_route_without_preseal_build_wait(monkeypa
     close_fields = _last_stage_fields(runner, "route_valves_closed_after_vent0")
     assert close_fields["route_valves_still_open_during_wait"] is False
     assert close_fields["route_closed_after_fixed_wait"] is False
+
+
+def test_descent_only_fast_handoff_prearms_before_vent_exit_and_closes_route(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        gauge=FakeGauge([1013.0, 1013.0]),
+        pressure_overrides={
+            "pre_vent0_quiet_gap_s": 2.0,
+            "pre_vent0_quiet_gap_max_s": 2.0,
+            "pre_vent0_vent_status_probe_enabled": True,
+        },
+    )
+    point = _co2_point(pressure=1000.0)
+    events: list[tuple[str, object]] = []
+    runner._apply_valve_states = MagicMock(
+        side_effect=lambda valves: (
+            events.append(("close_valves", list(valves))),
+            pace.calls.append(("close_valves", tuple(valves))),
+        )
+    )
+    monkeypatch.setattr("time.sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
+
+    assert ("setpoint", 1000.0) in pace.calls
+    assert ("stop_hold",) in pace.calls
+    assert ("vent", False) in pace.calls
+    assert ("close_valves", ()) in pace.calls
+    assert pace.calls.index(("setpoint", 1000.0)) < pace.calls.index(("stop_hold",))
+    assert pace.calls.index(("stop_hold",)) < pace.calls.index(("vent", False))
+    assert pace.calls.index(("vent", False)) < pace.calls.index(("close_valves", ()))
+    stop_index = pace.calls.index(("stop_hold",))
+    close_index = pace.calls.index(("close_valves", ()))
+    assert not any(call[0] == "query" for call in pace.calls[stop_index:close_index])
+    assert not any(event[0] == "sleep" for event in events[: events.index(("close_valves", []))])
+
+    prearm_fields = _last_stage_fields(runner, "sealed_control_setpoint_prearm_before_vent_exit")
+    assert prearm_fields["setpoint_prearm_before_vent_exit_detected"] is True
+    assert prearm_fields["setpoint_prearm_before_vent_exit_allowed"] is True
+    close_fields = _last_stage_fields(runner, "route_valves_closed_after_vent0")
+    assert close_fields["fast_seal_handoff_enabled"] is True
+    assert close_fields["fast_seal_handoff_mode"] == "direct_vent0_then_route_close"
+    assert close_fields["route_close_deadline_source"] == "descent_only_immediate_route_close"
 
 
 def test_route_close_not_delayed_by_preseal_exit_evidence(monkeypatch) -> None:
@@ -2918,8 +2964,8 @@ def test_sealed_output_enable_after_verified_exit(monkeypatch) -> None:
     pace.vent_status = 0
     assert runner._set_pressure_to_target(point) is True
 
-    assert pace.calls.index(("vent", False)) < pace.calls.index(("setpoint", 900.0))
-    assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("enable_control_output",))
+    assert pace.calls.index(("setpoint", 900.0)) < pace.calls.index(("vent", False))
+    assert pace.calls.index(("vent", False)) < pace.calls.index(("enable_control_output",))
 
 
 def test_route_close_to_outp1_has_short_deadline() -> None:
@@ -3178,7 +3224,7 @@ def test_slew_config_failure_before_route_close_fails_before_seal(monkeypatch) -
     assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is False
 
     stages = _trace_stages(runner)
-    assert "sealed_control_prearm_config_before_route_close_failed" in stages
+    assert "sealed_control_prearm_config_before_vent_exit_failed" in stages
     assert "route_valves_closed_after_vent0" not in stages
 
 
@@ -3381,14 +3427,15 @@ def test_setpoint_prearmed_before_route_close_reduces_outp1_delay(monkeypatch) -
     assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is True
 
     stages = _trace_stages(runner)
-    assert stages.index("controlled_exit_atmosphere_driver_exit_done") < stages.index(
-        "sealed_control_setpoint_prearm_before_route_close"
+    assert stages.index("sealed_control_setpoint_prearm_before_vent_exit") < stages.index(
+        "controlled_exit_atmosphere_driver_exit_done"
     )
     assert stages.index("sealed_control_setpoint_prearm_before_route_close") < stages.index(
         "route_valves_closed_after_vent0"
     )
-    prearm_fields = _last_stage_fields(runner, "sealed_control_setpoint_prearm_before_route_close")
-    assert prearm_fields["setpoint_prearm_before_vent_exit_detected"] is False
+    prearm_fields = _last_stage_fields(runner, "sealed_control_setpoint_prearm_before_vent_exit")
+    assert prearm_fields["setpoint_prearm_before_vent_exit_detected"] is True
+    assert prearm_fields["setpoint_prearm_before_vent_exit_allowed"] is True
     fields = _last_stage_fields(runner, "sealed_control_output_enable_command_sent")
     assert fields["setpoint_prearmed_before_route_close"] is True
     assert fields["route_close_to_outp1_s"] <= 3.0
@@ -3406,7 +3453,7 @@ def test_setpoint_prearm_failure_fails_before_route_close(monkeypatch) -> None:
     assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is False
 
     stages = _trace_stages(runner)
-    assert "sealed_control_setpoint_prearm_before_route_close_failed" in stages
+    assert "sealed_control_setpoint_prearm_before_vent_exit_failed" in stages
     assert "route_valves_closed_after_vent0" not in stages
     assert ("enable_control_output",) not in pace.calls
 

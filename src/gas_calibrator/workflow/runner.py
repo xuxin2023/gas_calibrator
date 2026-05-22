@@ -276,6 +276,9 @@ _PRESSURE_TRACE_FIELDS = [
     "route_close_to_outp1_blocking_step_durations",
     "outp1_fast_path_used",
     "setpoint_prearmed_fast_outp1_path",
+    "fast_seal_handoff_enabled",
+    "fast_seal_handoff_mode",
+    "fast_seal_handoff_reason",
     "minimal_ready_to_outp1_s",
     "outp1_delay_reason",
     "fast_control_path_entered",
@@ -293,6 +296,8 @@ _PRESSURE_TRACE_FIELDS = [
     "outp_state_when_setpoint_prearmed",
     "route_open_when_setpoint_prearmed",
     "physical_control_not_active",
+    "setpoint_prearm_before_vent_exit_allowed",
+    "setpoint_prearm_before_vent_exit_reason",
     "setpoint_prearm_syst_err",
     "route_close_to_outp1_target_s",
     "route_close_to_outp1_hard_max_s",
@@ -11130,6 +11135,22 @@ class CalibrationRunner:
             return False
         return True
 
+    def _fast_seal_handoff_for_descent_only_enabled(self) -> bool:
+        if not self._controlled_outp_transition():
+            return False
+        if not self._limited_no_write_workflow_active():
+            return False
+        return self._as_bool(
+            self._wf("workflow.pressure.fast_seal_handoff_for_descent_only", True),
+            True,
+        )
+
+    def _fast_seal_handoff_direct_vent0_enabled(self) -> bool:
+        return self._as_bool(
+            self._wf("workflow.pressure.fast_seal_handoff_direct_vent0", True),
+            True,
+        )
+
     def _route_close_to_setpoint_max_s(self) -> float:
         return max(0.0, float(self._wf("workflow.pressure.route_close_to_setpoint_max_s", 3.0) or 0.0))
 
@@ -15534,6 +15555,8 @@ class CalibrationRunner:
         fields.setdefault("route_open_when_setpoint_prearmed", "")
         fields.setdefault("physical_control_not_active", "")
         fields.setdefault("setpoint_prearm_before_vent_exit_detected", False)
+        fields.setdefault("setpoint_prearm_before_vent_exit_allowed", False)
+        fields.setdefault("setpoint_prearm_before_vent_exit_reason", "")
         fields.setdefault("setpoint_prearm_syst_err", "")
         fields.setdefault("route_close_to_outp1_target_s", self._route_close_to_outp1_target_s())
         fields.setdefault("route_close_to_outp1_hard_max_s", self._route_close_to_outp1_hard_max_s())
@@ -15546,6 +15569,7 @@ class CalibrationRunner:
         phase: str = "co2",
         pressure_target_hpa: Optional[float] = None,
         trace_stage: str = "sealed_control_setpoint_prearm_before_route_close",
+        allow_before_vent_exit: bool = False,
     ) -> bool:
         if phase != "co2" or not self._controlled_outp_transition() or not self._setpoint_prearm_enabled():
             return True
@@ -15590,6 +15614,8 @@ class CalibrationRunner:
             "route_open_when_setpoint_prearmed": "",
             "physical_control_not_active": "",
             "setpoint_prearm_before_vent_exit_detected": False,
+            "setpoint_prearm_before_vent_exit_allowed": False,
+            "setpoint_prearm_before_vent_exit_reason": "",
             "setpoint_prearm_syst_err": "",
             "route_close_to_outp1_target_s": self._route_close_to_outp1_target_s(),
             "route_close_to_outp1_hard_max_s": self._route_close_to_outp1_hard_max_s(),
@@ -15598,7 +15624,13 @@ class CalibrationRunner:
         vent_exit_reference_s = self._as_float(getattr(self, "_last_vent_exit_reference_ts", None))
         if vent_exit_reference_s is None:
             fields["setpoint_prearm_before_vent_exit_detected"] = True
-            failures.append("setpoint_prearm_before_vent_exit")
+            if allow_before_vent_exit and self._limited_no_write_workflow_active():
+                fields["setpoint_prearm_before_vent_exit_allowed"] = True
+                fields["setpoint_prearm_before_vent_exit_reason"] = (
+                    "fast_seal_handoff_preloads_setpoint_with_outp0_before_closing_atmosphere"
+                )
+            else:
+                failures.append("setpoint_prearm_before_vent_exit")
         if pace is None:
             failures.append("pace_unavailable")
         elif not failures:
@@ -19180,6 +19212,7 @@ class CalibrationRunner:
         timeout_s: float,
         poll_s: float,
         fast_preseal_no_wait: bool = False,
+        tight_handoff: bool = False,
     ) -> Tuple[str, Any, str]:
         if fast_preseal_no_wait:
             if not self._stop_pressure_controller_atmosphere_hold(
@@ -19187,6 +19220,18 @@ class CalibrationRunner:
                 reason="before controlled CO2 preseal vent exit",
             ):
                 raise RuntimeError("ATMOSPHERE_HOLD_STOP_FAILED")
+            if tight_handoff and self._fast_seal_handoff_direct_vent0_enabled():
+                return self._send_preseal_vent_abort(
+                    pace,
+                    method="fast_handoff_direct_vent0",
+                    extra={
+                        "fast_seal_handoff_enabled": True,
+                        "fast_seal_handoff_mode": "direct_vent0_then_route_close",
+                        "fast_seal_handoff_reason": (
+                            "descent_only_limited_no_write_closes_atmosphere_and_route_with_minimal_gap"
+                        ),
+                    },
+                )
             self._wait_pre_vent0_raw_tap_quiet_gap(pace)
             return self._status_aware_preseal_vent_exit(pace)
 
@@ -20181,6 +20226,7 @@ class CalibrationRunner:
         route: str,
         reason: str = "",
         defer_evidence_until_after_route_close: bool = False,
+        tight_handoff: bool = False,
     ) -> bool:
         pace = self.devices.get("pace")
         if not pace:
@@ -20217,7 +20263,8 @@ class CalibrationRunner:
             refresh_pace_state=True,
             note=(
                 f"exit_method={planned_exit_method}; timeout_s={timeout_s:.3f}; "
-                f"poll_s={poll_s:.3f}; reason={reason or 'unspecified'}"
+                f"poll_s={poll_s:.3f}; tight_handoff={str(tight_handoff).lower()}; "
+                f"reason={reason or 'unspecified'}"
             ),
         )
 
@@ -20232,6 +20279,7 @@ class CalibrationRunner:
                 timeout_s=timeout_s,
                 poll_s=poll_s,
                 fast_preseal_no_wait=bool(defer_evidence_until_after_route_close),
+                tight_handoff=bool(tight_handoff),
             )
         except Exception as exc:
             snapshot = self._controlled_exit_atmosphere_snapshot(pace)
@@ -30934,6 +30982,11 @@ class CalibrationRunner:
         try:
             route_sealed = False
             use_preseal_topoff = bool(getattr(self, "_active_route_requires_preseal_topoff", True))
+            fast_seal_handoff = bool(
+                route_name == "co2"
+                and not use_preseal_topoff
+                and self._fast_seal_handoff_for_descent_only_enabled()
+            )
             vent0_wall_ts: Optional[float] = None
             vent0_command_ts: Optional[float] = None
             vent0_raw_response: Any = ""
@@ -31165,6 +31218,57 @@ class CalibrationRunner:
                 },
                 note="deferred sync PACE status evidence until after vent exit to protect VENT1 keepalive",
             )
+            if (
+                fast_seal_handoff
+                and route_name == "co2"
+                and self._controlled_outp_transition()
+                and not self._prearm_sealed_control_config(
+                    point=point,
+                    phase=phase,
+                    pressure_target_hpa=self._as_float(point.target_pressure_hpa),
+                    trace_stage="sealed_control_prearm_config_before_vent_exit",
+                )
+            ):
+                self._mark_co2_route_terminal_failure(
+                    final_decision=str(
+                        self._controlled_exit_final_decision
+                        or "FAIL_CLOSED_SEALED_CONTROL_PREARM_CONFIG_FAILED"
+                    ),
+                    reason="sealed control slew/overshoot prearm failed before fast seal handoff",
+                    point=point,
+                    phase=phase,
+                )
+                self._cleanup_co2_route(reason=self._controlled_exit_final_decision)
+                self._stop_pressure_transition_fast_signal_context(
+                    reason=str(self._controlled_exit_final_decision or "sealed control prearm failure")
+                )
+                return False
+            if (
+                fast_seal_handoff
+                and route_name == "co2"
+                and self._controlled_outp_transition()
+                and not self._prearm_sealed_control_setpoint(
+                    point=point,
+                    phase=phase,
+                    pressure_target_hpa=self._as_float(point.target_pressure_hpa),
+                    trace_stage="sealed_control_setpoint_prearm_before_vent_exit",
+                    allow_before_vent_exit=True,
+                )
+            ):
+                self._mark_co2_route_terminal_failure(
+                    final_decision=str(
+                        self._controlled_exit_final_decision
+                        or "FAIL_CLOSED_SEALED_SETPOINT_PREARM_FAILED"
+                    ),
+                    reason="sealed control setpoint prearm failed before fast seal handoff",
+                    point=point,
+                    phase=phase,
+                )
+                self._cleanup_co2_route(reason=self._controlled_exit_final_decision)
+                self._stop_pressure_transition_fast_signal_context(
+                    reason=str(self._controlled_exit_final_decision or "sealed setpoint prearm failure")
+                )
+                return False
             vent_off_reason = f"before {route.upper()} pressure seal"
             vent0_command_ts = time.time()
             self._last_vent0_command_ts = vent0_command_ts
@@ -31174,6 +31278,7 @@ class CalibrationRunner:
                     route=route_name,
                     reason=vent_off_reason,
                     defer_evidence_until_after_route_close=True,
+                    tight_handoff=fast_seal_handoff,
                 ):
                     return False
                 vent_abort_sent = bool(getattr(self, "_last_vent_abort_sent", True))
@@ -31411,6 +31516,15 @@ class CalibrationRunner:
                         "route_close_pressure_source": route_close_pressure_source,
                         "route_close_timeout_without_pressure_trigger": route_close_timeout_without_pressure_trigger,
                         "preseal_pressure_build_hard_limit_hit": preseal_pressure_build_hard_limit_hit,
+                        "fast_seal_handoff_enabled": fast_seal_handoff,
+                        "fast_seal_handoff_mode": (
+                            "direct_vent0_then_route_close" if fast_seal_handoff else ""
+                        ),
+                        "fast_seal_handoff_reason": (
+                            "descent_only_limited_no_write"
+                            if fast_seal_handoff
+                            else ""
+                        ),
                         "vent_exit_method": vent_exit_method,
                         "vent_abort_sent": bool(vent_abort_sent),
                         "vent_exit_reference_ts": self._iso_ts_from_wall(vent0_wall_ts),
