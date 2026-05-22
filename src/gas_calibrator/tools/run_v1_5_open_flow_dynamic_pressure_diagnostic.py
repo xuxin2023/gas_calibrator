@@ -105,6 +105,10 @@ TELEMETRY_FIELDS = (
     "control_pressure_after_command_hpa",
     "control_eff_after_command_pct",
     "control_syst_err_after_command",
+    "control_keepalive_checked",
+    "control_output_dropout_seen",
+    "control_output_reasserted",
+    "control_output_reassert_count",
     "pace_vent_hold_during_outp1_allowed",
     "open_flow_atmosphere_hold_active",
     "open_flow_atmosphere_hold_strategy",
@@ -841,6 +845,30 @@ def open_flow_pressure_abort_reason(
     )
 
 
+def open_flow_dynamic_control_runaway_reason(
+    row: Mapping[str, Any],
+    *,
+    target_hpa: float | None,
+    max_rise_hpa: float,
+    transient_grace_s: float,
+    transient_elapsed_s: float | None,
+) -> str:
+    if target_hpa is None:
+        return ""
+    pressure = _row_pressure_for_safety(row)
+    if pressure is None:
+        return ""
+    if transient_elapsed_s is not None and float(transient_elapsed_s) <= max(0.0, float(transient_grace_s)):
+        return ""
+    limit = float(target_hpa) + max(0.0, float(max_rise_hpa))
+    if float(pressure) <= limit:
+        return ""
+    return (
+        f"open_flow_dynamic_control_runaway_abort:"
+        f"{float(pressure):.3f}>{limit:.3f}"
+    )
+
+
 def _confirm_control_command_state(pace: Any, *, target_hpa: float | None) -> dict[str, Any]:
     outp_state = _parse_first_float(_query_text(pace, ":OUTP:STAT?"))
     setpoint = _parse_first_float(_query_text(pace, ":SOUR:PRES:LEV:IMM:AMPL?"))
@@ -1090,6 +1118,10 @@ def _collect_sample(
         "control_pressure_after_command_hpa": "",
         "control_eff_after_command_pct": "",
         "control_syst_err_after_command": "",
+        "control_keepalive_checked": False,
+        "control_output_dropout_seen": False,
+        "control_output_reasserted": False,
+        "control_output_reassert_count": 0,
         "pace_vent_hold_during_outp1_allowed": False,
         "open_flow_atmosphere_hold_active": _pace_atmosphere_hold_active(pace),
         "open_flow_atmosphere_hold_strategy": "",
@@ -1158,11 +1190,48 @@ def _collect_fast_pressure_sample(
         "control_pressure_after_command_hpa": "",
         "control_eff_after_command_pct": "",
         "control_syst_err_after_command": "",
+        "control_keepalive_checked": False,
+        "control_output_dropout_seen": False,
+        "control_output_reasserted": False,
+        "control_output_reassert_count": 0,
         "pace_vent_hold_during_outp1_allowed": False,
         "open_flow_atmosphere_hold_active": False,
         "open_flow_atmosphere_hold_strategy": "disabled_for_direct_control",
         "atmosphere_hold_stopped_before_control": True,
     }
+
+
+def refresh_direct_control_keepalive(
+    pace: Any,
+    row: MutableMapping[str, Any],
+    *,
+    plan: DynamicTrialPlan,
+    state: MutableMapping[str, Any],
+) -> MutableMapping[str, Any]:
+    row["control_keepalive_checked"] = True
+    confirmation = _confirm_control_command_state(pace, target_hpa=plan.target_hpa)
+    row["outp_state"] = confirmation.get("control_outp_state_after_command")
+    row["vent_status"] = confirmation.get("control_vent_status_after_command")
+    row["setpoint_hpa"] = confirmation.get("control_setpoint_after_command_hpa") or plan.target_hpa
+    row["sour_pres_eff_pct"] = confirmation.get("control_eff_after_command_pct")
+    row["syst_err"] = confirmation.get("control_syst_err_after_command")
+    row.update(confirmation)
+    row["control_output_dropout_seen"] = False
+    row["control_output_reasserted"] = False
+    if plan.target_hpa is not None and not confirmation.get("control_command_confirmed"):
+        state["dropout_seen"] = True
+        row["control_output_dropout_seen"] = True
+        retry = _enable_control_output_confirmed(pace, target_hpa=plan.target_hpa, timeout_s=2.0, poll_s=0.2)
+        state["reassert_count"] = int(state.get("reassert_count") or 0) + 1
+        row["control_output_reasserted"] = True
+        row.update(retry)
+        row["outp_state"] = retry.get("control_outp_state_after_command")
+        row["vent_status"] = retry.get("control_vent_status_after_command")
+        row["setpoint_hpa"] = retry.get("control_setpoint_after_command_hpa") or plan.target_hpa
+        row["sour_pres_eff_pct"] = retry.get("control_eff_after_command_pct")
+        row["syst_err"] = retry.get("control_syst_err_after_command")
+    row["control_output_reassert_count"] = int(state.get("reassert_count") or 0)
+    return row
 
 
 def run_offline_plan(
@@ -1448,6 +1517,7 @@ def run_real_com_diagnostic(
             outp1_ts = None
             source_open_ts = None
             control_confirmation: dict[str, Any] = {}
+            control_keepalive_state: dict[str, Any] = {"dropout_seen": False, "reassert_count": 0}
             trial_samples: list[dict[str, Any]] = []
             if plan.mode_requested == "OUTP0":
                 pace.set_output(False)
@@ -1544,6 +1614,13 @@ def run_real_com_diagnostic(
                 row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
                 row["atmosphere_hold_stopped_before_control"] = atmosphere_hold_stopped_before_control
                 row.update(control_confirmation)
+                if direct_control_only and plan.mode_requested != "OUTP0":
+                    refresh_direct_control_keepalive(
+                        pace,
+                        row,
+                        plan=plan,
+                        state=control_keepalive_state,
+                    )
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
@@ -1572,6 +1649,22 @@ def run_real_com_diagnostic(
                 if abort_reason:
                     row["pressure_safety_abort"] = True
                     row["pressure_safety_abort_reason"] = abort_reason
+                    _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+                    _safe_abort_pace(pace)
+                    abort_all = True
+                    break
+                runaway_reason = open_flow_dynamic_control_runaway_reason(
+                    row,
+                    target_hpa=plan.target_hpa,
+                    max_rise_hpa=source_max_rise_hpa,
+                    transient_grace_s=transient_grace_s if direct_control_only else 0.0,
+                    transient_elapsed_s=transient_elapsed,
+                )
+                if runaway_reason:
+                    source_rise_abort = True
+                    source_rise_abort_reason = runaway_reason
+                    row["source_pressure_rise_abort"] = True
+                    row["source_pressure_rise_abort_reason"] = runaway_reason
                     _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                     _safe_abort_pace(pace)
                     abort_all = True
@@ -1636,6 +1729,13 @@ def run_real_com_diagnostic(
                 row["open_flow_atmosphere_hold_strategy"] = atmosphere_hold_info.get("strategy") or ""
                 row["atmosphere_hold_stopped_before_control"] = atmosphere_hold_stopped_before_control
                 row.update(control_confirmation)
+                if direct_control_only and plan.mode_requested != "OUTP0":
+                    refresh_direct_control_keepalive(
+                        pace,
+                        row,
+                        plan=plan,
+                        state=control_keepalive_state,
+                    )
                 samples.append(row)
                 trial_samples.append(row)
                 safety_pressure = _row_pressure_for_safety(row)
@@ -1664,6 +1764,22 @@ def run_real_com_diagnostic(
                 if abort_reason:
                     row["pressure_safety_abort"] = True
                     row["pressure_safety_abort_reason"] = abort_reason
+                    _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
+                    _safe_abort_pace(pace)
+                    abort_all = True
+                    break
+                runaway_reason = open_flow_dynamic_control_runaway_reason(
+                    row,
+                    target_hpa=plan.target_hpa,
+                    max_rise_hpa=source_max_rise_hpa,
+                    transient_grace_s=transient_grace_s if direct_control_only else 0.0,
+                    transient_elapsed_s=transient_elapsed,
+                )
+                if runaway_reason:
+                    source_rise_abort = True
+                    source_rise_abort_reason = runaway_reason
+                    row["source_pressure_rise_abort"] = True
+                    row["source_pressure_rise_abort_reason"] = runaway_reason
                     _append_csv_row(sample_csv_path, TELEMETRY_FIELDS, row)
                     _safe_abort_pace(pace)
                     abort_all = True
@@ -1703,9 +1819,15 @@ def run_real_com_diagnostic(
         except Exception:
             pass
     finally:
+        pace = devices.get("pace")
         if restore_baseline:
             try:
                 apply_logical_valves(cfg, devices, [])
+            except Exception:
+                pass
+        if pace is not None:
+            try:
+                _safe_abort_pace(pace)
             except Exception:
                 pass
         close_devices(devices)

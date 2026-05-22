@@ -17,10 +17,12 @@ from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import 
     build_arg_parser,
     build_default_trial_plan,
     command_is_forbidden_write,
+    open_flow_dynamic_control_runaway_reason,
     planned_commands_for_trial,
     open_flow_pressure_abort_reason,
     rank_results,
     read_pace_pressure_hpa,
+    refresh_direct_control_keepalive,
     resolve_0ppm_open_flow_valves,
     row_exceeds_open_flow_source_rise,
     row_exceeds_open_flow_pressure_safety,
@@ -246,6 +248,53 @@ def test_fast_pressure_sample_uses_pace_read_without_slow_queries() -> None:
     assert row["actual_open_valves"] == "8,11,7,1"
 
 
+def test_direct_control_keepalive_reasserts_only_when_output_drops() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.outp = 0
+            self.writes: list[str] = []
+
+        def enable_control_output(self, **kwargs) -> None:
+            self.writes.append("enable_control_output")
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+            if command == ":OUTP:STAT 1":
+                self.outp = 1
+
+        def query(self, command: str) -> str:
+            return {
+                ":OUTP:STAT?": f":OUTP:STAT {self.outp}",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.2",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1000.4
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = _collect_fast_pressure_sample(FakePace(), plan=plan, actual_open_valves=[8, 11, 7, 1])
+    state: dict[str, object] = {}
+    pace = FakePace()
+
+    refresh_direct_control_keepalive(pace, row, plan=plan, state=state)
+
+    assert row["control_keepalive_checked"] is True
+    assert row["control_output_dropout_seen"] is True
+    assert row["control_output_reasserted"] is True
+    assert row["control_output_reassert_count"] == 1
+    assert row["outp_state"] == 1
+    assert row["sour_pres_eff_pct"] == pytest.approx(-0.2)
+    assert ":OUTP:STAT 1" in pace.writes
+
+
 def test_gaug_is_explicit_diagnostic_opt_in_not_default() -> None:
     default_plan = build_default_trial_plan([1000], ambient_hpa=1006)
     gaug_plan = build_default_trial_plan([1000], ambient_hpa=1006, include_gaug=True)
@@ -454,6 +503,28 @@ def test_source_open_pressure_rise_blocks_dynamic_control_entry() -> None:
         ambient_hpa=1006.0,
         max_rise_hpa=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
     )
+
+
+def test_dynamic_control_runaway_allows_grace_then_aborts_against_target() -> None:
+    assert (
+        open_flow_dynamic_control_runaway_reason(
+            {"pace_pressure_hpa": 1358.0},
+            target_hpa=1000.0,
+            max_rise_hpa=20.0,
+            transient_grace_s=3.0,
+            transient_elapsed_s=1.0,
+        )
+        == ""
+    )
+    reason = open_flow_dynamic_control_runaway_reason(
+        {"pace_pressure_hpa": 1113.0},
+        target_hpa=1000.0,
+        max_rise_hpa=20.0,
+        transient_grace_s=3.0,
+        transient_elapsed_s=3.2,
+    )
+
+    assert reason == "open_flow_dynamic_control_runaway_abort:1113.000>1020.000"
 
 
 def test_open_flow_atmosphere_hold_uses_pace_hold_open_before_source() -> None:
