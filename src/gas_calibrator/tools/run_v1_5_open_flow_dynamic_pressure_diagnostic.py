@@ -380,6 +380,7 @@ def build_default_trial_plan(
     include_over1: bool = False,
     only_over1: bool = False,
     only_gaug: bool = False,
+    only_outp0_baseline: bool = False,
     set_slew_value_max: bool = False,
     allow_above_ambient: bool = False,
     include_outp0_baseline: bool = True,
@@ -390,7 +391,7 @@ def build_default_trial_plan(
         allow_above_ambient=allow_above_ambient,
     )
     plans: list[DynamicTrialPlan] = []
-    if include_outp0_baseline:
+    if include_outp0_baseline or only_outp0_baseline:
         plans.append(
             DynamicTrialPlan(
                 trial_id="open_flow_outp0_observe",
@@ -403,6 +404,8 @@ def build_default_trial_plan(
                 outp1_sent=False,
             )
         )
+    if only_outp0_baseline:
+        return plans
     for target in targets:
         if not only_over1 and not only_gaug:
             plans.append(
@@ -1382,6 +1385,7 @@ def run_offline_plan(
     include_over1: bool = False,
     only_over1: bool = False,
     only_gaug: bool = False,
+    only_outp0_baseline: bool = False,
     set_slew_value_max: bool = False,
     include_outp0_baseline: bool = True,
 ) -> dict[str, Any]:
@@ -1394,6 +1398,7 @@ def run_offline_plan(
         include_over1=include_over1,
         only_over1=only_over1,
         only_gaug=only_gaug,
+        only_outp0_baseline=only_outp0_baseline,
         set_slew_value_max=set_slew_value_max,
         include_outp0_baseline=include_outp0_baseline,
     )
@@ -1422,6 +1427,7 @@ def run_offline_plan(
         "include_over1": bool(include_over1),
         "only_over1": bool(only_over1),
         "only_gaug": bool(only_gaug),
+        "only_outp0_baseline": bool(only_outp0_baseline),
         "trial_plan": [asdict(plan) for plan in plans],
         "planned_commands": command_rows,
     }
@@ -1555,6 +1561,7 @@ def run_real_com_diagnostic(
     include_over1: bool = False,
     only_over1: bool = False,
     only_gaug: bool = False,
+    only_outp0_baseline: bool = False,
     set_slew_value_max: bool = False,
     use_pressure_gauge_secondary: bool = False,
     pace_timeout_s: float | None = None,
@@ -1572,6 +1579,7 @@ def run_real_com_diagnostic(
         include_over1=include_over1,
         only_over1=only_over1,
         only_gaug=only_gaug,
+        only_outp0_baseline=only_outp0_baseline,
         set_slew_value_max=set_slew_value_max,
         include_outp0_baseline=not direct_control_only,
     )
@@ -2084,6 +2092,7 @@ def run_real_com_diagnostic(
         "include_over1": bool(include_over1),
         "only_over1": bool(only_over1),
         "only_gaug": bool(only_gaug),
+        "only_outp0_baseline": bool(only_outp0_baseline),
         "direct_control_only": bool(direct_control_only),
         "keep_atmosphere_hold_during_direct_control": bool(keep_atmosphere_hold_during_direct_control),
         "pace_vent_hold_during_outp1_allowed": False,
@@ -2123,6 +2132,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--include-over1", action="store_true", help="Add ACT + OVER1 + MAX as a diagnostic-only fastest-response comparison.")
     parser.add_argument("--only-over1", action="store_true", help="Run only ACT + OVER1 + MAX fastest diagnostic trials, skipping the OVER0 comparison.")
     parser.add_argument("--only-gaug", action="store_true", help="Run only GAUG + OVER0 + MAX diagnostic trials, skipping ACT/PASS plans.")
+    parser.add_argument("--only-outp0-baseline", action="store_true", help="Run only OUTP0 open-flow atmosphere-hold baseline, with no setpoint control trial.")
     parser.add_argument(
         "--set-slew-value-max",
         action="store_true",
@@ -2198,8 +2208,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.gas_ppm != 0:
         parser.error("this diagnostic defaults to 0ppm; pass gas-ppm=0 for the current approved run")
-    if args.only_over1 and args.only_gaug:
-        parser.error("--only-over1 and --only-gaug are mutually exclusive")
+    only_mode_flags = [args.only_over1, args.only_gaug, args.only_outp0_baseline]
+    if sum(1 for flag in only_mode_flags if flag) > 1:
+        parser.error("--only-over1, --only-gaug, and --only-outp0-baseline are mutually exclusive")
     run_root = args.output_dir / (args.run_id or f"run_{_stamp()}")
     if not args.real_com:
         payload = run_offline_plan(
@@ -2212,6 +2223,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             include_over1=args.include_over1,
             only_over1=args.only_over1,
             only_gaug=args.only_gaug,
+            only_outp0_baseline=args.only_outp0_baseline,
             set_slew_value_max=args.set_slew_value_max,
             include_outp0_baseline=not args.direct_control_only,
         )
@@ -2245,6 +2257,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_over1=args.include_over1,
         only_over1=args.only_over1,
         only_gaug=args.only_gaug,
+        only_outp0_baseline=args.only_outp0_baseline,
         set_slew_value_max=args.set_slew_value_max,
         use_pressure_gauge_secondary=args.use_com22_secondary_pressure,
         pace_timeout_s=args.pace_timeout_s,

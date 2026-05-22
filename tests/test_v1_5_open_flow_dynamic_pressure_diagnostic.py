@@ -504,6 +504,20 @@ def test_only_gaug_skips_act_for_isolated_mode_screen() -> None:
     assert plans[0].slew_value_max is True
 
 
+def test_only_outp0_baseline_skips_setpoint_control_trials() -> None:
+    plans = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        only_outp0_baseline=True,
+        include_outp0_baseline=False,
+    )
+
+    assert len(plans) == 1
+    assert plans[0].mode_requested == "OUTP0"
+    assert plans[0].target_hpa is None
+    assert plans[0].outp1_sent is False
+
+
 def test_gaug_is_explicit_diagnostic_opt_in_not_default() -> None:
     default_plan = build_default_trial_plan([1000], ambient_hpa=1006)
     gaug_plan = build_default_trial_plan([1000], ambient_hpa=1006, include_gaug=True)
