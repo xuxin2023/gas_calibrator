@@ -924,6 +924,12 @@ _PRESSURE_TRACE_FIELDS = [
     "sealed_control_ready_vent_status_after_clear",
     "sealed_control_ready_vent_clear_attempt_count",
     "sealed_control_ready_vent_window_latched",
+    "sealed_control_ready_vent3_watchlist_seen",
+    "sealed_control_ready_vent3_watchlist_allowed",
+    "sealed_control_ready_vent3_watchlist_reason",
+    "sealed_control_ready_vent3_watchlist_pressure_evidence",
+    "sealed_control_ready_vent3_watchlist_route_sealed",
+    "sealed_control_ready_vent3_watchlist_final_vent_off",
     "sealed_control_ready_gate_effect",
     "sealed_control_ready_decision",
     "sealed_control_ready_allows_vent3_after_clear",
@@ -1473,6 +1479,7 @@ class CalibrationRunner:
         self._coefficient_write_blocked_count = 0
         self._no_write_guard_blocked_count = 0
         self._no_write_guard_blocked_reasons: List[str] = []
+        self._controlled_exit_final_decision = ""
         self._co2_route_terminal_failure_reason = ""
         self._co2_route_terminal_failure_decision = ""
         self._pressure_controller_instance_id_seen: Optional[int] = None
@@ -2420,7 +2427,7 @@ class CalibrationRunner:
                 "OUTP": 0,
                 "ISOL": 1,
                 "VENT?": [0, 2],
-                "VENT?=3": "bounded_clear_then_fail_closed_if_persisted",
+                "VENT?=3": "watchlist_accept_with_final_vent_off_closed_route_pressure_evidence",
                 "VENT?=2": "manual_completed_ready",
             },
             "sampling": {
@@ -2437,8 +2444,8 @@ class CalibrationRunner:
             "open_flow": "warning_watchlist",
             "base_soak_dewpoint_analyzer": "warning_watchlist",
             "preseal_pressure_build": "none_diagnostic_only",
-            "sealed_control_ready": "terminal_block_before_outp1_if_clear_fails",
-            "sampling": "not_expected_after_ready",
+            "sealed_control_ready": "watchlist_accept_with_v2_sealed_evidence_or_terminal_block",
+            "sampling": "watchlist_accept_with_v2_sealed_evidence_or_terminal_block",
         }
 
     def _evaluate_pace_phase_profile(
@@ -2513,7 +2520,17 @@ class CalibrationRunner:
             if route_valves_list not in ([], ""):
                 failures.append(f"route_valves_not_closed:{route_valves_list}")
             if vent_status == 3:
-                failures.append("vent_window_latched")
+                vent3_fields = self._sealed_vent3_watchlist_fields(
+                    vent_status=vent_status,
+                    actual_open_valves=route_valves_list,
+                    pressure_hpa=pace_pressure_hpa,
+                    route_close_pressure_hpa=pressure_gauge_hpa,
+                    stage=phase_name,
+                )
+                if vent3_fields["sealed_control_ready_vent3_watchlist_allowed"]:
+                    warnings.append("vent3_watchlist_accepted_with_v2_sealed_evidence")
+                else:
+                    warnings.append("vent3_diagnostic_only_control_ready")
             elif vent_status not in {0, 2}:
                 failures.append(f"vent_status={vent_status}")
         elif phase_name == "sampling":
@@ -3585,7 +3602,7 @@ class CalibrationRunner:
         )
 
     def _open_flow_vent1_gap_fail_closed_enabled(self) -> bool:
-        return bool(self._wf("workflow.pressure.open_flow_vent1_gap_fail_closed_enabled", True))
+        return bool(self._wf("workflow.pressure.open_flow_vent1_gap_fail_closed_enabled", False))
 
     def _vent_after_valve_open_enabled(self) -> bool:
         return bool(self._wf("workflow.pressure.vent_after_valve_open", False))
@@ -11042,6 +11059,110 @@ class CalibrationRunner:
             ),
         }
 
+    def _sealed_vent3_watchlist_fields(
+        self,
+        *,
+        vent_status: Any,
+        context: Optional[Mapping[str, Any]] = None,
+        actual_open_valves: Any = None,
+        pressure_hpa: Any = None,
+        route_close_pressure_hpa: Any = None,
+        stage: str = "",
+    ) -> Dict[str, Any]:
+        value = self._as_int(vent_status)
+        context_map: Mapping[str, Any]
+        if isinstance(context, Mapping):
+            context_map = context
+        else:
+            maybe_context = self._sealed_sweep_context_for_counters()
+            context_map = maybe_context if isinstance(maybe_context, Mapping) else {}
+        if actual_open_valves is None:
+            actual_open_valves = self._cached_actual_open_valves()
+        if isinstance(actual_open_valves, str):
+            actual_open_valves_present = bool(actual_open_valves.strip() and actual_open_valves.strip() != "[]")
+        else:
+            actual_open_valves_present = bool(actual_open_valves)
+        route_sealed = bool(
+            context_map.get("route_sealed") is True
+            or context_map.get("route_close_verified") is True
+            or context_map.get("sealed_group_route_closed") is True
+            or self._co2_sealed_no_vent_guard_active
+        )
+        final_vent_off = bool(
+            route_sealed
+            and (
+                self._co2_sealed_no_vent_guard_active
+                or int(context_map.get("vent_off_count") or 0) > 0
+                or context_map.get("final_vent_off_command_sent") is True
+                or context_map.get("preseal_final_atmosphere_exit_verified") is True
+            )
+        )
+        pressure_evidence = any(
+            self._as_float(candidate) is not None
+            for candidate in (
+                pressure_hpa,
+                route_close_pressure_hpa,
+                context_map.get("route_close_pressure_at_close_hpa"),
+                context_map.get("sealed_pressure_hpa"),
+                context_map.get("pressure_anchor_hpa"),
+                context_map.get("exhaust_only_candidate_pressure_hpa"),
+                context_map.get("fast_candidate_pressure_hpa"),
+            )
+        ) or self._sealed_pressure_ready_ts is not None
+        sealed_vent1_count = int(context_map.get("sealed_vent1_count") or 0)
+        sealed_vent0_count = int(context_map.get("sealed_vent0_count") or 0)
+        no_active_vent = bool(sealed_vent1_count == 0 and sealed_vent0_count == 0)
+        allowed = bool(
+            value == 3
+            and route_sealed
+            and final_vent_off
+            and pressure_evidence
+            and not actual_open_valves_present
+            and no_active_vent
+        )
+        if value != 3:
+            reason = "not_vent3"
+        elif allowed:
+            reason = "vent3_watchlist_accepted_with_v2_sealed_route_pressure_evidence"
+        elif not route_sealed:
+            reason = "route_not_sealed"
+        elif not final_vent_off:
+            reason = "final_vent_off_not_confirmed"
+        elif not pressure_evidence:
+            reason = "pressure_evidence_missing"
+        elif actual_open_valves_present:
+            reason = "route_valves_open"
+        else:
+            reason = "sealed_vent_command_seen"
+        gate_effect = (
+            "watchlist_accept_with_v2_sealed_evidence"
+            if allowed
+            else ("terminal_block_without_v2_sealed_evidence" if value == 3 else "")
+        )
+        return {
+            "sealed_control_ready_vent3_watchlist_seen": bool(value == 3),
+            "sealed_control_ready_vent3_watchlist_allowed": allowed,
+            "sealed_control_ready_vent3_watchlist_reason": reason,
+            "sealed_control_ready_vent3_watchlist_pressure_evidence": bool(pressure_evidence),
+            "sealed_control_ready_vent3_watchlist_route_sealed": bool(route_sealed),
+            "sealed_control_ready_vent3_watchlist_final_vent_off": bool(final_vent_off),
+            "sealed_control_ready_allows_vent3_after_clear": allowed,
+            "vent_status_gate_effect": gate_effect,
+            "vent_status_terminal": bool(value == 3 and not allowed),
+            "vent_status_note": (
+                "VENT?=3 accepted as sealed-route trapped-pressure watchlist with V2-like evidence"
+                if allowed
+                else (
+                    "VENT?=3 blocked because sealed-route pressure evidence is incomplete"
+                    if value == 3
+                    else ""
+                )
+            ),
+        }
+
+    def _sealed_vent3_watchlist_allowed(self, **kwargs: Any) -> bool:
+        return bool(self._sealed_vent3_watchlist_fields(**kwargs).get("sealed_control_ready_vent3_watchlist_allowed"))
+
     def _sealed_sweep_counter_names(self) -> Tuple[str, ...]:
         return (
             "sealed_vent1_count",
@@ -11152,7 +11273,7 @@ class CalibrationRunner:
         return max(0.0, float(self._wf("workflow.pressure.pre_vent0_in_progress_grace_s", 0.5) or 0.0))
 
     def _control_ready_allowed_vent_statuses(self) -> set[int]:
-        raw = self._wf("workflow.pressure.control_ready_allowed_vent_statuses", [0, 2])
+        raw = self._wf("workflow.pressure.control_ready_allowed_vent_statuses", [0, 2, 3])
         values: set[int] = set()
         if isinstance(raw, (list, tuple, set)):
             iterable = raw
@@ -11162,7 +11283,7 @@ class CalibrationRunner:
             parsed = self._as_int(item)
             if parsed is not None:
                 values.add(parsed)
-        return values or {0, 2}
+        return values or {0, 2, 3}
 
     def _sealed_passive_deadline_enabled(self) -> bool:
         if not self._controlled_outp_transition():
@@ -11518,6 +11639,18 @@ class CalibrationRunner:
     def _pressure_target_crossing_fail_count(self) -> int:
         raw = self._wf("workflow.pressure.pressure_target_crossing_fail_count", 1)
         return max(1, int(1 if raw is None else raw))
+
+    def _exhaust_only_undershoot_fail_closed_enabled(self) -> bool:
+        raw = self._wf("workflow.pressure.exhaust_only_undershoot_fail_closed_enabled", False)
+        return self._as_bool(raw, False)
+
+    def _exhaust_only_target_crossing_fail_closed_enabled(self) -> bool:
+        raw = self._wf("workflow.pressure.exhaust_only_target_crossing_fail_closed_enabled", False)
+        return self._as_bool(raw, False)
+
+    def _exhaust_only_undershoot_hard_fail_hpa(self) -> float:
+        raw = self._wf("workflow.pressure.exhaust_only_undershoot_hard_fail_hpa", 5.0)
+        return max(0.0, float(5.0 if raw is None else raw))
 
     def _exhaust_only_sample_above_target_enabled(self) -> bool:
         raw = self._wf("workflow.pressure.exhaust_only_sample_above_target_enabled", None)
@@ -17280,6 +17413,11 @@ class CalibrationRunner:
                         state["pressure_wait_cycles_after_crossing"] = wait_cycles_after_crossing
             lower_limit = float(target) - self._one_sided_lower_tolerance_hpa()
             if float(pressure_hpa) < lower_limit:
+                undershoot_depth_hpa = max(0.0, float(target) - float(pressure_hpa))
+                hard_undershoot = bool(
+                    self._exhaust_only_undershoot_hard_fail_hpa() > 0.0
+                    and undershoot_depth_hpa >= self._exhaust_only_undershoot_hard_fail_hpa()
+                )
                 undershoot_detected = True
                 undershoot_min = (
                     float(pressure_hpa)
@@ -17289,11 +17427,13 @@ class CalibrationRunner:
                 if state is not None:
                     state["undershoot_detected"] = True
                     state["undershoot_min_hpa"] = undershoot_min
-                failure_reason = "FAIL_CLOSED_PRESSURE_UNDERSHOOT_EXHAUST_ONLY"
-                terminal = True
+                if self._exhaust_only_undershoot_fail_closed_enabled() or hard_undershoot:
+                    failure_reason = "FAIL_CLOSED_PRESSURE_UNDERSHOOT_EXHAUST_ONLY"
+                    terminal = True
             if (
                 crossing_count >= self._pressure_target_crossing_fail_count()
                 and not micro_crossing_tolerated
+                and self._exhaust_only_target_crossing_fail_closed_enabled()
             ):
                 chatter_detected = True
                 if state is not None:
@@ -18581,7 +18721,10 @@ class CalibrationRunner:
                 ready_fields=ready_fields,
             )
         else:
-            outp1_ok = self._enable_pressure_controller_output(reason="after sealed route close immediate setpoint")
+            outp1_ok = self._enable_pressure_controller_output(
+                reason="after sealed route close immediate setpoint",
+                phase=phase,
+            )
         if not outp1_ok:
             self._controlled_exit_final_decision = "FAIL_CLOSED_PRESSURE_CONTROLLER_OUTP1_FAILED"
             self._append_pressure_trace_row(
@@ -19075,7 +19218,8 @@ class CalibrationRunner:
                             ),
                             note="VENT?=3 diagnostic-only; sealed live check uses no-vent/raw-tap/pressure evidence",
                         )
-                        failures.append("pace_vent_status_not_ready:vent_window_latched")
+                        # Old PACE5000 reports VENT?=3 while pressure is trapped/rising after
+                        # VENT0. Treat it as diagnostic evidence, not active venting.
                     elif not self._pace_vent_status_is_ready_for_control(vent_status):
                         classification = self._pace_vent_status_classification(
                             vent_status,
@@ -19124,7 +19268,7 @@ class CalibrationRunner:
                 fail_on_unsupported=True,
             )
         vent2_watchlist = bool(vent_status == 2)
-        blocked_by_vent = bool(vent_status in {1, 3} or sealed_vent1_count > 0 or sealed_vent0_count > 0)
+        blocked_by_vent = bool(vent_status == 1 or sealed_vent1_count > 0 or sealed_vent0_count > 0)
         blocked_by_pressure = not pressure_ready
         block_reason = ""
         if actual_open_valves:
@@ -19135,8 +19279,6 @@ class CalibrationRunner:
             block_reason = "FAIL_CLOSED_SEALED_STAGE_VENT0_BEFORE_SAMPLING"
         elif vent_status == 1:
             block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_BEFORE_SAMPLING"
-        elif vent_status == 3:
-            block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_BEFORE_SAMPLING"
         elif output_state != 1:
             block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_OUTPUT_OFF_BEFORE_SAMPLING"
         elif not setpoint_sent:
@@ -21203,8 +21345,6 @@ class CalibrationRunner:
             block_reason = "FAIL_CLOSED_SEALED_STAGE_VENT1_BEFORE_CONTROL"
         elif sealed_vent0_count > 0:
             block_reason = "FAIL_CLOSED_SEALED_STAGE_VENT0_BEFORE_CONTROL"
-        elif vent_status == 3:
-            block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_BEFORE_CONTROL"
         elif vent_status not in ready_vent_statuses:
             block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_NOT_IDLE_BEFORE_CONTROL"
         elif output_state != 0:
@@ -21465,9 +21605,7 @@ class CalibrationRunner:
         fields["sealed_control_ready_vent_window_latched"] = bool(vent_after == 3)
         fields["sealed_control_ready_allows_vent3_after_clear"] = False
         block_reason = ""
-        if vent_after == 3:
-            block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_BEFORE_CONTROL"
-        elif vent_after not in ready_vent_statuses:
+        if vent_after not in ready_vent_statuses:
             block_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_NOT_IDLE_BEFORE_CONTROL"
         if block_reason:
             fields["sealed_control_ready_blocks_outp1"] = True
@@ -21476,9 +21614,7 @@ class CalibrationRunner:
             fields["sampling_blocked_reason"] = block_reason
             fields["sealed_control_ready_gate_effect"] = "terminal_block_before_outp1"
         if not fields.get("sealed_control_ready_decision"):
-            if vent_after == 3:
-                fields["sealed_control_ready_decision"] = "blocked_vent3_window_latch_before_control"
-            elif vent_after in ready_vent_statuses:
+            if vent_after in ready_vent_statuses:
                 fields["sealed_control_ready_decision"] = "ready"
             else:
                 fields["sealed_control_ready_decision"] = f"blocked_vent_status_{vent_after}_before_control"
@@ -21565,7 +21701,7 @@ class CalibrationRunner:
                 read_pressure_gauge=True,
                 note="before output on using prepared setpoint",
             )
-            if not self._enable_pressure_controller_output(reason="using prepared setpoint"):
+            if not self._enable_pressure_controller_output(reason="using prepared setpoint", phase=phase):
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -21897,7 +22033,7 @@ class CalibrationRunner:
                     refresh_pace_state=False,
                     note="before output on after setpoint update",
                 )
-                if not self._enable_pressure_controller_output(reason="after setpoint update"):
+                if not self._enable_pressure_controller_output(reason="after setpoint update", phase=phase):
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
@@ -22160,8 +22296,6 @@ class CalibrationRunner:
                         )
                     elif vent_status == 1:
                         failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_AFTER_OUTP1"
-                    elif vent_status == 3:
-                        failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_AFTER_OUTP1"
                     elif above_target_candidate_ready and bool(
                         exhaust_fields.get("dewpoint_abnormal_at_candidate")
                     ) and not bool(
@@ -22211,7 +22345,7 @@ class CalibrationRunner:
                                     "sampling_blocked_by_dewpoint_rise": failure_reason.startswith(
                                         "FAIL_CLOSED_DEWPOINT"
                                     ),
-                                    "sampling_blocked_by_vent_watchlist": vent_status in {1, 3},
+                                    "sampling_blocked_by_vent_watchlist": vent_status == 1,
                                 }
                             ),
                             note=failure_reason,
@@ -22322,7 +22456,7 @@ class CalibrationRunner:
                         else "before output on after setpoint re-apply"
                     ),
                 )
-                if not self._enable_pressure_controller_output(reason="after setpoint re-apply"):
+                if not self._enable_pressure_controller_output(reason="after setpoint re-apply", phase=phase):
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
@@ -22684,8 +22818,6 @@ class CalibrationRunner:
                     )
                 elif vent_status == 1:
                     failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_DURING_SEALED_SWEEP"
-                elif vent_status == 3:
-                    failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_DURING_SEALED_SWEEP"
                 elif above_target_candidate_ready and bool(
                     exhaust_fields.get("dewpoint_abnormal_at_candidate")
                 ) and not bool(
@@ -22730,7 +22862,7 @@ class CalibrationRunner:
                                 "sampling_blocked_by_dewpoint_rise": failure_reason.startswith(
                                     "FAIL_CLOSED_DEWPOINT"
                                 ),
-                                "sampling_blocked_by_vent_watchlist": vent_status in {1, 3},
+                                "sampling_blocked_by_vent_watchlist": vent_status == 1,
                                 **exhaust_fields,
                                 **effort_fields,
                             }
@@ -22876,9 +23008,9 @@ class CalibrationRunner:
         if not pace:
             return
         try:
-            self._set_pressure_controller_vent(False, reason="H2O idle precondition")
+            self._set_pressure_controller_vent(True, reason="H2O route precondition")
             self._h2o_pressure_prepared_target = None
-            self.log("Pressure controller isolated from atmosphere while waiting for H2O route conditioning")
+            self.log("Pressure controller kept at atmosphere for H2O route conditioning")
         except Exception as exc:
             self._h2o_pressure_prepared_target = None
             self.log(f"H2O pressure precondition failed: {exc}")
@@ -23162,8 +23294,6 @@ class CalibrationRunner:
             failures.append("vent_after_valve_open")
         if vent_status is None:
             failures.append("vent_status_unavailable")
-        elif vent_status == 3:
-            failures.append("vent_window_latched")
         elif not self._pace_vent_status_is_ready_for_control(vent_status):
             failures.append(f"vent_status={vent_status}")
         if output_state is None:
@@ -23357,7 +23487,7 @@ class CalibrationRunner:
                 pressure_gauge_now = None
         vent_status_value = self._as_int(snapshot.get("pace_vent_status"))
         control_ready_decision = ""
-        if vent_ready_block_failure == "vent_window_latched" or vent_status_value == 3:
+        if vent_ready_block_failure == "vent_window_latched":
             control_ready_decision = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_BEFORE_CONTROL"
         elif vent_ready_block_failure:
             control_ready_decision = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_NOT_IDLE_BEFORE_CONTROL"
@@ -23774,13 +23904,9 @@ class CalibrationRunner:
             if ready.get("pace_vent_status") not in (None, "")
             else ready.get("pre_vent0_vent_status")
         )
-        if vent_status in {1, 3}:
+        if vent_status == 1:
             fields["outp1_delay_reason"] = f"vent_status={vent_status}"
-            self._controlled_exit_final_decision = (
-                "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_AFTER_ROUTE_CLOSE"
-                if vent_status == 1
-                else "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_AFTER_ROUTE_CLOSE"
-            )
+            self._controlled_exit_final_decision = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_AFTER_ROUTE_CLOSE"
             return False, fields
 
         steps: List[str] = []
@@ -23848,17 +23974,25 @@ class CalibrationRunner:
             fields["outp1_delay_reason"] = "fast_path_route_close_ts_unavailable"
         return True, fields
 
-    def _enable_pressure_controller_output(self, reason: str = "") -> bool:
+    def _enable_pressure_controller_output(self, reason: str = "", *, phase: str = "") -> bool:
         pace = self.devices.get("pace")
         if not pace:
             return True
         if self._no_outp_transition():
             extra = f" ({reason})" if reason else ""
-            if not (self._controlled_outp_transition() and self._co2_sealed_no_vent_guard_active):
+            phase_text = str(phase or "").strip().lower()
+            sealed_control_window = bool(
+                self._controlled_outp_transition()
+                and (
+                    self._co2_sealed_no_vent_guard_active
+                    or phase_text == "h2o"
+                )
+            )
+            if not sealed_control_window:
                 self.log(f"Pressure controller output=ON skipped (no-OUTP mode){extra}")
                 return True
             if self._controlled_outp_sealed_output_enabled:
-                self.log(f"Pressure controller output=ON already enabled for sealed CO2 control{extra}")
+                self.log(f"Pressure controller output=ON already enabled for sealed control{extra}")
                 return True
         try:
             enable_output = getattr(pace, "enable_control_output", None)
@@ -23996,7 +24130,10 @@ class CalibrationRunner:
                 )
                 return False
 
-        if not self._enable_pressure_controller_output(reason="after CO2 route sealed after first setpoint"):
+        if not self._enable_pressure_controller_output(
+            reason="after CO2 route sealed after first setpoint",
+            phase=phase,
+        ):
             self._append_pressure_trace_row(
                 point=point,
                 route="co2",
@@ -24120,8 +24257,6 @@ class CalibrationRunner:
         vent_failure_reason = ""
         if vent_after_outp1 == 1:
             vent_failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_ACTIVE_AFTER_OUTP1"
-        elif vent_after_outp1 == 3:
-            vent_failure_reason = "FAIL_CLOSED_PRESSURE_CONTROLLER_VENT_WINDOW_LATCHED_AFTER_OUTP1"
         if vent_failure_reason:
             self._controlled_exit_final_decision = vent_failure_reason
             self._append_pressure_trace_row(
@@ -24294,7 +24429,8 @@ class CalibrationRunner:
                 note=note or f"output-on recovery attempt {attempt_idx + 1}",
             )
             if not self._enable_pressure_controller_output(
-                reason=f"output-on recovery attempt {attempt_idx + 1}"
+                reason=f"output-on recovery attempt {attempt_idx + 1}",
+                phase=phase,
             ):
                 continue
             if self._verify_pressure_controller_output_on(
@@ -27725,6 +27861,14 @@ class CalibrationRunner:
                 for item in str(gate_eval.get("gate_reason") or "").split(";")
                 if item.strip()
             }
+            dry_enough_warning_only = bool(
+                str(cfg.get("policy") or "warn").strip().lower() != "reject"
+                and failing_reasons == {"dewpoint_tail_reference_not_dry_enough"}
+            )
+            if dry_enough_warning_only:
+                gate_eval["gate_pass"] = True
+                gate_eval["gate_status"] = "pass"
+                gate_eval["dewpoint_gate_pass_reason"] = "tail_stable;dry_enough_warning_only"
             if bool(gate_eval.get("gate_pass")):
                 dewpoint_gate_pass_ts = time.time()
                 dewpoint_gate_pass_value_c = self._as_float(snapshot.get("dewpoint_c"))
@@ -28722,6 +28866,7 @@ class CalibrationRunner:
             "dry_enough_c": self._gas_route_dewpoint_dry_enough_c(runtime_state),
             "dry_enough_tolerance_c": self._analyzer_gate_dry_enough_tolerance_c(),
             "dry_enough_grace_s": self._analyzer_gate_dry_enough_grace_s(),
+            "dry_enough_violation_policy": self._analyzer_gate_dry_enough_violation_policy(),
             "fail_if_above_dry_enough": self._gas_route_analyzer_gate_fail_if_above_dry_enough(),
             "begin_ts": float(analyzer_gate_begin_ts),
             "end_ts": None,
@@ -28828,6 +28973,9 @@ class CalibrationRunner:
             "analyzer_gate_dewpoint_dry_enough_passed": dry_enough_passed,
             "analyzer_gate_dewpoint_dry_enough_tolerance_c": dry_enough_tolerance_c,
             "analyzer_gate_dewpoint_hard_fail_threshold_c": dry_enough_hard_fail_threshold_c,
+            "analyzer_gate_dewpoint_dry_enough_violation_policy": str(
+                state.get("dry_enough_violation_policy") or ""
+            ),
             "analyzer_gate_dewpoint_dry_enough_warning_zone": bool(
                 state.get("dry_enough_warning_zone")
             ),
@@ -28950,6 +29098,14 @@ class CalibrationRunner:
                 state["dry_enough_passed"] = float(value_c) <= float(dry_enough_c)
                 tolerance_c = self._as_float(state.get("dry_enough_tolerance_c")) or 0.0
                 grace_s = self._as_float(state.get("dry_enough_grace_s")) or 0.0
+                violation_policy = str(
+                    state.get("dry_enough_violation_policy") or "sustained_or_margin"
+                ).strip().lower()
+                dry_enough_warning_only = (
+                    violation_policy
+                    in {"warn", "warning", "warning_only", "soft", "diagnostic", "off"}
+                    or not bool(state.get("fail_if_above_dry_enough"))
+                )
                 hard_fail_threshold_c = float(dry_enough_c) + float(tolerance_c)
                 state["dry_enough_warning_zone"] = False
                 state["dry_enough_hard_fail"] = False
@@ -28969,7 +29125,7 @@ class CalibrationRunner:
                     state["dry_enough_violation_s"] = violation_s
                     state["dry_enough_gate_effect"] = "warning_only"
                     state["gate_effect"] = "warning_only"
-                    if grace_s > 0 and violation_s > grace_s:
+                    if not dry_enough_warning_only and grace_s > 0 and violation_s > grace_s:
                         state["dry_enough_terminal"] = True
                         state["dry_enough_gate_effect"] = "fail_closed"
                         state["gate_effect"] = "fail_closed"
@@ -28983,17 +29139,23 @@ class CalibrationRunner:
                         )
                 else:
                     state["dry_enough_hard_fail"] = True
-                    state["dry_enough_terminal"] = True
-                    state["dry_enough_gate_effect"] = "fail_closed"
-                    state["gate_effect"] = "fail_closed"
-                    return self._fail_analyzer_gate_dewpoint_monitor(
-                        point,
-                        state,
-                        reason=(
-                            f"dewpoint_not_dry_enough_c={value_c}>"
-                            f"hard_fail_threshold_c={hard_fail_threshold_c}"
-                        ),
-                    )
+                    state["dry_enough_warning_zone"] = True
+                    if dry_enough_warning_only:
+                        state["dry_enough_terminal"] = False
+                        state["dry_enough_gate_effect"] = "warning_only"
+                        state["gate_effect"] = "warning_only"
+                    else:
+                        state["dry_enough_terminal"] = True
+                        state["dry_enough_gate_effect"] = "fail_closed"
+                        state["gate_effect"] = "fail_closed"
+                        return self._fail_analyzer_gate_dewpoint_monitor(
+                            point,
+                            state,
+                            reason=(
+                                f"dewpoint_not_dry_enough_c={value_c}>"
+                                f"hard_fail_threshold_c={hard_fail_threshold_c}"
+                            ),
+                        )
             if delta_c > float(state.get("max_delta_c") or 0.20):
                 hard_rebound_c = float(state.get("hard_rebound_c") or 2.0)
                 if delta_c > hard_rebound_c:
@@ -29003,6 +29165,12 @@ class CalibrationRunner:
             if (
                 bool(state.get("require_dry_enough"))
                 and bool(state.get("fail_if_above_dry_enough"))
+                and (
+                    str(state.get("dry_enough_violation_policy") or "sustained_or_margin")
+                    .strip()
+                    .lower()
+                    not in {"warn", "warning", "warning_only", "soft", "diagnostic", "off"}
+                )
                 and dry_enough_c is not None
                 and float(value_c) > float(dry_enough_c)
                 and bool(state.get("dry_enough_terminal"))
@@ -29485,7 +29653,7 @@ class CalibrationRunner:
             f"pressures=[{pressure_text}]"
         )
 
-        self._apply_idle_route_isolation(reason="before H2O group conditioning")
+        self._set_h2o_path(False, lead)
         self._prepare_pressure_for_h2o(lead)
         self._prepare_humidity_generator(lead)
         self._emit_stage_event(
@@ -29621,7 +29789,7 @@ class CalibrationRunner:
 
     def _run_h2o_point(self, point: CalibrationPoint, prepared: bool = False) -> None:
         self._preseal_dewpoint_snapshot = None
-        self._apply_idle_route_isolation(reason="before H2O point conditioning")
+        self._set_h2o_path(False, point)
         if not prepared:
             self._prepare_pressure_for_h2o(point)
             self._prepare_humidity_generator(point)
@@ -30729,7 +30897,7 @@ class CalibrationRunner:
             open_valves=open_valves,
         ):
             return True
-        if not self._set_co2_route_baseline(reason="before CO2 route conditioning"):
+        if self._set_co2_route_baseline(reason="before CO2 route conditioning") is False:
             return False
         self._append_pace_status_evidence_trace(
             "before_route_open",
@@ -31072,6 +31240,17 @@ class CalibrationRunner:
             0.0,
             float(self._wf("workflow.stability.analyzer_gate_dry_enough_grace_s", 0.0) or 0.0),
         )
+
+    def _analyzer_gate_dry_enough_violation_policy(self) -> str:
+        policy = str(
+            self._wf("workflow.stability.analyzer_gate_dry_enough_violation_policy", "warn")
+            or "warn"
+        ).strip().lower()
+        if policy in {"reject", "fail", "fail_closed", "hard", "sustained_or_margin"}:
+            return "sustained_or_margin"
+        if policy in {"off", "diagnostic"}:
+            return policy
+        return "warn"
 
     def _preseal_dewpoint_dry_enough_tolerance_c(self) -> float:
         return max(
@@ -35007,7 +35186,7 @@ class CalibrationRunner:
                             data.update(invalidation)
                             effort_fields.update(invalidation)
                         sample_vent_status = self._as_int(data.get("pace_vent_status"))
-                        if sample_vent_status in {1, 3}:
+                        if sample_vent_status == 1:
                             invalidation = self._mark_above_target_sample_invalidated(
                                 reason="vent",
                             )

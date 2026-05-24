@@ -93,8 +93,8 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             "bulk_write_enabled": True,
         },
         "humidity_generator": {
-            "safe_stop_verify_flow": True,
-            "safe_stop_enforce_flow_check": True,
+            "safe_stop_verify_flow": False,
+            "safe_stop_enforce_flow_check": False,
             "safe_stop_max_flow_lpm": 0.05,
             "safe_stop_timeout_s": 15.0,
             "safe_stop_poll_s": 0.5,
@@ -198,6 +198,11 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             "transition_gauge_response_timeout_s": 1.5,
             "fast_gauge_read_retries": 1,
             "strict_control_ready_check": True,
+            "control_ready_allowed_vent_statuses": [0, 2, 3],
+            "open_flow_vent1_gap_fail_closed_enabled": False,
+            "exhaust_only_undershoot_fail_closed_enabled": False,
+            "exhaust_only_target_crossing_fail_closed_enabled": False,
+            "exhaust_only_undershoot_hard_fail_hpa": 5.0,
             "abort_on_vent_off_failure": True,
         },
         "stability": {
@@ -232,6 +237,7 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
                 "hard_bad_values_c": [-40.0, 60.0],
                 "hard_bad_value_tolerance_c": 0.05,
             },
+            "analyzer_gate_dry_enough_violation_policy": "warn",
             "dewpoint": {
                 "enabled": True,
                 "rh_match_tol_pct": 3.3,

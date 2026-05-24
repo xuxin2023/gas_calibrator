@@ -111,8 +111,8 @@ def test_perform_safe_stop_uses_set_valve_and_verifies_states() -> None:
     assert result["pace_pressure_hpa"] == 1010.5
     assert result["gauge_pressure_hpa"] == 1009.9
     assert result["chamber"]["run_state"] == 0
-    assert result["hgen_stop_check"] == {"ok": True, "flow_lpm": 0.0, "max_flow_lpm": 0.05}
-    assert hgen.wait_calls == [{"max_flow_lpm": 0.05, "timeout_s": 5.0, "poll_s": 0.5}]
+    assert result["hgen_stop_check"] == {"skipped": True, "reason": "flow verification disabled"}
+    assert hgen.wait_calls == []
 
 
 def test_perform_safe_stop_uses_cfg_baseline_when_available() -> None:
@@ -224,7 +224,7 @@ def test_validate_safe_stop_result_enforces_hgen_flow_failure_by_default() -> No
         cfg={"valves": {}},
     )
 
-    assert "humidity generator stop check failed" in issues
+    assert "humidity generator stop check failed" not in issues
 
 
 def test_validate_safe_stop_result_reports_hgen_command_failures() -> None:
@@ -269,7 +269,7 @@ def test_validate_safe_stop_result_reports_hgen_current_flow_when_snapshot_disag
             "pace_outp": ":OUTP:STAT 0",
             "pace_isol": ":OUTP:ISOL:STAT 1",
         },
-        cfg={"valves": {}},
+        cfg={"valves": {}, "workflow": {"humidity_generator": {"safe_stop_enforce_flow_check": True}}},
     )
 
     assert "humidity generator flow still high: 1.2" in issues

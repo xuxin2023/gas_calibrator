@@ -496,6 +496,8 @@ def _controlled_cfg(pressure_overrides: dict | None = None) -> dict:
         "pre_vent0_require_no_new_vent1": True,
         "pre_vent0_use_raw_tap_last_vent1": True,
         "pre_vent0_vent_status_probe_enabled": False,
+        "exhaust_only_undershoot_fail_closed_enabled": True,
+        "exhaust_only_target_crossing_fail_closed_enabled": True,
     }
     pressure.update(pressure_overrides or {})
     return {
@@ -914,7 +916,7 @@ def test_open_flow_vent_keepalive_gap_guard_records_gap() -> None:
 
     runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
 
-    assert runner._end_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit") is False
+    assert runner._end_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit") is True
 
     fields = _last_stage_fields(runner, "open_flow_until_preseal_raw_tap_end")
     assert fields["open_flow_vent1_max_gap_s"] == pytest.approx(1.6)
@@ -924,6 +926,22 @@ def test_open_flow_vent_keepalive_gap_guard_records_gap() -> None:
     assert fields["pre_vent_exit_flow_drop_suspected"] is True
     assert fields["open_flow_vent1_gap_guard_passed"] is False
     assert fields["open_flow_vent1_gap_fail_reason"]
+    assert runner._controlled_exit_final_decision != "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
+
+
+def test_open_flow_vent_keepalive_gap_can_fail_closed_when_configured() -> None:
+    runner, _pace, _, _ = _runner(
+        logger=OpenFlowGapLogger(max_gap_s=1.6),
+        pressure_overrides={"open_flow_vent1_gap_fail_closed_enabled": True},
+    )
+    point = _co2_point()
+
+    runner._begin_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit")
+
+    assert runner._end_co2_open_flow_until_preseal_raw_tap_window(point, reason="unit") is False
+
+    fields = _last_stage_fields(runner, "open_flow_until_preseal_raw_tap_end")
+    assert fields["open_flow_vent1_gap_fail_count"] == 1
     assert runner._controlled_exit_final_decision == "FAIL_CLOSED_PRESEAL_OPEN_FLOW_VENT1_GAP"
 
 
@@ -1037,7 +1055,7 @@ def test_open_flow_vent1_gap_guard_passes_when_scheduler_priority_works() -> Non
 
 
 def test_open_flow_vent1_gap_still_fails_when_real_gap_exceeds_limit() -> None:
-    test_open_flow_vent_keepalive_gap_guard_records_gap()
+    test_open_flow_vent_keepalive_gap_can_fail_closed_when_configured()
 
 
 def test_open_flow_gap_guard_ends_at_stop_hold_begin(tmp_path: Path) -> None:
@@ -1776,7 +1794,7 @@ def test_pre_vent0_waits_short_grace_when_vent_status_1_then_2() -> None:
     assert fields["pre_vent0_status_probe_grace_used"] is True
 
 
-def test_pre_vent0_vent3_preseal_routes_close_then_blocks_control() -> None:
+def test_pre_vent0_vent3_preseal_routes_close_then_allows_control_ready() -> None:
     now_s = time.time()
     runner, pace, _, _ = _runner(
         pace=SequenceVentStatusPace([3]),
@@ -1802,7 +1820,7 @@ def test_pre_vent0_vent3_preseal_routes_close_then_blocks_control() -> None:
     assert method == "preseal_vent3_unrecognized"
     assert status == 3
     assert ("vent", False) not in pace.calls
-    assert "vent_window_latched" in failures
+    assert failures == []
 
 
 def test_control_ready_allows_vent_status_2_completed() -> None:
@@ -1816,7 +1834,7 @@ def test_control_ready_allows_vent_status_2_completed() -> None:
     assert failures == []
 
 
-def test_control_ready_blocks_vent_status_1_or_3() -> None:
+def test_control_ready_blocks_vent_status_1_but_allows_vent_status_3() -> None:
     runner, pace, _, _ = _runner()
 
     failures_1 = runner._pressure_controller_ready_failures(
@@ -1829,7 +1847,7 @@ def test_control_ready_blocks_vent_status_1_or_3() -> None:
     )
 
     assert "vent_status=1" in failures_1
-    assert "vent_window_latched" in failures_3
+    assert failures_3 == []
 
 
 def test_skip_abort_path_has_no_vent0_raw_tx() -> None:
@@ -6062,6 +6080,36 @@ def test_exhaust_only_blocks_below_target_duration() -> None:
     assert fields["pressure_crossed_below_target"] is True
     assert fields["pressure_monotonic_to_target"] is False
     assert fields["exhaust_only_ready_failure_reason"] == "FAIL_CLOSED_PRESSURE_UNDERSHOOT_EXHAUST_ONLY"
+
+
+def test_exhaust_only_small_undershoot_can_continue_until_inlimit(monkeypatch) -> None:
+    runner, pace, _, _ = _runner(
+        pressure_overrides={
+            "stabilize_timeout_s": 0.3,
+            "exhaust_only_undershoot_fail_closed_enabled": False,
+            "exhaust_only_target_crossing_fail_closed_enabled": False,
+            "exhaust_only_undershoot_hard_fail_hpa": 5.0,
+        }
+    )
+    point = _co2_point(pressure=1000.0)
+    pace.in_limits = [(1001.0, 0), (999.0, 0), (1000.0, 1)]
+    runner._activate_co2_sealed_no_vent_guard(point, reason="test", route_close_ts=time.time())
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=False)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert runner._set_pressure_to_target(point) is True
+
+    assert "sealed_pressure_control_state_fail" not in _trace_stages(runner)
+    wait_fields = [
+        call.kwargs.get("extra_fields", {})
+        for call in runner._append_pressure_trace_row.call_args_list
+        if call.kwargs.get("trace_stage") == "pressure_control_wait"
+    ]
+    assert any(
+        fields.get("pressure_undershoot_detected") is True
+        and fields.get("exhaust_only_ready_failure_reason") == ""
+        for fields in wait_fields
+    )
 
 
 def test_exhaust_only_blocks_small_positive_effort() -> None:

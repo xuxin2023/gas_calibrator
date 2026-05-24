@@ -238,6 +238,28 @@ class TestEnableOutput:
         assert ok is True
         pace.enable_control_output.assert_called_once()
 
+    def test_controlled_h2o_sealed_pressure_allows_output_on(self):
+        runner, pace, _, _ = _make_runner(
+            _no_outp_cfg({"controlled_outp_transition_mode": True})
+        )
+        ok = runner._enable_pressure_controller_output(
+            reason="after setpoint update",
+            phase="h2o",
+        )
+        assert ok is True
+        pace.enable_control_output.assert_called_once()
+
+    def test_controlled_co2_without_sealed_guard_still_skips_output_on(self):
+        runner, pace, _, _ = _make_runner(
+            _no_outp_cfg({"controlled_outp_transition_mode": True})
+        )
+        ok = runner._enable_pressure_controller_output(
+            reason="after setpoint update",
+            phase="co2",
+        )
+        assert ok is True
+        pace.enable_control_output.assert_not_called()
+
 
 class TestRecovery:
     def test_output_on_recovery_skips_set_output_false_in_no_outp(self):

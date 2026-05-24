@@ -39,25 +39,58 @@ def test_humidity_generator_safe_stop_ignores_failures(monkeypatch) -> None:
     assert result["heat_off"] == "failed"
 
 
-def test_humidity_generator_safe_stop_sets_zero_flow_before_ctrl_off() -> None:
+def test_humidity_generator_safe_stop_closes_only_outputs_in_start_order() -> None:
     replay = ReplaySerial()
     dev = humidity_generator.HumidityGenerator("COM1", serial_factory=lambda **_: replay)
 
     dev.open()
-    result = dev.safe_stop()
+    result = dev.safe_stop(command_interval_s=0.0)
     dev.close()
 
     writes = [payload.decode("ascii", errors="ignore").strip() for payload in replay.writes]
-    assert writes[:4] == [
-        "Target:FA=0.0",
+    assert writes[:3] == [
         "Target:CTRL=OFF",
-        "Target:COOL=OFF",
         "Target:HEAT=OFF",
+        "Target:COOL=OFF",
     ]
-    assert result["flow_off"] == "ok"
+    assert "Target:FA=0.0" not in writes
     assert result["ctrl_off"] == "ok"
-    assert result["cool_off"] == "ok"
     assert result["heat_off"] == "ok"
+    assert result["cool_off"] == "ok"
+
+
+def test_humidity_generator_safe_stop_waits_between_close_commands(monkeypatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(humidity_generator.time, "sleep", lambda value: sleeps.append(float(value)))
+    replay = ReplaySerial()
+    dev = humidity_generator.HumidityGenerator("COM1", serial_factory=lambda **_: replay)
+
+    dev.open()
+    dev.safe_stop(command_interval_s=0.25)
+    dev.close()
+
+    assert [value for value in sleeps if value >= 0.2][:2] == [0.25, 0.25]
+
+
+def test_humidity_generator_safe_stop_confirms_outputs_off() -> None:
+    def _on_write(data: bytes, transport: ReplaySerial) -> None:
+        text = data.decode("ascii", errors="ignore").strip().upper()
+        if text == "FETC? (@CTRL)":
+            transport.queue_line("CTRL= OFF")
+        elif text == "FETC? (@HEAT)":
+            transport.queue_line("HEAT= OFF")
+        elif text == "FETC? (@COOL)":
+            transport.queue_line("COOL= OFF")
+
+    replay = ReplaySerial(on_write=_on_write)
+    dev = humidity_generator.HumidityGenerator("COM1", serial_factory=lambda **_: replay)
+
+    dev.open()
+    result = dev.safe_stop(command_interval_s=0.0)
+    dev.close()
+
+    assert result["status_off_check"]["ok"] is True
+    assert result["status_off_check"]["details"]["CTRL"]["off"] is True
 
 
 def test_humidity_generator_fetch_tag_value_keeps_raw_text() -> None:

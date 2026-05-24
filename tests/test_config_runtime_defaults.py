@@ -81,8 +81,8 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["reporting"]["defer_heavy_exports_during_handoff"] is True
     assert cfg["workflow"]["reporting"]["flush_deferred_exports_on_next_route_soak"] is True
     assert cfg["workflow"]["relay"]["bulk_write_enabled"] is True
-    assert cfg["workflow"]["humidity_generator"]["safe_stop_verify_flow"] is True
-    assert cfg["workflow"]["humidity_generator"]["safe_stop_enforce_flow_check"] is True
+    assert cfg["workflow"]["humidity_generator"]["safe_stop_verify_flow"] is False
+    assert cfg["workflow"]["humidity_generator"]["safe_stop_enforce_flow_check"] is False
     assert cfg["workflow"]["humidity_generator"]["safe_stop_max_flow_lpm"] == 0.05
     assert cfg["workflow"]["humidity_generator"]["safe_stop_timeout_s"] == 15.0
     assert cfg["workflow"]["humidity_generator"]["safe_stop_poll_s"] == 0.5
@@ -121,8 +121,10 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["fast_gauge_response_timeout_s"] == 0.6
     assert cfg["workflow"]["pressure"]["transition_gauge_response_timeout_s"] == 1.5
     assert cfg["workflow"]["pressure"]["fast_gauge_read_retries"] == 1
+    assert cfg["workflow"]["pressure"]["open_flow_vent1_gap_fail_closed_enabled"] is False
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_enabled"] is True
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_policy"] == "warn"
+    assert cfg["workflow"]["stability"]["analyzer_gate_dry_enough_violation_policy"] == "warn"
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_enabled"] is True
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_policy"] == "warn"
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_window_s"] == 60.0

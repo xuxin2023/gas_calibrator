@@ -329,37 +329,85 @@ class HumidityGenerator:
                 }
             time.sleep(max(0.05, float(poll_s)))
 
-    def safe_stop(self) -> Dict[str, Any]:
+    @staticmethod
+    def _is_off_state(value: Any) -> Optional[bool]:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return not value
+        try:
+            numeric = float(value)
+        except Exception:
+            numeric = None
+        if numeric is not None:
+            if abs(float(numeric)) <= 1e-9:
+                return True
+            if abs(float(numeric) - 1.0) <= 1e-9:
+                return False
+        text = str(value).strip().upper()
+        if not text:
+            return None
+        if text in {"OFF", "0", "FALSE", "DISABLED", "STOP", "STOPPED"}:
+            return True
+        if text in {"ON", "1", "TRUE", "ENABLED", "RUN", "RUNNING"}:
+            return False
+        return None
+
+    def verify_outputs_off(self) -> Dict[str, Any]:
+        details: Dict[str, Any] = {}
+        explicit_on: List[str] = []
+        known_count = 0
+        for tag in ("CTRL", "HEAT", "COOL"):
+            try:
+                row = self.fetch_tag_value(tag)
+                off_state = self._is_off_state(row.get("value"))
+                if off_state is True:
+                    known_count += 1
+                elif off_state is False:
+                    known_count += 1
+                    explicit_on.append(tag)
+                details[tag] = {
+                    "raw": row.get("raw_pick"),
+                    "value": row.get("value"),
+                    "off": off_state,
+                }
+            except Exception as exc:
+                details[tag] = {"error": str(exc), "off": None}
+        ok: Optional[bool]
+        if explicit_on:
+            ok = False
+        elif known_count == 3:
+            ok = True
+        else:
+            ok = None
+        return {"ok": ok, "details": details, "explicit_on": explicit_on}
+
+    def safe_stop(self, command_interval_s: float = 0.2) -> Dict[str, Any]:
         result: Dict[str, Any] = {
-            "flow_off": "not_attempted",
             "ctrl_off": "not_attempted",
-            "cool_off": "not_attempted",
             "heat_off": "not_attempted",
+            "cool_off": "not_attempted",
+            "status_off_check": "not_attempted",
         }
+        commands = (
+            ("ctrl_off", lambda: self.enable_control(False)),
+            ("heat_off", self.heat_off),
+            ("cool_off", self.cool_off),
+        )
+        delay_s = max(0.0, float(command_interval_s or 0.0))
+        for index, (key, action) in enumerate(commands):
+            try:
+                action()
+                result[key] = "ok"
+            except Exception as exc:
+                result[key] = "failed"
+                result[f"{key}_error"] = str(exc)
+            if delay_s > 0 and index < len(commands) - 1:
+                time.sleep(delay_s)
         try:
-            self.set_flow_target(0.0)
-            result["flow_off"] = "ok"
+            result["status_off_check"] = self.verify_outputs_off()
         except Exception as exc:
-            result["flow_off"] = "failed"
-            result["flow_off_error"] = str(exc)
-        try:
-            self.enable_control(False)
-            result["ctrl_off"] = "ok"
-        except Exception as exc:
-            result["ctrl_off"] = "failed"
-            result["ctrl_off_error"] = str(exc)
-        try:
-            self.cool_off()
-            result["cool_off"] = "ok"
-        except Exception as exc:
-            result["cool_off"] = "failed"
-            result["cool_off_error"] = str(exc)
-        try:
-            self.heat_off()
-            result["heat_off"] = "ok"
-        except Exception as exc:
-            result["heat_off"] = "failed"
-            result["heat_off_error"] = str(exc)
+            result["status_off_check"] = {"ok": None, "error": str(exc)}
         return result
 
     def wait_stopped(

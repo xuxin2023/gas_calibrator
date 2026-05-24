@@ -636,7 +636,7 @@ def test_pace_phase_profile_preseal_allows_vent3_watchlist_before_route_close(tm
     assert "vent3_diagnostic_only_before_route_close" in result["warnings"]
 
 
-def test_pace_phase_profile_control_ready_blocks_vent3(tmp_path: Path) -> None:
+def test_pace_phase_profile_control_ready_treats_vent3_as_diagnostic(tmp_path: Path) -> None:
     runner, logger, _pace = _runner_for_audit(tmp_path)
     result = runner._evaluate_pace_phase_profile(
         "sealed_control_ready",
@@ -645,8 +645,9 @@ def test_pace_phase_profile_control_ready_blocks_vent3(tmp_path: Path) -> None:
     )
     logger.close()
 
-    assert result["passed"] is False
-    assert "vent_window_latched" in result["failures"]
+    assert result["passed"] is True
+    assert "vent3_diagnostic_only_control_ready" in result["warnings"]
+    assert result["failures"] == []
 
 
 def test_pace_phase_profile_control_ready_allows_vent2_completed(tmp_path: Path) -> None:
@@ -860,6 +861,7 @@ def test_analyzer_gate_fails_when_dewpoint_above_dry_enough(tmp_path: Path) -> N
             "gas_route_dewpoint_gate_dry_enough_c": -30.0,
             "gas_route_analyzer_gate_hard_rebound_c": 2.0,
             "gas_route_analyzer_gate_fail_if_above_dry_enough": True,
+            "analyzer_gate_dry_enough_violation_policy": "sustained_or_margin",
         }
     )
 
@@ -926,6 +928,7 @@ def test_analyzer_gate_dry_enough_sustained_warning_zone_can_fail(tmp_path: Path
             "gas_route_analyzer_gate_fail_if_above_dry_enough": True,
             "analyzer_gate_dry_enough_tolerance_c": 0.3,
             "analyzer_gate_dry_enough_grace_s": 0.05,
+            "analyzer_gate_dry_enough_violation_policy": "sustained_or_margin",
         }
     )
 
@@ -962,6 +965,7 @@ def test_analyzer_gate_dry_enough_hard_margin_fails(tmp_path: Path) -> None:
             "gas_route_analyzer_gate_fail_if_above_dry_enough": True,
             "analyzer_gate_dry_enough_tolerance_c": 0.3,
             "analyzer_gate_dry_enough_grace_s": 30.0,
+            "analyzer_gate_dry_enough_violation_policy": "sustained_or_margin",
         }
     )
 

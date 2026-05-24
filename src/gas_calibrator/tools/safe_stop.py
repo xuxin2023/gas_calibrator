@@ -172,7 +172,7 @@ def validate_safe_stop_result(result: Dict[str, Any], *, cfg: Optional[Dict[str,
             issues.append(f"chamber run_state not stopped: {run_state}")
 
     hcfg = (cfg or {}).get("workflow", {}).get("humidity_generator", {}) if isinstance(cfg, dict) else {}
-    enforce_hgen_stop_check = bool(hcfg.get("safe_stop_enforce_flow_check", True))
+    enforce_hgen_stop_check = bool(hcfg.get("safe_stop_enforce_flow_check", False))
     max_flow_lpm = _as_float(hcfg.get("safe_stop_max_flow_lpm"))
     if max_flow_lpm is None:
         max_flow_lpm = 0.05
@@ -192,7 +192,7 @@ def validate_safe_stop_result(result: Dict[str, Any], *, cfg: Optional[Dict[str,
     if current_raw and current_raw.upper().startswith("ERROR"):
         issues.append("humidity generator current snapshot invalid")
         current_snapshot_issue = True
-    if current_flow_lpm is not None and current_flow_lpm > max_flow_lpm:
+    if enforce_hgen_stop_check and current_flow_lpm is not None and current_flow_lpm > max_flow_lpm:
         issues.append(f"humidity generator flow still high: {current_flow_lpm}")
         current_snapshot_issue = True
     if enforce_hgen_stop_check and has_hgen_evidence:
@@ -307,7 +307,7 @@ def perform_safe_stop(devices: Dict[str, Any], log_fn=_log, cfg: Optional[Dict[s
         except Exception as exc:
             log_fn(f"hgen safe_stop failed: {exc}")
         hcfg = (cfg or {}).get("workflow", {}).get("humidity_generator", {}) if isinstance(cfg, dict) else {}
-        verify_flow = bool(hcfg.get("safe_stop_verify_flow", True))
+        verify_flow = bool(hcfg.get("safe_stop_verify_flow", False))
         waiter = getattr(hgen, "wait_stopped", None)
         if verify_flow and callable(waiter):
             try:

@@ -97,6 +97,8 @@ class ParoscientificGauge:
 
     def _read_pressure_query_locked(self, *, cmd: str, timeout_s: float, clear_buffer: bool) -> float:
         cmd_echo = cmd.strip().upper()
+        if cmd_echo.endswith("P3"):
+            self._continuous_pressure_mode = ""
         exchange_readlines = getattr(self.ser, "exchange_readlines", None)
         if callable(exchange_readlines):
             lines = exchange_readlines(
@@ -188,6 +190,110 @@ class ParoscientificGauge:
                     last_exc = exc
                     if idx + 1 < attempts and retry_sleep_s > 0:
                         time.sleep(float(retry_sleep_s))
+
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("NO_RESPONSE")
+
+    def read_pressure_p4(
+        self,
+        *,
+        response_timeout_s: float = 0.3,
+    ) -> Optional[float]:
+        cmd = self._cmd("P4")
+        with self._query_lock:
+            exchange_readlines = getattr(self.ser, "exchange_readlines", None)
+            if callable(exchange_readlines):
+                try:
+                    lines = exchange_readlines(
+                        cmd,
+                        response_timeout_s=max(0.05, float(response_timeout_s)),
+                        read_timeout_s=0.02,
+                        clear_input=False,
+                    )
+                    value = self._parse_pressure_lines(list(lines or []), cmd_echo=cmd.strip().upper())
+                    if value is not None:
+                        return value
+                except Exception:
+                    pass
+            try:
+                self.ser.write(cmd)
+                deadline = time.time() + max(0.1, float(response_timeout_s))
+                while time.time() < deadline:
+                    resp = self.ser.readline()
+                    value = self._parse_pressure_lines([(resp or "").strip()], cmd_echo=cmd.strip().upper())
+                    if value is not None:
+                        return value
+            except Exception:
+                pass
+        return None
+
+    def _p3_read_with_retry(
+        self,
+        *,
+        cancel_wait_s: float = 0.30,
+        query_timeout_s: float = 0.20,
+        max_retries: int = 3,
+        retry_increment_s: float = 0.10,
+    ) -> float:
+        last_exc: Optional[Exception] = None
+        cmd_p3 = self._cmd("P3")
+
+        with self._query_lock:
+            drain_input_nonblock = getattr(self.ser, "drain_input_nonblock", None)
+            reset_input_buffer = getattr(self.ser, "reset_input_buffer", None)
+
+            try:
+                self.ser.write(cmd_p3)
+            except Exception:
+                pass
+            time.sleep(max(0.05, float(cancel_wait_s)))
+
+            if callable(drain_input_nonblock):
+                try:
+                    drain_input_nonblock(drain_s=0.25, read_timeout_s=0.02)
+                except Exception:
+                    pass
+            elif callable(reset_input_buffer):
+                try:
+                    reset_input_buffer()
+                except Exception:
+                    pass
+            self._continuous_pressure_mode = ""
+
+            for attempt in range(max(1, int(max_retries))):
+                try:
+                    return self._read_pressure_query_locked(
+                        cmd=cmd_p3,
+                        timeout_s=max(0.15, float(query_timeout_s)),
+                        clear_buffer=(attempt == 0),
+                    )
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt + 1 < max_retries:
+                        wait_s = float(retry_increment_s) * (attempt + 1)
+                        time.sleep(max(0.05, wait_s))
+                        if callable(drain_input_nonblock):
+                            try:
+                                drain_input_nonblock(drain_s=0.10, read_timeout_s=0.01)
+                            except Exception:
+                                pass
+
+            try:
+                self.ser.write(cmd_p3)
+                time.sleep(max(0.05, float(cancel_wait_s)))
+                if callable(drain_input_nonblock):
+                    drain_input_nonblock(drain_s=0.25, read_timeout_s=0.02)
+                elif callable(reset_input_buffer):
+                    reset_input_buffer()
+                self._continuous_pressure_mode = ""
+                return self._read_pressure_query_locked(
+                    cmd=cmd_p3,
+                    timeout_s=max(0.15, float(query_timeout_s)),
+                    clear_buffer=True,
+                )
+            except Exception as exc:
+                last_exc = exc
 
         if last_exc:
             raise last_exc
