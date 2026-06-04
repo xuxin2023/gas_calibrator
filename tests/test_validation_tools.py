@@ -13,6 +13,7 @@ from gas_calibrator.tools import (
     validate_pressure_only,
     verify_coefficient_roundtrip,
 )
+from gas_calibrator.validation.common import analyze_sample_rows
 from openpyxl import Workbook
 
 
@@ -110,9 +111,11 @@ def _offline_samples() -> list[dict]:
 
 
 class _FakeGasAnalyzer:
-    def __init__(self):
+    def __init__(self, *, pressure_kpa: float = 100.0, device_id: str = "010"):
         self.calls = []
         self._counter = 0
+        self.pressure_kpa = float(pressure_kpa)
+        self.device_id = str(device_id)
 
     def set_mode(self, mode):
         self.calls.append(("mode", mode))
@@ -138,9 +141,23 @@ class _FakeGasAnalyzer:
         self.calls.append(("avg_filter", window_n, require_ack))
         return True
 
+    def set_active_freq(self, hz):
+        self.calls.append(("ftd", hz))
+        return True
+
+    def set_active_freq_with_ack(self, hz, require_ack=True):
+        self.calls.append(("ftd", hz, require_ack))
+        return True
+
     def read_latest_data(self, *args, **kwargs):
         self._counter += 1
         return "YGAS,010,0400.0,01.0,0003.0,00.5,1.0000,1.0001,0.2000,0.2001,04000,05000,02000,020.00,021.00,101.00,OK"
+
+    def _drain_stream_lines(self, *args, **kwargs):
+        self.calls.append(("drain_stream", args, kwargs))
+        return [
+            "YGAS,010,0400.0,01.0,0003.0,00.5,1.0000,1.0001,0.2000,0.2001,04000,05000,02000,020.00,021.00,101.00,OK"
+        ]
 
     def parse_line_mode2(self, _line):
         self._counter += 1
@@ -151,13 +168,13 @@ class _FakeGasAnalyzer:
             "h2o_mmol": 1.0 + self._counter * 0.01,
             "co2_ratio_f": 1.0 + self._counter * 0.001,
             "h2o_ratio_f": 0.2 + self._counter * 0.001,
-            "pressure_kpa": 101.0 + self._counter * 0.01,
+            "pressure_kpa": self.pressure_kpa + self._counter * 0.001,
             "chamber_temp_c": 20.0,
             "case_temp_c": 21.0,
             "ref_signal": 4000.0,
             "co2_signal": 5000.0,
             "h2o_signal": 2000.0,
-            "id": "010",
+            "id": self.device_id,
             "mode": 2,
         }
 
@@ -168,6 +185,137 @@ class _FakeGasAnalyzer:
 class _FakePressureGauge:
     def read_pressure(self):
         return 1000.5
+
+    def close(self):
+        return None
+
+
+class _FakeControlledPressureGauge:
+    def __init__(self, pace):
+        self.pace = pace
+
+    def read_pressure(self, **kwargs):
+        return float(self.pace.pressure_hpa)
+
+    def read_pressure_fast(self, **kwargs):
+        return float(self.pace.pressure_hpa)
+
+    def close(self):
+        return None
+
+
+class _FakePace:
+    def __init__(self):
+        self.calls = []
+        self.output_state = 0
+        self.isolation_state = 1
+        self.vent_status = 0
+        self.hold_active = False
+        self.pressure_hpa = 1000.6
+        self.setpoint_hpa = 1000.6
+
+    def stop_atmosphere_hold(self):
+        self.calls.append(("stop_atmosphere_hold",))
+        self.hold_active = False
+        return True
+
+    def set_units_hpa(self):
+        self.calls.append(("set_units_hpa",))
+        return True
+
+    def set_in_limits(self, pct, time_s):
+        self.calls.append(("set_in_limits", pct, time_s))
+        return True
+
+    def set_output_mode_active(self):
+        self.calls.append(("set_output_mode_active",))
+        return True
+
+    def set_slew_mode_linear(self):
+        self.calls.append(("set_slew_mode_linear",))
+        return True
+
+    def set_slew_rate(self, value_hpa_per_s):
+        self.calls.append(("set_slew_rate", value_hpa_per_s))
+        return True
+
+    def set_overshoot_allowed(self, enabled):
+        self.calls.append(("set_overshoot_allowed", enabled))
+        return True
+
+    def set_output(self, enabled):
+        self.calls.append(("set_output", enabled))
+        self.output_state = 1 if enabled else 0
+        return True
+
+    def vent(self, enabled=True):
+        self.calls.append(("vent", enabled))
+        self.vent_status = 1 if enabled else 0
+        return True
+
+    def wait_for_vent_idle(self, **kwargs):
+        self.calls.append(("wait_for_vent_idle", dict(kwargs)))
+        self.vent_status = 0
+        return 0
+
+    def set_isolation_open(self, is_open):
+        self.calls.append(("set_isolation_open", is_open))
+        self.isolation_state = 1 if is_open else 0
+        return True
+
+    def exit_atmosphere_mode(self, **kwargs):
+        self.calls.append(("exit_atmosphere_mode", dict(kwargs)))
+        self.hold_active = False
+        self.output_state = 0
+        self.vent_status = 0
+        self.isolation_state = 1
+        return 0
+
+    def set_setpoint(self, value_hpa):
+        self.calls.append(("set_setpoint", value_hpa))
+        self.setpoint_hpa = float(value_hpa)
+        self.pressure_hpa = float(value_hpa)
+        return True
+
+    def enable_control_output(self, **kwargs):
+        self.calls.append(("enable_control_output", dict(kwargs)))
+        self.output_state = 1
+        self.isolation_state = 1
+        self.vent_status = 0
+        return True
+
+    def enter_atmosphere_mode(self, **kwargs):
+        self.calls.append(("enter_atmosphere_mode", dict(kwargs)))
+        self.output_state = 0
+        self.isolation_state = 1
+        self.vent_status = 1
+        self.hold_active = bool(kwargs.get("hold_open"))
+
+    def is_atmosphere_hold_active(self):
+        return self.hold_active
+
+    def get_output_state(self):
+        return self.output_state
+
+    def get_isolation_state(self):
+        return self.isolation_state
+
+    def get_vent_status(self):
+        return self.vent_status
+
+    def read_pressure(self):
+        return self.pressure_hpa
+
+    def set_vent_after_valve_open(self, open_after_vent):
+        self.calls.append(("set_vent_after_valve_open", open_after_vent))
+        return True
+
+    def get_vent_after_valve_open(self):
+        self.calls.append(("get_vent_after_valve_open",))
+        return False
+
+    def vent_status_allows_control(self, status):
+        return int(status) in {0, 2, 3, 4}
 
     def close(self):
         return None
@@ -243,6 +391,87 @@ def test_validate_offline_run_generates_expected_tables(tmp_path: Path) -> None:
     assert (out_dir / "fit_input_overview.csv").exists()
 
 
+def test_validate_offline_run_marks_single_point_as_fit_skipped(tmp_path: Path) -> None:
+    run_dir = tmp_path / "single_point_run"
+    run_dir.mkdir()
+    cfg = _base_cfg(tmp_path / "logs")
+    (run_dir / "runtime_config_snapshot.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    rows = [dict(row) for row in _offline_samples() if row["point_row"] == 1]
+    for row in rows:
+        row.pop("pressure_target_hpa", None)
+    _write_csv(run_dir / "samples_single_point.csv", rows)
+
+    assert (
+        validate_offline_run.main(
+            ["--run-dir", str(run_dir), "--gas", "co2", "--mode", "current", "--output-dir", str(tmp_path / "out")]
+        )
+        == 0
+    )
+
+    with (tmp_path / "out" / "fit_input_overview.csv").open("r", encoding="utf-8-sig", newline="") as handle:
+        fit_rows = list(csv.DictReader(handle))
+    with (tmp_path / "out" / "conclusion_summary.csv").open("r", encoding="utf-8-sig", newline="") as handle:
+        conclusion_rows = list(csv.DictReader(handle))
+
+    assert fit_rows[0]["status"] == "fit_skipped_insufficient_points"
+    assert conclusion_rows[0]["risk_level"] == "warn"
+    assert conclusion_rows[0]["fit_error_count"] == "0"
+    assert conclusion_rows[0]["fit_skipped_count"] == "1"
+
+
+def test_analyze_sample_rows_keeps_missing_prefixed_analyzer_frames_unusable(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["gas_analyzers"] = [
+        {"enabled": True, "name": "GA01", "device_id": "010"},
+        {"enabled": True, "name": "GA02", "device_id": "011"},
+    ]
+    rows = []
+    for idx in range(3):
+        rows.append(
+            {
+                "point_row": 1,
+                "point_phase": "co2",
+                "point_tag": "open_flow_900ppm",
+                "co2_ppm_target": 897.04,
+                "thermometer_temp_c": 24.5,
+                "pressure_gauge_hpa": 1011.8,
+                "ga01_device_id": "010",
+                "ga01_frame_has_data": True,
+                "ga01_frame_usable": True,
+                "ga01_raw": (
+                    f"YGAS,010,{838 + idx:.3f},01.0,0003.0,00.5,1.2850,1.2851,"
+                    "0.2,0.2,04000,05000,02000,020.00,021.00,101.00"
+                ),
+                "ga01_id": "010",
+                "ga01_mode": 2,
+                "ga01_mode2_field_count": 16,
+                "ga01_mode2_contract_status": "pass",
+                "ga01_mode2_contract_reason": "ok",
+                "ga01_mode2_qc_status": "pass",
+                "ga01_mode2_qc_reason": "可用",
+                "ga01_co2_ppm": 838 + idx,
+                "ga01_h2o_mmol": 1.0,
+                "ga01_co2_ratio_f": 1.285,
+                "ga01_h2o_ratio_f": 0.2,
+                "ga01_pressure_kpa": 101.0,
+                "ga02_frame_has_data": False,
+                "ga02_frame_usable": False,
+                "ga02_mode2_contract_status": "missing",
+                "ga02_mode2_contract_reason": "no_frame",
+                "ga02_mode2_qc_status": "missing",
+                "ga02_mode2_qc_reason": "no_frame",
+            }
+        )
+
+    tables = analyze_sample_rows(rows, cfg=cfg, gas="co2", modes=("current",))
+    frame_by_analyzer = {row["Analyzer"]: row for row in tables["frame_quality_summary"]}
+
+    assert frame_by_analyzer["GA01"]["TotalFrames"] == 3
+    assert frame_by_analyzer["GA01"]["ValidFrames"] == 3
+    assert frame_by_analyzer["GA02"]["TotalFrames"] == 0
+    assert frame_by_analyzer["GA02"]["ValidFrames"] == 0
+
+
 def test_merged_sidecar_merge_keeps_gas_and_water_separate() -> None:
     older = Path("D:/old")
     newer = Path("D:/new")
@@ -268,7 +497,8 @@ def test_merged_sidecar_merge_keeps_gas_and_water_separate() -> None:
     water_key = run_v1_merged_calibration_sidecar._point_identity_from_row(
         {"流程阶段": "h2o", "温箱目标温度C": 20, "湿度发生器目标温度C": 20, "湿度发生器目标湿度%": 70, "目标压力hPa": 500}
     )
-    assert selected_sources[water_key] == str(older)
+    assert selected_sources[water_key]["source_run"] == str(older)
+    assert selected_sources[water_key]["phase"] == "h2o"
 
 
 def test_merged_sidecar_builds_verify_subset_points_workbook(tmp_path: Path) -> None:
@@ -593,6 +823,303 @@ def test_validate_pressure_only_exports_pressure_checks(monkeypatch, tmp_path: P
     assert validate_pressure_only.main(["--config", str(cfg_path), "--output-dir", str(tmp_path / "out"), "--pressure-points", "ambient,900", "--count", "2", "--interval-s", "0", "--no-prompt"]) == 0
     run_dir = next((tmp_path / "out").glob("pressure_only_*"))
     assert (run_dir / "pressure_source_check.csv").exists()
+
+
+def test_validate_pressure_only_runtime_defaults_extend_pressure_fast_signal_wait(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg.setdefault("workflow", {}).setdefault("sampling", {})["pre_sample_freshness_timeout_s"] = 1.0
+    cfg["workflow"]["sampling"]["pre_sample_signal_max_age_s"] = 0.35
+    cfg["workflow"]["analyzer_mode2_init"] = {
+        "read_first_before_config": False,
+        "sniff_stream_before_config": False,
+        "write_config_on_read_first_fail": True,
+        "send_active_freq": True,
+        "read_first_attempts": 2,
+        "ready_consecutive_frames": 1,
+        "read_first_retry_delay_s": 0.01,
+    }
+
+    runtime_cfg = validate_pressure_only._prepare_runtime_cfg(cfg)
+    validate_pressure_only._apply_pressure_only_sampling_runtime_defaults(
+        runtime_cfg,
+        pre_sample_freshness_timeout_s=3.0,
+        pre_sample_signal_max_age_s=1.0,
+    )
+
+    sampling_cfg = runtime_cfg["workflow"]["sampling"]
+    assert sampling_cfg["pre_sample_freshness_timeout_s"] == 3.0
+    assert sampling_cfg["pre_sample_signal_max_age_s"] == 1.0
+    assert runtime_cfg["devices"]["relay"]["enabled"] is False
+    assert runtime_cfg["devices"]["humidity_generator"]["enabled"] is False
+    init_cfg = runtime_cfg["workflow"]["analyzer_mode2_init"]
+    assert init_cfg["read_first_before_config"] is True
+    assert init_cfg["sniff_stream_before_config"] is True
+    assert init_cfg["write_config_on_read_first_fail"] is False
+    assert init_cfg["send_active_freq"] is False
+    assert init_cfg["read_first_attempts"] >= 10
+    assert init_cfg["read_first_retry_delay_s"] >= 0.2
+    assert runtime_cfg["metadata"]["pressure_only_analyzer_startup_policy"] == (
+        "read_first_no_startup_config_writes"
+    )
+
+
+def test_validate_pressure_only_can_explicitly_configure_1hz_active_upload(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["gas_analyzers"] = [
+        {"name": "ga01", "active_send": True, "ftd_hz": 10},
+        {"name": "ga02", "active_send": False, "ftd_hz": 10},
+    ]
+    cfg["workflow"]["analyzer_mode2_init"] = {
+        "read_first_before_config": True,
+        "sniff_stream_before_config": True,
+        "write_config_on_read_first_fail": False,
+        "send_active_freq": False,
+    }
+
+    runtime_cfg = validate_pressure_only._prepare_runtime_cfg(cfg, analyzer_active_upload_hz=1)
+
+    assert runtime_cfg["devices"]["gas_analyzer"]["active_send"] is True
+    assert runtime_cfg["devices"]["gas_analyzer"]["ftd_hz"] == 1
+    assert [item["ftd_hz"] for item in runtime_cfg["devices"]["gas_analyzers"]] == [1, 1]
+    assert [item["active_send"] for item in runtime_cfg["devices"]["gas_analyzers"]] == [True, True]
+    init_cfg = runtime_cfg["workflow"]["analyzer_mode2_init"]
+    assert init_cfg["read_first_before_config"] is False
+    assert init_cfg["sniff_stream_before_config"] is False
+    assert init_cfg["write_config_on_read_first_fail"] is True
+    assert init_cfg["send_active_freq"] is True
+    assert runtime_cfg["metadata"]["pressure_only_analyzer_startup_policy"] == (
+        "controlled_active_upload_1hz_startup_config"
+    )
+    assert runtime_cfg["metadata"]["ftd_write_enabled"] is True
+
+
+def test_validate_pressure_only_cli_defaults_to_1hz_active_upload() -> None:
+    args = validate_pressure_only._parse_args(["--config", "cfg.json"])
+
+    assert args.analyzer_active_upload_hz == 1
+    assert args.no_analyzer_active_upload_config is False
+
+
+def test_validate_pressure_only_verifies_continuous_atmosphere_hold(monkeypatch, tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["pressure_controller"]["enabled"] = True
+    cfg["devices"]["pressure_gauge"]["enabled"] = True
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+    fake_analyzer = _FakeGasAnalyzer()
+    fake_pace = _FakePace()
+
+    monkeypatch.setattr(
+        validate_pressure_only,
+        "_build_devices",
+        lambda cfg, io_logger=None: {
+            "gas_analyzer": fake_analyzer,
+            "gas_analyzer_01": fake_analyzer,
+            "pressure_gauge": _FakePressureGauge(),
+            "pace": fake_pace,
+        },
+    )
+    monkeypatch.setattr(validate_pressure_only, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_pressure_only.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--pressure-points",
+                "ambient",
+                "--count",
+                "3",
+                "--interval-s",
+                "0",
+                "--no-prompt",
+                "--require-continuous-atmosphere-hold",
+            ]
+        )
+        == 0
+    )
+    run_dir = next((tmp_path / "out").glob("pressure_only_*"))
+    quick_check = next(run_dir.glob("pressure_channel_quick_check_*.csv"))
+    rows = list(csv.DictReader(quick_check.open("r", encoding="utf-8-sig", newline="")))
+    assert rows
+    assert {row["pressure_channel_row_status"] for row in rows} == {"paired"}
+    assert {row["pressure_atmosphere_hold_status"] for row in rows} == {"verified"}
+    assert {row["pressure_atmosphere_hold_active"] for row in rows} == {"True"}
+    samples = next(run_dir.glob("samples_*.csv"))
+    sample_rows = list(csv.DictReader(samples.open("r", encoding="utf-8-sig", newline="")))
+    assert sample_rows
+    assert {row["pressure_atmosphere_hold_status"] for row in sample_rows} == {"verified"}
+    assert {row["pressure_atmosphere_hold_active"] for row in sample_rows} == {"True"}
+    assert any(call[0] == "enter_atmosphere_mode" for call in fake_pace.calls)
+
+
+def test_validate_pressure_only_controls_non_ambient_pressure_no_write(monkeypatch, tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["pressure_controller"]["enabled"] = True
+    cfg["devices"]["pressure_gauge"]["enabled"] = True
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+    fake_analyzer = _FakeGasAnalyzer()
+    fake_pace = _FakePace()
+    fake_gauge = _FakeControlledPressureGauge(fake_pace)
+
+    monkeypatch.setattr(
+        validate_pressure_only,
+        "_build_devices",
+        lambda cfg, io_logger=None: {
+            "gas_analyzer": fake_analyzer,
+            "gas_analyzer_01": fake_analyzer,
+            "pressure_gauge": fake_gauge,
+            "pace": fake_pace,
+        },
+    )
+    monkeypatch.setattr(validate_pressure_only, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_pressure_only.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--run-id",
+                "controlled_pressure",
+                "--pressure-points",
+                "ambient,900",
+                "--count",
+                "2",
+                "--interval-s",
+                "0",
+                "--no-prompt",
+                "--require-continuous-atmosphere-hold",
+                "--control-pressure-points",
+                "--pressure-control-stable-s",
+                "0",
+                "--pressure-control-timeout-s",
+                "2",
+                "--pressure-control-atmosphere-release-wait-s",
+                "0",
+                "--pressure-control-post-stable-wait-s",
+                "0",
+                "--pressure-control-analyzer-stream-flush-s",
+                "0.01",
+            ]
+        )
+        == 0
+    )
+
+    run_dir = tmp_path / "out" / "controlled_pressure"
+    sample_rows = list(csv.DictReader(next(run_dir.glob("samples_*.csv")).open("r", encoding="utf-8-sig", newline="")))
+    controlled_rows = [row for row in sample_rows if row.get("pressure_control_enabled") == "True"]
+    assert controlled_rows
+    assert {row["pressure_control_status"] for row in controlled_rows} == {"verified"}
+    assert {row["pressure_control_target_hpa"] for row in controlled_rows} == {"900.0"}
+    assert {row["pressure_control_atmosphere_release_status"] for row in controlled_rows} == {"verified"}
+    assert {row["pressure_control_atmosphere_release_vent_after_valve_open"] for row in controlled_rows} == {"False"}
+    assert {row["pressure_control_analyzer_stream_flush_status"] for row in controlled_rows} == {"done"}
+    assert {row["pressure_control_controls_water_or_gas_routes"] for row in controlled_rows} == {"False"}
+    assert {row["pressure_control_writes_senco"] for row in controlled_rows} == {"False"}
+    assert {row["pressure_control_writes_device_id"] for row in controlled_rows} == {"False"}
+    quick_check_rows = list(
+        csv.DictReader(next(run_dir.glob("pressure_channel_quick_check_*.csv")).open("r", encoding="utf-8-sig", newline=""))
+    )
+    assert {row["pressure_mode"] for row in quick_check_rows if row["com22_pressure_hpa"] == "900.0"} == {
+        "pace_no_write_controlled"
+    }
+    assert any(call[0] == "set_vent_after_valve_open" and call[1] is False for call in fake_pace.calls)
+    assert any(call[0] == "drain_stream" for call in fake_analyzer.calls)
+    assert any(call[0] == "set_setpoint" and call[1] == 900.0 for call in fake_pace.calls)
+    assert any(call[0] == "enable_control_output" for call in fake_pace.calls)
+
+
+def test_validate_pressure_only_exports_all_active_analyzer_pressure_channels(monkeypatch, tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["pressure_controller"]["enabled"] = True
+    cfg["devices"]["pressure_gauge"]["enabled"] = True
+    cfg["devices"]["gas_analyzers"] = [
+        {"enabled": True, "name": "ga01", "port": "COM1", "baud": 115200, "device_id": "010", "active_send": True, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
+        {"enabled": True, "name": "ga02", "port": "COM2", "baud": 115200, "device_id": "011", "active_send": True, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
+    ]
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+    reference_path = tmp_path / "pressure_reference.json"
+    _write_json(
+        reference_path,
+        {
+            "device_id": "COM22-DPG-001",
+            "certificate_id": "P-CERT-001",
+            "certificate_uncertainty": 0.15,
+            "valid_until": "2027-01-01",
+            "certificate_hash": "pressure-cert-hash",
+        },
+    )
+    fake_ga01 = _FakeGasAnalyzer(pressure_kpa=100.0, device_id="010")
+    fake_ga02 = _FakeGasAnalyzer(pressure_kpa=101.0, device_id="011")
+    fake_pace = _FakePace()
+
+    monkeypatch.setattr(
+        validate_pressure_only,
+        "_build_devices",
+        lambda cfg, io_logger=None: {
+            "gas_analyzer": fake_ga01,
+            "gas_analyzer_01": fake_ga01,
+            "gas_analyzer_02": fake_ga02,
+            "pressure_gauge": _FakePressureGauge(),
+            "pace": fake_pace,
+        },
+    )
+    monkeypatch.setattr(validate_pressure_only, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_pressure_only.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--run-id",
+                "multi_pressure",
+                "--pressure-reference-json",
+                str(reference_path),
+                "--pressure-points",
+                "ambient",
+                "--count",
+                "3",
+                "--interval-s",
+                "0",
+                "--no-prompt",
+                "--require-continuous-atmosphere-hold",
+            ]
+        )
+        == 0
+    )
+
+    run_dir = tmp_path / "out" / "multi_pressure"
+    summary_path = run_dir / "pressure_channel_multi_analyzer_summary.csv"
+    rows = list(csv.DictReader(summary_path.open("r", encoding="utf-8-sig", newline="")))
+    by_prefix = {row["analyzer_prefix"]: row for row in rows}
+
+    assert set(by_prefix) == {"ga01", "ga02"}
+    assert by_prefix["ga01"]["analyzer_device_id"] == "010"
+    assert by_prefix["ga02"]["analyzer_device_id"] == "011"
+    assert "acquisition channel" in by_prefix["ga01"]["identity_note"]
+    assert by_prefix["ga01"]["status"] == "pass"
+    assert by_prefix["ga01"]["allowed_for_co2_h2o_formal_work"] == "True"
+    assert by_prefix["ga02"]["status"] == "fail"
+    assert by_prefix["ga02"]["allowed_for_co2_h2o_formal_work"] == "False"
+    assert (run_dir / "pressure_channel_validation" / "pressure_validation_summary.csv").exists()
+    assert (run_dir / "pressure_channel_validation_ga02" / "pressure_validation_summary.csv").exists()
+    assert (run_dir / "pressure_channel_validation_all" / "pressure_validation_summary.csv").exists()
+    assert next(run_dir.glob("pressure_channel_quick_check_multi_pressure.csv")).exists()
+    assert next(run_dir.glob("pressure_channel_quick_check_multi_pressure_ga02.csv")).exists()
+    all_quick_check = next(run_dir.glob("pressure_channel_quick_check_multi_pressure_all.csv"))
+    all_rows = list(csv.DictReader(all_quick_check.open("r", encoding="utf-8-sig", newline="")))
+    assert {row["analyzer_prefix"] for row in all_rows} == {"ga01", "ga02"}
+    sample_rows = list(csv.DictReader(next(run_dir.glob("samples_*.csv")).open("r", encoding="utf-8-sig", newline="")))
+    assert {row["analyzer_sampling_worker_mode"] for row in sample_rows} == {"per_device"}
+    assert {row["analyzer_sampling_active_labels"] for row in sample_rows} == {"ga01,ga02"}
 
 
 def test_verify_coefficient_roundtrip_with_same_value_write(monkeypatch, tmp_path: Path) -> None:

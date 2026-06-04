@@ -47,12 +47,22 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             "sampling_worker_interval_s": 0.2,
             "passive_round_robin_enabled": True,
             "passive_round_robin_interval_s": 0.25,
+            "passive_per_device_workers_enabled": True,
             "active_ring_buffer_size": 128,
             "active_frame_max_anchor_delta_ms": 250.0,
             "active_frame_right_match_max_ms": 120.0,
             "active_frame_stale_ms": 500.0,
             "active_drain_poll_s": 0.05,
             "anchor_match_enabled": True,
+        },
+        "serial_port_binding": {
+            "reference_bank_shift_enabled": False,
+            "reference_source_bank": ["COM24", "COM25", "COM26", "COM27", "COM28", "COM29", "COM30", "COM31"],
+            "reference_target_bank": ["COM16", "COM17", "COM18", "COM19", "COM20", "COM21", "COM22", "COM23"],
+            "gas_analyzer_ports_protected": True,
+            "require_available_port_inventory": True,
+            "require_protocol_match": False,
+            "windows_list_ports_inventory_enabled": False,
         },
         "sampling": {
             "interval_s": 1.0,
@@ -293,6 +303,15 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
         },
         "ratio_poly_fit": {
             "pressure_source_preference": "reference_first",
+            "formal_pressure_modes": ["", "ambient_open"],
+            "formal_fit_roles": [
+                "",
+                "component_calibration",
+                "formal_component_calibration",
+                "main_component_calibration",
+                "primary_component_calibration",
+            ],
+            "include_sealed_pressure_points_in_formal_fit": False,
         }
     },
     "validation": {

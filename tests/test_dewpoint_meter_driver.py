@@ -5,7 +5,7 @@ from gas_calibrator.devices.serial_base import ReplaySerial
 def test_dewpoint_meter_supports_replay_read_and_status() -> None:
     replay = ReplaySerial(
         on_write=lambda data, transport: transport.queue_buffer(
-            "001_GetCurData_1.20_23.40_0_0_0_0_0_45.60_TRUE_FALSE_TRUE_FALSE_END"
+            "001_GetCurData_1.20_23.40_1.58_0_0_0_0_45.60_TRUE_FALSE_TRUE_FALSE_END"
         )
     )
     dev = dewpoint_meter.DewpointMeter("COM1", station="001", serial_factory=lambda **_: replay)
@@ -18,9 +18,11 @@ def test_dewpoint_meter_supports_replay_read_and_status() -> None:
     assert row["ok"] is True
     assert row["dewpoint_c"] == 1.2
     assert row["temp_c"] == 23.4
+    assert row["flow_lpm"] == 1.58
     assert row["rh_pct"] == 45.6
     assert status["station"] == "001"
     assert status["dewpoint_c"] == 1.2
+    assert status["flow_lpm"] == 1.58
 
 
 def test_dewpoint_meter_returns_not_ok_when_no_frame_arrives() -> None:

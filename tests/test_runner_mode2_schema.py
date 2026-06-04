@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from gas_calibrator.data.points import CalibrationPoint
@@ -62,6 +63,17 @@ def test_collect_samples_always_contains_mode2_schema(tmp_path: Path) -> None:
         assert rows and len(rows) == 1
         row = rows[0]
         required = [
+            "mode2_schema_version",
+            "mode2_min_field_count",
+            "mode2_known_field_count",
+            "mode2_extra_count",
+            "mode2_tokens_json",
+            "mode2_fields_json",
+            "mode2_unknown_fields_json",
+            "mode2_contract_status",
+            "mode2_contract_reason",
+            "mode2_qc_status",
+            "mode2_qc_reason",
             "co2_ppm",
             "h2o_mmol",
             "co2_density",
@@ -77,11 +89,23 @@ def test_collect_samples_always_contains_mode2_schema(tmp_path: Path) -> None:
             "case_temp_c",
             "pressure_kpa",
             "status",
+            "ga01_mode2_schema_version",
+            "ga01_mode2_tokens_json",
+            "ga01_mode2_contract_status",
+            "ga01_mode2_qc_status",
             "ga01_co2_ppm",
             "ga01_pressure_kpa",
             "ga01_status",
         ]
         for key in required:
             assert key in row
+        assert row["mode2_contract_status"] == "pass"
+        assert row["mode2_qc_status"] == "pass"
+        assert row["ga01_mode2_contract_status"] == "pass"
+        assert row["ga01_mode2_qc_status"] == "pass"
+        assert json.loads(row["mode2_tokens_json"])[0:2] == ["YGAS", "097"]
+        fields = json.loads(row["ga01_mode2_fields_json"])
+        assert fields["co2_ratio_raw"] == "1.2430"
+        assert fields["field_16"] == "106.06"
     finally:
         logger.close()

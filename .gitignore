@@ -27,6 +27,18 @@ src/gas_calibrator/output/
 _debug_test/
 audit/**/raw/
 
+# One-off local run sentinels and diagnostic exports
+/latest_*.txt
+/*_audit.csv
+/*_timeline.csv
+/*_diff.csv
+/*_forensic.csv
+/*_root_cause*.csv
+/d64_run_summary.json
+/configs/_tmp_*
+/configs/*_points.xlsx
+/configs/points_v1_5_*_nowait.xlsx
+
 # One-off local probe/output folders
 pace_isol_probe_20260306_131122/
 

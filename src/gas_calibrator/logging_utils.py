@@ -12,7 +12,7 @@ import time
 import traceback
 from datetime import datetime
 from pathlib import Path
-from statistics import mean, stdev
+from statistics import mean, median, stdev
 from typing import Any, Dict, List, Optional
 
 from openpyxl import Workbook, load_workbook
@@ -160,7 +160,20 @@ _FIELD_LABELS = {
     "raw": "原始报文",
     "id": "设备ID",
     "mode": "模式",
+    "mode2_schema_version": "MODE2合同版本",
     "mode2_field_count": "MODE2字段数",
+    "mode2_min_field_count": "MODE2最少字段数",
+    "mode2_known_field_count": "MODE2已知字段数",
+    "mode2_extra_count": "MODE2扩展字段数",
+    "mode2_tokens_json": "MODE2字段序列JSON",
+    "mode2_fields_json": "MODE2字段映射JSON",
+    "mode2_unknown_fields_json": "MODE2扩展字段JSON",
+    "mode2_contract_status": "MODE2数据合同状态",
+    "mode2_contract_reason": "MODE2数据合同原因",
+    "mode2_qc_status": "MODE2质控状态",
+    "mode2_qc_reason": "MODE2质控原因",
+    "analyzer_identity_status": "分析仪身份状态",
+    "analyzer_identity_reason": "分析仪身份原因",
     "frame_has_data": "分析仪有帧",
     "frame_usable": "分析仪可用帧",
     "frame_status": "分析仪帧状态",
@@ -343,7 +356,18 @@ _ANALYZER_SAMPLE_FIELDS = [
     "raw",
     "id",
     "mode",
+    "mode2_schema_version",
     "mode2_field_count",
+    "mode2_min_field_count",
+    "mode2_known_field_count",
+    "mode2_extra_count",
+    "mode2_tokens_json",
+    "mode2_fields_json",
+    "mode2_unknown_fields_json",
+    "mode2_contract_status",
+    "mode2_contract_reason",
+    "mode2_qc_status",
+    "mode2_qc_reason",
     "frame_cache_ts",
     "frame_cache_age_ms",
     "frame_source",
@@ -1344,6 +1368,31 @@ class RunLogger:
         summary_cfg = workflow_cfg.get("summary_alignment", {}) if isinstance(workflow_cfg, dict) else {}
         return bool(summary_cfg.get("reference_on_aligned_rows", True))
 
+    def _summary_outlier_filter_cfg(self) -> Optional[Dict[str, Any]]:
+        workflow_cfg = self.cfg.get("workflow", {}) if isinstance(self.cfg, dict) else {}
+        sampling_cfg = workflow_cfg.get("sampling", {}) if isinstance(workflow_cfg, dict) else {}
+        filter_cfg = sampling_cfg.get("summary_outlier_filter", {}) if isinstance(sampling_cfg, dict) else {}
+        if not isinstance(filter_cfg, dict) or not bool(filter_cfg.get("enabled", False)):
+            return None
+        return filter_cfg
+
+    @staticmethod
+    def _summary_outlier_thresholds(filter_cfg: Dict[str, Any]) -> Dict[str, float]:
+        raw = filter_cfg.get("absolute_thresholds", {})
+        thresholds: Dict[str, float] = {
+            "co2_ratio_f": 0.001,
+            "h2o_ratio_f": 0.001,
+        }
+        if isinstance(raw, dict):
+            for key, value in raw.items():
+                try:
+                    threshold = float(value)
+                except Exception:
+                    continue
+                if threshold > 0:
+                    thresholds[str(key)] = threshold
+        return thresholds
+
     @staticmethod
     def _sample_prefixed_value(row: Dict[str, Any], prefix: str, key: str) -> Any:
         prefixed_key = f"{prefix}_{key}"
@@ -1356,6 +1405,8 @@ class RunLogger:
     def _sample_prefixed_has_data(row: Dict[str, Any], prefix: str) -> bool:
         value = row.get(f"{prefix}_frame_has_data")
         if value not in (None, ""):
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "y"}
             return bool(value)
         return any(
             RunLogger._sample_prefixed_value(row, prefix, key) not in (None, "")
@@ -1366,6 +1417,8 @@ class RunLogger:
     def _sample_prefixed_usable(row: Dict[str, Any], prefix: str) -> bool:
         value = row.get(f"{prefix}_frame_usable")
         if value not in (None, ""):
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "y"}
             return bool(value)
         return RunLogger._sample_prefixed_has_data(row, prefix)
 
@@ -1380,7 +1433,72 @@ class RunLogger:
         sheet_rows = rows
         first = sheet_rows[0] if sheet_rows else {}
         analyzer_rows = [row for row in sheet_rows if self._sample_prefixed_usable(row, prefix)]
-        aligned_rows = analyzer_rows or sheet_rows
+        filter_cfg = self._summary_outlier_filter_cfg()
+        filter_keys: List[str] = []
+        filtered_outlier_indices: set[int] = set()
+        filtered_outlier_counts: Dict[str, int] = {}
+        if filter_cfg is not None and analyzer_rows:
+            thresholds = self._summary_outlier_thresholds(filter_cfg)
+            configured_keys = filter_cfg.get("keys")
+            if isinstance(configured_keys, (list, tuple)):
+                filter_keys = [str(key) for key in configured_keys if str(key) in thresholds]
+            else:
+                filter_keys = [str(key) for key in thresholds]
+            try:
+                min_samples_for_filter = max(3, int(filter_cfg.get("min_samples", 5) or 5))
+            except Exception:
+                min_samples_for_filter = 5
+            try:
+                max_outliers_per_key = max(0, int(filter_cfg.get("max_outliers_per_key", 1) or 1))
+            except Exception:
+                max_outliers_per_key = 1
+            for key in filter_keys:
+                threshold = thresholds.get(key)
+                if threshold is None or threshold <= 0 or max_outliers_per_key <= 0:
+                    continue
+                keyed_values: List[tuple[int, float]] = []
+                for idx, row in enumerate(sheet_rows):
+                    if not self._sample_prefixed_usable(row, prefix):
+                        continue
+                    value = self._sample_prefixed_value(row, prefix, key)
+                    if value in (None, ""):
+                        continue
+                    try:
+                        keyed_values.append((idx, float(value)))
+                    except Exception:
+                        continue
+                if len(keyed_values) < min_samples_for_filter:
+                    continue
+                center = median([value for _idx, value in keyed_values])
+                candidates = [
+                    (idx, abs(value - center))
+                    for idx, value in keyed_values
+                    if abs(value - center) > threshold
+                ]
+                candidates.sort(key=lambda item: item[1], reverse=True)
+                selected = [idx for idx, _delta in candidates[:max_outliers_per_key]]
+                for idx in selected:
+                    filtered_outlier_indices.add(idx)
+                if selected:
+                    filtered_outlier_counts[key] = len(selected)
+        filtered_analyzer_rows = [
+            row
+            for idx, row in enumerate(sheet_rows)
+            if self._sample_prefixed_usable(row, prefix) and idx not in filtered_outlier_indices
+        ]
+        aligned_rows = filtered_analyzer_rows or analyzer_rows or sheet_rows
+        if filtered_analyzer_rows:
+            aligned_row_indices = {
+                idx
+                for idx, row in enumerate(sheet_rows)
+                if self._sample_prefixed_usable(row, prefix) and idx not in filtered_outlier_indices
+            }
+        elif analyzer_rows:
+            aligned_row_indices = {
+                idx for idx, row in enumerate(sheet_rows) if self._sample_prefixed_usable(row, prefix)
+            }
+        else:
+            aligned_row_indices = set(range(len(sheet_rows)))
         # Keep the summary reference quantities aligned with this analyzer's usable
         # sample set whenever possible. Otherwise ratio/ppm means may be computed from
         # one subset while Dew/P reference terms come from a different subset.
@@ -1401,8 +1519,8 @@ class RunLogger:
             return self._summary_float(
                 [
                     self._sample_prefixed_value(row, prefix, key)
-                    for row in sheet_rows
-                    if self._sample_prefixed_usable(row, prefix)
+                    for idx, row in enumerate(sheet_rows)
+                    if self._sample_prefixed_usable(row, prefix) and idx in aligned_row_indices
                 ]
             )
 
@@ -1410,8 +1528,8 @@ class RunLogger:
             return self._summary_std(
                 [
                     self._sample_prefixed_value(row, prefix, key)
-                    for row in sheet_rows
-                    if self._sample_prefixed_usable(row, prefix)
+                    for idx, row in enumerate(sheet_rows)
+                    if self._sample_prefixed_usable(row, prefix) and idx in aligned_row_indices
                 ]
             )
 
@@ -1444,6 +1562,18 @@ class RunLogger:
                 f"aligned_count={len(aligned_rows)}"
             ),
         )
+        if filtered_outlier_indices:
+            self.log_io(
+                port="LOG",
+                device="run_logger",
+                direction="EVENT",
+                command="analyzer-summary-outlier-filter",
+                response=(
+                    f"label={str(label or '').upper()} "
+                    f"filtered_frames={len(filtered_outlier_indices)} "
+                    f"keys={json.dumps(filtered_outlier_counts, ensure_ascii=False)}"
+                ),
+            )
         if _phase_display(first.get("point_phase")) == "水路":
             self.log_io(
                 port="LOG",
@@ -1458,7 +1588,7 @@ class RunLogger:
                 ),
             )
 
-        return {
+        summary_row = {
             "NUM": num,
             "PointRow": first.get("point_row"),
             "PointPhase": _phase_display(first.get("point_phase")),
@@ -1501,6 +1631,13 @@ class RunLogger:
             "T2": _analyzer_mean("case_temp_c"),
             "BAR": _analyzer_mean("pressure_kpa"),
         }
+        if filter_cfg is not None:
+            summary_row["SummaryFrames"] = len(aligned_rows) if analyzer_rows else 0
+            summary_row["OutlierFilteredFrames"] = len(filtered_outlier_indices)
+            summary_row["OutlierFilterKeys"] = ",".join(
+                f"{key}:{count}" for key, count in sorted(filtered_outlier_counts.items())
+            )
+        return summary_row
 
     def _next_analyzer_summary_num(self, analyzer_label: str) -> int:
         path = self.analyzer_summary_book_path

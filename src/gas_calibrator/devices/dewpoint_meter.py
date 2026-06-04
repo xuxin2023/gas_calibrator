@@ -85,6 +85,8 @@ class DewpointMeter:
             out["dewpoint_c"] = self._to_float(payload[0])
         if len(payload) > 1:
             out["temp_c"] = self._to_float(payload[1])
+        if len(payload) > 2:
+            out["flow_lpm"] = self._to_float(payload[2])
         if len(payload) > 7:
             out["rh_pct"] = self._to_float(payload[7])
 
@@ -205,6 +207,7 @@ class DewpointMeter:
             "station": data.get("station", self.station),
             "dewpoint_c": data.get("dewpoint_c"),
             "temp_c": data.get("temp_c"),
+            "flow_lpm": data.get("flow_lpm"),
             "rh_pct": data.get("rh_pct"),
             "raw": data.get("raw"),
         }

@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from gas_calibrator.devices.gas_analyzer import GasAnalyzer
 
 
@@ -14,6 +18,33 @@ def test_parse_mode2_16_fields() -> None:
     assert parsed["h2o_mmol"] == 6.783
     assert parsed["pressure_kpa"] == 106.06
     assert parsed["status"] is None
+    assert parsed["mode2_schema_version"] == "factory_mode2_16_v1"
+    assert parsed["mode2_min_field_count"] == 16
+    assert parsed["mode2_extra_count"] == 0
+    assert json.loads(parsed["mode2_tokens_json"])[0] == "YGAS"
+    fields = json.loads(parsed["mode2_fields_json"])
+    assert fields["field_16"] == "106.06"
+    assert fields["pressure_kpa"] == "106.06"
+    assert json.loads(parsed["mode2_unknown_fields_json"]) == {}
+
+
+def test_parse_mode2_manual_factory_example_preserves_all_tokens() -> None:
+    line = (
+        "YGAS,087,0479.572,05.198,0958.423,04.249,1.3030,1.3033,"
+        "0.7888,0.7888,03322,04356,02631,002.18,002.31,103.97"
+    )
+    parsed = GasAnalyzer._parse_mode2(line.split(","), line)
+    assert parsed is not None
+    assert parsed["mode2_field_count"] == 16
+    assert parsed["co2_density"] == 958.423
+    assert parsed["h2o_density"] == 4.249
+    assert parsed["ref_signal"] == 3322.0
+    tokens = json.loads(parsed["mode2_tokens_json"])
+    assert tokens == line.split(",")
+    fields = json.loads(parsed["mode2_fields_json"])
+    assert fields["co2_density"] == "0958.423"
+    assert fields["ref_signal"] == "03322"
+    assert fields["field_16"] == "103.97"
 
 
 def test_parse_mode2_17_fields_with_status() -> None:
@@ -35,8 +66,13 @@ def test_parse_mode2_keeps_extra_tokens() -> None:
     parsed = GasAnalyzer._parse_mode2(line.split(","), line)
     assert parsed is not None
     assert parsed["mode2_field_count"] == 19
+    assert parsed["mode2_extra_count"] == 2
     assert parsed["mode2_extra_01"] == "EX1"
     assert parsed["mode2_extra_02"] == "EX2"
+    assert json.loads(parsed["mode2_unknown_fields_json"]) == {
+        "mode2_extra_01": "EX1",
+        "mode2_extra_02": "EX2",
+    }
 
 
 def test_parse_mode2_rejects_short_legacy_like_frame() -> None:
@@ -85,6 +121,16 @@ def test_parse_line_mode2_tolerates_noise_prefix_and_suffix() -> None:
 def test_parse_line_mode2_rejects_nonstandard_frame_without_required_values() -> None:
     ga = GasAnalyzer("COM1")
     assert ga.parse_line_mode2("junk<YGAS,097,T>more-junk") is None
+
+
+def test_parse_line_mode2_rejects_corrupt_split_frame_instead_of_shifted_pressure() -> None:
+    ga = GasAnalyzer("COM1")
+    line = (
+        "YGAS,033,0527.542,47.684,0929.049,34.37.788,0930.192,34.428,"
+        "1.3700,1.3686,0.6250,0.6248,03447,0\n4716,02157,029.41,029.52,100.68"
+    )
+
+    assert ga.parse_line_mode2(line) is None
 
 
 class _FakeSerialForConfig:
@@ -194,15 +240,37 @@ def test_set_mode_and_ftd_use_manual_argument_order() -> None:
     ]
 
 
-def test_device_id_helpers_normalize_version_and_write_id_command() -> None:
+def test_set_active_freq_formats_1hz_as_two_digit_ftd_value() -> None:
+    ga = GasAnalyzer("COM1")
+    fake = _FakeSerialForConfig()
+    ga.ser = fake
+
+    assert ga.set_active_freq(1) is True
+
+    assert fake.writes == ["FTD,YGAS,FFF,01\r\n"]
+
+
+def test_device_id_helpers_normalize_version_and_block_default_id_write() -> None:
     ga = GasAnalyzer("COM1")
     fake = _FakeSerialForConfig()
     ga.ser = fake
 
     assert GasAnalyzer.normalize_software_version("legacy") == GasAnalyzer.SOFTWARE_VERSION_PRE_V5
     assert GasAnalyzer.normalize_software_version("v5") == GasAnalyzer.SOFTWARE_VERSION_V5_PLUS
-    assert ga.set_device_id("7") is True
+    with pytest.raises(PermissionError, match="device ID writes are blocked"):
+        ga.set_device_id("7")
 
+    assert ga.device_id == "000"
+    assert fake.writes == []
+    assert fake.logged[-1]["response"] == "IDENTITY_WRITE_BLOCKED"
+
+
+def test_device_id_write_requires_explicit_identity_maintenance_unlock() -> None:
+    ga = GasAnalyzer("COM1")
+    fake = _FakeSerialForConfig()
+    ga.ser = fake
+
+    assert ga.set_device_id("7", allow_identity_write=True) is True
     assert ga.device_id == "007"
     assert fake.writes == ["ID,YGAS,FFF,007\r\n"]
 

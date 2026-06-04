@@ -1,0 +1,9 @@
+{
+  "device_id": "COM22-DPG-001",
+  "certificate_id": "<pressure-certificate-id>",
+  "certificate_uncertainty": null,
+  "valid_until": "YYYY-MM-DD",
+  "certificate_hash": "<sha256-certificate-file>",
+  "supplier": "<calibration-lab-or-supplier>",
+  "unit": "hPa"
+}

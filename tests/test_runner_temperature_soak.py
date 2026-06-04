@@ -485,6 +485,43 @@ def test_soak_restarts_if_end_out_of_tolerance(monkeypatch, tmp_path: Path) -> N
     assert any("soak done" in msg.lower() for msg in logs)
 
 
+def test_soak_restart_resets_progress_baseline_after_overshoot(monkeypatch, tmp_path: Path) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    # The chamber reaches target, overshoots below tolerance during soak, then recovers.
+    # The recovery must get a fresh progress baseline instead of failing on the earlier best error.
+    chamber = _FakeChamber([10.2, 9.0, 9.0, 9.7, 9.8, 10.0, 10.0], run_state=1)
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "tol": 0.2,
+                    "timeout_s": 0.1,
+                    "continue_wait_while_progress": True,
+                    "progress_window_s": 0.3,
+                    "progress_min_delta_c": 0.05,
+                    "soak_after_reach_s": 0.3,
+                    "reuse_running_in_tol_without_soak": False,
+                    "analyzer_chamber_temp_enabled": False,
+                }
+            }
+        }
+    }
+    logs = []
+    logger = RunLogger(tmp_path)
+    try:
+        r = runner_mod.CalibrationRunner(cfg, {"temp_chamber": chamber}, logger, logs.append, lambda *_: None)
+        assert r._set_temperature(10.0) is True
+    finally:
+        logger.close()
+
+    assert any("soak expired out of tol" in msg.lower() for msg in logs)
+    assert any("soak done" in msg.lower() for msg in logs)
+    assert not any("stalled before reaching target" in msg.lower() for msg in logs)
+
+
 def test_temperature_change_keeps_running_chamber_on_target_change(monkeypatch, tmp_path: Path) -> None:
     clock = _FakeClock()
     monkeypatch.setattr(runner_mod.time, "time", clock.time)

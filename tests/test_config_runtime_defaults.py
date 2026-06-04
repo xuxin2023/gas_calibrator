@@ -53,6 +53,7 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["analyzer_live_snapshot"]["sampling_worker_interval_s"] == 0.2
     assert cfg["workflow"]["analyzer_live_snapshot"]["passive_round_robin_enabled"] is True
     assert cfg["workflow"]["analyzer_live_snapshot"]["passive_round_robin_interval_s"] == 0.25
+    assert cfg["workflow"]["analyzer_live_snapshot"]["passive_per_device_workers_enabled"] is True
     assert cfg["workflow"]["analyzer_live_snapshot"]["active_ring_buffer_size"] == 128
     assert cfg["workflow"]["analyzer_live_snapshot"]["active_frame_max_anchor_delta_ms"] == 250.0
     assert cfg["workflow"]["analyzer_live_snapshot"]["active_frame_right_match_max_ms"] == 120.0
@@ -164,6 +165,31 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["skip_co2_ppm"] == []
     assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["enable_connect_check"] is False
     assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["points_excel"] == "configs/points_tiny_short_run_20c_even500.xlsx"
+    assert cfg["workflow"]["serial_port_binding"]["reference_bank_shift_enabled"] is False
+    assert cfg["workflow"]["serial_port_binding"]["reference_source_bank"] == [
+        "COM24",
+        "COM25",
+        "COM26",
+        "COM27",
+        "COM28",
+        "COM29",
+        "COM30",
+        "COM31",
+    ]
+    assert cfg["workflow"]["serial_port_binding"]["reference_target_bank"] == [
+        "COM16",
+        "COM17",
+        "COM18",
+        "COM19",
+        "COM20",
+        "COM21",
+        "COM22",
+        "COM23",
+    ]
+    assert cfg["workflow"]["serial_port_binding"]["gas_analyzer_ports_protected"] is True
+    assert cfg["workflow"]["serial_port_binding"]["require_available_port_inventory"] is True
+    assert cfg["workflow"]["serial_port_binding"]["require_protocol_match"] is False
+    assert cfg["workflow"]["serial_port_binding"]["windows_list_ports_inventory_enabled"] is False
     assert cfg["temperature_calibration"]["plausibility"]["enabled"] is True
     assert cfg["temperature_calibration"]["plausibility"]["raw_temp_min_c"] == -30.0
     assert cfg["temperature_calibration"]["plausibility"]["raw_temp_max_c"] == 85.0

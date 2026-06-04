@@ -1,8 +1,10 @@
 from pathlib import Path
+import time
 from types import SimpleNamespace
 
 import gas_calibrator.workflow.runner as runner_module
 from gas_calibrator.data.points import CalibrationPoint
+from gas_calibrator.devices.gas_analyzer import GasAnalyzer
 from gas_calibrator.logging_utils import RunLogger
 from gas_calibrator.workflow.runner import CalibrationRunner
 
@@ -219,6 +221,127 @@ def test_read_sensor_parsed_accepts_temp_key_in_relaxed_runtime_mode(tmp_path: P
     assert parsed["chamber_temp_c"] == 32.5
     assert strict_ok is False
     assert "R_H2O<=0" in strict_status
+
+
+def test_multi_analyzer_sample_rows_keep_channel_separate_from_device_identity(tmp_path: Path) -> None:
+    runner = _runner_with_quality(
+        tmp_path,
+        {"enabled": False},
+        workflow_extra={"analyzer_live_snapshot": {"cache_ttl_s": 5.0}},
+    )
+    ga01 = SimpleNamespace(ser=SimpleNamespace(port="COM35"), device_id="111")
+    ga02 = SimpleNamespace(ser=SimpleNamespace(port="COM37"), device_id="222")
+    line01 = (
+        "YGAS,091,0900.000,00.500,1768.000,00.410,1.3001,1.3000,"
+        "0.7001,0.7000,03322,04356,02631,025.01,025.50,100.05"
+    )
+    line02 = (
+        "YGAS,033,0901.000,00.510,1769.000,00.420,1.3011,1.3010,"
+        "0.7011,0.7010,03323,04357,02632,025.02,025.51,100.06"
+    )
+    parsed01 = GasAnalyzer._parse_mode2(line01.split(","), line01)
+    parsed02 = GasAnalyzer._parse_mode2(line02.split(","), line02)
+    assert parsed01 is not None
+    assert parsed02 is not None
+    now_s = time.time()
+    now_mono = time.monotonic()
+    runner._cache_live_analyzer_frame(
+        ga01,
+        line01,
+        parsed01,
+        category="parsed",
+        label="ga01",
+        source="test",
+        timestamp=now_s,
+        recv_mono_s=now_mono,
+    )
+    runner._cache_live_analyzer_frame(
+        ga02,
+        line02,
+        parsed02,
+        category="parsed",
+        label="ga02",
+        source="test",
+        timestamp=now_s,
+        recv_mono_s=now_mono,
+    )
+
+    row: dict = {}
+    runner._merge_analyzer_cache_into_sample(
+        row,
+        [
+            ("ga01", ga01, {"device_id": "111"}),
+            ("ga02", ga02, {"device_id": "222"}),
+        ],
+        context=None,
+        sample_anchor_mono=now_mono,
+        row_time_s=now_s,
+    )
+    runner.logger.close()
+
+    assert row["ga01_acquisition_channel"] == "ga01"
+    assert row["ga02_acquisition_channel"] == "ga02"
+    assert row["ga01_analyzer_device_id"] == "091"
+    assert row["ga02_analyzer_device_id"] == "033"
+    assert row["analyzer_prefix"] == "ga01"
+    assert row["analyzer_device_id"] == "091"
+    assert row["ga01_analyzer_device_id_source"] == "mode2_frame_id"
+    assert row["ga01_analyzer_identity_status"] == "mismatch"
+
+
+def test_analyzer_identity_mismatch_fails_mode2_qc(tmp_path: Path) -> None:
+    runner = _runner_with_quality(
+        tmp_path,
+        {"enabled": False},
+        workflow_extra={"analyzer_live_snapshot": {"cache_ttl_s": 5.0}},
+    )
+    now_s = time.time()
+    now_mono = time.monotonic()
+    parsed = {
+        "id": "091",
+        "mode": 2,
+        "mode2_schema_version": "factory_mode2_16_v1",
+        "mode2_field_count": 16,
+        "mode2_min_field_count": 16,
+        "mode2_known_field_count": 14,
+        "mode2_extra_count": 0,
+        "mode2_tokens_json": '["YGAS","091"]',
+        "mode2_fields_json": '{"id":"091"}',
+        "mode2_unknown_fields_json": "{}",
+        "co2_ppm": 900.0,
+        "h2o_mmol": 0.5,
+        "co2_ratio_f": 1.2,
+        "h2o_ratio_f": 0.8,
+        "pressure_kpa": 101.3,
+    }
+    ga = SimpleNamespace(device_id="111")
+    runner._cache_live_analyzer_frame(
+        ga,
+        "YGAS,091,...",
+        parsed,
+        category="parsed",
+        label="ga01",
+        source="test",
+        timestamp=now_s,
+        recv_mono_s=now_mono,
+    )
+
+    row: dict = {}
+    runner._merge_analyzer_cache_into_sample(
+        row,
+        [("ga01", ga, {"device_id": "111"})],
+        context=None,
+        sample_anchor_mono=now_mono,
+        row_time_s=now_s,
+    )
+    runner.logger.close()
+
+    assert row["ga01_analyzer_device_id"] == "091"
+    assert row["ga01_analyzer_identity_status"] == "mismatch"
+    assert "config_device_id" in row["ga01_analyzer_identity_reason"]
+    assert row["ga01_frame_usable"] is False
+    assert row["ga01_mode2_qc_status"] == "fail"
+    assert row["ga01_mode2_qc_reason"] == "identity_mismatch"
 
 
 def test_sensor_read_reject_logs_are_throttled_without_changing_rejection(tmp_path: Path) -> None:
@@ -645,3 +768,122 @@ def test_h2o_ratio_poly_summary_selection_defaults_to_zero_ppm_only_at_minus20_m
     runner.logger.close()
 
     assert [row["RowId"] for row in filtered] == ["h2o", "minus20_zero", "minus10_zero", "zero_zero"]
+
+
+def test_ratio_poly_formal_fit_defaults_to_open_flow_pressure_rows(tmp_path: Path) -> None:
+    runner = _runner_with_quality(tmp_path, {"enabled": False})
+    rows = [
+        {"RowId": "legacy_open", "PointPhase": "co2", "ppm_CO2_Tank": 400.0},
+        {"RowId": "ambient", "PointPhase": "co2", "PressureMode": "ambient_open", "ppm_CO2_Tank": 400.0},
+        {
+            "RowId": "component_role",
+            "PointPhase": "co2",
+            "PressureMode": "ambient_open",
+            "FitRole": "component_calibration",
+            "ppm_CO2_Tank": 400.0,
+        },
+        {
+            "RowId": "internal_p_validation",
+            "PointPhase": "co2",
+            "PressureMode": "ambient_open",
+            "FitRole": "pressure_channel_validation",
+            "ppm_CO2_Tank": 400.0,
+        },
+        {
+            "RowId": "pressure_comp_validation",
+            "PointPhase": "co2",
+            "PressureMode": "ambient_open",
+            "FitRole": "pressure_compensation_validation",
+            "ppm_CO2_Tank": 400.0,
+        },
+        {"RowId": "sealed", "PointPhase": "co2", "PressureMode": "sealed_controlled", "PressureTarget": 1000.0},
+        {"RowId": "legacy_sealed", "PointPhase": "co2", "PressureTarget": 900.0},
+        {"RowId": "dynamic", "PointPhase": "co2", "PressureMode": "open_flow_dynamic_control"},
+        {"RowId": "vent_hold", "PointPhase": "co2", "PressureMode": "vent_hold"},
+    ]
+
+    filtered = runner._filter_ratio_poly_summary_rows(rows, gas="co2", cfg={})
+    runner.logger.close()
+
+    assert [row["RowId"] for row in filtered] == ["legacy_open", "ambient", "component_role"]
+
+
+def test_ratio_poly_formal_fit_requires_explicit_opt_in_for_sealed_pressure_rows(tmp_path: Path) -> None:
+    runner = _runner_with_quality(tmp_path, {"enabled": False})
+    rows = [
+        {"RowId": "ambient", "PointPhase": "co2", "PressureMode": "ambient_open"},
+        {"RowId": "sealed", "PointPhase": "co2", "PressureMode": "sealed_controlled", "PressureTarget": 1000.0},
+        {"RowId": "dynamic", "PointPhase": "co2", "PressureMode": "open_flow_dynamic_control"},
+    ]
+
+    filtered = runner._filter_ratio_poly_summary_rows(
+        rows,
+        gas="co2",
+        cfg={
+            "ratio_poly_fit": {
+                "include_sealed_pressure_points_in_formal_fit": True,
+            },
+        },
+    )
+    runner.logger.close()
+
+    assert [row["RowId"] for row in filtered] == ["ambient", "sealed"]
+
+
+def test_ratio_poly_formal_fit_requires_explicit_opt_in_for_pressure_validation_roles(tmp_path: Path) -> None:
+    runner = _runner_with_quality(tmp_path, {"enabled": False})
+    rows = [
+        {"RowId": "ambient", "PointPhase": "co2", "PressureMode": "ambient_open"},
+        {
+            "RowId": "internal_p_validation",
+            "PointPhase": "co2",
+            "PressureMode": "ambient_open",
+            "FitRole": "pressure_channel_validation",
+        },
+        {
+            "RowId": "pressure_comp_validation",
+            "PointPhase": "co2",
+            "PressureMode": "ambient_open",
+            "FitRole": "pressure_compensation_validation",
+        },
+    ]
+
+    filtered = runner._filter_ratio_poly_summary_rows(
+        rows,
+        gas="co2",
+        cfg={
+            "ratio_poly_fit": {
+                "formal_fit_roles": [
+                    "",
+                    "pressure_channel_validation",
+                    "pressure_compensation_validation",
+                ],
+            },
+        },
+    )
+    runner.logger.close()
+
+    assert [row["RowId"] for row in filtered] == [
+        "ambient",
+        "internal_p_validation",
+        "pressure_comp_validation",
+    ]
+
+
+def test_h2o_ratio_poly_formal_fit_excludes_sealed_zero_gas_support_rows(tmp_path: Path) -> None:
+    runner = _runner_with_quality(tmp_path, {"enabled": False})
+    rows = [
+        {"RowId": "h2o_ambient", "PointPhase": "h2o", "PressureMode": "ambient_open", "Temp": 20.0},
+        {"RowId": "h2o_sealed", "PointPhase": "h2o", "PressureMode": "sealed_controlled", "PressureTarget": 1000.0, "Temp": 20.0},
+        {"RowId": "zero_ambient", "PointPhase": "co2", "PressureMode": "ambient_open", "TempSet": 0.0, "ppm_CO2_Tank": 0.0},
+        {"RowId": "zero_sealed", "PointPhase": "co2", "PressureMode": "sealed_controlled", "PressureTarget": 1000.0, "TempSet": 0.0, "ppm_CO2_Tank": 0.0},
+    ]
+
+    filtered = runner._filter_ratio_poly_summary_rows(
+        rows,
+        gas="h2o",
+        cfg={"h2o_summary_selection": {}},
+    )
+    runner.logger.close()
+
+    assert [row["RowId"] for row in filtered] == ["h2o_ambient", "zero_ambient"]

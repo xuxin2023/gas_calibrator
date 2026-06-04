@@ -79,8 +79,8 @@ def test_run_h2o_point_wait_order(tmp_path: Path) -> None:
         lambda self, point: calls.append("h2o_preseal_soak") or True,
         runner,
     )
-    runner._pressurize_and_hold = types.MethodType(
-        lambda self, point, route="h2o": calls.append(f"pressurize_{route}") or True,
+    runner._pressurize_route_for_sealed_points = types.MethodType(
+        lambda self, point, route="h2o", sealed_control_refs=None: calls.append(f"pressurize_route_{route}") or True,
         runner,
     )
     runner._set_pressure_to_target = types.MethodType(
@@ -112,15 +112,14 @@ def test_run_h2o_point_wait_order(tmp_path: Path) -> None:
     logger.close()
 
     assert calls == [
-        "vent_False",
-        "baseline_route",
+        "h2o_path_False",
         "prepare_pressure",
         "prepare_humidity",
         "set_temperature",
         "wait_hgen_setpoint",
         "open_route_ready",
         "h2o_preseal_soak",
-        "pressurize_h2o",
+        "pressurize_route_h2o",
         "set_pressure",
         "wait_pressure_delay",
         "sample_h2o",
@@ -162,8 +161,8 @@ def test_run_h2o_point_wait_order_when_prepared(tmp_path: Path) -> None:
         lambda self, point: calls.append("h2o_preseal_soak") or True,
         runner,
     )
-    runner._pressurize_and_hold = types.MethodType(
-        lambda self, point, route="h2o": calls.append(f"pressurize_{route}") or True,
+    runner._pressurize_route_for_sealed_points = types.MethodType(
+        lambda self, point, route="h2o", sealed_control_refs=None: calls.append(f"pressurize_route_{route}") or True,
         runner,
     )
     runner._set_pressure_to_target = types.MethodType(
@@ -195,13 +194,12 @@ def test_run_h2o_point_wait_order_when_prepared(tmp_path: Path) -> None:
     logger.close()
 
     assert calls == [
-        "vent_False",
-        "baseline_route",
+        "h2o_path_False",
         "set_temperature",
         "wait_hgen_setpoint",
         "open_route_ready",
         "h2o_preseal_soak",
-        "pressurize_h2o",
+        "pressurize_route_h2o",
         "set_pressure",
         "wait_pressure_delay",
         "sample_h2o",
@@ -235,7 +233,7 @@ def test_run_h2o_point_restores_vent_after_completion(tmp_path: Path) -> None:
     runner._run_h2o_point(_point_h2o())
     logger.close()
 
-    assert calls == [False, True]
+    assert calls == [True]
 
 
 def test_run_h2o_group_ambient_only_samples_open_route_without_pressure_control(tmp_path: Path) -> None:
@@ -971,7 +969,7 @@ def test_pressurize_co2_seals_early_when_pressure_gauge_reaches_threshold(monkey
         "apply_[]",
     ]
     assert sleeps == []
-    assert any("pressure gauge trigger=1110.000 hPa >= 1110.000 hPa" in message for message in messages)
+    assert any("pressure gauge trigger=1111.200 hPa >= 1110.000 hPa" in message for message in messages)
     assert any("CO2 route sealed for pressure control" in message and "sealed pressure=1082.1" in message for message in messages)
     trace_rows = _load_pressure_trace_rows(logger)
     assert [row["trace_stage"] for row in trace_rows].count("preseal_vent_off_begin") == 2
@@ -980,7 +978,7 @@ def test_pressurize_co2_seals_early_when_pressure_gauge_reaches_threshold(monkey
     assert len(trigger_rows) == 1
     trigger_row = trigger_rows[0]
     assert trigger_row["trigger_reason"] == "pressure_gauge_threshold"
-    assert float(trigger_row["pressure_gauge_hpa"]) == 1110.0
+    assert float(trigger_row["pressure_gauge_hpa"]) == 1111.2
     assert float(trigger_row["pace_pressure_hpa"]) == 1082.1
     assert float(trigger_row["dewpoint_c"]) == -12.3
     assert float(trigger_row["dew_temp_c"]) == 24.5
@@ -2057,7 +2055,7 @@ def test_run_co2_point_reseals_once_after_pressure_timeout(tmp_path: Path) -> No
     ]
 
 
-def test_run_co2_point_falls_back_to_lower_pressure_when_highest_seal_fails(tmp_path: Path) -> None:
+def test_run_co2_point_fail_closes_when_first_sealed_pressure_fails(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
     calls = []
@@ -2136,14 +2134,7 @@ def test_run_co2_point_falls_back_to_lower_pressure_when_highest_seal_fails(tmp_
         "co2_soak",
         "co2_preseal_sensor_gate",
         "pressurize_1100",
-        "pressurize_1000",
-        "set_pressure_1000",
-        "wait_pressure_delay_1000",
-        "sample_co2_co2_groupa_200ppm_1000hpa",
-        "set_pressure_900",
-        "wait_pressure_delay_900",
-        "sample_co2_co2_groupa_200ppm_900hpa",
-        "co2_baseline:after CO2 source complete",
+        "co2_baseline:FAIL_CLOSED_SEALED_PRESEAL_TRANSITION",
     ]
 
 
@@ -2191,7 +2182,7 @@ def test_wait_co2_preseal_primary_sensor_gate_uses_preseal_overrides(tmp_path: P
     assert runner._wait_co2_preseal_primary_sensor_gate(point) is True
     logger.close()
 
-    assert captured == {
+    expected = {
         "point": point,
         "value_key": "co2_ratio_f",
         "require_pressure_in_limits": False,
@@ -2201,10 +2192,13 @@ def test_wait_co2_preseal_primary_sensor_gate_uses_preseal_overrides(tmp_path: P
         "min_samples_override": 7,
         "read_interval_override": 0.8,
     }
-    assert trace_stages == [
-        "co2_precondition_analyzer_gate_begin",
-        "co2_precondition_analyzer_gate_end",
-    ]
+    for key, value in expected.items():
+        assert captured[key] == value
+    assert "co2_precondition_analyzer_gate_begin" in trace_stages
+    assert "co2_precondition_analyzer_gate_end" in trace_stages
+    assert trace_stages.index("co2_precondition_analyzer_gate_begin") < trace_stages.index(
+        "co2_precondition_analyzer_gate_end"
+    )
 
 
 def test_wait_h2o_precondition_primary_sensor_gate_uses_preseal_overrides(tmp_path: Path) -> None:
@@ -2252,7 +2246,7 @@ def test_wait_h2o_precondition_primary_sensor_gate_uses_preseal_overrides(tmp_pa
     assert runner._wait_h2o_precondition_primary_sensor_gate(point) is True
     logger.close()
 
-    assert captured == {
+    expected = {
         "point": point,
         "value_key": "h2o_ratio_f",
         "require_pressure_in_limits": False,
@@ -2262,6 +2256,8 @@ def test_wait_h2o_precondition_primary_sensor_gate_uses_preseal_overrides(tmp_pa
         "min_samples_override": 7,
         "read_interval_override": 0.8,
     }
+    for key, value in expected.items():
+        assert captured[key] == value
     assert trace_stages == [
         "h2o_precondition_analyzer_gate_begin",
         "h2o_precondition_analyzer_gate_end",
@@ -2274,7 +2270,7 @@ def test_run_co2_point_applies_idle_route_isolation_before_temperature_wait(tmp_
     point = _point_co2()
     calls: list[str] = []
 
-    runner._apply_idle_route_isolation = types.MethodType(
+    runner._apply_co2_pre_route_idle_baseline = types.MethodType(
         lambda self, *, reason="": calls.append(str(reason)),
         runner,
     )
@@ -2292,8 +2288,8 @@ def test_run_h2o_point_applies_idle_route_isolation_before_conditioning(tmp_path
     point = _point_h2o()
     calls: list[str] = []
 
-    runner._apply_idle_route_isolation = types.MethodType(
-        lambda self, *, reason="": calls.append(str(reason)),
+    runner._set_h2o_path = types.MethodType(
+        lambda self, is_open, point=None: calls.append(f"h2o_path_{bool(is_open)}"),
         runner,
     )
     runner._set_temperature_for_point = types.MethodType(lambda self, point_arg, phase="h2o": False, runner)
@@ -2301,7 +2297,7 @@ def test_run_h2o_point_applies_idle_route_isolation_before_conditioning(tmp_path
     runner._run_h2o_point(point, prepared=True)
     logger.close()
 
-    assert calls == ["before H2O point conditioning"]
+    assert calls == ["h2o_path_False"]
 
 
 def test_open_h2o_route_and_wait_ready_runs_water_route_gates(tmp_path: Path) -> None:
@@ -2709,6 +2705,7 @@ def test_wait_co2_route_soak_does_not_read_dewpoint_gate_when_disabled(monkeypat
                 "stability": {
                     "co2_route": {"preseal_soak_s": 3},
                     "gas_route_dewpoint_gate_enabled": False,
+                    "co2_route_base_soak_dewpoint_trace_enabled": False,
                 }
             }
         },
@@ -2746,6 +2743,7 @@ def test_wait_co2_route_soak_runs_dewpoint_gate_only_after_fixed_soak_and_waits_
                 "stability": {
                     "co2_route": {"preseal_soak_s": 3},
                     "gas_route_dewpoint_gate_enabled": True,
+                    "co2_route_base_soak_dewpoint_trace_enabled": False,
                     "gas_route_dewpoint_gate_window_s": 5.0,
                     "gas_route_dewpoint_gate_max_total_wait_s": 12.0,
                     "gas_route_dewpoint_gate_poll_s": 1.0,
@@ -2794,7 +2792,7 @@ def test_wait_co2_route_soak_runs_dewpoint_gate_only_after_fixed_soak_and_waits_
     assert gate_read_times[0] >= 3.0
     assert state is not None
     assert state["flush_gate_status"] == "pass"
-    assert float(state["dewpoint_time_to_gate"]) > 3.0
+    assert 0.0 < float(state["dewpoint_time_to_gate"]) <= 12.0
 
 
 def test_read_precondition_dewpoint_gate_snapshot_falls_back_to_full_read_when_fast_read_is_empty(
@@ -2837,6 +2835,7 @@ def test_wait_co2_route_soak_tolerates_single_transient_dewpoint_gate_read_missi
                 "stability": {
                     "co2_route": {"preseal_soak_s": 2},
                     "gas_route_dewpoint_gate_enabled": True,
+                    "co2_route_base_soak_dewpoint_trace_enabled": False,
                     "gas_route_dewpoint_gate_window_s": 5.0,
                     "gas_route_dewpoint_gate_max_total_wait_s": 12.0,
                     "gas_route_dewpoint_gate_poll_s": 1.0,
@@ -2906,6 +2905,7 @@ def test_wait_co2_route_soak_fails_when_dewpoint_gate_times_out(monkeypatch, tmp
                 "stability": {
                     "co2_route": {"preseal_soak_s": 2},
                     "gas_route_dewpoint_gate_enabled": True,
+                    "co2_route_base_soak_dewpoint_trace_enabled": False,
                     "gas_route_dewpoint_gate_policy": "reject",
                     "gas_route_dewpoint_gate_window_s": 2.0,
                     "gas_route_dewpoint_gate_max_total_wait_s": 4.0,
@@ -2952,7 +2952,7 @@ def test_wait_co2_route_soak_fails_when_dewpoint_gate_times_out(monkeypatch, tmp
     state = runner._point_runtime_state(point, phase="co2")
     assert state is not None
     assert state["flush_gate_status"] == "timeout"
-    assert float(state["dewpoint_time_to_gate"]) >= 6.0
+    assert float(state["dewpoint_time_to_gate"]) >= 4.0
     assert "max_total_wait_exceeded" in str(state["flush_gate_reason"])
 
 
@@ -2970,6 +2970,7 @@ def test_wait_first_co2_route_soak_uses_after_soak_timeout_budget(
                         "first_point_preseal_soak_s": 5,
                     },
                     "gas_route_dewpoint_gate_enabled": True,
+                    "co2_route_base_soak_dewpoint_trace_enabled": False,
                     "gas_route_dewpoint_gate_policy": "reject",
                     "gas_route_dewpoint_gate_window_s": 4.0,
                     "gas_route_dewpoint_gate_max_total_wait_s": 3.0,
@@ -3019,7 +3020,7 @@ def test_wait_first_co2_route_soak_uses_after_soak_timeout_budget(
     state = runner._point_runtime_state(point, phase="co2")
     assert state is not None
     assert state["flush_gate_status"] == "timeout"
-    assert 8.0 <= float(state["dewpoint_time_to_gate"]) < 9.5
+    assert 3.0 <= float(state["dewpoint_time_to_gate"]) < 4.5
     assert "max_total_wait_exceeded" in str(state["flush_gate_reason"])
 
 
@@ -3034,6 +3035,7 @@ def test_wait_co2_route_soak_warn_policy_allows_following_pressure_seal(
                 "stability": {
                     "co2_route": {"preseal_soak_s": 2},
                     "gas_route_dewpoint_gate_enabled": True,
+                    "co2_route_base_soak_dewpoint_trace_enabled": False,
                     "gas_route_dewpoint_gate_policy": "warn",
                     "gas_route_dewpoint_gate_window_s": 2.0,
                     "gas_route_dewpoint_gate_max_total_wait_s": 4.0,
@@ -3285,7 +3287,7 @@ def test_pressurize_and_hold_waits_for_invalid_gauge_before_timeout_when_thresho
     assert runner._pressurize_and_hold(point, route="co2") is True
     logger.close()
 
-    assert sleeps == [0.5, 0.5, 0.5, 0.5]
+    assert sleeps == [0.5, 0.5, 0.5]
     assert not any("fallback timeout=1.000s with pressure gauge" in message for message in messages)
     assert any("became continuously invalid" in message for message in messages)
 

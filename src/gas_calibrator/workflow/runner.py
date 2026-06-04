@@ -61,6 +61,47 @@ class StabilityWindow:
         vals = [v for _, v in self.values]
         return max(vals) - min(vals) <= self.tol
 
+    def stability_detail(
+        self,
+        *,
+        min_samples: int = 2,
+        max_outliers: int = 0,
+    ) -> Tuple[bool, Optional[float], Optional[float], int]:
+        """Return stability while allowing a small number of isolated spikes.
+
+        Raw values remain in ``self.values`` for evidence.  The filtered span is
+        used only for the stability gate so a single serial/firmware jump does
+        not consume the whole window when the surrounding gas ratio is stable.
+        """
+
+        vals = [v for _, v in self.values]
+        if len(vals) < max(2, int(min_samples)):
+            return False, None, None, 0
+        raw_span = max(vals) - min(vals)
+        if raw_span <= self.tol:
+            return True, raw_span, raw_span, 0
+
+        max_drop = min(max(0, int(max_outliers)), max(0, len(vals) - max(2, int(min_samples))))
+        if max_drop <= 0:
+            return False, raw_span, raw_span, 0
+
+        ordered = sorted(vals)
+        best_span = raw_span
+        best_drop = 0
+        for drop_low in range(max_drop + 1):
+            for drop_high in range(max_drop - drop_low + 1):
+                dropped = drop_low + drop_high
+                if dropped <= 0:
+                    continue
+                candidate = ordered[drop_low : len(ordered) - drop_high if drop_high else len(ordered)]
+                if len(candidate) < max(2, int(min_samples)):
+                    continue
+                span = max(candidate) - min(candidate)
+                if span < best_span:
+                    best_span = span
+                    best_drop = dropped
+        return best_span <= self.tol, raw_span, best_span, best_drop
+
 
 def _normalized_co2_group(value: Any) -> str:
     return str(value or "").strip().upper()
@@ -5013,6 +5054,11 @@ class CalibrationRunner:
             "h2o_postseal_dewpoint_gate_pass_live_c",
             "h2o_short_window_after_dewpoint_gate",
             "h2o_dewpoint_stability_evidence_status",
+            "h2o_pressure_presample_gate_status",
+            "h2o_pressure_presample_gate_policy",
+            "h2o_pressure_presample_gate_reason",
+            "h2o_pressure_presample_fit_scope",
+            "h2o_pressure_presample_report_warning",
             "h2o_calibration_fit_blocked_reason",
             "sample_can_enter_calibration_fit",
             "sample_can_enter_diagnostic_model",
@@ -6106,6 +6152,45 @@ class CalibrationRunner:
             if not self._sampling_window_wait_until(wait_deadline, stop_event=stop_event):
                 return
 
+    def _sampling_window_active_analyzer_device_worker(
+        self,
+        context: Dict[str, Any],
+        *,
+        label: str,
+        ga: Any,
+        analyzer_cfg: Dict[str, Any],
+    ) -> None:
+        stop_event = context["stop_event"]
+        settings = self._gas_analyzer_runtime_settings(analyzer_cfg)
+        worker_kind = "active" if bool(settings["active_send"]) else "passive"
+        interval_s = (
+            self._sampling_worker_interval_s()
+            if bool(settings["active_send"])
+            else self._sampling_passive_round_robin_interval_s()
+        )
+        next_due = time.monotonic()
+        while not self.stop_event.is_set() and not stop_event.is_set():
+            loop_now = time.monotonic()
+            if loop_now >= next_due:
+                try:
+                    self._refresh_sampling_analyzer_cache_entry(
+                        label,
+                        ga,
+                        analyzer_cfg,
+                        context=context,
+                        reason=f"sampling worker {label}",
+                    )
+                except Exception as exc:
+                    signature = f"{worker_kind}:{label}:{exc}"
+                    if signature not in context["worker_errors"]:
+                        context["worker_errors"].add(signature)
+                        self.log(f"Sampling window worker warning [{worker_kind}] {label} err={exc}")
+                loop_now = time.monotonic()
+                next_due = self._advance_sampling_due_time(next_due, interval_s, loop_now)
+            wait_deadline = max(next_due, time.monotonic() + 0.01)
+            if not self._sampling_window_wait_until(wait_deadline, stop_event=stop_event):
+                return
+
     def _sampling_window_slow_aux_worker(self, context: Dict[str, Any]) -> None:
         stop_event = context["stop_event"]
         interval_s = self._sampling_slow_aux_cache_interval_s()
@@ -6143,21 +6228,102 @@ class CalibrationRunner:
         self._prime_sampling_window_context(context, worker_plan=prime_plan, reason="sampling window start")
         pace_cache_primed = bool(self._pace_state_cache_snapshot().get("sample_ts"))
         if plan["analyzer_worker_enabled"]:
-            worker = threading.Thread(
-                target=self._run_sampling_window_worker,
-                kwargs={
-                    "context": context,
-                    "worker_key": "analyzer",
-                    "role": "analyzer",
-                    "target": self._sampling_window_analyzer_worker,
-                },
-                name="sampling-analyzer-cache",
-                daemon=True,
+            active_entries = list(plan.get("active_entries") or [])
+            passive_entries = list(plan.get("passive_entries") or [])
+            live_cfg = self._live_snapshot_cfg()
+            per_active_workers = bool(plan.get("active_enabled")) and len(active_entries) > 1
+            per_passive_workers = (
+                bool(plan.get("passive_enabled"))
+                and len(passive_entries) > 1
+                and bool(live_cfg.get("passive_per_device_workers_enabled", True))
             )
-            worker.start()
-            context["workers"].append(
-                {"key": "analyzer", "role": "analyzer", "thread": worker}
-            )
+            per_analyzer_workers = bool(per_active_workers or per_passive_workers)
+            if per_analyzer_workers:
+                active_worker_entries = active_entries if bool(plan.get("active_enabled")) else []
+                if active_worker_entries and not per_active_workers and per_passive_workers:
+                    active_worker_entries = active_entries
+                for label, ga, analyzer_cfg in active_worker_entries:
+                    worker_key = f"analyzer:{label}"
+                    worker = threading.Thread(
+                        target=self._run_sampling_window_worker,
+                        kwargs={
+                            "context": context,
+                            "worker_key": worker_key,
+                            "role": worker_key,
+                            "target": self._sampling_window_active_analyzer_device_worker,
+                            "target_kwargs": {
+                                "label": label,
+                                "ga": ga,
+                                "analyzer_cfg": analyzer_cfg,
+                            },
+                        },
+                        name=f"sampling-analyzer-cache-{label}",
+                        daemon=True,
+                    )
+                    worker.start()
+                    context["workers"].append(
+                        {"key": worker_key, "role": worker_key, "thread": worker}
+                    )
+                if per_passive_workers:
+                    for label, ga, analyzer_cfg in passive_entries:
+                        worker_key = f"analyzer:passive:{label}"
+                        worker = threading.Thread(
+                            target=self._run_sampling_window_worker,
+                            kwargs={
+                                "context": context,
+                                "worker_key": worker_key,
+                                "role": worker_key,
+                                "target": self._sampling_window_active_analyzer_device_worker,
+                                "target_kwargs": {
+                                    "label": label,
+                                    "ga": ga,
+                                    "analyzer_cfg": analyzer_cfg,
+                                },
+                            },
+                            name=f"sampling-analyzer-passive-cache-{label}",
+                            daemon=True,
+                        )
+                        worker.start()
+                        context["workers"].append(
+                            {"key": worker_key, "role": worker_key, "thread": worker}
+                        )
+                elif passive_entries:
+                    passive_plan = dict(plan)
+                    passive_plan["active_enabled"] = False
+                    passive_plan["active_entries"] = []
+                    passive_plan["passive_enabled"] = True
+                    context["worker_plan"] = passive_plan
+                    worker = threading.Thread(
+                        target=self._run_sampling_window_worker,
+                        kwargs={
+                            "context": context,
+                            "worker_key": "analyzer:passive",
+                            "role": "analyzer:passive",
+                            "target": self._sampling_window_analyzer_worker,
+                        },
+                        name="sampling-analyzer-cache-passive",
+                        daemon=True,
+                    )
+                    worker.start()
+                    context["workers"].append(
+                        {"key": "analyzer:passive", "role": "analyzer:passive", "thread": worker}
+                    )
+            else:
+                worker = threading.Thread(
+                    target=self._run_sampling_window_worker,
+                    kwargs={
+                        "context": context,
+                        "worker_key": "analyzer",
+                        "role": "analyzer",
+                        "target": self._sampling_window_analyzer_worker,
+                    },
+                    name="sampling-analyzer-cache",
+                    daemon=True,
+                )
+                worker.start()
+                context["workers"].append(
+                    {"key": "analyzer", "role": "analyzer", "thread": worker}
+                )
         if plan["fast_signal_enabled"]:
             for signal_key in list(plan.get("fast_signal_devices") or []):
                 worker_key = f"fast_signal:{signal_key}"
@@ -6205,9 +6371,11 @@ class CalibrationRunner:
             f"fast_signal_devices={','.join(plan['fast_signal_devices']) if plan['fast_signal_devices'] else '--'} "
             f"fast_signal_interval_s={self._sampling_fast_signal_worker_interval_s():g} "
             f"active_analyzer_worker_enabled={plan['active_enabled']} "
+            f"active_analyzer_worker_mode={'per_device' if bool(plan.get('active_enabled')) and len(plan['active_entries']) > 1 else 'shared'} "
             f"active_analyzer_count={len(plan['active_entries'])} "
             f"active_ring_buffer_size={self._sampling_active_ring_buffer_size()} "
             f"passive_round_robin_enabled={plan['passive_enabled']} "
+            f"passive_analyzer_worker_mode={'per_device' if bool(plan.get('passive_enabled')) and len(plan['passive_entries']) > 1 and bool(self._live_snapshot_cfg().get('passive_per_device_workers_enabled', True)) else 'shared'} "
             f"passive_analyzer_count={len(plan['passive_entries'])} "
             f"slow_aux_worker_enabled={plan['slow_aux_enabled']} "
             f"slow_aux_devices={','.join(plan['slow_aux_devices']) if plan['slow_aux_devices'] else '--'} "
@@ -6905,6 +7073,29 @@ class CalibrationRunner:
         active_anchor_match_enabled = self._sampling_active_anchor_match_enabled()
         for analyzer_idx, (label, ga, analyzer_cfg) in enumerate(gas_analyzers):
             prefix = self._safe_label(label)
+            configured_identity, configured_identity_source = self._analyzer_device_identity(
+                ga,
+                analyzer_cfg,
+                parsed=None,
+            )
+            initial_identity_status, initial_identity_reason = self._analyzer_identity_status(
+                ga,
+                analyzer_cfg,
+                parsed=None,
+            )
+            data.setdefault(f"{prefix}_acquisition_channel", str(label or prefix))
+            data.setdefault(f"{prefix}_analyzer_prefix", prefix)
+            data.setdefault(f"{prefix}_analyzer_device_id", configured_identity)
+            data.setdefault(f"{prefix}_analyzer_device_id_source", configured_identity_source)
+            data.setdefault(f"{prefix}_analyzer_identity_status", initial_identity_status)
+            data.setdefault(f"{prefix}_analyzer_identity_reason", initial_identity_reason)
+            if analyzer_idx == 0:
+                data.setdefault("acquisition_channel", str(label or prefix))
+                data.setdefault("analyzer_prefix", prefix)
+                data.setdefault("analyzer_device_id", configured_identity)
+                data.setdefault("analyzer_device_id_source", configured_identity_source)
+                data.setdefault("analyzer_identity_status", initial_identity_status)
+                data.setdefault("analyzer_identity_reason", initial_identity_reason)
             for key in mode2_keys:
                 data.setdefault(f"{prefix}_{key}", None)
                 if analyzer_idx == 0:
@@ -6927,6 +7118,15 @@ class CalibrationRunner:
                 status="无帧",
                 is_primary=analyzer_idx == 0,
             )
+            data[f"{prefix}_mode2_contract_status"] = "missing"
+            data[f"{prefix}_mode2_contract_reason"] = "no_frame"
+            data[f"{prefix}_mode2_qc_status"] = "missing"
+            data[f"{prefix}_mode2_qc_reason"] = "no_frame"
+            if analyzer_idx == 0:
+                data["mode2_contract_status"] = "missing"
+                data["mode2_contract_reason"] = "no_frame"
+                data["mode2_qc_status"] = "missing"
+                data["mode2_qc_reason"] = "no_frame"
 
             if label in self._disabled_analyzers:
                 data[f"{prefix}_frame_status"] = "已禁用"
@@ -6990,17 +7190,56 @@ class CalibrationRunner:
                 data[f"{prefix}_frame_source"] = "missing" if not entry else data[f"{prefix}_frame_source"]
                 data[f"{prefix}_frame_is_live"] = False if not entry else bool(entry.get("is_live"))
                 data[f"{prefix}_frame_status"] = "缓存缺失" if not entry else "缓存过期"
+                data[f"{prefix}_mode2_contract_status"] = "missing" if not entry else "stale"
+                data[f"{prefix}_mode2_contract_reason"] = "no_frame" if not entry else "stale_frame"
+                data[f"{prefix}_mode2_qc_status"] = data[f"{prefix}_mode2_contract_status"]
+                data[f"{prefix}_mode2_qc_reason"] = data[f"{prefix}_mode2_contract_reason"]
                 if analyzer_idx == 0:
                     data["frame_status"] = data[f"{prefix}_frame_status"]
+                    data["mode2_contract_status"] = data[f"{prefix}_mode2_contract_status"]
+                    data["mode2_contract_reason"] = data[f"{prefix}_mode2_contract_reason"]
+                    data["mode2_qc_status"] = data[f"{prefix}_mode2_qc_status"]
+                    data["mode2_qc_reason"] = data[f"{prefix}_mode2_qc_reason"]
                 continue
 
             if not isinstance(parsed, dict) or not parsed:
                 data[f"{prefix}_frame_status"] = self._frame_category_status_text(str(entry.get("category") or ""))
+                data[f"{prefix}_mode2_contract_status"] = "fail"
+                data[f"{prefix}_mode2_contract_reason"] = str(entry.get("category") or "parse_failed")
+                data[f"{prefix}_mode2_qc_status"] = "fail"
+                data[f"{prefix}_mode2_qc_reason"] = data[f"{prefix}_mode2_contract_reason"]
                 if analyzer_idx == 0:
                     data["frame_status"] = data[f"{prefix}_frame_status"]
+                    data["mode2_contract_status"] = data[f"{prefix}_mode2_contract_status"]
+                    data["mode2_contract_reason"] = data[f"{prefix}_mode2_contract_reason"]
+                    data["mode2_qc_status"] = data[f"{prefix}_mode2_qc_status"]
+                    data["mode2_qc_reason"] = data[f"{prefix}_mode2_qc_reason"]
                 continue
 
+            contract_status, contract_reason = self._assess_mode2_contract(parsed)
             usable, frame_status = self._assess_analyzer_frame(parsed)
+            analyzer_device_id, analyzer_device_id_source = self._analyzer_device_identity(
+                ga,
+                analyzer_cfg,
+                parsed=parsed,
+            )
+            identity_status, identity_reason = self._analyzer_identity_status(
+                ga,
+                analyzer_cfg,
+                parsed=parsed,
+            )
+            if identity_status == "mismatch":
+                usable = False
+                frame_status = "identity_mismatch"
+            data[f"{prefix}_analyzer_device_id"] = analyzer_device_id
+            data[f"{prefix}_analyzer_device_id_source"] = analyzer_device_id_source
+            data[f"{prefix}_analyzer_identity_status"] = identity_status
+            data[f"{prefix}_analyzer_identity_reason"] = identity_reason
+            if analyzer_idx == 0:
+                data["analyzer_device_id"] = analyzer_device_id
+                data["analyzer_device_id_source"] = analyzer_device_id_source
+                data["analyzer_identity_status"] = identity_status
+                data["analyzer_identity_reason"] = identity_reason
             self._set_sample_frame_meta(
                 data,
                 prefix,
@@ -7009,6 +7248,15 @@ class CalibrationRunner:
                 status=frame_status,
                 is_primary=analyzer_idx == 0,
             )
+            data[f"{prefix}_mode2_contract_status"] = contract_status
+            data[f"{prefix}_mode2_contract_reason"] = contract_reason
+            data[f"{prefix}_mode2_qc_status"] = "pass" if usable else "fail"
+            data[f"{prefix}_mode2_qc_reason"] = frame_status
+            if analyzer_idx == 0:
+                data["mode2_contract_status"] = contract_status
+                data["mode2_contract_reason"] = contract_reason
+                data["mode2_qc_status"] = data[f"{prefix}_mode2_qc_status"]
+                data["mode2_qc_reason"] = data[f"{prefix}_mode2_qc_reason"]
             if not usable and frame_status:
                 frame_issue_counts[frame_status] = frame_issue_counts.get(frame_status, 0) + 1
 
@@ -7022,6 +7270,52 @@ class CalibrationRunner:
                 data[f"{prefix}_{key}"] = value
 
         return frame_issue_counts
+
+    @staticmethod
+    def _analyzer_device_identity(
+        ga: Any,
+        analyzer_cfg: Mapping[str, Any],
+        *,
+        parsed: Optional[Mapping[str, Any]] = None,
+    ) -> tuple[str, str]:
+        frame_id = _normalized_device_id_text((parsed or {}).get("id") if isinstance(parsed, Mapping) else "")
+        if frame_id:
+            return frame_id, "mode2_frame_id"
+        cfg_id = _normalized_device_id_text(
+            analyzer_cfg.get("device_id") if isinstance(analyzer_cfg, Mapping) else ""
+        )
+        if cfg_id:
+            return cfg_id, "config_device_id"
+        driver_id = _normalized_device_id_text(getattr(ga, "device_id", ""))
+        if driver_id:
+            return driver_id, "driver_device_id"
+        return "", "missing"
+
+    @staticmethod
+    def _analyzer_identity_status(
+        ga: Any,
+        analyzer_cfg: Mapping[str, Any],
+        *,
+        parsed: Optional[Mapping[str, Any]] = None,
+    ) -> tuple[str, str]:
+        frame_id = _normalized_device_id_text((parsed or {}).get("id") if isinstance(parsed, Mapping) else "")
+        cfg_id = _normalized_device_id_text(
+            analyzer_cfg.get("device_id") if isinstance(analyzer_cfg, Mapping) else ""
+        )
+        driver_id = _normalized_device_id_text(getattr(ga, "device_id", ""))
+
+        mismatches: List[str] = []
+        if frame_id and cfg_id and frame_id != cfg_id:
+            mismatches.append(f"frame_id={frame_id}!={cfg_id}=config_device_id")
+        if frame_id and driver_id and frame_id != driver_id:
+            mismatches.append(f"frame_id={frame_id}!={driver_id}=driver_device_id")
+        if mismatches:
+            return "mismatch", ";".join(mismatches)
+        if frame_id:
+            return "pass", "mode2_frame_id"
+        if cfg_id or driver_id:
+            return "unverified", "frame_id_missing"
+        return "missing", "identity_missing"
 
     def _set_temperature_for_point(
         self,
@@ -8272,7 +8566,7 @@ class CalibrationRunner:
         active_send = bool(
             pcfg.get(
                 "active_send",
-                analyzer_cfg.get("active_send", gas_cfg_default.get("active_send", True)),
+                analyzer_cfg.get("active_send", gas_cfg_default.get("active_send", False)),
             )
         )
         ftd_hz = int(pcfg.get("ftd_hz", 1))
@@ -8706,7 +9000,34 @@ class CalibrationRunner:
         retry_delay_s = max(0.01, float(init_retry_cfg.get("retry_delay_s", 0.2) or 0.2))
         reapply_delay_s = max(0.0, float(init_retry_cfg.get("reapply_delay_s", 0.35) or 0.35))
         command_gap_s = max(0.0, float(init_retry_cfg.get("command_gap_s", 0.15) or 0.15))
+        send_active_freq = bool(init_retry_cfg.get("send_active_freq", True))
+        read_first_before_config = bool(init_retry_cfg.get("read_first_before_config", False))
+        sniff_stream_before_config = bool(init_retry_cfg.get("sniff_stream_before_config", read_first_before_config))
+        write_config_on_read_first_fail = bool(init_retry_cfg.get("write_config_on_read_first_fail", True))
+        skip_config_when_read_first_ready = bool(
+            init_retry_cfg.get("skip_config_when_read_first_ready", True)
+        )
+        read_first_attempts = max(
+            1,
+            int(
+                init_retry_cfg.get(
+                    "read_first_attempts",
+                    stream_attempts if active_send else passive_attempts,
+                )
+                or 1
+            ),
+        )
+        read_first_retry_delay_s = max(
+            0.0,
+            float(init_retry_cfg.get("read_first_retry_delay_s", retry_delay_s) or 0.0),
+        )
         last_error: Optional[Exception] = None
+
+        def _mark_runtime_active_state() -> None:
+            try:
+                setattr(ga, "active_send", bool(active_send))
+            except Exception:
+                pass
 
         try:
             if callable(set_warning_phase):
@@ -8725,6 +9046,52 @@ class CalibrationRunner:
                 0.0,
                 float(init_retry_cfg.get("post_enable_stream_ack_wait_s", 8.0) or 8.0),
             )
+            if read_first_before_config:
+                read_first_probes: List[tuple[bool, str]] = []
+                if sniff_stream_before_config:
+                    read_first_probes.append((True, "stream_sniff"))
+                read_first_probes.append((active_send, "configured_mode"))
+                seen_probe_modes: set[bool] = set()
+                read_first_ready = False
+                for prefer_stream, probe_name in read_first_probes:
+                    if prefer_stream in seen_probe_modes:
+                        continue
+                    seen_probe_modes.add(prefer_stream)
+                    first_line, first_parsed = self._verify_startup_mode2_ready(
+                        ga,
+                        prefer_stream=prefer_stream,
+                        ftd_hz=ftd_hz,
+                        attempts=read_first_attempts,
+                        retry_delay_s=read_first_retry_delay_s,
+                        consecutive_frames=ready_consecutive_frames,
+                    )
+                    if first_parsed:
+                        read_first_ready = True
+                        _mark_runtime_active_state()
+                        label_text = label or "gas_analyzer"
+                        if skip_config_when_read_first_ready:
+                            self.log(
+                                "Analyzer MODE2 read-first passed: "
+                                f"{label_text} probe={probe_name}; no startup config commands sent"
+                            )
+                            return
+                        self.log(
+                            "Analyzer MODE2 read-first passed: "
+                            f"{label_text} probe={probe_name}; continuing controlled MODE/FTD/AVERAGE setup"
+                        )
+                        break
+                    if first_line:
+                        last_error = RuntimeError(
+                            "MODE2 not ready (read-first) "
+                            f"probe={probe_name} last={self._summarize_sensor_line(first_line)}"
+                        )
+                if not read_first_ready and not write_config_on_read_first_fail:
+                    label_text = label or "gas_analyzer"
+                    raise RuntimeError(
+                        "MODE2 not ready and startup config writes are disabled "
+                        f"for fragile analyzer protection: {label_text}; "
+                        f"{last_error or 'no MODE2 frame observed'}"
+                    )
 
             for attempt_idx in range(reapply_attempts):
                 if callable(set_comm_way):
@@ -8739,12 +9106,13 @@ class CalibrationRunner:
                     ga.set_mode(mode)
                 if command_gap_s > 0:
                     time.sleep(command_gap_s)
-                if callable(set_active_freq):
-                    set_active_freq(ftd_hz, require_ack=False)
-                else:
-                    ga.set_active_freq(ftd_hz)
-                if command_gap_s > 0:
-                    time.sleep(command_gap_s)
+                if send_active_freq:
+                    if callable(set_active_freq):
+                        set_active_freq(ftd_hz, require_ack=False)
+                    else:
+                        ga.set_active_freq(ftd_hz)
+                    if command_gap_s > 0:
+                        time.sleep(command_gap_s)
                 if callable(set_average_filter_channel):
                     set_average_filter_channel(1, avg_filter, require_ack=False)
                     if command_gap_s > 0:
@@ -8774,6 +9142,7 @@ class CalibrationRunner:
                         consecutive_frames=ready_consecutive_frames,
                     )
                     if stream_parsed:
+                        _mark_runtime_active_state()
                         return
                     if callable(success_ack) and success_ack(stream_line):
                         label_text = label or "gas_analyzer"
@@ -8792,6 +9161,7 @@ class CalibrationRunner:
                             consecutive_frames=ready_consecutive_frames,
                         )
                         if ack_follow_parsed:
+                            _mark_runtime_active_state()
                             return
                         if ack_follow_line:
                             stream_line = ack_follow_line
@@ -8809,6 +9179,7 @@ class CalibrationRunner:
                         consecutive_frames=ready_consecutive_frames,
                     )
                     if passive_parsed:
+                        _mark_runtime_active_state()
                         return
                     last_error = RuntimeError(
                         "MODE2 not ready (passive) "
@@ -8843,7 +9214,18 @@ class CalibrationRunner:
             "raw",
             "id",
             "mode",
+            "mode2_schema_version",
             "mode2_field_count",
+            "mode2_min_field_count",
+            "mode2_known_field_count",
+            "mode2_extra_count",
+            "mode2_tokens_json",
+            "mode2_fields_json",
+            "mode2_unknown_fields_json",
+            "mode2_contract_status",
+            "mode2_contract_reason",
+            "mode2_qc_status",
+            "mode2_qc_reason",
             "co2_ppm",
             "h2o_mmol",
             "co2_density",
@@ -9083,6 +9465,79 @@ class CalibrationRunner:
             if not isinstance(entry, dict):
                 return None
             return dict(entry)
+
+    def _clear_live_analyzer_frame_cache_for_gate(self, ga: Any, *, label: Optional[str] = None) -> int:
+        keys = {
+            self._analyzer_runtime_key(ga),
+            self._analyzer_runtime_key(ga, label),
+        }
+        removed = 0
+        with self._live_analyzer_frame_cache_lock:
+            for key in keys:
+                if key and self._live_analyzer_frame_cache.pop(key, None) is not None:
+                    removed += 1
+        return removed
+
+    def _flush_active_analyzer_before_stability_gate(
+        self,
+        analyzers: List[Tuple[str, Any, Dict[str, Any]]],
+        *,
+        reason: str,
+    ) -> Dict[str, Any]:
+        flushed: List[str] = []
+        skipped: List[str] = []
+        errors: Dict[str, str] = {}
+        cache_cleared = 0
+        for label, ga, analyzer_cfg in analyzers:
+            settings = self._gas_analyzer_runtime_settings(analyzer_cfg)
+            if not bool(settings.get("active_send")):
+                skipped.append(label)
+                cache_cleared += self._clear_live_analyzer_frame_cache_for_gate(ga, label=label)
+                continue
+            cache_cleared += self._clear_live_analyzer_frame_cache_for_gate(ga, label=label)
+            try:
+                flush = getattr(ga, "flush_input", None)
+                if callable(flush):
+                    flush()
+                    flushed.append(label)
+                    continue
+                serial_obj = getattr(ga, "ser", None)
+                serial_flush = getattr(serial_obj, "flush_input", None)
+                if callable(serial_flush):
+                    serial_flush()
+                    flushed.append(label)
+                    continue
+                skipped.append(label)
+            except Exception as exc:
+                errors[label] = str(exc)
+        if flushed or skipped or errors or cache_cleared:
+            self._log_run_event(
+                command="analyzer-gate-fresh-frame-reset",
+                response=json.dumps(
+                    {
+                        "reason": str(reason or ""),
+                        "flushed_labels": flushed,
+                        "skipped_labels": skipped,
+                        "error_labels": errors,
+                        "live_cache_entries_cleared": cache_cleared,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            )
+            self.log(
+                "Analyzer gate fresh-frame reset: "
+                f"reason={reason or ''} flushed={','.join(flushed) or 'none'} "
+                f"skipped={','.join(skipped) or 'none'} "
+                f"errors={','.join(errors.keys()) or 'none'} "
+                f"cache_cleared={cache_cleared}"
+            )
+        return {
+            "flushed_labels": flushed,
+            "skipped_labels": skipped,
+            "errors": errors,
+            "live_cache_entries_cleared": cache_cleared,
+        }
 
     def _emit_sensor_read_reject_summary(self, signature: Tuple[str, str, str, str, str], state: Dict[str, Any]) -> None:
         suppressed_count = int(state.get("suppressed_count", 0) or 0)
@@ -9347,6 +9802,61 @@ class CalibrationRunner:
         if numeric is None or not math.isfinite(numeric) or numeric <= 0:
             return False
         return not self._matches_frame_sentinel(numeric, sentinels, tolerance)
+
+    def _assess_mode2_contract(self, parsed: Optional[Dict[str, Any]]) -> tuple[str, str]:
+        if not isinstance(parsed, dict) or not parsed:
+            return "fail", "no_frame"
+
+        issues: List[str] = []
+        notes: List[str] = []
+
+        mode_value = self._as_int(parsed.get("mode"))
+        if mode_value != 2:
+            issues.append(f"mode_not_2({parsed.get('mode')})")
+
+        if not str(parsed.get("mode2_schema_version") or "").strip():
+            issues.append("missing_schema_version")
+
+        field_count = self._as_int(parsed.get("mode2_field_count"))
+        min_mode2_fields = max(0, int(self._analyzer_frame_quality_cfg().get("min_mode2_fields", 16) or 16))
+        if field_count is None:
+            issues.append("missing_field_count")
+        elif field_count < min_mode2_fields:
+            issues.append(f"short_frame({field_count})")
+
+        tokens_raw = str(parsed.get("mode2_tokens_json") or "").strip()
+        if not tokens_raw:
+            issues.append("missing_tokens_json")
+        else:
+            try:
+                tokens = json.loads(tokens_raw)
+            except Exception:
+                issues.append("invalid_tokens_json")
+            else:
+                if not isinstance(tokens, list):
+                    issues.append("tokens_json_not_list")
+                elif field_count is not None and len(tokens) != field_count:
+                    issues.append(f"token_count_mismatch({len(tokens)}!={field_count})")
+
+        fields_raw = str(parsed.get("mode2_fields_json") or "").strip()
+        if not fields_raw:
+            issues.append("missing_fields_json")
+        else:
+            try:
+                fields = json.loads(fields_raw)
+            except Exception:
+                issues.append("invalid_fields_json")
+            else:
+                if not isinstance(fields, dict):
+                    issues.append("fields_json_not_object")
+
+        extra_count = self._as_int(parsed.get("mode2_extra_count"))
+        if extra_count:
+            notes.append(f"extra_fields={extra_count}")
+
+        if issues:
+            return "fail", ";".join(issues)
+        return "pass", ";".join(notes) if notes else "ok"
 
     def _assess_mode2_frame_for_startup(self, parsed: Optional[Dict[str, Any]]) -> tuple[bool, str]:
         if not isinstance(parsed, dict) or not parsed:
@@ -24699,10 +25209,28 @@ class CalibrationRunner:
             optional_labels = []
             min_valid_analyzers = len(analyzers)
         allow_pass_with_dropped_optional = bool(policy.get("allow_pass_with_dropped_optional", False))
+        disable_dropped_optional = bool(policy.get("disable_dropped_optional", True))
         zero_value_policy = str(policy.get("zero_value_policy") or "").strip().lower()
         invalid_frame_drop_s = max(0.0, float(policy.get("invalid_frame_drop_s") or 0.0))
         invalid_frame_min_count = max(1, int(policy.get("invalid_frame_min_count") or 1))
         silent_timeout_s = max(0.0, float(policy.get("silent_timeout_s") or 0.0))
+        wait_full_timeout_for_optional = bool(policy.get("wait_full_timeout_for_optional", False))
+        spike_filter_enabled = bool(
+            policy.get(
+                "spike_filter_enabled",
+                cfg.get("analyzer_gate_spike_filter_enabled", True),
+            )
+        )
+        spike_filter_max_count = max(
+            0,
+            int(
+                policy.get(
+                    "spike_filter_max_count",
+                    cfg.get("analyzer_gate_spike_filter_max_count", 1),
+                )
+                or 0
+            ),
+        )
         per_label: Dict[str, Dict[str, Any]] = {
             label: {
                 "label": label,
@@ -24719,6 +25247,9 @@ class CalibrationRunner:
                 "first_invalid_ts": None,
                 "latest_frame_ts": None,
                 "sample_count": 0,
+                "stable_window_span": None,
+                "stable_window_span_after_spike_filter": None,
+                "stability_spike_filtered_count": 0,
                 "stable_since_s": None,
             }
             for label in analyzer_labels
@@ -24752,7 +25283,8 @@ class CalibrationRunner:
             state["dropped"] = True
             state["drop_reason"] = reason
             dropped_reasons[label] = reason
-            self._disable_analyzers([label], reason=reason)
+            if disable_dropped_optional:
+                self._disable_analyzers([label], reason=reason)
 
         def _publish_analyzer_gate_result(reason: str) -> None:
             if analyzer_gate_result is None:
@@ -24946,7 +25478,14 @@ class CalibrationRunner:
                         stabs[label].add(value)
                 stab = stabs[label]
                 state["sample_count"] = len(stab.values)
-                if len(stab.values) >= max(2, min_samples) and stab.is_stable():
+                stable_ok, raw_span, filtered_span, filtered_count = stab.stability_detail(
+                    min_samples=max(2, min_samples),
+                    max_outliers=spike_filter_max_count if spike_filter_enabled else 0,
+                )
+                state["stable_window_span"] = raw_span
+                state["stable_window_span_after_spike_filter"] = filtered_span
+                state["stability_spike_filtered_count"] = filtered_count
+                if len(stab.values) >= max(2, min_samples) and stable_ok:
                     if last_values[label] is not None:
                         stable_snapshot[label] = float(last_values[label])
                         state["stable"] = True
@@ -24963,17 +25502,27 @@ class CalibrationRunner:
                 stable_labels = _stable_labels_now()
                 valid_stable_count = len(stable_labels)
                 if _required_labels_stable() and valid_stable_count >= min_valid_analyzers:
-                    reason = "min_valid_met"
-                    if dropped_reasons and allow_pass_with_dropped_optional:
-                        reason = "min_valid_met_with_dropped_optional"
-                    _publish_analyzer_gate_result(reason)
-                    self.log(
-                        "Sensor stable (analyzer gate min-valid "
-                        f"{key}: stable={','.join(stable_labels)} "
-                        f"dropped={','.join(dropped_reasons.keys()) or 'none'} "
-                        f"min_valid={min_valid_analyzers})"
+                    active_count = len(
+                        [
+                            label
+                            for label in analyzer_labels
+                            if not bool(per_label.get(label, {}).get("dropped"))
+                        ]
                     )
-                    return True
+                    if wait_full_timeout_for_optional and valid_stable_count < active_count:
+                        all_stable = False
+                    else:
+                        reason = "min_valid_met"
+                        if dropped_reasons and allow_pass_with_dropped_optional:
+                            reason = "min_valid_met_with_dropped_optional"
+                        _publish_analyzer_gate_result(reason)
+                        self.log(
+                            "Sensor stable (analyzer gate min-valid "
+                            f"{key}: stable={','.join(stable_labels)} "
+                            f"dropped={','.join(dropped_reasons.keys()) or 'none'} "
+                            f"min_valid={min_valid_analyzers})"
+                        )
+                        return True
 
             if all_stable and len(stable_snapshot) == len(analyzers):
                 summary = " ".join(
@@ -25019,7 +25568,14 @@ class CalibrationRunner:
             if policy_enabled and bool(per_label.get(label, {}).get("dropped")):
                 continue
             stab = stabs[label]
-            if len(stab.values) >= max(2, min_samples) and stab.is_stable():
+            stable_ok, raw_span, filtered_span, filtered_count = stab.stability_detail(
+                min_samples=max(2, min_samples),
+                max_outliers=spike_filter_max_count if spike_filter_enabled else 0,
+            )
+            per_label[label]["stable_window_span"] = raw_span
+            per_label[label]["stable_window_span_after_spike_filter"] = filtered_span
+            per_label[label]["stability_spike_filtered_count"] = filtered_count
+            if len(stab.values) >= max(2, min_samples) and stable_ok:
                 stable_labels.append(label)
             else:
                 unstable_labels.append(label)
@@ -26432,6 +26988,9 @@ class CalibrationRunner:
                         )
                         reach_start = None
                         last_report_s = 0.0
+                        best_abs_error = abs_error
+                        last_progress_ts = now
+                        last_progress_log_ts = None
                         continue
 
                     # Avoid flooding logs; report approximately once per minute.
@@ -29199,6 +29758,9 @@ class CalibrationRunner:
         read_interval_s = float(
             sensor_cfg.get("co2_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0))
         )
+        policy = str(sensor_cfg.get("co2_ratio_f_preseal_policy", "reject") or "reject").strip().lower()
+        if policy not in {"reject", "warn", "pass"}:
+            policy = "reject"
         stability_cfg = self.cfg.get("workflow", {}).get("stability", {})
 
         def _label_list(raw: Any) -> List[str]:
@@ -29215,6 +29777,10 @@ class CalibrationRunner:
                 stability_cfg.get("analyzer_gate_allow_pass_with_dropped_optional"),
                 False,
             ),
+            "disable_dropped_optional": self._as_bool(
+                stability_cfg.get("analyzer_gate_disable_dropped_optional"),
+                True,
+            ),
             "zero_value_policy": str(
                 stability_cfg.get("analyzer_gate_zero_value_policy", "block")
                 or "block"
@@ -29227,6 +29793,19 @@ class CalibrationRunner:
             ),
             "silent_timeout_s": float(
                 stability_cfg.get("analyzer_gate_silent_timeout_s", 0.0) or 0.0
+            ),
+            "wait_full_timeout_for_optional": self._as_bool(
+                stability_cfg.get("analyzer_gate_wait_full_timeout_for_optional"),
+                False,
+            ),
+            "spike_filter_enabled": self._as_bool(
+                stability_cfg.get("analyzer_gate_spike_filter_enabled"),
+                True,
+            ),
+            "spike_filter_max_count": int(
+                1
+                if stability_cfg.get("analyzer_gate_spike_filter_max_count") is None
+                else stability_cfg.get("analyzer_gate_spike_filter_max_count")
             ),
         }
         if analyzer_gate_policy["enabled"]:
@@ -29265,6 +29844,30 @@ class CalibrationRunner:
             phase="co2",
             analyzer_gate_begin_ts=analyzer_gate_begin_ts,
         )
+        fresh_reset_result: Dict[str, Any] = {}
+        if self._as_bool(sensor_cfg.get("co2_ratio_f_preseal_flush_active_stream_before_gate"), True):
+            fresh_reset_result = self._flush_active_analyzer_before_stability_gate(
+                self._active_gas_analyzers(),
+                reason="co2_preseal_analyzer_gate_begin",
+            )
+            self._set_point_runtime_fields(
+                point,
+                phase="co2",
+                analyzer_gate_fresh_frame_reset=True,
+                analyzer_gate_fresh_frame_reset_flushed_labels=",".join(
+                    fresh_reset_result.get("flushed_labels") or []
+                ),
+                analyzer_gate_fresh_frame_reset_skipped_labels=",".join(
+                    fresh_reset_result.get("skipped_labels") or []
+                ),
+                analyzer_gate_fresh_frame_reset_error_labels=",".join(
+                    (fresh_reset_result.get("errors") or {}).keys()
+                ),
+                analyzer_gate_live_cache_entries_cleared=fresh_reset_result.get(
+                    "live_cache_entries_cleared",
+                    0,
+                ),
+            )
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -29282,12 +29885,23 @@ class CalibrationRunner:
                 "analyzer_gate_optional_labels": ",".join(analyzer_gate_policy.get("optional_labels") or []),
                 "analyzer_gate_max_wait_s": timeout_s,
                 "analyzer_gate_zero_value_policy": analyzer_gate_policy.get("zero_value_policy") or "",
+                "analyzer_gate_fresh_frame_reset": bool(fresh_reset_result),
+                "analyzer_gate_fresh_frame_reset_flushed_labels": ",".join(
+                    fresh_reset_result.get("flushed_labels") or []
+                ),
+                "analyzer_gate_fresh_frame_reset_skipped_labels": ",".join(
+                    fresh_reset_result.get("skipped_labels") or []
+                ),
+                "analyzer_gate_live_cache_entries_cleared": fresh_reset_result.get(
+                    "live_cache_entries_cleared",
+                    0,
+                ),
                 **raw_tap_begin,
             },
             note=(
                 f"key=co2_ratio_f tol={tol:.6f} window_s={window_s:.3f} "
                 f"timeout_s={timeout_s:.3f} min_samples={min_samples} "
-                f"read_interval_s={read_interval_s:.3f}"
+                f"read_interval_s={read_interval_s:.3f} policy={policy}"
             ),
         )
         if bool(dewpoint_monitor.get("tail_reference_missing")):
@@ -29388,13 +30002,21 @@ class CalibrationRunner:
             },
             note=(
                 f"result={'pass' if stable else 'fail'} key=co2_ratio_f tol={tol:.6f} "
-                f"window_s={window_s:.3f} timeout_s={timeout_s:.3f} min_samples={min_samples}"
+                f"window_s={window_s:.3f} timeout_s={timeout_s:.3f} min_samples={min_samples} "
+                f"policy={policy}"
             ),
         )
         if stable:
             self.log(
                 "CO2 preseal analyzer stability gate passed: "
                 f"tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
+            )
+            return True
+        if policy in {"warn", "pass"}:
+            self.log(
+                "CO2 preseal analyzer stability gate timed out before downstream sampling/seal; "
+                f"continue due to policy={policy} tol={tol:g} window_s={window_s:g} "
+                f"min_samples={min_samples}. Sample must be treated as diagnostic, not A-grade fit evidence."
             )
             return True
         self.log(
@@ -29557,6 +30179,61 @@ class CalibrationRunner:
         read_interval_s = float(
             sensor_cfg.get("h2o_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0))
         )
+        stability_cfg = self.cfg.get("workflow", {}).get("stability", {})
+
+        def _label_list(raw: Any) -> List[str]:
+            if not isinstance(raw, list):
+                return []
+            return [str(item or "").strip() for item in raw if str(item or "").strip()]
+
+        analyzer_gate_policy = {
+            "enabled": "analyzer_gate_min_valid_analyzers" in stability_cfg,
+            "min_valid_analyzers": int(stability_cfg.get("analyzer_gate_min_valid_analyzers", 0) or 0),
+            "required_labels": _label_list(stability_cfg.get("analyzer_gate_required_labels")),
+            "optional_labels": _label_list(stability_cfg.get("analyzer_gate_optional_labels")),
+            "allow_pass_with_dropped_optional": self._as_bool(
+                stability_cfg.get("analyzer_gate_allow_pass_with_dropped_optional"),
+                False,
+            ),
+            "disable_dropped_optional": self._as_bool(
+                stability_cfg.get("analyzer_gate_disable_dropped_optional"),
+                True,
+            ),
+            "zero_value_policy": str(
+                stability_cfg.get("analyzer_gate_zero_value_policy", "block")
+                or "block"
+            ),
+            "invalid_frame_drop_s": float(
+                stability_cfg.get("analyzer_gate_invalid_frame_drop_s", 0.0) or 0.0
+            ),
+            "invalid_frame_min_count": int(
+                stability_cfg.get("analyzer_gate_invalid_frame_min_count", 1) or 1
+            ),
+            "silent_timeout_s": float(
+                stability_cfg.get("analyzer_gate_silent_timeout_s", 0.0) or 0.0
+            ),
+            "wait_full_timeout_for_optional": self._as_bool(
+                stability_cfg.get("analyzer_gate_wait_full_timeout_for_optional"),
+                False,
+            ),
+            "spike_filter_enabled": self._as_bool(
+                stability_cfg.get("analyzer_gate_spike_filter_enabled"),
+                True,
+            ),
+            "spike_filter_max_count": int(
+                1
+                if stability_cfg.get("analyzer_gate_spike_filter_max_count") is None
+                else stability_cfg.get("analyzer_gate_spike_filter_max_count")
+            ),
+        }
+        if analyzer_gate_policy["enabled"]:
+            timeout_s = float(stability_cfg.get("analyzer_gate_max_wait_s", timeout_s) or timeout_s)
+            window_s = float(stability_cfg.get("analyzer_gate_stable_window_s", window_s) or window_s)
+            min_samples = max(
+                min_samples,
+                int(stability_cfg.get("analyzer_gate_stable_min_samples", min_samples) or min_samples),
+            )
+        analyzer_gate_result: Dict[str, Any] = {}
         policy_raw = sensor_cfg.get("h2o_ratio_f_preseal_policy", "warn")
         policy = str(policy_raw or "warn").strip().lower()
         if policy not in {"reject", "warn", "pass"}:
@@ -29568,6 +30245,13 @@ class CalibrationRunner:
             trace_stage="h2o_precondition_analyzer_gate_begin",
             pressure_target_hpa=point.target_pressure_hpa,
             refresh_pace_state=False,
+            extra_fields={
+                "analyzer_gate_min_valid_analyzers": analyzer_gate_policy.get("min_valid_analyzers") or "",
+                "analyzer_gate_required_labels": ",".join(analyzer_gate_policy.get("required_labels") or []),
+                "analyzer_gate_optional_labels": ",".join(analyzer_gate_policy.get("optional_labels") or []),
+                "analyzer_gate_max_wait_s": timeout_s,
+                "analyzer_gate_zero_value_policy": analyzer_gate_policy.get("zero_value_policy") or "",
+            },
             note=(
                 f"key=h2o_ratio_f tol={tol:.6f} window_s={window_s:.3f} "
                 f"timeout_s={timeout_s:.3f} min_samples={min_samples} "
@@ -29583,6 +30267,13 @@ class CalibrationRunner:
             timeout_override=timeout_s,
             min_samples_override=min_samples,
             read_interval_override=read_interval_s,
+            analyzer_gate_policy=analyzer_gate_policy if analyzer_gate_policy["enabled"] else None,
+            analyzer_gate_result=analyzer_gate_result,
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase="h2o",
+            **analyzer_gate_result,
         )
         self._append_pressure_trace_row(
             point=point,
@@ -29591,6 +30282,7 @@ class CalibrationRunner:
             trace_stage="h2o_precondition_analyzer_gate_end",
             pressure_target_hpa=point.target_pressure_hpa,
             refresh_pace_state=False,
+            extra_fields=analyzer_gate_result,
             note=(
                 f"result={'pass' if stable else 'fail'} key=h2o_ratio_f tol={tol:.6f} "
                 f"window_s={window_s:.3f} timeout_s={timeout_s:.3f} min_samples={min_samples} "
@@ -29988,8 +30680,11 @@ class CalibrationRunner:
         now_s = time.time()
         now_mono_s = time.monotonic()
         max_age_s = self._sampling_pre_sample_analyzer_max_age_s()
+        dropped_labels = self._sampling_context_analyzer_gate_dropped_labels(context)
         for label, ga, analyzer_cfg in self._all_gas_analyzers():
             if label in self._disabled_analyzers:
+                continue
+            if label in dropped_labels:
                 continue
             settings = self._gas_analyzer_runtime_settings(analyzer_cfg)
             active_send = bool(settings["active_send"])
@@ -30019,6 +30714,35 @@ class CalibrationRunner:
             if not fresh or not usable:
                 missing.append(label)
         return missing
+
+    def _sampling_context_analyzer_gate_dropped_labels(self, context: Dict[str, Any]) -> set[str]:
+        if not isinstance(context, dict):
+            return set()
+        point = context.get("point")
+        phase = str(context.get("phase") or "").strip().lower()
+        if not phase:
+            return set()
+        state = self._point_runtime_state(point, phase=phase, create=False) or {}
+        labels: set[str] = set()
+        for raw_label in str(state.get("analyzer_gate_dropped_labels") or "").split(","):
+            label = raw_label.strip()
+            if label:
+                labels.add(label)
+        if labels:
+            return labels
+        try:
+            statuses = json.loads(str(state.get("analyzer_gate_per_analyzer_status") or "[]"))
+        except Exception:
+            return set()
+        if not isinstance(statuses, list):
+            return set()
+        for item in statuses:
+            if not isinstance(item, dict) or not bool(item.get("dropped")):
+                continue
+            label = str(item.get("label") or "").strip()
+            if label:
+                labels.add(label)
+        return labels
 
     def _wait_for_sampling_freshness_gate(
         self,
@@ -33123,10 +33847,15 @@ class CalibrationRunner:
         window_end_ts = last_sample.get("sample_end_ts") or last_sample.get("sample_ts")
         sample_ts = window_end_ts or window_start_ts
 
+        point_device_id = self._point_device_id_from_samples(samples)
         row = {
             "run_id": getattr(self.logger, "run_id", ""),
             "session_id": getattr(self.logger, "run_id", ""),
-            "device_id": self._point_device_id_from_samples(samples),
+            "device_id": point_device_id,
+            "analyzer_device_id": point_device_id,
+            "analyzer_identity_map_json": self._trace_json(
+                self._point_analyzer_identity_map_from_samples(samples)
+            ),
             "gas_type": gas_type,
             "step": phase,
             "point_no": point.index,
@@ -33299,16 +34028,20 @@ class CalibrationRunner:
         return self._as_float(getattr(point, "co2_ppm", None))
 
     def _sample_device_id(self, row: Dict[str, Any]) -> str:
-        direct = _normalized_device_id_text(row.get("device_id") or row.get("id"))
+        direct = _normalized_device_id_text(row.get("analyzer_device_id") or row.get("device_id") or row.get("id"))
         if direct:
             return direct
         for label, _ga, _cfg in self._all_gas_analyzers():
             prefix = self._safe_label(label)
-            candidate = _normalized_device_id_text(row.get(f"{prefix}_id"))
+            candidate = _normalized_device_id_text(
+                row.get(f"{prefix}_analyzer_device_id")
+                or row.get(f"{prefix}_device_id")
+                or row.get(f"{prefix}_id")
+            )
             if candidate:
                 return candidate
         for key, value in row.items():
-            if re.match(r"^ga\d+_id$", str(key or "").strip(), re.IGNORECASE):
+            if re.match(r"^ga\d+_(analyzer_device_id|device_id|id)$", str(key or "").strip(), re.IGNORECASE):
                 candidate = _normalized_device_id_text(value)
                 if candidate:
                     return candidate
@@ -33320,6 +34053,28 @@ class CalibrationRunner:
             if candidate:
                 return candidate
         return ""
+
+    def _point_analyzer_identity_map_from_samples(self, samples: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
+        identity_map: Dict[str, Dict[str, str]] = {}
+        for label, _ga, _cfg in self._all_gas_analyzers():
+            prefix = self._safe_label(label)
+            for row in samples:
+                candidate = _normalized_device_id_text(
+                    row.get(f"{prefix}_analyzer_device_id")
+                    or row.get(f"{prefix}_device_id")
+                    or row.get(f"{prefix}_id")
+                )
+                if not candidate:
+                    continue
+                identity_map[prefix] = {
+                    "acquisition_channel": str(row.get(f"{prefix}_acquisition_channel") or label or prefix),
+                    "analyzer_device_id": candidate,
+                    "identity_source": str(row.get(f"{prefix}_analyzer_device_id_source") or ""),
+                    "identity_status": str(row.get(f"{prefix}_analyzer_identity_status") or ""),
+                    "identity_reason": str(row.get(f"{prefix}_analyzer_identity_reason") or ""),
+                }
+                break
+        return identity_map
 
     @staticmethod
     def _excel_safe_cell_value(value: Any) -> Any:
@@ -33380,6 +34135,7 @@ class CalibrationRunner:
             device_id = self._sample_device_id(row)
             if device_id:
                 row["device_id"] = device_id
+                row["analyzer_device_id"] = device_id
 
     def _perform_heavy_point_exports(
         self,
@@ -36192,6 +36948,135 @@ class CalibrationRunner:
                 out.append(text)
         return tuple(out)
 
+    def _summary_pressure_mode_key(self, row: Mapping[str, Any]) -> str:
+        for key in ("PressureMode", "pressure_mode", "pressure_execution_mode"):
+            text = str(row.get(key) or "").strip().lower()
+            if text:
+                return text
+        target = self._summary_float_value(
+            dict(row),
+            "PressureTarget",
+            "pressure_target_hpa",
+            "target_pressure_hpa",
+        )
+        if target is not None:
+            return "sealed_controlled"
+        return ""
+
+    def _formal_ratio_poly_pressure_modes(self, cfg: Mapping[str, Any]) -> Optional[set[str]]:
+        ratio_poly_fit_cfg = cfg.get("ratio_poly_fit", {}) if isinstance(cfg.get("ratio_poly_fit", {}), dict) else {}
+        include_sealed = self._as_bool(
+            ratio_poly_fit_cfg.get("include_sealed_pressure_points_in_formal_fit"),
+            False,
+        )
+
+        raw_modes = ratio_poly_fit_cfg.get("formal_pressure_modes", ["", "ambient_open"])
+        if isinstance(raw_modes, str):
+            values = [raw_modes]
+        elif isinstance(raw_modes, (list, tuple, set)):
+            values = list(raw_modes)
+        else:
+            values = ["", "ambient_open"]
+
+        modes: set[str] = set()
+        for item in values:
+            text = str(item or "").strip().lower()
+            if text in {"*", "all"}:
+                return None
+            modes.add(text)
+        if include_sealed:
+            modes.add("sealed_controlled")
+        return modes
+
+    def _summary_formal_fit_role_key(self, row: Mapping[str, Any]) -> str:
+        for key in ("FitRole", "fit_role", "calibration_fit_role", "formal_fit_role"):
+            text = str(row.get(key) or "").strip().lower()
+            if text:
+                return text
+        return ""
+
+    def _formal_ratio_poly_fit_roles(self, cfg: Mapping[str, Any]) -> Optional[set[str]]:
+        ratio_poly_fit_cfg = cfg.get("ratio_poly_fit", {}) if isinstance(cfg.get("ratio_poly_fit", {}), dict) else {}
+        raw_roles = ratio_poly_fit_cfg.get(
+            "formal_fit_roles",
+            [
+                "",
+                "component_calibration",
+                "formal_component_calibration",
+                "main_component_calibration",
+                "primary_component_calibration",
+            ],
+        )
+        if isinstance(raw_roles, str):
+            values = [raw_roles]
+        elif isinstance(raw_roles, (list, tuple, set)):
+            values = list(raw_roles)
+        else:
+            values = [""]
+
+        roles: set[str] = set()
+        for item in values:
+            text = str(item or "").strip().lower()
+            if text in {"*", "all"}:
+                return None
+            roles.add(text)
+        return roles
+
+    def _filter_formal_ratio_poly_pressure_rows(
+        self,
+        rows: List[Dict[str, Any]],
+        *,
+        gas: str,
+        cfg: Mapping[str, Any],
+    ) -> List[Dict[str, Any]]:
+        allowed_modes = self._formal_ratio_poly_pressure_modes(cfg)
+        allowed_roles = self._formal_ratio_poly_fit_roles(cfg)
+        if allowed_modes is None:
+            mode_filtered = list(rows)
+        else:
+            mode_filtered = []
+            excluded_by_mode: Dict[str, int] = {}
+            for row in rows:
+                mode = self._summary_pressure_mode_key(row)
+                if mode in allowed_modes:
+                    mode_filtered.append(row)
+                    continue
+                label = mode or "<blank>"
+                excluded_by_mode[label] = excluded_by_mode.get(label, 0) + 1
+
+            if excluded_by_mode:
+                summary = ",".join(
+                    f"{key}:{count}" for key, count in sorted(excluded_by_mode.items())
+                )
+                self.log(
+                    f"Ratio-poly formal pressure-mode filter [{str(gas or '').upper()}]: "
+                    f"kept={len(mode_filtered)} excluded={len(rows) - len(mode_filtered)} "
+                    f"allowed={sorted(allowed_modes)} excluded_by_mode={summary}"
+                )
+
+        if allowed_roles is None:
+            return mode_filtered
+
+        filtered: List[Dict[str, Any]] = []
+        excluded_by_role: Dict[str, int] = {}
+        for row in mode_filtered:
+            role = self._summary_formal_fit_role_key(row)
+            if role in allowed_roles:
+                filtered.append(row)
+                continue
+            label = role or "<blank>"
+            excluded_by_role[label] = excluded_by_role.get(label, 0) + 1
+        if excluded_by_role:
+            summary = ",".join(
+                f"{key}:{count}" for key, count in sorted(excluded_by_role.items())
+            )
+            self.log(
+                f"Ratio-poly formal fit-role filter [{str(gas or '').upper()}]: "
+                f"kept={len(filtered)} excluded={len(mode_filtered) - len(filtered)} "
+                f"allowed={sorted(allowed_roles)} excluded_by_role={summary}"
+            )
+        return filtered
+
     def _resolve_ratio_poly_columns(
         self,
         rows: List[Dict[str, Any]],
@@ -36267,6 +37152,11 @@ class CalibrationRunner:
         cfg: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
         gas_lower = str(gas or "").strip().lower()
+        rows = self._filter_formal_ratio_poly_pressure_rows(
+            rows,
+            gas=gas_lower,
+            cfg=cfg,
+        )
         if gas_lower != "h2o":
             return list(rows)
 

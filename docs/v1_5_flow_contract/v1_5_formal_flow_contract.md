@@ -1,0 +1,48 @@
+# V1.5 Formal Flow Contract
+
+- status: `pass`
+- contract: `pressure_first_temperature_review_then_open_flow_components`
+
+## Physical Flow
+
+- LOAD_PLAN: freeze plan, certificates, config hash, and run identity
+- PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9
+- PRESSURE: verify analyzer P against COM22 before component calibration
+- TEMPERATURE: review chamber/case temperature evidence before final approval
+- CO2_OPEN_FLOW: sample clean dry gas under continuous open flow
+- H2O_OPEN_FLOW: sample water route under dewpoint/reference evidence
+- QC: keep raw frames, rejected frames, reasons, and fit-eligible samples
+- CANDIDATE_REVIEW: derive coefficients only from role-eligible evidence
+- CONTROLLED_WRITE: write only through explicit controlled tools and readback
+- POST_WRITE_REVERIFY: verify updated output before archive and report
+- ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports
+
+## Step Sequence
+
+1. `LOAD_PLAN` / `load_plan_and_traceability`
+2. `PRECHECK` / `device_identity_and_getco_snapshot`
+3. `PRESSURE_CHANNEL_QUICK_CHECK` / `pressure_quick_check`
+4. `PRESSURE_CHANNEL_SENCO9_REVIEW` / `pressure_senco9_no_write_review`
+5. `TEMPERATURE_CHANNEL_REVIEW` / `temperature_channel_fast_review`
+6. `CO2_OPEN_FLOW` / `co2_open_flow_sampling`
+7. `H2O_OPEN_FLOW` / `h2o_open_flow_sampling`
+8. `QC_AND_FIT_INPUT_REVIEW` / `fit_input_quality_review`
+9. `CO2_CANDIDATE_REVIEW` / `co2_candidate_write_review`
+10. `CONTROLLED_WRITE` / `controlled_component_write_placeholder`
+11. `POST_WRITE_REVERIFY` / `post_write_reverification_placeholder`
+12. `EVIDENCE_BUNDLE` / `formal_evidence_sidecar`
+13. `DATABASE_IMPORT` / `database_import`
+14. `REPORTS` / `zh_calibration_reports`
+
+## Formal Route Runners
+
+- `co2_open_flow_sampling`
+- `h2o_open_flow_sampling`
+
+## Issues
+
+- none
+
+## Warnings
+
+- none

@@ -170,11 +170,34 @@ def _point_identity(row: Mapping[str, Any]) -> tuple[str, str, str]:
 
 
 def _extract_prefixed_parsed(row: Mapping[str, Any], prefix: str) -> Optional[Dict[str, Any]]:
+    explicit_has_data = row.get(f"{prefix}_frame_has_data")
+    if isinstance(explicit_has_data, str) and explicit_has_data.strip().lower() in {"0", "false", "no", "n"}:
+        return None
+    if explicit_has_data is False:
+        return None
     parsed: Dict[str, Any] = {}
     for key in CalibrationRunner._mode2_sample_fields():
         value = RunLogger._sample_prefixed_value(dict(row), prefix, key)
         if value not in (None, ""):
             parsed[key] = value
+    payload_keys = (
+        "raw",
+        "id",
+        "mode",
+        "mode2_field_count",
+        "mode2_tokens_json",
+        "mode2_fields_json",
+        "co2_ppm",
+        "h2o_mmol",
+        "co2_ratio_f",
+        "h2o_ratio_f",
+        "ref_signal",
+        "co2_signal",
+        "h2o_signal",
+        "pressure_kpa",
+    )
+    if not any(parsed.get(key) not in (None, "") for key in payload_keys):
+        return None
     return parsed or None
 
 
@@ -452,12 +475,18 @@ def fit_overview_rows(
                     }
                 )
             except Exception as exc:
+                error_text = str(exc)
+                status = (
+                    "fit_skipped_insufficient_points"
+                    if "Not enough rows for fit" in error_text
+                    else "fit_error"
+                )
                 out.append(
                     {
                         "mode": mode,
                         "gas": gas,
                         "Analyzer": analyzer_label,
-                        "status": "fit_error",
+                        "status": status,
                         "summary_rows_used": len(analyzer_rows),
                         "target_key": target_key,
                         "ratio_key": ratio_key,
@@ -465,7 +494,7 @@ def fit_overview_rows(
                         "selected_pressure_key": "",
                         "pressure_source_preference": pressure_preference,
                         "pressure_scale": pressure_scale,
-                        "fit_error": str(exc),
+                        "fit_error": error_text,
                     }
                 )
         return out, messages
@@ -586,9 +615,16 @@ def analyze_sample_rows(
     valid_ratio_values = [item for item in valid_ratio_values if item is not None]
     worst_valid_ratio = min(valid_ratio_values) if valid_ratio_values else None
     fit_errors = [row for row in tables["fit_input_overview"] if row.get("status") == "fit_error"]
+    fit_skips = [
+        row
+        for row in tables["fit_input_overview"]
+        if row.get("status") == "fit_skipped_insufficient_points"
+    ]
     risk = "pass"
     if fit_errors:
         risk = "fail"
+    elif fit_skips:
+        risk = "warn"
     elif worst_valid_ratio is not None and worst_valid_ratio < 0.8:
         risk = "warn"
     tables["conclusion_summary"].append(
@@ -597,6 +633,7 @@ def analyze_sample_rows(
             "analyzer_count": len(analyzers),
             "worst_valid_ratio": worst_valid_ratio,
             "fit_error_count": len(fit_errors),
+            "fit_skipped_count": len(fit_skips),
             "advice": (
                 "检查 fit_error 和 pressure_source_check。"
                 if fit_errors

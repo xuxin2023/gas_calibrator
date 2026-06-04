@@ -124,3 +124,42 @@ def test_sensor_precheck_strict_raises_when_invalid(tmp_path: Path) -> None:
 
     runner.logger.close()
     assert raised is True
+
+
+def test_sensor_precheck_defaults_to_passive_and_keeps_average_filter(tmp_path: Path) -> None:
+    chunks = [
+        "YGAS,001,499.0,1.0,101.0,1.1,0.1,0.1,0.2,0.2,1000,1001,1002,25.0,25.1,101.3\r\n",
+        "YGAS,001,500.0,1.0,101.1,1.1,0.1,0.1,0.2,0.2,1000,1001,1002,25.0,25.1,101.3\r\n",
+        "YGAS,001,501.0,1.0,101.2,1.1,0.1,0.1,0.2,0.2,1000,1001,1002,25.0,25.1,101.3\r\n",
+        "YGAS,001,502.0,1.0,101.3,1.1,0.1,0.1,0.2,0.2,1000,1001,1002,25.0,25.1,101.3\r\n",
+    ]
+    cfg = {
+        "workflow": {
+            "sensor_precheck": {
+                "enabled": True,
+                "mode": 2,
+                "ftd_hz": 1,
+                "average_filter": 49,
+                "average_co2": 1,
+                "average_h2o": 1,
+                "duration_s": 0.8,
+                "poll_s": 0.01,
+                "min_valid_frames": 2,
+                "strict": True,
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    devices = {"gas_analyzer": _FakeGasAnalyzer(chunks)}
+    runner = CalibrationRunner(cfg, devices, logger, lambda *_: None, lambda *_: None)
+
+    runner._sensor_precheck()
+
+    ga = runner.devices["gas_analyzer"]
+    assert ("comm_way", False, False) in ga.calls
+    assert ("comm_way", True, False) not in ga.calls
+    assert ("mode", 2, False) in ga.calls
+    assert ("ftd", 1) in ga.calls
+    assert ("avg_filter", 49, False) in ga.calls
+    assert not any(call[0] == "avg" for call in ga.calls)
+    runner.logger.close()

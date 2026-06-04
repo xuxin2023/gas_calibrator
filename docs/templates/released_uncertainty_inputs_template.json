@@ -1,0 +1,142 @@
+{
+  "released": false,
+  "coverage_factor": 2.0,
+  "release_basis": "<reviewed GUM budget identifier>",
+  "notes": [
+    "Fill all required inputs before formal release.",
+    "Leave released=false until reviewer approval.",
+    "The report remains draft_only while this template is incomplete."
+  ],
+  "inputs": [
+    {
+      "component": "CO2",
+      "input_quantity": "standard_gas_certificate",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<co2-certificate>",
+      "missing_reason": "fill_from_certificate"
+    },
+    {
+      "component": "CO2",
+      "input_quantity": "repeatability",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<a-grade-sample-statistics>",
+      "missing_reason": "fill_after_sampling"
+    },
+    {
+      "component": "CO2",
+      "input_quantity": "fit_residual",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<released-fit-budget>",
+      "missing_reason": "solver_qualification_pending"
+    },
+    {
+      "component": "CO2",
+      "input_quantity": "analyzer_resolution",
+      "distribution": "rectangular",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<resolution-model>",
+      "missing_reason": "resolution_budget_pending"
+    },
+    {
+      "component": "H2O",
+      "input_quantity": "standard_gas_certificate",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<h2o-certificate-or-reference>",
+      "missing_reason": "fill_from_certificate"
+    },
+    {
+      "component": "H2O",
+      "input_quantity": "repeatability",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<a-grade-sample-statistics>",
+      "missing_reason": "fill_after_sampling"
+    },
+    {
+      "component": "H2O",
+      "input_quantity": "fit_residual",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<released-fit-budget>",
+      "missing_reason": "solver_qualification_pending"
+    },
+    {
+      "component": "H2O",
+      "input_quantity": "analyzer_resolution",
+      "distribution": "rectangular",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<resolution-model>",
+      "missing_reason": "resolution_budget_pending"
+    },
+    {
+      "component": "CO2/H2O",
+      "input_quantity": "pressure_channel_bias",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<pressure-channel-quick-check>",
+      "missing_reason": "fill_after_pressure_quick_check"
+    },
+    {
+      "component": "CO2/H2O",
+      "input_quantity": "temperature_effect",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<temperature-sensitivity-budget>",
+      "missing_reason": "temperature_budget_pending"
+    },
+    {
+      "component": "CO2/H2O",
+      "input_quantity": "sampling_stability",
+      "distribution": "qualitative_gate",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<open-flow-qc-gate>",
+      "missing_reason": "fill_after_qc"
+    },
+    {
+      "component": "H2O",
+      "input_quantity": "dewpoint_or_humidity_reference",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<dewpoint-or-humidity-reference-certificate>",
+      "missing_reason": "humidity_reference_budget_pending"
+    },
+    {
+      "component": "H2O",
+      "input_quantity": "water_vapor_correction",
+      "distribution": "normal",
+      "standard_uncertainty": null,
+      "sensitivity_coefficient": 1.0,
+      "status": "not_evaluated",
+      "evidence_source": "<water-vapor-correction-budget>",
+      "missing_reason": "water_vapor_correction_budget_pending"
+    }
+  ]
+}

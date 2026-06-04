@@ -1,0 +1,270 @@
+import csv
+import json
+
+import pytest
+
+from gas_calibrator.tools import run_v1_5_h2o_senco6_linear_controlled_write as writer
+
+
+def _write_json(path, payload):
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _write_csv(path, rows):
+    header = []
+    for row in rows:
+        for key in row:
+            if key not in header:
+                header.append(key)
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        out = csv.DictWriter(handle, fieldnames=header)
+        out.writeheader()
+        out.writerows(rows)
+
+
+def _read_csv(path):
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _config(tmp_path):
+    return {
+        "devices": {
+            "gas_analyzers": [
+                {
+                    "name": "ga022",
+                    "enabled": True,
+                    "port": "COM37",
+                    "baud": 115200,
+                    "device_id": "022",
+                    "mode": 2,
+                    "active_send": True,
+                    "ftd_hz": 1,
+                    "average_filter": 49,
+                }
+            ]
+        },
+        "paths": {"output_dir": str(tmp_path / "logs")},
+    }
+
+
+def _candidates(path):
+    _write_csv(
+        path,
+        [
+            {
+                "device_id": "022",
+                "senco_group": "SENCO6",
+                "C0": "0.4905228172675264",
+                "C1": "1.0205632716937274",
+                "candidate_status": "review_ready",
+            },
+            {
+                "device_id": "030",
+                "senco_group": "SENCO6",
+                "C0": "-3.8272316786568896",
+                "C1": "0.8388745329865216",
+                "candidate_status": "blocked",
+            },
+        ],
+    )
+
+
+class _FakeGasAnalyzer:
+    instances = {}
+    COMMAND_TARGET_ID = "FFF"
+    CONFIG_ACK_RETRY_COUNT = 0
+    CONFIG_ACK_RETRY_DELAY_S = 0.0
+
+    @staticmethod
+    def _split_stream_lines(raw):
+        return [str(raw).strip()] if str(raw).strip() else []
+
+    @staticmethod
+    def _is_success_ack(line):
+        return str(line).strip().upper() in {"YGAS,T", "OK", "T"}
+
+    def __init__(self, port, baudrate=115200, timeout=1.0, device_id="000", **_kwargs):
+        self.port = port
+        self.device_id = device_id
+        self.mode = 2
+        self.coeff6 = [0.0, 1.0]
+        self.calls = []
+        _FakeGasAnalyzer.instances[port] = self
+
+    def open(self):
+        self.calls.append(("open",))
+
+    def close(self):
+        self.calls.append(("close",))
+
+    def read_current_mode_snapshot(self, *args, **kwargs):
+        self.calls.append(("snapshot", args, kwargs))
+        return {"id": self.device_id, "mode": self.mode, "raw": f"YGAS,{self.device_id},..."}
+
+    def set_mode_with_ack(self, mode, require_ack=True):
+        self.calls.append(("mode", int(mode), require_ack))
+        self.mode = int(mode)
+        return True
+
+    def read_coefficient_group(self, group, **_kwargs):
+        self.calls.append(("getco", int(group)))
+        assert int(group) == 6
+        return {"C0": self.coeff6[0], "C1": self.coeff6[1]}
+
+    def _prepare_coefficient_io(self):
+        self.calls.append(("prepare",))
+
+    def _send_config_with_retries(self, payload, **_kwargs):
+        self.calls.append(("send", payload))
+        parts = payload.split(",")
+        assert parts[:3] == ["SENCO6", "YGAS", "FFF"]
+        assert parts[3:] == ["0.491", "1.021"]
+        self.coeff6 = [float(parts[3]), float(parts[4])]
+        return True
+
+    def set_comm_way_with_ack(self, active, require_ack=True):
+        self.calls.append(("comm", active, require_ack))
+        return True
+
+    def set_active_freq_with_ack(self, hz, require_ack=True):
+        self.calls.append(("ftd", int(hz), require_ack))
+        return True
+
+    def set_average_filter_with_ack(self, window_n, require_ack=True):
+        self.calls.append(("avg", int(window_n), require_ack))
+        return True
+
+
+def test_senco6_linear_writer_writes_decimal_payload_and_readback(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg = tmp_path / "cfg.json"
+    candidates = tmp_path / "candidates.csv"
+    out = tmp_path / "out"
+    _write_json(cfg, _config(tmp_path))
+    _candidates(candidates)
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg),
+            "--candidate-coefficients-csv",
+            str(candidates),
+            "--output-dir",
+            str(out),
+            "--device-id",
+            "022",
+            "--enable-senco6-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+            "--pre-device-cooldown-s",
+            "0",
+            "--inter-device-delay-s",
+            "0",
+            "--restore-command-gap-s",
+            "0",
+            "--post-write-settle-s",
+            "0",
+        ]
+    )
+
+    assert rc == 0
+    rows = _read_csv(out / "senco6_linear_write_events.csv")
+    assert rows[0]["status"] == "written_readback_verified"
+    assert rows[0]["payload"] == "SENCO6,YGAS,FFF,0.491,1.021"
+    assert rows[0]["controls_water_or_gas_routes"] == "False"
+    assert rows[0]["writes_senco6"] == "True"
+    assert rows[0]["clears_senco"] == "False"
+    ga = _FakeGasAnalyzer.instances["COM37"]
+    assert ga.coeff6 == [0.491, 1.021]
+    assert ("send", "SENCO6,YGAS,FFF,0.491,1.021") in ga.calls
+
+
+def test_senco6_linear_writer_rejects_more_than_three_decimals():
+    with pytest.raises(ValueError, match="at most 3 decimal"):
+        writer._format_c1("1.0004", decimals=4)
+
+
+def test_senco6_linear_writer_accepts_missing_ack_when_readback_matches(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+
+    def _write_without_ack(ga, **_kwargs):
+        ga.coeff6 = [0.491, 1.021]
+        return False, "SENCO6,YGAS,FFF,0.491,1.021", []
+
+    monkeypatch.setattr(writer, "_write_senco6", _write_without_ack)
+    cfg = tmp_path / "cfg.json"
+    candidates = tmp_path / "candidates.csv"
+    out = tmp_path / "out"
+    _write_json(cfg, _config(tmp_path))
+    _candidates(candidates)
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg),
+            "--candidate-coefficients-csv",
+            str(candidates),
+            "--output-dir",
+            str(out),
+            "--device-id",
+            "022",
+            "--enable-senco6-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+            "--pre-device-cooldown-s",
+            "0",
+            "--inter-device-delay-s",
+            "0",
+            "--restore-command-gap-s",
+            "0",
+            "--post-write-settle-s",
+            "0",
+        ]
+    )
+
+    assert rc == 0
+    rows = _read_csv(out / "senco6_linear_write_events.csv")
+    assert rows[0]["status"] == "written_readback_verified_ack_missing"
+    assert rows[0]["writes_senco6"] == "True"
+    assert rows[0]["write_applied"] == "True"
+    assert "ACK_MISSING_BUT_READBACK_MATCHED" in rows[0]["reason"]
+
+
+def test_senco6_linear_writer_refuses_blocked_candidate(tmp_path):
+    cfg = tmp_path / "cfg.json"
+    candidates = tmp_path / "candidates.csv"
+    _write_json(cfg, _config(tmp_path))
+    _candidates(candidates)
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg),
+            "--candidate-coefficients-csv",
+            str(candidates),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--device-id",
+            "030",
+            "--enable-senco6-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2

@@ -517,6 +517,92 @@ def test_build_analyzer_summary_row_aligns_reference_rows_by_default(tmp_path: P
     )
 
 
+def test_build_analyzer_summary_row_filters_single_ratio_spike_from_summary_only(tmp_path: Path) -> None:
+    logger = RunLogger(
+        tmp_path,
+        cfg={
+            "workflow": {
+                "summary_alignment": {"reference_on_aligned_rows": True},
+                "sampling": {
+                    "summary_outlier_filter": {
+                        "enabled": True,
+                        "keys": ["co2_ratio_f"],
+                        "absolute_thresholds": {"co2_ratio_f": 0.001},
+                        "min_samples": 3,
+                        "max_outliers_per_key": 1,
+                    }
+                },
+            }
+        },
+    )
+    rows = [
+        {
+            "point_row": 1,
+            "point_phase": "co2",
+            "point_title": "demo",
+            "pressure_target_hpa": 1000.0,
+            "co2_ppm_target": 100.0,
+            "ga01_frame_has_data": True,
+            "ga01_frame_usable": True,
+            "ga01_co2_ppm": 100.0,
+            "ga01_h2o_mmol": 1.0,
+            "ga01_co2_ratio_f": 0.1200,
+            "ga01_h2o_ratio_f": 0.2200,
+            "ga01_pressure_kpa": 101.30,
+            "dewpoint_c": -20.0,
+            "dew_pressure_hpa": 1000.0,
+            "pressure_gauge_hpa": 1000.0,
+        },
+        {
+            "point_row": 1,
+            "point_phase": "co2",
+            "point_title": "demo",
+            "pressure_target_hpa": 1000.0,
+            "co2_ppm_target": 100.0,
+            "ga01_frame_has_data": True,
+            "ga01_frame_usable": True,
+            "ga01_co2_ppm": 101.0,
+            "ga01_h2o_mmol": 1.1,
+            "ga01_co2_ratio_f": 0.1202,
+            "ga01_h2o_ratio_f": 0.2201,
+            "ga01_pressure_kpa": 101.32,
+            "dewpoint_c": -20.0,
+            "dew_pressure_hpa": 1000.0,
+            "pressure_gauge_hpa": 1000.0,
+        },
+        {
+            "point_row": 1,
+            "point_phase": "co2",
+            "point_title": "demo",
+            "pressure_target_hpa": 1000.0,
+            "co2_ppm_target": 100.0,
+            "ga01_frame_has_data": True,
+            "ga01_frame_usable": True,
+            "ga01_co2_ppm": 999.0,
+            "ga01_h2o_mmol": 9.9,
+            "ga01_co2_ratio_f": 0.1300,
+            "ga01_h2o_ratio_f": 0.2299,
+            "ga01_pressure_kpa": 106.00,
+            "dewpoint_c": 12.0,
+            "dew_pressure_hpa": 800.0,
+            "pressure_gauge_hpa": 800.0,
+        },
+    ]
+
+    summary = logger._build_analyzer_summary_row(rows, label="ga01", num=1)
+    logger.close()
+
+    assert summary["ValidFrames"] == 3
+    assert summary["TotalFrames"] == 3
+    assert summary["SummaryFrames"] == 2
+    assert summary["OutlierFilteredFrames"] == 1
+    assert summary["OutlierFilterKeys"] == "co2_ratio_f:1"
+    assert summary["R_CO2"] == 0.1201
+    assert summary["ppm_CO2"] == 100.5
+    assert summary["BAR"] == 101.31
+    assert summary["Dew"] == -20.0
+
+
 def test_build_analyzer_summary_row_exports_h2o_reference_semantics_fields(tmp_path: Path) -> None:
     logger = RunLogger(
         tmp_path,

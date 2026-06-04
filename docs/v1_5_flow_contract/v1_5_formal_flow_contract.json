@@ -1,0 +1,56 @@
+{
+  "schema": "v1_5_formal_flow_contract_report_v1",
+  "status": "pass",
+  "contract": "pressure_first_temperature_review_then_open_flow_components",
+  "phase_sequence": [
+    "LOAD_PLAN",
+    "PRECHECK",
+    "PRESSURE_CHANNEL_QUICK_CHECK",
+    "PRESSURE_CHANNEL_SENCO9_REVIEW",
+    "TEMPERATURE_CHANNEL_REVIEW",
+    "CO2_OPEN_FLOW",
+    "H2O_OPEN_FLOW",
+    "QC_AND_FIT_INPUT_REVIEW",
+    "CO2_CANDIDATE_REVIEW",
+    "CONTROLLED_WRITE",
+    "POST_WRITE_REVERIFY",
+    "EVIDENCE_BUNDLE",
+    "DATABASE_IMPORT",
+    "REPORTS"
+  ],
+  "step_sequence": [
+    "load_plan_and_traceability",
+    "device_identity_and_getco_snapshot",
+    "pressure_quick_check",
+    "pressure_senco9_no_write_review",
+    "temperature_channel_fast_review",
+    "co2_open_flow_sampling",
+    "h2o_open_flow_sampling",
+    "fit_input_quality_review",
+    "co2_candidate_write_review",
+    "controlled_component_write_placeholder",
+    "post_write_reverification_placeholder",
+    "formal_evidence_sidecar",
+    "database_import",
+    "zh_calibration_reports"
+  ],
+  "formal_runner_steps": [
+    "co2_open_flow_sampling",
+    "h2o_open_flow_sampling"
+  ],
+  "physical_flow": [
+    "LOAD_PLAN: freeze plan, certificates, config hash, and run identity",
+    "PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9",
+    "PRESSURE: verify analyzer P against COM22 before component calibration",
+    "TEMPERATURE: review chamber/case temperature evidence before final approval",
+    "CO2_OPEN_FLOW: sample clean dry gas under continuous open flow",
+    "H2O_OPEN_FLOW: sample water route under dewpoint/reference evidence",
+    "QC: keep raw frames, rejected frames, reasons, and fit-eligible samples",
+    "CANDIDATE_REVIEW: derive coefficients only from role-eligible evidence",
+    "CONTROLLED_WRITE: write only through explicit controlled tools and readback",
+    "POST_WRITE_REVERIFY: verify updated output before archive and report",
+    "ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports"
+  ],
+  "issues": [],
+  "warnings": []
+}

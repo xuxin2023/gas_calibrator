@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any, Dict, Optional
@@ -22,6 +23,7 @@ class GasAnalyzer:
     ACTIVE_READ_RETRY_DELAY_S = 0.01
     CONFIG_ACK_RETRY_COUNT = 1
     CONFIG_ACK_RETRY_DELAY_S = 0.1
+    IDENTITY_WRITE_BLOCKED_RESPONSE = "IDENTITY_WRITE_BLOCKED"
     COMM_WAY_ACK_RETRY_COUNT = 3
     COMM_WAY_ACK_RETRY_DELAY_S = 0.2
     COEFFICIENT_COMM_QUIET_DELAY_S = 0.15
@@ -47,7 +49,9 @@ class GasAnalyzer:
         "case_temp_c",
         "pressure_kpa",
     ]
+    MODE2_SCHEMA_VERSION = "factory_mode2_16_v1"
     MODE2_MIN_FIELD_COUNT = 2 + len(_MODE2_KEYS)
+    _MODE2_TOKEN_LABELS = ["device_marker", "id"] + _MODE2_KEYS + ["status"]
 
     def __init__(
         self,
@@ -200,12 +204,41 @@ class GasAnalyzer:
             return f"{int(text):03d}"
         return text.upper()
 
-    def set_device_id(self, device_id: Any) -> bool:
-        return self.set_device_id_with_ack(device_id, require_ack=True)
+    def _log_identity_write_blocked(self, payload: str) -> None:
+        logger = getattr(self.ser, "_log_io", None)
+        if callable(logger):
+            logger(
+                "WARN",
+                command=payload + "\r\n",
+                response=self.IDENTITY_WRITE_BLOCKED_RESPONSE,
+            )
 
-    def set_device_id_with_ack(self, device_id: Any, *, require_ack: bool = True) -> bool:
+    def _require_identity_write_authorized(self, payload: str, allow_identity_write: bool) -> None:
+        if allow_identity_write:
+            return
+        self._log_identity_write_blocked(payload)
+        raise PermissionError(
+            "Analyzer device ID writes are blocked by default; use a dedicated "
+            "identity-maintenance workflow and pass allow_identity_write=True."
+        )
+
+    def set_device_id(self, device_id: Any, *, allow_identity_write: bool = False) -> bool:
+        return self.set_device_id_with_ack(
+            device_id,
+            require_ack=True,
+            allow_identity_write=allow_identity_write,
+        )
+
+    def set_device_id_with_ack(
+        self,
+        device_id: Any,
+        *,
+        require_ack: bool = True,
+        allow_identity_write: bool = False,
+    ) -> bool:
         normalized_id = self.normalize_device_id(device_id)
         payload = self._cmd_with_args("ID", normalized_id).strip()
+        self._require_identity_write_authorized(payload, allow_identity_write)
         acked = self._send_config_with_retries(
             payload,
             broadcast=True,
@@ -270,8 +303,12 @@ class GasAnalyzer:
     def set_active_freq(self, hz: int) -> bool:
         return self.set_active_freq_with_ack(hz, require_ack=True)
 
+    @staticmethod
+    def _format_ftd_value(hz: int) -> str:
+        return f"{max(1, int(hz)):02d}"
+
     def set_active_freq_with_ack(self, hz: int, *, require_ack: bool = True) -> bool:
-        payload = self._cmd_with_args("FTD", int(hz)).strip()
+        payload = self._cmd_with_args("FTD", self._format_ftd_value(hz)).strip()
         acked = self._send_config_with_retries(
             payload,
             broadcast=True,
@@ -604,6 +641,16 @@ class GasAnalyzer:
                 return None
 
     @staticmethod
+    def _to_float_strict(value: str) -> Optional[float]:
+        text = str(value or "").strip()
+        if not re.fullmatch(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", text):
+            return None
+        try:
+            return float(text)
+        except Exception:
+            return None
+
+    @staticmethod
     def _clean_token(token: Any) -> str:
         text = str(token or "").strip()
         text = text.lstrip("<>[](){} \t\r\n")
@@ -615,6 +662,20 @@ class GasAnalyzer:
     @classmethod
     def _split_frame_parts(cls, frame: str) -> list[str]:
         return [cls._clean_token(part) for part in str(frame or "").strip().split(",")]
+
+    @staticmethod
+    def _json_compact(value: Any) -> str:
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+    @classmethod
+    def _mode2_fields_payload(cls, cleaned: list[str]) -> Dict[str, str]:
+        payload: Dict[str, str] = {}
+        for idx, token in enumerate(cleaned, start=1):
+            payload[f"field_{idx:02d}"] = token
+        for idx, label in enumerate(cls._MODE2_TOKEN_LABELS):
+            if idx < len(cleaned):
+                payload[label] = cleaned[idx]
+        return payload
 
     @staticmethod
     def _iter_frame_candidates(line: str) -> list[str]:
@@ -646,20 +707,29 @@ class GasAnalyzer:
             "raw": line,
             "id": cleaned[1] if len(cleaned) > 1 else None,
             "mode": 2,
+            "mode2_schema_version": GasAnalyzer.MODE2_SCHEMA_VERSION,
             "mode2_field_count": len(cleaned),
+            "mode2_min_field_count": GasAnalyzer.MODE2_MIN_FIELD_COUNT,
+            "mode2_known_field_count": len(GasAnalyzer._MODE2_KEYS),
+            "mode2_extra_count": max(0, len(cleaned) - 17),
+            "mode2_tokens_json": GasAnalyzer._json_compact(cleaned),
+            "mode2_fields_json": GasAnalyzer._json_compact(GasAnalyzer._mode2_fields_payload(cleaned)),
         }
         for key in GasAnalyzer._MODE2_KEYS:
             data[key] = None
         for idx, key in enumerate(GasAnalyzer._MODE2_KEYS, start=2):
             if len(cleaned) > idx:
-                data[key] = GasAnalyzer._to_float(cleaned[idx])
+                data[key] = GasAnalyzer._to_float_strict(cleaned[idx])
         data["status"] = cleaned[16] if len(cleaned) > 16 and cleaned[16] else None
-        if data["co2_ppm"] is None or data["h2o_mmol"] is None:
+        if any(data[key] is None for key in GasAnalyzer._MODE2_KEYS):
             return None
+        extras: Dict[str, str] = {}
         if len(cleaned) > 17:
             for idx, token in enumerate(cleaned[17:], start=1):
                 key = f"mode2_extra_{idx:02d}"
                 data[key] = token
+                extras[key] = token
+        data["mode2_unknown_fields_json"] = GasAnalyzer._json_compact(extras)
         return data
 
     @staticmethod

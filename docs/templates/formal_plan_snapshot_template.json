@@ -1,0 +1,34 @@
+{
+  "plan_id": "v1_5_formal_YYYYMMDD",
+  "plan_version": "2026-05-24",
+  "config_hash": "<sha256-runtime-config>",
+  "operator": "<operator-name>",
+  "analyzer_id": "<analyzer-under-test-id>",
+  "environment": {
+    "lab": "<lab-name>",
+    "ambient_temperature_c": null,
+    "ambient_rh_pct": null
+  },
+  "allow_candidate_coefficients": true,
+  "allow_device_write": false,
+  "standard_gases": [
+    {
+      "component": "co2",
+      "cylinder_id": "<co2-cylinder-id>",
+      "certificate_value": null,
+      "certificate_uncertainty": null,
+      "valid_until": "YYYY-MM-DD",
+      "supplier": "<supplier>",
+      "certificate_hash": "<sha256-certificate-file>"
+    },
+    {
+      "component": "h2o",
+      "cylinder_id": "<h2o-source-or-generator-id>",
+      "certificate_value": null,
+      "certificate_uncertainty": null,
+      "valid_until": "YYYY-MM-DD",
+      "supplier": "<supplier>",
+      "certificate_hash": "<sha256-certificate-file>"
+    }
+  ]
+}
