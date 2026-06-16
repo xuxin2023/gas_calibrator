@@ -203,3 +203,48 @@ def test_run_evidence_status_indexes_full_flow_closure_readiness(tmp_path):
     assert "full_flow_release_domains" in roles
     assert stages["full_flow_closure_readiness"]["status"] == "pass"
     assert "controlled SENCO writes" in stages["full_flow_closure_readiness"]["physical_meaning"]
+
+
+def test_run_evidence_status_indexes_post_run_coefficient_executor(tmp_path):
+    run_dir = tmp_path / "executor_ready_run"
+    executor_dir = run_dir / "post_run_coefficient_executor"
+    executor_dir.mkdir(parents=True)
+    (executor_dir / "executor_manifest.json").write_text(
+        json.dumps({"overall_status": "ready_for_controlled_write_review"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (executor_dir / "executor_summary.md").write_text("post-run executor summary", encoding="utf-8")
+    (executor_dir / "executor_stages.csv").write_text("stage_id,status\n", encoding="utf-8")
+    (executor_dir / "device_eligibility.csv").write_text("device_id,status\n077,eligible\n", encoding="utf-8")
+    (executor_dir / "coefficient_execution_plan.csv").write_text(
+        "device_id,action\n077,review\n",
+        encoding="utf-8",
+    )
+    (executor_dir / "controlled_write_package.csv").write_text(
+        "device_id,command\n077,SENCO1\n",
+        encoding="utf-8",
+    )
+    (executor_dir / "post_write_reverification_plan.csv").write_text(
+        "device_id,point_id\n077,rv001\n",
+        encoding="utf-8",
+    )
+    (executor_dir / "archive_gap_list.csv").write_text("gap_id,status\n", encoding="utf-8")
+
+    status = build_v1_5_run_evidence_status(run_dir=run_dir)
+    stages = _stages(status)
+    roles = {row["role"] for row in status["artifacts"]}
+
+    assert {
+        "post_run_coefficient_executor",
+        "post_run_coefficient_executor_summary",
+        "post_run_coefficient_executor_stages",
+        "post_run_device_eligibility",
+        "post_run_coefficient_execution_plan",
+        "post_run_controlled_write_package",
+        "post_run_reverification_plan",
+        "post_run_archive_gap_list",
+    }.issubset(roles)
+    assert stages["post_run_coefficient_executor"]["status"] == "pass"
+    assert stages["post_run_coefficient_executor"]["artifact_count"] == 5
+    assert status["physical_boundaries"]["opens_com_ports"] is False
+    assert status["physical_boundaries"]["writes_coefficients"] is False

@@ -770,7 +770,7 @@ def test_full_flow_cli_can_generate_post_run_coefficient_executor_gap_list(tmp_p
     assert "V1.5 校准后系数闭环执行计划" in summary_path.read_text(encoding="utf-8-sig")
 
 
-def test_full_flow_closure_readiness_auto_generates_post_run_executor(tmp_path):
+def test_full_flow_closure_readiness_auto_generates_post_run_executor(tmp_path, capsys):
     config = tmp_path / "config.json"
     config.write_text("{}", encoding="utf-8")
     run_dir = tmp_path / "reviewed_run"
@@ -805,12 +805,19 @@ def test_full_flow_closure_readiness_auto_generates_post_run_executor(tmp_path):
             "--full-flow-closure-readiness",
         ]
     )
+    cli_result = json.loads(capsys.readouterr().out)
 
     assert rc == 0
     executor_manifest = out / "post_run_coefficient_executor" / "executor_manifest.json"
     closure_json = out / "full_flow_closure_readiness" / "v1_5_full_flow_closure_readiness.json"
+    closure_stages = out / "full_flow_closure_readiness" / "v1_5_full_flow_closure_stages.csv"
+    closure_release_domains = out / "full_flow_closure_readiness" / "v1_5_full_flow_release_domains.csv"
     assert executor_manifest.exists()
     assert closure_json.exists()
+    assert closure_stages.exists()
+    assert closure_release_domains.exists()
+    assert cli_result["full_flow_closure_readiness_stages"] == str(closure_stages.resolve())
+    assert cli_result["full_flow_closure_readiness_release_domains"] == str(closure_release_domains.resolve())
     executor = json.loads(executor_manifest.read_text(encoding="utf-8"))
     closure = json.loads(closure_json.read_text(encoding="utf-8"))
     assert executor["physical_boundaries"]["opens_com_ports"] is False
@@ -820,8 +827,16 @@ def test_full_flow_closure_readiness_auto_generates_post_run_executor(tmp_path):
     assert closure["linked_inputs"]["post_run_executor_json"] == str(executor_manifest.resolve())
     evidence_status = json.loads((out / "v1_5_run_evidence_status.json").read_text(encoding="utf-8"))
     evidence_stages = {row["stage_id"]: row for row in evidence_status["stage_statuses"]}
+    assert evidence_stages["post_run_coefficient_executor"]["status"] == "pass"
     assert evidence_stages["full_flow_closure_readiness"]["status"] == "pass"
     roles = {row["role"] for row in evidence_status["artifacts"]}
+    assert {
+        "post_run_coefficient_executor",
+        "post_run_device_eligibility",
+        "post_run_controlled_write_package",
+        "post_run_reverification_plan",
+        "post_run_archive_gap_list",
+    }.issubset(roles)
     assert {
         "full_flow_closure_readiness",
         "full_flow_closure_gaps",

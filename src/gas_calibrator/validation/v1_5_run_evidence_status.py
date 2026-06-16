@@ -93,6 +93,23 @@ def _classify_artifact(path: Path) -> str:
         return "full_flow_closure_gaps"
     if name == "v1_5_full_flow_device_closure.csv":
         return "full_flow_device_closure"
+    if "post_run_coefficient_executor" in parent_parts:
+        if name == "executor_manifest.json":
+            return "post_run_coefficient_executor"
+        if name == "executor_summary.md":
+            return "post_run_coefficient_executor_summary"
+        if name in {"executor_stages.csv", "executor_stage_status.csv"}:
+            return "post_run_coefficient_executor_stages"
+        if name == "device_eligibility.csv":
+            return "post_run_device_eligibility"
+        if name == "coefficient_execution_plan.csv":
+            return "post_run_coefficient_execution_plan"
+        if name == "controlled_write_package.csv":
+            return "post_run_controlled_write_package"
+        if name == "post_write_reverification_plan.csv":
+            return "post_run_reverification_plan"
+        if name == "archive_gap_list.csv":
+            return "post_run_archive_gap_list"
     if "getco" in name or name in {
         "old_component_coefficients_snapshot.json",
         "getco_component_snapshot_identity.csv",
@@ -444,6 +461,28 @@ def build_v1_5_run_evidence_status(
             optional=True,
             status_override=candidate_review_status,
             reason_override="evidence bundle contains candidate coefficient rows" if candidate_review_status else None,
+        )
+    )
+    stages.append(
+        _stage(
+            stage_id="post_run_coefficient_executor",
+            title="Post-run coefficient closure executor",
+            roles=(
+                "post_run_coefficient_executor",
+                "post_run_device_eligibility",
+                "post_run_controlled_write_package",
+                "post_run_reverification_plan",
+                "post_run_archive_gap_list",
+            ),
+            artifacts=artifacts_tuple,
+            physical_meaning=(
+                "After CO2/H2O acquisition and fit-input review, this offline executor binds per-device "
+                "eligibility, controlled write package, post-write reverification plan, and archive gap list "
+                "before any SENCO write is allowed."
+            ),
+            missing_reason="post-run coefficient executor not generated",
+            pass_reason="post-run executor manifest, device eligibility, write package, reverification plan, and archive gaps are present",
+            optional=True,
         )
     )
     stages.append(

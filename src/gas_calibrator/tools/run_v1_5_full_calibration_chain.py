@@ -373,8 +373,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         closure_paths = write_v1_5_full_flow_closure_readiness_outputs(closure_model, closure_output_dir)
         outputs["full_flow_closure_readiness_json"] = closure_paths["readiness_json"]
         outputs["full_flow_closure_readiness_markdown"] = closure_paths["readiness_markdown"]
+        outputs["full_flow_closure_readiness_stages"] = closure_paths["stages"]
         outputs["full_flow_closure_readiness_gaps"] = closure_paths["gaps"]
         outputs["full_flow_closure_readiness_devices"] = closure_paths["devices"]
+        outputs["full_flow_closure_readiness_release_domains"] = closure_paths["release_domains"]
     if args.archive_closure or should_build_post_run_executor or args.full_flow_closure_readiness:
         evidence_status, _, _ = _write_run_evidence_status(
             run_dir=Path(args.output_dir).resolve(),
