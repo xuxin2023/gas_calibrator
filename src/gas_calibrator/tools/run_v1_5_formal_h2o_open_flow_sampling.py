@@ -15,6 +15,7 @@ import argparse
 import csv
 import copy
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -64,8 +65,29 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--certificate-dewpoint-c", type=float, default=None, help="Certificate/reference dewpoint C.")
     parser.add_argument("--certificate-uncertainty-mmol", type=float, default=None)
     parser.add_argument("--purge-s", type=float, default=DEFAULT_H2O_OPEN_FLOW_PURGE_S)
+    parser.add_argument(
+        "--minimum-purge-s",
+        type=float,
+        default=DEFAULT_H2O_OPEN_FLOW_PURGE_S,
+        help=(
+            "Formal minimum purge evidence for this H2O point. The route may purge longer, "
+            "but candidate-fit readiness must not treat shorter evidence as A grade."
+        ),
+    )
     parser.add_argument("--purge-trace-interval-s", type=float, default=10.0)
     parser.add_argument("--max-open-flow-pressure-hpa", type=float, default=1100.0)
+    parser.add_argument(
+        "--open-flow-pressure-transient-grace-s",
+        type=float,
+        default=30.0,
+        help="Allowed duration for startup/open-valve pressure spikes above --max-open-flow-pressure-hpa.",
+    )
+    parser.add_argument(
+        "--open-flow-pressure-safety-hard-limit-hpa",
+        type=float,
+        default=1300.0,
+        help="Immediate safety abort pressure during open-flow purge.",
+    )
     parser.add_argument(
         "--hgen-flow-lpm",
         type=float,
@@ -221,11 +243,20 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--h2o-pressure-presample-policy",
         choices=("warn", "fail", "skip"),
-        default="warn",
+        default="skip",
         help=(
             "Policy when the analyzer internal pressure pre-sample gate is unstable. "
-            "warn continues sampling with degraded QC; fail blocks the sample window; "
-            "skip disables this gate."
+            "Formal open-flow H2O sampling defaults to skip because pressure movement "
+            "under flow is diagnostic evidence, not a pre-sample stability gate. "
+            "warn can be used for engineering review; fail blocks the sample window."
+        ),
+    )
+    parser.add_argument(
+        "--keep-hgen-running-after-point",
+        action="store_true",
+        help=(
+            "Queue-managed H2O operation: close the water route after this point, but do not "
+            "safe-stop the humidity generator. The queue must perform a final safe stop."
         ),
     )
     parser.add_argument("--no-prompt", action="store_true")
@@ -243,7 +274,8 @@ def _prepare_runtime_cfg(
     analyzer_acquisition: str = "active_stream_1hz",
     allow_ftd_write: bool = True,
     min_valid_analyzers: int = 1,
-    h2o_pressure_presample_policy: str = "warn",
+    h2o_pressure_presample_policy: str = "skip",
+    keep_hgen_running_after_point: bool = False,
 ) -> Dict[str, Any]:
     runtime_cfg = copy.deepcopy(cfg)
     workflow_cfg = runtime_cfg.setdefault("workflow", {})
@@ -264,6 +296,21 @@ def _prepare_runtime_cfg(
         "optional_explicit_target" if hgen_flow_lpm is not None else "not_controlled_by_default"
     )
     metadata["h2o_open_flow_hgen_flow_lpm"] = None if hgen_flow_lpm is None else float(hgen_flow_lpm)
+    metadata["h2o_hgen_shutdown_policy"] = (
+        "queue_managed_keep_running_between_points"
+        if keep_hgen_running_after_point
+        else "safe_stop_after_point"
+    )
+    metadata["h2o_open_flow_sampling_physical_contract"] = {
+        "sample_window_requires_route_open": True,
+        "sample_window_requires_humidity_reference_flow": True,
+        "route_close_allowed_only_after_sample_window": True,
+        "dewpoint_reference_gate_required": True,
+        "per_analyzer_h2o_ratio_stability_required": True,
+        "per_analyzer_status_register_qc_required": True,
+        "unstable_analyzer_handling": "independent_grade_or_reject_do_not_block_all_when_min_valid_met",
+        "pressure_role": "diagnostic_or_qc_input_not_h2o_fit_hard_blocker",
+    }
 
     devices_cfg = runtime_cfg.setdefault("devices", {})
     if isinstance(devices_cfg.get("humidity_generator"), dict):
@@ -362,8 +409,11 @@ def _prepare_runtime_cfg(
         float(sensor_cfg.get("h2o_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0)) or 1.0),
         1.0,
     )
-    sensor_cfg["h2o_pressure_kpa_presample_enabled"] = bool(
-        sensor_cfg.get("h2o_pressure_kpa_presample_enabled", True)
+    policy = str(h2o_pressure_presample_policy or "skip").strip().lower()
+    if policy not in {"warn", "fail", "skip"}:
+        policy = "skip"
+    sensor_cfg["h2o_pressure_kpa_presample_enabled"] = (
+        bool(sensor_cfg.get("h2o_pressure_kpa_presample_enabled", True)) and policy != "skip"
     )
     sensor_cfg["h2o_pressure_kpa_presample_tol"] = min(
         float(sensor_cfg.get("h2o_pressure_kpa_presample_tol", 0.2) or 0.2),
@@ -391,11 +441,13 @@ def _prepare_runtime_cfg(
         ),
         1.0,
     )
-    policy = str(h2o_pressure_presample_policy or "warn").strip().lower()
-    if policy not in {"warn", "fail", "skip"}:
-        policy = "warn"
+    pressure_required_for_a_grade = bool(
+        sensor_cfg.get("h2o_pressure_kpa_presample_required_for_a_grade", False)
+    )
+    if policy in {"warn", "skip"}:
+        pressure_required_for_a_grade = False
     sensor_cfg["h2o_pressure_kpa_presample_policy"] = policy
-    sensor_cfg["h2o_pressure_kpa_presample_required_for_a_grade"] = policy != "skip"
+    sensor_cfg["h2o_pressure_kpa_presample_required_for_a_grade"] = pressure_required_for_a_grade
     analyzer_labels = _configured_analyzer_labels(runtime_cfg)
     min_valid = max(1, int(min_valid_analyzers))
     if analyzer_labels:
@@ -412,9 +464,9 @@ def _prepare_runtime_cfg(
         float(sensor_cfg.get("h2o_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300.0)) or 300.0),
         90.0,
     )
-    metadata["h2o_open_flow_wait_contract"] = "v1_5_dewpoint_tail_h2o_ratio_with_analyzer_pressure_qc_degrade"
+    metadata["h2o_open_flow_wait_contract"] = "v1_5_dewpoint_tail_h2o_ratio_with_pressure_diagnostic_only"
     metadata["h2o_pressure_kpa_presample_policy"] = policy
-    metadata["h2o_pressure_kpa_presample_required_for_a_grade"] = policy != "skip"
+    metadata["h2o_pressure_kpa_presample_required_for_a_grade"] = pressure_required_for_a_grade
     metadata["humidity_reference_role"] = "dewpoint_meter_primary_hgen_state_review"
 
     postrun_cfg = workflow_cfg.setdefault("postrun_corrected_delivery", {})
@@ -778,6 +830,18 @@ def _write_gate_failure(
     return path
 
 
+def _validation_report_prefix(run_dir: Path) -> str:
+    """Use compact report names only when Windows path length would be risky."""
+
+    formal_prefix = "formal_h2o_open_flow_sampling_validation"
+    if os.name != "nt":
+        return formal_prefix
+    metadata_path = run_dir / f"{formal_prefix}_meta.json"
+    if len(str(metadata_path)) >= 240:
+        return "h2o_validation"
+    return formal_prefix
+
+
 def _wait_h2o_analyzer_pressure_presample_gate(
     runner: CalibrationRunner,
     point: CalibrationPoint,
@@ -796,9 +860,9 @@ def _wait_h2o_analyzer_pressure_presample_gate(
             )
         return True
 
-    policy = str(sensor_cfg.get("h2o_pressure_kpa_presample_policy", "warn") or "warn").strip().lower()
+    policy = str(sensor_cfg.get("h2o_pressure_kpa_presample_policy", "skip") or "skip").strip().lower()
     if policy not in {"warn", "fail", "skip"}:
-        policy = "warn"
+        policy = "skip"
     if policy == "skip":
         runner.log("H2O analyzer pressure pre-sample gate skipped by policy")
         set_runtime = getattr(runner, "_set_point_runtime_fields", None)
@@ -835,6 +899,10 @@ def _wait_h2o_analyzer_pressure_presample_gate(
             ),
         )
 
+    disabled_before = set(getattr(runner, "_disabled_analyzers", set()) or set())
+    reasons_before = dict(getattr(runner, "_disabled_analyzer_reasons", {}) or {})
+    reprobe_before = dict(getattr(runner, "_disabled_analyzer_last_reprobe_ts", {}) or {})
+
     ok = runner._wait_primary_sensor_stable(
         point,
         value_key="pressure_kpa",
@@ -845,6 +913,25 @@ def _wait_h2o_analyzer_pressure_presample_gate(
         min_samples_override=min_samples,
         read_interval_override=read_interval_s,
     )
+
+    pressure_disabled_labels: List[str] = []
+    if policy == "warn":
+        disabled_after = set(getattr(runner, "_disabled_analyzers", set()) or set())
+        reasons_after = dict(getattr(runner, "_disabled_analyzer_reasons", {}) or {})
+        pressure_disabled_labels = sorted(
+            label
+            for label in disabled_after - disabled_before
+            if str(reasons_after.get(label, "")).startswith("pressure_kpa")
+        )
+        if pressure_disabled_labels:
+            setattr(runner, "_disabled_analyzers", disabled_before)
+            setattr(runner, "_disabled_analyzer_reasons", reasons_before)
+            setattr(runner, "_disabled_analyzer_last_reprobe_ts", reprobe_before)
+            runner.log(
+                "H2O analyzer pressure pre-sample gate restored analyzers under warn policy: "
+                f"labels={','.join(pressure_disabled_labels)}; pressure is QC evidence, "
+                "not a formal H2O open-flow sampling exclusion gate"
+            )
 
     if callable(append_trace):
         append_trace(
@@ -860,7 +947,7 @@ def _wait_h2o_analyzer_pressure_presample_gate(
                 f"timeout_s={timeout_s:.3f} min_samples={min_samples}"
             ),
         )
-    if ok:
+    if ok and not pressure_disabled_labels:
         runner.log(
             "H2O analyzer pressure pre-sample gate passed: "
             f"tol={tol_kpa:g} kPa window_s={window_s:g} min_samples={min_samples}"
@@ -880,7 +967,14 @@ def _wait_h2o_analyzer_pressure_presample_gate(
             f"tol={tol_kpa:g} kPa window_s={window_s:g} min_samples={min_samples} policy={policy}"
         )
         if policy == "warn":
-            runner.log(message + "; continuing with degraded QC evidence")
+            if pressure_disabled_labels:
+                message = (
+                    "H2O analyzer pressure pre-sample gate found analyzer pressure instability: "
+                    f"labels={','.join(pressure_disabled_labels)} "
+                    f"tol={tol_kpa:g} kPa window_s={window_s:g} "
+                    f"min_samples={min_samples} policy={policy}"
+                )
+            runner.log(message + "; continuing with diagnostic pressure evidence")
             set_runtime = getattr(runner, "_set_point_runtime_fields", None)
             if callable(set_runtime):
                 set_runtime(
@@ -889,10 +983,12 @@ def _wait_h2o_analyzer_pressure_presample_gate(
                     h2o_pressure_presample_gate_status="warn",
                     h2o_pressure_presample_gate_policy=policy,
                     h2o_pressure_presample_gate_reason="analyzer_pressure_not_stable_before_sample_window",
-                    h2o_pressure_presample_fit_scope="pressure_not_polynomial_fit_variable",
+                    h2o_pressure_presample_restored_analyzers=",".join(pressure_disabled_labels),
+                    h2o_pressure_presample_fit_scope="diagnostic_not_fit_gate",
+                    h2o_pressure_presample_grade_scope="not_required_for_a_grade_by_default",
                     h2o_pressure_presample_report_warning=(
                         "analyzer_internal_pressure_unstable_before_sample_window;"
-                        "review ratio_concentration_density_stability"
+                        "review_h2o_ratio_dewpoint_and_flow_evidence"
                     ),
                 )
             return True
@@ -1332,6 +1428,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         allow_ftd_write=args.allow_ftd_write,
         min_valid_analyzers=args.min_valid_analyzers,
         h2o_pressure_presample_policy=args.h2o_pressure_presample_policy,
+        keep_hgen_running_after_point=args.keep_hgen_running_after_point,
     )
     metadata = runtime_cfg.setdefault("metadata", {})
     metadata["strict_humidity_reference_match"] = bool(args.strict_humidity_reference_match)
@@ -1341,7 +1438,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     metadata["h2o_pressure_diagnostic_hgen_control_role"] = (
         "observe_only_no_prepare_no_flow_no_safe_stop"
         if args.pressure_diagnostic_observe_hgen_only or args.pressure_diagnostic_route_closed_baseline
-        else "normal_h2o_open_flow_prepare_and_cleanup"
+        else metadata.get("h2o_hgen_shutdown_policy")
     )
     output_dir = Path(runtime_cfg["paths"]["output_dir"]).resolve()
     run_id = args.run_id or f"formal_h2o_open_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -1604,6 +1701,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     "humidity_reference_match_gate": metadata.get("humidity_reference_match_gate"),
                     "humidity_reference_role": metadata.get("humidity_reference_role"),
                     "h2o_open_flow_wait_contract": metadata.get("h2o_open_flow_wait_contract"),
+                    "actual_purge_s": float(args.purge_s),
+                    "minimum_purge_s": float(args.minimum_purge_s),
+                    "route_open_until_sample_end": True,
                     "pressure_diagnostic_only": bool(args.pressure_diagnostic_only),
                     "pressure_diagnostic_after_purge": bool(args.pressure_diagnostic_after_purge),
                     "pressure_diagnostic_s": float(args.pressure_diagnostic_s),
@@ -1614,6 +1714,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     "pressure_diagnostic_span_hpa": float(args.pressure_diagnostic_span_hpa),
                     "pressure_diagnostic_min_samples": int(args.pressure_diagnostic_min_samples),
                     "h2o_pressure_presample_policy": args.h2o_pressure_presample_policy,
+                    "h2o_hgen_shutdown_policy": metadata.get("h2o_hgen_shutdown_policy"),
                     "ftd_write_enabled": bool(args.allow_ftd_write),
                     "sealed_pressure_control": False,
                     "writes_senco": False,
@@ -1635,6 +1736,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             purge_s=float(args.purge_s),
             interval_s=float(args.purge_trace_interval_s),
             max_pressure_hpa=float(args.max_open_flow_pressure_hpa),
+            transient_grace_s=float(args.open_flow_pressure_transient_grace_s),
+            hard_limit_hpa=float(args.open_flow_pressure_safety_hard_limit_hpa),
         )
         _log(f"H2O open-flow purge trace saved: {purge_path}")
 
@@ -1769,6 +1872,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             point,
             phase="h2o",
             formal_h2o_open_flow_sidecar=True,
+            route_open_until_sample_end=True,
+            h2o_route_open_until_sample_end=True,
+            actual_purge_s=float(args.purge_s),
+            minimum_purge_s=float(args.minimum_purge_s),
+            open_flow_purge_elapsed_s=float(args.purge_s),
+            sample_readiness_basis=(
+                "minimum_purge_plus_dewpoint_h2o_ratio_pressure_temperature_traceability"
+            ),
             standard_h2o_certificate_value_mmol=args.certificate_h2o_mmol,
             standard_h2o_certificate_uncertainty_mmol=args.certificate_uncertainty_mmol,
             standard_h2o_certificate_dewpoint_c=args.certificate_dewpoint_c,
@@ -1777,9 +1888,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         runner._sample_and_log(point, phase="h2o", point_tag=runner_tag)
         machine_sample_paths = _write_machine_readable_samples(logger.run_dir, runner._all_samples)
         tables = analyze_sample_rows(runner._all_samples, cfg=runtime_cfg, gas="h2o", modes=("current",))
+        validation_prefix = _validation_report_prefix(logger.run_dir)
         outputs = write_validation_report(
             logger.run_dir,
-            prefix="formal_h2o_open_flow_sampling_validation",
+            prefix=validation_prefix,
             metadata=ValidationMetadata(
                 tool_name="run_v1_5_formal_h2o_open_flow_sampling",
                 analyzers=sorted(
@@ -1811,6 +1923,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     "sample_count": int(args.sample_count),
                     "sample_interval_s": float(args.sample_interval_s),
                     "purge_s": float(args.purge_s),
+                    "minimum_purge_s": float(args.minimum_purge_s),
+                    "route_open_until_sample_end": True,
                     "max_open_flow_pressure_hpa": float(args.max_open_flow_pressure_hpa),
                     "sensor_read_interval_s": float(args.sensor_read_interval_s),
                     "analyzer_acquisition_policy": metadata.get("analyzer_acquisition_policy"),
@@ -1829,7 +1943,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 },
                 notes=[
                     "PACE was held open to atmosphere only during H2O route purge/sampling.",
-                    "H2O route valves are closed and the humidity generator is safe-stopped after sampling.",
+                    (
+                        "H2O route valves are closed after sampling; the humidity generator remains "
+                        "running for the queue-level next point and final safe-stop."
+                        if args.keep_hgen_running_after_point
+                        else "H2O route valves are closed and the humidity generator is safe-stopped after sampling."
+                    ),
                     "Humidity generator flow is left under internal device control by default; explicit flow targets are evidence-only.",
                     (
                         "No SENCO or ID writes are performed; FTD=01 is used only when "
@@ -1841,6 +1960,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             tables=tables,
         )
         _log(f"Formal H2O open-flow sampling validation saved: {outputs['workbook']}")
+        if validation_prefix != "formal_h2o_open_flow_sampling_validation":
+            _log(f"Formal H2O validation used compact artifact prefix: {validation_prefix}")
         return 0
     except Exception as exc:
         _log(f"Formal H2O open-flow sampling failed: {exc}")
@@ -1856,6 +1977,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         _close_pace_vent_after_valve_if_opened(devices.get("pace"), pace_vent_after_valve_opened)
         if args.pressure_diagnostic_observe_hgen_only or args.pressure_diagnostic_route_closed_baseline:
             _log("Humidity generator safe-stop skipped by observe-only pressure diagnostic mode.")
+        elif args.keep_hgen_running_after_point:
+            _log("Humidity generator safe-stop skipped; H2O queue will manage final safe-stop.")
         else:
             _safe_stop_humidity_generator(devices)
         _close_devices(devices)

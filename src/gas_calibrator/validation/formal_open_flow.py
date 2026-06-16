@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass, field
 from statistics import mean
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
+from .v1_5_calibratable_point_policy import evaluate_calibratable_point
+
 
 FORMAL_OPEN_FLOW_STATES = (
     "LOAD_PLAN",
@@ -97,6 +99,8 @@ class FormalOpenFlowReport:
     plan_reasons: List[str]
     pressure_channel_quick_check: Dict[str, Any]
     qc_summary: Dict[str, Any]
+    sample_readiness: Dict[str, Any]
+    point_calibratability: Dict[str, Any]
     a_grade_samples: List[Dict[str, Any]]
     b_grade_samples: List[Dict[str, Any]]
     rejected_samples: List[Dict[str, Any]]
@@ -127,6 +131,28 @@ def _first_value(row: Mapping[str, Any], keys: Iterable[str]) -> Any:
         if value not in (None, ""):
             return value
     return None
+
+
+def _bool_value(value: Any) -> Optional[bool]:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "pass", "ok", "open", "opened"}:
+        return True
+    if text in {"0", "false", "no", "n", "fail", "closed", "close"}:
+        return False
+    return None
+
+
+def _values_from_rows(rows: Sequence[Mapping[str, Any]], keys: Sequence[str]) -> List[Any]:
+    values: List[Any] = []
+    for row in rows:
+        value = _first_value(row, keys)
+        if value not in (None, ""):
+            values.append(value)
+    return values
 
 
 def _prefixed_value(row: Mapping[str, Any], prefix: str, key: str) -> Any:
@@ -695,6 +721,178 @@ def classify_open_flow_samples(
     return classifications, a_grade_samples, rejected_samples, qc_summary
 
 
+def evaluate_sample_readiness(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    component: str,
+    analyzer_prefix: str,
+    plan_status: str,
+    pressure_check: PressureChannelQuickCheckResult,
+    qc_summary: Mapping[str, Any],
+    cfg: Optional[FormalOpenFlowConfig] = None,
+) -> Dict[str, Any]:
+    """Summarize whether a sample window is physically ready for formal fitting.
+
+    This is an evidence contract rather than a device-control routine. It makes
+    the hidden physical assumptions explicit: gas/water route must remain open
+    through sampling, minimum purge must be met, ratio/reference/pressure/
+    temperature/frame evidence must be internally consistent, and traceability
+    must be present.
+    """
+
+    config = cfg or FormalOpenFlowConfig()
+    component_key = str(component or "").strip().lower()
+    minimum_default_s = 720.0 if component_key == "h2o" else 360.0
+    checks: List[Dict[str, Any]] = []
+    blockers: List[str] = []
+    warnings: List[str] = []
+
+    def add_check(name: str, status: str, reason: str) -> None:
+        checks.append({"name": name, "status": status, "reason": reason})
+        if status == "fail":
+            blockers.append(reason)
+        elif status == "warn":
+            warnings.append(reason)
+
+    route_values = [
+        parsed
+        for parsed in (
+            _bool_value(value)
+            for value in _values_from_rows(
+                rows,
+                (
+                    f"{analyzer_prefix}_route_open_until_sample_end",
+                    f"{analyzer_prefix}_route_open_during_sampling",
+                    f"{analyzer_prefix}_gas_route_open_until_sample_end",
+                    f"{analyzer_prefix}_h2o_route_open_until_sample_end",
+                    "route_open_until_sample_end",
+                    "route_open_during_sampling",
+                    "gas_route_open_until_sample_end",
+                    "h2o_route_open_until_sample_end",
+                    "route_state_ok",
+                ),
+            )
+        )
+        if parsed is not None
+    ]
+    if any(value is False for value in route_values):
+        add_check("route_open_until_sample_end", "fail", "route_not_open_until_sample_end")
+    elif any(value is True for value in route_values):
+        add_check("route_open_until_sample_end", "pass", "ok")
+    else:
+        add_check("route_open_until_sample_end", "warn", "route_open_until_sample_end_not_recorded")
+
+    actual_purge_values = [
+        value
+        for value in (
+            _safe_float(raw)
+            for raw in _values_from_rows(
+                rows,
+                (
+                    f"{analyzer_prefix}_actual_purge_s",
+                    f"{analyzer_prefix}_purge_elapsed_s",
+                    f"{analyzer_prefix}_open_flow_purge_elapsed_s",
+                    "actual_purge_s",
+                    "purge_elapsed_s",
+                    "open_flow_purge_elapsed_s",
+                    "resolved_purge_s",
+                    "purge_s",
+                ),
+            )
+        )
+        if value is not None
+    ]
+    minimum_purge_values = [
+        value
+        for value in (
+            _safe_float(raw)
+            for raw in _values_from_rows(
+                rows,
+                (
+                    f"{analyzer_prefix}_minimum_purge_s",
+                    f"{analyzer_prefix}_min_purge_s",
+                    "minimum_purge_s",
+                    "min_purge_s",
+                    "purge_minimum_s",
+                ),
+            )
+        )
+        if value is not None
+    ]
+    actual_purge_s = min(actual_purge_values) if actual_purge_values else None
+    minimum_purge_s = max(minimum_purge_values) if minimum_purge_values else minimum_default_s
+    if actual_purge_s is None:
+        add_check("minimum_purge_elapsed", "warn", "purge_evidence_not_recorded")
+    elif actual_purge_s + 1e-9 < minimum_purge_s:
+        add_check(
+            "minimum_purge_elapsed",
+            "fail",
+            f"minimum_purge_not_met(actual={actual_purge_s:.3f},minimum={minimum_purge_s:.3f})",
+        )
+    else:
+        add_check(
+            "minimum_purge_elapsed",
+            "pass",
+            f"ok(actual={actual_purge_s:.3f},minimum={minimum_purge_s:.3f})",
+        )
+
+    window_reasons = qc_summary.get("window_reasons") or {}
+    if isinstance(window_reasons, Mapping) and any(window_reasons.values()):
+        add_check("physical_stability_window", "fail", "physical_stability_window_not_a_grade")
+    else:
+        add_check("physical_stability_window", "pass", "ok")
+
+    window_report_warnings = qc_summary.get("window_report_warnings") or {}
+    if isinstance(window_report_warnings, Mapping) and any(window_report_warnings.values()):
+        warnings.append("physical_stability_report_warnings_present")
+
+    if config.require_pressure_channel_pass and pressure_check.status != "pass":
+        add_check(
+            "pressure_channel_quick_check",
+            "fail",
+            f"pressure_channel_quick_check_{pressure_check.status}",
+        )
+    else:
+        add_check("pressure_channel_quick_check", "pass", pressure_check.reason or "ok")
+
+    if qc_summary.get("sampling_completion_status") != "pass":
+        add_check("frame_and_payload_completion", "fail", "sampling_completion_not_passed")
+    else:
+        add_check("frame_and_payload_completion", "pass", "ok")
+
+    if plan_status != "pass":
+        add_check("traceability", "fail", "plan_traceability_failed")
+    else:
+        add_check("traceability", "pass", "ok")
+
+    a_grade_count = int(qc_summary.get("a_grade_count") or 0)
+    required_count = int(qc_summary.get("required_sample_count") or config.min_a_grade_samples)
+    if a_grade_count < required_count:
+        add_check(
+            "a_grade_fit_input_count",
+            "fail",
+            f"a_grade_samples<{required_count}",
+        )
+    else:
+        add_check("a_grade_fit_input_count", "pass", f"ok({a_grade_count}/{required_count})")
+
+    status = "fail" if blockers else ("warn" if warnings else "pass")
+    return {
+        "readiness_status": status,
+        "sampling_allowed": not blockers,
+        "candidate_fit_ready": not blockers,
+        "blockers": blockers,
+        "warnings": warnings,
+        "checks": checks,
+        "component": component_key,
+        "analyzer_prefix": analyzer_prefix,
+        "analyzer_device_id": qc_summary.get("analyzer_device_id"),
+        "actual_purge_s": actual_purge_s,
+        "minimum_purge_s": minimum_purge_s,
+        "route_evidence_present": bool(route_values),
+    }
+
+
 def build_formal_open_flow_report(
     *,
     plan: Mapping[str, Any],
@@ -719,6 +917,35 @@ def build_formal_open_flow_report(
         pressure_check=pressure_check,
         cfg=config,
     )
+    sample_readiness = evaluate_sample_readiness(
+        sample_rows,
+        component=component,
+        analyzer_prefix=analyzer_prefix,
+        plan_status=plan_status,
+        pressure_check=pressure_check,
+        qc_summary=qc_summary,
+        cfg=config,
+    )
+    qc_summary["sample_readiness_status"] = sample_readiness["readiness_status"]
+    qc_summary["sample_readiness_blockers"] = ";".join(sample_readiness["blockers"])
+    qc_summary["sample_readiness_warnings"] = ";".join(sample_readiness["warnings"])
+    point_calibratability_rows: Sequence[Mapping[str, Any]] = (
+        a_grade_samples if a_grade_samples else sample_rows
+    )
+    point_calibratability = evaluate_calibratable_point(
+        point_calibratability_rows,
+        component=component,
+        analyzer_prefix=analyzer_prefix,
+        sample_readiness=sample_readiness,
+        qc_summary=qc_summary,
+    )
+    qc_summary["point_calibratability_grade"] = point_calibratability[
+        "calibratability_grade"
+    ]
+    qc_summary["point_calibratability_role"] = point_calibratability["fit_input_role"]
+    qc_summary["time_optimization_action"] = point_calibratability[
+        "time_optimization_action"
+    ]
     b_grade_samples: List[Dict[str, Any]] = []
     for classification, row in zip(classifications, sample_rows):
         if classification.grade != "B":
@@ -757,6 +984,10 @@ def build_formal_open_flow_report(
         blockers.append("sampling_completion_not_passed")
     if len(a_grade_samples) < int(config.min_a_grade_samples):
         blockers.append(f"a_grade_samples<{int(config.min_a_grade_samples)}")
+    if sample_readiness.get("readiness_status") == "fail":
+        blockers.append("sample_readiness_failed")
+    if not point_calibratability.get("candidate_fit_ready", False):
+        blockers.append("point_not_calibratable")
 
     return FormalOpenFlowReport(
         state_sequence=FORMAL_OPEN_FLOW_STATES,
@@ -764,6 +995,8 @@ def build_formal_open_flow_report(
         plan_reasons=plan_reasons,
         pressure_channel_quick_check=asdict(pressure_check),
         qc_summary=qc_summary,
+        sample_readiness=sample_readiness,
+        point_calibratability=point_calibratability,
         a_grade_samples=a_grade_samples,
         b_grade_samples=b_grade_samples,
         rejected_samples=rejected_samples,

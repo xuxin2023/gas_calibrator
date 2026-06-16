@@ -12,6 +12,7 @@ from gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_sampling import (
     _prepare_runtime_cfg,
     _read_dewpoint_snapshot_for_evidence,
     _set_h2o_open_flow_hgen_flow,
+    _validation_report_prefix,
     _wait_h2o_analyzer_pressure_presample_gate,
     _write_gate_failure,
     _write_humidity_reference_review,
@@ -40,8 +41,19 @@ def test_formal_h2o_open_flow_default_purge_is_720s():
     args = _parse_args(["--config", "config.json", "--hgen-temp", "20", "--hgen-rh", "70"])
 
     assert args.purge_s == 720.0
+    assert args.minimum_purge_s == 720.0
     assert args.analyzer_acquisition == "active_stream_1hz"
     assert args.allow_ftd_write is True
+    assert args.open_flow_pressure_transient_grace_s == 30.0
+    assert args.open_flow_pressure_safety_hard_limit_hpa == 1300.0
+
+
+def test_h2o_validation_report_prefix_compacts_deep_windows_paths(monkeypatch, tmp_path):
+    monkeypatch.setattr(h2o_tool.os, "name", "nt")
+    deep = tmp_path / ("very_long_evidence_path_" * 12)
+
+    assert _validation_report_prefix(deep) == "h2o_validation"
+    assert _validation_report_prefix(tmp_path) == "formal_h2o_open_flow_sampling_validation"
 
 
 def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
@@ -102,13 +114,25 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert out["metadata"]["startup_mode2_missing_policy"] == "mode2_stream_config_then_sampling_qc"
     assert out["metadata"]["h2o_open_flow_hgen_flow_control"] == "not_controlled_by_default"
     assert out["metadata"]["h2o_open_flow_hgen_flow_lpm"] is None
+    assert out["metadata"]["h2o_hgen_shutdown_policy"] == "safe_stop_after_point"
+    contract = out["metadata"]["h2o_open_flow_sampling_physical_contract"]
+    assert contract["sample_window_requires_route_open"] is True
+    assert contract["sample_window_requires_humidity_reference_flow"] is True
+    assert contract["route_close_allowed_only_after_sample_window"] is True
+    assert contract["dewpoint_reference_gate_required"] is True
+    assert contract["per_analyzer_h2o_ratio_stability_required"] is True
+    assert contract["per_analyzer_status_register_qc_required"] is True
+    assert contract["unstable_analyzer_handling"] == (
+        "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+    )
+    assert contract["pressure_role"] == "diagnostic_or_qc_input_not_h2o_fit_hard_blocker"
     assert out["metadata"]["humidity_reference_role"] == "dewpoint_meter_primary_hgen_state_review"
     assert out["metadata"]["h2o_open_flow_wait_contract"] == (
-        "v1_5_dewpoint_tail_h2o_ratio_with_analyzer_pressure_qc_degrade"
+        "v1_5_dewpoint_tail_h2o_ratio_with_pressure_diagnostic_only"
     )
-    assert out["metadata"]["h2o_pressure_kpa_presample_policy"] == "warn"
-    assert out["workflow"]["stability"]["sensor"]["h2o_pressure_kpa_presample_policy"] == "warn"
-    assert out["workflow"]["stability"]["sensor"]["h2o_pressure_kpa_presample_required_for_a_grade"] is True
+    assert out["metadata"]["h2o_pressure_kpa_presample_policy"] == "skip"
+    assert out["workflow"]["stability"]["sensor"]["h2o_pressure_kpa_presample_policy"] == "skip"
+    assert out["workflow"]["stability"]["sensor"]["h2o_pressure_kpa_presample_required_for_a_grade"] is False
     assert out["devices"]["gas_analyzer"]["active_send"] is True
     assert out["devices"]["gas_analyzer"]["ftd_hz"] == 1
     assert [item["active_send"] for item in out["devices"]["gas_analyzers"]] == [True, True]
@@ -118,7 +142,7 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert out["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_timeout_s"] == 300.0
     assert out["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_window_s"] == 60.0
     assert out["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_tol"] == 0.001
-    assert out["workflow"]["stability"]["sensor"]["h2o_pressure_kpa_presample_enabled"] is True
+    assert out["workflow"]["stability"]["sensor"]["h2o_pressure_kpa_presample_enabled"] is False
     assert out["workflow"]["stability"]["sensor"]["h2o_pressure_kpa_presample_tol"] == 0.2
     assert out["workflow"]["stability"]["sensor"]["h2o_pressure_kpa_presample_window_s"] == 60.0
     assert out["workflow"]["stability"]["sensor"]["h2o_pressure_kpa_presample_timeout_s"] == 300.0
@@ -127,6 +151,35 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert out["workflow"]["stability"]["analyzer_gate_optional_labels"] == ["ga01", "ga02"]
     assert out["workflow"]["stability"]["analyzer_gate_required_labels"] == []
     assert out["workflow"]["stability"]["analyzer_gate_allow_pass_with_dropped_optional"] is True
+
+
+def test_h2o_keep_hgen_running_flag_records_queue_managed_shutdown_policy():
+    args = _parse_args(
+        [
+            "--config",
+            "config.json",
+            "--hgen-temp",
+            "20",
+            "--hgen-rh",
+            "70",
+            "--keep-hgen-running-after-point",
+        ]
+    )
+    out = _prepare_runtime_cfg(
+        {
+            "devices": {"humidity_generator": {"enabled": False}},
+            "workflow": {},
+            "paths": {"output_dir": "logs/example"},
+        },
+        output_dir=None,
+        sample_count=10,
+        sample_interval_s=1.0,
+        sensor_read_interval_s=5.0,
+        keep_hgen_running_after_point=args.keep_hgen_running_after_point,
+    )
+
+    assert args.keep_hgen_running_after_point is True
+    assert out["metadata"]["h2o_hgen_shutdown_policy"] == "queue_managed_keep_running_between_points"
     assert out["workflow"]["stability"]["analyzer_gate_disable_dropped_optional"] is False
     assert out["workflow"]["stability"]["analyzer_gate_zero_value_policy"] == "drop_optional_not_block"
     live_cfg = out["workflow"]["analyzer_live_snapshot"]
@@ -142,7 +195,39 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert summary_filter["max_outliers_per_key"] == 1
 
 
-def test_h2o_analyzer_pressure_gate_waits_for_internal_p_without_pressure_control():
+def test_h2o_analyzer_pressure_gate_default_skip_does_not_wait_for_internal_p():
+    point = _build_h2o_open_flow_point(
+        temp_c=20.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=70.0,
+        certificate_dewpoint_c=14.36,
+        certificate_h2o_mmol=16.3715,
+    )
+
+    class Runner:
+        def __init__(self):
+            self.cfg = {"workflow": {"stability": {"sensor": {}}}}
+            self.runtime_fields = {}
+            self.logs = []
+
+        def _wait_primary_sensor_stable(self, point, **kwargs):
+            raise AssertionError("default H2O open-flow pressure policy must not wait for pressure")
+
+        def _set_point_runtime_fields(self, point, *, phase, **fields):
+            self.runtime_fields.update(fields)
+
+        def log(self, message):
+            self.logs.append(message)
+
+    runner = Runner()
+    assert _wait_h2o_analyzer_pressure_presample_gate(runner, point) is True
+    assert runner.runtime_fields["h2o_pressure_presample_gate_status"] == "skipped"
+    assert runner.runtime_fields["h2o_pressure_presample_gate_policy"] == "skip"
+    assert runner.runtime_fields["h2o_pressure_presample_gate_reason"] == "skipped_by_policy"
+    assert any("skipped by policy" in message for message in runner.logs)
+
+
+def test_h2o_analyzer_pressure_gate_warn_policy_waits_for_internal_p_without_pressure_control():
     point = _build_h2o_open_flow_point(
         temp_c=20.0,
         hgen_temp_c=20.0,
@@ -157,6 +242,7 @@ def test_h2o_analyzer_pressure_gate_waits_for_internal_p_without_pressure_contro
                 "workflow": {
                     "stability": {
                         "sensor": {
+                            "h2o_pressure_kpa_presample_policy": "warn",
                             "h2o_pressure_kpa_presample_tol": 0.15,
                             "h2o_pressure_kpa_presample_window_s": 90.0,
                             "h2o_pressure_kpa_presample_timeout_s": 360.0,
@@ -193,7 +279,7 @@ def test_h2o_analyzer_pressure_gate_waits_for_internal_p_without_pressure_contro
     assert any("pressure pre-sample gate passed" in message for message in runner.logs)
 
 
-def test_h2o_analyzer_pressure_gate_warn_policy_continues_with_degraded_qc():
+def test_h2o_analyzer_pressure_gate_warn_policy_continues_with_diagnostic_pressure_evidence():
     point = _build_h2o_open_flow_point(
         temp_c=20.0,
         hgen_temp_c=20.0,
@@ -238,14 +324,74 @@ def test_h2o_analyzer_pressure_gate_warn_policy_continues_with_degraded_qc():
     assert runner.runtime_fields["h2o_pressure_presample_gate_status"] == "warn"
     assert (
         runner.runtime_fields["h2o_pressure_presample_fit_scope"]
-        == "pressure_not_polynomial_fit_variable"
+        == "diagnostic_not_fit_gate"
     )
-    assert "review ratio_concentration_density_stability" in runner.runtime_fields[
+    assert (
+        runner.runtime_fields["h2o_pressure_presample_grade_scope"]
+        == "not_required_for_a_grade_by_default"
+    )
+    assert "review_h2o_ratio_dewpoint_and_flow_evidence" in runner.runtime_fields[
         "h2o_pressure_presample_report_warning"
     ]
     assert "sample_can_enter_calibration_fit" not in runner.runtime_fields
     assert "point_quality_status" not in runner.runtime_fields
-    assert any("continuing with degraded QC" in message for message in runner.logs)
+    assert any("continuing with diagnostic pressure evidence" in message for message in runner.logs)
+
+
+def test_h2o_analyzer_pressure_gate_warn_policy_restores_pressure_dropped_analyzers():
+    point = _build_h2o_open_flow_point(
+        temp_c=20.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=70.0,
+        certificate_dewpoint_c=14.36,
+        certificate_h2o_mmol=16.3715,
+    )
+
+    class Runner:
+        def __init__(self):
+            self.cfg = {
+                "workflow": {
+                    "stability": {
+                        "sensor": {
+                            "h2o_pressure_kpa_presample_policy": "warn",
+                            "h2o_pressure_kpa_presample_tol": 0.2,
+                            "h2o_pressure_kpa_presample_window_s": 60.0,
+                            "h2o_pressure_kpa_presample_timeout_s": 10.0,
+                            "h2o_pressure_kpa_presample_min_samples": 4,
+                        }
+                    }
+                }
+            }
+            self._disabled_analyzers = {"ga01"}
+            self._disabled_analyzer_reasons = {"ga01": "startup_mode2_verify_failed"}
+            self._disabled_analyzer_last_reprobe_ts = {"ga01": 123.0}
+            self.runtime_fields = {}
+            self.logs = []
+
+        def _wait_primary_sensor_stable(self, point, **kwargs):
+            self._disabled_analyzers.add("ga06")
+            self._disabled_analyzer_reasons["ga06"] = "pressure_kpa_timeout"
+            self._disabled_analyzer_last_reprobe_ts["ga06"] = 456.0
+            return True
+
+        def _append_pressure_trace_row(self, **kwargs):
+            return None
+
+        def _set_point_runtime_fields(self, point, *, phase, **fields):
+            self.runtime_fields.update(fields)
+
+        def log(self, message):
+            self.logs.append(message)
+
+    runner = Runner()
+
+    assert _wait_h2o_analyzer_pressure_presample_gate(runner, point) is True
+    assert runner._disabled_analyzers == {"ga01"}
+    assert runner._disabled_analyzer_reasons == {"ga01": "startup_mode2_verify_failed"}
+    assert runner._disabled_analyzer_last_reprobe_ts == {"ga01": 123.0}
+    assert runner.runtime_fields["h2o_pressure_presample_gate_status"] == "warn"
+    assert runner.runtime_fields["h2o_pressure_presample_restored_analyzers"] == "ga06"
+    assert any("restored analyzers under warn policy" in message for message in runner.logs)
 
 
 def test_h2o_analyzer_pressure_gate_fail_policy_blocks_sampling():

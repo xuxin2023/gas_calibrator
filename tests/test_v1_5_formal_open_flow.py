@@ -427,3 +427,129 @@ def test_sealed_diagnostic_rows_do_not_pollute_open_flow_window_statistics():
     assert summary["b_grade_count"] == 0
     assert all(item.grade == "A" for item in classes[:10])
     assert classes[-1].grade == "REJECT"
+
+
+def test_sample_readiness_warns_on_legacy_rows_without_route_or_purge_evidence():
+    rows = [_row(i) for i in range(1, 11)]
+
+    report = build_formal_open_flow_report(
+        plan=_plan(),
+        sample_rows=rows,
+        pressure_check_rows=rows,
+        component="co2",
+        cfg=FormalOpenFlowConfig(min_a_grade_samples=10),
+    )
+
+    assert report.candidate_fit_allowed is True
+    assert report.sample_readiness["readiness_status"] == "warn"
+    assert "route_open_until_sample_end_not_recorded" in report.sample_readiness["warnings"]
+    assert "purge_evidence_not_recorded" in report.sample_readiness["warnings"]
+
+
+def test_sample_readiness_blocks_candidate_fit_when_route_closed_before_sample_end():
+    rows = [
+        _row(
+            i,
+            route_open_until_sample_end=False,
+            actual_purge_s=600,
+            minimum_purge_s=360,
+        )
+        for i in range(1, 11)
+    ]
+
+    report = build_formal_open_flow_report(
+        plan=_plan(),
+        sample_rows=rows,
+        pressure_check_rows=rows,
+        component="co2",
+        cfg=FormalOpenFlowConfig(min_a_grade_samples=10),
+    )
+
+    assert report.candidate_fit_allowed is False
+    assert "sample_readiness_failed" in report.candidate_fit_blockers
+    assert "route_not_open_until_sample_end" in report.sample_readiness["blockers"]
+
+
+def test_sample_readiness_blocks_candidate_fit_when_minimum_purge_is_not_met():
+    rows = [
+        _row(
+            i,
+            route_open_until_sample_end=True,
+            actual_purge_s=180,
+            minimum_purge_s=360,
+        )
+        for i in range(1, 11)
+    ]
+
+    report = build_formal_open_flow_report(
+        plan=_plan(),
+        sample_rows=rows,
+        pressure_check_rows=rows,
+        component="co2",
+        cfg=FormalOpenFlowConfig(min_a_grade_samples=10),
+    )
+
+    assert report.candidate_fit_allowed is False
+    assert "sample_readiness_failed" in report.candidate_fit_blockers
+    assert any(reason.startswith("minimum_purge_not_met") for reason in report.sample_readiness["blockers"])
+
+
+def test_sample_readiness_passes_when_route_purge_and_physical_gates_are_recorded():
+    rows = [
+        _row(
+            i,
+            route_open_until_sample_end=True,
+            actual_purge_s=600,
+            minimum_purge_s=360,
+        )
+        for i in range(1, 11)
+    ]
+
+    report = build_formal_open_flow_report(
+        plan=_plan(),
+        sample_rows=rows,
+        pressure_check_rows=rows,
+        component="co2",
+        cfg=FormalOpenFlowConfig(min_a_grade_samples=10),
+    )
+
+    assert report.candidate_fit_allowed is True
+    assert report.sample_readiness["readiness_status"] == "pass"
+    assert report.qc_summary["sample_readiness_status"] == "pass"
+    assert report.point_calibratability["calibratability_grade"] == "A"
+    assert report.point_calibratability["fit_input_role"] == "direct_fit"
+    assert (
+        report.point_calibratability["time_optimization_action"]
+        == "sample_now_do_not_chase_lower_dewpoint"
+    )
+
+
+def test_co2_stable_wet_state_is_reported_as_normalized_review_point():
+    rows = [
+        _row(
+            i,
+            route_open_until_sample_end=True,
+            actual_purge_s=600,
+            minimum_purge_s=360,
+            dewpoint_c=-15.0 + i * 0.001,
+            ga01_h2o_mmol=25.0 + i * 0.001,
+        )
+        for i in range(1, 11)
+    ]
+
+    report = build_formal_open_flow_report(
+        plan=_plan(),
+        sample_rows=rows,
+        pressure_check_rows=rows,
+        component="co2",
+        cfg=FormalOpenFlowConfig(min_a_grade_samples=10),
+    )
+
+    assert report.candidate_fit_allowed is True
+    assert report.point_calibratability["calibratability_grade"] == "B"
+    assert report.point_calibratability["fit_input_role"] == "state_normalized_fit_review"
+    assert (
+        report.point_calibratability["time_optimization_action"]
+        == "sample_now_with_h2o_state_normalization"
+    )
+    assert report.qc_summary["point_calibratability_grade"] == "B"

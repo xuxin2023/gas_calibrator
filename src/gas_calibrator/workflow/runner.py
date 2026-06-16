@@ -2755,6 +2755,8 @@ class CalibrationRunner:
             return "forbidden_write", True, "pressure_setpoint_before_control"
         if upper.startswith(":UNIT:PRES"):
             return "unit", False, ""
+        if upper.startswith(":SOUR:PRES:RANG"):
+            return "pressure_range", False, ""
         if upper.startswith(":OUTP:MODE"):
             return "output_mode", False, ""
         if upper.startswith(":SOUR:PRES:INL"):
@@ -4102,6 +4104,21 @@ class CalibrationRunner:
         return max(
             0.0,
             float(self._wf("workflow.analyzer_live_snapshot.active_frame_stale_ms", 500.0) or 500.0),
+        )
+
+    def _sampling_active_frame_recovery_enabled(self) -> bool:
+        return bool(self._wf("workflow.analyzer_live_snapshot.active_frame_recovery_enabled", True))
+
+    def _sampling_active_frame_recovery_wait_s(self) -> float:
+        return max(
+            0.0,
+            float(self._wf("workflow.analyzer_live_snapshot.active_frame_recovery_wait_s", 1.2) or 0.0),
+        )
+
+    def _sampling_active_frame_recovery_poll_s(self) -> float:
+        return max(
+            0.01,
+            float(self._wf("workflow.analyzer_live_snapshot.active_frame_recovery_poll_s", 0.05) or 0.05),
         )
 
     def _sampling_active_drain_poll_s(self) -> float:
@@ -7022,6 +7039,60 @@ class CalibrationRunner:
         raw_match["selection_kind"] = "raw"
         return raw_match
 
+    def _active_analyzer_anchor_match_with_recovery(
+        self,
+        context: Dict[str, Any],
+        ga: Any,
+        *,
+        label: str,
+        sample_anchor_mono: float,
+    ) -> Dict[str, Any]:
+        match = self._active_analyzer_anchor_match(
+            context,
+            ga,
+            label=label,
+            sample_anchor_mono=sample_anchor_mono,
+        )
+        if match.get("entry") is not None and not bool(match.get("stale", True)):
+            return match
+        if not self._sampling_active_frame_recovery_enabled():
+            return match
+
+        wait_s = self._sampling_active_frame_recovery_wait_s()
+        if wait_s <= 0:
+            return match
+
+        poll_s = min(self._sampling_active_frame_recovery_poll_s(), wait_s)
+        started = time.monotonic()
+        deadline = started + wait_s
+        initial_strategy = str(match.get("match_strategy") or "missing")
+        initial_seq = None
+        if isinstance(match.get("entry"), dict):
+            initial_seq = match["entry"].get("seq")
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(poll_s, remaining))
+            recovered = self._active_analyzer_anchor_match(
+                context,
+                ga,
+                label=label,
+                sample_anchor_mono=time.monotonic(),
+            )
+            if recovered.get("entry") is not None and not bool(recovered.get("stale", True)):
+                recovered["recovered_from_match_strategy"] = initial_strategy
+                recovered["recovery_initial_seq"] = initial_seq
+                recovered["recovery_wait_ms"] = round(max(0.0, time.monotonic() - started) * 1000.0, 3)
+                recovered["match_strategy"] = f"{recovered.get('match_strategy')}:recovered"
+                return recovered
+
+        match["recovered_from_match_strategy"] = initial_strategy
+        match["recovery_initial_seq"] = initial_seq
+        match["recovery_wait_ms"] = round(max(0.0, time.monotonic() - started) * 1000.0, 3)
+        return match
+
     def _merge_slow_aux_cache_into_sample(
         self,
         data: Dict[str, Any],
@@ -7096,6 +7167,13 @@ class CalibrationRunner:
                 data.setdefault("analyzer_device_id_source", configured_identity_source)
                 data.setdefault("analyzer_identity_status", initial_identity_status)
                 data.setdefault("analyzer_identity_reason", initial_identity_reason)
+                data.setdefault("status_register_qc", "missing")
+                data.setdefault("status_register_qc_reason", "no_frame")
+                data.setdefault("status_register_raw", "")
+                data.setdefault("status_register_normalized", "")
+                data.setdefault("status_register_summary_cn", "状态寄存器缺失")
+                data.setdefault("status_register_active_bits_json", "[]")
+                data.setdefault("status_register_manual_source", "气体分析仪指令.docx table: 状态寄存器")
             for key in mode2_keys:
                 data.setdefault(f"{prefix}_{key}", None)
                 if analyzer_idx == 0:
@@ -7110,6 +7188,13 @@ class CalibrationRunner:
             data.setdefault(f"{prefix}_frame_stale", True)
             data.setdefault(f"{prefix}_frame_source", "missing")
             data.setdefault(f"{prefix}_frame_is_live", False)
+            data.setdefault(f"{prefix}_status_register_qc", "missing")
+            data.setdefault(f"{prefix}_status_register_qc_reason", "no_frame")
+            data.setdefault(f"{prefix}_status_register_raw", "")
+            data.setdefault(f"{prefix}_status_register_normalized", "")
+            data.setdefault(f"{prefix}_status_register_summary_cn", "状态寄存器缺失")
+            data.setdefault(f"{prefix}_status_register_active_bits_json", "[]")
+            data.setdefault(f"{prefix}_status_register_manual_source", "气体分析仪指令.docx table: 状态寄存器")
             self._set_sample_frame_meta(
                 data,
                 prefix,
@@ -7144,7 +7229,7 @@ class CalibrationRunner:
             match_strategy = "missing"
             frame_stale = True
             if active_send and active_anchor_match_enabled and isinstance(context, dict):
-                match = self._active_analyzer_anchor_match(
+                match = self._active_analyzer_anchor_match_with_recovery(
                     context,
                     ga,
                     label=label,
@@ -7156,7 +7241,7 @@ class CalibrationRunner:
                 match_side = str(match.get("side") or "missing")
                 match_strategy = str(match.get("match_strategy") or "missing")
                 frame_stale = bool(match.get("stale", True))
-                fresh = entry is not None
+                fresh = entry is not None and not frame_stale
                 if isinstance(entry, dict):
                     parsed = entry.get("parsed")
             else:
@@ -7194,12 +7279,16 @@ class CalibrationRunner:
                 data[f"{prefix}_mode2_contract_reason"] = "no_frame" if not entry else "stale_frame"
                 data[f"{prefix}_mode2_qc_status"] = data[f"{prefix}_mode2_contract_status"]
                 data[f"{prefix}_mode2_qc_reason"] = data[f"{prefix}_mode2_contract_reason"]
+                data[f"{prefix}_status_register_qc"] = "missing"
+                data[f"{prefix}_status_register_qc_reason"] = data[f"{prefix}_mode2_contract_reason"]
                 if analyzer_idx == 0:
                     data["frame_status"] = data[f"{prefix}_frame_status"]
                     data["mode2_contract_status"] = data[f"{prefix}_mode2_contract_status"]
                     data["mode2_contract_reason"] = data[f"{prefix}_mode2_contract_reason"]
                     data["mode2_qc_status"] = data[f"{prefix}_mode2_qc_status"]
                     data["mode2_qc_reason"] = data[f"{prefix}_mode2_qc_reason"]
+                    data["status_register_qc"] = data[f"{prefix}_status_register_qc"]
+                    data["status_register_qc_reason"] = data[f"{prefix}_status_register_qc_reason"]
                 continue
 
             if not isinstance(parsed, dict) or not parsed:
@@ -7208,16 +7297,23 @@ class CalibrationRunner:
                 data[f"{prefix}_mode2_contract_reason"] = str(entry.get("category") or "parse_failed")
                 data[f"{prefix}_mode2_qc_status"] = "fail"
                 data[f"{prefix}_mode2_qc_reason"] = data[f"{prefix}_mode2_contract_reason"]
+                data[f"{prefix}_status_register_qc"] = "missing"
+                data[f"{prefix}_status_register_qc_reason"] = data[f"{prefix}_mode2_contract_reason"]
                 if analyzer_idx == 0:
                     data["frame_status"] = data[f"{prefix}_frame_status"]
                     data["mode2_contract_status"] = data[f"{prefix}_mode2_contract_status"]
                     data["mode2_contract_reason"] = data[f"{prefix}_mode2_contract_reason"]
                     data["mode2_qc_status"] = data[f"{prefix}_mode2_qc_status"]
                     data["mode2_qc_reason"] = data[f"{prefix}_mode2_qc_reason"]
+                    data["status_register_qc"] = data[f"{prefix}_status_register_qc"]
+                    data["status_register_qc_reason"] = data[f"{prefix}_status_register_qc_reason"]
                 continue
 
             contract_status, contract_reason = self._assess_mode2_contract(parsed)
             usable, frame_status = self._assess_analyzer_frame(parsed)
+            status_register_review = self._status_register_review(parsed)
+            status_register_qc = str(status_register_review.get("qc_status") or "missing")
+            status_register_reason = str(status_register_review.get("qc_reason") or "status_empty")
             analyzer_device_id, analyzer_device_id_source = self._analyzer_device_identity(
                 ga,
                 analyzer_cfg,
@@ -7252,11 +7348,17 @@ class CalibrationRunner:
             data[f"{prefix}_mode2_contract_reason"] = contract_reason
             data[f"{prefix}_mode2_qc_status"] = "pass" if usable else "fail"
             data[f"{prefix}_mode2_qc_reason"] = frame_status
+            data[f"{prefix}_status_register_qc"] = status_register_qc
+            data[f"{prefix}_status_register_qc_reason"] = status_register_reason
+            self._apply_status_register_review_fields(data, prefix, status_register_review)
             if analyzer_idx == 0:
                 data["mode2_contract_status"] = contract_status
                 data["mode2_contract_reason"] = contract_reason
                 data["mode2_qc_status"] = data[f"{prefix}_mode2_qc_status"]
                 data["mode2_qc_reason"] = data[f"{prefix}_mode2_qc_reason"]
+                data["status_register_qc"] = status_register_qc
+                data["status_register_qc_reason"] = status_register_reason
+                self._apply_status_register_review_fields(data, "", status_register_review)
             if not usable and frame_status:
                 frame_issue_counts[frame_status] = frame_issue_counts.get(frame_status, 0) + 1
 
@@ -7389,6 +7491,23 @@ class CalibrationRunner:
 
     def _wf(self, path: str, default: Any = None) -> Any:
         return workflow_param(self.cfg, path, default)
+
+    def _pressure_controller_control_range(self) -> str:
+        # Range switching is opt-in. Older V1.5 configs may keep a candidate
+        # range value for diagnostics while control_range_enabled=false; the
+        # proven sealed pressure-control path did not force the range in that
+        # state.
+        enabled = bool(self._wf("workflow.pressure.control_range_enabled", False)) or bool(
+            cfg_get(self.cfg, "devices.pressure_controller.control_range_enabled", False)
+        )
+        if not enabled:
+            return ""
+        for path in ("workflow.pressure.control_range", "devices.pressure_controller.control_range"):
+            value = cfg_get(self.cfg, path, "")
+            text = str(value or "").strip()
+            if text:
+                return text.replace('"', "")
+        return ""
 
     def _resolve_postrun_bool(
         self,
@@ -8779,6 +8898,20 @@ class CalibrationRunner:
         if pace:
             self._record_pace_startup_config_command(":UNIT:PRES HPA")
             pace.set_units_hpa()
+            control_range = self._pressure_controller_control_range()
+            if control_range:
+                set_range = getattr(pace, "set_range", None)
+                if callable(set_range):
+                    try:
+                        self._record_pace_startup_config_command(f':SOUR:PRES:RANG "{control_range}"')
+                        set_range(control_range)
+                    except Exception as exc:
+                        self.log(f"Pressure controller range config failed: {exc}")
+                else:
+                    self.log(
+                        "Pressure controller range config skipped: "
+                        f"driver does not support set_range({control_range})"
+                    )
             soft_control_enabled = bool(self._wf("workflow.pressure.soft_control_enabled", False))
             if soft_control_enabled:
                 self._configure_pressure_soft_control(pace)
@@ -9001,6 +9134,7 @@ class CalibrationRunner:
         reapply_delay_s = max(0.0, float(init_retry_cfg.get("reapply_delay_s", 0.35) or 0.35))
         command_gap_s = max(0.0, float(init_retry_cfg.get("command_gap_s", 0.15) or 0.15))
         send_active_freq = bool(init_retry_cfg.get("send_active_freq", True))
+        quiet_active_before_config = bool(init_retry_cfg.get("quiet_active_before_config", True))
         read_first_before_config = bool(init_retry_cfg.get("read_first_before_config", False))
         sniff_stream_before_config = bool(init_retry_cfg.get("sniff_stream_before_config", read_first_before_config))
         write_config_on_read_first_fail = bool(init_retry_cfg.get("write_config_on_read_first_fail", True))
@@ -9094,12 +9228,13 @@ class CalibrationRunner:
                     )
 
             for attempt_idx in range(reapply_attempts):
-                if callable(set_comm_way):
-                    set_comm_way(False, require_ack=False)
-                else:
-                    ga.set_comm_way(False)
-                if command_gap_s > 0:
-                    time.sleep(command_gap_s)
+                if quiet_active_before_config:
+                    if callable(set_comm_way):
+                        set_comm_way(False, require_ack=False)
+                    else:
+                        ga.set_comm_way(False)
+                    if command_gap_s > 0:
+                        time.sleep(command_gap_s)
                 if callable(set_mode):
                     set_mode(mode, require_ack=False)
                 else:
@@ -9894,6 +10029,39 @@ class CalibrationRunner:
         if issues:
             return False, "；".join(issues)
         return True, "启动MODE2可用"
+
+    @staticmethod
+    def _apply_status_register_review_fields(
+        data: Dict[str, Any],
+        prefix: str,
+        review: Mapping[str, Any],
+    ) -> None:
+        from ..validation.v1_5_status_register import status_register_active_bits_json
+
+        key_prefix = f"{prefix}_" if prefix else ""
+        data[f"{key_prefix}status_register_raw"] = str(review.get("raw_status") or "")
+        data[f"{key_prefix}status_register_normalized"] = str(review.get("normalized_status") or "")
+        data[f"{key_prefix}status_register_summary_cn"] = str(review.get("summary_cn") or "")
+        data[f"{key_prefix}status_register_active_bits_json"] = status_register_active_bits_json(review)
+        data[f"{key_prefix}status_register_manual_source"] = str(review.get("manual_source") or "")
+
+    def _status_register_review(self, parsed: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        from ..validation.v1_5_status_register import classify_status_register
+
+        if not isinstance(parsed, dict) or not parsed:
+            return classify_status_register("")
+        cfg = self._analyzer_frame_quality_cfg()
+        bad_status_tokens = tuple(
+            self._frame_quality_key_set(
+                cfg.get("bad_status_tokens"),
+                ["FAIL", "INVALID", "NO_RESPONSE", "NO_ACK", "ERROR"],
+            )
+        )
+        return classify_status_register(parsed.get("status"), bad_status_tokens=bad_status_tokens)
+
+    def _assess_status_register_qc(self, parsed: Optional[Dict[str, Any]]) -> tuple[str, str]:
+        review = self._status_register_review(parsed)
+        return str(review.get("qc_status") or "missing"), str(review.get("qc_reason") or "status_empty")
 
     def _assess_analyzer_frame(self, parsed: Optional[Dict[str, Any]]) -> tuple[bool, str]:
         if not isinstance(parsed, dict) or not parsed:
@@ -10705,12 +10873,26 @@ class CalibrationRunner:
                 return False
             return True
 
+        return self._wait_analyzer_chamber_temp_stable_parallel(
+            target_c=target_c,
+            analyzers=analyzers,
+            window_s=window_s,
+            span_tol_c=span_tol_c,
+            timeout_s=timeout_s,
+            timeout_raw=timeout_raw,
+            first_valid_timeout_s=first_valid_timeout_s,
+            first_valid_timeout_raw=first_valid_timeout_raw,
+            poll_s=poll_s,
+        )
+
         start = time.time()
         last_report = 0.0
         current_label: Optional[str] = None
         window_start: Optional[float] = None
         window_values: List[float] = []
         last_value: Optional[float] = None
+        required_labels = {label for label, _ga, _cfg in analyzers}
+        stable_labels = set()
         self._emit_analyzer_chamber_temp_stage(target_c, countdown_s=window_s)
 
         while timeout_s is None or (time.time() - start) < timeout_s:
@@ -10722,6 +10904,8 @@ class CalibrationRunner:
             selected_label: Optional[str] = None
             selected_value: Optional[float] = None
             for label, ga, _cfg in self._active_gas_analyzers():
+                if label in stable_labels:
+                    continue
                 try:
                     _, parsed = self._read_sensor_parsed(
                         ga,
@@ -10741,6 +10925,12 @@ class CalibrationRunner:
                 break
 
             now = time.time()
+            if required_labels and stable_labels >= required_labels:
+                self.log(
+                    "Analyzer chamber temp stable for all active analyzers: "
+                    f"labels={','.join(sorted(stable_labels))}"
+                )
+                return True
             if selected_label is None or selected_value is None:
                 no_value_elapsed = now - start
                 no_value_remain = (
@@ -10798,12 +10988,23 @@ class CalibrationRunner:
             if elapsed >= window_s:
                 span = self._span(window_values)
                 if span <= span_tol_c:
+                    stable_labels.add(str(current_label))
                     self.log(
                         "Analyzer chamber temp stable: "
                         f"{current_label} value={selected_value:.3f} span={span:.4f} "
                         f"window={int(window_s)}s tol=±{span_tol_c:.4f}"
                     )
-                    return True
+                    if stable_labels >= required_labels:
+                        self.log(
+                            "Analyzer chamber temp stable for all active analyzers: "
+                            f"labels={','.join(sorted(stable_labels))}"
+                        )
+                        return True
+                    current_label = None
+                    window_start = None
+                    window_values = []
+                    last_value = None
+                    continue
 
                 self.log(
                     "Analyzer chamber temp not stable; restart window: "
@@ -10843,6 +11044,188 @@ class CalibrationRunner:
             "Analyzer chamber temp stability timeout: "
             f"target={target_c:.2f} label={current_label} last={last_value} "
             f"window={int(window_s)}s tol=±{span_tol_c:.4f} timeout={int(timeout_raw)}s"
+        )
+        return False
+
+    def _wait_analyzer_chamber_temp_stable_parallel(
+        self,
+        *,
+        target_c: float,
+        analyzers: List[Tuple[str, Any, Any]],
+        window_s: float,
+        span_tol_c: float,
+        timeout_s: Optional[float],
+        timeout_raw: float,
+        first_valid_timeout_s: Optional[float],
+        first_valid_timeout_raw: float,
+        poll_s: float,
+    ) -> bool:
+        required_labels = {str(label) for label, _ga, _cfg in analyzers}
+        states: Dict[str, Dict[str, Any]] = {
+            label: {
+                "window_start": None,
+                "values": [],
+                "last": None,
+                "stable": False,
+                "has_valid": False,
+            }
+            for label in required_labels
+        }
+        start = time.time()
+        last_report = 0.0
+        self._emit_analyzer_chamber_temp_stage(target_c, countdown_s=window_s)
+
+        while timeout_s is None or (time.time() - start) < timeout_s:
+            if self.stop_event.is_set():
+                return False
+            self._check_pause()
+            self._refresh_live_analyzer_snapshots(reason="analyzer chamber-temp stability wait")
+
+            now = time.time()
+            active = {
+                str(label): (ga, cfg)
+                for label, ga, cfg in self._active_gas_analyzers()
+                if str(label) in required_labels
+            }
+            missing = sorted(label for label in required_labels if label not in active)
+            if missing:
+                self.log(
+                    "Analyzer chamber-temp wait failed: active analyzer disappeared "
+                    f"labels={','.join(missing)}"
+                )
+                return False
+
+            for label, (ga, _cfg) in active.items():
+                state = states[label]
+                if bool(state["stable"]):
+                    continue
+                try:
+                    _, parsed = self._read_sensor_parsed(
+                        ga,
+                        required_key="chamber_temp_c",
+                        frame_acceptance_mode="required_key_relaxed",
+                    )
+                except Exception as exc:
+                    self.log(f"Analyzer chamber-temp read failed: {label} err={exc}")
+                    continue
+                if not parsed:
+                    continue
+                value = self._as_float(parsed.get("chamber_temp_c"))
+                if value is None:
+                    continue
+                value = float(value)
+
+                if not bool(state["has_valid"]):
+                    state["has_valid"] = True
+                    state["window_start"] = now
+                    state["values"] = []
+                    self._emit_analyzer_chamber_temp_stage(
+                        target_c,
+                        analyzer_label=label,
+                        analyzer_temp_c=value,
+                        countdown_s=window_s,
+                    )
+                    self.log(
+                        "Analyzer chamber-temp stability source selected: "
+                        f"{label} target={target_c:.2f}"
+                    )
+
+                if state["window_start"] is None:
+                    state["window_start"] = now
+                state["last"] = value
+                values = state["values"]
+                if isinstance(values, list):
+                    values.append(value)
+                else:
+                    state["values"] = [value]
+                    values = state["values"]
+
+                elapsed = now - float(state["window_start"])
+                if elapsed < window_s:
+                    continue
+
+                span = self._span(values) if values else 0.0
+                if span <= span_tol_c:
+                    state["stable"] = True
+                    self.log(
+                        "Analyzer chamber temp stable: "
+                        f"{label} value={value:.3f} span={span:.4f} "
+                        f"window={int(window_s)}s tol=+/-{span_tol_c:.4f}"
+                    )
+                    continue
+
+                self.log(
+                    "Analyzer chamber temp not stable; restart window: "
+                    f"{label} last={value:.3f} span={span:.4f} "
+                    f"window={int(window_s)}s tol=+/-{span_tol_c:.4f}"
+                )
+                state["window_start"] = now
+                state["values"] = [value]
+                self._emit_analyzer_chamber_temp_stage(
+                    target_c,
+                    analyzer_label=label,
+                    analyzer_temp_c=value,
+                    countdown_s=window_s,
+                    detail=f"span={span:.4f}",
+                )
+
+            stable_labels = sorted(label for label, state in states.items() if bool(state["stable"]))
+            if len(stable_labels) == len(required_labels):
+                self.log(
+                    "Analyzer chamber temp stable for all active analyzers: "
+                    f"labels={','.join(stable_labels)}"
+                )
+                return True
+
+            pending_no_valid = sorted(
+                label for label, state in states.items() if not bool(state["stable"]) and not bool(state["has_valid"])
+            )
+            if pending_no_valid and first_valid_timeout_s is not None and (now - start) >= first_valid_timeout_s:
+                self._emit_analyzer_chamber_temp_stage(
+                    target_c,
+                    countdown_s=0.0,
+                    detail=f"no_valid={','.join(pending_no_valid)}",
+                )
+                self.log(
+                    "Analyzer chamber temp first valid timeout: "
+                    f"target={target_c:.2f} labels={','.join(pending_no_valid)} "
+                    f"timeout={int(first_valid_timeout_raw)}s"
+                )
+                return False
+
+            if now - last_report >= 30:
+                last_report = now
+                pending = sorted(label for label, state in states.items() if not bool(state["stable"]))
+                sample_label = pending[0] if pending else None
+                if sample_label is not None:
+                    sample_state = states[sample_label]
+                    values = sample_state["values"] if isinstance(sample_state["values"], list) else []
+                    span = self._span(values) if values else 0.0
+                    window_start = sample_state["window_start"]
+                    elapsed = (now - float(window_start)) if window_start is not None else 0.0
+                    remain = max(0.0, window_s - elapsed)
+                    self._emit_analyzer_chamber_temp_stage(
+                        target_c,
+                        analyzer_label=sample_label,
+                        analyzer_temp_c=sample_state["last"],
+                        countdown_s=remain,
+                        detail=f"pending={len(pending)} span={span:.4f}",
+                    )
+                    self.log(
+                        "Analyzer chamber temp settling... "
+                        f"pending={','.join(pending)} sample={sample_label} "
+                        f"window={int(elapsed)}/{int(window_s)}s remain={int(remain)}s"
+                    )
+
+            time.sleep(poll_s)
+
+        pending = sorted(label for label, state in states.items() if not bool(state["stable"]))
+        last_values = {label: states[label]["last"] for label in pending}
+        self.log(
+            "Analyzer chamber temp stability timeout: "
+            f"target={target_c:.2f} pending={','.join(pending) or 'none'} "
+            f"last={last_values} window={int(window_s)}s tol=+/-{span_tol_c:.4f} "
+            f"timeout={int(timeout_raw)}s"
         )
         return False
 
@@ -26760,6 +27143,11 @@ class CalibrationRunner:
                 if legacy_transition_min_delta_c is not None and abs(float(legacy_transition_min_delta_c)) > 0
                 else 0.05
             )
+        near_target_continue_margin_c = self._as_float(
+            temp_cfg_raw.get("near_target_continue_margin_c")
+        )
+        if near_target_continue_margin_c is None or near_target_continue_margin_c <= 0:
+            near_target_continue_margin_c = 1.0
         hard_max_wait_s = max(0.0, float(temp_cfg_raw.get("hard_max_wait_s", 0.0) or 0.0))
         command_target_c = float(target_c) + command_offset_c
         setpoint_verify_tol_c = max(0.2, tol)
@@ -26929,6 +27317,7 @@ class CalibrationRunner:
             f"continue_wait_while_progress={continue_wait_while_progress}, "
             f"progress_window={float(progress_window_s):.1f}s, "
             f"progress_min_delta={float(progress_min_delta_c):.2f}C, "
+            f"near_target_continue_margin={float(near_target_continue_margin_c):.2f}C, "
             f"hard_max_wait={'disabled' if hard_max_wait_s <= 0 else f'{hard_max_wait_s:.1f}s'}"
         )
 
@@ -26939,6 +27328,7 @@ class CalibrationRunner:
         best_abs_error: Optional[float] = None
         last_progress_ts = start
         last_progress_log_ts: Optional[float] = None
+        last_near_target_log_ts: Optional[float] = None
 
         while True:
             if self.stop_event.is_set():
@@ -27036,6 +27426,31 @@ class CalibrationRunner:
                         f"run_state={timeout_run_state}, reason=hard_max_wait_exceeded"
                     )
                     return False
+                close_to_target = (
+                    near_target_continue_margin_c > 0
+                    and last_temp is not None
+                    and abs(float(last_temp) - float(target_c)) <= float(near_target_continue_margin_c)
+                )
+                close_to_target_still_allowed = (
+                    close_to_target
+                    and (
+                        elapsed_s < timeout_s
+                        or last_progress_age_s <= float(progress_window_s)
+                    )
+                )
+                if close_to_target_still_allowed:
+                    if last_near_target_log_ts is None or (now - last_near_target_log_ts) >= 60.0:
+                        last_near_target_log_ts = now
+                        self.log(
+                            "Chamber close to target; continue waiting for target-band entry "
+                            "instead of treating slow thermal oscillation as stalled: "
+                            f"target={target_c:.2f}, last_temp={last_temp}, "
+                            f"tol={tol:.2f}, near_target_continue_margin="
+                            f"{float(near_target_continue_margin_c):.2f}, "
+                            f"last_progress_age_s={last_progress_age_s:.1f}"
+                        )
+                    time.sleep(1.0)
+                    continue
                 if (not continue_wait_while_progress) and timeout_s > 0 and elapsed_s >= timeout_s:
                     timeout_run_state = None
                     if chamber and hasattr(chamber, "read_run_state"):
@@ -30660,14 +31075,19 @@ class CalibrationRunner:
             return self._as_float(values.get("dewpoint_live_c")) is not None
         return False
 
+    def _sampling_require_pace_pressure_signal(self) -> bool:
+        return bool(self._wf("workflow.sampling.require_pace_pressure_signal", False))
+
     def _sampling_context_missing_fresh_fast_signals(self, context: Dict[str, Any]) -> List[str]:
         missing: List[str] = []
         max_age_s = self._sampling_pre_sample_signal_max_age_s()
-        for signal_key, device_key in (
-            ("pace", "pace"),
+        required_signals: List[Tuple[str, str]] = [
             ("pressure_gauge", "pressure_gauge"),
             ("dewpoint", "dewpoint"),
-        ):
+        ]
+        if self._sampling_require_pace_pressure_signal():
+            required_signals.insert(0, ("pace", "pace"))
+        for signal_key, device_key in required_signals:
             if self.devices.get(device_key) is None:
                 continue
             frame = self._latest_fast_signal_frame(signal_key, context=context, max_age_s=max_age_s)

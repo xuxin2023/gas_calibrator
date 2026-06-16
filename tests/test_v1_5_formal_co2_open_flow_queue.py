@@ -1,16 +1,20 @@
 import csv
 import json
 
+from gas_calibrator.tools import run_v1_5_formal_co2_open_flow_queue as co2_queue_module
 from gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue import (
     _build_point_command,
+    _resolve_formal_min_valid_analyzers,
     _load_queue_rows,
     _ordered_temperature_groups,
     _parse_args,
     _point_run_id,
     _prepare_temperature_runtime_cfg,
     _select_queue_rows,
+    _temperature_settle_run_id,
     main,
 )
+from gas_calibrator.validation.v1_5_open_flow_purge_contract import nitrogen_prepurge_formal_role
 
 
 def _write_queue(path):
@@ -131,6 +135,139 @@ def test_queue_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path)
     assert "--co2-ratio-f-preseal-timeout-s 900" in text
     assert "--co2-ratio-f-preseal-min-samples 20" in text
     assert "--co2-ratio-f-preseal-policy warn" in text
+    assert "--min-valid-analyzers 1" in text
+    assert "--gas-route-dewpoint-gate-enabled" in cmd
+    assert "--gas-route-dewpoint-gate-policy reject" in text
+    assert "--gas-route-dewpoint-require-dry-enough" in cmd
+    assert "--gas-route-dewpoint-dry-enough-c -25" in text
+
+
+def test_formal_min_valid_defaults_to_per_analyzer_evidence_mode():
+    cfg = {
+        "devices": {
+            "gas_analyzers": [
+                {"name": "ga01"},
+                {"name": "ga02"},
+                {"name": "ga03", "enabled": False},
+                {"name": "ga04"},
+            ]
+        }
+    }
+
+    assert _resolve_formal_min_valid_analyzers(cfg, None) == 1
+    assert _resolve_formal_min_valid_analyzers(cfg, 9) == 3
+    assert _resolve_formal_min_valid_analyzers(cfg, 2) == 2
+
+
+def test_co2_temperature_settle_run_id_stays_short_for_windows_paths():
+    assert _temperature_settle_run_id(40.0) == "T40_temp_settle"
+    assert _temperature_settle_run_id(-20.0) == "Tm20_temp_settle"
+
+
+def test_co2_temperature_settle_creates_missing_output_dir_before_logging(tmp_path, monkeypatch):
+    def _raise_before_real_devices(*_args, **_kwargs):
+        raise RuntimeError("stop before real devices")
+
+    monkeypatch.setattr(co2_queue_module, "_build_devices", _raise_before_real_devices)
+    output_dir = tmp_path / "missing" / "co2_open_flow"
+    args = _parse_args(
+        [
+            "--config",
+            "config.json",
+            "--queue-csv",
+            "queue.csv",
+            "--output-dir",
+            str(tmp_path),
+            "--no-prompt",
+        ]
+    )
+
+    ok = co2_queue_module._settle_temperature_group(
+        {"devices": {"temperature_chamber": {"enabled": True}}},
+        temp_c=40.0,
+        output_dir=output_dir,
+        run_id="co2_T40_temperature_settle",
+        args=args,
+    )
+
+    assert ok is False
+    assert output_dir.exists()
+    assert (output_dir / "co2_T40_temperature_settle" / "temperature_settle_summary.json").exists()
+
+
+def test_co2_queue_uses_600s_for_unknown_route_when_plan_does_not_override(tmp_path):
+    args = _parse_args(
+        [
+            "--config",
+            "config.json",
+            "--queue-csv",
+            "queue.csv",
+            "--output-dir",
+            str(tmp_path),
+            "--no-prompt",
+        ]
+    )
+    cmd = _build_point_command(
+        config_path="config.json",
+        output_dir=tmp_path,
+        row={
+            "temp_c": 20.0,
+            "source_nominal_ppm": 900.0,
+            "co2_group": "B",
+            "sample_role": "fit",
+            "initial_state": "unknown",
+            "sample_count": 10,
+            "analyzer_acquisition": "active_stream_1hz",
+        },
+        run_id="point_run",
+        args=args,
+    )
+
+    assert cmd[cmd.index("--purge-s") + 1] == "600"
+    assert cmd[cmd.index("--minimum-purge-s") + 1] == "600"
+
+
+def test_co2_queue_preserves_explicit_purge_over_conservative_profile(tmp_path):
+    args = _parse_args(
+        [
+            "--config",
+            "config.json",
+            "--queue-csv",
+            "queue.csv",
+            "--output-dir",
+            str(tmp_path),
+            "--no-prompt",
+        ]
+    )
+    cmd = _build_point_command(
+        config_path="config.json",
+        output_dir=tmp_path,
+        row={
+            "temp_c": 20.0,
+            "source_nominal_ppm": 900.0,
+            "co2_group": "B",
+            "sample_role": "fit",
+            "purge_s": 420.0,
+            "after_wet_route": "true",
+            "sample_count": 10,
+            "analyzer_acquisition": "active_stream_1hz",
+        },
+        run_id="point_run",
+        args=args,
+    )
+
+    assert cmd[cmd.index("--purge-s") + 1] == "420"
+    assert cmd[cmd.index("--minimum-purge-s") + 1] == "360"
+
+
+def test_nitrogen_prepurge_is_conditioning_not_formal_anchor():
+    role = nitrogen_prepurge_formal_role()
+
+    assert role["may_reduce_residual_co2"] is True
+    assert role["may_help_dry_route"] is True
+    assert role["is_formal_co2_zero_anchor"] is False
+    assert role["is_formal_h2o_dry_anchor"] is False
+    assert role["requires_own_reference_evidence_for_anchor_use"] is True
 
 
 def test_temperature_runtime_inherits_formal_soak_without_shortening(tmp_path):
@@ -225,6 +362,11 @@ def test_queue_dry_run_writes_manifest_without_real_com(tmp_path):
     assert manifest.exists()
     assert summary.exists()
     assert "dry_run" in manifest.read_text(encoding="utf-8-sig")
+    with manifest.open(encoding="utf-8-sig", newline="") as handle:
+        manifest_rows = list(csv.DictReader(handle))
+    assert manifest_rows[0]["resolved_purge_s"] == "360.0"
+    assert manifest_rows[0]["purge_profile"] == "explicit_override"
+    assert manifest_rows[0]["purge_reasons"] == "explicit_purge_s_preserved"
     payload = json.loads(summary.read_text(encoding="utf-8"))
     assert payload["selected_points"] == 2
     assert payload["dry_run_points"] == 2

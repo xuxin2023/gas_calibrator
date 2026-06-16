@@ -1,6 +1,7 @@
 from pathlib import Path
 import time
 import json
+import threading
 
 import pytest
 
@@ -232,6 +233,59 @@ def _runner_for_preseal_gate(tmp_path: Path, cfg: dict, analyzers: dict) -> tupl
     return runner, logger
 
 
+def _runner_with_sampling_pressure_context(tmp_path: Path, cfg: dict) -> tuple[CalibrationRunner, RunLogger, dict]:
+    runner, logger = _runner_for_preseal_gate(tmp_path, cfg, {})
+    runner.devices["pace"] = object()
+    runner.devices["pressure_gauge"] = object()
+    runner.devices["dewpoint"] = object()
+    context = runner._new_sampling_window_context(point=_point(), phase="co2", point_tag="open_flow_400ppm")
+    runner._append_fast_signal_frame(
+        context,
+        "pressure_gauge",
+        values={"pressure_gauge_hpa": 1010.2},
+        source="test_com22_reference",
+    )
+    runner._append_fast_signal_frame(
+        context,
+        "dewpoint",
+        values={"dewpoint_live_c": -45.0, "dew_temp_live_c": 20.0, "dew_rh_live_pct": 0.2},
+        source="test_dewpoint_reference",
+    )
+    return runner, logger, context
+
+
+def test_sampling_fast_signal_gate_does_not_require_pace_pressure_by_default(tmp_path: Path) -> None:
+    cfg = {"workflow": {"sampling": {"pre_sample_signal_max_age_s": 5.0}}}
+    runner, logger, context = _runner_with_sampling_pressure_context(tmp_path, cfg)
+    try:
+        assert runner._sampling_context_missing_fresh_fast_signals(context) == []
+    finally:
+        logger.close()
+
+
+def test_sampling_fast_signal_gate_can_explicitly_require_pace_pressure(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "sampling": {
+                "pre_sample_signal_max_age_s": 5.0,
+                "require_pace_pressure_signal": True,
+            }
+        }
+    }
+    runner, logger, context = _runner_with_sampling_pressure_context(tmp_path, cfg)
+    try:
+        assert runner._sampling_context_missing_fresh_fast_signals(context) == ["pace"]
+        runner._append_fast_signal_frame(
+            context,
+            "pace",
+            values={"pressure_hpa": 1010.1},
+            source="test_explicit_pace_pressure",
+        )
+        assert runner._sampling_context_missing_fresh_fast_signals(context) == []
+    finally:
+        logger.close()
+
+
 def test_analyzer_gate_passes_with_two_valid_stable_and_two_optional_none(tmp_path: Path) -> None:
     cfg = _preseal_gate_cfg()
     runner, logger = _runner_for_preseal_gate(
@@ -396,7 +450,7 @@ def test_analyzer_gate_can_drop_optional_without_disabling_for_sidecar_sampling(
 
 
 def test_analyzer_gate_filters_single_ratio_spike_but_records_evidence(tmp_path: Path) -> None:
-    cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=1.0)
+    cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=2.0)
     stability = cfg["workflow"]["stability"]
     stability["analyzer_gate_spike_filter_enabled"] = True
     stability["analyzer_gate_spike_filter_max_count"] = 1
@@ -530,12 +584,14 @@ def test_h2o_analyzer_gate_can_wait_full_timeout_before_accepting_min_valid(tmp_
 def test_h2o_analyzer_gate_filters_single_ratio_spike_but_records_evidence(tmp_path: Path) -> None:
     cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=1.0)
     stability = cfg["workflow"]["stability"]
+    stability["analyzer_gate_max_wait_s"] = 2.0
+    stability["analyzer_gate_stable_window_s"] = 5.0
     stability["analyzer_gate_spike_filter_enabled"] = True
     stability["analyzer_gate_spike_filter_max_count"] = 1
     sensor_cfg = stability["sensor"]
     sensor_cfg["h2o_ratio_f_preseal_tol"] = 0.001
-    sensor_cfg["h2o_ratio_f_preseal_window_s"] = 0.25
-    sensor_cfg["h2o_ratio_f_preseal_timeout_s"] = 1.0
+    sensor_cfg["h2o_ratio_f_preseal_window_s"] = 5.0
+    sensor_cfg["h2o_ratio_f_preseal_timeout_s"] = 2.0
     sensor_cfg["h2o_ratio_f_preseal_min_samples"] = 3
     sensor_cfg["h2o_ratio_f_preseal_read_interval_s"] = 0.0
     runner, logger = _runner_for_preseal_gate(
@@ -547,6 +603,8 @@ def test_h2o_analyzer_gate_filters_single_ratio_spike_but_records_evidence(tmp_p
                     {"h2o_ratio_f": 0.7000},
                     {"h2o_ratio_f": 0.7110},
                     {"h2o_ratio_f": 0.7004},
+                    {"h2o_ratio_f": 0.7005},
+                    {"h2o_ratio_f": 0.7005},
                     {"h2o_ratio_f": 0.7005},
                 ]
             ),
@@ -614,7 +672,8 @@ def test_analyzer_gate_fails_when_min_valid_not_met(tmp_path: Path) -> None:
 
 
 def test_analyzer_gate_required_label_failure_blocks(tmp_path: Path) -> None:
-    cfg = _preseal_gate_cfg(min_valid=1, required_labels=["ga02"], max_wait_s=0.4)
+    cfg = _preseal_gate_cfg(min_valid=1, required_labels=["ga02"], max_wait_s=1.0)
+    cfg["workflow"]["stability"]["analyzer_gate_stable_window_s"] = 1.0
     runner, logger = _runner_for_preseal_gate(
         tmp_path,
         cfg,
@@ -1023,6 +1082,53 @@ def test_configure_gas_analyzer_read_first_can_still_apply_ftd_and_filter(tmp_pa
         warning_phase="startup",
     )
 
+    assert ("mode", 2, False) in analyzer.calls
+    assert ("ftd", 1) in analyzer.calls
+    assert ("avg_filter", 49, False) in analyzer.calls
+    assert ("active", True, False) in analyzer.calls
+    logger.close()
+
+
+def test_configure_gas_analyzer_can_keep_active_stream_during_filter_reapply(tmp_path: Path) -> None:
+    cfg = {
+        "devices": {
+            "gas_analyzer": {"active_send": True, "ftd_hz": 1, "average_co2": 1, "average_h2o": 1},
+            "gas_analyzers": [{"name": "ga01", "active_send": True}],
+        },
+        "workflow": {
+            "analyzer_mode2_init": {
+                "read_first_before_config": True,
+                "sniff_stream_before_config": True,
+                "skip_config_when_read_first_ready": False,
+                "quiet_active_before_config": False,
+                "read_first_attempts": 1,
+                "ready_consecutive_frames": 1,
+                "read_first_retry_delay_s": 0.0,
+                "reapply_attempts": 1,
+                "stream_attempts": 1,
+                "post_enable_stream_wait_s": 0.0,
+                "retry_delay_s": 0.0,
+                "command_gap_s": 0.0,
+            }
+        },
+    }
+    analyzer = _FakeGasAnalyzer({"co2_ppm": 500.0, "h2o_mmol": 2.0, "mode2_field_count": 16})
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {"gas_analyzer_01": analyzer}, logger, lambda *_: None, lambda *_: None)
+
+    runner._configure_gas_analyzer(
+        analyzer,
+        label="ga01",
+        mode=2,
+        active_send=True,
+        ftd_hz=1,
+        avg_co2=1,
+        avg_h2o=1,
+        avg_filter=49,
+        warning_phase="startup",
+    )
+
+    assert ("active", False, False) not in analyzer.calls
     assert ("mode", 2, False) in analyzer.calls
     assert ("ftd", 1) in analyzer.calls
     assert ("avg_filter", 49, False) in analyzer.calls
@@ -1468,6 +1574,98 @@ def test_active_analyzer_anchor_match_marks_stale_frames_explicitly(tmp_path: Pa
     assert far_stale["match_strategy"] == "stale_left_far"
     assert far_stale["stale"] is True
     assert far_stale["delta_ms"] == pytest.approx(700.0)
+    logger.close()
+
+
+def test_active_analyzer_anchor_match_recovers_from_stale_frame(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "analyzer_live_snapshot": {
+                "active_frame_recovery_enabled": True,
+                "active_frame_recovery_wait_s": 0.35,
+                "active_frame_recovery_poll_s": 0.02,
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {}, logger, lambda *_: None, lambda *_: None)
+    analyzer = object()
+    context = runner._new_sampling_window_context(point=_point(), phase="co2", point_tag="demo")
+    _runtime_key, buffer = runner._sampling_window_active_analyzer_buffer(context, analyzer, label="ga01")
+    anchor = time.monotonic()
+    buffer.append(_active_frame(1, anchor - 0.9, 500.0))
+
+    def append_fresh_frame() -> None:
+        time.sleep(0.06)
+        buffer.append(_active_frame(2, time.monotonic(), 501.0))
+
+    thread = threading.Thread(target=append_fresh_frame)
+    thread.start()
+    try:
+        match = runner._active_analyzer_anchor_match_with_recovery(
+            context,
+            analyzer,
+            label="ga01",
+            sample_anchor_mono=anchor,
+        )
+    finally:
+        thread.join(timeout=1.0)
+        logger.close()
+
+    assert match["entry"]["seq"] == 2
+    assert match["stale"] is False
+    assert match["recovered_from_match_strategy"] == "stale_left_far"
+    assert str(match["match_strategy"]).endswith(":recovered")
+
+
+def test_merge_analyzer_cache_rejects_unrecovered_stale_active_frame(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "analyzer_live_snapshot": {
+                "active_frame_recovery_enabled": False,
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {}, logger, lambda *_: None, lambda *_: None)
+    analyzer = object()
+    context = runner._new_sampling_window_context(point=_point(), phase="co2", point_tag="demo")
+    _runtime_key, buffer = runner._sampling_window_active_analyzer_buffer(context, analyzer, label="ga01")
+    buffer.append(_active_frame(1, 9.30, 500.0))
+    data: dict = {}
+
+    runner._merge_analyzer_cache_into_sample(
+        data,
+        [("ga01", analyzer, {"name": "ga01", "active_send": True})],
+        context=context,
+        sample_anchor_mono=10.00,
+        row_time_s=time.time(),
+    )
+
+    assert data["ga01_frame_stale"] is True
+    assert data["ga01_mode2_contract_status"] == "stale"
+    assert data["ga01_mode2_qc_status"] == "stale"
+    assert data["ga01_mode2_qc_reason"] == "stale_frame"
+    assert data["ga01_status_register_qc"] == "missing"
+    assert data["ga01_status_register_qc_reason"] == "stale_frame"
+    assert data["ga01_frame_has_data"] is False
+    logger.close()
+
+
+def test_status_register_qc_distinguishes_missing_pass_and_fail(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+
+    assert runner._assess_status_register_qc({"status": ""}) == ("missing", "status_empty")
+    assert runner._assess_status_register_qc({"status": "OK"}) == ("pass", "ok")
+    assert runner._assess_status_register_qc({"status": "0001"}) == ("pass", "ok")
+    status, reason = runner._assess_status_register_qc({"status": "0101"})
+    assert status == "fail"
+    assert "CO2信号超标" in reason
+    status, reason = runner._assess_status_register_qc({"status": "CO2_SIGNAL_FAIL"})
+
+    assert status == "fail"
+    assert "CO2_SIGNAL_FAIL" in reason
     logger.close()
 
 

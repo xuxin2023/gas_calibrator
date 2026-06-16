@@ -42,6 +42,10 @@ def detect_analyzer_prefixes(rows: Sequence[Mapping[str, Any]]) -> List[str]:
 
     prefixes: set[str] = set()
     for row in rows:
+        for identity_key in ("analyzer_prefix", "acquisition_channel"):
+            prefix_value = str(row.get(identity_key) or "").strip().lower()
+            if re.match(r"^ga\d{2,}$", prefix_value):
+                prefixes.add(prefix_value)
         for key, value in row.items():
             text = str(key or "").strip().lower()
             match = re.match(r"^(ga\d{2,})_", text)
@@ -148,13 +152,28 @@ def _has_component_payload(row: Mapping[str, Any], component: str, analyzer_pref
     return any(row.get(key) not in (None, "") for key in keys)
 
 
+def _row_matches_analyzer_prefix(row: Mapping[str, Any], analyzer_prefix: str) -> bool:
+    requested = str(analyzer_prefix or "").strip().lower()
+    if any(str(key or "").strip().lower().startswith(f"{requested}_") for key in row):
+        return True
+    row_prefix = str(row.get("analyzer_prefix") or row.get("acquisition_channel") or "").strip().lower()
+    if row_prefix:
+        return row_prefix == requested
+    return True
+
+
 def select_component_rows(
     rows: Sequence[Mapping[str, Any]],
     *,
     component: str,
     analyzer_prefix: str = "ga01",
 ) -> List[Dict[str, Any]]:
-    selected = [dict(row) for row in rows if _component_from_row(row) == component]
+    selected = [
+        dict(row)
+        for row in rows
+        if _component_from_row(row) == component
+        and _row_matches_analyzer_prefix(row, analyzer_prefix)
+    ]
     if selected:
         return selected
     return [
@@ -162,7 +181,28 @@ def select_component_rows(
         for row in rows
         if _has_component_payload(row, component, analyzer_prefix)
         and _component_from_row(row) in {"", component}
+        and _row_matches_analyzer_prefix(row, analyzer_prefix)
     ]
+
+
+def _distinct_point_identity_count(rows: Sequence[Mapping[str, Any]], component: str) -> int:
+    identities: set[str] = set()
+    component_key = str(component or "").strip().lower()
+    target_keys = (
+        ("target_h2o_mmol", "certificate_h2o_mmol", "h2o_mmol")
+        if component_key == "h2o"
+        else ("target_co2_ppm", "certificate_co2_ppm", "co2_ppm")
+    )
+    for row in rows:
+        identity = (
+            row.get("point_id")
+            or row.get("point_tag")
+            or row.get("point_title")
+            or next((row.get(key) for key in target_keys if row.get(key) not in (None, "")), None)
+        )
+        if identity not in (None, ""):
+            identities.add(str(identity))
+    return len(identities)
 
 
 def _summary_row(
@@ -173,6 +213,8 @@ def _summary_row(
 ) -> Dict[str, Any]:
     pressure = report.get("pressure_channel_quick_check") or {}
     qc = report.get("qc_summary") or {}
+    readiness = report.get("sample_readiness") or {}
+    calibratability = report.get("point_calibratability") or {}
     return {
         "component": component,
         "analyzer_prefix": pressure.get("analyzer_prefix") or qc.get("analyzer_prefix") or "",
@@ -198,6 +240,16 @@ def _summary_row(
         "a_grade_count": qc.get("a_grade_count", 0),
         "b_grade_count": qc.get("b_grade_count", 0),
         "rejected_count": qc.get("rejected_count", 0),
+        "sample_readiness_status": readiness.get("readiness_status", ""),
+        "sample_readiness_blockers": ";".join(readiness.get("blockers") or []),
+        "sample_readiness_warnings": ";".join(readiness.get("warnings") or []),
+        "point_calibratability_grade": calibratability.get("calibratability_grade", ""),
+        "point_calibratability_role": calibratability.get("fit_input_role", ""),
+        "time_optimization_action": calibratability.get("time_optimization_action", ""),
+        "point_calibratability_reasons": ";".join(calibratability.get("reasons") or []),
+        "point_calibratability_warnings": ";".join(
+            calibratability.get("warnings") or []
+        ),
         "pressure_condition_warning_count": qc.get("pressure_condition_warning_count", 0),
         "window_report_warnings": _table_value(qc.get("window_report_warnings") or {}),
         "candidate_fit_allowed": report.get("candidate_fit_allowed", False),
@@ -247,6 +299,8 @@ def build_formal_open_flow_tables(
             {str(key): _table_value(value) for key, value in pressure_traceability_dict.items()}
         ],
         "pressure_check": [],
+        "sample_readiness": [],
+        "point_calibratability": [],
         "a_grade_samples": [],
         "b_grade_review_samples": [],
         "rejected_samples": [],
@@ -267,6 +321,18 @@ def build_formal_open_flow_tables(
                 pressure_check_rows=pressure_rows,
             )
             report_dict = report_to_dict(report)
+            point_identity_count = _distinct_point_identity_count(rows, item)
+            blockers = list(report_dict.get("candidate_fit_blockers") or [])
+            if point_identity_count > 1 and "point_not_calibratable" in blockers:
+                # Multi-point candidate packages must not reuse the single-point
+                # stability span across different gas/humidity targets. Per-point
+                # readiness is recorded by each sidecar run; this package-level
+                # report only decides whether A-grade rows can enter coefficient
+                # review.
+                blockers = [item for item in blockers if item != "point_not_calibratable"]
+                report_dict["candidate_fit_blockers"] = blockers
+                if not blockers:
+                    report_dict["candidate_fit_allowed"] = True
             if pressure_traceability.status != "pass":
                 report_dict["candidate_fit_allowed"] = False
                 blockers = list(report_dict.get("candidate_fit_blockers") or [])
@@ -299,6 +365,24 @@ def build_formal_open_flow_tables(
                 }
             )
             tables["pressure_check"].append(pressure_row)
+            readiness_row = {"component": item, "analyzer_prefix": prefix}
+            readiness_row.update(
+                {
+                    str(key): _table_value(value)
+                    for key, value in (report_dict.get("sample_readiness") or {}).items()
+                }
+            )
+            tables["sample_readiness"].append(readiness_row)
+            calibratability_row = {"component": item, "analyzer_prefix": prefix}
+            calibratability_row.update(
+                {
+                    str(key): _table_value(value)
+                    for key, value in (
+                        report_dict.get("point_calibratability") or {}
+                    ).items()
+                }
+            )
+            tables["point_calibratability"].append(calibratability_row)
             tables["a_grade_samples"].extend(_prefix_component(report_dict.get("a_grade_samples") or [], item))
             tables["b_grade_review_samples"].extend(
                 _prefix_component(report_dict.get("b_grade_samples") or [], item)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Iterable
 
@@ -19,6 +20,24 @@ from ..v1_5.orchestration.full_flow import (
     write_full_flow_plan,
     write_full_flow_state,
     write_full_flow_supervised_run,
+)
+from ..validation.v1_5_formal_flow_contract import (
+    read_json,
+    render_v1_5_formal_flow_contract_markdown,
+    validate_v1_5_formal_flow_contract,
+)
+from ..validation.v1_5_formal_archive_closure import build_v1_5_formal_archive_closure
+from ..validation.v1_5_full_flow_closure_readiness import (
+    build_v1_5_full_flow_closure_readiness,
+    write_v1_5_full_flow_closure_readiness_outputs,
+)
+from ..validation.v1_5_post_run_coefficient_executor import (
+    build_post_run_coefficient_executor_model,
+    write_post_run_coefficient_executor_outputs,
+)
+from ..validation.v1_5_run_evidence_status import (
+    build_v1_5_run_evidence_status,
+    render_v1_5_run_evidence_status_markdown,
 )
 
 
@@ -38,6 +57,79 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--evidence-bundle-json", default=None)
     parser.add_argument("--reviewer", default="")
     parser.add_argument("--approver", default="")
+    parser.add_argument("--inventory-json", default=None, help="Optional V1.5 entrypoint inventory JSON for contract audit.")
+    parser.add_argument(
+        "--archive-closure",
+        action="store_true",
+        help="After status generation, build the offline formal archive closure inside reviewed-run-dir.",
+    )
+    parser.add_argument(
+        "--archive-plan-json",
+        default=None,
+        help="Formal calibration plan snapshot JSON used by archive closure.",
+    )
+    parser.add_argument(
+        "--archive-pressure-reference-json",
+        default=None,
+        help="COM22 pressure-reference snapshot JSON for archive closure. Defaults to --pressure-reference-json.",
+    )
+    parser.add_argument(
+        "--archive-output-dir",
+        default=None,
+        help="Archive closure output directory. Must be inside reviewed-run-dir.",
+    )
+    parser.add_argument("--archive-pressure-check-csv", default=None)
+    parser.add_argument("--archive-component", choices=("co2", "h2o", "both"), default="both")
+    parser.add_argument("--archive-analyzer-prefix", default="all")
+    parser.add_argument("--archive-today", default=None)
+    parser.add_argument("--archive-allow-pressure-fallback", action="store_true")
+    parser.add_argument("--archive-report-no", default="")
+    parser.add_argument("--archive-location", default="")
+    parser.add_argument("--archive-calibration-date", default="")
+    parser.add_argument("--archive-uncertainty-json", default=None)
+    parser.add_argument("--archive-db-mode", choices=("skip", "dry-run", "dry_run", "import"), default="dry-run")
+    parser.add_argument("--archive-dsn", default=None)
+    parser.add_argument("--archive-apply-migrations", action="store_true")
+    parser.add_argument(
+        "--post-run-coefficient-executor",
+        action="store_true",
+        help="Build the offline no-write post-run coefficient closure plan after evidence status/archive refresh.",
+    )
+    parser.add_argument(
+        "--post-run-executor-output-dir",
+        default=None,
+        help="Output directory for the post-run coefficient executor. Defaults to output-dir/post_run_coefficient_executor.",
+    )
+    parser.add_argument(
+        "--post-run-executor-fail-on-blocked",
+        action="store_true",
+        help="Return non-zero if the post-run coefficient executor status is blocked.",
+    )
+    parser.add_argument(
+        "--full-flow-closure-readiness",
+        action="store_true",
+        help="Build the offline full-flow closure readiness review after post-run executor/status generation.",
+    )
+    parser.add_argument(
+        "--full-flow-closure-readiness-output-dir",
+        default=None,
+        help="Output directory for closure readiness. Defaults to output-dir/full_flow_closure_readiness.",
+    )
+    parser.add_argument(
+        "--full-flow-closure-readiness-fail-on-blocked",
+        action="store_true",
+        help="Return non-zero if the full-flow closure readiness status is blocked.",
+    )
+    parser.add_argument(
+        "--skip-contract-audit",
+        action="store_true",
+        help="Skip writing the V1.5 formal flow contract audit.",
+    )
+    parser.add_argument(
+        "--fail-on-contract-blocked",
+        action="store_true",
+        help="Return non-zero when the generated contract audit is blocked.",
+    )
     parser.add_argument(
         "--completed-step",
         action="append",
@@ -97,6 +189,17 @@ def main(argv: Iterable[str] | None = None) -> int:
         approver=args.approver,
     )
     outputs = write_full_flow_plan(plan, args.output_dir)
+    contract_status = "skipped"
+    if not args.skip_contract_audit:
+        inventory = read_json(args.inventory_json) if args.inventory_json else None
+        contract = validate_v1_5_formal_flow_contract(plan, inventory_entries=inventory)
+        contract_json = Path(args.output_dir).resolve() / "v1_5_formal_flow_contract.json"
+        contract_md = Path(args.output_dir).resolve() / "v1_5_formal_flow_contract.md"
+        contract_json.write_text(json.dumps(contract.to_json(), ensure_ascii=False, indent=2), encoding="utf-8")
+        contract_md.write_text(render_v1_5_formal_flow_contract_markdown(contract), encoding="utf-8")
+        outputs["contract_json"] = contract_json
+        outputs["contract_markdown"] = contract_md
+        contract_status = contract.status
     state = build_full_flow_state(
         plan,
         completed_steps=args.completed_step,
@@ -124,7 +227,136 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
         outputs.update(write_full_flow_supervised_run(supervised, args.output_dir))
         outputs.update(write_full_flow_state(supervised.final_state, args.output_dir))
+    status_run_dir = Path(args.reviewed_run_dir).resolve() if args.reviewed_run_dir else Path(args.output_dir).resolve()
+    evidence_status = build_v1_5_run_evidence_status(
+        run_dir=status_run_dir,
+        full_flow_plan_json=outputs.get("plan_json"),
+        contract_json=outputs.get("contract_json"),
+        evidence_bundle_json=args.evidence_bundle_json,
+    )
+    status_json = Path(args.output_dir).resolve() / "v1_5_run_evidence_status.json"
+    status_md = Path(args.output_dir).resolve() / "v1_5_run_evidence_status.md"
+    status_json.write_text(json.dumps(evidence_status, ensure_ascii=False, indent=2), encoding="utf-8")
+    status_md.write_text(render_v1_5_run_evidence_status_markdown(evidence_status), encoding="utf-8")
+    outputs["run_evidence_status_json"] = status_json
+    outputs["run_evidence_status_markdown"] = status_md
+    if args.archive_closure:
+        pressure_reference_json = args.archive_pressure_reference_json or args.pressure_reference_json
+        missing = []
+        if not args.reviewed_run_dir:
+            missing.append("--reviewed-run-dir")
+        if not args.archive_plan_json:
+            missing.append("--archive-plan-json")
+        if not pressure_reference_json:
+            missing.append("--archive-pressure-reference-json or --pressure-reference-json")
+        if missing:
+            print(
+                "Archive closure requires " + ", ".join(missing),
+                file=sys.stderr,
+                flush=True,
+            )
+            return 2
+        archive_output_dir = (
+            Path(args.archive_output_dir).resolve()
+            if args.archive_output_dir
+            else Path(status_run_dir).resolve() / "formal_archive_closure_from_full_chain"
+        )
+        archive = build_v1_5_formal_archive_closure(
+            run_dir=status_run_dir,
+            plan_json=args.archive_plan_json,
+            pressure_reference_json=pressure_reference_json,
+            output_dir=archive_output_dir,
+            pressure_check_csv=args.archive_pressure_check_csv,
+            component=args.archive_component,
+            analyzer_prefix=args.archive_analyzer_prefix,
+            today=args.archive_today,
+            allow_pressure_fallback=bool(args.archive_allow_pressure_fallback),
+            report_no=args.archive_report_no or str(args.run_id or ""),
+            reviewer=args.reviewer,
+            approver=args.approver,
+            location=args.archive_location,
+            calibration_date=args.archive_calibration_date,
+            uncertainty_json=args.archive_uncertainty_json,
+            db_mode=args.archive_db_mode,
+            dsn=args.archive_dsn,
+            apply_db_migrations=bool(args.archive_apply_migrations),
+        )
+        archive_paths = archive["paths"]
+        outputs["archive_closure_index_json"] = archive_paths["archive_index_json"]
+        outputs["archive_closure_index_markdown"] = archive_paths["archive_index_markdown"]
+        outputs["archive_closure_evidence_bundle"] = archive_paths["evidence_bundle"]
+        outputs["archive_closure_traceability_summary"] = archive_paths["traceability_summary"]
+        outputs["archive_closure_database_summary"] = archive_paths["database_import_summary"]
+        evidence_status = build_v1_5_run_evidence_status(
+            run_dir=status_run_dir,
+            full_flow_plan_json=outputs.get("plan_json"),
+            contract_json=outputs.get("contract_json"),
+            evidence_bundle_json=archive_paths["evidence_bundle"],
+        )
+        status_json.write_text(json.dumps(evidence_status, ensure_ascii=False, indent=2), encoding="utf-8")
+        status_md.write_text(render_v1_5_run_evidence_status_markdown(evidence_status), encoding="utf-8")
+        outputs["run_evidence_status_refreshed_after_archive_closure"] = status_json
+        outputs["run_evidence_status_evidence_bundle_json"] = archive_paths["evidence_bundle"]
+    if args.post_run_coefficient_executor:
+        executor_run_dir = Path(args.reviewed_run_dir).resolve() if args.reviewed_run_dir else Path(args.output_dir).resolve()
+        executor_output_dir = (
+            Path(args.post_run_executor_output_dir).resolve()
+            if args.post_run_executor_output_dir
+            else Path(args.output_dir).resolve() / "post_run_coefficient_executor"
+        )
+        executor_model = build_post_run_coefficient_executor_model(
+            run_dir=executor_run_dir,
+            plan_json=args.archive_plan_json or outputs.get("plan_json"),
+            pressure_reference_json=args.archive_pressure_reference_json
+            or args.pressure_reference_json
+            or None,
+            run_evidence_status_json=status_json,
+            archive_closure_json=outputs.get("archive_closure_index_json"),
+        )
+        executor_paths = write_post_run_coefficient_executor_outputs(executor_model, executor_output_dir)
+        outputs["post_run_coefficient_executor_manifest"] = executor_paths["manifest"]
+        outputs["post_run_coefficient_executor_summary"] = executor_paths["summary"]
+        outputs["post_run_coefficient_executor_stages"] = executor_paths["stages"]
+        outputs["post_run_coefficient_executor_devices"] = executor_paths["devices"]
+        outputs["post_run_coefficient_executor_execution_plan"] = executor_paths["execution_plan"]
+        outputs["post_run_coefficient_executor_controlled_write_package"] = executor_paths["controlled_write_package"]
+        outputs["post_run_coefficient_executor_post_write_reverification_plan"] = executor_paths[
+            "post_write_reverification_plan"
+        ]
+        outputs["post_run_coefficient_executor_archive_gap_list"] = executor_paths["archive_gap_list"]
+    closure_model = None
+    if args.full_flow_closure_readiness:
+        closure_output_dir = (
+            Path(args.full_flow_closure_readiness_output_dir).resolve()
+            if args.full_flow_closure_readiness_output_dir
+            else Path(args.output_dir).resolve() / "full_flow_closure_readiness"
+        )
+        closure_model = build_v1_5_full_flow_closure_readiness(
+            run_dir=Path(args.output_dir).resolve(),
+            full_flow_plan_json=outputs.get("plan_json"),
+            run_evidence_status_json=status_json,
+            post_run_executor_json=outputs.get("post_run_coefficient_executor_manifest"),
+            archive_closure_json=outputs.get("archive_closure_index_json"),
+            controlled_write_package_csv=outputs.get("post_run_coefficient_executor_controlled_write_package"),
+            post_write_reverification_plan_csv=outputs.get(
+                "post_run_coefficient_executor_post_write_reverification_plan"
+            ),
+            archive_gap_list_csv=outputs.get("post_run_coefficient_executor_archive_gap_list"),
+        )
+        closure_paths = write_v1_5_full_flow_closure_readiness_outputs(closure_model, closure_output_dir)
+        outputs["full_flow_closure_readiness_json"] = closure_paths["readiness_json"]
+        outputs["full_flow_closure_readiness_markdown"] = closure_paths["readiness_markdown"]
+        outputs["full_flow_closure_readiness_gaps"] = closure_paths["gaps"]
+        outputs["full_flow_closure_readiness_devices"] = closure_paths["devices"]
     print(json.dumps({key: str(Path(value).resolve()) for key, value in outputs.items()}, ensure_ascii=False, indent=2))
+    if args.fail_on_contract_blocked and contract_status == "blocked":
+        return 2
+    if args.post_run_coefficient_executor and args.post_run_executor_fail_on_blocked:
+        if executor_model.get("overall_status") == "blocked":
+            return 2
+    if args.full_flow_closure_readiness and args.full_flow_closure_readiness_fail_on_blocked:
+        if closure_model and closure_model.get("overall_status") == "blocked":
+            return 2
     return 0
 
 

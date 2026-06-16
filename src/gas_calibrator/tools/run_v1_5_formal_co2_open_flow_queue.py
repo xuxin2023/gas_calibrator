@@ -21,6 +21,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from ..config import load_config
 from ..logging_utils import RunLogger
+from ..validation.v1_5_open_flow_purge_contract import resolve_v1_5_open_flow_purge
 from ..workflow.runner import CalibrationRunner
 from .run_headless import _build_devices, _close_devices
 from .run_v1_5_formal_open_flow_sampling import (
@@ -87,7 +88,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     ftd_group = parser.add_mutually_exclusive_group()
     ftd_group.add_argument("--allow-ftd-write", dest="allow_ftd_write", action="store_true", default=True)
     ftd_group.add_argument("--no-ftd-write", dest="allow_ftd_write", action="store_false")
-    parser.add_argument("--min-valid-analyzers", type=int, default=1)
+    parser.add_argument(
+        "--min-valid-analyzers",
+        type=int,
+        default=None,
+        help=(
+            "Minimum analyzers that must pass the point-level ratio gate. "
+            "When omitted, the formal queue uses per-analyzer evidence mode with "
+            "min_valid=1 so one invalid analyzer cannot block valid analyzers."
+        ),
+    )
     parser.add_argument(
         "--analyzer-gate-required-labels",
         default="",
@@ -102,6 +112,48 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         choices=("reject", "warn", "pass"),
         default=None,
         help="Forwarded to the single-point CO2 sidecar; default formal behavior is reject.",
+    )
+    dewpoint_gate = parser.add_mutually_exclusive_group()
+    dewpoint_gate.add_argument(
+        "--gas-route-dewpoint-gate-enabled",
+        dest="gas_route_dewpoint_gate_enabled",
+        action="store_true",
+        default=True,
+        help="Require dry/stable open-flow dewpoint evidence before each formal CO2 sample window.",
+    )
+    dewpoint_gate.add_argument(
+        "--no-gas-route-dewpoint-gate",
+        dest="gas_route_dewpoint_gate_enabled",
+        action="store_false",
+        help="Disable the formal CO2 route dewpoint gate for engineering recovery only.",
+    )
+    parser.add_argument(
+        "--gas-route-dewpoint-gate-policy",
+        choices=("reject", "warn", "pass"),
+        default="reject",
+    )
+    dry_gate = parser.add_mutually_exclusive_group()
+    dry_gate.add_argument(
+        "--gas-route-dewpoint-require-dry-enough",
+        dest="gas_route_dewpoint_require_dry_enough",
+        action="store_true",
+        default=True,
+        help="Require the route dewpoint to be below --gas-route-dewpoint-dry-enough-c.",
+    )
+    dry_gate.add_argument(
+        "--no-gas-route-dewpoint-require-dry-enough",
+        dest="gas_route_dewpoint_require_dry_enough",
+        action="store_false",
+        help="Use dewpoint tail stability only; records the disabled dry-enough gate in evidence.",
+    )
+    parser.add_argument("--gas-route-dewpoint-dry-enough-c", type=float, default=-25.0)
+    parser.add_argument("--gas-route-dewpoint-gate-max-total-wait-s", type=float, default=1200.0)
+    parser.add_argument("--gas-route-dewpoint-gate-window-s", type=float, default=60.0)
+    parser.add_argument("--gas-route-dewpoint-gate-tail-span-max-c", type=float, default=0.45)
+    parser.add_argument(
+        "--gas-route-dewpoint-gate-tail-slope-abs-max-c-per-s",
+        type=float,
+        default=0.005,
     )
     parser.add_argument(
         "--control-temperature",
@@ -201,6 +253,34 @@ def _load_queue_rows(path: str | Path) -> List[Dict[str, Any]]:
                 }
             )
     return rows
+
+
+def _configured_enabled_analyzer_count(cfg: Mapping[str, Any]) -> int:
+    devices_cfg = cfg.get("devices", {}) if isinstance(cfg.get("devices"), Mapping) else {}
+    analyzers = devices_cfg.get("gas_analyzers")
+    if isinstance(analyzers, Sequence) and not isinstance(analyzers, (str, bytes)):
+        count = 0
+        for item in analyzers:
+            if not isinstance(item, Mapping):
+                continue
+            if item.get("enabled") is False:
+                continue
+            count += 1
+        return count
+    gas_analyzer = devices_cfg.get("gas_analyzer")
+    if isinstance(gas_analyzer, Mapping):
+        return 0 if gas_analyzer.get("enabled") is False else 1
+    return 1
+
+
+def _resolve_formal_min_valid_analyzers(
+    cfg: Mapping[str, Any],
+    explicit_min_valid: Optional[int],
+) -> int:
+    configured_count = max(1, _configured_enabled_analyzer_count(cfg))
+    if explicit_min_valid is None:
+        return 1
+    return min(max(1, int(explicit_min_valid)), configured_count)
 
 
 def _select_queue_rows(
@@ -351,6 +431,7 @@ def _settle_temperature_group(
         analyzer_window_s=args.temperature_analyzer_window_s,
         analyzer_timeout_s=args.temperature_analyzer_timeout_s,
     )
+    output_dir.mkdir(parents=True, exist_ok=True)
     logger = RunLogger(output_dir, run_id=run_id, cfg=runtime_cfg)
     snapshot_path = logger.run_dir / "temperature_settle_runtime_config_snapshot.json"
     snapshot_path.write_text(
@@ -426,9 +507,15 @@ def _build_point_command(
     run_id: str,
     args: argparse.Namespace,
 ) -> List[str]:
-    purge_s = float(args.purge_s if args.purge_s is not None else row.get("purge_s") or 360.0)
+    purge_resolution = resolve_v1_5_open_flow_purge(
+        component="co2",
+        row=row,
+        explicit_purge_s=args.purge_s,
+    )
+    purge_s = purge_resolution.purge_s
     sample_count = int(args.sample_count if args.sample_count is not None else row.get("sample_count") or 10)
     acquisition = str(row.get("analyzer_acquisition") or args.analyzer_acquisition or "active_stream_1hz")
+    min_valid_analyzers = 1 if args.min_valid_analyzers is None else int(args.min_valid_analyzers)
     cmd = [
         sys.executable,
         "-m",
@@ -447,6 +534,8 @@ def _build_point_command(
         str(row.get("co2_group") or "A"),
         "--purge-s",
         _format_value(purge_s),
+        "--minimum-purge-s",
+        _format_value(purge_resolution.minimum_purge_s),
         "--sample-count",
         str(sample_count),
         "--sample-interval-s",
@@ -456,7 +545,7 @@ def _build_point_command(
         "--analyzer-acquisition",
         acquisition,
         "--min-valid-analyzers",
-        str(int(args.min_valid_analyzers)),
+        str(min_valid_analyzers),
         "--no-prompt",
     ]
     if not args.allow_ftd_write:
@@ -477,6 +566,35 @@ def _build_point_command(
         cmd.extend(["--co2-ratio-f-preseal-min-samples", str(int(args.co2_ratio_f_preseal_min_samples))])
     if args.co2_ratio_f_preseal_policy is not None:
         cmd.extend(["--co2-ratio-f-preseal-policy", str(args.co2_ratio_f_preseal_policy)])
+    if bool(args.gas_route_dewpoint_gate_enabled):
+        cmd.append("--gas-route-dewpoint-gate-enabled")
+    else:
+        cmd.append("--no-gas-route-dewpoint-gate")
+    cmd.extend(["--gas-route-dewpoint-gate-policy", str(args.gas_route_dewpoint_gate_policy)])
+    if bool(args.gas_route_dewpoint_require_dry_enough):
+        cmd.append("--gas-route-dewpoint-require-dry-enough")
+    else:
+        cmd.append("--no-gas-route-dewpoint-require-dry-enough")
+    cmd.extend(["--gas-route-dewpoint-dry-enough-c", _format_value(args.gas_route_dewpoint_dry_enough_c)])
+    cmd.extend(
+        [
+            "--gas-route-dewpoint-gate-max-total-wait-s",
+            _format_value(args.gas_route_dewpoint_gate_max_total_wait_s),
+        ]
+    )
+    cmd.extend(["--gas-route-dewpoint-gate-window-s", _format_value(args.gas_route_dewpoint_gate_window_s)])
+    cmd.extend(
+        [
+            "--gas-route-dewpoint-gate-tail-span-max-c",
+            _format_value(args.gas_route_dewpoint_gate_tail_span_max_c),
+        ]
+    )
+    cmd.extend(
+        [
+            "--gas-route-dewpoint-gate-tail-slope-abs-max-c-per-s",
+            _format_value(args.gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s),
+        ]
+    )
     certificate_co2_ppm = _safe_float(
         row.get("certificate_co2_ppm")
         or row.get("standard_gas_certificate_value_ppm")
@@ -517,6 +635,11 @@ def _point_run_id(*, index: int, temp_c: float, ppm: float, role: Any) -> str:
     return f"p{int(index):03d}_T{temp_token}_{ppm_token}ppm_{role_token}"
 
 
+def _temperature_settle_run_id(temp_c: float) -> str:
+    temp_token = _format_value(temp_c).replace("-", "m").replace(".", "p")
+    return f"T{temp_token}_temp_settle"
+
+
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
     if not args.no_prompt:
@@ -541,6 +664,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     )
     groups = _ordered_temperature_groups(selected, order=args.temperature_order)
     cfg = load_config(cfg_path)
+    args.min_valid_analyzers = _resolve_formal_min_valid_analyzers(cfg, args.min_valid_analyzers)
 
     manifest_rows: List[Dict[str, Any]] = []
     queue_summary = {
@@ -559,6 +683,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         "sealed_pressure_control": False,
         "writes_senco": False,
         "writes_device_id": False,
+        "min_valid_analyzers": int(args.min_valid_analyzers),
+        "gas_route_dewpoint_gate_enabled": bool(args.gas_route_dewpoint_gate_enabled),
+        "gas_route_dewpoint_gate_policy": args.gas_route_dewpoint_gate_policy,
+        "gas_route_dewpoint_require_dry_enough": bool(args.gas_route_dewpoint_require_dry_enough),
+        "gas_route_dewpoint_dry_enough_c": float(args.gas_route_dewpoint_dry_enough_c),
+        "gas_route_dewpoint_gate_max_total_wait_s": float(args.gas_route_dewpoint_gate_max_total_wait_s),
         "n2_prepurge_s": max(0.0, float(args.n2_prepurge_s or 0.0)),
         "n2_purge_source_valve": (
             None if args.n2_purge_source_valve is None else int(args.n2_purge_source_valve)
@@ -567,7 +697,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "CO2 standards are sampled in open flow after each temperature group is settled. "
             "Pressure is recorded as an input quantity and sealed pressure points are excluded "
             "from formal CO2 fitting. Optional nitrogen pre-purge uses the same open-flow path "
-            "to remove humidity-route residue and dead-volume gas before CO2 evidence is taken."
+            "to remove humidity-route residue and dead-volume gas before CO2 evidence is taken. "
+            "Analyzer ratio gates are per-device evidence gates by default: an invalid analyzer "
+            "is downgraded in QC instead of blocking valid analyzers in the same gas state."
         ),
     }
     (queue_dir / "queue_summary.json").write_text(
@@ -583,8 +715,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     hard_failure = False
     point_index = 0
     for temp_c, rows in groups:
-        temp_token = _format_value(temp_c).replace("-", "m")
-        settle_run_id = f"{queue_run_id}_T{temp_token}_temperature_settle"
+        settle_run_id = _temperature_settle_run_id(float(temp_c))
         if args.control_temperature:
             _log(f"Temperature group {temp_c:g}C: settle chamber before {len(rows)} CO2 points")
             if args.dry_run:
@@ -605,6 +736,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         for row in rows:
             point_index += 1
             ppm = float(row["source_nominal_ppm"])
+            purge_resolution = resolve_v1_5_open_flow_purge(
+                component="co2",
+                row=row,
+                explicit_purge_s=args.purge_s,
+            )
             point_run_id = _point_run_id(
                 index=point_index,
                 temp_c=float(temp_c),
@@ -632,12 +768,20 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "status": "dry_run" if args.dry_run else "running",
                 "point_log": str(point_log_path),
                 "command": " ".join(cmd),
+                "resolved_purge_s": purge_resolution.purge_s,
+                "minimum_purge_s": purge_resolution.minimum_purge_s,
+                "purge_profile": purge_resolution.profile,
+                "purge_explicit_override": purge_resolution.explicit_override,
+                "purge_reasons": ";".join(purge_resolution.reasons),
                 "n2_prepurge_s": max(0.0, float(args.n2_prepurge_s or 0.0)),
                 "n2_purge_source_valve": (
                     None
                     if args.n2_purge_source_valve is None
                     else int(args.n2_purge_source_valve)
                 ),
+                "min_valid_analyzers": int(args.min_valid_analyzers),
+                "gas_route_dewpoint_gate_enabled": bool(args.gas_route_dewpoint_gate_enabled),
+                "gas_route_dewpoint_dry_enough_c": float(args.gas_route_dewpoint_dry_enough_c),
             }
             manifest_rows.append(manifest_row)
             _write_manifest_csv(queue_dir / "queue_manifest.csv", manifest_rows)

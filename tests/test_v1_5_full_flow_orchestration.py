@@ -3,6 +3,7 @@ import sys
 from dataclasses import replace
 
 from gas_calibrator.tools.run_v1_5_full_calibration_chain import main as cli_main
+from gas_calibrator.validation.v1_5_canonical_evidence import write_canonical_v1_5_evidence_package
 from gas_calibrator.v1_5.orchestration.full_flow import (
     build_full_flow_plan,
     build_full_flow_state,
@@ -11,6 +12,11 @@ from gas_calibrator.v1_5.orchestration.full_flow import (
     write_full_flow_state,
     write_full_flow_supervised_run,
 )
+
+
+def _flag_value(command, flag):
+    values = [str(part) for part in command]
+    return values[values.index(flag) + 1]
 
 
 def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_path):
@@ -25,15 +31,36 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     )
 
     step_ids = [step.step_id for step in plan.steps]
+    assert step_ids.index("device_identity_and_getco_snapshot") < step_ids.index(
+        "auxiliary_senco56789_neutralization_gate"
+    )
+    assert step_ids.index("auxiliary_senco56789_neutralization_gate") < step_ids.index("pressure_quick_check")
     assert step_ids.index("pressure_quick_check") < step_ids.index("co2_open_flow_sampling")
     assert step_ids.index("pressure_quick_check") < step_ids.index("h2o_open_flow_sampling")
+    assert step_ids.index("pressure_quick_check") < step_ids.index("pressure_senco9_no_write_acquisition")
+    assert step_ids.index("pressure_senco9_no_write_acquisition") < step_ids.index("pressure_senco9_no_write_review")
+    assert step_ids.index("pressure_senco9_no_write_review") < step_ids.index("temperature_channel_fast_review")
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index("co2_open_flow_sampling")
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index("h2o_open_flow_sampling")
+    assert step_ids.index("co2_open_flow_sampling") < step_ids.index("factory_signal_health_review")
+    assert step_ids.index("h2o_open_flow_sampling") < step_ids.index("factory_signal_health_review")
+    assert step_ids.index("factory_signal_health_review") < step_ids.index("fit_input_quality_review")
+    assert step_ids.index("fit_input_quality_review") < step_ids.index("post_run_coefficient_executor")
+    assert step_ids.index("h2o_open_flow_sampling") < step_ids.index("post_run_coefficient_executor")
+    assert step_ids.index("post_run_coefficient_executor") < step_ids.index("full_flow_closure_readiness")
+    assert step_ids.index("full_flow_closure_readiness") < step_ids.index("co2_candidate_write_review")
+    assert step_ids.index("post_run_coefficient_executor") < step_ids.index("co2_candidate_write_review")
+    assert step_ids.index("factory_signal_health_review") < step_ids.index("co2_candidate_write_review")
     assert step_ids.index("controlled_component_write_placeholder") < step_ids.index(
         "post_write_reverification_placeholder"
     )
     assert step_ids.index("post_write_reverification_placeholder") < step_ids.index("formal_evidence_sidecar")
-    assert plan.coefficient_epoch_contract["do_not_clear_existing_coefficients_on_startup"] is True
+    assert step_ids.index("zh_calibration_reports") < step_ids.index("final_evidence_status_refresh")
+    assert plan.coefficient_epoch_contract["do_not_clear_existing_coefficients_on_startup"] is False
+    assert (
+        plan.coefficient_epoch_contract["clear_or_neutralize_auxiliary_groups_after_epoch0_snapshot"]
+        == "SENCO5,SENCO6,SENCO7,SENCO8,SENCO9"
+    )
     assert plan.coefficient_epoch_contract["identity_key"] == "analyzer_device_id_not_com_port_or_ga_alias"
 
 
@@ -62,9 +89,12 @@ def test_full_flow_plan_uses_v1_5_validated_entries_and_blocks_auto_writes(tmp_p
     assert not any(".v2" in (step.tool_module or "").lower() for step in plan.steps)
 
     write_steps = [step for step in plan.steps if step.writes_coefficients]
-    assert [step.step_id for step in write_steps] == ["controlled_component_write_placeholder"]
-    assert write_steps[0].execution_mode == "blocked_pending_explicit_authorization"
-    assert write_steps[0].command == ()
+    assert [step.step_id for step in write_steps] == [
+        "auxiliary_senco56789_neutralization_gate",
+        "controlled_component_write_placeholder",
+    ]
+    assert all(step.execution_mode == "blocked_pending_explicit_authorization" for step in write_steps)
+    assert all(step.command == () for step in write_steps)
 
 
 def test_full_flow_plan_freezes_getco_1_to_9_before_sampling(tmp_path):
@@ -91,6 +121,118 @@ def test_full_flow_plan_freezes_getco_1_to_9_before_sampling(tmp_path):
     assert "--allow-quiet-setcomway" not in command
     assert getco.coefficient_epoch_event == "start_epoch_0"
     assert "runtime_identity_bound_config.json" in getco.expected_outputs
+    aux = next(step for step in plan.steps if step.step_id == "auxiliary_senco56789_neutralization_gate")
+    assert aux.opens_com_ports is True
+    assert aux.writes_coefficients is True
+    assert aux.command == ()
+    assert aux.coefficient_epoch_event == "start_epoch_auxiliary_neutralized_after_epoch_0"
+    assert "run_v1_5_temperature_senco78_neutral_controlled_write" in " ".join(aux.notes)
+
+
+def test_full_flow_plan_preserves_validated_co2_h2o_route_contracts(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(config_path=config, output_dir=tmp_path / "plan", run_id="demo")
+
+    co2 = next(item for item in plan.steps if item.step_id == "co2_open_flow_sampling")
+    h2o = next(item for item in plan.steps if item.step_id == "h2o_open_flow_sampling")
+    co2_command = list(co2.command)
+    h2o_command = list(h2o.command)
+
+    assert _flag_value(co2_command, "--temperature-order") == "desc"
+    assert _flag_value(h2o_command, "--temperature-order") == "asc"
+    assert _flag_value(co2_command, "--analyzer-acquisition") == "active_stream_1hz"
+    assert _flag_value(h2o_command, "--analyzer-acquisition") == "active_stream_1hz"
+    assert _flag_value(h2o_command, "--h2o-pressure-presample-policy") == "skip"
+    assert "--skip-stability-gate" not in co2_command
+    assert "--co2-ratio-f-preseal-policy" not in co2_command
+    assert "--skip-dewpoint-gate" not in h2o_command
+    assert "--skip-humidity-generator-gate" not in h2o_command
+    assert "--pressure-diagnostic-only" not in h2o_command
+    assert "--no-control-temperature" not in co2_command
+    assert "--no-control-temperature" not in h2o_command
+
+
+def test_full_flow_plan_requires_factory_signal_health_before_fit_review(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(config_path=config, output_dir=tmp_path / "plan", run_id="demo")
+
+    step = next(item for item in plan.steps if item.step_id == "factory_signal_health_review")
+    command = list(step.command)
+
+    assert step.tool_module == "gas_calibrator.tools.export_v1_5_factory_signal_health_review"
+    assert step.execution_mode == "offline_review"
+    assert step.gate == "required_before_component_write_review"
+    assert _flag_value(command, "--point-means-csv") == "<offline_fit_point_means.csv>"
+    assert _flag_value(command, "--residuals-csv") == "<candidate_fit_residuals.csv>"
+    assert "factory_signal_health_summary.csv" in step.expected_outputs
+    assert "pass_factory_signal_health" in " ".join(step.notes)
+    assert "SETILLUM no-argument readback is not treated as numeric evidence" in " ".join(step.notes)
+
+    fit_review = next(item for item in plan.steps if item.step_id == "fit_input_quality_review")
+    assert fit_review.gate == "requires_factory_signal_health_review"
+
+
+def test_full_flow_plan_adds_no_write_post_run_coefficient_executor(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(
+        config_path=config,
+        output_dir=tmp_path / "plan",
+        run_id="demo",
+        reviewed_run_dir=tmp_path / "reviewed_run",
+    )
+
+    step = next(item for item in plan.steps if item.step_id == "post_run_coefficient_executor")
+    command = list(step.command)
+
+    assert step.tool_module == "gas_calibrator.tools.export_v1_5_post_run_coefficient_executor"
+    assert step.execution_mode == "offline_review"
+    assert step.gate == "required_after_component_acquisition_before_controlled_write"
+    assert step.opens_com_ports is False
+    assert step.controls_gas_route is False
+    assert step.controls_water_route is False
+    assert step.writes_coefficients is False
+    assert _flag_value(command, "--run-dir") == str((tmp_path / "reviewed_run").resolve())
+    assert _flag_value(command, "--output-dir") == str(
+        (tmp_path / "plan" / "post_run_coefficient_executor").resolve()
+    )
+    assert "post_run_coefficient_executor/executor_manifest.json" in step.expected_outputs
+    assert "post_run_coefficient_executor/device_eligibility.csv" in step.expected_outputs
+    assert "post_run_coefficient_executor/controlled_write_package.csv" in step.expected_outputs
+    assert "post_run_coefficient_executor/post_write_reverification_plan.csv" in step.expected_outputs
+    assert "post_run_coefficient_executor/archive_gap_list.csv" in step.expected_outputs
+    assert "Missing H2O post-write reverification blocks final acceptance" in " ".join(step.notes)
+
+
+def test_full_flow_plan_adds_offline_closure_readiness_gate(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(
+        config_path=config,
+        output_dir=tmp_path / "plan",
+        run_id="demo",
+        reviewed_run_dir=tmp_path / "reviewed_run",
+    )
+
+    step = next(item for item in plan.steps if item.step_id == "full_flow_closure_readiness")
+    command = list(step.command)
+
+    assert step.tool_module == "gas_calibrator.tools.export_v1_5_full_flow_closure_readiness"
+    assert step.execution_mode == "offline_review"
+    assert step.gate == "required_before_controlled_write_review"
+    assert step.opens_com_ports is False
+    assert step.controls_gas_route is False
+    assert step.controls_water_route is False
+    assert step.writes_coefficients is False
+    assert _flag_value(command, "--run-dir") == str((tmp_path / "plan").resolve())
+    assert _flag_value(command, "--output-dir") == str(
+        (tmp_path / "plan" / "full_flow_closure_readiness").resolve()
+    )
+    assert "full_flow_closure_readiness/v1_5_full_flow_closure_readiness.json" in step.expected_outputs
+    assert "full_flow_closure_readiness/v1_5_full_flow_device_closure.csv" in step.expected_outputs
+    assert "Fit/verification labels do not exclude" in " ".join(step.notes)
 
 
 def test_full_flow_physical_stages_use_runtime_bound_config_after_identity_snapshot(tmp_path):
@@ -99,10 +241,39 @@ def test_full_flow_physical_stages_use_runtime_bound_config_after_identity_snaps
     plan = build_full_flow_plan(config_path=config, output_dir=tmp_path / "plan", run_id="demo")
 
     runtime_bound = str(tmp_path / "plan" / "coefficient_epoch_0_getco_snapshot" / "runtime_identity_bound_config.json")
-    for step_id in ("pressure_quick_check", "co2_open_flow_sampling", "h2o_open_flow_sampling"):
+    for step_id in (
+        "pressure_quick_check",
+        "pressure_senco9_no_write_acquisition",
+        "co2_open_flow_sampling",
+        "h2o_open_flow_sampling",
+    ):
         step = next(item for item in plan.steps if item.step_id == step_id)
         command = list(step.command)
         assert command[command.index("--config") + 1] == runtime_bound
+
+
+def test_full_flow_pressure_senco9_acquisition_uses_full_v1_5_transition_contract(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(config_path=config, output_dir=tmp_path / "plan", run_id="demo")
+
+    step = next(item for item in plan.steps if item.step_id == "pressure_senco9_no_write_acquisition")
+    command = list(step.command)
+
+    assert step.tool_module == "gas_calibrator.tools.validate_pressure_only"
+    assert step.opens_com_ports is True
+    assert step.controls_pressure is True
+    assert step.writes_coefficients is False
+    assert command[command.index("--pressure-points") + 1] == "1100,1000,900,800,700,600,500"
+    assert "--control-pressure-points" in command
+    assert "--continuous-atmosphere-hold" in command
+    assert "--require-continuous-atmosphere-hold" in command
+    assert command[command.index("--pressure-control-slew-mode") + 1] == "max"
+    assert "--pressure-control-slew-hpa-per-s" not in command
+    assert command[command.index("--pressure-control-atmosphere-release-wait-s") + 1] == "1.5"
+    assert command[command.index("--pressure-control-post-stable-wait-s") + 1] == "8.0"
+    assert "pressure_transition_trace.csv" in step.expected_outputs
+    assert "dynamic_pressure_diagnostic" not in " ".join(command).lower()
 
 
 def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
@@ -117,10 +288,21 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert plan_json.exists()
     assert (out / "v1_5_full_flow_plan.md").exists()
     assert (out / "v1_5_full_flow_commands.ps1").exists()
+    assert (out / "v1_5_formal_flow_contract.json").exists()
+    assert (out / "v1_5_formal_flow_contract.md").exists()
+    assert (out / "v1_5_run_evidence_status.json").exists()
+    assert (out / "v1_5_run_evidence_status.md").exists()
     payload = json.loads(plan_json.read_text(encoding="utf-8"))
     assert payload["schema"] == "v1_5_full_calibration_flow_plan_v0"
     assert payload["dry_run_only"] is True
     assert payload["safety_contract"]["does_not_modify_run_app"] is True
+    contract = json.loads((out / "v1_5_formal_flow_contract.json").read_text(encoding="utf-8"))
+    assert contract["status"] == "pass"
+    assert contract["physical_boundaries"]["not_real_acceptance_evidence"] is True
+    evidence_status = json.loads((out / "v1_5_run_evidence_status.json").read_text(encoding="utf-8"))
+    assert evidence_status["physical_boundaries"]["opens_com_ports"] is False
+    assert evidence_status["physical_boundaries"]["writes_coefficients"] is False
+    assert evidence_status["contract_status"] == "pass"
     assert (out / "v1_5_full_flow_state.json").exists()
     assert (out / "v1_5_full_flow_state.md").exists()
 
@@ -133,6 +315,7 @@ def test_write_full_flow_plan_contains_physical_contract(tmp_path):
 
     text = outputs["markdown"].read_text(encoding="utf-8")
     assert "Existing internal coefficients affect displayed CO2/H2O" in text
+    assert "SENCO5/SENCO6 are final CO2/H2O displayed-concentration affine trims" in text
     assert "CO2 fitting uses factory ratio evidence" in text
     assert "H2O fitting must use dewpoint/reference-backed water evidence" in text
     assert "updated model must be checked against independent open-flow verification points" in text
@@ -158,6 +341,11 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     command = list(report_step.command)
     assert "--reviewer" not in command
     assert "--approver" not in command
+    assert "per_device_certificate_manifest.json" in report_step.expected_outputs
+    assert "per_device_certificate_artifact_hashes.csv" in report_step.expected_outputs
+    refresh_step = next(step for step in plan.steps if step.step_id == "final_evidence_status_refresh")
+    assert refresh_step.tool_module == "gas_calibrator.tools.export_v1_5_run_evidence_status"
+    assert str(refresh_step.command[refresh_step.command.index("--run-dir") + 1]).endswith("plan")
 
 
 def test_initial_state_only_allows_first_offline_stage(tmp_path):
@@ -211,7 +399,9 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
         completed_steps=[
             "load_plan_and_traceability",
             "device_identity_and_getco_snapshot",
+            "auxiliary_senco56789_neutralization_gate",
             "pressure_quick_check",
+            "pressure_senco9_no_write_acquisition",
             "pressure_senco9_no_write_review",
             "temperature_channel_fast_review",
         ],
@@ -352,6 +542,7 @@ def test_supervised_run_refuses_hazard_stage_even_when_state_authorized(tmp_path
     result = run_supervised_full_flow(
         plan,
         completed_steps=["load_plan_and_traceability", "device_identity_and_getco_snapshot"],
+        failed_steps=[],
         allow_real_com=True,
         allow_pressure_control=True,
         execute_commands=True,
@@ -359,9 +550,9 @@ def test_supervised_run_refuses_hazard_stage_even_when_state_authorized(tmp_path
         output_dir=tmp_path / "exec",
     )
 
-    assert result.events[0].step_id == "pressure_quick_check"
-    assert result.events[0].status == "blocked_non_offline_stage"
-    assert result.final_state.current_step_id == "pressure_quick_check"
+    assert result.events[0].step_id == "auxiliary_senco56789_neutralization_gate"
+    assert result.events[0].status == "stopped"
+    assert result.final_state.current_step_id == "auxiliary_senco56789_neutralization_gate"
     assert result.final_state.completed_step_ids == (
         "load_plan_and_traceability",
         "device_identity_and_getco_snapshot",
@@ -395,8 +586,8 @@ def test_supervised_run_can_execute_read_only_com_stage_when_allowed(tmp_path):
 
     assert result.events[0].step_id == "device_identity_and_getco_snapshot"
     assert result.events[0].status == "completed"
-    assert result.final_state.current_step_id == "pressure_quick_check"
-    assert result.final_state.current_status == "blocked_pressure_authorization"
+    assert result.final_state.current_step_id == "auxiliary_senco56789_neutralization_gate"
+    assert result.final_state.current_status == "blocked_write_authorization"
     assert result.final_state.completed_step_ids == (
         "load_plan_and_traceability",
         "device_identity_and_getco_snapshot",
@@ -448,3 +639,131 @@ def test_full_flow_cli_can_write_supervised_planned_only_report(tmp_path):
     assert supervised_json.exists()
     payload = json.loads(supervised_json.read_text(encoding="utf-8"))
     assert payload["events"][0]["status"] == "planned_only"
+
+
+def test_full_flow_cli_can_generate_offline_archive_closure_for_reviewed_run(tmp_path):
+    canonical = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical",
+        include_reports=False,
+    )
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    out = tmp_path / "flow"
+    run_dir = canonical["root"] / "run"
+    archive_dir = run_dir / "formal_archive_from_full_chain"
+
+    rc = cli_main(
+        [
+            "--config",
+            str(config),
+            "--output-dir",
+            str(out),
+            "--run-id",
+            "archive-demo",
+            "--reviewed-run-dir",
+            str(run_dir),
+            "--pressure-reference-json",
+            str(canonical["pressure_reference"]),
+            "--archive-closure",
+            "--archive-plan-json",
+            str(canonical["plan"]),
+            "--archive-output-dir",
+            str(archive_dir),
+            "--archive-db-mode",
+            "dry-run",
+            "--archive-report-no",
+            "RPT-FULL-CHAIN-ARCHIVE",
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-a",
+            "--archive-location",
+            "lab-a",
+            "--archive-calibration-date",
+            "2026-05-24",
+        ]
+    )
+
+    assert rc == 0
+    archive_index_path = archive_dir / "v1_5_formal_archive_closure_index.json"
+    archive_bundle_path = archive_dir / "evidence_bundle.json"
+    archive_traceability_path = archive_dir / "traceability_summary.json"
+    archive_database_path = archive_dir / "database_import_summary.json"
+    assert archive_index_path.exists()
+    assert archive_bundle_path.exists()
+    assert archive_traceability_path.exists()
+    assert archive_database_path.exists()
+
+    archive_index = json.loads(archive_index_path.read_text(encoding="utf-8"))
+    assert archive_index["database"]["mode"] == "dry_run"
+    assert archive_index["database"]["database_imported"] is False
+    assert archive_index["physical_boundaries"]["opens_com_ports"] is False
+    assert archive_index["physical_boundaries"]["controls_water_or_gas_routes"] is False
+    assert archive_index["physical_boundaries"]["writes_coefficients"] is False
+    assert archive_index["traceability_checks"]["has_raw_samples"] is True
+    assert "formal_calibration_report_markdown" in archive_index["reports"]
+
+    bundle = json.loads(archive_bundle_path.read_text(encoding="utf-8"))
+    report_types = {row["report_type"] for row in bundle["tables"]["reports"]}
+    assert {"run_report", "technical_report", "formal_calibration_report", "report_model"}.issubset(
+        report_types
+    )
+    evidence_status = json.loads((out / "v1_5_run_evidence_status.json").read_text(encoding="utf-8"))
+    assert evidence_status["physical_boundaries"]["opens_com_ports"] is False
+    assert evidence_status["physical_boundaries"]["writes_coefficients"] is False
+    assert evidence_status["linked_inputs"]["evidence_bundle_json"] == str(archive_bundle_path.resolve())
+    stage_map = {stage["stage_id"]: stage for stage in evidence_status["stage_statuses"]}
+    assert stage_map["reports"]["status"] == "pass"
+    assert evidence_status["artifact_count"] > 0
+
+
+def test_full_flow_cli_can_generate_post_run_coefficient_executor_gap_list(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    run_dir = tmp_path / "reviewed_run"
+    run_dir.mkdir()
+    plan_json = run_dir / "formal_plan_snapshot.json"
+    plan_json.write_text(
+        json.dumps(
+            {"devices": {"gas_analyzers": [{"runtime_device_id": "077", "serial_port": "COM35"}]}},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    pressure_reference_json = run_dir / "pressure_reference.json"
+    pressure_reference_json.write_text(json.dumps({"device_id": "COM22"}), encoding="utf-8")
+    out = tmp_path / "flow"
+
+    rc = cli_main(
+        [
+            "--config",
+            str(config),
+            "--output-dir",
+            str(out),
+            "--run-id",
+            "executor-demo",
+            "--reviewed-run-dir",
+            str(run_dir),
+            "--archive-plan-json",
+            str(plan_json),
+            "--pressure-reference-json",
+            str(pressure_reference_json),
+            "--post-run-coefficient-executor",
+        ]
+    )
+
+    assert rc == 0
+    manifest_path = out / "post_run_coefficient_executor" / "executor_manifest.json"
+    summary_path = out / "post_run_coefficient_executor" / "executor_summary.md"
+    devices_path = out / "post_run_coefficient_executor" / "device_eligibility.csv"
+    assert manifest_path.exists()
+    assert summary_path.exists()
+    assert devices_path.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["overall_status"] == "blocked"
+    assert manifest["physical_boundaries"]["opens_com_ports"] is False
+    assert manifest["physical_boundaries"]["writes_coefficients"] is False
+    stages = {row["stage_id"]: row for row in manifest["stages"]}
+    assert stages["post_write_reverification"]["status"] == "not_attempted"
+    assert "V1.5 校准后系数闭环执行计划" in summary_path.read_text(encoding="utf-8-sig")

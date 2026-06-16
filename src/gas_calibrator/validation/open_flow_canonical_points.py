@@ -23,8 +23,8 @@ from ..data.points import CalibrationPoint, load_points_from_excel
 from .reporting import ValidationMetadata, write_validation_report
 
 
-DEFAULT_CO2_FIT_PPM = (0, 100, 300, 500, 700, 900)
-DEFAULT_CO2_VERIFICATION_PPM = (200, 400, 600, 800, 1000)
+DEFAULT_CO2_FIT_PPM = (0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000)
+DEFAULT_CO2_VERIFICATION_PPM: tuple[int, ...] = ()
 DEFAULT_PURGE_S = 360.0
 DEFAULT_SAMPLE_COUNT = 10
 PRESSURE_MODE = "ambient_open"
@@ -133,7 +133,9 @@ def _co2_sample_role(ppm: int, fit_ppm: set[int], verification_ppm: set[int]) ->
     if ppm in fit_ppm:
         return "fit"
     if ppm in verification_ppm:
-        return "verification"
+        # Formal V1.5 no longer reserves pre-write CO2 holdout points inside the
+        # main open-flow run. Real verification is a separate post-write run.
+        return "fit"
     return "diagnostic"
 
 
@@ -185,7 +187,7 @@ def _build_co2_canonical_rows(
                     "co2_group": _co2_group_for_ppm(ppm_value),
                     "sample_role": sample_role,
                     "fit_eligible": sample_role == "fit",
-                    "verification_eligible": sample_role == "verification",
+                    "verification_eligible": False,
                     "zero_gas_required": ppm_value == 0,
                     "standard_role": "zero_air" if ppm_value == 0 else "co2_standard_gas",
                     "certificate_required": True,
@@ -273,7 +275,7 @@ def _build_h2o_canonical_rows(
                 "runner_args": (
                     f"--temp {float(point.temp_chamber_c):g} --hgen-temp {hgen_temp:g} --hgen-rh {hgen_rh:g} "
                     f"--purge-s {float(purge_s):g} --sample-count {int(sample_count)} "
-                    "--analyzer-acquisition active_stream_1hz --h2o-pressure-presample-policy warn"
+                    "--analyzer-acquisition active_stream_1hz --h2o-pressure-presample-policy skip"
                 ),
                 "physical_meaning": (
                     "Open-flow H2O point: humidified gas continuously refreshes the chain and dewpoint is the "

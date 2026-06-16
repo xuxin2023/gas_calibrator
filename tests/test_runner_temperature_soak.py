@@ -204,6 +204,115 @@ def test_analyzer_chamber_temp_wait_emits_stage_events(monkeypatch, tmp_path: Pa
     assert any("分析仪腔温判稳" in row["response"] for row in rows)
 
 
+def test_analyzer_chamber_temp_wait_requires_each_active_analyzer(monkeypatch, tmp_path: Path) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    ga01 = _FakeAnalyzer()
+    ga02 = _FakeAnalyzer()
+    sequences = {
+        ga01: [24.000, 24.004, 24.006, 24.005, 24.004, 24.006, 24.005, 24.004],
+        ga02: [24.000, 24.060, 24.000, 24.060, 24.000, 24.060, 24.000, 24.060],
+    }
+    logs = []
+    logger = RunLogger(tmp_path)
+    try:
+        r = runner_mod.CalibrationRunner(
+            {
+                "workflow": {
+                    "stability": {
+                        "temperature": {
+                            "analyzer_chamber_temp_window_s": 0.5,
+                            "analyzer_chamber_temp_span_c": 0.02,
+                            "analyzer_chamber_temp_timeout_s": 3.0,
+                            "analyzer_chamber_temp_first_valid_timeout_s": 1.0,
+                            "analyzer_chamber_temp_poll_s": 0.1,
+                        }
+                    }
+                }
+            },
+            {},
+            logger,
+            logs.append,
+            lambda *_: None,
+        )
+        r._active_gas_analyzers = lambda: [("ga01", ga01, {}), ("ga02", ga02, {})]  # type: ignore[method-assign]
+        r._all_gas_analyzers = lambda: [("ga01", ga01, {}), ("ga02", ga02, {})]  # type: ignore[method-assign]
+
+        def read_sensor(ga, *_args, **_kwargs):
+            seq = sequences[ga]
+            value = seq.pop(0) if seq else 24.060
+            return "", {"chamber_temp_c": value}
+
+        r._read_sensor_parsed = read_sensor  # type: ignore[method-assign]
+
+        assert r._wait_analyzer_chamber_temp_stable(25.0) is False
+    finally:
+        logger.close()
+
+    assert any("analyzer chamber temp stable: ga01" in msg.lower() for msg in logs)
+    assert any("analyzer chamber temp not stable" in msg.lower() and "ga02" in msg for msg in logs)
+    assert any("stability timeout" in msg.lower() and "ga02" in msg for msg in logs)
+
+
+def test_analyzer_chamber_temp_wait_opens_windows_in_parallel(monkeypatch, tmp_path: Path) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    ga01 = _FakeAnalyzer()
+    ga02 = _FakeAnalyzer()
+    sequences = {
+        ga01: [24.000, 24.004, 24.006, 24.005, 24.004, 24.006, 24.005, 24.004],
+        ga02: [24.010, 24.014, 24.016, 24.015, 24.014, 24.016, 24.015, 24.014],
+    }
+    logs = []
+    logger = RunLogger(tmp_path)
+    try:
+        r = runner_mod.CalibrationRunner(
+            {
+                "workflow": {
+                    "stability": {
+                        "temperature": {
+                            "analyzer_chamber_temp_window_s": 0.5,
+                            "analyzer_chamber_temp_span_c": 0.02,
+                            "analyzer_chamber_temp_timeout_s": 3.0,
+                            "analyzer_chamber_temp_first_valid_timeout_s": 1.0,
+                            "analyzer_chamber_temp_poll_s": 0.1,
+                        }
+                    }
+                }
+            },
+            {},
+            logger,
+            logs.append,
+            lambda *_: None,
+        )
+        r._active_gas_analyzers = lambda: [("ga01", ga01, {}), ("ga02", ga02, {})]  # type: ignore[method-assign]
+        r._all_gas_analyzers = lambda: [("ga01", ga01, {}), ("ga02", ga02, {})]  # type: ignore[method-assign]
+
+        def read_sensor(ga, *_args, **_kwargs):
+            seq = sequences[ga]
+            value = seq.pop(0) if seq else 24.014
+            return "", {"chamber_temp_c": value}
+
+        r._read_sensor_parsed = read_sensor  # type: ignore[method-assign]
+
+        assert r._wait_analyzer_chamber_temp_stable(25.0) is True
+    finally:
+        logger.close()
+
+    selected_indices = [
+        idx for idx, msg in enumerate(logs) if "analyzer chamber-temp stability source selected" in msg.lower()
+    ]
+    stable_indices = [idx for idx, msg in enumerate(logs) if "analyzer chamber temp stable:" in msg.lower()]
+    assert len(selected_indices) == 2
+    assert len(stable_indices) == 2
+    assert max(selected_indices) < min(stable_indices)
+    assert any("stable for all active analyzers" in msg.lower() and "ga01,ga02" in msg for msg in logs)
+
+
 def test_temperature_reach_timeout_does_not_cut_off_soak_and_analyzer_wait(monkeypatch, tmp_path: Path) -> None:
     clock = _FakeClock()
     monkeypatch.setattr(runner_mod.time, "time", clock.time)
@@ -901,6 +1010,76 @@ def test_temperature_slow_heating_continues_waiting_while_progressing(monkeypatc
         logger.close()
 
     assert any("continue waiting" in msg.lower() for msg in logs)
+    assert not any("stalled before reaching target" in msg.lower() for msg in logs)
+
+
+def test_temperature_close_to_target_waits_through_slow_oscillation(monkeypatch, tmp_path: Path) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    chamber = _FakeChamber([9.4, 9.4, 9.4, 9.4, 10.0], run_state=1)
+    logs = []
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "tol": 0.2,
+                    "timeout_s": 0.5,
+                    "continue_wait_while_progress": True,
+                    "progress_window_s": 0.8,
+                    "progress_min_delta_c": 0.05,
+                    "near_target_continue_margin_c": 0.8,
+                    "hard_max_wait_s": 0.0,
+                    "soak_after_reach_s": 0.0,
+                    "analyzer_chamber_temp_enabled": False,
+                }
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    try:
+        r = runner_mod.CalibrationRunner(cfg, {"temp_chamber": chamber}, logger, logs.append, lambda *_: None)
+        assert r._set_temperature(10.0) is True
+    finally:
+        logger.close()
+
+    assert any("close to target" in msg.lower() for msg in logs)
+    assert not any("stalled before reaching target" in msg.lower() for msg in logs)
+
+
+def test_temperature_near_target_margin_defaults_to_one_degree(monkeypatch, tmp_path: Path) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    chamber = _FakeChamber([9.4, 9.4, 9.4, 9.4, 10.0], run_state=1)
+    logs = []
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "tol": 0.2,
+                    "timeout_s": 0.5,
+                    "continue_wait_while_progress": True,
+                    "progress_window_s": 0.8,
+                    "progress_min_delta_c": 0.05,
+                    "hard_max_wait_s": 0.0,
+                    "soak_after_reach_s": 0.0,
+                    "analyzer_chamber_temp_enabled": False,
+                }
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    try:
+        r = runner_mod.CalibrationRunner(cfg, {"temp_chamber": chamber}, logger, logs.append, lambda *_: None)
+        assert r._set_temperature(10.0) is True
+    finally:
+        logger.close()
+
+    assert any("near_target_continue_margin=1.00C" in msg for msg in logs)
+    assert any("close to target" in msg.lower() for msg in logs)
     assert not any("stalled before reaching target" in msg.lower() for msg in logs)
 
 

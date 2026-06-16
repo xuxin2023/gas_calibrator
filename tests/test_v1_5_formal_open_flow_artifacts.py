@@ -169,6 +169,9 @@ def test_sidecar_report_writes_qc_tables_without_runner_control_changes(tmp_path
     assert all(row["pressure_reference_traceability_status"] == "pass" for row in summary)
     assert all(row["analyzer_prefix"] == "ga01" for row in summary)
     assert all(row["analyzer_device_id"] == "001" for row in summary)
+    assert all(row["sample_readiness_status"] == "warn" for row in summary)
+    assert {row["point_calibratability_grade"] for row in summary} == {"A"}
+    assert all(row["time_optimization_action"] for row in summary)
     a_rows = _read_csv(outputs["a_grade_samples_csv"])
     assert len(a_rows) == 20
     assert {row["component"] for row in a_rows} == {"co2", "h2o"}
@@ -198,6 +201,14 @@ def test_sidecar_report_can_classify_all_detected_analyzers_independently(tmp_pa
     assert summary_by_prefix["ga04"]["candidate_fit_allowed"] is False
     assert summary_by_prefix["ga04"]["sampling_completion_status"] == "fail"
     assert "sampling_completion_not_passed" in summary_by_prefix["ga04"]["candidate_fit_blockers"]
+    assert len(tables["sample_readiness"]) == 4
+    assert len(tables["point_calibratability"]) == 4
+    assert summary_by_prefix["ga01"]["point_calibratability_grade"] == "A"
+    assert summary_by_prefix["ga04"]["point_calibratability_grade"] == "C"
+    assert (
+        summary_by_prefix["ga04"]["time_optimization_action"]
+        == "continue_physical_stability_wait_with_route_open"
+    )
     completion_by_prefix = {row["analyzer_prefix"]: row for row in tables["sampling_completion"]}
     assert completion_by_prefix["ga04"]["mode2_present_count"] == 8
     assert completion_by_prefix["ga04"]["component_payload_count"] == 8

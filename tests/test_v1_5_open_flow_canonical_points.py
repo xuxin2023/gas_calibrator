@@ -58,7 +58,10 @@ def test_open_flow_canonical_points_strip_legacy_pressure_targets(tmp_path):
 
     co2_rows = tables["co2_open_flow_multitemp_ambient"]
     assert any(row["source_nominal_ppm"] == 0 and row["sample_role"] == "fit" for row in co2_rows)
-    assert any(row["source_nominal_ppm"] == 200 and row["sample_role"] == "verification" for row in co2_rows)
+    assert any(row["source_nominal_ppm"] == 200 and row["sample_role"] == "fit" for row in co2_rows)
+    assert {row["sample_role"] for row in co2_rows} == {"fit"}
+    assert all(row["fit_eligible"] is True for row in co2_rows)
+    assert all(row["verification_eligible"] is False for row in co2_rows)
     assert all(row["pressure_mode"] == "ambient_open" for row in co2_rows)
     assert all(row["target_pressure_hpa"] == "" for row in co2_rows)
     assert all(row["pressure_channel_precheck_required"] is True for row in co2_rows)
@@ -100,7 +103,12 @@ def test_open_flow_canonical_point_plan_writer_and_cli(tmp_path):
             str(cli_output),
             "--co2-fit-ppm",
             "0,100,300,500,700,900",
+            "--co2-verification-ppm",
+            "200,400,600,800,1000",
         ]
     )
     assert rc == 0
     assert (cli_output / "v1_5_open_flow_canonical_point_plan_manifest.json").exists()
+    cli_rows = _read_csv(cli_output / "co2_open_flow_multitemp_ambient.csv")
+    assert {row["sample_role"] for row in cli_rows} == {"fit"}
+    assert all(row["verification_eligible"] == "False" for row in cli_rows)
