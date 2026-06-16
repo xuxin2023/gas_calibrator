@@ -172,6 +172,13 @@ _FIELD_LABELS = {
     "mode2_contract_reason": "MODE2数据合同原因",
     "mode2_qc_status": "MODE2质控状态",
     "mode2_qc_reason": "MODE2质控原因",
+    "status_register_qc": "状态寄存器质控",
+    "status_register_qc_reason": "状态寄存器质控原因",
+    "status_register_raw": "状态寄存器原始值",
+    "status_register_normalized": "状态寄存器归一值",
+    "status_register_summary_cn": "状态寄存器中文解释",
+    "status_register_active_bits_json": "状态寄存器异常位JSON",
+    "status_register_manual_source": "状态寄存器手册来源",
     "analyzer_identity_status": "分析仪身份状态",
     "analyzer_identity_reason": "分析仪身份原因",
     "frame_has_data": "分析仪有帧",
@@ -368,6 +375,13 @@ _ANALYZER_SAMPLE_FIELDS = [
     "mode2_contract_reason",
     "mode2_qc_status",
     "mode2_qc_reason",
+    "status_register_qc",
+    "status_register_qc_reason",
+    "status_register_raw",
+    "status_register_normalized",
+    "status_register_summary_cn",
+    "status_register_active_bits_json",
+    "status_register_manual_source",
     "frame_cache_ts",
     "frame_cache_age_ms",
     "frame_source",
@@ -827,6 +841,8 @@ class RunLogger:
         self.points_readable_book_path = self.run_dir / f"points_readable_{stamp}.xlsx"
         self.io_path = self.run_dir / f"io_{stamp}.csv"
         self.coefficient_write_path = self.run_dir / f"coefficient_writeback_{stamp}.csv"
+        if os.name == "nt" and len(str(self.coefficient_write_path)) >= 260:
+            self.coefficient_write_path = self.run_dir / f"coeff_{stamp}.csv"
         self.h2o_analyzer_book_path = self.run_dir / f"h2o_analyzer_sheets_{stamp}.xlsx"
         self.co2_analyzer_book_path = self.run_dir / f"co2_analyzer_sheets_{stamp}.xlsx"
         self.analyzer_summary_csv_path = self.run_dir / f"分析仪汇总_{stamp}.csv"
@@ -835,6 +851,16 @@ class RunLogger:
         self.co2_analyzer_summary_csv_path = self.run_dir / f"分析仪汇总_气路_{stamp}.csv"
         self.h2o_analyzer_summary_book_path = self.run_dir / f"分析仪汇总_水路_{stamp}.xlsx"
         self.co2_analyzer_summary_book_path = self.run_dir / f"分析仪汇总_气路_{stamp}.xlsx"
+
+        for runtime_csv_path in (
+            self.samples_path,
+            self.points_path,
+            self.points_readable_path,
+            self.analyzer_summary_csv_path,
+            self.io_path,
+            self.coefficient_write_path,
+        ):
+            runtime_csv_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._samples_file = self.samples_path.open("w", newline="", encoding="utf-8")
         self._points_file = self.points_path.open("w", newline="", encoding="utf-8")

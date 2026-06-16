@@ -62,6 +62,21 @@ def test_run_logger_creates_run_dir_and_io_csv(tmp_path: Path) -> None:
     assert sample_rows[0]["a"] == "1"
 
 
+def test_run_logger_shortens_coefficient_writeback_path_near_windows_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(logging_utils_module.os, "name", "nt", raising=False)
+    filler_len = max(1, 218 - len(str(tmp_path)) - 1)
+    logger = RunLogger(tmp_path, run_id="x" * filler_len)
+
+    stamp = logger.coefficient_write_path.stem.removeprefix("coeff_")
+    default_path = logger.run_dir / f"coefficient_writeback_{stamp}.csv"
+    assert len(str(default_path)) >= 260
+    assert logger.coefficient_write_path.name.startswith("coeff_")
+    assert len(str(logger.coefficient_write_path)) < 260
+    logger.close()
+
+
 def test_run_logger_prunes_empty_core_exports_on_close(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     logger.log_io(port="LOG", device="test", direction="EVENT", command="noop", response="ok")

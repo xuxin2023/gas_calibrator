@@ -5,8 +5,11 @@ src/gas_calibrator/storage/v1_5_evidence/pressure_completion_bundle.py,pressure_
 src/gas_calibrator/storage/v1_5_evidence/repository.py,repository,storage,evidence_database,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/storage/v1_5_evidence/schema.py,schema,storage,evidence_database,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/archive_v1_5_current_stage.py,archive_v1_5_current_stage,tool,housekeeping_archive,general,formal_support,offline,False,False,False,()
+src/gas_calibrator/tools/build_v1_5_h2o_archive_inputs.py,build_v1_5_h2o_archive_inputs,tool,formal_review_evidence,h2o_component,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/collect_v1_5_serial_port_inventory.py,collect_v1_5_serial_port_inventory,tool,identity_and_serial_binding,identity_and_serial_binding,formal_support,offline,False,False,False,"('COM port is transport only; analyzer identity remains MODE2 device ID',)"
+src/gas_calibrator/tools/export_single_gas_pressure_curve.py,export_single_gas_pressure_curve,tool,diagnostic_only,pressure_channel,diagnostic_only,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_advanced_qc.py,export_v1_5_advanced_qc,tool,formal_review_evidence,qc_review,formal_support,offline,False,False,False,()
+src/gas_calibrator/tools/export_v1_5_calibration_capability.py,export_v1_5_calibration_capability,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_calibration_reports.py,export_v1_5_calibration_reports,tool,formal_review_evidence,reporting,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_candidate_coefficients.py,export_v1_5_candidate_coefficients,tool,formal_review_evidence,coefficient_review,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_candidate_write_review.py,export_v1_5_candidate_write_review,tool,formal_review_evidence,coefficient_review,formal_support,offline,False,False,False,()
@@ -34,9 +37,12 @@ src/gas_calibrator/tools/export_v1_5_formal_open_flow_report.py,export_v1_5_form
 src/gas_calibrator/tools/export_v1_5_formal_preflight.py,export_v1_5_formal_preflight,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_formal_readiness.py,export_v1_5_formal_readiness,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_formal_workbench.py,export_v1_5_formal_workbench,tool,formal_review_evidence,ui_review,formal_support,offline,False,False,False,()
+src/gas_calibrator/tools/export_v1_5_h2o_dry_anchor_bridge_review.py,export_v1_5_h2o_dry_anchor_bridge_review,tool,formal_review_evidence,h2o_component,formal_support,offline,False,False,False,()
+src/gas_calibrator/tools/export_v1_5_h2o_formal_closure_review.py,export_v1_5_h2o_formal_closure_review,tool,formal_review_evidence,h2o_component,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_h2o_senco24_candidate_review.py,export_v1_5_h2o_senco24_candidate_review,tool,formal_review_evidence,h2o_component,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_h2o_senco24_repair_plan.py,export_v1_5_h2o_senco24_repair_plan,tool,formal_review_evidence,h2o_component,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_h2o_senco6_linear_trim_review.py,export_v1_5_h2o_senco6_linear_trim_review,tool,formal_review_evidence,h2o_component,formal_support,offline,False,False,False,()
+src/gas_calibrator/tools/export_v1_5_initialization_readiness.py,export_v1_5_initialization_readiness,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_open_flow_canonical_points.py,export_v1_5_open_flow_canonical_points,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_operation_console.py,export_v1_5_operation_console,tool,formal_review_evidence,ui_review,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_post_write_reverification.py,export_v1_5_post_write_reverification,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
@@ -46,6 +52,7 @@ src/gas_calibrator/tools/export_v1_5_pressure_senco9_evaluation.py,export_v1_5_p
 src/gas_calibrator/tools/export_v1_5_pressure_senco9_no_write_preflight.py,export_v1_5_pressure_senco9_no_write_preflight,tool,formal_review_evidence,pressure_channel,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_pressure_senco9_write_review.py,export_v1_5_pressure_senco9_write_review,tool,formal_review_evidence,pressure_channel,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_review_surface.py,export_v1_5_review_surface,tool,formal_review_evidence,ui_review,formal_support,offline,False,False,False,()
+src/gas_calibrator/tools/export_v1_5_run_evidence_status.py,export_v1_5_run_evidence_status,tool,formal_review_evidence,evidence_database,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_sample_reuse_review.py,export_v1_5_sample_reuse_review,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_single_device_coefficient_report_zh.py,export_v1_5_single_device_coefficient_report_zh,tool,formal_review_evidence,reporting,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_temperature_channel_review.py,export_v1_5_temperature_channel_review,tool,formal_review_evidence,temperature_channel,formal_support,offline,False,False,False,()
@@ -55,24 +62,27 @@ src/gas_calibrator/tools/import_v1_5_pressure_channel_completion_package.py,impo
 src/gas_calibrator/tools/migrate_v1_5_evidence_db.py,migrate_v1_5_evidence_db,tool,formal_review_evidence,evidence_database,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/prepare_v1_5_canonical_evidence_package.py,prepare_v1_5_canonical_evidence_package,tool,formal_review_evidence,evidence_database,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/prepare_v1_5_formal_evidence_run.py,prepare_v1_5_formal_evidence_run,tool,formal_review_evidence,evidence_database,formal_support,offline,False,False,False,()
-src/gas_calibrator/tools/prepare_v1_5_formal_run_package.py,prepare_v1_5_formal_run_package,tool,formal_review_evidence,full_flow_orchestration,formal_support,offline,False,False,False,"('formal V1.5 entrypoint candidate; still requires operator authorization for real COM',)"
+src/gas_calibrator/tools/prepare_v1_5_formal_run_package.py,prepare_v1_5_formal_run_package,tool,formal_review_evidence,full_flow_orchestration,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/prepare_v1_5_multipoint_candidate_run.py,prepare_v1_5_multipoint_candidate_run,tool,formal_review_evidence,coefficient_review,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/prepare_v1_5_runtime_serial_port_binding.py,prepare_v1_5_runtime_serial_port_binding,tool,formal_review_evidence,identity_and_serial_binding,formal_support,offline,False,False,False,"('COM port is transport only; analyzer identity remains MODE2 device ID',)"
 src/gas_calibrator/tools/probe_v1_5_getco9_protocol.py,probe_v1_5_getco9_protocol,tool,diagnostic_only,general,diagnostic_only,real_com_or_route_risk,True,False,False,"('diagnostic evidence only; not formal acceptance by default',)"
-src/gas_calibrator/tools/probe_v1_5_getco_component_snapshot.py,probe_v1_5_getco_component_snapshot,tool,formal_review_evidence,general,formal_support,real_com_or_route_risk,True,False,False,"('formal precheck evidence; read-only GETCO1-9 and device-ID snapshot',)"
+src/gas_calibrator/tools/probe_v1_5_getco_component_snapshot.py,probe_v1_5_getco_component_snapshot,tool,formal_review_evidence,general,formal_support,real_com_or_route_risk,True,False,False,"('subordinate initialization evidence tool; read-only GETCO1-9 and device-ID snapshot',)"
 src/gas_calibrator/tools/query_v1_5_evidence_run.py,query_v1_5_evidence_run,tool,formal_review_evidence,evidence_database,formal_support,offline,False,False,False,()
+src/gas_calibrator/tools/run_room_temp_co2_pressure_diagnostic.py,run_room_temp_co2_pressure_diagnostic,tool,diagnostic_only,pressure_channel,diagnostic_only,real_com_or_route_risk,True,True,False,"('diagnostic evidence only; not formal acceptance by default',)"
 src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_rollback.py,run_v1_5_co2_senco13_controlled_rollback,tool,controlled_write,co2_component,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
 src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py,run_v1_5_co2_senco13_controlled_write,tool,controlled_write,co2_component,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
 src/gas_calibrator/tools/run_v1_5_co2_senco1_controlled_write.py,run_v1_5_co2_senco1_controlled_write,tool,controlled_write,co2_component,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
 src/gas_calibrator/tools/run_v1_5_co2_senco5_linear_controlled_write.py,run_v1_5_co2_senco5_linear_controlled_write,tool,controlled_write,co2_component,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
 src/gas_calibrator/tools/run_v1_5_co2_senco5_neutral_controlled_write.py,run_v1_5_co2_senco5_neutral_controlled_write,tool,controlled_write,co2_component,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
 src/gas_calibrator/tools/run_v1_5_dewpoint_gate_extended_hold_after_gate.py,run_v1_5_dewpoint_gate_extended_hold_after_gate,tool,diagnostic_only,h2o_component,diagnostic_only,real_com_or_route_risk,True,False,False,()
+src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py,run_v1_5_formal_archive_closure,tool,formal_review_evidence,general,formal_support,offline,False,False,False,"('offline archive closure; does not open COM ports or control routes',)"
 src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py,run_v1_5_formal_co2_open_flow_queue,tool,formal_runner,co2_component,formal_entry_candidate,real_com_or_route_risk,True,True,False,"('formal V1.5 entrypoint candidate; still requires operator authorization for real COM',)"
-src/gas_calibrator/tools/run_v1_5_formal_evidence_sidecar.py,run_v1_5_formal_evidence_sidecar,tool,formal_review_evidence,evidence_database,formal_support,offline,False,False,False,"('formal V1.5 entrypoint candidate; still requires operator authorization for real COM',)"
+src/gas_calibrator/tools/run_v1_5_formal_evidence_sidecar.py,run_v1_5_formal_evidence_sidecar,tool,formal_review_evidence,evidence_database,formal_support,offline,False,False,False,"('offline review/evidence sidecar; no COM or route control',)"
 src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py,run_v1_5_formal_h2o_open_flow_queue,tool,formal_runner,h2o_component,formal_entry_candidate,real_com_or_route_risk,True,True,False,"('formal V1.5 entrypoint candidate; still requires operator authorization for real COM',)"
-src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py,run_v1_5_formal_h2o_open_flow_sampling,tool,formal_runner,h2o_component,formal_entry_candidate,real_com_or_route_risk,True,True,False,"('formal V1.5 entrypoint candidate; still requires operator authorization for real COM',)"
-src/gas_calibrator/tools/run_v1_5_formal_offline_review_chain.py,run_v1_5_formal_offline_review_chain,tool,formal_review_evidence,general,formal_support,offline,False,False,False,"('formal V1.5 entrypoint candidate; still requires operator authorization for real COM',)"
-src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py,run_v1_5_formal_open_flow_sampling,tool,formal_runner,general,formal_entry_candidate,real_com_or_route_risk,True,True,False,"('formal V1.5 entrypoint candidate; still requires operator authorization for real COM',)"
+src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py,run_v1_5_formal_h2o_open_flow_sampling,tool,formal_sampling_worker,h2o_component,canonical_queue_worker,real_com_or_route_risk,True,True,False,"('canonical per-point sampling worker; invoked by the formal CO2/H2O queue runners',)"
+src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py,run_v1_5_formal_initialization_runner,tool,full_flow_orchestration,general,canonical_initialization_planner,offline,False,False,False,"('canonical initialization owner; offline planner, evidence indexer, and readiness gate',)"
+src/gas_calibrator/tools/run_v1_5_formal_offline_review_chain.py,run_v1_5_formal_offline_review_chain,tool,formal_review_evidence,general,formal_support,offline,False,False,False,"('offline review/evidence sidecar; no COM or route control',)"
+src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py,run_v1_5_formal_open_flow_sampling,tool,formal_sampling_worker,general,canonical_queue_worker,real_com_or_route_risk,True,True,False,"('canonical per-point sampling worker; invoked by the formal CO2/H2O queue runners',)"
 src/gas_calibrator/tools/run_v1_5_full_calibration_chain.py,run_v1_5_full_calibration_chain,tool,full_flow_orchestration,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/run_v1_5_h2o_senco24_controlled_write.py,run_v1_5_h2o_senco24_controlled_write,tool,controlled_write,h2o_component,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
 src/gas_calibrator/tools/run_v1_5_h2o_senco6_linear_controlled_write.py,run_v1_5_h2o_senco6_linear_controlled_write,tool,controlled_write,h2o_component,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
@@ -80,9 +90,17 @@ src/gas_calibrator/tools/run_v1_5_h2o_senco6_neutral_controlled_write.py,run_v1_
 src/gas_calibrator/tools/run_v1_5_no_outp_preseal_probe.py,run_v1_5_no_outp_preseal_probe,tool,diagnostic_only,general,diagnostic_only,real_com_or_route_risk,True,False,False,"('diagnostic evidence only; not formal acceptance by default', 'pressure/route engineering probe; keep outside formal CO2/H2O fit')"
 src/gas_calibrator/tools/run_v1_5_open_flow_dynamic_pressure_diagnostic.py,run_v1_5_open_flow_dynamic_pressure_diagnostic,tool,diagnostic_only,pressure_channel,diagnostic_only,real_com_or_route_risk,True,False,False,"('diagnostic evidence only; not formal acceptance by default', 'pressure/route engineering probe; keep outside formal CO2/H2O fit')"
 src/gas_calibrator/tools/run_v1_5_pace_mode_ingress_diagnostic.py,run_v1_5_pace_mode_ingress_diagnostic,tool,diagnostic_only,pressure_channel,diagnostic_only,real_com_or_route_risk,True,False,False,"('diagnostic evidence only; not formal acceptance by default',)"
+src/gas_calibrator/tools/run_v1_5_pressure_senco9_clear_controlled_write.py,run_v1_5_pressure_senco9_clear_controlled_write,tool,controlled_write,pressure_channel,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
 src/gas_calibrator/tools/run_v1_5_pressure_senco9_controlled_write.py,run_v1_5_pressure_senco9_controlled_write,tool,controlled_write,pressure_channel,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
 src/gas_calibrator/tools/run_v1_5_sealed_pressure_tune_900.py,run_v1_5_sealed_pressure_tune_900,tool,diagnostic_only,pressure_channel,diagnostic_only,real_com_or_route_risk,True,False,False,"('diagnostic evidence only; not formal acceptance by default', 'pressure/route engineering probe; keep outside formal CO2/H2O fit')"
+src/gas_calibrator/tools/run_v1_5_temperature_senco78_neutral_controlled_write.py,run_v1_5_temperature_senco78_neutral_controlled_write,tool,controlled_write,temperature_channel,formal_but_manual_authorized,writes_device_coefficients,True,False,True,"('requires explicit coefficient-write authorization and readback evidence',)"
+src/gas_calibrator/tools/run_v1_corrected_autodelivery.py,run_v1_corrected_autodelivery,tool,legacy_v1_reference,general,legacy_v1_reference_only,legacy_write_or_acceptance_risk,True,False,True,"('legacy V1 reference only; do not use as a V1.5 formal entrypoint',)"
+src/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py,run_v1_merged_calibration_sidecar,tool,legacy_v1_reference,general,legacy_v1_reference_only,legacy_write_or_acceptance_risk,True,False,True,"('legacy V1 reference only; do not use as a V1.5 formal entrypoint',)"
+src/gas_calibrator/tools/run_v1_no500_postprocess.py,run_v1_no500_postprocess,tool,legacy_v1_reference,general,legacy_v1_reference_only,legacy_write_or_acceptance_risk,True,False,False,"('legacy V1 reference only; do not use as a V1.5 formal entrypoint',)"
+src/gas_calibrator/tools/run_v1_online_acceptance.py,run_v1_online_acceptance,tool,legacy_v1_reference,general,legacy_v1_reference_only,legacy_write_or_acceptance_risk,True,False,True,"('legacy V1 reference only; do not use as a V1.5 formal entrypoint',)"
 src/gas_calibrator/tools/summarize_v1_5_post_h2o_co2_verify.py,summarize_v1_5_post_h2o_co2_verify,tool,formal_review_evidence,h2o_component,formal_support,offline,False,False,False,()
+src/gas_calibrator/tools/validate_pressure_only.py,validate_pressure_only,tool,formal_pressure_no_write_runner,pressure_channel,formal_pressure_no_write_when_authorized,real_com_or_route_risk,True,True,False,"('pressure-channel no-write validation/calibration runner; separate from CO2/H2O fitting',)"
+src/gas_calibrator/tools/verify_v1_5_evidence_bundle.py,verify_v1_5_evidence_bundle,tool,formal_review_evidence,evidence_database,formal_support,offline,False,False,False,()
 src/gas_calibrator/v1_5/__init__.py,__init__,library,v1_5_library,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/v1_5/orchestration/__init__.py,__init__,library,full_flow_orchestration,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/v1_5/orchestration/full_flow.py,full_flow,library,full_flow_orchestration,full_flow_orchestration,formal_support,offline,False,False,False,()
@@ -103,6 +121,8 @@ src/gas_calibrator/v1_5/review_surface.py,review_surface,library,ui_review,ui_re
 src/gas_calibrator/v1_5/ui/__init__.py,__init__,library,ui_review,general,prototype_or_review_surface,offline,False,False,False,()
 src/gas_calibrator/v1_5/ui/operation_console.py,operation_console,library,ui_review,ui_review,prototype_or_review_surface,offline,False,False,False,()
 tests/test_v1_5_advanced_qc_exporter.py,test_v1_5_advanced_qc_exporter,test,test_gate,qc_review,verification_only,none,False,False,False,()
+tests/test_v1_5_calibratable_point_policy.py,test_v1_5_calibratable_point_policy,test,test_gate,general,verification_only,none,False,False,False,()
+tests/test_v1_5_calibration_capability.py,test_v1_5_calibration_capability,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_calibration_reports.py,test_v1_5_calibration_reports,test,test_gate,reporting,verification_only,none,False,False,False,()
 tests/test_v1_5_candidate_coefficients.py,test_v1_5_candidate_coefficients,test,test_gate,coefficient_review,verification_only,none,False,False,False,()
 tests/test_v1_5_candidate_write_review.py,test_v1_5_candidate_write_review,test,test_gate,coefficient_review,verification_only,none,False,False,False,()
@@ -129,10 +149,12 @@ tests/test_v1_5_co2_three_point_state_bridge.py,test_v1_5_co2_three_point_state_
 tests/test_v1_5_co2_training_scope_review.py,test_v1_5_co2_training_scope_review,test,test_gate,co2_component,verification_only,none,False,False,False,()
 tests/test_v1_5_controlled_outp_seal_transition.py,test_v1_5_controlled_outp_seal_transition,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_dewpoint_gate_extended_hold_diagnostic.py,test_v1_5_dewpoint_gate_extended_hold_diagnostic,test,test_gate,h2o_component,verification_only,none,False,False,False,"('diagnostic evidence only; not formal acceptance by default',)"
+tests/test_v1_5_entrypoint_guards.py,test_v1_5_entrypoint_guards,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_entrypoint_inventory.py,test_v1_5_entrypoint_inventory,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_evidence_registry.py,test_v1_5_evidence_registry,test,test_gate,evidence_database,verification_only,none,False,False,False,()
 tests/test_v1_5_fit_input_quality.py,test_v1_5_fit_input_quality,test,test_gate,qc_review,verification_only,none,False,False,False,()
 tests/test_v1_5_formal_900ppm_config.py,test_v1_5_formal_900ppm_config,test,test_gate,general,verification_only,none,False,False,False,()
+tests/test_v1_5_formal_archive_closure.py,test_v1_5_formal_archive_closure,test,test_gate,general,verification_only,none,False,False,False,"('offline archive closure; does not open COM ports or control routes',)"
 tests/test_v1_5_formal_calibration_package.py,test_v1_5_formal_calibration_package,test,test_gate,reporting,verification_only,none,False,False,False,()
 tests/test_v1_5_formal_co2_open_flow_queue.py,test_v1_5_formal_co2_open_flow_queue,test,test_gate,co2_component,verification_only,none,False,False,False,()
 tests/test_v1_5_formal_contracts_preflight.py,test_v1_5_formal_contracts_preflight,test,test_gate,general,verification_only,none,False,False,False,()
@@ -140,22 +162,26 @@ tests/test_v1_5_formal_evidence_run.py,test_v1_5_formal_evidence_run,test,test_g
 tests/test_v1_5_formal_flow_contract.py,test_v1_5_formal_flow_contract,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_formal_h2o_open_flow_queue.py,test_v1_5_formal_h2o_open_flow_queue,test,test_gate,h2o_component,verification_only,none,False,False,False,()
 tests/test_v1_5_formal_h2o_open_flow_sampling_runner.py,test_v1_5_formal_h2o_open_flow_sampling_runner,test,test_gate,h2o_component,verification_only,none,False,False,False,()
-tests/test_v1_5_formal_offline_review_chain.py,test_v1_5_formal_offline_review_chain,test,test_gate,general,verification_only,none,False,False,False,()
+tests/test_v1_5_formal_initialization_runner.py,test_v1_5_formal_initialization_runner,test,test_gate,general,verification_only,none,False,False,False,()
+tests/test_v1_5_formal_offline_review_chain.py,test_v1_5_formal_offline_review_chain,test,test_gate,general,verification_only,none,False,False,False,"('offline review/evidence sidecar; no COM or route control',)"
 tests/test_v1_5_formal_open_flow.py,test_v1_5_formal_open_flow,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_formal_open_flow_artifacts.py,test_v1_5_formal_open_flow_artifacts,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_formal_open_flow_sampling_runner.py,test_v1_5_formal_open_flow_sampling_runner,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_formal_readiness.py,test_v1_5_formal_readiness,test,test_gate,general,verification_only,none,False,False,False,()
-tests/test_v1_5_formal_run_package.py,test_v1_5_formal_run_package,test,test_gate,full_flow_orchestration,verification_only,none,False,False,False,"('formal V1.5 entrypoint candidate; still requires operator authorization for real COM',)"
+tests/test_v1_5_formal_run_package.py,test_v1_5_formal_run_package,test,test_gate,full_flow_orchestration,verification_only,none,False,False,False,()
 tests/test_v1_5_formal_workbench.py,test_v1_5_formal_workbench,test,test_gate,ui_review,verification_only,none,False,False,False,()
 tests/test_v1_5_full_flow_orchestration.py,test_v1_5_full_flow_orchestration,test,test_gate,full_flow_orchestration,verification_only,none,False,False,False,()
 tests/test_v1_5_getco9_protocol_probe.py,test_v1_5_getco9_protocol_probe,test,test_gate,general,verification_only,none,False,False,False,"('diagnostic evidence only; not formal acceptance by default',)"
 tests/test_v1_5_getco_component_snapshot.py,test_v1_5_getco_component_snapshot,test,test_gate,general,verification_only,none,False,False,False,()
+tests/test_v1_5_h2o_dry_anchor_bridge_review.py,test_v1_5_h2o_dry_anchor_bridge_review,test,test_gate,h2o_component,verification_only,none,False,False,False,()
+tests/test_v1_5_h2o_formal_closure_review.py,test_v1_5_h2o_formal_closure_review,test,test_gate,h2o_component,verification_only,none,False,False,False,()
 tests/test_v1_5_h2o_senco24_candidate_review.py,test_v1_5_h2o_senco24_candidate_review,test,test_gate,h2o_component,verification_only,none,False,False,False,()
 tests/test_v1_5_h2o_senco24_controlled_write.py,test_v1_5_h2o_senco24_controlled_write,test,test_gate,h2o_component,verification_only,none,False,False,False,"('requires explicit coefficient-write authorization and readback evidence',)"
 tests/test_v1_5_h2o_senco24_repair_plan.py,test_v1_5_h2o_senco24_repair_plan,test,test_gate,h2o_component,verification_only,none,False,False,False,()
 tests/test_v1_5_h2o_senco6_linear_controlled_write.py,test_v1_5_h2o_senco6_linear_controlled_write,test,test_gate,h2o_component,verification_only,none,False,False,False,"('requires explicit coefficient-write authorization and readback evidence',)"
 tests/test_v1_5_h2o_senco6_linear_trim_review.py,test_v1_5_h2o_senco6_linear_trim_review,test,test_gate,h2o_component,verification_only,none,False,False,False,()
 tests/test_v1_5_h2o_senco6_neutral_controlled_write.py,test_v1_5_h2o_senco6_neutral_controlled_write,test,test_gate,h2o_component,verification_only,none,False,False,False,"('requires explicit coefficient-write authorization and readback evidence',)"
+tests/test_v1_5_initialization_readiness.py,test_v1_5_initialization_readiness,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_multipoint_candidate_run.py,test_v1_5_multipoint_candidate_run,test,test_gate,coefficient_review,verification_only,none,False,False,False,()
 tests/test_v1_5_no_outp_engineering_config.py,test_v1_5_no_outp_engineering_config,test,test_gate,general,verification_only,none,False,False,False,"('pressure/route engineering probe; keep outside formal CO2/H2O fit',)"
 tests/test_v1_5_no_outp_plus_sealed_sweep.py,test_v1_5_no_outp_plus_sealed_sweep,test,test_gate,general,verification_only,none,False,False,False,"('pressure/route engineering probe; keep outside formal CO2/H2O fit',)"
@@ -176,12 +202,16 @@ tests/test_v1_5_pressure_channel_completion.py,test_v1_5_pressure_channel_comple
 tests/test_v1_5_pressure_channel_completion_db.py,test_v1_5_pressure_channel_completion_db,test,test_gate,pressure_channel,verification_only,none,False,False,False,()
 tests/test_v1_5_pressure_channel_validation.py,test_v1_5_pressure_channel_validation,test,test_gate,pressure_channel,verification_only,none,False,False,False,()
 tests/test_v1_5_pressure_only_tuning_harness.py,test_v1_5_pressure_only_tuning_harness,test,test_gate,pressure_channel,verification_only,none,False,False,False,()
+tests/test_v1_5_pressure_senco9_clear_controlled_write.py,test_v1_5_pressure_senco9_clear_controlled_write,test,test_gate,pressure_channel,verification_only,none,False,False,False,"('requires explicit coefficient-write authorization and readback evidence',)"
 tests/test_v1_5_pressure_senco9_controlled_write.py,test_v1_5_pressure_senco9_controlled_write,test,test_gate,pressure_channel,verification_only,none,False,False,False,"('requires explicit coefficient-write authorization and readback evidence',)"
 tests/test_v1_5_pressure_senco9_no_write_preflight.py,test_v1_5_pressure_senco9_no_write_preflight,test,test_gate,pressure_channel,verification_only,none,False,False,False,()
 tests/test_v1_5_pressure_senco9_write_review.py,test_v1_5_pressure_senco9_write_review,test,test_gate,pressure_channel,verification_only,none,False,False,False,()
 tests/test_v1_5_qc_advanced.py,test_v1_5_qc_advanced,test,test_gate,qc_review,verification_only,none,False,False,False,()
 tests/test_v1_5_review_surface.py,test_v1_5_review_surface,test,test_gate,ui_review,verification_only,none,False,False,False,()
+tests/test_v1_5_run_evidence_status.py,test_v1_5_run_evidence_status,test,test_gate,evidence_database,verification_only,none,False,False,False,()
 tests/test_v1_5_runtime_serial_port_binding.py,test_v1_5_runtime_serial_port_binding,test,test_gate,identity_and_serial_binding,verification_only,none,False,False,False,"('COM port is transport only; analyzer identity remains MODE2 device ID',)"
 tests/test_v1_5_sample_reuse_review.py,test_v1_5_sample_reuse_review,test,test_gate,general,verification_only,none,False,False,False,()
+tests/test_v1_5_stage_detail_route_optimization_doc.py,test_v1_5_stage_detail_route_optimization_doc,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_temperature_channel_review.py,test_v1_5_temperature_channel_review,test,test_gate,temperature_channel,verification_only,none,False,False,False,()
+tests/test_v1_5_temperature_senco78_neutral_controlled_write.py,test_v1_5_temperature_senco78_neutral_controlled_write,test,test_gate,temperature_channel,verification_only,none,False,False,False,"('requires explicit coefficient-write authorization and readback evidence',)"
 tests/test_v1_5_v1_ratio_poly_algorithm_audit.py,test_v1_5_v1_ratio_poly_algorithm_audit,test,test_gate,general,verification_only,none,False,False,False,()

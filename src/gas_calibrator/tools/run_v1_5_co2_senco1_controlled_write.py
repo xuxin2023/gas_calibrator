@@ -23,6 +23,7 @@ from ..devices import GasAnalyzer
 from ..senco_format import rounded_senco_values, senco_readback_matches
 from ..validation.common import load_csv_rows
 from ..validation.reporting import ValidationMetadata, write_validation_report
+from .v1_5_serial_safety import require_fragile_serial_timing
 
 
 CONFIRMATION_TEXT = "WRITE_SENCO1_V1_5_CO2_PRIMARY_ONLY"
@@ -496,7 +497,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--identity-timeout-s", type=float, default=4.0)
     parser.add_argument("--readback-attempts", type=int, default=3)
     parser.add_argument("--write-attempts", type=int, default=2)
-    parser.add_argument("--readback-retry-delay-s", type=float, default=0.2)
+    parser.add_argument("--readback-retry-delay-s", type=float, default=1.0)
     parser.add_argument("--compare-atol", type=float, default=1e-9)
     parser.add_argument(
         "--preserve-atol",
@@ -506,7 +507,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--pre-device-cooldown-s", type=float, default=2.0)
     parser.add_argument("--inter-device-delay-s", type=float, default=5.0)
-    parser.add_argument("--restore-command-gap-s", type=float, default=0.5)
+    parser.add_argument("--restore-command-gap-s", type=float, default=1.0)
     parser.add_argument(
         "--restore-active-freq",
         action="store_true",
@@ -516,7 +517,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no-restore-active-freq", dest="restore_active_freq", action="store_false")
     parser.add_argument("--coefficient-quiet-settle-s", type=float, default=3.0)
     parser.add_argument("--coefficient-read-timeout-s", type=float, default=1.5)
-    parser.add_argument("--coefficient-read-delay-s", type=float, default=0.2)
+    parser.add_argument("--coefficient-read-delay-s", type=float, default=1.0)
     parser.add_argument("--coefficient-read-retries", type=int, default=2)
     parser.add_argument(
         "--allow-resume-partial-senco1",
@@ -528,6 +529,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
+    try:
+        require_fragile_serial_timing(args, tool_name="run_v1_5_co2_senco1_controlled_write")
+    except ValueError as exc:
+        _log(str(exc))
+        return 2
     if not args.enable_senco1_write or args.operator_confirmation != CONFIRMATION_TEXT:
         _log("Refusing SENCO1 write: pass --enable-senco1-write and the exact operator confirmation text.")
         return 2

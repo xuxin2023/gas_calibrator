@@ -184,6 +184,135 @@ def _make_run(tmp_path, rows):
     return run_dir, plan_path, pressure_reference_path
 
 
+def _co2_wide_row(index: int, target: float) -> dict:
+    row = {
+        "sample_index": index,
+        "point_phase": "co2",
+        "route": "co2",
+        "point_id": f"p{index:03d}_co2_{target:g}",
+        "point_tag": f"co2_{target:g}",
+        "sample_role": "fit",
+        "target_co2_ppm": target,
+        "co2_zero_certified": "true" if target == 0.0 else "",
+        "pressure_gauge_hpa": 1009.5,
+        "dewpoint_live_c": -42.0,
+    }
+    for prefix, device_id, offset in (("ga01", "079", 0.0), ("ga02", "091", 0.001)):
+        ratio = 1.0 + target / 1000.0 + offset + (index % 3) * 0.000001
+        row.update(
+            {
+                f"{prefix}_analyzer_device_id": device_id,
+                f"{prefix}_raw": f"YGAS,{device_id},{target:08.3f},00.000,0000.000,00.000",
+                f"{prefix}_frame_usable": "true",
+                f"{prefix}_mode2_contract_status": "pass",
+                f"{prefix}_mode2_qc_status": "pass",
+                f"{prefix}_mode2_tokens_json": json.dumps(
+                    [
+                        "YGAS",
+                        device_id,
+                        f"{target:08.3f}",
+                        "00.000",
+                        "0000.000",
+                        "00.000",
+                        f"{ratio:.6f}",
+                        f"{ratio:.6f}",
+                        "0.6000",
+                        "0.6000",
+                        "03000",
+                        "04000",
+                        "02000",
+                        "25.00",
+                        "25.00",
+                        "100.95",
+                    ],
+                    separators=(",", ":"),
+                ),
+                f"{prefix}_co2_ratio_f": ratio,
+                f"{prefix}_co2_ppm": target,
+                f"{prefix}_h2o_ratio_f": 0.6,
+                f"{prefix}_h2o_mmol": 0.0,
+                f"{prefix}_ref_signal": 3000.0,
+                f"{prefix}_co2_signal": 4000.0,
+                f"{prefix}_h2o_signal": 2000.0,
+                f"{prefix}_chamber_temp_c": 25.0,
+                f"{prefix}_case_temp_c": 25.0,
+                f"{prefix}_pressure_kpa": 100.95,
+            }
+        )
+    return row
+
+
+def test_review_only_wide_sample_fallback_expands_all_detected_analyzers(tmp_path):
+    run_dir = tmp_path / "wide_run"
+    run_dir.mkdir()
+    rows = [_co2_wide_row(index, 0.0 if index <= 10 else 900.0) for index in range(1, 21)]
+    for row in rows:
+        row["pressure_mode"] = "closed_diagnostic_replay"
+    _write_csv(run_dir / "samples_machine_readable.csv", rows)
+
+    tables, context = build_candidate_coefficient_tables(
+        run_dir=run_dir,
+        plan={},
+        pressure_reference={},
+        component="co2",
+        analyzer_prefix="all",
+        require_quick_check_artifact=False,
+        cfg=CandidateCoefficientPolicyConfig(review_only_wide_sample_fallback=True),
+        today="2026-06-14",
+    )
+
+    policies = {
+        (row["analyzer_prefix"], row["analyzer_device_id"]): row
+        for row in tables["candidate_policy_summary"]
+        if row["analyzer_device_id"] in {"079", "091"}
+    }
+    assert set(policies) == {("ga01", "079"), ("ga02", "091")}
+    assert context["review_only_wide_sample_fallback"] is True
+    assert context["review_only_fallback_source"].endswith("samples_machine_readable.csv")
+    for row in policies.values():
+        assert row["allowed_to_fit"] is True
+        assert row["candidate_sample_source"] == "review_only_wide_sample_fallback"
+        assert row["fit_sample_count"] == 20
+        assert row["distinct_fit_targets"] == 2
+        assert "review_only_wide_sample_fallback_used_formal_package_not_write_ready" in row[
+            "warning_reasons"
+        ]
+        assert row["auto_write_allowed"] is False
+    assert len(tables["candidate_coefficients"]) == 4
+
+
+def test_candidate_fit_residual_quality_gate_blocks_large_relative_error(tmp_path):
+    rows = []
+    rows.extend(_co2_row(index, 100.0, point_tag="co2_100") for index in range(1, 5))
+    rows.extend(_co2_row(index, 200.0, point_tag="co2_200") for index in range(5, 9))
+    rows.extend(_co2_row(index, 300.0, point_tag="co2_300") for index in range(9, 12))
+    # The duplicated target with a conflicting ratio is mathematically fit-able
+    # only with a visible residual; the quality gate keeps it out of write review.
+    conflicting_row = _co2_row(12, 300.0, point_tag="co2_300_conflict")
+    conflicting_row["ga01_co2_ratio_f"] = rows[0]["ga01_co2_ratio_f"]
+    rows.append(conflicting_row)
+    run_dir, _, _ = _make_run(tmp_path, rows)
+
+    tables, context = build_candidate_coefficient_tables(
+        run_dir=run_dir,
+        plan=_plan(),
+        pressure_reference=_pressure_reference(),
+        component="co2",
+        analyzer_prefix="ga01",
+        cfg=CandidateCoefficientPolicyConfig(
+            min_fit_samples=1,
+            max_fit_absolute_relative_error_pct_for_review={"co2": 0.01, "h2o": 10.0}
+        ),
+        today="2026-06-14",
+    )
+
+    policy = tables["candidate_policy_summary"][0]
+    assert context["candidate_run_status"] == "fit_ready_requires_verification"
+    assert policy["candidate_status"] == "blocked"
+    assert policy["allowed_for_review"] is False
+    assert "fit_max_absolute_relative_error_pct>0.01" in policy["blocked_reasons"]
+
+
 def test_common_mode_source_outlier_is_detected_without_bending_response_curve():
     targets = [100.0, 200.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0]
     keys = []
@@ -269,7 +398,7 @@ def test_candidate_policy_surfaces_formal_review_blockers(tmp_path):
     assert policy["formal_pressure_validation_status"] == "fail"
 
 
-def test_candidate_export_fits_only_a_grade_open_flow_rows_and_requires_independent_verification(tmp_path):
+def test_candidate_export_fits_all_a_grade_open_flow_rows_and_requires_independent_verification(tmp_path):
     rows = []
     rows.extend(_co2_row(index, 0.0, point_tag="co2_0") for index in range(1, 11))
     rows.extend(_co2_row(index, 900.0, point_tag="co2_900") for index in range(11, 21))
@@ -298,20 +427,66 @@ def test_candidate_export_fits_only_a_grade_open_flow_rows_and_requires_independ
     )
     policy = candidate_tables["candidate_policy_summary"][0]
 
-    assert context["candidate_run_status"] == "verification_passed"
-    assert policy["candidate_status"] == "verification_passed"
-    assert policy["fit_sample_count"] == 20
-    assert policy["verification_sample_count"] == 10
-    assert policy["fit_point_count"] == 2
-    assert policy["verification_point_count"] == 1
-    assert policy["selected_model_terms"] == "intercept;R"
+    assert context["candidate_run_status"] == "fit_ready_requires_verification"
+    assert policy["candidate_status"] == "fit_ready_requires_verification"
+    assert policy["fit_sample_count"] == 30
+    assert policy["verification_sample_count"] == 0
+    assert policy["fit_point_count"] == 3
+    assert policy["verification_point_count"] == 0
+    assert policy["source_verification_reused_for_fit_count"] == 10
+    assert "source_verification_samples_reused_for_fit_requires_new_independent_verification" in policy["warning_reasons"]
+    assert "verification_samples_missing" in policy["verification_reasons"]
+    assert policy["selected_model_terms"] == "intercept;R;R2"
     assert policy["auto_write_allowed"] is False
-    assert {row["term"] for row in candidate_tables["candidate_coefficients"]} == {"intercept", "R"}
+    assert {row["term"] for row in candidate_tables["candidate_coefficients"]} == {"intercept", "R", "R2"}
     assert all(row["residual_role"] == "fit" for row in candidate_tables["candidate_fit_residuals"])
-    assert len(candidate_tables["candidate_fit_residuals"]) == 2
-    assert len(candidate_tables["candidate_verification_residuals"]) == 1
+    assert len(candidate_tables["candidate_fit_residuals"]) == 3
+    assert len(candidate_tables["candidate_verification_residuals"]) == 0
     assert "sealed_controlled" in ";".join(row.get("formal_reject_reasons", "") for row in formal_tables["rejected_samples"])
     assert all(row["target_value"] != 700.0 for row in candidate_tables["candidate_fit_residuals"])
+    assert any(row["target_value"] == 450.0 for row in candidate_tables["candidate_fit_residuals"])
+
+
+def test_candidate_export_blocks_write_candidate_when_factory_signal_health_blocks_device(tmp_path):
+    rows = []
+    rows.extend(_co2_row(index, 0.0, point_tag="co2_0") for index in range(1, 11))
+    rows.extend(_co2_row(index, 450.0, point_tag="co2_450") for index in range(11, 21))
+    rows.extend(_co2_row(index, 900.0, point_tag="co2_900") for index in range(21, 31))
+    run_dir, _, _ = _make_run(tmp_path, rows)
+    factory_summary = tmp_path / "factory_signal_health_summary.csv"
+    _write_csv(
+        factory_summary,
+        [
+            {
+                "device_id": "023",
+                "point_count": 9,
+                "review_point_count": 3,
+                "blocking_point_count": 1,
+                "high_ref_point_count": 1,
+                "max_abs_model_error": 42.0,
+                "max_relative_model_error_pct": 8.0,
+                "candidate_gate": "block_optical_reference_health_review",
+            }
+        ],
+    )
+
+    tables, context = build_candidate_coefficient_tables(
+        run_dir=run_dir,
+        plan=_plan(),
+        pressure_reference=_pressure_reference(),
+        component="co2",
+        analyzer_prefix="ga01",
+        cfg=CandidateCoefficientPolicyConfig(factory_signal_health_summary_csv=factory_summary),
+        today="2026-05-25",
+    )
+
+    policy = tables["candidate_policy_summary"][0]
+    assert context["candidate_run_status"] == "blocked"
+    assert policy["candidate_status"] == "blocked"
+    assert policy["allowed_to_fit"] is False
+    assert policy["factory_signal_health_gate"] == "block_optical_reference_health_review"
+    assert "factory_signal_health_block:block_optical_reference_health_review" in policy["blocked_reasons"]
+    assert tables["candidate_coefficients"] == []
 
 
 def test_co2_candidate_rejects_uncertified_zero_gas_anchor(tmp_path):
@@ -327,6 +502,7 @@ def test_co2_candidate_rejects_uncertified_zero_gas_anchor(tmp_path):
         pressure_reference=_pressure_reference(),
         component="co2",
         analyzer_prefix="ga01",
+        cfg=CandidateCoefficientPolicyConfig(fit_all_eligible_samples=False),
         today="2026-05-25",
     )
     policy = candidate_tables["candidate_policy_summary"][0]
@@ -579,6 +755,7 @@ def test_candidate_export_rejects_hard_bad_analyzer_temperature_values(tmp_path)
         pressure_reference=_pressure_reference(),
         component="co2",
         analyzer_prefix="ga01",
+        cfg=CandidateCoefficientPolicyConfig(fit_all_eligible_samples=False),
         today="2026-05-25",
     )
 
@@ -624,6 +801,7 @@ def test_candidate_verification_limit_uses_matching_certificate_uncertainty(tmp_
         pressure_reference=_pressure_reference(),
         component="co2",
         analyzer_prefix="ga01",
+        cfg=CandidateCoefficientPolicyConfig(fit_all_eligible_samples=False),
         today="2026-05-25",
     )
 
@@ -657,6 +835,7 @@ def test_candidate_verification_without_certificate_uncertainty_keeps_fixed_limi
         pressure_reference=_pressure_reference(),
         component="co2",
         analyzer_prefix="ga01",
+        cfg=CandidateCoefficientPolicyConfig(fit_all_eligible_samples=False),
         today="2026-05-25",
     )
 
@@ -688,6 +867,7 @@ def test_candidate_policy_blocks_reused_verification_point_identity(tmp_path):
         pressure_reference=_pressure_reference(),
         component="co2",
         analyzer_prefix="ga01",
+        cfg=CandidateCoefficientPolicyConfig(fit_all_eligible_samples=False),
         today="2026-05-25",
     )
 
@@ -727,13 +907,15 @@ def test_candidate_export_cli_writes_no_write_artifacts(tmp_path):
     summary = _read_csv(output_dir / "candidate_run_summary.csv")
     policy = _read_csv(output_dir / "candidate_policy_summary.csv")
     coefficients = _read_csv(output_dir / "candidate_coefficients.csv")
-    assert summary[0]["candidate_run_status"] == "verification_passed"
+    assert summary[0]["candidate_run_status"] == "fit_ready_requires_verification"
     assert summary[0]["controls_water_or_gas_routes"] == "False"
     assert summary[0]["opens_com_ports"] == "False"
     assert summary[0]["writes_coefficients"] == "False"
     assert policy[0]["auto_write_allowed"] == "False"
-    assert policy[0]["evidence_reuse_class"] == "formal_candidate_review_ready"
-    assert {row["term"] for row in coefficients} == {"intercept", "R"}
+    assert policy[0]["fit_all_eligible_samples"] == "True"
+    assert policy[0]["verification_status"] == "missing"
+    assert policy[0]["evidence_reuse_class"] == "fit_ready_requires_independent_verification"
+    assert {row["term"] for row in coefficients} == {"intercept", "R", "R2"}
     assert (output_dir / "candidate_coefficients_report.md").exists()
 
 
@@ -922,6 +1104,7 @@ def test_h2o_candidate_requires_independent_verification_and_keeps_no_write_boun
         component="h2o",
         analyzer_prefix="ga01",
         pressure_check_path=pressure_path,
+        cfg=CandidateCoefficientPolicyConfig(fit_all_eligible_samples=False),
         today="2026-05-25",
     )
     policy = tables["candidate_policy_summary"][0]

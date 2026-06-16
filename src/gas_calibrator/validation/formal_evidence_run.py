@@ -22,6 +22,10 @@ from ..storage.v1_5_evidence.bundle import (
     write_bundle_json,
 )
 from ..storage.v1_5_evidence.repository import apply_migrations, import_bundle
+from .v1_5_run_evidence_status import (
+    build_v1_5_run_evidence_status,
+    render_v1_5_run_evidence_status_markdown,
+)
 
 
 def sha256_file(path: str | Path) -> str:
@@ -211,6 +215,7 @@ def run_formal_evidence_sidecar(
         "formal_package": {},
         "evidence_bundle": {},
         "evidence_bundle_integrity": {},
+        "run_evidence_status": {},
         "database_imported": False,
     }
 
@@ -263,6 +268,43 @@ def run_formal_evidence_sidecar(
         "status": integrity.get("status"),
         "failed_check_count": integrity.get("failed_check_count"),
         "check_count": integrity.get("check_count"),
+    }
+    run_status = build_v1_5_run_evidence_status(
+        run_dir=root,
+        evidence_bundle_json=bundle_path,
+        component=component,
+    )
+    run_status_json = _write_json(destination / "v1_5_run_evidence_status.json", run_status)
+    run_status_md = destination / "v1_5_run_evidence_status.md"
+    run_status_md.write_text(render_v1_5_run_evidence_status_markdown(run_status), encoding="utf-8")
+
+    bundle = build_evidence_bundle(
+        run_dir=root,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        component=component,
+        analyzer_prefix=analyzer_prefix,
+        require_quick_check_artifact=require_quick_check_artifact,
+        today=today,
+    )
+    bundle_path = write_bundle_json(bundle, destination / "evidence_bundle.json")
+    summary["evidence_bundle"] = bundle_summary(bundle)
+    summary["evidence_bundle"]["path"] = str(bundle_path)
+    integrity = verify_evidence_bundle_integrity(bundle)
+    integrity_path = _write_json(destination / "evidence_bundle_integrity.json", integrity)
+    summary["evidence_bundle_integrity"] = {
+        "path": str(integrity_path),
+        "status": integrity.get("status"),
+        "failed_check_count": integrity.get("failed_check_count"),
+        "check_count": integrity.get("check_count"),
+    }
+    summary["run_evidence_status"] = {
+        "json_path": str(run_status_json),
+        "markdown_path": str(run_status_md),
+        "overall_status": run_status.get("overall_status"),
+        "current_stage": run_status.get("current_stage"),
+        "artifact_count": run_status.get("artifact_count"),
+        "physical_boundaries": run_status.get("physical_boundaries"),
     }
 
     if import_db:

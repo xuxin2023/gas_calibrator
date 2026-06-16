@@ -29,7 +29,7 @@ def _inventory_for_plan():
                 "category": "formal_review_evidence",
             },
             {
-                "path": "src/gas_calibrator/tools/export_v1_5_pressure_senco9_no_write_preflight.py",
+                "path": "src/gas_calibrator/tools/export_v1_5_pressure_senco9_evaluation.py",
                 "category": "formal_review_evidence",
             },
             {
@@ -79,7 +79,12 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
 
     assert report.status == "pass"
     assert report.issues == ()
+    assert report.physical_boundaries["not_real_acceptance_evidence"] is True
+    assert report.physical_boundaries["opens_com_ports"] is False
     assert report.formal_runner_steps == ("co2_open_flow_sampling", "h2o_open_flow_sampling")
+    assert report.step_sequence.index("pressure_senco9_no_write_acquisition") < report.step_sequence.index(
+        "pressure_senco9_no_write_review"
+    )
     assert report.step_sequence.index("controlled_component_write_placeholder") < report.step_sequence.index(
         "post_write_reverification_placeholder"
     )
@@ -99,6 +104,59 @@ def test_formal_flow_contract_blocks_component_sampling_before_pressure(tmp_path
 
     assert report.status == "blocked"
     assert any(issue.code == "physical_order_violation" for issue in report.issues)
+
+
+def test_formal_flow_contract_blocks_physical_stage_without_runtime_identity_bound_config(tmp_path):
+    config = _config(tmp_path)
+    plan = build_full_flow_plan(config_path=config, output_dir=tmp_path / "flow", run_id="demo")
+    co2_index = [step.step_id for step in plan.steps].index("pressure_senco9_no_write_acquisition")
+    command = list(plan.steps[co2_index].command)
+    command[command.index("--config") + 1] = str(config)
+    broken_co2 = replace(plan.steps[co2_index], command=tuple(command))
+    plan = replace(plan, steps=(*plan.steps[:co2_index], broken_co2, *plan.steps[co2_index + 1 :]))
+
+    report = validate_v1_5_formal_flow_contract(plan, inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    assert any(issue.code == "physical_stage_not_runtime_identity_bound" for issue in report.issues)
+
+
+def test_formal_flow_contract_blocks_senco9_acquisition_without_transition_contract(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("pressure_senco9_no_write_acquisition")
+    command = list(steps[index].command)
+    command.remove("--control-pressure-points")
+    command[command.index("--pressure-points") + 1] = "ambient,1100,1000,900,800,700"
+    command[command.index("--pressure-control-slew-mode") + 1] = "linear"
+    broken = replace(steps[index], command=tuple(command), expected_outputs=("pressure_only_validation_meta.json",))
+    steps[index] = broken
+
+    report = validate_v1_5_formal_flow_contract(replace(plan, steps=tuple(steps)), inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "pressure_senco9_acquisition_contract_violation" in codes
+    assert "pressure_senco9_point_matrix_incomplete" in codes
+    assert "pressure_senco9_sealed_matrix_must_not_include_ambient" in codes
+    assert "pressure_senco9_slew_contract_violation" in codes
+    assert "pressure_senco9_trace_missing" in codes
+
+
+def test_formal_flow_contract_blocks_senco9_review_that_is_only_preflight(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("pressure_senco9_no_write_review")
+    broken = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.export_v1_5_pressure_senco9_no_write_preflight",
+    )
+    steps[index] = broken
+
+    report = validate_v1_5_formal_flow_contract(replace(plan, steps=tuple(steps)), inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    assert any(issue.code == "pressure_senco9_review_wrong_tool" for issue in report.issues)
 
 
 def test_formal_flow_contract_blocks_diagnostic_tool_in_formal_route(tmp_path):
@@ -121,6 +179,49 @@ def test_formal_flow_contract_blocks_diagnostic_tool_in_formal_route(tmp_path):
 
     assert report.status == "blocked"
     assert any(issue.code == "diagnostic_tool_in_formal_flow" for issue in report.issues)
+
+
+def test_formal_flow_contract_blocks_wrong_component_temperature_order(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    co2_index = [step.step_id for step in plan.steps].index("co2_open_flow_sampling")
+    command = list(plan.steps[co2_index].command)
+    command[command.index("--temperature-order") + 1] = "asc"
+    broken_co2 = replace(plan.steps[co2_index], command=tuple(command))
+    plan = replace(plan, steps=(*plan.steps[:co2_index], broken_co2, *plan.steps[co2_index + 1 :]))
+
+    report = validate_v1_5_formal_flow_contract(plan, inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    assert any(issue.code == "formal_temperature_order_violation" for issue in report.issues)
+
+
+def test_formal_flow_contract_blocks_formal_open_flow_skip_and_diagnostic_flags(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    co2_index = [step.step_id for step in steps].index("co2_open_flow_sampling")
+    h2o_index = [step.step_id for step in steps].index("h2o_open_flow_sampling")
+    co2 = replace(steps[co2_index], command=(*steps[co2_index].command, "--skip-stability-gate"))
+    h2o = replace(steps[h2o_index], command=(*steps[h2o_index].command, "--skip-dewpoint-gate"))
+    steps[co2_index] = co2
+    steps[h2o_index] = h2o
+
+    report = validate_v1_5_formal_flow_contract(replace(plan, steps=tuple(steps)), inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    assert sum(issue.code == "formal_open_flow_forbidden_flag" for issue in report.issues) == 2
+
+
+def test_formal_flow_contract_blocks_relaxed_co2_ratio_gate_policy(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    co2_index = [step.step_id for step in plan.steps].index("co2_open_flow_sampling")
+    command = (*plan.steps[co2_index].command, "--co2-ratio-f-preseal-policy", "warn")
+    broken_co2 = replace(plan.steps[co2_index], command=command)
+    plan = replace(plan, steps=(*plan.steps[:co2_index], broken_co2, *plan.steps[co2_index + 1 :]))
+
+    report = validate_v1_5_formal_flow_contract(plan, inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    assert any(issue.code == "formal_co2_ratio_gate_policy_violation" for issue in report.issues)
 
 
 def test_formal_flow_contract_requires_post_write_reverification(tmp_path):
@@ -155,5 +256,7 @@ def test_export_formal_flow_contract_writes_json_and_markdown(tmp_path):
     assert rc == 0
     payload = json.loads((out / "v1_5_formal_flow_contract.json").read_text(encoding="utf-8"))
     assert payload["status"] == "pass"
+    assert payload["physical_boundaries"]["not_real_acceptance_evidence"] is True
     text = (out / "v1_5_formal_flow_contract.md").read_text(encoding="utf-8")
     assert "POST_WRITE_REVERIFY" in text
+    assert "not_real_acceptance_evidence" in text

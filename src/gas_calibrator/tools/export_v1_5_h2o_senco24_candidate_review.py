@@ -37,6 +37,18 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
             "low-water anchors. Can be repeated. Targets remain dewpoint/pressure-derived, not zeroed."
         ),
     )
+    parser.add_argument(
+        "--dry-anchor-min-temp-c",
+        type=float,
+        default=None,
+        help="Optional minimum temperature setpoint for CO2-route dry-gas anchors.",
+    )
+    parser.add_argument(
+        "--dry-anchor-max-temp-c",
+        type=float,
+        default=None,
+        help="Optional maximum temperature setpoint for CO2-route dry-gas anchors.",
+    )
     parser.add_argument("--output-dir", required=True, help="Output directory for candidate review artifacts.")
     parser.add_argument(
         "--database-sidecar-json",
@@ -89,6 +101,15 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Optional read-only GETCO component snapshot JSON, e.g. old_component_coefficients_snapshot.json.",
     )
     parser.add_argument(
+        "--require-component-snapshot-for-layer-review",
+        action="store_true",
+        default=False,
+        help=(
+            "Require a read-only GETCO6 snapshot before marking SENCO2/SENCO4 as write candidates. "
+            "Use this for formal reviews when SENCO6 may not have been neutralized before acquisition."
+        ),
+    )
+    parser.add_argument(
         "--postwrite-verified-device-id",
         action="append",
         default=[],
@@ -102,6 +123,66 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         action="append",
         default=[],
         help="Path to post-write verification evidence artifact, e.g. summary markdown. Can be repeated.",
+    )
+    parser.add_argument(
+        "--allow-pressure-qc-failed-device-id",
+        action="append",
+        default=[],
+        help=(
+            "Analyzer device ID whose pressure-QC-failed MODE2 samples may still provide H2O ratio/"
+            "temperature evidence for component fitting. This does not mark pressure accepted."
+        ),
+    )
+    parser.add_argument(
+        "--fit-temperature-source",
+        choices=("analyzer_chamber", "digital_thermometer"),
+        default="analyzer_chamber",
+        help=(
+            "Temperature source used by the H2O fit. Use digital_thermometer only for a "
+            "post-temperature-repair review when analyzer chamber T was known bad during acquisition."
+        ),
+    )
+    parser.add_argument(
+        "--fit-objective",
+        choices=("absolute_mmol", "sqrt_relative_mmol_floor", "relative_mmol_floor"),
+        default="absolute_mmol",
+        help=(
+            "Least-squares objective for SENCO2/SENCO4. Use relative_mmol_floor when the review "
+            "must minimize relative H2O error above the configured reference floor."
+        ),
+    )
+    parser.add_argument(
+        "--factory-signal-health-summary-csv",
+        default=None,
+        help=(
+            "Optional factory-signal health summary CSV. When provided, devices whose gate is not "
+            "pass_factory_signal_health are blocked from H2O candidate write review."
+        ),
+    )
+    parser.add_argument(
+        "--state-transfer-summary-csv",
+        default=None,
+        help=(
+            "Optional H2O state-transfer CSV, for example "
+            "h2o_s24_post_s6_state_delta_by_device_point.csv. When provided, devices whose "
+            "S2/S4 raw replay movement cannot transfer between calibration and verification states "
+            "are blocked from write review."
+        ),
+    )
+    parser.add_argument(
+        "--state-transfer-max-raw-excess-shift-mmol",
+        type=float,
+        default=0.1,
+        help=(
+            "Maximum allowed absolute raw S2/S4 replay movement in excess of the live reference "
+            "H2O movement between states."
+        ),
+    )
+    parser.add_argument(
+        "--state-transfer-max-post-s6-relative-error-pct",
+        type=float,
+        default=2.0,
+        help="Maximum allowed post-S6 state-transfer relative error percentage.",
     )
     return parser.parse_args(list(argv) if argv is not None else None)
 
@@ -168,10 +249,24 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             manual_device_block_reasons=_parse_manual_blocks(args.manual_device_block or ()),
             manual_point_block_reasons=_parse_manual_point_blocks(args.manual_point_block or ()),
             component_snapshot=_load_component_snapshot(args.component_snapshot_json),
+            require_component_snapshot_for_layer_review=bool(args.require_component_snapshot_for_layer_review),
             postwrite_verified_device_ids=tuple(args.postwrite_verified_device_id or ()),
             postwrite_verification_artifacts=tuple(args.postwrite_verification_artifact or ()),
             additional_h2o_roots=tuple(args.additional_h2o_run_dir or ()),
             dry_anchor_roots=tuple(args.dry_anchor_run_dir or ()),
+            dry_anchor_min_temp_c=args.dry_anchor_min_temp_c,
+            dry_anchor_max_temp_c=args.dry_anchor_max_temp_c,
+            allow_pressure_qc_failed_device_ids=tuple(args.allow_pressure_qc_failed_device_id or ()),
+            fit_temperature_source=str(args.fit_temperature_source or "analyzer_chamber"),
+            fit_objective=str(args.fit_objective or "absolute_mmol"),
+            factory_signal_health_summary_csv=args.factory_signal_health_summary_csv,
+            state_transfer_summary_csv=args.state_transfer_summary_csv,
+            state_transfer_max_raw_excess_shift_mmol=float(
+                args.state_transfer_max_raw_excess_shift_mmol
+            ),
+            state_transfer_max_post_s6_relative_error_pct=float(
+                args.state_transfer_max_post_s6_relative_error_pct
+            ),
         )
         outputs = write_h2o_senco24_candidate_report(
             run_dir=args.run_dir,

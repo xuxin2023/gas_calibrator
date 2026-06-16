@@ -58,6 +58,9 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["analyzer_live_snapshot"]["active_frame_max_anchor_delta_ms"] == 250.0
     assert cfg["workflow"]["analyzer_live_snapshot"]["active_frame_right_match_max_ms"] == 120.0
     assert cfg["workflow"]["analyzer_live_snapshot"]["active_frame_stale_ms"] == 500.0
+    assert cfg["workflow"]["analyzer_live_snapshot"]["active_frame_recovery_enabled"] is True
+    assert cfg["workflow"]["analyzer_live_snapshot"]["active_frame_recovery_wait_s"] == 1.2
+    assert cfg["workflow"]["analyzer_live_snapshot"]["active_frame_recovery_poll_s"] == 0.05
     assert cfg["workflow"]["analyzer_live_snapshot"]["active_drain_poll_s"] == 0.05
     assert cfg["workflow"]["analyzer_live_snapshot"]["anchor_match_enabled"] is True
     assert cfg["workflow"]["sampling"]["interval_s"] == 1.0
@@ -298,6 +301,7 @@ def test_analyzer_chain_isolation_4ch_enables_focused_quality_guards() -> None:
     assert cfg["workflow"]["stability"]["co2_route"]["first_point_preseal_soak_s"] == 180
     assert cfg["workflow"]["stability"]["co2_route"]["post_h2o_zero_ppm_soak_s"] == 900
     assert cfg["workflow"]["stability"]["temperature"]["analyzer_chamber_temp_span_c"] == 0.08
+    assert cfg["workflow"]["stability"]["temperature"]["near_target_continue_margin_c"] == 1.0
     assert cfg["valves"]["co2_path_group2"] == 16
     assert cfg["valves"]["co2_map_group2"]["500"] == 24
 
@@ -317,6 +321,7 @@ def test_default_config_shortens_h2o_preseal_soak_to_30s() -> None:
     assert cfg["workflow"]["stability"]["co2_route"]["post_h2o_zero_ppm_soak_s"] == 900
     assert cfg["workflow"]["stability"]["dewpoint"]["rh_match_tol_pct"] == 3.3
     assert cfg["workflow"]["stability"]["temperature"]["analyzer_chamber_temp_span_c"] == 0.08
+    assert cfg["workflow"]["stability"]["temperature"]["near_target_continue_margin_c"] == 1.0
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_max_total_wait_s"] == 1080.0
     assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_enabled"] is True
     assert cfg["workflow"]["sampling"]["pressure_gauge_continuous_enabled"] is True

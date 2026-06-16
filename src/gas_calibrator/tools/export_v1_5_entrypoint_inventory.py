@@ -8,7 +8,15 @@ import json
 from pathlib import Path
 from typing import Iterable, Optional
 
-from ..validation.v1_5_entrypoint_inventory import discover_v1_5_entrypoints, summarize_entrypoints
+from ..validation.v1_5_entrypoint_inventory import (
+    CANONICAL_FORMAL_PATH,
+    audit_v1_5_isolated_reference_integrity,
+    build_v1_5_workspace_surface_rows,
+    discover_v1_5_entrypoints,
+    guardrailed_entrypoint_rows,
+    summarize_entrypoints,
+    validate_v1_5_active_surface_policy,
+)
 
 
 def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
@@ -31,7 +39,12 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def _write_markdown(path: Path, rows: list[dict], summary: dict[str, int]) -> None:
+def _write_markdown(
+    path: Path,
+    rows: list[dict],
+    summary: dict[str, int],
+    guardrails: list[dict[str, str]],
+) -> None:
     lines = [
         "# V1.5 formal entrypoint inventory",
         "",
@@ -45,11 +58,45 @@ def _write_markdown(path: Path, rows: list[dict], summary: dict[str, int]) -> No
         "- `controlled_write` entries require explicit coefficient-write authorization and readback evidence.",
         "- Gas analyzer COM ports are transport paths; device identity must remain MODE2/device-ID based.",
         "",
-        "## Category Summary",
+        "## Canonical V1.5 Formal Path",
         "",
-        "| Category | Count |",
-        "|---|---:|",
+        "Use this section as the first navigation layer when the repository feels noisy. "
+        "It is a map of the validated V1.5 formal calibration chain, not a command queue to run blindly.",
+        "",
+        "| Stage | Canonical entrypoint | Status | Physical meaning | Safety boundary |",
+        "|---|---|---|---|---|",
     ]
+    for item in CANONICAL_FORMAL_PATH:
+        lines.append(
+            f"| `{item['stage']}` | `{item['entrypoint']}` | `{item['status']}` | "
+            f"{item['physical_meaning']} | {item['safety_boundary']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Completion Matrix",
+            "",
+            "| Layer | Current V1.5 state | Verification evidence | Remaining boundary |",
+            "|---|---|---|---|",
+            "| Full-flow order | Implemented as offline/supervised orchestration. | `tests/test_v1_5_full_flow_orchestration.py` | Do not treat the planner as an implicit real-device runner. |",
+            "| Identity and GETCO snapshot | Implemented as read-only evidence. | Inventory and GETCO snapshot tooling. | Analyzer identity is the device ID, not COM alias or GA label. |",
+            "| Pressure channel | Validation, completion package, and controlled SENCO9 write tooling exist. | Pressure-channel validation/completion tests. | CO2/H2O fitting must not absorb pressure-channel errors. |",
+            "| Temperature channel | Review tooling exists from evidence. | Temperature-channel review tooling and full-flow gate. | Temperature coefficient calibration is separate from gas/water fitting. |",
+            "| CO2 open-flow sampling | Formal runner exists and is classified as route/COM risk. | Open-flow artifacts, candidate, report, and reverify tests. | Only clean open-flow A-grade rows enter CO2 main fitting. |",
+            "| H2O open-flow sampling | Formal runner exists and is classified as route/COM risk. | H2O candidate/review/report tests and evidence artifacts. | Dry-gas low-water evidence must stay separate from CO2 zero-gas evidence. |",
+            "| Candidate coefficients | Offline review/fitting tools exist. | Candidate write review and fit-quality tests. | Diagnostic, sealed-pressure, and rejected rows stay out of formal fit by default. |",
+            "| Controlled writes | SENCO write tools exist as manually authorized entrypoints. | Controlled-write tests and inventory risk flags. | Never run controlled writes from archive/report/review automation. |",
+            "| Post-write reverify | Reverify exporter exists. | Post-write reverify tests. | A write is not formally complete until reverify evidence exists. |",
+            "| Evidence, database, report | Evidence package, archive closure, registry, and report tools exist. | Evidence registry, archive closure, report tests. | Formal release still needs run-specific approval and uncertainty evidence. |",
+            "| Operator UI | Review/sidecar surfaces exist. | UI/review-surface tests. | New V1.5 live UI is still pending and must stay no-write by default. |",
+            "",
+            "## Category Summary",
+            "",
+            "| Category | Count |",
+            "|---|---:|",
+        ]
+    )
     for category, count in summary.items():
         lines.append(f"| `{category}` | {count} |")
 
@@ -59,10 +106,29 @@ def _write_markdown(path: Path, rows: list[dict], summary: dict[str, int]) -> No
             "## Formal-Use Categories",
             "",
             "- `formal_runner`: candidate production runners for V1.5 physical operations.",
+            "- `formal_sampling_worker`: per-point open-flow workers invoked by canonical CO2/H2O queue runners.",
             "- `formal_review_evidence`: offline review, package, report, fit, and evidence exporters.",
             "- `controlled_write`: authorized write tools only; never run as background review steps.",
             "- `diagnostic_only`: engineering probes and investigations; preserve as evidence but keep out of formal acceptance by default.",
             "- `advanced_qc`, `evidence_database`, `full_flow_orchestration`, `parameter_governance`, `ui_review`: support layers.",
+            "",
+            "## Do Not Start Here",
+            "",
+            "These entrypoints are useful, but they are not the first step for a formal run. "
+            "They are separated so diagnostic probes, write tools, and noncanonical runners do not get mistaken for the V1.5 backbone.",
+            "",
+            "| Guardrail | Category | Risk | Path | Allowed use |",
+            "|---|---|---|---|---|",
+        ]
+    )
+    for row in guardrails:
+        lines.append(
+            f"| `{row['guardrail']}` | `{row['category']}` | `{row['risk_level']}` | "
+            f"`{row['path']}` | {row['allowed_use']} |"
+        )
+
+    lines.extend(
+        [
             "",
             "## Entrypoints",
             "",
@@ -80,6 +146,205 @@ def _write_markdown(path: Path, rows: list[dict], summary: dict[str, int]) -> No
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
+def _write_convergence_report(
+    path: Path,
+    rows: list[dict],
+    summary: dict[str, int],
+    guardrails: list[dict[str, str]],
+) -> None:
+    guardrail_counts: dict[str, int] = {}
+    for row in guardrails:
+        guardrail = row["guardrail"]
+        guardrail_counts[guardrail] = guardrail_counts.get(guardrail, 0) + 1
+
+    category_rows = [
+        ("formal_runner", "正式路线 runner", "只用于开放流通 CO2/H2O 等真实物理采样入口；运行前必须确认设备、气路、水路和授权。"),
+        ("full_flow_orchestration", "正式流程编排", "用于确认 V1.5 顺序和证据合同；默认不打开 COM，不直接控制设备。"),
+        ("formal_pressure_no_write_runner", "压力 no-write 跑器", "只用于压力通道验证/校准证据；压力 P 独立处理，不能混入 CO2/H2O 主拟合。"),
+        ("formal_review_evidence", "离线证据和评审", "用于候选系数、报告、归档、数据库和复核；不能替代真实采样。"),
+        ("controlled_write", "受控写入", "只在评审通过后手动授权执行，必须有旧值、候选值、读回和复验。"),
+        ("diagnostic_only", "工程诊断", "可以保留证据，但默认不进入 formal acceptance，也不进入 CO2/H2O 正式拟合。"),
+        ("legacy_v1_reference", "旧 V1 参考入口", "只保留历史算法和审计参考；不要用于启动 V1.5 正式校准。"),
+        ("evidence_database", "证据数据库", "保存索引、hash、追溯关系和查询能力；原始文件仍是证据包的一部分。"),
+        ("advanced_qc", "高级质控", "解释稳定性、湿度、压力、工厂信号和根因；阈值调整必须留痕。"),
+        ("ui_review", "只读/评审界面", "显示流程状态和证据，不应暗示可直接真实控制设备。"),
+        ("test_gate", "测试门禁", "保护 V1.5 合同、证据口径和防误用规则。"),
+    ]
+
+    lines = [
+        "# V1.5 文件收敛报告",
+        "",
+        "本报告由 `python -m gas_calibrator.tools.export_v1_5_entrypoint_inventory` 自动生成。",
+        "它不是第二套入口清单，而是从同一份 inventory 数据压缩出来的中文导航页。",
+        "",
+        "## 一句话结论",
+        "",
+        f"- 当前识别到 V1.5 相关入口/模块/测试共 `{len(rows)}` 个。",
+        f"- 正式主路以 `{len(CANONICAL_FORMAL_PATH)}` 个 canonical 阶段为准。",
+        f"- 真实路线 runner 只有 `{summary.get('formal_runner', 0)}` 个分类入口，其他多数文件是评审、证据、测试或诊断支撑。",
+        f"- 需要防误用收纳的入口共 `{len(guardrails)}` 个。",
+        "- 本次导出不打开 COM、不控制气路/水路/压力、不写 SENCO。",
+        "",
+        "## 先从这里开始",
+        "",
+        "| 顺序 | 阶段 | 入口 | 用途 |",
+        "|---:|---|---|---|",
+    ]
+    for index, item in enumerate(CANONICAL_FORMAL_PATH, start=1):
+        lines.append(
+            f"| {index} | `{item['stage']}` | `{item['entrypoint']}` | {item['physical_meaning']} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 文件分组",
+            "",
+            "| 分组 | 数量 | 使用原则 |",
+            "|---|---:|---|",
+        ]
+    )
+    for category, label, rule in category_rows:
+        lines.append(f"| {label} (`{category}`) | {summary.get(category, 0)} | {rule} |")
+
+    lines.extend(
+        [
+            "",
+            "## 不要从这里启动正式流程",
+            "",
+            "| 防误用规则 | 数量 | 含义 |",
+            "|---|---:|---|",
+            f"| `authorized_write_only` | {guardrail_counts.get('authorized_write_only', 0)} | 只能在候选系数评审和授权后写入，不能被报告或归档自动调用。 |",
+            f"| `diagnostic_not_acceptance` | {guardrail_counts.get('diagnostic_not_acceptance', 0)} | 只能用于工程诊断，默认不能作为正式验收或正式拟合数据。 |",
+            f"| `review_before_formal_use` | {guardrail_counts.get('review_before_formal_use', 0)} | 有真实路线能力但不在 canonical 主路，使用前必须人工复核。 |",
+            f"| `pressure_no_write_only` | {guardrail_counts.get('pressure_no_write_only', 0)} | 只用于压力通道 no-write 验证或校准证据，不能作为 CO2/H2O 拟合入口。 |",
+            f"| `legacy_v1_reference_only` | {guardrail_counts.get('legacy_v1_reference_only', 0)} | 旧 V1 入口只作为历史参考，不用于 V1.5 正式流程。 |",
+            f"| `archive_housekeeping_only` | {guardrail_counts.get('archive_housekeeping_only', 0)} | 只做整理或归档辅助，不是校准数据生成入口。 |",
+            f"| `classification_required` | {guardrail_counts.get('classification_required', 0)} | 若出现，说明新增文件还没有明确身份，不能投入使用。 |",
+            "",
+            "## 校准物理边界",
+            "",
+            "- CO2 主拟合和 H2O 主拟合都必须使用开放流通的干净、稳定、可追溯数据。",
+            "- 压力 P 是分析仪内部补偿输入，应独立验证和处理，不能让 CO2/H2O 系数吸收压力错误。",
+            "- CO2 零气锚点与 H2O 干气低水锚点不是同一个物理概念，不能因为都在低端就混用。",
+            "- 诊断压力点、封路压力点、VENT-hold、dynamic pressure 只能作为工程诊断，默认不能进入正式 CO2/H2O 拟合。",
+            "- 写入 SENCO 前必须有旧系数快照、候选系数、写入命令、读回值、写后复验和报告证据。",
+            "",
+            "## 后续修改规则",
+            "",
+            "1. 新增 V1.5 文件时，先判断它属于 canonical 主路、离线证据、受控写入、诊断、UI、数据库还是测试。",
+            "2. 如果它能打开 COM、控制阀、控制 PACE、或写 SENCO，必须在 inventory 中显式体现风险。",
+            "3. 如果它只是诊断或历史脚本，保留证据但不要接入正式主流程。",
+            "4. 如果它会影响 CO2/H2O 拟合，必须说明所用数据的物理意义、锚点来源和 QC 资格。",
+            "5. 更新入口分类后，重新导出本报告并运行 V1.5 离线测试。",
+        ]
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8-sig")
+
+
+def _write_active_surface_report(path: Path, rows: list[dict], policy_issues: list[dict]) -> None:
+    blocker_count = sum(1 for issue in policy_issues if issue.get("severity") == "blocker")
+    review_count = sum(1 for issue in policy_issues if issue.get("severity") == "review")
+    lines = [
+        "# V1.5 活跃工作面与隔离清单",
+        "",
+        "本报告由 `python -m gas_calibrator.tools.export_v1_5_entrypoint_inventory` 自动生成。",
+        "它不是删除清单，而是给 V1.5 正式版本建立一层导航边界：哪些文件属于当前活跃面，哪些只能作为历史参考、工程诊断或归档候选。",
+        "",
+        "## 原则",
+        "",
+        "- V1.5 是当前正式校准方向；V1/V2 只保留为历史算法、审计和对照资料。",
+        "- 诊断工具可以保留，但不能作为正式 acceptance、正式 CO2/H2O 拟合或默认入口。",
+        "- 临时配置、现场 observed/generated 配置和根目录运行日志不得作为默认配置直接复用。",
+        "- 本报告只做离线文件识别；不打开 COM、不控制气路/水路/压力、不写 SENCO。",
+        "",
+        "## 隔离/归档候选",
+        "",
+        "| Surface | Status | Action | Count | Path | Reason | Examples |",
+        "|---|---|---|---:|---|---|---|",
+    ]
+    for row in rows:
+        examples = "<br>".join(f"`{item}`" for item in row.get("examples", [])[:8])
+        lines.append(
+            f"| `{row['surface']}` | `{row['status']}` | `{row['action']}` | "
+            f"{int(row.get('file_count') or 0)} | `{row['path']}` | {row.get('reason') or ''} | {examples} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 默认入口策略校验",
+            "",
+            f"- blocker：`{blocker_count}`",
+            f"- review：`{review_count}`",
+            "",
+            "| Severity | Rule | Path | Message |",
+            "|---|---|---|---|",
+        ]
+    )
+    if policy_issues:
+        for issue in policy_issues:
+            lines.append(
+                f"| `{issue['severity']}` | `{issue['rule']}` | `{issue['path']}` | {issue['message']} |"
+            )
+    else:
+        lines.append("| `ready` | `none` | `` | V1.5 canonical path is not pointing at isolated surfaces. |")
+
+    lines.extend(
+        [
+            "",
+            "## 建议执行顺序",
+            "",
+            "1. 先使用正式入口清单中的 canonical V1.5 主线查流程。",
+            "2. 遇到 legacy V1/V2 文件，只作为算法或审计参考，不从那里启动正式流程。",
+            "3. 遇到 diagnostic 工具，必须保留 `diagnostic_only` 语义，不进入正式拟合。",
+            "4. 遇到 observed/generated/current 配置，先人工复核设备 ID、串口映射、S5-S9 中性化、压力/温度前置状态，再决定是否复制为正式 site config。",
+            "5. 根目录临时日志和 CSV 先归档到 `logs/` 或证据包，不直接删除。",
+        ]
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8-sig")
+
+
+def _write_isolation_reference_report(path: Path, issues: list[dict]) -> None:
+    blocker_count = sum(1 for issue in issues if issue.get("severity") == "blocker")
+    review_count = sum(1 for issue in issues if issue.get("severity") == "review")
+    lines = [
+        "# V1.5 isolation reference audit",
+        "",
+        "Generated by `python -m gas_calibrator.tools.export_v1_5_entrypoint_inventory`.",
+        "This report checks whether files classified as diagnostic, legacy, archive, or unclassified are still referenced by source code.",
+        "",
+        "## Safety Boundary",
+        "",
+        "- This is an offline source audit only.",
+        "- It does not open COM ports, control gas/water routes, control pressure, or write SENCO.",
+        "- A `blocker` means an active V1.5 runtime surface references an isolated entrypoint.",
+        "- A `review` means the reference may be legitimate audit/history support, but it must not be mistaken for a formal runtime path.",
+        "",
+        "## Summary",
+        "",
+        f"- blocker: `{blocker_count}`",
+        f"- review: `{review_count}`",
+        "",
+        "## Issues",
+        "",
+        "| Severity | Isolated entry | Isolated category | Reference | Reference category | Token | Meaning |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    if issues:
+        for issue in issues:
+            lines.append(
+                f"| `{issue['severity']}` | `{issue['isolated_path']}` | `{issue['isolated_category']}` | "
+                f"`{issue['reference_path']}` | `{issue['reference_category']}` | `{issue['matched_token']}` | "
+                f"{issue['message']} |"
+            )
+    else:
+        lines.append("| `ready` | `` | `` | `` | `` | `` | No isolated entrypoint references were found in source code. |")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
     repo_root = Path(args.repo_root).resolve()
@@ -89,20 +354,57 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     entries = discover_v1_5_entrypoints(repo_root)
     rows = [entry.to_json() for entry in entries]
     summary = summarize_entrypoints(entries)
+    guardrails = guardrailed_entrypoint_rows(entries)
+    active_surface_rows = [row.to_json() for row in build_v1_5_workspace_surface_rows(repo_root)]
+    active_surface_policy_issues = [
+        issue.to_json() for issue in validate_v1_5_active_surface_policy(repo_root, entries=entries)
+    ]
+    isolation_reference_issues = [
+        issue.to_json() for issue in audit_v1_5_isolated_reference_integrity(repo_root, entries=entries)
+    ]
 
     payload = {
         "schema": "v1_5_entrypoint_inventory_v1",
         "repo_root": str(repo_root),
         "entrypoint_count": len(rows),
+        "canonical_formal_path": list(CANONICAL_FORMAL_PATH),
+        "do_not_start_here": guardrails,
+        "active_surface_boundaries": active_surface_rows,
+        "active_surface_policy": {
+            "status": (
+                "blocked"
+                if any(issue["severity"] == "blocker" for issue in active_surface_policy_issues)
+                else "ready_with_review_items"
+                if active_surface_policy_issues
+                else "ready"
+            ),
+            "issues": active_surface_policy_issues,
+        },
+        "isolation_reference_audit": {
+            "status": (
+                "blocked"
+                if any(issue["severity"] == "blocker" for issue in isolation_reference_issues)
+                else "ready_with_review_items"
+                if isolation_reference_issues
+                else "ready"
+            ),
+            "issues": isolation_reference_issues,
+        },
         "category_summary": summary,
         "entries": rows,
     }
     json_path = output_dir / "v1_5_entrypoint_inventory.json"
     csv_path = output_dir / "v1_5_entrypoint_inventory.csv"
     md_path = output_dir / "v1_5_formal_entrypoints.md"
+    convergence_path = output_dir / "v1_5_file_convergence_report.md"
+    active_surface_path = output_dir / "v1_5_active_surface_report.md"
+    isolation_reference_path = output_dir / "v1_5_isolation_reference_audit.md"
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     _write_csv(csv_path, rows)
-    _write_markdown(md_path, rows, summary)
+    _write_markdown(md_path, rows, summary, guardrails)
+    _write_convergence_report(convergence_path, rows, summary, guardrails)
+    _write_active_surface_report(active_surface_path, active_surface_rows, active_surface_policy_issues)
+    _write_isolation_reference_report(isolation_reference_path, isolation_reference_issues)
 
     print(
         json.dumps(
@@ -112,6 +414,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "json": str(json_path),
                 "csv": str(csv_path),
                 "markdown": str(md_path),
+                "convergence_report": str(convergence_path),
+                "active_surface_report": str(active_surface_path),
+                "isolation_reference_report": str(isolation_reference_path),
+                "isolation_reference_status": payload["isolation_reference_audit"]["status"],
             },
             ensure_ascii=False,
             indent=2,

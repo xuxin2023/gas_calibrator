@@ -36,10 +36,12 @@ H2O_RAW_EVIDENCE_FIELDS = (
     "dewpoint_c",
     "h2o_dry_ppmv",
     "h2o_wet_ppmv",
-    "ga01_h2o_signal",
-    "ga01_h2o_ratio_f",
-    "ga01_h2o_mmol",
+    "ga*_h2o_signal",
+    "ga*_h2o_ratio_f",
+    "ga*_h2o_mmol",
 )
+H2O_RAW_BASE_FIELDS = ("dewpoint_c", "h2o_dry_ppmv", "h2o_wet_ppmv")
+H2O_RAW_ANALYZER_SUFFIXES = ("h2o_signal", "h2o_ratio_f", "h2o_mmol")
 
 
 def _now_iso() -> str:
@@ -104,6 +106,34 @@ def _clean_row(row: Mapping[str, Any]) -> Dict[str, Any]:
     return {str(key): value for key, value in row.items()}
 
 
+def _h2o_raw_field_evidence(raw_headers: Sequence[str]) -> Dict[str, Any]:
+    headers = {str(item or "").strip().lower() for item in raw_headers}
+    present_base = [field for field in H2O_RAW_BASE_FIELDS if field in headers]
+    missing_base = [field for field in H2O_RAW_BASE_FIELDS if field not in headers]
+    analyzer_fields_by_suffix: Dict[str, List[str]] = {suffix: [] for suffix in H2O_RAW_ANALYZER_SUFFIXES}
+    for header in sorted(headers):
+        match = re.match(r"^(ga\d{2,})_(h2o_signal|h2o_ratio_f|h2o_mmol)$", header)
+        if match:
+            analyzer_fields_by_suffix[match.group(2)].append(header)
+    missing_analyzer_suffixes = [
+        suffix for suffix, fields in analyzer_fields_by_suffix.items() if not fields
+    ]
+    present_analyzer_fields = [
+        field for fields in analyzer_fields_by_suffix.values() for field in fields
+    ]
+    return {
+        "required": list(H2O_RAW_EVIDENCE_FIELDS),
+        "present": present_base + present_analyzer_fields,
+        "missing": missing_base + [f"ga*_{suffix}" for suffix in missing_analyzer_suffixes],
+        "present_base": present_base,
+        "missing_base": missing_base,
+        "present_analyzer_fields": present_analyzer_fields,
+        "missing_analyzer_suffixes": missing_analyzer_suffixes,
+        "analyzer_fields_by_suffix": analyzer_fields_by_suffix,
+        "complete": not missing_base and not missing_analyzer_suffixes,
+    }
+
+
 def _primary_pressure_reference(reference: Mapping[str, Any]) -> Mapping[str, Any]:
     if isinstance(reference.get("primary"), Mapping):
         return reference["primary"]  # type: ignore[index]
@@ -124,6 +154,16 @@ def _artifact_role(path: Path, *, plan_path: Optional[Path], pressure_reference_
     parent = path.parent.name.lower()
     if name.startswith("samples_") and name.endswith(".csv"):
         return "raw_samples"
+    if (
+        "optical_root_cause" in name
+        or "光学根因" in path.name
+        or "factory_signal_health" in name
+        or "status_register" in name
+        or "invalid_frame" in name
+    ):
+        return "diagnostic_analysis"
+    if name.startswith("v1_5_recommendation_closure"):
+        return "formal_analysis"
     if "pressure_channel_quick_check" in name or "pressure_quick_check" in name:
         return "pressure_channel_quick_check"
     if "package_summary" in name:
@@ -132,6 +172,8 @@ def _artifact_role(path: Path, *, plan_path: Optional[Path], pressure_reference_
         "candidate_coefficient_review" in name
         or "co2_senco_pair_review" in name
         or "co2_senco_pair_model_scope" in name
+        or "h2o_senco24_candidate_review" in name
+        or "h2o_senco24_measurement_contract" in name
     ):
         return "candidate_coefficient_review"
     if name in {"post_write_reverification_review.json", "post_write_reverification_review.md"}:
@@ -144,14 +186,32 @@ def _artifact_role(path: Path, *, plan_path: Optional[Path], pressure_reference_
         return "evidence_bundle"
     if name == "evidence_bundle_integrity.json":
         return "evidence_bundle_integrity"
+    if name == "v1_5_run_evidence_status.json":
+        return "run_evidence_status"
+    if name == "v1_5_run_evidence_status.md":
+        return "run_evidence_status_report"
+    if name == "v1_5_calibration_capability.json":
+        return "calibration_capability"
+    if name == "v1_5_calibration_capability.md":
+        return "calibration_capability_report"
     if name == "report_model.json":
         return "report_model"
+    if name == "per_device_certificate_manifest.json":
+        return "per_device_certificate_manifest"
+    if name == "per_device_certificate_artifact_hashes.csv":
+        return "per_device_certificate_artifact_hashes"
+    if name in {"queue_abort_exclusion.csv", "queue_abort_exclusion.json"}:
+        return "h2o_queue_exclusion"
     if name.startswith("run_report.") and path.suffix.lower() in {".md", ".docx", ".pdf"}:
         return "run_report"
     if name.startswith("technical_report.") and path.suffix.lower() in {".md", ".docx", ".pdf"}:
         return "technical_report"
     if name.startswith("formal_calibration_report.") and path.suffix.lower() in {".md", ".docx", ".pdf"}:
         return "formal_calibration_report"
+    if parent == "per_device_certificates" and "_calibration_certificate." in name:
+        return "per_device_calibration_certificate"
+    if parent == "per_device_certificates" and "_verification_certificate." in name:
+        return "per_device_verification_certificate"
     if "controlled_write" in parent or "controlled_write" in name or "post_senco1_write" in name:
         return "coefficient_write_log"
     if "open_flow" in parent or "open_flow" in name:
@@ -181,12 +241,19 @@ def _discover_artifact_paths(
     plan_path: Optional[Path],
     pressure_reference_path: Optional[Path],
     pressure_check_path: Optional[Path] = None,
+    exclude_dirs: Sequence[Path] = (),
 ) -> List[Path]:
     extensions = {".csv", ".json", ".xlsx", ".md", ".txt", ".log", ".pdf", ".docx"}
+    excluded = [path.resolve() for path in exclude_dirs]
     paths: List[Path] = []
     for path in run_dir.rglob("*"):
+        resolved = path.resolve()
+        if any(resolved == excluded_dir or excluded_dir in resolved.parents for excluded_dir in excluded):
+            continue
+        if path.name.lower() in {"evidence_bundle.json", "evidence_bundle_integrity.json"}:
+            continue
         if path.is_file() and path.suffix.lower() in extensions:
-            paths.append(path.resolve())
+            paths.append(resolved)
     for extra in (plan_path, pressure_reference_path, pressure_check_path):
         if extra is not None and extra.exists():
             paths.append(extra.resolve())
@@ -216,6 +283,7 @@ def _build_file_rows(
     plan_path: Optional[Path],
     pressure_reference_path: Optional[Path],
     pressure_check_path: Optional[Path] = None,
+    exclude_dirs: Sequence[Path] = (),
 ) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for path in _discover_artifact_paths(
@@ -223,6 +291,7 @@ def _build_file_rows(
         plan_path=plan_path,
         pressure_reference_path=pressure_reference_path,
         pressure_check_path=pressure_check_path,
+        exclude_dirs=exclude_dirs,
     ):
         role = _artifact_role(path, plan_path=plan_path, pressure_reference_path=pressure_reference_path)
         stat = path.stat()
@@ -521,6 +590,7 @@ def _target_value(row: Mapping[str, Any], component: str) -> Optional[float]:
     if component == "h2o":
         keys = (
             "target_h2o_mmol",
+            "h2o_mmol_target",
             "h2o_target_mmol",
             "target_value",
             "ppm_H2O_Dew",
@@ -654,21 +724,36 @@ def _build_qc_rows(
             }
         )
 
+    seen_pressure_reference_qc = set()
     for row in tables.get("pressure_reference_traceability", []):
         status = str(row.get("status") or "")
+        subject_id = str(row.get("device_id") or "COM22")
+        dedupe_key = (
+            subject_id,
+            "pressure_reference_traceability",
+            status,
+            json.dumps(_clean_row(row), ensure_ascii=False, sort_keys=True, default=str),
+        )
+        if dedupe_key in seen_pressure_reference_qc:
+            continue
+        seen_pressure_reference_qc.add(dedupe_key)
         rows.append(
             {
-                "id": stable_id("qc", run_db_id, "pressure_reference_traceability"),
+                "id": stable_id("qc", run_db_id, "pressure_reference_traceability", subject_id),
                 "run_db_id": run_db_id,
                 "scope": "traceability",
-                "subject_id": str(row.get("device_id") or "COM22"),
+                "subject_id": subject_id,
                 "rule_name": "pressure_reference_traceability",
                 "status": status,
                 "severity": "error" if status != "pass" else "info",
                 "reasons": _split_reasons(row.get("reasons")),
                 "metrics": _clean_row(row),
                 "source_artifact_id": source_artifacts.get("pressure_reference_snapshot"),
-                "metadata": {"physical_scope": "COM22_certificate"},
+                "metadata": {
+                    "physical_scope": "COM22_certificate",
+                    "deduped_shared_reference": True,
+                    "source_row_count": len(tables.get("pressure_reference_traceability", [])),
+                },
             }
         )
     return rows
@@ -723,18 +808,44 @@ def _build_coefficient_snapshots(
         path = Path(str(file_row.get("path") or ""))
         payload = _read_small_json(path) if path.suffix.lower() == ".json" and path.exists() else None
         coefficients = payload if isinstance(payload, Mapping) else {}
-        rows.append(
-            {
-                "id": stable_id("coefficient_snapshot", run_db_id, str(path)),
-                "run_db_id": run_db_id,
-                "analyzer_id": analyzer_id,
-                "snapshot_type": "old_or_readback_coefficients",
-                "coefficients": dict(coefficients),
-                "coefficients_hash": sha256_json(coefficients) if coefficients else str(file_row.get("sha256") or ""),
-                "source_artifact_id": str(file_row.get("id") or ""),
-                "metadata": {"path": str(path), "artifact_sha256": file_row.get("sha256")},
-            }
-        )
+        device_entries: List[tuple[str, Mapping[str, Any]]] = []
+        if isinstance(coefficients, Mapping):
+            for key, value in coefficients.items():
+                if not isinstance(value, Mapping):
+                    continue
+                has_getco_payload = any(str(item).startswith("GETCO") for item in value)
+                if value.get("analyzer_device_id") or has_getco_payload:
+                    device_entries.append((str(value.get("analyzer_device_id") or key), value))
+        if not device_entries:
+            device_entries = [(analyzer_id, coefficients if isinstance(coefficients, Mapping) else {})]
+        for entry_analyzer_id, entry_coefficients in device_entries:
+            snapshot_type = "old_component_getco_coefficients" if "old" in path.name.lower() else "readback_coefficients"
+            getco_groups = sorted(
+                {
+                    key.replace("_before", "").replace("_after", "")
+                    for key in entry_coefficients
+                    if str(key).startswith("GETCO") and (str(key).endswith("_before") or str(key).endswith("_after"))
+                }
+            )
+            rows.append(
+                {
+                    "id": stable_id("coefficient_snapshot", run_db_id, str(path), entry_analyzer_id),
+                    "run_db_id": run_db_id,
+                    "analyzer_id": entry_analyzer_id,
+                    "snapshot_type": snapshot_type,
+                    "coefficients": dict(entry_coefficients),
+                    "coefficients_hash": (
+                        sha256_json(entry_coefficients) if entry_coefficients else str(file_row.get("sha256") or "")
+                    ),
+                    "source_artifact_id": str(file_row.get("id") or ""),
+                    "metadata": {
+                        "path": str(path),
+                        "artifact_sha256": file_row.get("sha256"),
+                        "snapshot_file_name": path.name,
+                        "getco_groups": getco_groups,
+                    },
+                }
+            )
     return rows
 
 
@@ -794,10 +905,16 @@ def _build_reports(run_db_id: str, files: Sequence[Mapping[str, Any]]) -> List[D
         "candidate_coefficient_review",
         "post_write_reverification_review",
         "post_write_reverification_device_summary",
+        "run_evidence_status",
+        "run_evidence_status_report",
         "report_model",
         "run_report",
         "technical_report",
         "formal_calibration_report",
+        "per_device_certificate_manifest",
+        "per_device_certificate_artifact_hashes",
+        "per_device_calibration_certificate",
+        "per_device_verification_certificate",
         "workbook_report",
     }
     rows: List[Dict[str, Any]] = []
@@ -987,6 +1104,18 @@ def _sidecar_metadata(row: Mapping[str, Any]) -> Dict[str, Any]:
     return {}
 
 
+def _sidecar_reason_list(row: Mapping[str, Any], *keys: str) -> List[str]:
+    metadata = _sidecar_metadata(row)
+    for key in keys:
+        reasons = _split_reasons(row.get(key))
+        if reasons:
+            return reasons
+        reasons = _split_reasons(metadata.get(key))
+        if reasons:
+            return reasons
+    return []
+
+
 def _build_sidecar_candidates(
     *,
     run_db_id: str,
@@ -996,7 +1125,17 @@ def _build_sidecar_candidates(
     for row in _sidecar_rows_for_table(sidecar_rows, "coefficient_candidates"):
         component = str(row.get("component") or "")
         record_key = str(row.get("record_key") or component or "sidecar_candidate")
-        if "model_scope" in record_key:
+        status = str(row.get("candidate_status") or "blocked")
+        blocked_reasons = _sidecar_reason_list(row, "blocked_reasons", "blockers")
+        warning_reasons = _sidecar_reason_list(row, "warning_reasons", "warnings")
+        metadata = _clean_row(row)
+        metadata["blocked_reasons_list"] = blocked_reasons
+        metadata["warning_reasons_list"] = warning_reasons
+        if component.lower() == "h2o":
+            blockers = list(blocked_reasons)
+            if status == "blocked" and not blockers:
+                blockers = ["h2o_sidecar_candidate_blocked_without_explicit_reason"]
+        elif "model_scope" in record_key:
             blockers = [
                 "co2_senco3_secondary_terms_not_identifiable",
                 "formula_contract_and_secondary_span_required",
@@ -1011,13 +1150,13 @@ def _build_sidecar_candidates(
                 "id": stable_id("coefficient_candidate", run_db_id, "sidecar", record_key),
                 "run_db_id": run_db_id,
                 "component": component,
-                "candidate_status": str(row.get("candidate_status") or "blocked"),
-                "allowed_for_review": False,
+                "candidate_status": status,
+                "allowed_for_review": _bool_value(row.get("allowed_for_review") or row.get("candidate_fit_may_be_reviewed")),
                 "auto_write_allowed": _bool_value(row.get("auto_write_allowed")),
                 "blockers": blockers,
                 "coefficients": {},
                 "source_artifact_id": row.get("_source_artifact_id"),
-                "metadata": _clean_row(row),
+                "metadata": metadata,
             }
         )
     return rows
@@ -1127,6 +1266,7 @@ def build_evidence_bundle(
     require_quick_check_artifact: bool = True,
     pressure_check_path: str | Path | None = None,
     today: Any = None,
+    artifact_exclude_dirs: Sequence[str | Path] = (),
 ) -> Dict[str, Any]:
     """Build a database-ready evidence bundle from existing V1.5 artifacts."""
 
@@ -1134,6 +1274,7 @@ def build_evidence_bundle(
     plan_file = Path(plan_path).resolve()
     reference_file = Path(pressure_reference_path).resolve()
     pressure_check_file = Path(pressure_check_path).resolve() if pressure_check_path else None
+    exclude_dirs = [Path(path).resolve() for path in artifact_exclude_dirs]
     plan = load_plan_snapshot(plan_file)
     pressure_reference = load_pressure_reference_snapshot(reference_file)
     tables, context = build_formal_calibration_package_tables(
@@ -1166,6 +1307,7 @@ def build_evidence_bundle(
         plan_path=plan_file,
         pressure_reference_path=reference_file,
         pressure_check_path=pressure_check_file,
+        exclude_dirs=exclude_dirs,
     )
     source_artifacts = _source_artifact_map(files)
     devices, run_devices = _build_devices(
@@ -1282,6 +1424,17 @@ def build_evidence_bundle(
 def bundle_summary(bundle: Mapping[str, Any]) -> Dict[str, Any]:
     tables = bundle.get("tables") if isinstance(bundle.get("tables"), Mapping) else {}
     run_row = (tables.get("runs") or [{}])[0] if isinstance(tables, Mapping) else {}
+    sample_files = _table_rows(tables, "sample_files") if isinstance(tables, Mapping) else []
+    status_artifacts = [
+        row
+        for row in sample_files
+        if str(row.get("artifact_role") or "").startswith("run_evidence_status")
+    ]
+    status_reports = [
+        row
+        for row in _table_rows(tables, "reports")
+        if str(row.get("report_type") or "").startswith("run_evidence_status")
+    ]
     return {
         "schema": bundle.get("schema"),
         "schema_version": bundle.get("schema_version"),
@@ -1292,6 +1445,13 @@ def bundle_summary(bundle: Mapping[str, Any]) -> Dict[str, Any]:
         "table_counts": {
             name: len(tables.get(name) or [])
             for name in TABLE_NAMES
+        },
+        "run_evidence_status": {
+            "present": bool(status_artifacts),
+            "artifact_count": len(status_artifacts),
+            "report_row_count": len(status_reports),
+            "roles": sorted({str(row.get("artifact_role") or "") for row in status_artifacts}),
+            "all_hashed": bool(status_artifacts) and all(str(row.get("sha256") or "") for row in status_artifacts),
         },
     }
 
@@ -1333,6 +1493,105 @@ def _component_name(row: Mapping[str, Any]) -> str:
     return str(row.get("component") or row.get("subject_id") or "").strip().lower()
 
 
+def _candidate_device_id(row: Mapping[str, Any]) -> str:
+    metadata = _metadata(row)
+    for source in (row, metadata):
+        for key in ("analyzer_device_id", "device_id", "analyzer_id", "serial_number"):
+            value = str(source.get(key) or "").strip()
+            if value:
+                return value
+    record_key = str(metadata.get("record_key") or "").strip()
+    match = re.search(r"(\d{2,})$", record_key)
+    if match:
+        return match.group(1)
+    return "unknown"
+
+
+def _candidate_warning_reasons(row: Mapping[str, Any]) -> List[str]:
+    metadata = _metadata(row)
+    return _split_reasons(metadata.get("warning_reasons")) or _split_reasons(metadata.get("warnings")) or _split_reasons(
+        metadata.get("warning_reasons_list")
+    )
+
+
+def _candidate_rollup_status(statuses: Sequence[str], blockers: Sequence[str], allowed_any: bool) -> str:
+    lowered = [str(item or "").strip().lower() for item in statuses]
+    if blockers or any("blocked" in item or "fail" in item for item in lowered):
+        return "blocked"
+    if any("review_required" in item or "requires" in item or "fit_review" in item for item in lowered):
+        return "review_required"
+    if allowed_any or any(item in {"ready_for_reviewer", "review_ready", "verification_passed"} for item in lowered):
+        return "ready_for_reviewer"
+    return lowered[0] if lowered else "not_evaluated"
+
+
+def _candidate_rollup_action(status: str) -> str:
+    if status == "blocked":
+        return "resolve_blockers_before_coefficient_write_review"
+    if status == "review_required":
+        return "review_candidate_metrics_warnings_and_post_write_plan"
+    if status == "ready_for_reviewer":
+        return "reviewer_may_evaluate_candidate_no_auto_write"
+    return "collect_or_attach_candidate_evidence"
+
+
+def _candidate_review_rollup(coefficient_candidates: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    grouped: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for row in coefficient_candidates:
+        component = _component_name(row) or "unknown"
+        device_id = _candidate_device_id(row)
+        key = (component, device_id)
+        item = grouped.setdefault(
+            key,
+            {
+                "component": component,
+                "analyzer_device_id": device_id,
+                "source_row_count": 0,
+                "source_statuses": [],
+                "allowed_for_review_any": False,
+                "auto_write_allowed_any": False,
+                "blockers": [],
+                "warnings": [],
+                "source_record_keys": [],
+            },
+        )
+        item["source_row_count"] += 1
+        status = str(row.get("candidate_status") or "").strip()
+        if status and status not in item["source_statuses"]:
+            item["source_statuses"].append(status)
+        if _bool_value(row.get("allowed_for_review")):
+            item["allowed_for_review_any"] = True
+        if _bool_value(row.get("auto_write_allowed")):
+            item["auto_write_allowed_any"] = True
+        for reason in _split_reasons(row.get("blockers")):
+            if reason and reason not in item["blockers"]:
+                item["blockers"].append(reason)
+        for reason in _candidate_warning_reasons(row):
+            if reason and reason not in item["warnings"]:
+                item["warnings"].append(reason)
+        record_key = str(_metadata(row).get("record_key") or "").strip()
+        if record_key and record_key not in item["source_record_keys"]:
+            item["source_record_keys"].append(record_key)
+
+    rows: List[Dict[str, Any]] = []
+    for key, item in sorted(grouped.items(), key=lambda entry: entry[0]):
+        consolidated_status = _candidate_rollup_status(
+            item["source_statuses"],
+            item["blockers"],
+            bool(item["allowed_for_review_any"]),
+        )
+        rows.append(
+            {
+                **item,
+                "consolidated_status": consolidated_status,
+                "review_action": _candidate_rollup_action(consolidated_status),
+                "auto_write_allowed_any": bool(item["auto_write_allowed_any"]),
+                "allowed_for_review_any": bool(item["allowed_for_review_any"]),
+            }
+        )
+    return rows
+
+
 def build_traceability_summary_from_tables(
     tables: Mapping[str, Any],
     *,
@@ -1362,6 +1621,11 @@ def build_traceability_summary_from_tables(
         str(row.get("artifact_role") or "").startswith("post_write_reverification")
         for row in artifacts
     )
+    run_evidence_status_artifacts = [
+        row
+        for row in artifacts
+        if str(row.get("artifact_role") or "").startswith("run_evidence_status")
+    ]
     missing_required_hashes = [
         str(row.get("artifact_role") or row.get("path") or "")
         for row in required_artifacts
@@ -1371,13 +1635,15 @@ def build_traceability_summary_from_tables(
     calibration_points = _table_rows(tables, "calibration_points")
     qc_results = _table_rows(tables, "qc_results")
     coefficient_candidates = _table_rows(tables, "coefficient_candidates")
+    candidate_review_rollup = _candidate_review_rollup(coefficient_candidates)
     write_events = _table_rows(tables, "coefficient_write_events")
     write_attempts = [
         row for row in write_events if str(row.get("status") or "") not in {"not_attempted", "blocked"}
     ]
     raw_header_evidence = _raw_sample_header_evidence(artifacts)
     raw_headers = raw_header_evidence["headers"]
-    missing_h2o_raw_fields = [field for field in H2O_RAW_EVIDENCE_FIELDS if field not in raw_headers]
+    h2o_raw_evidence = _h2o_raw_field_evidence(raw_headers)
+    missing_h2o_raw_fields = h2o_raw_evidence["missing"]
     h2o_gases = [row for row in standard_gases if _component_name(row) == "h2o"]
     h2o_points = [row for row in calibration_points if _component_name(row) == "h2o"]
     h2o_qc_rows = [
@@ -1387,6 +1653,7 @@ def build_traceability_summary_from_tables(
         and str(row.get("subject_id") or "").strip().lower() == "h2o"
     ]
     h2o_candidates = [row for row in coefficient_candidates if _component_name(row) == "h2o"]
+    h2o_candidate_rollup = [row for row in candidate_review_rollup if str(row.get("component") or "") == "h2o"]
     h2o_a_grade_count = sum(int(row.get("a_grade_count") or 0) for row in h2o_points)
     h2o_rejected_count = sum(int(row.get("rejected_count") or 0) for row in h2o_points)
     h2o_open_flow_points = [
@@ -1407,12 +1674,17 @@ def build_traceability_summary_from_tables(
         "h2o_qc_present": bool(h2o_qc_rows),
         "h2o_open_flow_qc_present": bool(h2o_open_flow_qc),
         "h2o_candidate_review_present": bool(h2o_candidates),
+        "h2o_candidate_device_count": len(h2o_candidate_rollup),
+        "h2o_candidate_rollup_statuses": sorted(
+            {str(row.get("consolidated_status") or "") for row in h2o_candidate_rollup if row.get("consolidated_status")}
+        ),
         "raw_sample_header_readable": bool(raw_header_evidence["readable"]),
         "raw_sample_header_path": raw_header_evidence["path"],
-        "required_raw_h2o_fields": list(H2O_RAW_EVIDENCE_FIELDS),
-        "present_raw_h2o_fields": [field for field in H2O_RAW_EVIDENCE_FIELDS if field in raw_headers],
+        "required_raw_h2o_fields": h2o_raw_evidence["required"],
+        "present_raw_h2o_fields": h2o_raw_evidence["present"],
         "missing_raw_h2o_fields": missing_h2o_raw_fields,
-        "raw_h2o_fields_present": not missing_h2o_raw_fields,
+        "raw_h2o_fields_present": bool(h2o_raw_evidence["complete"]),
+        "h2o_analyzer_fields_by_suffix": h2o_raw_evidence["analyzer_fields_by_suffix"],
         "interpretation": (
             "H2O open-flow evidence must preserve the humidity reference, dewpoint, dry/wet water-vapor "
             "amount, and analyzer H2O ratio/signal fields so water-route stability can be reviewed separately "
@@ -1498,13 +1770,17 @@ def build_traceability_summary_from_tables(
         "coefficient_candidates": [
             {
                 "component": row.get("component"),
+                "analyzer_device_id": _candidate_device_id(row),
                 "candidate_status": row.get("candidate_status"),
                 "allowed_for_review": row.get("allowed_for_review"),
                 "auto_write_allowed": row.get("auto_write_allowed"),
                 "blockers": row.get("blockers"),
+                "warnings": _candidate_warning_reasons(row),
             }
             for row in coefficient_candidates
         ],
+        "candidate_review_rollup": candidate_review_rollup,
+        "h2o_candidate_review_rollup": h2o_candidate_rollup,
         "coefficient_write_events": [
             {
                 "event_type": row.get("event_type"),
@@ -1522,6 +1798,15 @@ def build_traceability_summary_from_tables(
                 "status": row.get("status"),
             }
             for row in _table_rows(tables, "reports")
+        ],
+        "run_evidence_status_artifacts": [
+            {
+                "artifact_role": row.get("artifact_role"),
+                "path": row.get("path"),
+                "sha256": row.get("sha256"),
+                "required": row.get("required"),
+            }
+            for row in run_evidence_status_artifacts
         ],
         "integrity_checks": [
             {
@@ -1546,6 +1831,7 @@ def build_traceability_summary_from_tables(
             "has_h2o_open_flow_qc": bool(h2o_open_flow_qc),
             "has_h2o_raw_signal_fields": not missing_h2o_raw_fields,
             "has_post_write_reverification": has_post_write_reverification,
+            "has_run_evidence_status": bool(run_evidence_status_artifacts),
         },
     }
 

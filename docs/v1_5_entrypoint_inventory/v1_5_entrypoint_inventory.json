@@ -1,19 +1,537 @@
 {
   "schema": "v1_5_entrypoint_inventory_v1",
   "repo_root": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean",
-  "entrypoint_count": 186,
+  "entrypoint_count": 216,
+  "canonical_formal_path": [
+    {
+      "stage": "00_full_flow_guard",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_full_calibration_chain.py",
+      "category": "full_flow_orchestration",
+      "status": "offline_plan_and_gate_only",
+      "physical_meaning": "Orders pressure, temperature, open-flow CO2, open-flow H2O, QC, review, write gate, reverify, and archive without opening COM by default.",
+      "safety_boundary": "Do not use it as a hidden real-device runner; it is the formal sequence contract and supervised planner."
+    },
+    {
+      "stage": "01_formal_initialization",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py",
+      "category": "full_flow_orchestration",
+      "status": "offline_initialization_planner_and_gate",
+      "physical_meaning": "Owns the formal initialization contract: device-ID binding, GETCO1-9 epoch-0 snapshot, S5/S6/S7/S8/S9 gates, startup acquisition settings, readiness, and database evidence indexing.",
+      "safety_boundary": "This is the single formal initialization entrypoint. It plans and gates; subordinate probe/writer/readiness tools do the authorized read-only or controlled-write work and historical logs remain traceability evidence only."
+    },
+    {
+      "stage": "02_pressure_channel",
+      "entrypoint": "src/gas_calibrator/tools/export_v1_5_pressure_channel_validation.py",
+      "category": "formal_review_evidence",
+      "status": "implemented_offline_report_from_evidence",
+      "physical_meaning": "Verifies analyzer pressure P against COM22/PACE before CO2/H2O fitting so pressure error is not absorbed into gas coefficients.",
+      "safety_boundary": "Pressure fitting and SENCO9 handling are separate from CO2/H2O concentration fitting."
+    },
+    {
+      "stage": "03_temperature_channel",
+      "entrypoint": "src/gas_calibrator/tools/export_v1_5_temperature_channel_review.py",
+      "category": "formal_review_evidence",
+      "status": "implemented_review_from_evidence",
+      "physical_meaning": "Reviews chamber/case temperature behavior against temperature evidence before interpreting multi-temperature gas response.",
+      "safety_boundary": "Temperature review is not an automatic temperature coefficient write."
+    },
+    {
+      "stage": "04_co2_open_flow_sampling",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
+      "category": "formal_runner",
+      "status": "real_route_runner_when_authorized",
+      "physical_meaning": "Collects clean open-flow CO2 data while standard gas continuously refreshes the analyzer cavity and downstream line.",
+      "safety_boundary": "Do not include sealed-pressure, VENT-hold, or dynamic-pressure diagnostic rows in the formal CO2 fit."
+    },
+    {
+      "stage": "05_h2o_open_flow_sampling",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
+      "category": "formal_runner",
+      "status": "real_route_runner_when_authorized",
+      "physical_meaning": "Collects open-flow H2O data with dewpoint/reference evidence so dry-gas and wet-gas anchors remain physically interpretable.",
+      "safety_boundary": "Dry-gas low-water evidence is not automatically the same thing as CO2 zero-gas evidence."
+    },
+    {
+      "stage": "06_candidate_coefficients",
+      "entrypoint": "src/gas_calibrator/tools/export_v1_5_candidate_coefficients.py",
+      "category": "formal_review_evidence",
+      "status": "implemented_offline_review",
+      "physical_meaning": "Builds candidate coefficients from eligible A-grade open-flow samples and preserves rejected points with reasons.",
+      "safety_boundary": "Candidate generation is no-write; diagnostic rows and rejected rows stay outside formal fit eligibility by default."
+    },
+    {
+      "stage": "07_write_review_gate",
+      "entrypoint": "src/gas_calibrator/tools/export_v1_5_candidate_write_review.py",
+      "category": "formal_review_evidence",
+      "status": "implemented_offline_review",
+      "physical_meaning": "Checks old coefficients, candidate coefficients, residuals, blockers, and reviewer evidence before any SENCO write.",
+      "safety_boundary": "A review artifact is not authorization to write; controlled-write tools remain separate."
+    },
+    {
+      "stage": "08_controlled_write",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py",
+      "category": "controlled_write",
+      "status": "manual_authorized_only",
+      "physical_meaning": "Writes CO2 main-chain coefficients only after identity, old-coefficient snapshot, candidate review, and readback plan are available.",
+      "safety_boundary": "Never run as a background evidence or report step; H2O, pressure, and linear-trim writes use their own controlled tools."
+    },
+    {
+      "stage": "09_post_write_reverify",
+      "entrypoint": "src/gas_calibrator/tools/export_v1_5_post_write_reverification.py",
+      "category": "formal_review_evidence",
+      "status": "implemented_offline_report_from_evidence",
+      "physical_meaning": "Confirms written coefficients against independent reverify samples before release.",
+      "safety_boundary": "A coefficient write without post-write reverify remains incomplete for formal release."
+    },
+    {
+      "stage": "10_archive_report_database",
+      "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py",
+      "category": "formal_review_evidence",
+      "status": "implemented_offline_archive",
+      "physical_meaning": "Closes the run evidence chain with artifact hashes, reports, database index inputs, and traceability status.",
+      "safety_boundary": "Archive closure does not change device state and must not hide rejected frames or points."
+    }
+  ],
+  "do_not_start_here": [
+    {
+      "path": "src/gas_calibrator/tools/archive_v1_5_current_stage.py",
+      "name": "archive_v1_5_current_stage",
+      "category": "housekeeping_archive",
+      "stage": "general",
+      "risk_level": "offline",
+      "guardrail": "archive_housekeeping_only",
+      "allowed_use": "Use for housekeeping/archive organization; do not treat as calibration evidence generation."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_rollback.py",
+      "name": "run_v1_5_co2_senco13_controlled_rollback",
+      "category": "controlled_write",
+      "stage": "co2_component",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py",
+      "name": "run_v1_5_co2_senco13_controlled_write",
+      "category": "controlled_write",
+      "stage": "co2_component",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_co2_senco1_controlled_write.py",
+      "name": "run_v1_5_co2_senco1_controlled_write",
+      "category": "controlled_write",
+      "stage": "co2_component",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_co2_senco5_linear_controlled_write.py",
+      "name": "run_v1_5_co2_senco5_linear_controlled_write",
+      "category": "controlled_write",
+      "stage": "co2_component",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_co2_senco5_neutral_controlled_write.py",
+      "name": "run_v1_5_co2_senco5_neutral_controlled_write",
+      "category": "controlled_write",
+      "stage": "co2_component",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_h2o_senco24_controlled_write.py",
+      "name": "run_v1_5_h2o_senco24_controlled_write",
+      "category": "controlled_write",
+      "stage": "h2o_component",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_h2o_senco6_linear_controlled_write.py",
+      "name": "run_v1_5_h2o_senco6_linear_controlled_write",
+      "category": "controlled_write",
+      "stage": "h2o_component",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_h2o_senco6_neutral_controlled_write.py",
+      "name": "run_v1_5_h2o_senco6_neutral_controlled_write",
+      "category": "controlled_write",
+      "stage": "h2o_component",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_pressure_senco9_clear_controlled_write.py",
+      "name": "run_v1_5_pressure_senco9_clear_controlled_write",
+      "category": "controlled_write",
+      "stage": "pressure_channel",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_pressure_senco9_controlled_write.py",
+      "name": "run_v1_5_pressure_senco9_controlled_write",
+      "category": "controlled_write",
+      "stage": "pressure_channel",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_temperature_senco78_neutral_controlled_write.py",
+      "name": "run_v1_5_temperature_senco78_neutral_controlled_write",
+      "category": "controlled_write",
+      "stage": "temperature_channel",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/probe_v1_5_getco9_protocol.py",
+      "name": "probe_v1_5_getco9_protocol",
+      "category": "diagnostic_only",
+      "stage": "general",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_no_outp_preseal_probe.py",
+      "name": "run_v1_5_no_outp_preseal_probe",
+      "category": "diagnostic_only",
+      "stage": "general",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_post_h2o_diagnostic.py",
+      "name": "export_v1_5_co2_post_h2o_diagnostic",
+      "category": "diagnostic_only",
+      "stage": "h2o_component",
+      "risk_level": "offline",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_dewpoint_gate_extended_hold_after_gate.py",
+      "name": "run_v1_5_dewpoint_gate_extended_hold_after_gate",
+      "category": "diagnostic_only",
+      "stage": "h2o_component",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_single_gas_pressure_curve.py",
+      "name": "export_single_gas_pressure_curve",
+      "category": "diagnostic_only",
+      "stage": "pressure_channel",
+      "risk_level": "offline",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_room_temp_co2_pressure_diagnostic.py",
+      "name": "run_room_temp_co2_pressure_diagnostic",
+      "category": "diagnostic_only",
+      "stage": "pressure_channel",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_open_flow_dynamic_pressure_diagnostic.py",
+      "name": "run_v1_5_open_flow_dynamic_pressure_diagnostic",
+      "category": "diagnostic_only",
+      "stage": "pressure_channel",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_pace_mode_ingress_diagnostic.py",
+      "name": "run_v1_5_pace_mode_ingress_diagnostic",
+      "category": "diagnostic_only",
+      "stage": "pressure_channel",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_sealed_pressure_tune_900.py",
+      "name": "run_v1_5_sealed_pressure_tune_900",
+      "category": "diagnostic_only",
+      "stage": "pressure_channel",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+      "name": "run_v1_corrected_autodelivery",
+      "category": "legacy_v1_reference",
+      "stage": "general",
+      "risk_level": "legacy_write_or_acceptance_risk",
+      "guardrail": "legacy_v1_reference_only",
+      "allowed_use": "Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py",
+      "name": "run_v1_merged_calibration_sidecar",
+      "category": "legacy_v1_reference",
+      "stage": "general",
+      "risk_level": "legacy_write_or_acceptance_risk",
+      "guardrail": "legacy_v1_reference_only",
+      "allowed_use": "Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_no500_postprocess.py",
+      "name": "run_v1_no500_postprocess",
+      "category": "legacy_v1_reference",
+      "stage": "general",
+      "risk_level": "legacy_write_or_acceptance_risk",
+      "guardrail": "legacy_v1_reference_only",
+      "allowed_use": "Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_online_acceptance.py",
+      "name": "run_v1_online_acceptance",
+      "category": "legacy_v1_reference",
+      "stage": "general",
+      "risk_level": "legacy_write_or_acceptance_risk",
+      "guardrail": "legacy_v1_reference_only",
+      "allowed_use": "Keep only as historical algorithm/audit reference; do not use to start V1.5 formal calibration."
+    },
+    {
+      "path": "src/gas_calibrator/tools/validate_pressure_only.py",
+      "name": "validate_pressure_only",
+      "category": "formal_pressure_no_write_runner",
+      "stage": "pressure_channel",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "pressure_no_write_only",
+      "allowed_use": "Use only for pressure-channel validation/calibration evidence; do not feed CO2/H2O fitting directly."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
+      "name": "run_v1_5_formal_open_flow_sampling",
+      "category": "formal_sampling_worker",
+      "stage": "general",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "use_via_canonical_queue_only",
+      "allowed_use": "Per-point open-flow worker called by the canonical CO2/H2O queue runners; do not delete, but do not treat as a top-level formal start point."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py",
+      "name": "run_v1_5_formal_h2o_open_flow_sampling",
+      "category": "formal_sampling_worker",
+      "stage": "h2o_component",
+      "risk_level": "real_com_or_route_risk",
+      "guardrail": "use_via_canonical_queue_only",
+      "allowed_use": "Per-point open-flow worker called by the canonical CO2/H2O queue runners; do not delete, but do not treat as a top-level formal start point."
+    }
+  ],
+  "active_surface_boundaries": [
+    {
+      "surface": "legacy_v2_source_tree",
+      "path": "src/gas_calibrator/v2",
+      "status": "legacy_reference_only",
+      "action": "exclude_from_v1_5_active_surface",
+      "file_count": 332,
+      "examples": [
+        "src/gas_calibrator/v2/__init__.py",
+        "src/gas_calibrator/v2/adapters/__init__.py",
+        "src/gas_calibrator/v2/adapters/analyzer_coefficient_downloader.py",
+        "src/gas_calibrator/v2/adapters/legacy_runner.py",
+        "src/gas_calibrator/v2/adapters/method_confirmation_gateway.py",
+        "src/gas_calibrator/v2/adapters/offline_refit_runner.py",
+        "src/gas_calibrator/v2/adapters/recognition_scope_gateway.py",
+        "src/gas_calibrator/v2/adapters/results_gateway.py"
+      ],
+      "reason": "V1.5 is the final production direction; V2 source stays as archived reference unless explicitly revived."
+    },
+    {
+      "surface": "legacy_v2_tests",
+      "path": "tests/v2",
+      "status": "legacy_reference_only",
+      "action": "exclude_from_v1_5_active_surface",
+      "file_count": 237,
+      "examples": [
+        "tests/v2/fixtures/replay/co2_only_skip0_success_single_temp.json",
+        "tests/v2/fixtures/replay/co2_route_entered_but_sample_count_mismatch.json",
+        "tests/v2/fixtures/replay/co2_route_entered_sample_mismatch.json",
+        "tests/v2/fixtures/replay/compare_generates_partial_artifacts_on_failure.json",
+        "tests/v2/fixtures/replay/full_route_success_all_temps_all_sources.json",
+        "tests/v2/fixtures/replay/gauge_no_response.json",
+        "tests/v2/fixtures/replay/h2o_route_success_single_temp.json",
+        "tests/v2/fixtures/replay/humidity_generator_timeout.json"
+      ],
+      "reason": "V2 tests protect old simulation/replay work only; they are not V1.5 formal-flow gates."
+    },
+    {
+      "surface": "legacy_v2_docs",
+      "path": "docs/architecture/*v2*",
+      "status": "legacy_reference_only",
+      "action": "exclude_from_v1_5_active_surface",
+      "file_count": 2,
+      "examples": [
+        "docs/architecture/v1_to_v2_behavior_contract.md",
+        "docs/architecture/v2_cutover_checklist.md"
+      ],
+      "reason": "V2 cutover/replay documents are historical context and must not steer V1.5 formal operations."
+    },
+    {
+      "surface": "legacy_v1_reference_tools",
+      "path": "src/gas_calibrator/tools/run_v1_*",
+      "status": "legacy_reference_only",
+      "action": "do_not_start_v1_5_here",
+      "file_count": 4,
+      "examples": [
+        "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "src/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py",
+        "src/gas_calibrator/tools/run_v1_no500_postprocess.py",
+        "src/gas_calibrator/tools/run_v1_online_acceptance.py"
+      ],
+      "reason": "Old V1 write/acceptance tools may preserve algorithm history but must not launch V1.5."
+    },
+    {
+      "surface": "v1_5_diagnostic_tools",
+      "path": "src/gas_calibrator/tools/*diagnostic*",
+      "status": "diagnostic_only",
+      "action": "guarded_engineering_use_only",
+      "file_count": 9,
+      "examples": [
+        "src/gas_calibrator/tools/export_single_gas_pressure_curve.py",
+        "src/gas_calibrator/tools/export_v1_5_co2_post_h2o_diagnostic.py",
+        "src/gas_calibrator/tools/probe_v1_5_getco9_protocol.py",
+        "src/gas_calibrator/tools/run_room_temp_co2_pressure_diagnostic.py",
+        "src/gas_calibrator/tools/run_v1_5_dewpoint_gate_extended_hold_after_gate.py",
+        "src/gas_calibrator/tools/run_v1_5_no_outp_preseal_probe.py",
+        "src/gas_calibrator/tools/run_v1_5_open_flow_dynamic_pressure_diagnostic.py",
+        "src/gas_calibrator/tools/run_v1_5_pace_mode_ingress_diagnostic.py"
+      ],
+      "reason": "Diagnostics are useful for root cause work but cannot enter formal acceptance or CO2/H2O fitting by default."
+    },
+    {
+      "surface": "temporary_or_observed_v1_5_configs",
+      "path": "configs/site_v1_5_*current* / *observed* / *generated*",
+      "status": "review_before_use",
+      "action": "do_not_use_as_default_config",
+      "file_count": 17,
+      "examples": [
+        "configs/default_config_corrected_autodelivery.json",
+        "configs/default_config_corrected_autodelivery_real_smoke_no500_20260407.json",
+        "configs/points_v1_5_co2_20c_100ppm_limited_ambient_2sealed_nowait.xlsx",
+        "configs/site_v1_5_formal_h2o_open_flow_current_5ch_no_write_active.json",
+        "configs/site_v1_5_formal_open_flow_current_4ch_no_write_active_generated_20260531.json",
+        "configs/site_v1_5_formal_open_flow_current_5of6_no_write_active.json",
+        "configs/site_v1_5_formal_open_flow_current_6ch_no_write_active.json",
+        "configs/site_v1_5_formal_open_flow_current_observed_6ch_no_write_active_20260602.json"
+      ],
+      "reason": "Observed/generated/current configs may reflect a bench snapshot; formal runs should use an explicit reviewed site config."
+    },
+    {
+      "surface": "root_temporary_run_artifacts",
+      "path": "repo-root logs/csv/md",
+      "status": "archive_candidate",
+      "action": "move_to_logs_or_archive_after_review",
+      "file_count": 7,
+      "examples": [
+        "post_route_close_delay_root_cause.md",
+        "post_route_close_fast_control_replay.csv",
+        "post_route_close_to_outp1_timeline.csv",
+        "v1_5_7ea_no_write_limited_0ppm_ambient_2sealed_20260520_093150.stderr.log",
+        "v1_5_7ea_no_write_limited_0ppm_ambient_2sealed_20260520_093150.stdout.log",
+        "v1_5_f2fa_no_write_limited_0ppm_ambient_2sealed_20260520_103644.stdout.log",
+        "v1_5_vs_v2_post_route_close_control_diff.csv"
+      ],
+      "reason": "Root-level run artifacts slow navigation and can look like active inputs; keep evidence, but outside the code entrypoint surface."
+    }
+  ],
+  "active_surface_policy": {
+    "status": "ready",
+    "issues": []
+  },
+  "isolation_reference_audit": {
+    "status": "ready_with_review_items",
+    "issues": [
+      {
+        "severity": "review",
+        "isolated_path": "src/gas_calibrator/tools/run_room_temp_co2_pressure_diagnostic.py",
+        "isolated_category": "diagnostic_only",
+        "reference_path": "src/gas_calibrator/validation/room_temp_co2_pressure_diagnostic.py",
+        "reference_category": "validation_or_audit_support",
+        "matched_token": "run_room_temp_co2_pressure_diagnostic",
+        "message": "Offline validation/review code references an isolated entrypoint as evidence or historical context; keep it out of runtime flow."
+      },
+      {
+        "severity": "review",
+        "isolated_path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "isolated_category": "legacy_v1_reference",
+        "reference_path": "src/gas_calibrator/tools/run_v1_5_pressure_senco9_controlled_write.py",
+        "reference_category": "controlled_write",
+        "matched_token": "run_v1_corrected_autodelivery",
+        "message": "A controlled-write tool references an isolated entrypoint; confirm this is only for rollback/audit support and not hidden runtime execution."
+      },
+      {
+        "severity": "review",
+        "isolated_path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "isolated_category": "legacy_v1_reference",
+        "reference_path": "src/gas_calibrator/tools/run_v1_online_acceptance.py",
+        "reference_category": "legacy_v1_reference",
+        "matched_token": "run_v1_corrected_autodelivery",
+        "message": "Legacy workflow or V1 reference remains linked for historical/V1 fallback code; do not delete without a separate migration plan."
+      },
+      {
+        "severity": "review",
+        "isolated_path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "isolated_category": "legacy_v1_reference",
+        "reference_path": "src/gas_calibrator/validation/v1_ratio_poly_algorithm_audit.py",
+        "reference_category": "validation_or_audit_support",
+        "matched_token": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "message": "Offline validation/review code references an isolated entrypoint as evidence or historical context; keep it out of runtime flow."
+      },
+      {
+        "severity": "review",
+        "isolated_path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "isolated_category": "legacy_v1_reference",
+        "reference_path": "src/gas_calibrator/workflow/runner.py",
+        "reference_category": "legacy_workflow_surface",
+        "matched_token": "run_v1_corrected_autodelivery",
+        "message": "Legacy workflow or V1 reference remains linked for historical/V1 fallback code; do not delete without a separate migration plan."
+      }
+    ]
+  },
   "category_summary": {
     "advanced_qc": 10,
-    "controlled_write": 9,
-    "diagnostic_only": 7,
+    "controlled_write": 11,
+    "diagnostic_only": 9,
     "evidence_database": 5,
-    "formal_review_evidence": 56,
-    "formal_runner": 4,
-    "full_flow_orchestration": 4,
+    "formal_pressure_no_write_runner": 1,
+    "formal_review_evidence": 64,
+    "formal_runner": 2,
+    "formal_sampling_worker": 2,
+    "full_flow_orchestration": 5,
     "housekeeping_archive": 1,
     "identity_and_serial_binding": 1,
+    "legacy_v1_reference": 4,
     "parameter_governance": 2,
-    "test_gate": 83,
+    "test_gate": 95,
     "ui_review": 3,
     "v1_5_library": 1
   },
@@ -97,6 +615,19 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/build_v1_5_h2o_archive_inputs.py",
+      "name": "build_v1_5_h2o_archive_inputs",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "h2o_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/collect_v1_5_serial_port_inventory.py",
       "name": "collect_v1_5_serial_port_inventory",
       "artifact_type": "tool",
@@ -112,11 +643,37 @@
       ]
     },
     {
+      "path": "src/gas_calibrator/tools/export_single_gas_pressure_curve.py",
+      "name": "export_single_gas_pressure_curve",
+      "artifact_type": "tool",
+      "category": "diagnostic_only",
+      "stage": "pressure_channel",
+      "formal_status": "diagnostic_only",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_advanced_qc.py",
       "name": "export_v1_5_advanced_qc",
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "qc_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_calibration_capability.py",
+      "name": "export_v1_5_calibration_capability",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
       "formal_status": "formal_support",
       "risk_level": "offline",
       "opens_com_ports": false,
@@ -478,6 +1035,32 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_h2o_dry_anchor_bridge_review.py",
+      "name": "export_v1_5_h2o_dry_anchor_bridge_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "h2o_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_h2o_formal_closure_review.py",
+      "name": "export_v1_5_h2o_formal_closure_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "h2o_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_h2o_senco24_candidate_review.py",
       "name": "export_v1_5_h2o_senco24_candidate_review",
       "artifact_type": "tool",
@@ -509,6 +1092,19 @@
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "h2o_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_initialization_readiness.py",
+      "name": "export_v1_5_initialization_readiness",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
       "formal_status": "formal_support",
       "risk_level": "offline",
       "opens_com_ports": false,
@@ -626,6 +1222,19 @@
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "ui_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_run_evidence_status.py",
+      "name": "export_v1_5_run_evidence_status",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
       "formal_status": "formal_support",
       "risk_level": "offline",
       "opens_com_ports": false,
@@ -761,9 +1370,7 @@
       "opens_com_ports": false,
       "controls_routes": false,
       "writes_coefficients": false,
-      "notes": [
-        "formal V1.5 entrypoint candidate; still requires operator authorization for real COM"
-      ]
+      "notes": []
     },
     {
       "path": "src/gas_calibrator/tools/prepare_v1_5_multipoint_candidate_run.py",
@@ -820,7 +1427,7 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": [
-        "formal precheck evidence; read-only GETCO1-9 and device-ID snapshot"
+        "subordinate initialization evidence tool; read-only GETCO1-9 and device-ID snapshot"
       ]
     },
     {
@@ -835,6 +1442,21 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_room_temp_co2_pressure_diagnostic.py",
+      "name": "run_room_temp_co2_pressure_diagnostic",
+      "artifact_type": "tool",
+      "category": "diagnostic_only",
+      "stage": "pressure_channel",
+      "formal_status": "diagnostic_only",
+      "risk_level": "real_com_or_route_risk",
+      "opens_com_ports": true,
+      "controls_routes": true,
+      "writes_coefficients": false,
+      "notes": [
+        "diagnostic evidence only; not formal acceptance by default"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_rollback.py",
@@ -925,6 +1547,21 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py",
+      "name": "run_v1_5_formal_archive_closure",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline archive closure; does not open COM ports or control routes"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
       "name": "run_v1_5_formal_co2_open_flow_queue",
       "artifact_type": "tool",
@@ -951,7 +1588,7 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": [
-        "formal V1.5 entrypoint candidate; still requires operator authorization for real COM"
+        "offline review/evidence sidecar; no COM or route control"
       ]
     },
     {
@@ -973,15 +1610,30 @@
       "path": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py",
       "name": "run_v1_5_formal_h2o_open_flow_sampling",
       "artifact_type": "tool",
-      "category": "formal_runner",
+      "category": "formal_sampling_worker",
       "stage": "h2o_component",
-      "formal_status": "formal_entry_candidate",
+      "formal_status": "canonical_queue_worker",
       "risk_level": "real_com_or_route_risk",
       "opens_com_ports": true,
       "controls_routes": true,
       "writes_coefficients": false,
       "notes": [
-        "formal V1.5 entrypoint candidate; still requires operator authorization for real COM"
+        "canonical per-point sampling worker; invoked by the formal CO2/H2O queue runners"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py",
+      "name": "run_v1_5_formal_initialization_runner",
+      "artifact_type": "tool",
+      "category": "full_flow_orchestration",
+      "stage": "general",
+      "formal_status": "canonical_initialization_planner",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "canonical initialization owner; offline planner, evidence indexer, and readiness gate"
       ]
     },
     {
@@ -996,22 +1648,22 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": [
-        "formal V1.5 entrypoint candidate; still requires operator authorization for real COM"
+        "offline review/evidence sidecar; no COM or route control"
       ]
     },
     {
       "path": "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
       "name": "run_v1_5_formal_open_flow_sampling",
       "artifact_type": "tool",
-      "category": "formal_runner",
+      "category": "formal_sampling_worker",
       "stage": "general",
-      "formal_status": "formal_entry_candidate",
+      "formal_status": "canonical_queue_worker",
       "risk_level": "real_com_or_route_risk",
       "opens_com_ports": true,
       "controls_routes": true,
       "writes_coefficients": false,
       "notes": [
-        "formal V1.5 entrypoint candidate; still requires operator authorization for real COM"
+        "canonical per-point sampling worker; invoked by the formal CO2/H2O queue runners"
       ]
     },
     {
@@ -1120,6 +1772,21 @@
       ]
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_pressure_senco9_clear_controlled_write.py",
+      "name": "run_v1_5_pressure_senco9_clear_controlled_write",
+      "artifact_type": "tool",
+      "category": "controlled_write",
+      "stage": "pressure_channel",
+      "formal_status": "formal_but_manual_authorized",
+      "risk_level": "writes_device_coefficients",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": true,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/run_v1_5_pressure_senco9_controlled_write.py",
       "name": "run_v1_5_pressure_senco9_controlled_write",
       "artifact_type": "tool",
@@ -1151,11 +1818,114 @@
       ]
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_temperature_senco78_neutral_controlled_write.py",
+      "name": "run_v1_5_temperature_senco78_neutral_controlled_write",
+      "artifact_type": "tool",
+      "category": "controlled_write",
+      "stage": "temperature_channel",
+      "formal_status": "formal_but_manual_authorized",
+      "risk_level": "writes_device_coefficients",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": true,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+      "name": "run_v1_corrected_autodelivery",
+      "artifact_type": "tool",
+      "category": "legacy_v1_reference",
+      "stage": "general",
+      "formal_status": "legacy_v1_reference_only",
+      "risk_level": "legacy_write_or_acceptance_risk",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": true,
+      "notes": [
+        "legacy V1 reference only; do not use as a V1.5 formal entrypoint"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py",
+      "name": "run_v1_merged_calibration_sidecar",
+      "artifact_type": "tool",
+      "category": "legacy_v1_reference",
+      "stage": "general",
+      "formal_status": "legacy_v1_reference_only",
+      "risk_level": "legacy_write_or_acceptance_risk",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": true,
+      "notes": [
+        "legacy V1 reference only; do not use as a V1.5 formal entrypoint"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_no500_postprocess.py",
+      "name": "run_v1_no500_postprocess",
+      "artifact_type": "tool",
+      "category": "legacy_v1_reference",
+      "stage": "general",
+      "formal_status": "legacy_v1_reference_only",
+      "risk_level": "legacy_write_or_acceptance_risk",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "legacy V1 reference only; do not use as a V1.5 formal entrypoint"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_online_acceptance.py",
+      "name": "run_v1_online_acceptance",
+      "artifact_type": "tool",
+      "category": "legacy_v1_reference",
+      "stage": "general",
+      "formal_status": "legacy_v1_reference_only",
+      "risk_level": "legacy_write_or_acceptance_risk",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": true,
+      "notes": [
+        "legacy V1 reference only; do not use as a V1.5 formal entrypoint"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/summarize_v1_5_post_h2o_co2_verify.py",
       "name": "summarize_v1_5_post_h2o_co2_verify",
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "h2o_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/validate_pressure_only.py",
+      "name": "validate_pressure_only",
+      "artifact_type": "tool",
+      "category": "formal_pressure_no_write_runner",
+      "stage": "pressure_channel",
+      "formal_status": "formal_pressure_no_write_when_authorized",
+      "risk_level": "real_com_or_route_risk",
+      "opens_com_ports": true,
+      "controls_routes": true,
+      "writes_coefficients": false,
+      "notes": [
+        "pressure-channel no-write validation/calibration runner; separate from CO2/H2O fitting"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/verify_v1_5_evidence_bundle.py",
+      "name": "verify_v1_5_evidence_bundle",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "evidence_database",
       "formal_status": "formal_support",
       "risk_level": "offline",
       "opens_com_ports": false,
@@ -1420,6 +2190,32 @@
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_calibratable_point_policy.py",
+      "name": "test_v1_5_calibratable_point_policy",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_calibration_capability.py",
+      "name": "test_v1_5_calibration_capability",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -1778,6 +2574,19 @@
       ]
     },
     {
+      "path": "tests/test_v1_5_entrypoint_guards.py",
+      "name": "test_v1_5_entrypoint_guards",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_entrypoint_inventory.py",
       "name": "test_v1_5_entrypoint_inventory",
       "artifact_type": "test",
@@ -1828,6 +2637,21 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_formal_archive_closure.py",
+      "name": "test_v1_5_formal_archive_closure",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline archive closure; does not open COM ports or control routes"
+      ]
     },
     {
       "path": "tests/test_v1_5_formal_calibration_package.py",
@@ -1921,6 +2745,19 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_formal_initialization_runner.py",
+      "name": "test_v1_5_formal_initialization_runner",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_formal_offline_review_chain.py",
       "name": "test_v1_5_formal_offline_review_chain",
       "artifact_type": "test",
@@ -1931,7 +2768,9 @@
       "opens_com_ports": false,
       "controls_routes": false,
       "writes_coefficients": false,
-      "notes": []
+      "notes": [
+        "offline review/evidence sidecar; no COM or route control"
+      ]
     },
     {
       "path": "tests/test_v1_5_formal_open_flow.py",
@@ -1996,9 +2835,7 @@
       "opens_com_ports": false,
       "controls_routes": false,
       "writes_coefficients": false,
-      "notes": [
-        "formal V1.5 entrypoint candidate; still requires operator authorization for real COM"
-      ]
+      "notes": []
     },
     {
       "path": "tests/test_v1_5_formal_workbench.py",
@@ -2047,6 +2884,32 @@
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_h2o_dry_anchor_bridge_review.py",
+      "name": "test_v1_5_h2o_dry_anchor_bridge_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "h2o_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_h2o_formal_closure_review.py",
+      "name": "test_v1_5_h2o_formal_closure_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "h2o_component",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -2137,6 +3000,19 @@
       "notes": [
         "requires explicit coefficient-write authorization and readback evidence"
       ]
+    },
+    {
+      "path": "tests/test_v1_5_initialization_readiness.py",
+      "name": "test_v1_5_initialization_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
     },
     {
       "path": "tests/test_v1_5_multipoint_candidate_run.py",
@@ -2415,6 +3291,21 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_pressure_senco9_clear_controlled_write.py",
+      "name": "test_v1_5_pressure_senco9_clear_controlled_write",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "pressure_channel",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
       "path": "tests/test_v1_5_pressure_senco9_controlled_write.py",
       "name": "test_v1_5_pressure_senco9_controlled_write",
       "artifact_type": "test",
@@ -2482,6 +3373,19 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_run_evidence_status.py",
+      "name": "test_v1_5_run_evidence_status",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_runtime_serial_port_binding.py",
       "name": "test_v1_5_runtime_serial_port_binding",
       "artifact_type": "test",
@@ -2510,6 +3414,19 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_stage_detail_route_optimization_doc.py",
+      "name": "test_v1_5_stage_detail_route_optimization_doc",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_temperature_channel_review.py",
       "name": "test_v1_5_temperature_channel_review",
       "artifact_type": "test",
@@ -2521,6 +3438,21 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_temperature_senco78_neutral_controlled_write.py",
+      "name": "test_v1_5_temperature_senco78_neutral_controlled_write",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "temperature_channel",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
     },
     {
       "path": "tests/test_v1_5_v1_ratio_poly_algorithm_audit.py",

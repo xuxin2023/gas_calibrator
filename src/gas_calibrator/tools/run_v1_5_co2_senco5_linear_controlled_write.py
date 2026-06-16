@@ -25,6 +25,7 @@ from ..devices import GasAnalyzer
 from ..senco_format import format_senco_value
 from ..validation.reporting import ValidationMetadata, write_validation_report
 from . import run_v1_5_co2_senco1_controlled_write as base
+from .v1_5_serial_safety import require_fragile_serial_timing
 
 
 CONFIRMATION_TEXT = "WRITE_SENCO5_LINEAR_V1_5_CO2_TRIM"
@@ -221,7 +222,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no-restore-active-freq", dest="restore_active_freq", action="store_false")
     parser.add_argument("--coefficient-quiet-settle-s", type=float, default=3.0)
     parser.add_argument("--coefficient-read-timeout-s", type=float, default=2.0)
-    parser.add_argument("--coefficient-read-delay-s", type=float, default=0.5)
+    parser.add_argument("--coefficient-read-delay-s", type=float, default=1.0)
     parser.add_argument("--coefficient-read-retries", type=int, default=4)
     parser.add_argument("--c0-compare-atol", type=float, default=0.05)
     parser.add_argument("--c1-compare-atol", type=float, default=0.00005)
@@ -254,6 +255,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        require_fragile_serial_timing(args, tool_name="run_v1_5_co2_senco5_linear_controlled_write")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
     if not bool(args.enable_senco5_write) or str(args.operator_confirmation).strip() != CONFIRMATION_TEXT:
         print("SENCO5 linear write locked: explicit unlock and operator confirmation are required.", file=sys.stderr)

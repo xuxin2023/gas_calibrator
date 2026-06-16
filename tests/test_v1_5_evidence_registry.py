@@ -8,6 +8,7 @@ from gas_calibrator.storage.v1_5_evidence.bundle import (
     bundle_traceability_summary,
     verify_evidence_bundle_integrity,
     write_bundle_json,
+    _build_qc_rows,
     _point_group_key,
     _target_value,
 )
@@ -204,6 +205,11 @@ def test_v1_5_evidence_migration_declares_required_tables():
 
 def test_evidence_bundle_indexes_traceable_artifacts_and_blocks_auto_write(tmp_path):
     run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
+    (run_dir / "six_device_optical_root_cause_report_zh.md").write_text("光学根因", encoding="utf-8")
+    (run_dir / "status_register_and_invalid_frame_summary.csv").write_text(
+        "device_id,status_register\n079,0101\n",
+        encoding="utf-8",
+    )
 
     bundle = build_evidence_bundle(
         run_dir=run_dir,
@@ -221,6 +227,7 @@ def test_evidence_bundle_indexes_traceable_artifacts_and_blocks_auto_write(tmp_p
         "pressure_channel_quick_check",
         "formal_plan_snapshot",
         "pressure_reference_snapshot",
+        "diagnostic_analysis",
     }
     assert all(row["sha256"] for row in tables["sample_files"])
     assert {row["component"] for row in tables["standard_gases"]} == {"co2", "h2o"}
@@ -473,6 +480,189 @@ def test_evidence_bundle_all_analyzers_indexes_each_sensor_id(tmp_path):
     assert tables["runs"][0]["metadata"]["analyzer_device_ids"] == ["001", "022"]
 
 
+def test_h2o_traceability_accepts_device_id_prefixed_raw_fields(tmp_path):
+    run_dir = tmp_path / "run_h2o_device_prefixed"
+    run_dir.mkdir()
+    rows = []
+    for index in range(1, 11):
+        rows.append(
+            {
+                "sample_index": index,
+                "sample_ts": f"2026-05-30T02:00:{index:02d}",
+                "point_phase": "h2o",
+                "route": "h2o",
+                "pressure_mode": "ambient_open",
+                "pressure_gauge_hpa": 1000.5 + index * 0.002,
+                "controller_pressure": 1000.6 + index * 0.002,
+                "pressure_atmosphere_hold_status": "verified",
+                "pressure_atmosphere_hold_active": "true",
+                "dewpoint_c": -6.0 + index * 0.001,
+                "h2o_mmol_target": 3.6,
+                "h2o_wet_ppmv": 3600.0,
+                "h2o_dry_ppmv": 3613.0,
+                "ga022_frame_usable": "true",
+                "ga022_mode2_contract_status": "pass",
+                "ga022_mode2_qc_status": "pass",
+                "ga022_mode2_tokens_json": json.dumps(
+                    ["YGAS", "022", "0000.000", "03.600", "1768.000", "00.410"],
+                    separators=(",", ":"),
+                ),
+                "ga022_h2o_signal": 2631.0,
+                "ga022_h2o_ratio_f": 0.7000 + index * 0.00001,
+                "ga022_h2o_mmol": 3.6 + index * 0.0001,
+                "ga022_pressure_kpa": 100.05 + index * 0.0002,
+                "ga022_chamber_temp_c": 20.0 + index * 0.001,
+                "ga022_case_temp_c": 20.5,
+            }
+        )
+    _write_csv(run_dir / "samples_20260530.csv", rows)
+    (run_dir / "h2o_senco24_candidate_review.md").write_text(
+        "# H2O SENCO2/4 candidate review\n",
+        encoding="utf-8",
+    )
+    plan_path = tmp_path / "formal_plan.json"
+    plan_path.write_text(json.dumps(_plan(), ensure_ascii=False), encoding="utf-8")
+    pressure_reference_path = tmp_path / "pressure_reference.json"
+    pressure_reference_path.write_text(
+        json.dumps(_pressure_reference(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        component="h2o",
+        analyzer_prefix="all",
+        require_quick_check_artifact=False,
+        today="2026-05-30",
+    )
+    summary = bundle_traceability_summary(bundle)
+    roles = {row["artifact_role"] for row in bundle["tables"]["sample_files"]}
+    water = summary["water_route_evidence"]
+
+    assert summary["traceability_checks"]["has_h2o_raw_signal_fields"] is True
+    assert water["raw_h2o_fields_present"] is True
+    assert water["missing_raw_h2o_fields"] == []
+    assert set(water["h2o_analyzer_fields_by_suffix"]) == {
+        "h2o_signal",
+        "h2o_ratio_f",
+        "h2o_mmol",
+    }
+    assert bundle["tables"]["calibration_points"][0]["target_value"] == 3.6
+    assert "candidate_coefficient_review" in roles
+
+
+def test_evidence_bundle_splits_device_keyed_old_getco_snapshots(tmp_path):
+    run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
+    snapshot_dir = run_dir / "old_getco_component_snapshot"
+    snapshot_dir.mkdir()
+    (snapshot_dir / "old_component_coefficients_snapshot.json").write_text(
+        json.dumps(
+            {
+                "022": {
+                    "analyzer_prefix": "ga022",
+                    "analyzer_device_id": "022",
+                    "port": "COM35",
+                    "source": "read_only_getco_component_snapshot",
+                    "GETCO2_before": [-1.0, 2.0, 3.0, 4.0, 0.0, 0.0],
+                    "GETCO4_before": [5.0, 6.0, 7.0, 8.0, 0.0, 0.0],
+                    "GETCO6_before": [0.0, 1.0],
+                },
+                "030": {
+                    "analyzer_prefix": "ga030",
+                    "analyzer_device_id": "030",
+                    "port": "COM36",
+                    "source": "read_only_getco_component_snapshot",
+                    "GETCO2_before": [-11.0, 12.0, 13.0, 14.0, 0.0, 0.0],
+                    "GETCO4_before": [15.0, 16.0, 17.0, 18.0, 0.0, 0.0],
+                    "GETCO6_before": [-0.5, 1.2],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        today="2026-05-30",
+    )
+    snapshots = bundle["tables"]["coefficient_snapshots"]
+    by_analyzer = {row["analyzer_id"]: row for row in snapshots}
+    check = next(
+        row
+        for row in bundle["tables"]["evidence_integrity_checks"]
+        if row["check_name"] == "old_coefficients_snapshot_present"
+    )
+
+    assert set(by_analyzer) == {"022", "030"}
+    assert all(row["snapshot_type"] == "old_component_getco_coefficients" for row in snapshots)
+    assert by_analyzer["022"]["metadata"]["getco_groups"] == ["GETCO2", "GETCO4", "GETCO6"]
+    assert by_analyzer["030"]["coefficients"]["GETCO6_before"] == [-0.5, 1.2]
+    assert check["status"] == "pass"
+
+
+def test_h2o_sidecar_candidate_rollup_keeps_warnings_out_of_blockers(tmp_path):
+    run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
+    sidecar_path = run_dir / "h2o_senco24_database_sidecar.json"
+    sidecar_path.write_text(
+        json.dumps(
+            {
+                "schema": "v1_5_h2o_senco24_database_sidecar_v1",
+                "suggested_rows": [
+                    {
+                        "db_table": "coefficient_candidates",
+                        "record_key": "h2o_senco2_senco4_candidate_022",
+                        "component": "h2o",
+                        "analyzer_device_id": "022",
+                        "candidate_status": "candidate_fit_review_required",
+                        "auto_write_allowed": False,
+                        "fit_rmse": 0.131,
+                        "fit_max_abs_relative_error_pct": 6.4,
+                        "blocked_reasons": "",
+                        "warning_reasons": "side_channel_cache_age_warning_kept_as_evidence_not_fit_blocker",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        today="2026-05-30",
+    )
+    sidecar_candidate = next(
+        row
+        for row in bundle["tables"]["coefficient_candidates"]
+        if row["metadata"].get("record_key") == "h2o_senco2_senco4_candidate_022"
+    )
+    traceability = bundle_traceability_summary(bundle)
+    rollup = next(
+        row
+        for row in traceability["h2o_candidate_review_rollup"]
+        if row["analyzer_device_id"] == "022"
+    )
+
+    assert sidecar_candidate["blockers"] == []
+    assert "co2_senco_pair_review_required" not in sidecar_candidate["blockers"]
+    assert sidecar_candidate["metadata"]["warning_reasons_list"] == [
+        "side_channel_cache_age_warning_kept_as_evidence_not_fit_blocker"
+    ]
+    assert rollup["consolidated_status"] == "review_required"
+    assert rollup["blockers"] == []
+    assert rollup["warnings"] == ["side_channel_cache_age_warning_kept_as_evidence_not_fit_blocker"]
+    assert rollup["review_action"] == "review_candidate_metrics_warnings_and_post_write_plan"
+
+
 def test_evidence_import_cli_dry_run_writes_bundle_json_without_database(tmp_path):
     run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
     bundle_path = tmp_path / "bundle.json"
@@ -504,6 +694,51 @@ def test_evidence_import_cli_dry_run_writes_bundle_json_without_database(tmp_pat
     assert summary["table_counts"]["sample_files"] >= 4
 
 
+def test_evidence_import_cli_dry_run_indexes_run_evidence_status_artifacts(tmp_path):
+    outputs = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical_with_status",
+        include_reports=False,
+    )
+    bundle_path = tmp_path / "bundle_with_status.json"
+    summary_path = tmp_path / "summary_with_status.json"
+
+    rc = import_main(
+        [
+            "--run-dir",
+            str(outputs["root"] / "run"),
+            "--plan-json",
+            str(outputs["plan"]),
+            "--pressure-reference-json",
+            str(outputs["pressure_reference"]),
+            "--output-json",
+            str(bundle_path),
+            "--summary-json",
+            str(summary_path),
+            "--dry-run",
+            "--today",
+            "2026-05-24",
+        ]
+    )
+
+    assert rc == 0
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    traceability = bundle_traceability_summary(bundle)
+
+    assert summary["database_imported"] is False
+    assert summary["run_evidence_status"]["present"] is True
+    assert summary["run_evidence_status"]["all_hashed"] is True
+    assert summary["run_evidence_status"]["roles"] == [
+        "run_evidence_status",
+        "run_evidence_status_report",
+    ]
+    assert traceability["traceability_checks"]["has_run_evidence_status"] is True
+    assert {
+        row["artifact_role"]
+        for row in traceability["run_evidence_status_artifacts"]
+    } == {"run_evidence_status", "run_evidence_status_report"}
+
+
 def test_traceability_summary_explains_canonical_physical_evidence_chain(tmp_path):
     outputs = write_canonical_v1_5_evidence_package(
         tmp_path / "canonical",
@@ -532,6 +767,11 @@ def test_traceability_summary_explains_canonical_physical_evidence_chain(tmp_pat
     assert summary["traceability_checks"]["has_water_route_traceability"] is True
     assert summary["traceability_checks"]["has_h2o_open_flow_qc"] is True
     assert summary["traceability_checks"]["has_h2o_raw_signal_fields"] is True
+    assert summary["traceability_checks"]["has_run_evidence_status"] is True
+    assert {
+        row["artifact_role"]
+        for row in summary["run_evidence_status_artifacts"]
+    } == {"run_evidence_status", "run_evidence_status_report"}
     assert {"raw_samples", "pressure_channel_quick_check", "formal_plan_snapshot", "pressure_reference_snapshot"}.issubset(
         artifact_roles
     )
@@ -578,6 +818,34 @@ def test_query_cli_supports_traceability_and_artifact_hash_modes(monkeypatch, ca
     artifact_out = json.loads(capsys.readouterr().out)
     assert artifact_out["rows"][0]["artifact_role"] == "raw_samples"
     assert artifact_out["rows"][0]["sha256"] == "abc123"
+
+
+def test_pressure_reference_traceability_qc_deduplicates_shared_reference_rows():
+    duplicate_reference = {
+        "device_id": "118288",
+        "status": "pass",
+        "reasons": "",
+        "certificate_id": "FRGsz25038057",
+    }
+
+    rows = _build_qc_rows(
+        run_db_id="run-db-id",
+        tables={
+            "pressure_reference_traceability": [
+                duplicate_reference,
+                dict(duplicate_reference),
+                dict(duplicate_reference),
+            ]
+        },
+        source_artifacts={"pressure_reference_snapshot": "pressure-reference-artifact-id"},
+    )
+
+    pressure_rows = [row for row in rows if row["rule_name"] == "pressure_reference_traceability"]
+    assert len(pressure_rows) == 1
+    assert pressure_rows[0]["subject_id"] == "118288"
+    assert pressure_rows[0]["metadata"]["deduped_shared_reference"] is True
+    assert pressure_rows[0]["metadata"]["source_row_count"] == 3
+    assert len({row["id"] for row in rows}) == len(rows)
 
 
 def test_dsn_masking_never_exposes_password():

@@ -133,7 +133,7 @@ python -m gas_calibrator.tools.export_v1_5_temperature_channel_review --h2o-poin
 - physical_meaning: Open flow continuously refreshes the optical cavity. CO2 fitting uses factory ratio evidence, not old displayed concentration affected by existing coefficients.
 
 ```powershell
-python -m gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue --config D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\coefficient_epoch_0_getco_snapshot\runtime_identity_bound_config.json --queue-csv "<co2_runner_queue.csv>" --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\co2_open_flow --run-id v1_5_contract_reference_co2 --analyzer-acquisition active_stream_1hz --temperature-order asc --no-prompt
+python -m gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue --config D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\coefficient_epoch_0_getco_snapshot\runtime_identity_bound_config.json --queue-csv "<co2_runner_queue.csv>" --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\co2_open_flow --run-id v1_5_contract_reference_co2 --analyzer-acquisition active_stream_1hz --temperature-order desc --no-prompt
 ```
 
 ### 7. Run V1.5 H2O open-flow multi-temperature queue
@@ -150,7 +150,7 @@ python -m gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue --config D:\g
 - physical_meaning: H2O fitting must use dewpoint/reference-backed water evidence and preserve dry-gas low-water anchors separately from CO2 zero-gas anchors.
 
 ```powershell
-python -m gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue --config D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\coefficient_epoch_0_getco_snapshot\runtime_identity_bound_config.json --queue-csv "<h2o_runner_queue.csv>" --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\h2o_open_flow --run-id v1_5_contract_reference_h2o --analyzer-acquisition active_stream_1hz --temperature-order asc --h2o-pressure-presample-policy warn --no-prompt
+python -m gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue --config D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\coefficient_epoch_0_getco_snapshot\runtime_identity_bound_config.json --queue-csv "<h2o_runner_queue.csv>" --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\h2o_open_flow --run-id v1_5_contract_reference_h2o --analyzer-acquisition active_stream_1hz --temperature-order asc --h2o-pressure-presample-policy skip --no-prompt
 ```
 
 ### 8. Audit CO2/H2O fit inputs before candidate coefficients

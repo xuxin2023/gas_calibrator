@@ -39,12 +39,15 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--co2-fit-ppm",
         default=",".join(str(value) for value in DEFAULT_CO2_FIT_PPM),
-        help="CO2 nominal ppm values allowed for fit. Default includes zero gas.",
+        help="CO2 nominal ppm values emitted as formal fit evidence. Default includes every qualified open-flow gas point.",
     )
     parser.add_argument(
         "--co2-verification-ppm",
         default=",".join(str(value) for value in DEFAULT_CO2_VERIFICATION_PPM),
-        help="CO2 nominal ppm values reserved for independent verification.",
+        help=(
+            "Deprecated compatibility option. Values supplied here are still emitted as fit points; "
+            "true verification is a separate post-write run."
+        ),
     )
     parser.add_argument("--purge-s", type=float, default=360.0)
     parser.add_argument("--sample-count", type=int, default=10)

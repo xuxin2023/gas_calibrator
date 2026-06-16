@@ -58,6 +58,7 @@ def _candidates(path):
                 "C0": "0.4905228172675264",
                 "C1": "1.0205632716937274",
                 "candidate_status": "review_ready",
+                "input_source_contract": "postwrite_firmware_output_verification",
             },
             {
                 "device_id": "030",
@@ -65,6 +66,7 @@ def _candidates(path):
                 "C0": "-3.8272316786568896",
                 "C1": "0.8388745329865216",
                 "candidate_status": "blocked",
+                "input_source_contract": "postwrite_firmware_output_verification",
             },
         ],
     )
@@ -167,9 +169,9 @@ def test_senco6_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
             "--post-write-settle-s",
-            "0",
+            "1",
         ]
     )
 
@@ -183,6 +185,13 @@ def test_senco6_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
     ga = _FakeGasAnalyzer.instances["COM37"]
     assert ga.coeff6 == [0.491, 1.021]
     assert ("send", "SENCO6,YGAS,FFF,0.491,1.021") in ga.calls
+
+
+def test_senco6_linear_writer_keeps_fractional_leading_zero_for_firmware_parser():
+    assert writer._format_c0("-0.390", decimals=3) == "-0.390"
+    assert writer._format_c1("0.947", decimals=3) == "0.947"
+    assert writer._format_c0("0", decimals=0) == "0"
+    assert writer._format_c1("1.021", decimals=3) == "1.021"
 
 
 def test_senco6_linear_writer_rejects_more_than_three_decimals():
@@ -227,9 +236,9 @@ def test_senco6_linear_writer_accepts_missing_ack_when_readback_matches(monkeypa
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
             "--post-write-settle-s",
-            "0",
+            "1",
         ]
     )
 
@@ -257,6 +266,87 @@ def test_senco6_linear_writer_refuses_blocked_candidate(tmp_path):
             str(tmp_path / "out"),
             "--device-id",
             "030",
+            "--enable-senco6-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2
+
+
+def test_senco6_linear_writer_refuses_model_prediction_source(tmp_path):
+    cfg = tmp_path / "cfg.json"
+    candidates = tmp_path / "candidates.csv"
+    _write_json(cfg, _config(tmp_path))
+    _write_csv(
+        candidates,
+        [
+            {
+                "device_id": "022",
+                "senco_group": "SENCO6",
+                "C0": "0.491",
+                "C1": "1.021",
+                "candidate_status": "review_ready",
+                "input_source_contract": "senco24_model_pred_wet_points_only",
+            }
+        ],
+    )
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg),
+            "--candidate-coefficients-csv",
+            str(candidates),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--device-id",
+            "022",
+            "--enable-senco6-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+        ]
+    )
+
+    assert rc == 2
+
+
+def test_senco6_linear_writer_refuses_missing_input_source_contract(tmp_path):
+    cfg = tmp_path / "cfg.json"
+    candidates = tmp_path / "candidates.csv"
+    _write_json(cfg, _config(tmp_path))
+    _write_csv(
+        candidates,
+        [
+            {
+                "device_id": "022",
+                "senco_group": "SENCO6",
+                "C0": "0.491",
+                "C1": "1.021",
+                "candidate_status": "review_ready",
+            }
+        ],
+    )
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg),
+            "--candidate-coefficients-csv",
+            str(candidates),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--device-id",
+            "022",
             "--enable-senco6-write",
             "--operator-confirmation",
             writer.CONFIRMATION_TEXT,

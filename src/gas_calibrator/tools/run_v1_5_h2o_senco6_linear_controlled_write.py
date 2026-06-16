@@ -24,6 +24,7 @@ from ..config import load_config
 from ..devices import GasAnalyzer
 from ..validation.reporting import ValidationMetadata, write_validation_report
 from . import run_v1_5_co2_senco1_controlled_write as base
+from .v1_5_serial_safety import require_fragile_serial_timing
 
 
 CONFIRMATION_TEXT = "WRITE_SENCO6_LINEAR_V1_5_H2O_TRIM"
@@ -67,6 +68,30 @@ def _payload_value_strings(c0: Any, c1: Any, *, c0_decimals: int, c1_decimals: i
     ]
 
 
+def _input_source_contract_allows_write(row: Dict[str, Any]) -> bool:
+    source = str(row.get("input_source_contract") or "").strip().lower()
+    if not source:
+        return False
+    model_only_markers = (
+        "model_pred",
+        "model_prediction",
+        "senco24_model",
+        "main_model_pred",
+        "not_current_firmware",
+    )
+    if any(marker in source for marker in model_only_markers):
+        return False
+    firmware_markers = (
+        "firmware",
+        "postwrite",
+        "post_write",
+        "reported_output",
+        "analyzer_reported",
+        "live_output",
+    )
+    return any(marker in source for marker in firmware_markers)
+
+
 def _candidate_rows(path: Path, selected_device_ids: Sequence[str]) -> List[Dict[str, Any]]:
     selected = {base._device_id(item) for item in selected_device_ids if str(item or "").strip()}
     rows: List[Dict[str, Any]] = []
@@ -77,6 +102,8 @@ def _candidate_rows(path: Path, selected_device_ids: Sequence[str]) -> List[Dict
         if str(row.get("senco_group") or "").strip().upper() != "SENCO6":
             continue
         if str(row.get("candidate_status") or "").strip() != "review_ready":
+            continue
+        if not _input_source_contract_allows_write(row):
             continue
         c0 = _finite(row.get("C0"), "SENCO6 C0")
         c1 = _finite(row.get("C1"), "SENCO6 C1")
@@ -191,7 +218,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no-restore-active-freq", dest="restore_active_freq", action="store_false")
     parser.add_argument("--coefficient-quiet-settle-s", type=float, default=3.0)
     parser.add_argument("--coefficient-read-timeout-s", type=float, default=2.0)
-    parser.add_argument("--coefficient-read-delay-s", type=float, default=0.5)
+    parser.add_argument("--coefficient-read-delay-s", type=float, default=1.0)
     parser.add_argument("--coefficient-read-retries", type=int, default=4)
     parser.add_argument("--c0-compare-atol", type=float, default=0.05)
     parser.add_argument("--c1-compare-atol", type=float, default=0.00005)
@@ -211,6 +238,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        require_fragile_serial_timing(args, tool_name="run_v1_5_h2o_senco6_linear_controlled_write")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
     if not bool(args.enable_senco6_write) or str(args.operator_confirmation).strip() != CONFIRMATION_TEXT:
         print("SENCO6 linear write locked: explicit unlock and operator confirmation are required.", file=sys.stderr)
@@ -476,7 +508,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         output_dir,
         tables={"senco6_linear_write_events": rows, "conclusion": [conclusion]},
         metadata=metadata,
-        prefix="h2o_senco6_linear_controlled_write",
+        prefix="senco6_write_report",
     )
     print(json.dumps(conclusion, ensure_ascii=False, indent=2), flush=True)
     return 0 if overall_ok else 1

@@ -278,9 +278,9 @@ def test_controlled_co2_senco13_pair_write_selected_only(monkeypatch, tmp_path):
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
             "--post-write-settle-s",
-            "0",
+            "1",
         ]
     )
 
@@ -462,9 +462,9 @@ def test_controlled_co2_senco13_rollback_restores_old_snapshot(monkeypatch, tmp_
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
             "--post-write-settle-s",
-            "0",
+            "1",
         ]
     )
 

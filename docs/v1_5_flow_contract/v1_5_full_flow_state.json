@@ -1,7 +1,7 @@
 {
   "schema": "v1_5_full_calibration_flow_state_v0",
   "run_id": "v1_5_contract_reference",
-  "created_at": "2026-06-04T07:38:04",
+  "created_at": "2026-06-06T19:30:39",
   "current_step_id": "load_plan_and_traceability",
   "current_status": "waiting_for_inputs",
   "ready_step_ids": [],
@@ -201,7 +201,7 @@
         "--analyzer-acquisition",
         "active_stream_1hz",
         "--temperature-order",
-        "asc",
+        "desc",
         "--no-prompt"
       ],
       "requires_real_com_authorization": true,
@@ -239,7 +239,7 @@
         "--temperature-order",
         "asc",
         "--h2o-pressure-presample-policy",
-        "warn",
+        "skip",
         "--no-prompt"
       ],
       "requires_real_com_authorization": true,

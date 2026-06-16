@@ -6,6 +6,10 @@ tool, so it should not depend on V2 runtime or offline bridge modules.
 
 from __future__ import annotations
 
+LEGACY_V1_REFERENCE_ONLY = True
+NOT_V1_5_FORMAL_ENTRYPOINT = True
+DO_NOT_USE_FOR_V1_5 = True
+
 import csv
 import inspect
 import json

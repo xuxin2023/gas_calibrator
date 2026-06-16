@@ -38,6 +38,10 @@ from ..pace_audit import (
 from ..workflow import runner as runner_mod
 from ..workflow.runner import CalibrationRunner
 from . import run_headless
+from .v1_5_entrypoint_guards import (
+    add_engineering_diagnostic_guard_args,
+    require_engineering_diagnostic_guard,
+)
 
 
 DEWPOINT_GATE_EXTENDED_HOLD_REBOUND_OBSERVED = "DEWPOINT_GATE_EXTENDED_HOLD_REBOUND_OBSERVED"
@@ -895,7 +899,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--hold-duration-s", type=float, default=None, help="Override dewpoint gate extended hold duration.")
     parser.add_argument("--sample-interval-s", type=float, default=None, help="Override dewpoint-only sample interval.")
     parser.add_argument("--audit-run-dir", default=None, help="Only write offline analyzer/dewpoint event CSV for a run dir.")
-    return parser.parse_args(list(argv) if argv is not None else None)
+    add_engineering_diagnostic_guard_args(parser)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    if not args.audit_run_dir:
+        require_engineering_diagnostic_guard(args, parser, context="dewpoint gate extended-hold diagnostic")
+    return args
 
 
 def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:

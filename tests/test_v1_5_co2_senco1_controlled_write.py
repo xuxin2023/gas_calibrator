@@ -207,7 +207,7 @@ def test_controlled_co2_senco1_write_requires_explicit_unlock(tmp_path):
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
         ]
     )
 
@@ -256,7 +256,7 @@ def test_controlled_co2_senco1_write_preserves_senco3_and_restores_runtime(monke
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
         ]
     )
 

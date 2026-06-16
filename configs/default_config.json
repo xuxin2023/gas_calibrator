@@ -549,6 +549,7 @@
         "continue_wait_while_progress": true,
         "progress_window_s": 300.0,
         "progress_min_delta_c": 0.05,
+        "near_target_continue_margin_c": 1.0,
         "hard_max_wait_s": 0.0,
         "command_offset_c": 0.0,
         "analyzer_chamber_temp_enabled": true,

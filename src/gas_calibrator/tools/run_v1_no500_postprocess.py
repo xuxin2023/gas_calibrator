@@ -10,6 +10,10 @@ This is an offline bridge/sidecar entrypoint, not the V1 production runtime.
 
 from __future__ import annotations
 
+LEGACY_V1_REFERENCE_ONLY = True
+NOT_V1_5_FORMAL_ENTRYPOINT = True
+DO_NOT_USE_FOR_V1_5 = True
+
 import argparse
 import json
 from datetime import datetime

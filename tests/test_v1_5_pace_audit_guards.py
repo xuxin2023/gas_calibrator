@@ -475,6 +475,9 @@ class _FakePace:
     def set_units_hpa(self) -> None:
         self.calls.append(("set_units_hpa",))
 
+    def set_range(self, range_name: str) -> None:
+        self.calls.append(("set_range", range_name))
+
     def set_output_mode_active(self) -> None:
         self.calls.append(("set_output_mode_active",))
 
@@ -702,6 +705,39 @@ def test_no_cal_zero_commands_in_startup_config(tmp_path: Path) -> None:
     assert ":OUTP:MODE ACT" in commands
     assert not any("CAL" in command or "ZERO" in command for command in commands)
     assert not any(row["is_forbidden"] == "True" for row in rows)
+
+
+def test_configure_devices_records_pressure_range_when_configured(tmp_path: Path) -> None:
+    runner, logger, pace = _runner_for_audit(tmp_path)
+    runner.cfg.setdefault("workflow", {}).setdefault("pressure", {})["control_range"] = "2.00bara"
+    runner.cfg["workflow"]["pressure"]["control_range_enabled"] = True
+
+    runner._configure_devices()
+    logger.close()
+
+    audit_path = logger.run_dir / "pace_startup_config_audit.csv"
+    with audit_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    range_rows = [row for row in rows if row["command"] == ':SOUR:PRES:RANG "2.00bara"']
+    assert range_rows
+    assert range_rows[0]["category"] == "pressure_range"
+    assert range_rows[0]["is_forbidden"] == "False"
+    assert ("set_range", "2.00bara") in pace.calls
+
+
+def test_configure_devices_skips_pressure_range_when_configured_without_explicit_enable(tmp_path: Path) -> None:
+    runner, logger, pace = _runner_for_audit(tmp_path)
+    runner.cfg.setdefault("workflow", {}).setdefault("pressure", {})["control_range"] = "2.00bara"
+
+    runner._configure_devices()
+    logger.close()
+
+    audit_path = logger.run_dir / "pace_startup_config_audit.csv"
+    with audit_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    range_rows = [row for row in rows if row["command"] == ':SOUR:PRES:RANG "2.00bara"']
+    assert not range_rows
+    assert ("set_range", "2.00bara") not in pace.calls
 
 
 def _prepare_analyzer_gate_dewpoint_runner(

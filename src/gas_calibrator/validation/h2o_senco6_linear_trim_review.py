@@ -33,6 +33,10 @@ class H2oSenco6LinearTrimConfig:
     max_abs_c1_delta: float = 0.15
     command_c1_min: float = 0.0
     command_c1_max: float = 2.0
+    require_independent_firmware_output: bool = True
+    require_state_comparability_evidence: bool = False
+    max_abs_h2o_ratio_delta_vs_fit: float = 0.005
+    max_abs_temperature_delta_c_vs_fit: float = 3.0
 
 
 def _now() -> str:
@@ -82,6 +86,106 @@ def _fit_linear_trim(rows: Sequence[Mapping[str, Any]]) -> Tuple[float, float]:
     matrix = np.column_stack([np.ones_like(measured), measured])
     c0, c1 = np.linalg.lstsq(matrix, target, rcond=None)[0]
     return float(c0), float(c1)
+
+
+def _input_source_contract(rows: Sequence[Mapping[str, Any]]) -> str:
+    sources: List[str] = []
+    for row in rows:
+        for key in (
+            "input_source_contract",
+            "senco6_input_contract",
+            "source",
+            "measured_h2o_source",
+            "verification_source",
+        ):
+            value = str(row.get(key) or "").strip()
+            if value and value not in sources:
+                sources.append(value)
+    return ";".join(sources) if sources else "missing"
+
+
+def _source_is_independent_firmware_output(source_contract: str) -> bool:
+    text = str(source_contract or "").strip().lower()
+    if not text or text == "missing":
+        return False
+    model_only_markers = (
+        "model_pred",
+        "model_prediction",
+        "senco24_model",
+        "main_model_pred",
+        "not_current_firmware",
+    )
+    if any(marker in text for marker in model_only_markers):
+        return False
+    firmware_markers = (
+        "firmware",
+        "postwrite",
+        "post_write",
+        "reported_output",
+        "analyzer_reported",
+        "live_output",
+    )
+    return any(marker in text for marker in firmware_markers)
+
+
+def _state_comparability_blockers(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    cfg: H2oSenco6LinearTrimConfig,
+) -> List[str]:
+    if not bool(cfg.require_state_comparability_evidence):
+        return []
+
+    blockers: set[str] = set()
+    for row in rows:
+        explicit_status = ""
+        for key in (
+            "state_comparability_status",
+            "state_comparability_gate",
+            "state_comparability_qc",
+        ):
+            value = str(row.get(key) or "").strip().lower()
+            if value:
+                explicit_status = value
+                break
+        if explicit_status:
+            if explicit_status not in {"pass", "passed", "ok", "ready", "comparable"}:
+                blockers.add("state_not_comparable_to_fit_support")
+            continue
+
+        ratio_delta = None
+        for key in (
+            "h2o_ratio_delta_vs_fit",
+            "ratio_delta_vs_fit",
+            "model_ratio_delta_vs_fit",
+            "h2o_ratio_f_delta_vs_fit",
+        ):
+            ratio_delta = _safe_float(row.get(key))
+            if ratio_delta is not None:
+                break
+
+        temperature_delta = None
+        for key in (
+            "temperature_delta_c_vs_fit",
+            "actual_temperature_delta_c_vs_fit",
+            "chamber_temperature_delta_c_vs_fit",
+            "thermometer_temperature_delta_c_vs_fit",
+        ):
+            temperature_delta = _safe_float(row.get(key))
+            if temperature_delta is not None:
+                break
+
+        if ratio_delta is None and temperature_delta is None:
+            blockers.add("missing_state_comparability_evidence")
+            continue
+        if ratio_delta is not None and abs(ratio_delta) > float(cfg.max_abs_h2o_ratio_delta_vs_fit):
+            blockers.add("h2o_ratio_state_delta_exceeds_fit_support")
+        if (
+            temperature_delta is not None
+            and abs(temperature_delta) > float(cfg.max_abs_temperature_delta_c_vs_fit)
+        ):
+            blockers.add("temperature_state_delta_exceeds_fit_support")
+    return sorted(blockers)
 
 
 def _metrics(rows: Sequence[Mapping[str, Any]], *, c0: float, c1: float) -> Tuple[float, float, float]:
@@ -257,13 +361,19 @@ def build_h2o_senco6_linear_trim_review(
     for dev in sorted(target_devices):
         rows = by_device.get(dev, [])
         blockers: List[str] = []
+        input_source_contract = _input_source_contract(rows)
         c0 = c1 = None
         payload_c0 = payload_c1 = None
         max_abs_pct = max_abs_mmol = rmse_mmol = ""
         payload_max_abs_pct = payload_max_abs_mmol = payload_rmse_mmol = ""
         if len(rows) < int(cfg.min_points):
             blockers.append("insufficient_points")
-        else:
+        if bool(cfg.require_independent_firmware_output) and not _source_is_independent_firmware_output(
+            input_source_contract
+        ):
+            blockers.append("senco6_input_not_independent_firmware_output")
+        blockers.extend(_state_comparability_blockers(rows, cfg=cfg))
+        if not blockers:
             c0, c1 = _fit_linear_trim(rows)
             max_abs_pct, max_abs_mmol, rmse_mmol = _metrics(rows, c0=c0, c1=c1)
             payload_c0, payload_c1, payload_max_abs_pct, payload_max_abs_mmol, payload_rmse_mmol = _fit_quantized_command_trim(
@@ -319,6 +429,11 @@ def build_h2o_senco6_linear_trim_review(
                 "blocked_reasons": ";".join(blockers),
                 "auto_write_allowed": False,
                 "requires_controlled_write_review": True,
+                "input_source_contract": input_source_contract,
+                "requires_independent_firmware_output": bool(cfg.require_independent_firmware_output),
+                "requires_state_comparability_evidence": bool(cfg.require_state_comparability_evidence),
+                "max_abs_h2o_ratio_delta_vs_fit": float(cfg.max_abs_h2o_ratio_delta_vs_fit),
+                "max_abs_temperature_delta_c_vs_fit": float(cfg.max_abs_temperature_delta_c_vs_fit),
                 "fit_contract_stage": "integrated_firmware_output_candidate",
                 "candidate_package_role": "senco6_final_output_layer_with_senco24",
                 "physical_scope": "H2O final output concentration affine layer",
@@ -342,6 +457,11 @@ def build_h2o_senco6_linear_trim_review(
                     "payload_max_abs_error_mmol": payload_max_abs_mmol,
                     "decimal_write_contract": "C0/C1 decimal values; no scientific notation; payload is optimized under the writable decimal precision",
                     "candidate_status": status,
+                    "input_source_contract": input_source_contract,
+                    "requires_independent_firmware_output": bool(cfg.require_independent_firmware_output),
+                    "requires_state_comparability_evidence": bool(cfg.require_state_comparability_evidence),
+                    "max_abs_h2o_ratio_delta_vs_fit": float(cfg.max_abs_h2o_ratio_delta_vs_fit),
+                    "max_abs_temperature_delta_c_vs_fit": float(cfg.max_abs_temperature_delta_c_vs_fit),
                     "auto_write_allowed": False,
                 }
             )
@@ -359,6 +479,7 @@ def build_h2o_senco6_linear_trim_review(
             "opens_com_ports": False,
             "controls_water_or_gas_routes": False,
             "writes_coefficients": False,
+            "requires_state_comparability_evidence": bool(cfg.require_state_comparability_evidence),
         }
     ]
     return {
@@ -408,6 +529,10 @@ def write_h2o_senco6_linear_trim_review(
                     "command_c1_max": cfg.command_c1_max,
                     "max_abs_c0_mmol": cfg.max_abs_c0_mmol,
                     "max_abs_c1_delta": cfg.max_abs_c1_delta,
+                    "require_independent_firmware_output": cfg.require_independent_firmware_output,
+                    "require_state_comparability_evidence": cfg.require_state_comparability_evidence,
+                    "max_abs_h2o_ratio_delta_vs_fit": cfg.max_abs_h2o_ratio_delta_vs_fit,
+                    "max_abs_temperature_delta_c_vs_fit": cfg.max_abs_temperature_delta_c_vs_fit,
                     "candidate_package_role": "senco6_final_output_layer_with_senco24",
                 },
                 "opens_com_ports": False,
@@ -431,7 +556,7 @@ def _fmt(value: Any) -> str:
 def _write_markdown(path: Path, tables: Mapping[str, Sequence[Mapping[str, Any]]]) -> None:
     summary = list(tables.get("run_summary") or [{}])[0]
     lines = [
-        "# V1.5 H2O SENCO6 Linear Trim Review",
+        "# V1.5 H2O SENCO6 最终线性修正评审",
         "",
         f"- Run status: `{summary.get('run_status')}`",
         f"- Acceptance: `±{summary.get('acceptance_pct')}%`",
@@ -452,20 +577,20 @@ def _write_markdown(path: Path, tables: Mapping[str, Sequence[Mapping[str, Any]]
                 blockers=row.get("blocked_reasons", ""),
             )
         )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
 
 
 def _write_markdown_payload(path: Path, tables: Mapping[str, Sequence[Mapping[str, Any]]]) -> None:
     summary = list(tables.get("run_summary") or [{}])[0]
     lines = [
-        "# V1.5 H2O SENCO6 Linear Trim Review",
+        "# V1.5 H2O SENCO6 最终线性修正评审",
         "",
-        f"- Run status: `{summary.get('run_status')}`",
-        f"- Acceptance: `+/-{summary.get('acceptance_pct')}%`",
-        f"- Opens COM ports: `{summary.get('opens_com_ports')}`",
-        f"- Writes coefficients: `{summary.get('writes_coefficients')}`",
+        f"- 运行状态：`{summary.get('run_status')}`",
+        f"- 判定阈值：`+/-{summary.get('acceptance_pct')}%`",
+        f"- 打开串口：`{summary.get('opens_com_ports')}`",
+        f"- 写入系数：`{summary.get('writes_coefficients')}`",
         "",
-        "| Device | Status | Payload C0 | Payload C1 | Payload Max abs % | Blockers |",
+        "| 设备 ID | 状态 | 可写 C0 | 可写 C1 | 可写后最大相对误差 % | 阻断原因 |",
         "| --- | --- | ---: | ---: | ---: | --- |",
     ]
     for row in tables.get("candidate_summary") or []:
@@ -482,11 +607,12 @@ def _write_markdown_payload(path: Path, tables: Mapping[str, Sequence[Mapping[st
     lines.extend(
         [
             "",
-            "## Physical Meaning",
+            "## 物理意义",
             "",
-            "- SENCO6 is the final H2O concentration affine layer: `corrected = measured*C1 + C0`.",
-            "- It must be evaluated after SENCO2/SENCO4, and must not be mixed back into the raw H2O ratio fit.",
-            "- The firmware command is evaluated at the configured writable decimal precision, so this review optimizes the actual C0/C1 payload.",
+            "- SENCO6 是 H2O 最终输出浓度的线性修正层：`修正后 H2O = 主链路 H2O * C1 + C0`。",
+            "- 它必须在 SENCO2/SENCO4 主拟合之后单独评审，不能混回原始 H2O 比值拟合。",
+            "- 本评审按设备实际可写入的小数位优化 C0/C1，因此表中误差对应真实 payload，而不是无限精度理论值。",
+            "- 该工具只处理离线证据，不打开串口、不控制水路/气路、不写入系数。",
         ]
     )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")

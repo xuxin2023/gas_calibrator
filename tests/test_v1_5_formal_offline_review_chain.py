@@ -188,9 +188,19 @@ def test_offline_review_chain_generates_full_review_outputs_when_evidence_exists
     assert summary["outputs"]["evidence_bundle_integrity_json"].endswith("evidence_bundle_integrity.json")
     assert summary["outputs"]["report_report_model"].endswith("report_model.json")
     assert summary["outputs"]["advanced_qc_json"].endswith("advanced_qc_summary.json")
+    assert summary["outputs"]["run_evidence_status_json"].endswith("v1_5_run_evidence_status.json")
+    assert summary["outputs"]["calibration_capability_json"].endswith("v1_5_calibration_capability.json")
     assert summary["outputs"]["review_surface_html"].endswith("v1_5_review_surface.html")
     assert summary["artifact_manifest"]["status"] == "pass"
     assert summary["outputs"]["chain_artifact_manifest_json"].endswith("offline_review_chain_artifacts.json")
+    operation_console = json.loads(
+        (tmp_path / "chain" / "operation_console" / "v1_5_operation_console.json").read_text(encoding="utf-8")
+    )
+    assert operation_console["source_evidence"]["has_run_evidence_status"] is True
+    assert operation_console["source_evidence"]["has_calibration_capability"] is True
+    assert operation_console["opens_com_ports"] is False
+    assert operation_console["controls_water_or_gas_routes"] is False
+    assert operation_console["writes_coefficients"] is False
     manifest = json.loads((tmp_path / "chain" / "offline_review_chain_artifacts.json").read_text(encoding="utf-8"))
     manifest_roles = {row["artifact_role"]: row for row in manifest["artifacts"]}
     assert manifest["status"] == "pass"
@@ -201,6 +211,8 @@ def test_offline_review_chain_generates_full_review_outputs_when_evidence_exists
         "evidence_bundle_json",
         "evidence_bundle_integrity_json",
         "report_formal_calibration_report_pdf",
+        "run_evidence_status_json",
+        "calibration_capability_json",
         "workbench_html",
         "operation_console_html",
         "review_surface_html",

@@ -4,6 +4,14 @@ import json
 from gas_calibrator.tools import probe_v1_5_getco9_protocol as probe
 
 
+DIAGNOSTIC_GUARD_ARGS = [
+    "--engineering-diagnostic",
+    "--not-real-acceptance",
+    "--operator-confirmation",
+    "DIAGNOSTIC_ONLY",
+]
+
+
 def _write_json(path, payload):
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
@@ -108,11 +116,12 @@ def test_getco9_probe_is_read_only_and_restores_runtime(monkeypatch, tmp_path):
             "--device-id",
             "023",
             "--command-gap-s",
-            "0",
+            "1",
             "--quiet-settle-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
+            *DIAGNOSTIC_GUARD_ARGS,
         ]
     )
 
@@ -160,11 +169,12 @@ def test_getco9_probe_blocks_when_no_coefficients(monkeypatch, tmp_path):
             "--device-id",
             "023",
             "--command-gap-s",
-            "0",
+            "1",
             "--quiet-settle-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
+            *DIAGNOSTIC_GUARD_ARGS,
         ]
     )
 

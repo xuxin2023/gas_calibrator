@@ -156,8 +156,12 @@ def test_runner_temperature_calibration_snapshot_and_export(tmp_path: Path) -> N
     shell_row = next(row for row in rows if row["fit_type"] == "shell")
     assert cell_row["senco_channel"] == "SENCO7"
     assert shell_row["senco_channel"] == "SENCO8"
-    assert cell_row["command_string"] == "SENCO7,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"
-    assert shell_row["command_string"] == "SENCO8,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"
+    assert cell_row["write_eligible"] == "False"
+    assert shell_row["write_eligible"] == "False"
+    assert cell_row["write_block_reason"] == "insufficient_distinct_temperature_setpoints"
+    assert shell_row["write_block_reason"] == "insufficient_distinct_temperature_setpoints"
+    assert cell_row["command_string"] == ""
+    assert shell_row["command_string"] == ""
 
 
 def test_runner_temperature_calibration_shell_missing_downgrades(tmp_path: Path) -> None:

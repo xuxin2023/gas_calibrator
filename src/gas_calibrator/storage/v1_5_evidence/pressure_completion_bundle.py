@@ -102,6 +102,10 @@ def _artifact_role_from_completion(role: str, path: Path) -> str:
         return "pressure_channel_completion_summary"
     if name == "pressure_channel_device_readiness.csv":
         return "pressure_channel_device_readiness"
+    if name == "pressure_channel_excluded_devices.csv":
+        return "pressure_channel_excluded_devices"
+    if name == "pressure_channel_known_limitations.csv":
+        return "pressure_channel_known_limitations"
     if name == "pressure_channel_traceability.csv":
         return "pressure_channel_traceability"
     if name == "pressure_channel_readiness_gate.csv":

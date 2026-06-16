@@ -17,6 +17,14 @@ from .formal_evidence_run import run_formal_evidence_sidecar
 from .formal_readiness import write_formal_readiness_report
 from .formal_reports import write_v1_5_calibration_reports
 from .formal_workbench import write_formal_workbench
+from .v1_5_calibration_capability import (
+    build_v1_5_calibration_capability,
+    render_v1_5_calibration_capability_markdown,
+)
+from .v1_5_run_evidence_status import (
+    build_v1_5_run_evidence_status,
+    render_v1_5_run_evidence_status_markdown,
+)
 from ..v1_5.qc_advanced.exporter import write_advanced_qc_summary
 from ..v1_5.review_surface import load_json_object, write_review_surface
 from ..v1_5.ui.operation_console import write_operation_console
@@ -258,9 +266,55 @@ def run_formal_offline_review_chain(
     outputs["workbench_html"] = str(workbench_outputs["html"])
     stages["workbench"] = {"status": "completed", "reason": "static review surface"}
 
+    run_status = build_v1_5_run_evidence_status(
+        run_dir=root,
+        evidence_bundle_json=evidence_bundle_path or None,
+        component=component,
+    )
+    run_status_dir = destination / "run_evidence_status"
+    run_status_dir.mkdir(parents=True, exist_ok=True)
+    run_status_json = run_status_dir / "v1_5_run_evidence_status.json"
+    run_status_md = run_status_dir / "v1_5_run_evidence_status.md"
+    run_status_json.write_text(
+        json.dumps(run_status, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    run_status_md.write_text(render_v1_5_run_evidence_status_markdown(run_status), encoding="utf-8")
+    outputs["run_evidence_status_json"] = str(run_status_json)
+    outputs["run_evidence_status_markdown"] = str(run_status_md)
+    stages["run_evidence_status"] = {
+        "status": "completed",
+        "reason": str(run_status.get("overall_status") or ""),
+    }
+
+    capability = build_v1_5_calibration_capability(
+        run_status=run_status,
+        component=component,
+    )
+    capability_dir = destination / "calibration_capability"
+    capability_dir.mkdir(parents=True, exist_ok=True)
+    capability_json = capability_dir / "v1_5_calibration_capability.json"
+    capability_md = capability_dir / "v1_5_calibration_capability.md"
+    capability_json.write_text(
+        json.dumps(capability, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    capability_md.write_text(
+        render_v1_5_calibration_capability_markdown(capability),
+        encoding="utf-8-sig",
+    )
+    outputs["calibration_capability_json"] = str(capability_json)
+    outputs["calibration_capability_markdown"] = str(capability_md)
+    stages["calibration_capability"] = {
+        "status": "completed",
+        "reason": str(capability.get("capability_status") or capability.get("status") or ""),
+    }
+
     operation_outputs = write_operation_console(
         output_dir=destination / "operation_console",
         workbench_model=_load_json(workbench_json),
+        run_evidence_status=run_status,
+        calibration_capability=capability,
         role=role,
     )
     operation_json = str(operation_outputs["model"])

@@ -151,6 +151,8 @@ def _write_snapshot(path, *, getco6=None):
 
 class _FakeGasAnalyzer:
     instances = {}
+    default_coeff2 = [1288.01, 0.0, 0.766182, 0.295489, -0.0620835, 0.0]
+    default_coeff4 = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
     default_coeff6 = [0.0, 1.0]
 
     def __init__(self, port, baudrate=115200, timeout=1.0, device_id="000", **_kwargs):
@@ -160,8 +162,8 @@ class _FakeGasAnalyzer:
         self.active = True
         self.ftd = 1
         self.average = 49
-        self.coeff2 = [1288.01, 0.0, 0.766182, 0.295489, -0.0620835, 0.0]
-        self.coeff4 = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+        self.coeff2 = list(self.default_coeff2)
+        self.coeff4 = list(self.default_coeff4)
         self.coeff6 = list(self.default_coeff6)
         self.calls = []
         _FakeGasAnalyzer.instances[port] = self
@@ -288,9 +290,9 @@ def test_h2o_senco24_writer_writes_051_only_and_preserves_senco6(monkeypatch, tm
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
             "--post-write-settle-s",
-            "0",
+            "1",
         ]
     )
 
@@ -333,6 +335,106 @@ def test_h2o_senco24_writer_writes_051_only_and_preserves_senco6(monkeypatch, tm
     assert write_events[0]["status"] == "written_readback_verified"
     assert write_events[0]["approved_by"] == "approver-b"
     assert write_events[0]["readback"]["identity_after"] == "051"
+
+
+def test_h2o_senco24_writer_accepts_short_legacy_getco4_zero_tail(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    review_dir = tmp_path / "review"
+    snapshot_path = tmp_path / "snapshot.json"
+    out_dir = tmp_path / "out"
+    review_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_review_artifacts(review_dir)
+    _write_snapshot(snapshot_path)
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    snapshot["051"]["GETCO4_before"] = [0.0, 0.0, 0.0, 1.0]
+    _write_json(snapshot_path, snapshot)
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--review-dir",
+            str(review_dir),
+            "--old-component-snapshot-json",
+            str(snapshot_path),
+            "--output-dir",
+            str(out_dir),
+            "--device-id",
+            "051",
+            "--enable-senco24-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+            "--pre-device-cooldown-s",
+            "0",
+            "--inter-device-delay-s",
+            "0",
+            "--restore-command-gap-s",
+            "1",
+            "--post-write-settle-s",
+            "1",
+        ]
+    )
+
+    assert rc == 0
+    rows = _read_csv(out_dir / "h2o_senco24_pair_write_summary.csv")
+    assert rows[0]["status"] == "written_readback_verified"
+    assert rows[0]["senco4_readback"] == json.dumps([1.29711, -0.00152365, -0.683155, 0.0, 0.0, 0.0])
+
+
+def test_h2o_senco24_writer_accepts_live_getco_zero_tail_omission(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(_FakeGasAnalyzer, "default_coeff2", [1288.01, 0.0, 0.766182, 0.295489, -0.0620835])
+    monkeypatch.setattr(_FakeGasAnalyzer, "default_coeff4", [0.0, 0.0, 0.0, 1.0])
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    review_dir = tmp_path / "review"
+    snapshot_path = tmp_path / "snapshot.json"
+    out_dir = tmp_path / "out"
+    review_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_review_artifacts(review_dir)
+    _write_snapshot(snapshot_path)
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--review-dir",
+            str(review_dir),
+            "--old-component-snapshot-json",
+            str(snapshot_path),
+            "--output-dir",
+            str(out_dir),
+            "--device-id",
+            "051",
+            "--enable-senco24-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+            "--pre-device-cooldown-s",
+            "0",
+            "--inter-device-delay-s",
+            "0",
+            "--restore-command-gap-s",
+            "1",
+            "--post-write-settle-s",
+            "1",
+        ]
+    )
+
+    assert rc == 0
+    rows = _read_csv(out_dir / "h2o_senco24_pair_write_summary.csv")
+    assert rows[0]["status"] == "written_readback_verified"
 
 
 def test_h2o_senco24_writer_allows_review_required_only_with_explicit_override(monkeypatch, tmp_path):
@@ -399,9 +501,9 @@ def test_h2o_senco24_writer_allows_review_required_only_with_explicit_override(m
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
             "--post-write-settle-s",
-            "0",
+            "1",
         ]
     )
 
@@ -510,9 +612,9 @@ def test_h2o_senco24_writer_allows_non_neutral_senco6_after_separate_layer_revie
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
             "--post-write-settle-s",
-            "0",
+            "1",
         ]
     )
 

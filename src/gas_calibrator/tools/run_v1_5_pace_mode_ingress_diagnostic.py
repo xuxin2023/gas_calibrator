@@ -19,6 +19,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from .v1_5_entrypoint_guards import (
+    add_engineering_diagnostic_guard_args,
+    require_engineering_diagnostic_guard,
+)
+
 
 DEFAULT_AMBIENT_HPA = 1006.0
 DEFAULT_TARGETS_HPA = (980.0, 950.0, 900.0)
@@ -1280,6 +1285,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dewpoint-cache-json")
     parser.add_argument("--com22-pressure-cache-json")
     parser.add_argument("--real-com", action="store_true", help="Open the PACE serial port and run the pressure-only diagnostic.")
+    add_engineering_diagnostic_guard_args(parser)
     parser.add_argument(
         "--i-understand-pressure-only-no-write",
         action="store_true",
@@ -1306,6 +1312,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         payload = write_offline_plan(args.output_dir, targets_hpa=targets, ambient_hpa=args.ambient_hpa)
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
+    require_engineering_diagnostic_guard(args, parser, context="PACE mode ingress diagnostic")
     if not args.i_understand_pressure_only_no_write or not args.operator_confirm_sealed_volume:
         parser.error("--real-com requires --i-understand-pressure-only-no-write and --operator-confirm-sealed-volume")
     summary = run_real_com_diagnostic(

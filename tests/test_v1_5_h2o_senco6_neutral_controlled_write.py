@@ -147,11 +147,11 @@ def test_senco6_neutral_writer_uses_clear_command_and_skips_neutral(monkeypatch,
             "--inter-device-delay-s",
             "0",
             "--post-write-settle-s",
-            "0",
+            "1",
             "--readback-retry-delay-s",
-            "0",
+            "1",
             "--restore-command-gap-s",
-            "0",
+            "1",
         ]
     )
 

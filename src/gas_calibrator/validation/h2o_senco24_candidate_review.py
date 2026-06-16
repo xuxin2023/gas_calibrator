@@ -23,6 +23,10 @@ import numpy as np
 
 from ..coefficients.model_metrics import compute_metrics
 from ..senco_format import format_senco_values
+from .factory_signal_health_review import (
+    factory_signal_health_block_reason,
+    load_factory_signal_health_summary,
+)
 from .reporting import ValidationMetadata, write_validation_report
 
 
@@ -54,6 +58,16 @@ class H2OSenco24CandidateConfig:
     postwrite_verification_artifacts: Tuple[str, ...] = field(default_factory=tuple)
     additional_h2o_roots: Tuple[str, ...] = field(default_factory=tuple)
     dry_anchor_roots: Tuple[str, ...] = field(default_factory=tuple)
+    dry_anchor_min_temp_c: Optional[float] = None
+    dry_anchor_max_temp_c: Optional[float] = None
+    allow_pressure_qc_failed_device_ids: Tuple[str, ...] = field(default_factory=tuple)
+    fit_temperature_source: str = "analyzer_chamber"
+    fit_objective: str = "absolute_mmol"
+    require_component_snapshot_for_layer_review: bool = False
+    factory_signal_health_summary_csv: str | Path | None = None
+    state_transfer_summary_csv: str | Path | None = None
+    state_transfer_max_raw_excess_shift_mmol: float = 0.1
+    state_transfer_max_post_s6_relative_error_pct: float = 2.0
 
 
 def _now() -> str:
@@ -268,6 +282,63 @@ def _sample_alignment_summary(point_dir: Path) -> Dict[str, Any]:
     }
 
 
+def _mean_of(values: Sequence[Any]) -> Optional[float]:
+    numbers = [float(value) for value in (_safe_float(item) for item in values) if value is not None]
+    if not numbers:
+        return None
+    return float(mean(numbers))
+
+
+def _sample_device_fallback_map(point_dir: Path) -> Dict[str, Dict[str, Any]]:
+    """Return per-analyzer sample-window values even when summary QC blanks a row.
+
+    The formal point summary intentionally blanks analyzers whose MODE2 frame
+    failed a broad QC gate, such as the pressure-channel failure seen on ID090.
+    For H2O component fitting, pressure is not a polynomial fit input, so the
+    raw factory ratio/temperature values remain useful reviewer evidence when a
+    device is explicitly allowed by policy.
+    """
+
+    rows = _read_csv(point_dir / "samples_machine_readable.csv")
+    if not rows:
+        return {}
+    prefixes: set[str] = set()
+    for row in rows:
+        for key in row:
+            match = re.match(r"^(ga\d+)_", str(key or "").lower())
+            if match:
+                prefixes.add(match.group(1))
+    out: Dict[str, Dict[str, Any]] = {}
+    for prefix in sorted(prefixes):
+        device_ids = [
+            _normal_device_id(row.get(f"{prefix}_analyzer_device_id"))
+            for row in rows
+            if _normal_device_id(row.get(f"{prefix}_analyzer_device_id"))
+        ]
+        out[prefix] = {
+            "sample_analyzer_device_id": device_ids[0] if device_ids else "",
+            "sample_analyzer_h2o_mmol": _mean_of([row.get(f"{prefix}_h2o_mmol") for row in rows]),
+            "sample_h2o_ratio_f": _mean_of([row.get(f"{prefix}_h2o_ratio_f") for row in rows]),
+            "sample_h2o_ratio_raw": _mean_of([row.get(f"{prefix}_h2o_ratio_raw") for row in rows]),
+            "sample_chamber_temp_c": _mean_of([row.get(f"{prefix}_chamber_temp_c") for row in rows]),
+            "sample_case_temp_c": _mean_of([row.get(f"{prefix}_case_temp_c") for row in rows]),
+            "sample_analyzer_pressure_kpa": _mean_of([row.get(f"{prefix}_pressure_kpa") for row in rows]),
+            "sample_mode2_qc_status": next(
+                (str(row.get(f"{prefix}_mode2_qc_status") or "").strip() for row in rows if row.get(f"{prefix}_mode2_qc_status")),
+                "",
+            ),
+            "sample_mode2_qc_reason": next(
+                (str(row.get(f"{prefix}_mode2_qc_reason") or "").strip() for row in rows if row.get(f"{prefix}_mode2_qc_reason")),
+                "",
+            ),
+            "sample_frame_status": next(
+                (str(row.get(f"{prefix}_frame_status") or "").strip() for row in rows if row.get(f"{prefix}_frame_status")),
+                "",
+            ),
+        }
+    return out
+
+
 def _point_rows(root: Path) -> List[Dict[str, Any]]:
     manifest = _load_queue_manifest(root)
     rows: List[Dict[str, Any]] = []
@@ -281,10 +352,13 @@ def _point_rows(root: Path) -> List[Dict[str, Any]]:
         point_manifest = dict(manifest.get(point_dir.name) or {})
         alignment = _sample_alignment_summary(point_dir)
         channel_device_ids = _channel_device_id_map(point_dir)
+        sample_fallback = _sample_device_fallback_map(point_dir)
         for row in _read_csv(summary_path):
             analyzer = str(row.get("Analyzer") or "").strip()
             analyzer_prefix = analyzer.lower()
-            device_id = channel_device_ids.get(analyzer_prefix) or _normal_device_id(analyzer)
+            fallback = sample_fallback.get(analyzer_prefix, {})
+            fallback_device_id = _normal_device_id(fallback.get("sample_analyzer_device_id"))
+            device_id = fallback_device_id or channel_device_ids.get(analyzer_prefix) or _normal_device_id(analyzer)
             reference = _safe_float(row.get("ppm_H2O_Dew"))
             ratio = _safe_float(row.get("R_H2O"))
             analyzer_h2o = _safe_float(row.get("ppm_H2O"))
@@ -324,13 +398,19 @@ def _point_rows(root: Path) -> List[Dict[str, Any]]:
                 "summary_file": str(summary_path),
                 "summary_file_sha256": _sha256_file(summary_path),
                 "h2o_source_root": str(root),
+                **fallback,
                 **alignment,
             }
             rows.append(item)
     return rows
 
 
-def _dry_anchor_rows(root: Path) -> List[Dict[str, Any]]:
+def _dry_anchor_rows(
+    root: Path,
+    *,
+    min_temp_c: Optional[float] = None,
+    max_temp_c: Optional[float] = None,
+) -> List[Dict[str, Any]]:
     manifest = _load_queue_manifest(root)
     rows: List[Dict[str, Any]] = []
     for point_dir in sorted(path for path in root.iterdir() if path.is_dir()):
@@ -342,13 +422,20 @@ def _dry_anchor_rows(root: Path) -> List[Dict[str, Any]]:
         point_manifest = dict(manifest.get(point_dir.name) or {})
         alignment = _sample_alignment_summary(point_dir)
         channel_device_ids = _channel_device_id_map(point_dir)
+        sample_fallback = _sample_device_fallback_map(point_dir)
         temp_set_c = _safe_float(point_manifest.get("temp_c"))
         if temp_set_c is None:
             temp_set_c = _temp_set_from_point_name(point_dir.name)
+        if min_temp_c is not None and (temp_set_c is None or temp_set_c < float(min_temp_c)):
+            continue
+        if max_temp_c is not None and (temp_set_c is None or temp_set_c > float(max_temp_c)):
+            continue
         for row in _read_csv(summary_path):
             analyzer = str(row.get("Analyzer") or "").strip()
             analyzer_prefix = analyzer.lower()
-            device_id = channel_device_ids.get(analyzer_prefix) or _normal_device_id(analyzer)
+            fallback = sample_fallback.get(analyzer_prefix, {})
+            fallback_device_id = _normal_device_id(fallback.get("sample_analyzer_device_id"))
+            device_id = fallback_device_id or channel_device_ids.get(analyzer_prefix) or _normal_device_id(analyzer)
             reference = _safe_float(row.get("ppm_H2O_Dew"))
             ratio = _safe_float(row.get("R_H2O"))
             analyzer_h2o = _safe_float(row.get("ppm_H2O"))
@@ -394,6 +481,7 @@ def _dry_anchor_rows(root: Path) -> List[Dict[str, Any]]:
                     "Dry-gas anchor uses dewpoint/pressure-derived residual water; "
                     "the H2O target is not forced to zero."
                 ),
+                **fallback,
                 **alignment,
             }
             rows.append(item)
@@ -446,6 +534,40 @@ def _scaled_lstsq(matrix: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, i
     return np.asarray(scaled_coeffs, dtype=float) / scales, rank, condition
 
 
+def _fit_weights(target: np.ndarray, cfg: H2OSenco24CandidateConfig) -> np.ndarray:
+    objective = str(cfg.fit_objective or "absolute_mmol").strip().lower()
+    if objective == "absolute_mmol":
+        return np.ones_like(target, dtype=float)
+    floor = max(float(cfg.relative_error_min_reference_mmol), 1.0e-12)
+    denominator = np.maximum(np.abs(target.astype(float)), floor)
+    if objective == "sqrt_relative_mmol_floor":
+        return 1.0 / np.sqrt(denominator)
+    if objective == "relative_mmol_floor":
+        return 1.0 / denominator
+    raise ValueError(
+        "Unsupported H2O fit objective: "
+        f"{cfg.fit_objective!r}; expected absolute_mmol, "
+        "sqrt_relative_mmol_floor, or relative_mmol_floor"
+    )
+
+
+def _scaled_weighted_lstsq(
+    matrix: np.ndarray,
+    target: np.ndarray,
+    cfg: H2OSenco24CandidateConfig,
+) -> tuple[np.ndarray, int, float]:
+    scales = np.linalg.norm(matrix, axis=0)
+    scales = np.where(np.isfinite(scales) & (scales > 0.0), scales, 1.0)
+    scaled = matrix / scales
+    weights = _fit_weights(target, cfg)
+    weighted_matrix = scaled * weights[:, None]
+    weighted_target = target * weights
+    rank = int(np.linalg.matrix_rank(weighted_matrix))
+    condition = float(np.linalg.cond(weighted_matrix))
+    scaled_coeffs, _, _, _ = np.linalg.lstsq(weighted_matrix, weighted_target, rcond=None)
+    return np.asarray(scaled_coeffs, dtype=float) / scales, rank, condition
+
+
 def _prediction(row: Mapping[str, Any], coefficients: Mapping[str, float], terms: Sequence[str]) -> float:
     return float(
         sum(
@@ -490,14 +612,91 @@ def _max_abs_relative_error_pct(
     return max(errors) if errors else ""
 
 
+def _allowed_pressure_qc_failed_device_ids(cfg: H2OSenco24CandidateConfig) -> set[str]:
+    return {
+        _normal_device_id(device_id)
+        for device_id in tuple(cfg.allow_pressure_qc_failed_device_ids or ())
+        if _normal_device_id(device_id)
+    }
+
+
+def _prepare_fit_row(row: Mapping[str, Any], cfg: H2OSenco24CandidateConfig) -> Dict[str, Any]:
+    """Prepare the row used by the H2O fit without mutating raw evidence.
+
+    Some point summaries intentionally blank analyzer values after a broad
+    MODE2 QC failure. For H2O component fitting, a pressure-channel failure is
+    not itself a H2O-ratio failure, so an explicitly allowed device may use the
+    sample-window ratio/temperature values while keeping the pressure failure
+    visible in the review package.
+    """
+
+    prepared = dict(row)
+    device_id = _normal_device_id(
+        prepared.get("analyzer_device_id") or prepared.get("sample_analyzer_device_id")
+    )
+    if device_id:
+        prepared["analyzer_device_id"] = device_id
+    prepared.setdefault("pressure_qc_overridden_for_component_fit", False)
+    prepared.setdefault("fit_input_override_reason", "")
+    prepared.setdefault("temperature_source_for_fit", "")
+    prepared.setdefault("temperature_source_warning", "")
+    prepared.setdefault("analyzer_chamber_temp_c_raw", "")
+    prepared.setdefault("temperature_source_override_for_post_temperature_calibration_review", False)
+
+    replaced_keys: List[str] = []
+    if device_id in _allowed_pressure_qc_failed_device_ids(cfg):
+        for target_key, sample_key in (
+            ("analyzer_h2o_mmol", "sample_analyzer_h2o_mmol"),
+            ("h2o_ratio_f", "sample_h2o_ratio_f"),
+            ("chamber_temp_c", "sample_chamber_temp_c"),
+            ("case_temp_c", "sample_case_temp_c"),
+            ("analyzer_pressure_kpa", "sample_analyzer_pressure_kpa"),
+        ):
+            if _safe_float(prepared.get(target_key)) is None:
+                sample_value = _safe_float(prepared.get(sample_key))
+                if sample_value is not None:
+                    prepared[target_key] = sample_value
+                    replaced_keys.append(target_key)
+        if replaced_keys:
+            prepared["pressure_qc_overridden_for_component_fit"] = True
+            prepared["fit_input_override_reason"] = (
+                "pressure_qc_failed_but_ratio_temperature_used_for_component_fit:"
+                + ",".join(replaced_keys)
+            )
+
+    temperature_source = str(cfg.fit_temperature_source or "analyzer_chamber").strip().lower()
+    if temperature_source == "analyzer_chamber":
+        prepared["temperature_source_for_fit"] = "analyzer_chamber_temp_c"
+    elif temperature_source == "digital_thermometer":
+        raw_chamber_temp = _safe_float(prepared.get("chamber_temp_c"))
+        digital_temp = _safe_float(prepared.get("digital_thermometer_temp_c"))
+        if digital_temp is not None:
+            prepared["analyzer_chamber_temp_c_raw"] = raw_chamber_temp if raw_chamber_temp is not None else ""
+            prepared["chamber_temp_c"] = digital_temp
+            prepared["temperature_source_for_fit"] = "digital_thermometer_temp_c"
+            prepared["temperature_source_override_for_post_temperature_calibration_review"] = True
+        else:
+            prepared["temperature_source_for_fit"] = "analyzer_chamber_temp_c"
+            prepared["temperature_source_warning"] = "digital_thermometer_missing_fallback_to_analyzer_chamber"
+    else:
+        raise ValueError(
+            "Unsupported H2O fit temperature source: "
+            f"{cfg.fit_temperature_source!r}; expected analyzer_chamber or digital_thermometer"
+        )
+    return prepared
+
+
 def _complete_rows(
     rows: Sequence[Mapping[str, Any]],
+    *,
+    cfg: H2OSenco24CandidateConfig,
     manual_point_blocks: Optional[Mapping[str, str]] = None,
 ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     complete: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
     point_blocks = {str(key or "").strip(): str(reason or "").strip() for key, reason in dict(manual_point_blocks or {}).items()}
     for row in rows:
+        row = _prepare_fit_row(row, cfg)
         reasons: List[str] = []
         for key in ("reference_h2o_mmol", "h2o_ratio_f", "analyzer_h2o_mmol", "chamber_temp_c"):
             if _safe_float(row.get(key)) is None:
@@ -613,6 +812,141 @@ def _linear_trim_from_snapshot(component_snapshot: Mapping[str, Any], key: str) 
     return float(values[0]), float(values[1]), "nonneutral_final_affine_layer_requires_separate_review"
 
 
+def _first_float(row: Mapping[str, Any], keys: Sequence[str]) -> Optional[float]:
+    for key in keys:
+        value = _safe_float(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _load_state_transfer_summary(
+    path: str | Path | None,
+    *,
+    raw_excess_limit_mmol: float,
+    post_s6_relative_limit_pct: float,
+) -> Dict[str, Dict[str, Any]]:
+    """Load post-write/verification state-transfer evidence by device.
+
+    The source is expected to be an offline CSV such as
+    ``h2o_s24_post_s6_state_delta_by_device_point.csv``.  It compares the
+    S2/S4 raw replay movement against the live reference H2O movement between
+    two physical states.  Large excess movement means the main H2O curve is
+    not transferring cleanly; S6 should not be used to hide that failure.
+    """
+
+    if not path:
+        return {}
+    source = Path(path).resolve()
+    rows = _read_csv(source)
+    by_device: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        device_id = _normal_device_id(
+            row.get("analyzer_device_id")
+            or row.get("device_id")
+            or row.get("id")
+            or row.get("analyzer_id")
+        )
+        if not device_id:
+            continue
+        excess = _first_float(
+            row,
+            (
+                "raw_replay_delta_minus_reference_delta_mmol",
+                "raw_s24_replay_excess_shift_mmol",
+                "raw_replay_excess_shift_mmol",
+                "senco24_raw_excess_shift_mmol",
+            ),
+        )
+        post_s6_rel = _first_float(
+            row,
+            (
+                "post_existing_s6_abs_rel_pct",
+                "post_s6_abs_relative_error_pct",
+                "post_s6_rel_error_pct",
+                "post_s6_max_abs_relative_error_pct",
+            ),
+        )
+        ratio_delta = _first_float(
+            row,
+            (
+                "h2o_ratio_f_mean_delta_post_minus_s24",
+                "h2o_ratio_delta",
+                "ratio_delta",
+            ),
+        )
+        temp_delta = _first_float(
+            row,
+            (
+                "chamber_temp_c_mean_delta_post_minus_s24",
+                "chamber_temp_delta_c",
+                "temperature_delta_c",
+            ),
+        )
+        reference_delta = _first_float(
+            row,
+            (
+                "live_reference_h2o_mmol_delta_post_minus_s24",
+                "reference_h2o_delta_mmol",
+            ),
+        )
+        summary = by_device.setdefault(
+            device_id,
+            {
+                "source": str(source),
+                "point_count": 0,
+                "max_abs_raw_excess_shift_mmol": 0.0,
+                "max_abs_post_s6_relative_error_pct": 0.0,
+                "max_abs_ratio_delta": 0.0,
+                "max_abs_chamber_temp_delta_c": 0.0,
+                "max_abs_reference_h2o_delta_mmol": 0.0,
+                "worst_point_id": "",
+                "worst_reason": "",
+                "gate": "not_evaluated",
+            },
+        )
+        summary["point_count"] = int(summary.get("point_count") or 0) + 1
+        if excess is not None:
+            abs_excess = abs(float(excess))
+            if abs_excess > float(summary["max_abs_raw_excess_shift_mmol"]):
+                summary["max_abs_raw_excess_shift_mmol"] = abs_excess
+                summary["worst_point_id"] = row.get("point_id") or row.get("point_run_id") or ""
+                summary["worst_reason"] = "raw_excess_shift"
+        if post_s6_rel is not None:
+            abs_rel = abs(float(post_s6_rel))
+            if abs_rel > float(summary["max_abs_post_s6_relative_error_pct"]):
+                summary["max_abs_post_s6_relative_error_pct"] = abs_rel
+                if str(summary.get("worst_reason") or "") != "raw_excess_shift":
+                    summary["worst_point_id"] = row.get("point_id") or row.get("point_run_id") or ""
+                    summary["worst_reason"] = "post_s6_relative_error"
+        if ratio_delta is not None:
+            summary["max_abs_ratio_delta"] = max(
+                float(summary["max_abs_ratio_delta"]),
+                abs(float(ratio_delta)),
+            )
+        if temp_delta is not None:
+            summary["max_abs_chamber_temp_delta_c"] = max(
+                float(summary["max_abs_chamber_temp_delta_c"]),
+                abs(float(temp_delta)),
+            )
+        if reference_delta is not None:
+            summary["max_abs_reference_h2o_delta_mmol"] = max(
+                float(summary["max_abs_reference_h2o_delta_mmol"]),
+                abs(float(reference_delta)),
+            )
+
+    for summary in by_device.values():
+        raw_excess = float(summary.get("max_abs_raw_excess_shift_mmol") or 0.0)
+        post_s6_rel = float(summary.get("max_abs_post_s6_relative_error_pct") or 0.0)
+        failures: List[str] = []
+        if raw_excess > float(raw_excess_limit_mmol):
+            failures.append("senco24_raw_state_transfer_excess_shift")
+        if post_s6_rel > float(post_s6_relative_limit_pct):
+            failures.append("post_s6_state_transfer_relative_error_exceeds_limit")
+        summary["gate"] = "fail_" + "+".join(failures) if failures else "pass_state_transfer"
+    return by_device
+
+
 def _output_diagnosis(
     *,
     device_id: str,
@@ -626,17 +960,32 @@ def _output_diagnosis(
     reported_max_relative_error_pct: Any,
     cfg: H2OSenco24CandidateConfig,
     component_snapshot: Mapping[str, Any],
+    state_transfer_summary: Mapping[str, Any] | None = None,
     postwrite_verified: bool = False,
 ) -> Dict[str, Any]:
     getco2 = _float_list(component_snapshot.get("GETCO2_before"))
     getco4 = _float_list(component_snapshot.get("GETCO4_before"))
     getco6 = _float_list(component_snapshot.get("GETCO6_before"))
     getco6_neutral = _is_linear_trim_neutral(getco6) if getco6 else ""
+    getco6_missing_but_required = bool(cfg.require_component_snapshot_for_layer_review) and not getco6
+    state_transfer_gate = str((state_transfer_summary or {}).get("gate") or "")
     if manual_block_reason:
         diagnosis = "manual_device_block"
         likely_cause = manual_block_reason
         next_action = "resolve_manual_block_then_regenerate_no_write_candidate_review"
         acceptance = "blocked"
+    elif state_transfer_gate.startswith("fail_"):
+        diagnosis = "senco24_state_transfer_failed"
+        likely_cause = (
+            "SENCO2/SENCO4 raw H2O response moved more than the live dewpoint/pressure "
+            "reference can explain between calibration and verification states"
+        )
+        next_action = (
+            "do_not_accept_SENCO2_SENCO4_by_training_residual_only;"
+            "review_H2O_ratio_raw_ratio_ref_signal_H2O_signal_temperature_and_tubing_state;"
+            "recollect_consistent_H2O_open_flow_evidence_or_repair_analyzer_before_write"
+        )
+        acceptance = "blocked_state_transfer_review_required"
     elif postwrite_verified and final_output_pinned:
         diagnosis = "prewrite_final_h2o_output_pinned_resolved_by_postwrite_verification"
         likely_cause = "prewrite_final_affine_or_output_layer_issue_resolved_by_controlled_write_readback_and_h2o_verification"
@@ -682,11 +1031,16 @@ def _output_diagnosis(
             or fit_max_relative_error_pct <= float(cfg.design_max_relative_error_pct)
         )
     ):
-        if getco6 and getco6_neutral is False:
+        if getco6_missing_but_required or (getco6 and getco6_neutral is False):
             diagnosis = "ratio_temperature_candidate_fit_valid_with_separate_senco6_review_required"
-            likely_cause = "existing_final_affine_trim_senco6_must_be_reviewed_as_separate_output_layer"
+            likely_cause = (
+                "missing_GETCO6_snapshot_must_be_read_before_write"
+                if getco6_missing_but_required
+                else "existing_final_affine_trim_senco6_must_be_reviewed_as_separate_output_layer"
+            )
             next_action = (
                 "choose_one_layer_contract_before_write:"
+                " read_GETCO6_snapshot,"
                 " write_SENCO2_SENCO4_as_direct_main_chain,"
                 " then review_SENCO6_as_independent_final_affine_trim"
             )
@@ -722,6 +1076,13 @@ def _output_diagnosis(
         "GETCO4_before_json": _compact_json(getco4) if getco4 else "",
         "GETCO6_before_json": _compact_json(getco6) if getco6 else "",
         "GETCO6_neutral": getco6_neutral,
+        "state_transfer_gate": state_transfer_gate,
+        "state_transfer_max_abs_raw_excess_shift_mmol": (
+            (state_transfer_summary or {}).get("max_abs_raw_excess_shift_mmol", "")
+        ),
+        "state_transfer_max_abs_post_s6_relative_error_pct": (
+            (state_transfer_summary or {}).get("max_abs_post_s6_relative_error_pct", "")
+        ),
         "auto_write_allowed": False,
     }
 
@@ -741,6 +1102,24 @@ def _device_tables(
     manual_blocks = _manual_block_reasons(cfg)
     manual_point_blocks = _manual_point_block_reasons(cfg)
     postwrite_verified_devices = _postwrite_verified_devices(cfg)
+    factory_signal_health_source = (
+        str(Path(cfg.factory_signal_health_summary_csv).resolve())
+        if cfg.factory_signal_health_summary_csv
+        else ""
+    )
+    factory_signal_health_by_device = load_factory_signal_health_summary(
+        cfg.factory_signal_health_summary_csv
+    )
+    state_transfer_source = (
+        str(Path(cfg.state_transfer_summary_csv).resolve())
+        if cfg.state_transfer_summary_csv
+        else ""
+    )
+    state_transfer_by_device = _load_state_transfer_summary(
+        cfg.state_transfer_summary_csv,
+        raw_excess_limit_mmol=float(cfg.state_transfer_max_raw_excess_shift_mmol),
+        post_s6_relative_limit_pct=float(cfg.state_transfer_max_post_s6_relative_error_pct),
+    )
     by_device: Dict[str, List[Mapping[str, Any]]] = {}
     for row in rows:
         device_id = _normal_device_id(row.get("analyzer_device_id"))
@@ -756,7 +1135,11 @@ def _device_tables(
 
     for device_id in sorted(by_device):
         device_rows = [dict(row) for row in by_device[device_id]]
-        complete, rejected = _complete_rows(device_rows, manual_point_blocks.get(device_id))
+        complete, rejected = _complete_rows(
+            device_rows,
+            cfg=cfg,
+            manual_point_blocks=manual_point_blocks.get(device_id),
+        )
         blocked: List[str] = []
         warnings: List[str] = []
         manual_block_reason = manual_blocks.get(device_id, "")
@@ -770,6 +1153,30 @@ def _device_tables(
                 warnings.append(f"manual_point_blocks:{len(manual_rejected)}")
         if len(complete) < int(cfg.min_points):
             blocked.append(f"complete_points<{int(cfg.min_points)}")
+        pressure_override_count = sum(
+            1 for row in complete if row.get("pressure_qc_overridden_for_component_fit") is True
+        )
+        if pressure_override_count:
+            warnings.append(
+                f"pressure_qc_failed_overridden_for_component_fit:{pressure_override_count}"
+            )
+        digital_temp_source_count = sum(
+            1 for row in complete if row.get("temperature_source_for_fit") == "digital_thermometer_temp_c"
+        )
+        if digital_temp_source_count:
+            warnings.append(
+                f"fit_temperature_source_digital_thermometer:{digital_temp_source_count}"
+            )
+        digital_temp_missing_count = sum(
+            1
+            for row in complete
+            if str(row.get("temperature_source_warning") or "")
+            == "digital_thermometer_missing_fallback_to_analyzer_chamber"
+        )
+        if digital_temp_missing_count:
+            warnings.append(
+                f"digital_thermometer_missing_fallback_to_analyzer:{digital_temp_missing_count}"
+            )
 
         reference_values = [float(row["reference_h2o_mmol"]) for row in complete]
         output_values = [float(row["analyzer_h2o_mmol"]) for row in complete]
@@ -816,6 +1223,18 @@ def _device_tables(
             blocked.append("existing_GETCO6_invalid")
         elif h2o_final_layer_status not in {"missing_assume_neutral", "neutral"}:
             warnings.append(f"existing_GETCO6_{h2o_final_layer_status}_separate_layer_review_required")
+        missing_required_layer_snapshot = (
+            bool(cfg.require_component_snapshot_for_layer_review)
+            and h2o_final_layer_status == "missing_assume_neutral"
+        )
+        if missing_required_layer_snapshot:
+            warnings.append("GETCO6_missing_component_snapshot_separate_layer_review_required")
+        state_transfer_summary = state_transfer_by_device.get(device_id, {})
+        state_transfer_gate = str(state_transfer_summary.get("gate") or "")
+        if state_transfer_gate.startswith("fail_"):
+            blocked.append(state_transfer_gate)
+        elif state_transfer_gate == "pass_state_transfer":
+            warnings.append("state_transfer_evidence_passed")
 
         terms = tuple(cfg.terms)
         fit_metrics: Dict[str, Any] = {}
@@ -826,7 +1245,7 @@ def _device_tables(
             x = _matrix(complete, terms)
             y_final = np.asarray(reference_values, dtype=float)
             y_raw = np.asarray(reference_values, dtype=float)
-            coeffs, rank, condition = _scaled_lstsq(x, y_raw)
+            coeffs, rank, condition = _scaled_weighted_lstsq(x, y_raw, cfg)
             if rank < len(terms):
                 blocked.append("model_matrix_rank_deficient")
             elif not math.isfinite(float(condition)) or float(condition) > float(cfg.max_condition_number):
@@ -867,7 +1286,20 @@ def _device_tables(
                             "analyzer_reported_error_pct": reported_error_pct if reported_error_pct is not None else "",
                             "h2o_ratio_f": row.get("h2o_ratio_f", ""),
                             "chamber_temp_c": row.get("chamber_temp_c", ""),
+                            "analyzer_chamber_temp_c_raw": row.get("analyzer_chamber_temp_c_raw", ""),
                             "digital_thermometer_temp_c": row.get("digital_thermometer_temp_c", ""),
+                            "temperature_source_for_fit": row.get("temperature_source_for_fit", ""),
+                            "temperature_source_warning": row.get("temperature_source_warning", ""),
+                            "temperature_source_override_for_post_temperature_calibration_review": row.get(
+                                "temperature_source_override_for_post_temperature_calibration_review", ""
+                            ),
+                            "pressure_qc_overridden_for_component_fit": row.get(
+                                "pressure_qc_overridden_for_component_fit", ""
+                            ),
+                            "fit_input_override_reason": row.get("fit_input_override_reason", ""),
+                            "sample_mode2_qc_status": row.get("sample_mode2_qc_status", ""),
+                            "sample_mode2_qc_reason": row.get("sample_mode2_qc_reason", ""),
+                            "sample_frame_status": row.get("sample_frame_status", ""),
                             "reference_dewpoint_c": row.get("reference_dewpoint_c", ""),
                             "reference_pressure_hpa": row.get("reference_pressure_hpa", ""),
                             "nominal_plan_h2o_mmol": row.get("nominal_plan_h2o_mmol", ""),
@@ -940,6 +1372,17 @@ def _device_tables(
         )
         if manual_block_reason:
             blocked.append(f"manual_device_block:{manual_block_reason}")
+        factory_signal_health_row = (
+            factory_signal_health_by_device.get(device_id)
+            if factory_signal_health_source
+            else None
+        )
+        factory_signal_health_reason = factory_signal_health_block_reason(
+            factory_signal_health_row,
+            summary_was_required=bool(factory_signal_health_source),
+        )
+        if factory_signal_health_reason:
+            blocked.append(factory_signal_health_reason)
         diagnostics.append(
             _output_diagnosis(
                 device_id=device_id,
@@ -953,6 +1396,7 @@ def _device_tables(
                 reported_max_relative_error_pct=raw_max_relative_error,
                 cfg=cfg,
                 component_snapshot=component_snapshot,
+                state_transfer_summary=state_transfer_summary,
                 postwrite_verified=postwrite_verified,
             )
         )
@@ -984,11 +1428,25 @@ def _device_tables(
                 "digital_thermometer_temp_span_c": _span(box_temp_values),
                 "selected_model_terms": ";".join(terms),
                 "frozen_terms": ";".join(PRESSURE_TERMS),
+                "fit_temperature_source": str(cfg.fit_temperature_source or "analyzer_chamber"),
+                "pressure_qc_override_allowed": device_id in _allowed_pressure_qc_failed_device_ids(cfg),
+                "pressure_qc_override_point_count": pressure_override_count,
+                "digital_thermometer_temperature_fit_point_count": digital_temp_source_count,
+                "digital_thermometer_missing_fallback_point_count": digital_temp_missing_count,
                 "fit_strategy": "direct_reference_target_fit_SENCO2_SENCO4_SENCO6_separate",
+                "fit_objective": str(cfg.fit_objective or "absolute_mmol"),
                 "senco24_main_chain_contract": SENCO24_MAIN_CHAIN_CONTRACT,
                 "senco6_layer_contract": SENCO6_SEPARATE_LAYER_CONTRACT,
-                "senco24_write_candidate": h2o_final_layer_status in {"missing_assume_neutral", "neutral"},
-                "senco6_separate_review_required": h2o_final_layer_status not in {"missing_assume_neutral", "neutral"},
+                "senco24_write_candidate": h2o_final_layer_status == "neutral"
+                or (
+                    h2o_final_layer_status == "missing_assume_neutral"
+                    and not missing_required_layer_snapshot
+                ),
+                "senco6_separate_review_required": missing_required_layer_snapshot
+                or h2o_final_layer_status not in {"missing_assume_neutral", "neutral"},
+                "require_component_snapshot_for_layer_review": bool(
+                    cfg.require_component_snapshot_for_layer_review
+                ),
                 "GETCO6_C0": h2o_final_c0,
                 "GETCO6_C1": h2o_final_c1,
                 "GETCO6_layer_status": h2o_final_layer_status,
@@ -1015,6 +1473,42 @@ def _device_tables(
                 "final_output_pinned": final_output_pinned,
                 "postwrite_verified": postwrite_verified,
                 "postwrite_verification_artifacts_json": _compact_json(tuple(cfg.postwrite_verification_artifacts or ())),
+                "factory_signal_health_source": factory_signal_health_source,
+                "factory_signal_health_gate": (
+                    str((factory_signal_health_row or {}).get("candidate_gate") or "").strip()
+                    if factory_signal_health_row is not None
+                    else ("factory_signal_health_missing_device" if factory_signal_health_source else "")
+                ),
+                "factory_signal_health_point_count": (factory_signal_health_row or {}).get("point_count", ""),
+                "factory_signal_health_review_point_count": (factory_signal_health_row or {}).get("review_point_count", ""),
+                "factory_signal_health_blocking_point_count": (factory_signal_health_row or {}).get("blocking_point_count", ""),
+                "factory_signal_health_high_ref_point_count": (factory_signal_health_row or {}).get("high_ref_point_count", ""),
+                "state_transfer_source": state_transfer_source,
+                "state_transfer_gate": state_transfer_gate,
+                "state_transfer_point_count": state_transfer_summary.get("point_count", ""),
+                "state_transfer_max_abs_raw_excess_shift_mmol": state_transfer_summary.get(
+                    "max_abs_raw_excess_shift_mmol", ""
+                ),
+                "state_transfer_max_raw_excess_shift_limit_mmol": float(
+                    cfg.state_transfer_max_raw_excess_shift_mmol
+                ),
+                "state_transfer_max_abs_post_s6_relative_error_pct": state_transfer_summary.get(
+                    "max_abs_post_s6_relative_error_pct", ""
+                ),
+                "state_transfer_max_post_s6_relative_error_limit_pct": float(
+                    cfg.state_transfer_max_post_s6_relative_error_pct
+                ),
+                "state_transfer_max_abs_ratio_delta": state_transfer_summary.get(
+                    "max_abs_ratio_delta", ""
+                ),
+                "state_transfer_max_abs_chamber_temp_delta_c": state_transfer_summary.get(
+                    "max_abs_chamber_temp_delta_c", ""
+                ),
+                "state_transfer_max_abs_reference_h2o_delta_mmol": state_transfer_summary.get(
+                    "max_abs_reference_h2o_delta_mmol", ""
+                ),
+                "state_transfer_worst_point_id": state_transfer_summary.get("worst_point_id", ""),
+                "state_transfer_worst_reason": state_transfer_summary.get("worst_reason", ""),
                 "auto_write_allowed": False,
                 "physical_scope": "open_flow_H2O_ratio_temperature_candidate_fit",
                 "not_pressure_compensation_fit": True,
@@ -1032,6 +1526,13 @@ def _device_tables(
                     "sample_role": row.get("sample_role", ""),
                     "reference_source": row.get("reference_source", ""),
                     "h2o_anchor_class": row.get("h2o_anchor_class", ""),
+                    "temperature_source_for_fit": row.get("temperature_source_for_fit", ""),
+                    "pressure_qc_overridden_for_component_fit": row.get(
+                        "pressure_qc_overridden_for_component_fit", ""
+                    ),
+                    "fit_input_override_reason": row.get("fit_input_override_reason", ""),
+                    "sample_mode2_qc_status": row.get("sample_mode2_qc_status", ""),
+                    "sample_mode2_qc_reason": row.get("sample_mode2_qc_reason", ""),
                     "residual_role": "rejected_input",
                 }
             )
@@ -1057,13 +1558,23 @@ def _contract_rows() -> List[Dict[str, Any]]:
         },
         {
             "topic": "analyzer_inputs",
-            "contract": "Fit uses factory-mode R_H2O and analyzer chamber temperature T1; pressure terms P/RP/RTP are frozen.",
-            "physical_meaning": "Pressure P was handled by the independent pressure-channel workflow, so current-atmosphere H2O fitting must not absorb pressure errors.",
+            "contract": "Fit uses factory-mode R_H2O and the configured temperature evidence source; pressure terms P/RP/RTP are frozen.",
+            "physical_meaning": "Pressure P was handled by the independent pressure-channel workflow. A pressure-channel failure may be retained as a warning while still allowing H2O ratio/temperature evidence to support component fitting when explicitly authorized.",
+        },
+        {
+            "topic": "temperature_evidence",
+            "contract": "The default fit temperature is analyzer chamber T1; post-temperature-repair reviews may use digital thermometer evidence as the fit temperature source when analyzer T was known bad during acquisition.",
+            "physical_meaning": "The analyzer formula needs temperature as an input. If old SENCO7/SENCO8 made analyzer temperature physically impossible, the traceable digital thermometer preserves the physical temperature state needed for a repair review.",
         },
         {
             "topic": "senco_mapping",
             "contract": "H2O primary model maps to SENCO2 intercept/R/R2/R3 and secondary model maps to SENCO4 T/T2/RT with pressure slots zero.",
             "physical_meaning": "SENCO2/SENCO4 describe the H2O optical ratio and temperature chain; SENCO6 is only final affine output trim and is not the main H2O calibration model.",
+        },
+        {
+            "topic": "state_transfer_gate",
+            "contract": "When post-write or reverify state-transfer evidence is provided, a SENCO2/SENCO4 candidate must remain physically transferable between calibration and verification states.",
+            "physical_meaning": "If the raw S2/S4 replay movement is much larger than the live dewpoint/pressure reference movement, the main H2O response surface is not stable. SENCO6 may trim final display, but it must not hide a non-transferable main curve.",
         },
         {
             "topic": "write_boundary",
@@ -1137,7 +1648,13 @@ def build_h2o_senco24_candidate_tables(
     dry_anchor_roots = [_resolve_dry_anchor_root(path) for path in config.dry_anchor_roots]
     dry_anchor_inputs: List[Dict[str, Any]] = []
     for dry_anchor_root in dry_anchor_roots:
-        dry_anchor_inputs.extend(_dry_anchor_rows(dry_anchor_root))
+        dry_anchor_inputs.extend(
+            _dry_anchor_rows(
+                dry_anchor_root,
+                min_temp_c=config.dry_anchor_min_temp_c,
+                max_temp_c=config.dry_anchor_max_temp_c,
+            )
+        )
     point_inputs = wet_point_inputs + dry_anchor_inputs
     policies, coefficients, residuals, payloads, diagnostics = _device_tables(point_inputs, cfg=config)
     device_count = len(policies)
@@ -1169,6 +1686,8 @@ def build_h2o_senco24_candidate_tables(
             "point_input_count": len(point_inputs),
             "wet_point_input_count": len(wet_point_inputs),
             "dry_anchor_input_count": len(dry_anchor_inputs),
+            "dry_anchor_min_temp_c": config.dry_anchor_min_temp_c,
+            "dry_anchor_max_temp_c": config.dry_anchor_max_temp_c,
             "point_count": len({row.get("point_run_id") for row in point_inputs}),
             "wet_point_count": len({row.get("point_run_id") for row in wet_point_inputs}),
             "dry_anchor_point_count": len({row.get("point_run_id") for row in dry_anchor_inputs}),
@@ -1177,6 +1696,39 @@ def build_h2o_senco24_candidate_tables(
             "blocked_device_count": blocked_count,
             "final_output_pinned_device_count": pinned_count,
             "ready_device_count": ready_count,
+            "allow_pressure_qc_failed_device_ids": ";".join(
+                sorted(_allowed_pressure_qc_failed_device_ids(config))
+            ),
+            "fit_temperature_source": str(config.fit_temperature_source or "analyzer_chamber"),
+            "fit_objective": str(config.fit_objective or "absolute_mmol"),
+            "require_component_snapshot_for_layer_review": bool(
+                config.require_component_snapshot_for_layer_review
+            ),
+            "factory_signal_health_source": (
+                str(Path(config.factory_signal_health_summary_csv).resolve())
+                if config.factory_signal_health_summary_csv
+                else ""
+            ),
+            "state_transfer_source": (
+                str(Path(config.state_transfer_summary_csv).resolve())
+                if config.state_transfer_summary_csv
+                else ""
+            ),
+            "state_transfer_device_count": len(
+                _load_state_transfer_summary(
+                    config.state_transfer_summary_csv,
+                    raw_excess_limit_mmol=float(config.state_transfer_max_raw_excess_shift_mmol),
+                    post_s6_relative_limit_pct=float(config.state_transfer_max_post_s6_relative_error_pct),
+                )
+            )
+            if config.state_transfer_summary_csv
+            else 0,
+            "state_transfer_max_raw_excess_shift_limit_mmol": float(
+                config.state_transfer_max_raw_excess_shift_mmol
+            ),
+            "state_transfer_max_post_s6_relative_error_limit_pct": float(
+                config.state_transfer_max_post_s6_relative_error_pct
+            ),
             "reference_target_contract": "dewpoint_meter_plus_COM22_pressure_ppm_H2O_Dew",
             "selected_model_terms": ";".join(config.terms),
             "frozen_terms": ";".join(PRESSURE_TERMS),
@@ -1214,6 +1766,30 @@ def build_h2o_senco24_candidate_tables(
         "wet_point_input_count": len(wet_point_inputs),
         "dry_anchor_input_count": len(dry_anchor_inputs),
         "dry_anchor_roots": [str(path) for path in dry_anchor_roots],
+        "dry_anchor_min_temp_c": config.dry_anchor_min_temp_c,
+        "dry_anchor_max_temp_c": config.dry_anchor_max_temp_c,
+        "allow_pressure_qc_failed_device_ids": sorted(_allowed_pressure_qc_failed_device_ids(config)),
+        "fit_temperature_source": str(config.fit_temperature_source or "analyzer_chamber"),
+        "fit_objective": str(config.fit_objective or "absolute_mmol"),
+        "require_component_snapshot_for_layer_review": bool(
+            config.require_component_snapshot_for_layer_review
+        ),
+        "factory_signal_health_source": (
+            str(Path(config.factory_signal_health_summary_csv).resolve())
+            if config.factory_signal_health_summary_csv
+            else ""
+        ),
+        "state_transfer_source": (
+            str(Path(config.state_transfer_summary_csv).resolve())
+            if config.state_transfer_summary_csv
+            else ""
+        ),
+        "state_transfer_max_raw_excess_shift_limit_mmol": float(
+            config.state_transfer_max_raw_excess_shift_mmol
+        ),
+        "state_transfer_max_post_s6_relative_error_limit_pct": float(
+            config.state_transfer_max_post_s6_relative_error_pct
+        ),
     }
     return tables, context
 
@@ -1230,23 +1806,30 @@ def _write_markdown_report(destination: Path, tables: Mapping[str, Sequence[Mapp
         f"- Points: {summary.get('point_count', '')}",
         f"- Wet point inputs: {summary.get('wet_point_input_count', '')}",
         f"- Dry anchor inputs: {summary.get('dry_anchor_input_count', '')}",
+        f"- Dry anchor temperature filter: min={summary.get('dry_anchor_min_temp_c', '')}, max={summary.get('dry_anchor_max_temp_c', '')}",
         f"- Devices: {summary.get('device_count', '')}",
+        f"- Fit temperature source: {summary.get('fit_temperature_source', 'analyzer_chamber')}",
+        f"- Fit objective: {summary.get('fit_objective', 'absolute_mmol')}",
+        f"- Pressure-QC override devices: {summary.get('allow_pressure_qc_failed_device_ids', '')}",
+        f"- Require component snapshot for S6 layer review: {summary.get('require_component_snapshot_for_layer_review', False)}",
+        f"- State-transfer evidence: {summary.get('state_transfer_source', '')}",
         "- Boundary: offline/no-write review only; no COM ports, no water/gas route control, no SENCO write.",
         "",
         "## Device Summary",
         "",
-        "| Device ID | Status | Fit RMSE | Fit Max Error | Fit Max Rel % | Design Limit % | Reported Max Error Before Write | Terms | Warnings | Blockers |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | --- |",
+        "| Device ID | Status | Fit RMSE | Fit Max Error | Fit Max Rel % | Design Limit % | State Transfer | Reported Max Error Before Write | Terms | Warnings | Blockers |",
+        "| --- | --- | ---: | ---: | ---: | ---: | --- | ---: | --- | --- | --- |",
     ]
     for row in policies:
         lines.append(
-            "| {device} | {status} | {rmse} | {max_error} | {max_rel} | {limit} | {raw_max} | {terms} | {warnings} | {blockers} |".format(
+            "| {device} | {status} | {rmse} | {max_error} | {max_rel} | {limit} | {transfer} | {raw_max} | {terms} | {warnings} | {blockers} |".format(
                 device=row.get("analyzer_device_id", ""),
                 status=row.get("candidate_status", ""),
                 rmse=row.get("fit_rmse_mmol", ""),
                 max_error=row.get("fit_max_error_mmol", ""),
                 max_rel=row.get("fit_max_abs_relative_error_pct", ""),
                 limit=row.get("design_max_relative_error_pct", ""),
+                transfer=row.get("state_transfer_gate", ""),
                 raw_max=row.get("reported_h2o_max_error_mmol_before_write", ""),
                 terms=row.get("selected_model_terms", ""),
                 warnings=row.get("warning_reasons", ""),
@@ -1281,6 +1864,8 @@ def _write_markdown_report(destination: Path, tables: Mapping[str, Sequence[Mapp
             "- The fit target is `ppm_H2O_Dew`, the H2O amount derived from dewpoint-meter readings and pressure reference evidence.",
             "- Dry-gas anchors from CO2 zero-gas open-flow evidence constrain the low-water baseline, but their target is the measured residual water vapor rather than hard zero.",
             "- Analyzer chamber temperature is used because the analyzer formula uses internal T; digital thermometer values are retained as chamber/box evidence.",
+            "- If `fit_temperature_source=digital_thermometer`, the package is a post-temperature-repair review and uses the traceable thermometer temperature as the physical T input while preserving the original analyzer T.",
+            "- Explicit pressure-QC overrides mean only the H2O ratio/temperature chain is being reviewed; pressure-channel acceptance remains blocked until the independent pressure workflow passes.",
             "- Pressure terms are frozen because pressure-channel verification/calibration is a separate V1.5 prerequisite.",
             "- A device with pinned final H2O output can still show a useful optical ratio fit, but it must not be accepted until a controlled write/readback/verification proves the final output chain follows the model.",
             "- If post-write verification artifacts are attached, the historical pre-write output-layer failure is retained as evidence but no longer treated as the current device state for that verified device.",
@@ -1317,6 +1902,8 @@ def write_h2o_senco24_candidate_report(
             "additional_h2o_roots": context.get("additional_h2o_roots", []),
             "dry_anchor_input_count": context.get("dry_anchor_input_count", 0),
             "dry_anchor_roots": context.get("dry_anchor_roots", []),
+            "dry_anchor_min_temp_c": context.get("dry_anchor_min_temp_c"),
+            "dry_anchor_max_temp_c": context.get("dry_anchor_max_temp_c"),
             "no_write": True,
             "opens_com_ports": False,
             "controls_water_or_gas_routes": False,
@@ -1330,11 +1917,20 @@ def write_h2o_senco24_candidate_report(
             "manual_device_block_reasons": dict(config.manual_device_block_reasons or {}),
             "postwrite_verified_device_ids": list(config.postwrite_verified_device_ids or ()),
             "postwrite_verification_artifacts": list(config.postwrite_verification_artifacts or ()),
+            "allow_pressure_qc_failed_device_ids": sorted(_allowed_pressure_qc_failed_device_ids(config)),
+            "fit_temperature_source": str(config.fit_temperature_source or "analyzer_chamber"),
+            "fit_objective": str(config.fit_objective or "absolute_mmol"),
+            "require_component_snapshot_for_layer_review": bool(
+                config.require_component_snapshot_for_layer_review
+            ),
+            "factory_signal_health_source": context.get("factory_signal_health_source", ""),
         },
         notes=[
             "Offline V1.5 H2O SENCO2/SENCO4 candidate review.",
             "Dry-gas anchors are optional low-water evidence from gas-route zero-gas points; targets remain dewpoint/pressure-derived, not zeroed.",
             "Pressure terms are excluded for the current-atmosphere open-flow contract.",
+            "Pressure-QC overrides only recover ratio/temperature evidence for component fitting; they are not pressure-channel acceptance.",
+            "Digital thermometer fit temperature is only for post-temperature-repair review when analyzer T was known bad during acquisition.",
             "No coefficient write is performed or authorized by this export.",
         ],
     )

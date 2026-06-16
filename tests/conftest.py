@@ -1,4 +1,5 @@
 from pathlib import Path
+import importlib
 import sys
 
 import pytest
@@ -14,6 +15,7 @@ V1_5_FORMAL_GATE_FILES = {
     "test_v1_5_calibration_reports.py",
     "test_v1_5_canonical_evidence_package.py",
     "test_v1_5_evidence_registry.py",
+    "test_v1_5_formal_archive_closure.py",
     "test_v1_5_formal_calibration_package.py",
     "test_v1_5_formal_contracts_preflight.py",
     "test_v1_5_formal_evidence_run.py",
@@ -45,6 +47,46 @@ V1_5_DIAGNOSTIC_GATE_FILES = {
     "test_v1_5_pace_output_prearm.py",
     "test_v1_5_pressure_only_tuning_harness.py",
 }
+
+
+V1_5_FAST_SERIAL_WAIT_TEST_FILES = {
+    "test_v1_5_co2_senco1_controlled_write.py",
+    "test_v1_5_co2_senco13_controlled_write.py",
+    "test_v1_5_co2_senco13_controlled_rollback.py",
+    "test_v1_5_co2_senco5_linear_controlled_write.py",
+    "test_v1_5_co2_senco5_neutral_controlled_write.py",
+    "test_v1_5_h2o_senco24_controlled_write.py",
+    "test_v1_5_h2o_senco6_linear_controlled_write.py",
+    "test_v1_5_h2o_senco6_neutral_controlled_write.py",
+    "test_v1_5_pressure_senco9_controlled_write.py",
+    "test_v1_5_pressure_senco9_clear_controlled_write.py",
+    "test_v1_5_temperature_senco78_neutral_controlled_write.py",
+    "test_v1_5_getco9_protocol_probe.py",
+    "test_v1_5_getco_component_snapshot.py",
+}
+
+V1_5_SERIAL_WAIT_MODULES = (
+    "gas_calibrator.tools.run_v1_5_co2_senco1_controlled_write",
+    "gas_calibrator.tools.run_v1_5_pressure_senco9_controlled_write",
+    "gas_calibrator.tools.probe_v1_5_getco9_protocol",
+    "gas_calibrator.tools.probe_v1_5_getco_component_snapshot",
+)
+
+
+@pytest.fixture(autouse=True)
+def _fast_v1_5_controlled_writer_serial_waits(request, monkeypatch):
+    """Keep fragile-serial production pacing, but do not make fake unit tests sleep."""
+    path = getattr(request.node, "path", None) or getattr(request.node, "fspath", None)
+    filename = Path(str(path)).name
+    if filename not in V1_5_FAST_SERIAL_WAIT_TEST_FILES:
+        return
+
+    for module_name in V1_5_SERIAL_WAIT_MODULES:
+        module = importlib.import_module(module_name)
+        monkeypatch.setattr(module, "_sleep_gap", lambda *_args, **_kwargs: None, raising=False)
+        module_time = getattr(module, "time", None)
+        if module_time is not None:
+            monkeypatch.setattr(module_time, "sleep", lambda *_args, **_kwargs: None, raising=False)
 
 
 def pytest_collection_modifyitems(config, items):

@@ -21,6 +21,7 @@ from ..senco_format import senco_readback_matches
 from ..validation.reporting import ValidationMetadata, write_validation_report
 from . import run_v1_5_co2_senco13_controlled_write as pair_base
 from . import run_v1_5_co2_senco1_controlled_write as base
+from .v1_5_serial_safety import require_fragile_serial_timing
 
 
 CONFIRMATION_TEXT = "WRITE_SENCO2_SENCO4_V1_5_H2O_PAIR"
@@ -51,6 +52,15 @@ def _snapshot_for_device(snapshot: Mapping[str, Any], device_id: str) -> Dict[st
 
 def _neutral_senco6(values: Sequence[float], *, atol: float = 0.05) -> bool:
     return len(values) >= 2 and abs(float(values[0])) <= float(atol) and abs(float(values[1]) - 1.0) <= float(atol)
+
+
+def _review_read_min_count(values: Sequence[float]) -> int:
+    """Read enough live values to prove a reviewed snapshot without requiring visible zero tails."""
+
+    count = len(list(values))
+    if count <= 2:
+        return count
+    return min(4, count)
 
 
 def _supported_rows(
@@ -99,7 +109,11 @@ def _supported_rows(
             continue
         if not pair_base._secondary_pressure_target_slots_zero(secondary_target):
             continue
-        if len(old_primary) != PAIR_WRITE_PAYLOAD_WIDTH or len(old_secondary) != PAIR_WRITE_PAYLOAD_WIDTH:
+        # Some firmware revisions omit trailing zero coefficient slots when
+        # reading old GETCO4 values.  The live snapshot matcher below already
+        # treats missing/extra zero tails as equivalent, so require the
+        # physically meaningful leading slots instead of rejecting the device.
+        if len(old_primary) < 4 or len(old_secondary) < 4:
             continue
         old_senco6_is_neutral = _neutral_senco6(old_senco6)
         if not old_senco6_is_neutral and not bool(allow_separate_senco6_layer_review):
@@ -150,7 +164,7 @@ def _verify_review_snapshot(
             ga,
             int(group),
             reviewed,
-            min_count=len(list(reviewed)),
+            min_count=_review_read_min_count(reviewed),
             attempts=max(1, int(readback_attempts)),
             retry_delay_s=float(retry_delay_s),
             atol=float(compare_atol),
@@ -336,7 +350,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--identity-timeout-s", type=float, default=4.0)
     parser.add_argument("--readback-attempts", type=int, default=3)
     parser.add_argument("--write-attempts", type=int, default=2)
-    parser.add_argument("--readback-retry-delay-s", type=float, default=0.5)
+    parser.add_argument("--readback-retry-delay-s", type=float, default=1.0)
     parser.add_argument("--post-write-settle-s", type=float, default=2.0)
     parser.add_argument("--compare-atol", type=float, default=1e-9)
     parser.add_argument("--pre-device-cooldown-s", type=float, default=5.0)
@@ -346,7 +360,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--no-restore-active-freq", dest="restore_active_freq", action="store_false")
     parser.add_argument("--coefficient-quiet-settle-s", type=float, default=3.0)
     parser.add_argument("--coefficient-read-timeout-s", type=float, default=2.0)
-    parser.add_argument("--coefficient-read-delay-s", type=float, default=0.5)
+    parser.add_argument("--coefficient-read-delay-s", type=float, default=1.0)
     parser.add_argument("--coefficient-read-retries", type=int, default=4)
     return parser.parse_args(list(argv) if argv is not None else None)
 
@@ -424,6 +438,11 @@ def _write_database_sidecar(
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
+    try:
+        require_fragile_serial_timing(args, tool_name="run_v1_5_h2o_senco24_controlled_write")
+    except ValueError as exc:
+        base._log(str(exc))
+        return 2
     if not args.enable_senco24_write or args.operator_confirmation != CONFIRMATION_TEXT:
         base._log("Refusing SENCO2/SENCO4 write: pass --enable-senco24-write and exact confirmation text.")
         return 2
@@ -515,7 +534,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 ga,
                 2,
                 old_primary_review,
-                min_count=len(old_primary_review),
+                min_count=_review_read_min_count(old_primary_review),
                 attempts=max(1, int(args.readback_attempts)),
                 retry_delay_s=float(args.readback_retry_delay_s),
                 atol=float(args.compare_atol),
@@ -524,7 +543,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 ga,
                 4,
                 old_secondary_review,
-                min_count=len(old_secondary_review),
+                min_count=_review_read_min_count(old_secondary_review),
                 attempts=max(1, int(args.readback_attempts)),
                 retry_delay_s=float(args.readback_retry_delay_s),
                 atol=float(args.compare_atol),
@@ -533,7 +552,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 ga,
                 6,
                 old_senco6_review,
-                min_count=len(old_senco6_review),
+                min_count=_review_read_min_count(old_senco6_review),
                 attempts=max(1, int(args.readback_attempts)),
                 retry_delay_s=float(args.readback_retry_delay_s),
                 atol=float(args.compare_atol),

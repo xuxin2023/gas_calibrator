@@ -16,9 +16,10 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from ..devices import GasAnalyzer
+from ..validation.reporting import ValidationMetadata, write_validation_report
 from . import run_v1_5_co2_senco1_controlled_write as base
 from . import run_v1_5_co2_senco13_controlled_write as pair_writer
-from ..validation.reporting import ValidationMetadata, write_validation_report
+from .v1_5_serial_safety import require_fragile_serial_timing
 
 
 CONFIRMATION_TEXT = "ROLLBACK_SENCO1_SENCO3_V1_5_CO2_PAIR"
@@ -37,7 +38,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--identity-timeout-s", type=float, default=4.0)
     parser.add_argument("--readback-attempts", type=int, default=3)
     parser.add_argument("--write-attempts", type=int, default=2)
-    parser.add_argument("--readback-retry-delay-s", type=float, default=0.4)
+    parser.add_argument("--readback-retry-delay-s", type=float, default=1.0)
     parser.add_argument(
         "--post-write-settle-s",
         type=float,
@@ -47,12 +48,12 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--compare-atol", type=float, default=1e-9)
     parser.add_argument("--pre-device-cooldown-s", type=float, default=3.0)
     parser.add_argument("--inter-device-delay-s", type=float, default=6.0)
-    parser.add_argument("--restore-command-gap-s", type=float, default=0.8)
+    parser.add_argument("--restore-command-gap-s", type=float, default=1.0)
     parser.add_argument("--restore-active-freq", action="store_true", default=True)
     parser.add_argument("--no-restore-active-freq", dest="restore_active_freq", action="store_false")
     parser.add_argument("--coefficient-quiet-settle-s", type=float, default=3.0)
     parser.add_argument("--coefficient-read-timeout-s", type=float, default=2.0)
-    parser.add_argument("--coefficient-read-delay-s", type=float, default=0.3)
+    parser.add_argument("--coefficient-read-delay-s", type=float, default=1.0)
     parser.add_argument("--coefficient-read-retries", type=int, default=3)
     return parser.parse_args(list(argv) if argv is not None else None)
 
@@ -167,6 +168,11 @@ def _write_database_sidecar(
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
+    try:
+        require_fragile_serial_timing(args, tool_name="run_v1_5_co2_senco13_controlled_rollback")
+    except ValueError as exc:
+        base._log(str(exc))
+        return 2
     if not args.enable_senco13_rollback or args.operator_confirmation != CONFIRMATION_TEXT:
         base._log("Refusing SENCO1/SENCO3 rollback: pass --enable-senco13-rollback and exact confirmation text.")
         return 2

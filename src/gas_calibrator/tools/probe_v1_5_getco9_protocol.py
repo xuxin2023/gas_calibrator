@@ -20,6 +20,11 @@ from ..config import load_config
 from ..devices import GasAnalyzer
 from ..devices.gas_analyzer import GasAnalyzer as _ProtocolGasAnalyzer
 from ..validation.reporting import ValidationMetadata, write_validation_report
+from .v1_5_entrypoint_guards import (
+    add_engineering_diagnostic_guard_args,
+    require_engineering_diagnostic_guard,
+)
+from .v1_5_serial_safety import require_fragile_serial_timing
 
 
 def _log(message: str) -> None:
@@ -461,14 +466,26 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="In gentle mode, send one MODE=2 command before GETCO attempts.",
     )
-    parser.add_argument("--command-gap-s", type=float, default=0.8)
+    parser.add_argument("--command-gap-s", type=float, default=1.0)
     parser.add_argument("--quiet-settle-s", type=float, default=2.0)
-    parser.add_argument("--restore-command-gap-s", type=float, default=0.5)
-    return parser.parse_args(list(argv) if argv is not None else None)
+    parser.add_argument("--restore-command-gap-s", type=float, default=1.0)
+    add_engineering_diagnostic_guard_args(parser)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    require_engineering_diagnostic_guard(args, parser, context="GETCO9 protocol probe")
+    return args
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
+    try:
+        require_fragile_serial_timing(
+            args,
+            tool_name="probe_v1_5_getco9_protocol",
+            fields=("command_gap_s", "restore_command_gap_s"),
+        )
+    except ValueError as exc:
+        _log(str(exc))
+        return 2
     cfg_path = Path(args.config).resolve()
     cfg = load_config(cfg_path)
     analyzers = _select_analyzers(cfg, args.device_id)

@@ -1,0 +1,226 @@
+{
+  "schema": "v1_5_run_evidence_status_v1",
+  "generated_at": "2026-06-06T19:30:39",
+  "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
+  "component": "both",
+  "overall_status": "incomplete",
+  "current_stage": "plan_traceability",
+  "physical_boundaries": {
+    "offline_status_only": true,
+    "opens_com_ports": false,
+    "controls_water_or_gas_routes": false,
+    "controls_valves_or_pace": false,
+    "writes_coefficients": false,
+    "not_real_acceptance_evidence": true
+  },
+  "linked_inputs": {
+    "full_flow_plan_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_plan.json",
+    "contract_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_flow_contract.json",
+    "evidence_bundle_json": ""
+  },
+  "contract_status": "pass",
+  "stage_statuses": [
+    {
+      "stage_id": "full_flow_contract_gate",
+      "title": "Full-flow contract audit gate",
+      "status": "pass",
+      "reason": "contract_status=pass",
+      "artifact_roles": [
+        "full_flow_contract"
+      ],
+      "artifact_count": 1,
+      "physical_meaning": "Before any formal run advance, the plan must prove pressure-first, open-flow component sampling, no V2 real COM, and no auto-write boundaries."
+    },
+    {
+      "stage_id": "plan_traceability",
+      "title": "Plan and traceability snapshots",
+      "status": "missing",
+      "reason": "formal plan or pressure reference snapshot missing",
+      "artifact_roles": [
+        "formal_plan_snapshot",
+        "pressure_reference_snapshot"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "The calibration result must bind to a plan, standard/reference certificates, and config identity before sampling."
+    },
+    {
+      "stage_id": "identity_getco_epoch0",
+      "title": "Analyzer identity and GETCO epoch 0",
+      "status": "missing",
+      "reason": "GETCO snapshot or runtime identity-bound config missing",
+      "artifact_roles": [
+        "getco_snapshot",
+        "runtime_identity_bound_config"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "COM ports are transport only; analyzer device IDs and GETCO1-9 define the pre-calibration coefficient epoch."
+    },
+    {
+      "stage_id": "pressure_quick_check",
+      "title": "Pressure channel quick check",
+      "status": "missing",
+      "reason": "pressure quick-check evidence missing",
+      "artifact_roles": [
+        "pressure_channel_quick_check"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Analyzer pressure P is an input to CO2/H2O compensation and must be verified before component calibration."
+    },
+    {
+      "stage_id": "co2_open_flow",
+      "title": "CO2 open-flow evidence",
+      "status": "missing",
+      "reason": "CO2 open-flow sample evidence missing",
+      "artifact_roles": [
+        "raw_samples"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "CO2 fitting must be based on clean open-flow samples and factory ratio evidence, not sealed contaminated pressure points."
+    },
+    {
+      "stage_id": "h2o_open_flow",
+      "title": "H2O open-flow evidence",
+      "status": "missing",
+      "reason": "H2O open-flow sample evidence missing",
+      "artifact_roles": [
+        "raw_samples"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "H2O fitting must preserve dewpoint/reference-backed water evidence and dry-gas low-water anchors separately from CO2 zero gas."
+    },
+    {
+      "stage_id": "candidate_review",
+      "title": "Candidate coefficient review",
+      "status": "not_attempted",
+      "reason": "candidate review not attempted",
+      "artifact_roles": [
+        "candidate_review",
+        "candidate_coefficient_review"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Only stable, role-eligible samples should enter SENCO candidate fitting and reviewer approval."
+    },
+    {
+      "stage_id": "controlled_write_events",
+      "title": "Controlled coefficient write events",
+      "status": "not_attempted",
+      "reason": "no controlled write artifact found",
+      "artifact_roles": [
+        "coefficient_write_event"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Any SENCO write starts a new coefficient epoch and must have command, readback, approval, and rollback evidence."
+    },
+    {
+      "stage_id": "post_write_reverification",
+      "title": "Post-write reverification",
+      "status": "not_attempted",
+      "reason": "post-write verification not attempted",
+      "artifact_roles": [
+        "post_write_reverification",
+        "post_write_reverification_review",
+        "post_write_reverification_points",
+        "post_write_reverification_device_summary"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "After any coefficient write, independent open-flow verification points must prove the updated measurement model."
+    },
+    {
+      "stage_id": "evidence_bundle",
+      "title": "Formal evidence bundle",
+      "status": "missing",
+      "reason": "evidence bundle missing",
+      "artifact_roles": [
+        "evidence_bundle"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "The evidence bundle freezes raw artifacts, QC, traceability, coefficient events, hashes, and report inputs for reconstruction."
+    },
+    {
+      "stage_id": "database_import",
+      "title": "Evidence database import",
+      "status": "not_attempted",
+      "reason": "database import not attempted or summary not found",
+      "artifact_roles": [
+        "database_import_summary"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "PostgreSQL indexes traceability and audit state; raw evidence remains in hashed evidence packages."
+    },
+    {
+      "stage_id": "reports",
+      "title": "Run, technical, and formal calibration reports",
+      "status": "not_attempted",
+      "reason": "one or more formal report artifacts missing",
+      "artifact_roles": [
+        "report_model",
+        "run_report",
+        "technical_report",
+        "formal_calibration_report"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Reports are the reviewer-facing summary of method, QC, traceability, uncertainty, coefficient write status, and limitations."
+    }
+  ],
+  "artifact_count": 8,
+  "artifacts": [
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_entrypoint_call_map.md",
+      "sha256": "65a797db21108edbafb0dc48116391669b337470a0b72bb6a9e15a105a50ef45",
+      "size_bytes": 7267,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_flow_contract.md",
+      "sha256": "5c3b475cc8c702360959b60976f198e9607516a4b934f32609b16ca7d2cee909",
+      "size_bytes": 4192,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_plan.md",
+      "sha256": "ab2aecf05084131d07ba5944b00c8e3ecb98932823b6bcace966e3bbdccdb5a5",
+      "size_bytes": 15530,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_state.md",
+      "sha256": "120da51e142943c758e882dda91c55d83fa33c0790db5b553a4cde348372e84c",
+      "size_bytes": 2269,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_stage_detail_and_route_optimization.md",
+      "sha256": "e9a2aff8e69182395557256becc6d14fb70519e201f19da4b0001dec619d3ab6",
+      "size_bytes": 16886,
+      "source": "discovered"
+    },
+    {
+      "role": "full_flow_contract",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_flow_contract.json",
+      "sha256": "c00f45c9d08800d8dedf9ba91e70fecac1140b62af23e80e7802c5ac587beff8",
+      "size_bytes": 5429,
+      "source": "explicit_or_latest"
+    },
+    {
+      "role": "full_flow_plan",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_plan.json",
+      "sha256": "d163c11bd2f73957f1fa1eaf574c29cdfe23f9208ae3c45d8bf6aae6f70a3468",
+      "size_bytes": 26987,
+      "source": "explicit_or_latest"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_state.json",
+      "sha256": "601b2b5a8e76a758b8308e8d117c62f3fe0fc36f73d104a4228c9795a14d1d63",
+      "size_bytes": 18345,
+      "source": "discovered"
+    }
+  ],
+  "traceability_checks": {},
+  "table_counts": {}
+}

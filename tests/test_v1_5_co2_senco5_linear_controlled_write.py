@@ -167,9 +167,9 @@ def test_senco5_linear_writer_writes_decimal_payload_and_readback(monkeypatch, t
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
             "--post-write-settle-s",
-            "0",
+            "1",
         ]
     )
 
@@ -230,9 +230,9 @@ def test_senco5_linear_writer_accepts_missing_ack_when_readback_matches(monkeypa
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
             "--post-write-settle-s",
-            "0",
+            "1",
         ]
     )
 

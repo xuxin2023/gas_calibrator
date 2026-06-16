@@ -2,7 +2,7 @@ import csv
 import json
 
 from gas_calibrator.tools.export_v1_5_formal_calibration_package import main as package_main
-from gas_calibrator.validation.artifact_rows import load_latest_sample_rows
+from gas_calibrator.validation.artifact_rows import load_latest_sample_rows, normalize_sample_row
 from gas_calibrator.validation.formal_calibration_package import (
     build_formal_calibration_package_tables,
     write_formal_calibration_package,
@@ -130,6 +130,42 @@ def _multi_analyzer_row(index: int, component: str):
     return row
 
 
+def _long_analyzer_row(index: int, component: str, prefix: str, device_id: str):
+    return {
+        "sample_index": index,
+        "sample_ts": f"2026-05-24T12:30:{index:02d}",
+        "analyzer_prefix": prefix,
+        "analyzer_device_id": device_id,
+        "point_phase": component,
+        "route": component,
+        "pressure_mode": "ambient_open",
+        "pressure_gauge_hpa": 1000.5 + index * 0.002,
+        "controller_pressure": 1000.6 + index * 0.002,
+        "pressure_atmosphere_hold_status": "verified",
+        "pressure_atmosphere_hold_active": "true",
+        "pressure_atmosphere_hold_strategy": "legacy_hold_thread",
+        "dewpoint_c": -30.0 + index * 0.001,
+        "frame_usable": "true",
+        "mode2_contract_status": "pass",
+        "mode2_qc_status": "pass",
+        "mode2_tokens_json": json.dumps(
+            ["YGAS", device_id, "0900.000", "00.500", "1768.000", "00.410"],
+            separators=(",", ":"),
+        ),
+        "raw": f"YGAS,{device_id},...",
+        "ref_signal": 3320.0,
+        "co2_signal": 4350.0,
+        "h2o_signal": 2630.0,
+        "chamber_temp_c": 25.0 + index * 0.001,
+        "case_temp_c": 25.5,
+        "pressure_kpa": 100.05 + index * 0.0002,
+        "co2_ratio_f": 1.3000 + index * 0.0001,
+        "co2_ppm": 900.0 + index * 0.01,
+        "h2o_ratio_f": 0.7000 + index * 0.00001,
+        "h2o_mmol": 0.5 + index * 0.0001,
+    }
+
+
 def _external_pressure_quick_rows():
     rows = []
     for index in range(1, 11):
@@ -148,6 +184,32 @@ def _external_pressure_quick_rows():
                     "sample_ts": f"2026-05-24T12:20:{index:02d}",
                     "pressure_mode": "ambient_open",
                     "analyzer_pressure_kpa": analyzer_kpa,
+                    "com22_pressure_hpa": com22,
+                    "pace_pressure_hpa": com22 + 0.1,
+                    "pressure_atmosphere_hold_status": "verified",
+                    "pressure_atmosphere_hold_active": "true",
+                    "pressure_atmosphere_hold_strategy": "legacy_hold_thread",
+                    "pressure_channel_row_status": "paired",
+                    "verified_quantity": "analyzer_internal_pressure_P",
+                }
+            )
+    return rows
+
+
+def _external_pressure_quick_rows_for(prefixes):
+    rows = []
+    for index in range(1, 11):
+        com22 = 1000.5 + index * 0.002
+        for prefix, device_id in prefixes:
+            rows.append(
+                {
+                    "row_index": len(rows) + 1,
+                    "analyzer_prefix": prefix,
+                    "analyzer_device_id": device_id,
+                    "sample_index": index,
+                    "sample_ts": f"2026-05-24T12:40:{index:02d}",
+                    "pressure_mode": "ambient_open",
+                    "analyzer_pressure_kpa": com22 / 10.0,
                     "com22_pressure_hpa": com22,
                     "pace_pressure_hpa": com22 + 0.1,
                     "pressure_atmosphere_hold_status": "verified",
@@ -250,6 +312,64 @@ def test_formal_replay_prefers_machine_readable_samples_for_multi_analyzer_rows(
     review = {row["analyzer_device_id"]: row for row in tables["candidate_coefficient_review"]}
     assert review["091"]["candidate_review_status"] == "ready_for_reviewer"
     assert review["001"]["candidate_review_status"] == "ready_for_reviewer"
+
+
+def test_sample_row_normalization_maps_chinese_analyzer_headers():
+    row = normalize_sample_row({"气体分析仪2_二氧化碳比值滤波后": "1.234"})
+    assert row["ga02_co2_ratio_f"] == "1.234"
+
+
+def test_formal_package_loads_queue_style_aggregate_samples_and_keeps_devices_separate(tmp_path):
+    run_dir = tmp_path / "queue_run"
+    co2_dir = run_dir / "candidate_fit_queue" / "co2_aggregate"
+    h2o_dir = run_dir / "candidate_fit_queue" / "h2o_aggregate"
+    co2_dir.mkdir(parents=True)
+    h2o_dir.mkdir(parents=True)
+    device_prefixes = (("ga01", "091"), ("ga03", "077"))
+    _write_csv(
+        co2_dir / "samples_machine_readable.csv",
+        [
+            _long_analyzer_row(index, "co2", prefix, device_id)
+            for prefix, device_id in device_prefixes
+            for index in range(1, 11)
+        ],
+    )
+    _write_csv(
+        h2o_dir / "samples_machine_readable.csv",
+        [
+            _long_analyzer_row(index, "h2o", prefix, device_id)
+            for prefix, device_id in device_prefixes
+            for index in range(11, 21)
+        ],
+    )
+    pressure_path = tmp_path / "pressure_channel_quick_check_external.csv"
+    _write_csv(pressure_path, _external_pressure_quick_rows_for(device_prefixes))
+
+    samples_path, rows = load_latest_sample_rows(run_dir)
+    assert "candidate_fit_queue" in str(samples_path)
+    assert len(rows) == 40
+    assert {row["analyzer_device_id"] for row in rows} == {"091", "077"}
+
+    tables, context = build_formal_calibration_package_tables(
+        run_dir=run_dir,
+        plan=_plan(),
+        pressure_reference=_pressure_reference(),
+        component="both",
+        analyzer_prefix="all",
+        pressure_check_path=pressure_path,
+        today="2026-05-24",
+    )
+
+    assert context["analyzer_prefixes"] == ["ga01", "ga03"]
+    review = {
+        (row["analyzer_prefix"], row["component"]): row
+        for row in tables["candidate_coefficient_review"]
+    }
+    assert review[("ga01", "co2")]["analyzer_device_id"] == "091"
+    assert review[("ga03", "co2")]["analyzer_device_id"] == "077"
+    assert review[("ga01", "h2o")]["analyzer_device_id"] == "091"
+    assert review[("ga03", "h2o")]["analyzer_device_id"] == "077"
+    assert all(row["candidate_review_status"] == "ready_for_reviewer" for row in review.values())
 
 
 def test_formal_package_blocks_when_pressure_quick_check_artifact_is_missing(tmp_path):

@@ -203,9 +203,16 @@ def test_formal_evidence_sidecar_runs_complete_offline_chain(tmp_path):
     assert summary["evidence_bundle"]["evidence_status"] == "ready_for_reviewer"
     assert summary["evidence_bundle_integrity"]["status"] == "pass"
     assert summary["evidence_bundle_integrity"]["failed_check_count"] == 0
+    assert summary["run_evidence_status"]["overall_status"] in {"incomplete", "ready_for_reviewer"}
+    assert summary["run_evidence_status"]["physical_boundaries"]["opens_com_ports"] is False
     assert (run_dir / "formal_evidence_sidecar" / "formal_evidence_sidecar_summary.json").exists()
     assert (run_dir / "formal_evidence_sidecar" / "evidence_bundle.json").exists()
     assert (run_dir / "formal_evidence_sidecar" / "evidence_bundle_integrity.json").exists()
+    assert (run_dir / "formal_evidence_sidecar" / "v1_5_run_evidence_status.json").exists()
+    assert (run_dir / "formal_evidence_sidecar" / "v1_5_run_evidence_status.md").exists()
+    bundle = json.loads((run_dir / "formal_evidence_sidecar" / "evidence_bundle.json").read_text(encoding="utf-8"))
+    roles = {row["artifact_role"] for row in bundle["tables"]["sample_files"]}
+    assert {"run_evidence_status", "run_evidence_status_report"}.issubset(roles)
 
 
 def test_formal_evidence_sidecar_blocks_missing_pressure_quick_check(tmp_path):
@@ -223,6 +230,7 @@ def test_formal_evidence_sidecar_blocks_missing_pressure_quick_check(tmp_path):
     assert summary["evidence_bundle"]["evidence_status"] == "blocked"
     assert summary["evidence_bundle"]["package_status"] == "blocked"
     assert summary["evidence_bundle_integrity"]["status"] == "pass"
+    assert summary["run_evidence_status"]["overall_status"] == "blocked"
 
 
 def test_formal_evidence_sidecar_cli_preflight_only(tmp_path):

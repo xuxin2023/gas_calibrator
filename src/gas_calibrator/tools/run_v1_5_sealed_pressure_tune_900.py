@@ -20,6 +20,10 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..config import load_config
 from ..devices import DewpointMeter, Pace5000, ParoscientificGauge, RelayController
+from .v1_5_entrypoint_guards import (
+    add_engineering_diagnostic_guard_args,
+    require_engineering_diagnostic_guard,
+)
 
 
 FORBIDDEN_CAL_WRITE_RE = re.compile(
@@ -1146,8 +1150,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--max-trials", type=int, default=6)
     parser.add_argument("--no-write", action="store_true", default=True)
     parser.add_argument("--confirm-pressure-only-tuning", action="store_true", default=False)
+    add_engineering_diagnostic_guard_args(parser)
     parser.add_argument("--output-dir", default="")
     args = parser.parse_args(argv)
+    require_engineering_diagnostic_guard(args, parser, context="sealed pressure tuning diagnostic")
     cfg_path = Path(args.config)
     cfg = load_config(str(cfg_path))
     output_dir = Path(args.output_dir) if args.output_dir else None

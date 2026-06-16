@@ -1,0 +1,318 @@
+{
+  "schema": "v1_5_recommendation_closure_v1",
+  "created_at": "2026-06-14T08:28:56",
+  "repo_root": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean",
+  "run_dir": "",
+  "overall_status": "partially_closed",
+  "summary_counts": {
+    "closed": 5,
+    "partial": 2,
+    "open": 0
+  },
+  "physical_boundaries": {
+    "offline_audit_only": true,
+    "opens_com_ports": false,
+    "controls_water_or_gas_routes": false,
+    "controls_valves_or_pace": false,
+    "writes_coefficients": false,
+    "not_real_acceptance_evidence": true
+  },
+  "items": [
+    {
+      "recommendation_id": "active_frame_recovery",
+      "title": "旧缓存帧/无效帧恢复与拒绝",
+      "status": "closed",
+      "physical_meaning": "采样窗口必须来自当前通气状态下的新鲜 MODE2 帧；旧缓存帧或缺帧不能静默进入拟合。",
+      "implemented_evidence": [
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\config.py",
+          "present": true,
+          "matched_patterns": [
+            "active_frame_recovery_enabled",
+            "active_frame_recovery_wait_s"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\workflow\\runner.py",
+          "present": true,
+          "matched_patterns": [
+            "_active_analyzer_anchor_match_with_recovery",
+            "stale_frame"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tests\\test_runner_multi_analyzers.py",
+          "present": true,
+          "matched_patterns": [
+            "test_active_analyzer_anchor_match_recovers_from_stale_frame",
+            "test_merge_analyzer_cache_rejects_unrecovered_stale_active_frame"
+          ],
+          "missing_patterns": []
+        }
+      ],
+      "tests": [
+        "tests/test_runner_multi_analyzers.py"
+      ],
+      "remaining_gap": "需要在后续真实运行中确认每台设备的 stale/no-data 统计进入最终证书附件。",
+      "next_action": "保留当前恢复窗口，按设备 ID 汇总 stale/no-data 计数到正式报告。"
+    },
+    {
+      "recommendation_id": "status_register_qc_logic",
+      "title": "状态寄存器三态 QC",
+      "status": "partial",
+      "physical_meaning": "状态寄存器把光功率、光电流、脉冲同步、温度异常、信号超限等内部故障接入证据链。",
+      "implemented_evidence": [
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\workflow\\runner.py",
+          "present": true,
+          "matched_patterns": [
+            "_assess_status_register_qc",
+            "status_register_qc"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\logging_utils.py",
+          "present": true,
+          "matched_patterns": [
+            "status_register_qc"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tests\\test_runner_multi_analyzers.py",
+          "present": true,
+          "matched_patterns": [
+            "test_status_register_qc_distinguishes_missing_pass_and_fail"
+          ],
+          "missing_patterns": []
+        }
+      ],
+      "tests": [
+        "tests/test_runner_multi_analyzers.py"
+      ],
+      "remaining_gap": "本轮六台设备聚合证据里状态寄存器非空行为 0；逻辑已能判定，但还不能证明采集源已闭环。",
+      "next_action": "把状态寄存器原始值和 bit 中文解释加入正式采样证据与报告。"
+    },
+    {
+      "recommendation_id": "route_open_until_sample_end",
+      "title": "采样必须发生在开阀开放流通状态",
+      "status": "closed",
+      "physical_meaning": "CO2/H2O 主校准应采持续刷新后的标准气状态，不能先关阀再取样。",
+      "implemented_evidence": [
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\tools\\run_v1_5_formal_open_flow_sampling.py",
+          "present": true,
+          "matched_patterns": [
+            "route_open_until_sample_end",
+            "gas_route_open_until_sample_end"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\tools\\run_v1_5_formal_h2o_open_flow_sampling.py",
+          "present": true,
+          "matched_patterns": [
+            "route_open_until_sample_end",
+            "h2o_route_open_until_sample_end"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tests\\test_v1_5_formal_open_flow.py",
+          "present": true,
+          "matched_patterns": [
+            "route_open_until_sample_end=False"
+          ],
+          "missing_patterns": []
+        }
+      ],
+      "tests": [
+        "tests/test_v1_5_formal_open_flow.py"
+      ],
+      "remaining_gap": "需要持续确保队列模式、批处理模式和手工恢复模式都保留该字段。",
+      "next_action": "把该字段纳入证书/技术报告的点位证据表。"
+    },
+    {
+      "recommendation_id": "per_analyzer_independent_grade",
+      "title": "每台分析仪独立判稳与独立评级",
+      "status": "closed",
+      "physical_meaning": "多台串联采样时，一台设备通信或光学异常不应污染其它设备的数据结论。",
+      "implemented_evidence": [
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\tools\\run_v1_5_formal_open_flow_sampling.py",
+          "present": true,
+          "matched_patterns": [
+            "per_analyzer_ratio_stability_required",
+            "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\tools\\run_v1_5_formal_h2o_open_flow_sampling.py",
+          "present": true,
+          "matched_patterns": [
+            "per_analyzer_status_register_qc_required",
+            "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tests\\test_v1_5_formal_open_flow_sampling_runner.py",
+          "present": true,
+          "matched_patterns": [
+            "per_analyzer_ratio_stability_required",
+            "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tests\\test_v1_5_formal_h2o_open_flow_sampling_runner.py",
+          "present": true,
+          "matched_patterns": [
+            "per_analyzer_h2o_ratio_stability_required",
+            "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+          ],
+          "missing_patterns": []
+        }
+      ],
+      "tests": [
+        "tests/test_v1_5_formal_open_flow_artifacts.py",
+        "tests/test_v1_5_formal_open_flow_sampling_runner.py",
+        "tests/test_v1_5_formal_h2o_open_flow_sampling_runner.py"
+      ],
+      "remaining_gap": "需要在 UI/报告中把 rejected_by_device 与 accepted_by_device 更直观地展示。",
+      "next_action": "报告按设备 ID 输出 A/B/C/拒绝等级和拒绝原因。"
+    },
+    {
+      "recommendation_id": "factory_signal_health_gate",
+      "title": "工厂模式光学信号健康门禁",
+      "status": "closed",
+      "physical_meaning": "ref_signal、CO2/H2O signal、ratio/raw ratio 能区分光路/探测器/参考满值异常和普通系数误差。",
+      "implemented_evidence": [
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\validation\\factory_signal_health_review.py",
+          "present": true,
+          "matched_patterns": [
+            "pass_factory_signal_health"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\tools\\export_v1_5_factory_signal_health_review.py",
+          "present": true,
+          "matched_patterns": [
+            "factory_signal_health"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\v1_5\\orchestration\\full_flow.py",
+          "present": true,
+          "matched_patterns": [
+            "factory_signal_health_review",
+            "requires_factory_signal_health_review"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tests\\test_v1_5_full_flow_orchestration.py",
+          "present": true,
+          "matched_patterns": [
+            "test_full_flow_plan_requires_factory_signal_health_before_fit_review"
+          ],
+          "missing_patterns": []
+        }
+      ],
+      "tests": [
+        "tests/test_v1_5_factory_signal_health_review.py",
+        "tests/test_v1_5_full_flow_orchestration.py"
+      ],
+      "remaining_gap": "073/079 这类光学异常仍需要把 SETCO2/SETPOW/状态寄存器读数接成同一份维修诊断证据。",
+      "next_action": "在光学健康门禁报告里加入 SETCO2、SETPOW、状态寄存器、同点横向对比。"
+    },
+    {
+      "recommendation_id": "optical_root_cause_report",
+      "title": "六台设备光学根因中文报告归档",
+      "status": "closed",
+      "physical_meaning": "报告把同点横向比较、工厂模式信号、缓存帧、状态寄存器和可能故障根因交给维修/研发复核，并作为 diagnostic_analysis 进入最终证据包。",
+      "implemented_evidence": [
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tools\\generate_v15_optical_root_cause_docx.py",
+          "present": true,
+          "matched_patterns": [
+            "光学根因"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\validation\\v1_5_run_evidence_status.py",
+          "present": true,
+          "matched_patterns": [
+            "diagnostic_analysis",
+            "optical_root_cause"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\storage\\v1_5_evidence\\bundle.py",
+          "present": true,
+          "matched_patterns": [
+            "diagnostic_analysis",
+            "optical_root_cause"
+          ],
+          "missing_patterns": []
+        }
+      ],
+      "tests": [],
+      "remaining_gap": "",
+      "next_action": "在最终 evidence bundle 中按 diagnostic_analysis 角色审核光学根因报告。"
+    },
+    {
+      "recommendation_id": "run_evidence_status_auto_refresh",
+      "title": "运行证据状态索引自动刷新",
+      "status": "partial",
+      "physical_meaning": "实际跑完、写完、入库、出证后，系统证据索引也必须自动反映最终状态，避免人知道完成但证据树未闭环。",
+      "implemented_evidence": [
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\validation\\v1_5_run_evidence_status.py",
+          "present": true,
+          "matched_patterns": [
+            "build_v1_5_run_evidence_status"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\validation\\v1_5_formal_archive_closure.py",
+          "present": true,
+          "matched_patterns": [
+            "build_v1_5_formal_archive_closure",
+            "build_v1_5_run_evidence_status"
+          ],
+          "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tests\\test_v1_5_formal_archive_closure.py",
+          "present": true,
+          "matched_patterns": [
+            "has_run_evidence_status"
+          ],
+          "missing_patterns": []
+        }
+      ],
+      "tests": [
+        "tests/test_v1_5_run_evidence_status.py",
+        "tests/test_v1_5_formal_archive_closure.py"
+      ],
+      "remaining_gap": "已有离线归档闭环，但采样/写入 runner 结束后并非总是自动刷新最新证据状态。",
+      "next_action": "在 full calibration chain 的最后统一调用 archive closure 或 evidence status export。"
+    }
+  ],
+  "recommended_regression_commands": [
+    "python -m pytest tests/test_runner_multi_analyzers.py tests/test_v1_5_formal_open_flow.py -q",
+    "python -m pytest tests/test_v1_5_factory_signal_health_review.py tests/test_v1_5_full_flow_orchestration.py -q",
+    "python -m pytest tests/test_v1_5_run_evidence_status.py tests/test_v1_5_formal_archive_closure.py -q"
+  ]
+}

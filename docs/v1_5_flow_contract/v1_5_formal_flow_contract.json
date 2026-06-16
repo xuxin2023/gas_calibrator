@@ -2,6 +2,14 @@
   "schema": "v1_5_formal_flow_contract_report_v1",
   "status": "pass",
   "contract": "pressure_first_temperature_review_then_open_flow_components",
+  "physical_boundaries": {
+    "offline_contract_audit": true,
+    "opens_com_ports": false,
+    "controls_water_or_gas_routes": false,
+    "controls_valves_or_pace": false,
+    "writes_coefficients": false,
+    "not_real_acceptance_evidence": true
+  },
   "phase_sequence": [
     "LOAD_PLAN",
     "PRECHECK",
@@ -34,10 +42,7 @@
     "database_import",
     "zh_calibration_reports"
   ],
-  "formal_runner_steps": [
-    "co2_open_flow_sampling",
-    "h2o_open_flow_sampling"
-  ],
+  "formal_runner_steps": [],
   "physical_flow": [
     "LOAD_PLAN: freeze plan, certificates, config hash, and run identity",
     "PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9",
@@ -52,5 +57,78 @@
     "ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports"
   ],
   "issues": [],
-  "warnings": []
+  "warnings": [
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.prepare_v1_5_formal_run_package is not present in the supplied V1.5 inventory",
+      "step_id": "load_plan_and_traceability"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.probe_v1_5_getco_component_snapshot is not present in the supplied V1.5 inventory",
+      "step_id": "device_identity_and_getco_snapshot"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_pressure_senco9_no_write_preflight is not present in the supplied V1.5 inventory",
+      "step_id": "pressure_senco9_no_write_review"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_temperature_channel_review is not present in the supplied V1.5 inventory",
+      "step_id": "temperature_channel_fast_review"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue is not present in the supplied V1.5 inventory",
+      "step_id": "co2_open_flow_sampling"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue is not present in the supplied V1.5 inventory",
+      "step_id": "h2o_open_flow_sampling"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_fit_input_quality is not present in the supplied V1.5 inventory",
+      "step_id": "fit_input_quality_review"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_co2_senco_pair_model_scope is not present in the supplied V1.5 inventory",
+      "step_id": "co2_candidate_write_review"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_post_write_reverification is not present in the supplied V1.5 inventory",
+      "step_id": "post_write_reverification_placeholder"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.run_v1_5_formal_evidence_sidecar is not present in the supplied V1.5 inventory",
+      "step_id": "formal_evidence_sidecar"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.import_v1_5_evidence_package is not present in the supplied V1.5 inventory",
+      "step_id": "database_import"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_calibration_reports is not present in the supplied V1.5 inventory",
+      "step_id": "zh_calibration_reports"
+    }
+  ]
 }

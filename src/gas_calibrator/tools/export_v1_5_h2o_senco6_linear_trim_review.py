@@ -32,6 +32,9 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--command-c1-max", type=float, default=2.0)
     parser.add_argument("--max-abs-c0-mmol", type=float, default=2.0)
     parser.add_argument("--max-abs-c1-delta", type=float, default=0.15)
+    parser.add_argument("--require-state-comparability-evidence", action="store_true")
+    parser.add_argument("--max-abs-h2o-ratio-delta-vs-fit", type=float, default=0.005)
+    parser.add_argument("--max-abs-temperature-delta-c-vs-fit", type=float, default=3.0)
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -49,6 +52,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             command_c1_max=float(args.command_c1_max),
             max_abs_c0_mmol=float(args.max_abs_c0_mmol),
             max_abs_c1_delta=float(args.max_abs_c1_delta),
+            require_state_comparability_evidence=bool(args.require_state_comparability_evidence),
+            max_abs_h2o_ratio_delta_vs_fit=float(args.max_abs_h2o_ratio_delta_vs_fit),
+            max_abs_temperature_delta_c_vs_fit=float(args.max_abs_temperature_delta_c_vs_fit),
         )
         outputs = write_h2o_senco6_linear_trim_review(
             verification_summary_csv=args.verification_summary_csv,

@@ -3,6 +3,15 @@
 - status: `pass`
 - contract: `pressure_first_temperature_review_then_open_flow_components`
 
+## Physical Boundaries
+
+- `offline_contract_audit`: `True`
+- `opens_com_ports`: `False`
+- `controls_water_or_gas_routes`: `False`
+- `controls_valves_or_pace`: `False`
+- `writes_coefficients`: `False`
+- `not_real_acceptance_evidence`: `True`
+
 ## Physical Flow
 
 - LOAD_PLAN: freeze plan, certificates, config hash, and run identity
@@ -36,8 +45,7 @@
 
 ## Formal Route Runners
 
-- `co2_open_flow_sampling`
-- `h2o_open_flow_sampling`
+- none
 
 ## Issues
 
@@ -45,4 +53,15 @@
 
 ## Warnings
 
-- none
+- `warning` `entrypoint_not_in_inventory` (load_plan_and_traceability): gas_calibrator.tools.prepare_v1_5_formal_run_package is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (device_identity_and_getco_snapshot): gas_calibrator.tools.probe_v1_5_getco_component_snapshot is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (pressure_senco9_no_write_review): gas_calibrator.tools.export_v1_5_pressure_senco9_no_write_preflight is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (temperature_channel_fast_review): gas_calibrator.tools.export_v1_5_temperature_channel_review is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (co2_open_flow_sampling): gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (h2o_open_flow_sampling): gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (fit_input_quality_review): gas_calibrator.tools.export_v1_5_fit_input_quality is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (co2_candidate_write_review): gas_calibrator.tools.export_v1_5_co2_senco_pair_model_scope is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (post_write_reverification_placeholder): gas_calibrator.tools.export_v1_5_post_write_reverification is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (formal_evidence_sidecar): gas_calibrator.tools.run_v1_5_formal_evidence_sidecar is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (database_import): gas_calibrator.tools.import_v1_5_evidence_package is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (zh_calibration_reports): gas_calibrator.tools.export_v1_5_calibration_reports is not present in the supplied V1.5 inventory

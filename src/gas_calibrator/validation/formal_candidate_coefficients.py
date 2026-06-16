@@ -25,8 +25,18 @@ from .co2_firmware_contract import (
     co2_senco3_temperature_compensation_ppm,
 )
 from .dewpoint_flush_gate import dewpoint_to_h2o_mmol_per_mol
+from .artifact_rows import load_latest_sample_rows
 from .formal_calibration_package import build_formal_calibration_package_tables
-from .formal_open_flow_artifacts import load_plan_snapshot, load_pressure_reference_snapshot
+from .formal_open_flow_artifacts import (
+    detect_analyzer_prefixes,
+    load_plan_snapshot,
+    load_pressure_reference_snapshot,
+    select_component_rows,
+)
+from .factory_signal_health_review import (
+    factory_signal_health_block_reason,
+    load_factory_signal_health_summary,
+)
 from .reporting import ValidationMetadata, write_validation_report
 
 
@@ -51,7 +61,7 @@ class CandidateCoefficientPolicyConfig:
         default_factory=lambda: {"co2": 2.0, "h2o": 0.05}
     )
     verification_use_certificate_uncertainty: bool = True
-    fit_all_eligible_samples: bool = False
+    fit_all_eligible_samples: bool = True
     allow_uncertified_zero_co2_anchor: bool = False
     hard_bad_temperature_values_c: Tuple[float, ...] = (-40.0, 60.0)
     hard_bad_temperature_tolerance_c: float = 0.05
@@ -65,6 +75,11 @@ class CandidateCoefficientPolicyConfig:
     preserved_secondary_coefficients: Mapping[str, Any] = field(default_factory=dict)
     preserved_secondary_coefficients_source: str = ""
     co2_dry_correction_h2o_source: str = "reference_first"
+    factory_signal_health_summary_csv: str | Path | None = None
+    review_only_wide_sample_fallback: bool = False
+    max_fit_absolute_relative_error_pct_for_review: Mapping[str, float] = field(
+        default_factory=lambda: {"co2": 10.0, "h2o": 10.0}
+    )
 
 
 def _now() -> str:
@@ -643,6 +658,103 @@ def _group_key(row: Mapping[str, Any]) -> Tuple[str, str, str]:
     )
 
 
+def _truthy_false(value: Any) -> bool:
+    return str(value or "").strip().lower() in {
+        "0",
+        "false",
+        "fail",
+        "failed",
+        "no",
+        "n",
+        "unusable",
+        "invalid",
+        "rejected",
+        "不可用",
+        "失败",
+        "拒绝",
+    }
+
+
+def _device_id_from_wide_sample(row: Mapping[str, Any], prefix: str) -> str:
+    for key in (
+        "analyzer_device_id",
+        "id",
+        "device_id",
+        "mode2_device_id",
+    ):
+        value = _prefixed_value(row, prefix, key)
+        if value not in (None, ""):
+            return _normalized_device_id(value)
+    raw = _prefixed_value(row, prefix, "raw")
+    match = re.search(r"\bYGAS\s*,\s*([^,\s]+)", str(raw or ""), re.IGNORECASE)
+    if match:
+        return _normalized_device_id(match.group(1))
+    return ""
+
+
+def _is_explicitly_unusable_wide_sample(row: Mapping[str, Any], prefix: str) -> bool:
+    for key in (
+        "frame_usable",
+        "frame_has_data",
+        "mode2_contract_status",
+        "mode2_qc_status",
+        "analyzer_identity_status",
+    ):
+        value = _prefixed_value(row, prefix, key)
+        if key in {"mode2_contract_status", "mode2_qc_status", "analyzer_identity_status"}:
+            text = str(value or "").strip().lower()
+            if text and text not in {"pass", "ok", "可用", "通过"}:
+                return True
+        elif _truthy_false(value):
+            return True
+    return False
+
+
+def _review_only_wide_sample_rows(
+    *,
+    run_dir: str | Path,
+    component: str,
+    analyzer_prefix: str,
+) -> tuple[str, List[Dict[str, Any]], List[str]]:
+    """Expand an aggregate wide sample CSV into per-analyzer review-only rows.
+
+    This fallback is intentionally not part of formal acceptance. It exists so
+    already-recorded V1.5 multi-analyzer ratio/T/P evidence can still be used
+    for no-write coefficient review when the formal package is blocked by
+    traceability metadata that must remain a write/release gate.
+    """
+
+    sample_path, sample_rows = load_latest_sample_rows(run_dir)
+    prefixes = (
+        detect_analyzer_prefixes(sample_rows)
+        if str(analyzer_prefix or "").strip().lower() in {"*", "all", "auto", "detected"}
+        else [part.strip().lower() for part in str(analyzer_prefix or "ga01").split(",") if part.strip()]
+    )
+    if not prefixes:
+        prefixes = ["ga01"]
+    components = ("co2", "h2o") if str(component).strip().lower() == "both" else (component,)
+    expanded: List[Dict[str, Any]] = []
+    for comp in components:
+        comp_key = str(comp or "").strip().lower()
+        if comp_key not in {"co2", "h2o"}:
+            continue
+        for prefix in prefixes:
+            for row in select_component_rows(sample_rows, component=comp_key, analyzer_prefix=prefix):
+                device_id = _device_id_from_wide_sample(row, prefix)
+                if not device_id:
+                    continue
+                if _is_explicitly_unusable_wide_sample(row, prefix):
+                    continue
+                item = dict(row)
+                item["component"] = comp_key
+                item["analyzer_prefix"] = prefix
+                item["analyzer_device_id"] = device_id
+                item["candidate_sample_source"] = "review_only_wide_sample_fallback"
+                item["sample_role"] = str(item.get("sample_role") or "fit").strip() or "fit"
+                expanded.append(item)
+    return str(sample_path.resolve()), expanded, prefixes
+
+
 def _model_terms(
     *,
     distinct_targets: int,
@@ -1020,6 +1132,12 @@ def _residual_rows(
     )
     out: List[Dict[str, Any]] = []
     for row, prediction, target in zip(rows, predictions, targets):
+        error = float(prediction - target)
+        signed_relative_error_pct: Any = ""
+        absolute_relative_error_pct: Any = ""
+        if abs(float(target)) > 1.0e-12:
+            signed_relative_error_pct = error / abs(float(target)) * 100.0
+            absolute_relative_error_pct = abs(signed_relative_error_pct)
         out.append(
             {
                 "component": component,
@@ -1036,7 +1154,9 @@ def _residual_rows(
                 "h2o_mmol": row.get("_h2o_mmol", ""),
                 "h2o_mmol_source": row.get("_h2o_mmol_source", ""),
                 "prediction": float(prediction),
-                "error": float(prediction - target),
+                "error": error,
+                "signed_relative_error_pct": signed_relative_error_pct,
+                "absolute_relative_error_pct": absolute_relative_error_pct,
                 "model_terms": ";".join(terms),
                 "preserved_secondary_compensation": float(
                     _preserved_secondary_compensation_value(component, row, preserved_secondary_coefficients)
@@ -1065,6 +1185,12 @@ def _metrics_or_empty(
         preserved_secondary_coefficients=preserved_secondary_coefficients,
     )
     return compute_metrics(truth, prediction)
+
+
+def _max_absolute_relative_error_pct(rows: Sequence[Mapping[str, Any]]) -> Any:
+    values = [_safe_float(row.get("absolute_relative_error_pct")) for row in rows]
+    numeric = [float(value) for value in values if value is not None]
+    return max(numeric) if numeric else ""
 
 
 def _fit_point_fractional_residuals(
@@ -1279,6 +1405,10 @@ def _candidate_for_group(
     formal_pressure_status = str(review_row.get("pressure_validation_status") or "").strip()
     formal_pressure_reason = str(review_row.get("pressure_validation_reason") or "").strip()
     formal_pressure_source = str(review_row.get("pressure_check_source") or "").strip()
+    review_only_fallback_source = str(review_row.get("review_only_fallback_source") or "").strip()
+    review_only_formal_review_status = str(
+        review_row.get("review_only_formal_review_status") or ""
+    ).strip()
     formal_pressure_condition_warning_count = int(
         _safe_float(review_row.get("pressure_condition_warning_count")) or 0
     )
@@ -1326,6 +1456,10 @@ def _candidate_for_group(
 
     blockers: List[str] = []
     warnings: List[str] = list(model_notes)
+    if review_only_fallback_source:
+        warnings.append("review_only_wide_sample_fallback_used_formal_package_not_write_ready")
+        if formal_review_blockers:
+            warnings.append("formal_package_blockers_preserved_no_write")
     if str(review_row.get("candidate_review_status") or "").strip() not in {"", "ready_for_reviewer"}:
         blockers.append("formal_candidate_review_not_ready")
     if len(fit_rows) < int(cfg.min_fit_samples):
@@ -1354,6 +1488,8 @@ def _candidate_for_group(
     fit_residuals: List[Dict[str, Any]] = []
     verification_residuals: List[Dict[str, Any]] = []
     verification_metrics: Dict[str, Any] = {}
+    fit_max_absolute_relative_error_pct: Any = ""
+    verification_max_absolute_relative_error_pct: Any = ""
     verification_status = "not_evaluated"
     verification_reasons: List[str] = []
     verification_error_limit: Any = ""
@@ -1417,6 +1553,18 @@ def _candidate_for_group(
             residual_role="fit",
             preserved_secondary_coefficients=preserved_secondary_coefficients,
         )
+        fit_max_absolute_relative_error_pct = _max_absolute_relative_error_pct(fit_residuals)
+        fit_relative_error_limit = _safe_float(
+            cfg.max_fit_absolute_relative_error_pct_for_review.get(component)
+        )
+        fit_relative_error_value = _safe_float(fit_max_absolute_relative_error_pct)
+        if (
+            fit_relative_error_limit is not None
+            and fit_relative_error_value is not None
+            and fit_relative_error_value > fit_relative_error_limit
+        ):
+            blockers.append(f"fit_max_absolute_relative_error_pct>{fit_relative_error_limit:g}")
+            warnings.append("candidate_fit_residual_quality_gate_failed")
 
         fit_point_ids = {str(row.get("_point_identity") or "") for row in fit_rows if row.get("_point_identity")}
         verification_point_ids = {
@@ -1446,6 +1594,9 @@ def _candidate_for_group(
                 coefficients=coefficients,
                 residual_role="verification",
                 preserved_secondary_coefficients=preserved_secondary_coefficients,
+            )
+            verification_max_absolute_relative_error_pct = _max_absolute_relative_error_pct(
+                verification_residuals
             )
             verification_metrics = _metrics_or_empty(
                 verification_point_rows,
@@ -1581,15 +1732,25 @@ def _candidate_for_group(
         ),
         "fit_rmse": fit_metrics.get("RMSE", ""),
         "fit_max_error": fit_metrics.get("MaxError", ""),
+        "fit_max_absolute_relative_error_pct": fit_max_absolute_relative_error_pct,
+        "fit_max_absolute_relative_error_review_limit_pct": (
+            cfg.max_fit_absolute_relative_error_pct_for_review.get(component, "")
+        ),
         "verification_status": verification_status,
         "verification_reasons": ";".join(verification_reasons),
         "verification_rmse": verification_metrics.get("RMSE", ""),
         "verification_max_error": verification_metrics.get("MaxError", ""),
+        "verification_max_absolute_relative_error_pct": verification_max_absolute_relative_error_pct,
         "verification_error_limit": verification_error_limit,
         "verification_error_limit_source": verification_error_limit_source,
         "verification_certificate_uncertainties": verification_certificate_uncertainties,
         "formal_review_status": review_row.get("candidate_review_status", ""),
         "formal_review_blockers": formal_review_blockers,
+        "candidate_sample_source": (
+            "review_only_wide_sample_fallback" if review_only_fallback_source else "formal_a_grade_samples"
+        ),
+        "review_only_fallback_source": review_only_fallback_source,
+        "review_only_formal_review_status": review_only_formal_review_status,
         "formal_pressure_check_source": formal_pressure_source,
         "formal_pressure_validation_status": formal_pressure_status,
         "formal_pressure_validation_reason": formal_pressure_reason,
@@ -1615,6 +1776,7 @@ def _candidate_for_group(
         "verification_point_count": len(verification_point_rows),
         "verification_rmse": verification_metrics.get("RMSE", ""),
         "verification_max_error": verification_metrics.get("MaxError", ""),
+        "verification_max_absolute_relative_error_pct": verification_max_absolute_relative_error_pct,
         "verification_error_limit": verification_error_limit,
         "verification_error_limit_source": verification_error_limit_source,
         "verification_certificate_uncertainties": verification_certificate_uncertainties,
@@ -1643,6 +1805,81 @@ def _candidate_for_group(
     }
 
 
+def _apply_factory_signal_health_gate(
+    result: Dict[str, Any],
+    *,
+    gate_row: Mapping[str, Any] | None,
+    summary_source: str,
+    summary_was_required: bool,
+) -> Dict[str, Any]:
+    policy_row = dict(result["policy_row"])
+    verification_summary = dict(result["verification_summary"])
+    coefficient_rows = [dict(row) for row in result["coefficient_rows"]]
+    gate = (
+        str((gate_row or {}).get("candidate_gate") or "").strip()
+        if gate_row is not None
+        else ("factory_signal_health_missing_device" if summary_was_required else "")
+    )
+    block_reason = factory_signal_health_block_reason(
+        gate_row,
+        summary_was_required=summary_was_required,
+    )
+
+    policy_row.update(
+        {
+            "factory_signal_health_source": summary_source,
+            "factory_signal_health_gate": gate,
+            "factory_signal_health_point_count": (gate_row or {}).get("point_count", ""),
+            "factory_signal_health_review_point_count": (gate_row or {}).get("review_point_count", ""),
+            "factory_signal_health_blocking_point_count": (gate_row or {}).get("blocking_point_count", ""),
+            "factory_signal_health_high_ref_point_count": (gate_row or {}).get("high_ref_point_count", ""),
+            "factory_signal_health_max_abs_model_error": (gate_row or {}).get("max_abs_model_error", ""),
+            "factory_signal_health_max_relative_model_error_pct": (gate_row or {}).get(
+                "max_relative_model_error_pct",
+                "",
+            ),
+        }
+    )
+    verification_summary.update(
+        {
+            "factory_signal_health_source": summary_source,
+            "factory_signal_health_gate": gate,
+        }
+    )
+    for row in coefficient_rows:
+        row["factory_signal_health_source"] = summary_source
+        row["factory_signal_health_gate"] = gate
+
+    if block_reason:
+        blockers = [
+            item
+            for item in str(policy_row.get("blocked_reasons") or "").split(";")
+            if item
+        ]
+        blockers.append(block_reason)
+        policy_row["blocked_reasons"] = ";".join(dict.fromkeys(blockers))
+        policy_row["candidate_status"] = "blocked"
+        policy_row["allowed_to_fit"] = False
+        policy_row["allowed_for_review"] = False
+        policy_row["evidence_reuse_class"] = "factory_signal_health_blocked_not_reusable_for_formal_fit"
+        verification_summary["candidate_status"] = "blocked"
+        verification_summary["verification_status"] = "blocked"
+        verification_reasons = [
+            item
+            for item in str(verification_summary.get("verification_reasons") or "").split(";")
+            if item
+        ]
+        verification_reasons.append(block_reason)
+        verification_summary["verification_reasons"] = ";".join(dict.fromkeys(verification_reasons))
+        coefficient_rows = []
+
+    gated = dict(result)
+    gated["policy_row"] = policy_row
+    gated["verification_summary"] = verification_summary
+    gated["coefficient_rows"] = coefficient_rows
+    return gated
+
+
 def build_candidate_coefficient_tables(
     *,
     run_dir: str | Path,
@@ -1659,6 +1896,14 @@ def build_candidate_coefficient_tables(
 
     config = cfg or CandidateCoefficientPolicyConfig()
     excluded_device_ids = {_normalized_device_id(item) for item in config.exclude_device_ids}
+    factory_signal_health_source = (
+        str(Path(config.factory_signal_health_summary_csv).resolve())
+        if config.factory_signal_health_summary_csv
+        else ""
+    )
+    factory_signal_health_by_device = load_factory_signal_health_summary(
+        config.factory_signal_health_summary_csv
+    )
     package_tables, package_context = build_formal_calibration_package_tables(
         run_dir=run_dir,
         plan=plan,
@@ -1687,6 +1932,33 @@ def build_candidate_coefficient_tables(
         if key[2] in excluded_device_ids:
             continue
         groups.setdefault(key, []).append(row)
+    review_only_fallback_source = ""
+    review_only_fallback_prefixes: List[str] = []
+    if config.review_only_wide_sample_fallback and not groups:
+        (
+            review_only_fallback_source,
+            fallback_rows,
+            review_only_fallback_prefixes,
+        ) = _review_only_wide_sample_rows(
+            run_dir=run_dir,
+            component=component,
+            analyzer_prefix=analyzer_prefix,
+        )
+        fallback_groups: Dict[Tuple[str, str, str], List[Mapping[str, Any]]] = {}
+        for row in fallback_rows:
+            key = _group_key(row)
+            if not key[0] or key[2] in excluded_device_ids:
+                continue
+            fallback_groups.setdefault(key, []).append(row)
+        if fallback_groups:
+            groups = fallback_groups
+            for key in fallback_groups:
+                formal_review = dict(review_by_key.get(key) or {})
+                formal_status = str(formal_review.get("candidate_review_status") or "").strip()
+                formal_review["review_only_formal_review_status"] = formal_status
+                formal_review["review_only_fallback_source"] = review_only_fallback_source
+                formal_review["candidate_review_status"] = ""
+                review_by_key[key] = formal_review
 
     keys = sorted(key for key in (set(review_by_key) | set(groups)) if key[2] not in excluded_device_ids)
     common_mode_outlier_exclusions, common_mode_outlier_rows = _detect_common_mode_fit_target_outliers(
@@ -1715,6 +1987,13 @@ def build_candidate_coefficient_tables(
             cfg=config,
             common_mode_outlier_target_keys=common_mode_outlier_exclusions.get((comp, prefix, device_id), []),
         )
+        if factory_signal_health_source:
+            result = _apply_factory_signal_health_gate(
+                result,
+                gate_row=factory_signal_health_by_device.get(device_id),
+                summary_source=factory_signal_health_source,
+                summary_was_required=True,
+            )
         policy_rows.append(result["policy_row"])
         coefficient_rows.extend(result["coefficient_rows"])
         fit_residuals.extend(result["fit_residuals"])
@@ -1757,6 +2036,10 @@ def build_candidate_coefficient_tables(
                 "raw optical layer, is aligned with the standard gas."
             ),
             "excluded_device_ids": ";".join(sorted(excluded_device_ids)),
+            "factory_signal_health_source": factory_signal_health_source,
+            "review_only_wide_sample_fallback": bool(config.review_only_wide_sample_fallback),
+            "review_only_fallback_source": review_only_fallback_source,
+            "review_only_fallback_prefixes": ";".join(review_only_fallback_prefixes),
         }
     ]
     tables = {
@@ -1774,6 +2057,9 @@ def build_candidate_coefficient_tables(
         "package_status": package_context.get("package_status", ""),
         "pressure_check_source": package_context.get("pressure_check_source", ""),
         "analyzer_prefixes": package_context.get("analyzer_prefixes", []),
+        "factory_signal_health_source": factory_signal_health_source,
+        "review_only_wide_sample_fallback": bool(config.review_only_wide_sample_fallback),
+        "review_only_fallback_source": review_only_fallback_source,
     }
     return tables, context
 
@@ -1919,6 +2205,7 @@ def write_candidate_coefficient_report(
             "controls_water_or_gas_routes": False,
             "writes_coefficients": False,
             "fit_all_eligible_samples": bool((cfg or CandidateCoefficientPolicyConfig()).fit_all_eligible_samples),
+            "factory_signal_health_source": context.get("factory_signal_health_source", ""),
         },
         notes=[
             "Offline V1.5 candidate coefficient review.",

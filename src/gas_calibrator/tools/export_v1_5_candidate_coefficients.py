@@ -52,9 +52,20 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--fit-all-eligible-samples",
         action="store_true",
+        default=True,
         help=(
-            "Use every complete A-grade non-diagnostic sample for fitting, including rows originally marked "
-            "verification. The export remains no-write and requires a new independent verification run."
+            "Default V1.5 formal behavior: use every complete A-grade non-diagnostic sample for fitting, "
+            "including rows originally marked verification. The export remains no-write and requires a new "
+            "independent verification run."
+        ),
+    )
+    parser.add_argument(
+        "--hold-out-source-verification-samples",
+        dest="fit_all_eligible_samples",
+        action="store_false",
+        help=(
+            "Compatibility/debug mode only: keep rows marked verification out of the fit. Formal V1.5 "
+            "production exports should not use this because post-write verification is a separate run."
         ),
     )
     parser.add_argument(
@@ -89,6 +100,23 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
             "reference_first prevents old analyzer H2O coefficients from biasing CO2 fitting."
         ),
     )
+    parser.add_argument(
+        "--factory-signal-health-summary-csv",
+        default=None,
+        help=(
+            "Optional factory-signal health summary CSV. When provided, devices whose gate is not "
+            "pass_factory_signal_health are blocked from candidate coefficient write review."
+        ),
+    )
+    parser.add_argument(
+        "--review-only-wide-sample-fallback",
+        action="store_true",
+        help=(
+            "Review-only/no-write fallback: when the formal package has no A-grade rows, expand the "
+            "aggregate samples_machine_readable.csv by analyzer prefix for coefficient calculation. "
+            "This preserves formal blockers and never marks the result as write acceptance."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -113,6 +141,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             preserved_secondary_coefficients=preserved_secondary,
             preserved_secondary_coefficients_source=preserved_secondary_source,
             co2_dry_correction_h2o_source=args.co2_dry_correction_h2o_source,
+            factory_signal_health_summary_csv=args.factory_signal_health_summary_csv,
+            review_only_wide_sample_fallback=bool(args.review_only_wide_sample_fallback),
         )
         outputs = write_candidate_coefficient_report(
             run_dir=args.run_dir,

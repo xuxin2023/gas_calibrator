@@ -34,6 +34,10 @@ from ..devices import (
     ParoscientificGauge,
     RelayController,
 )
+from .v1_5_entrypoint_guards import (
+    add_engineering_diagnostic_guard_args,
+    require_engineering_diagnostic_guard,
+)
 
 
 def _log(msg: str) -> None:
@@ -887,7 +891,9 @@ def main(argv: Optional[List[str]] = None) -> NoOutpProbe:
     parser.add_argument("--no-write", action="store_true", default=True)
     parser.add_argument("--safe-stop-before", action="store_true", default=False, help="Run safe_stop before probe")
     parser.add_argument("--safe-stop-after", action="store_true", default=False, help="Run safe_stop after probe")
+    add_engineering_diagnostic_guard_args(parser)
     args = parser.parse_args(argv)
+    require_engineering_diagnostic_guard(args, parser, context="no-OUTP preseal physical probe")
 
     probe = NoOutpProbe(args)
     return probe

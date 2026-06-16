@@ -56,6 +56,10 @@ from ..validation.room_temp_co2_pressure_diagnostic import (
     export_analyzer_chain_isolation_results,
     export_room_temp_diagnostic_results,
 )
+from .v1_5_entrypoint_guards import (
+    add_engineering_diagnostic_guard_args,
+    require_engineering_diagnostic_guard,
+)
 from ..workflow.runner import CalibrationRunner
 from .safe_stop import perform_safe_stop_with_retries
 from .run_gas_route_ratio_leak_check import (
@@ -169,6 +173,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--config", default="configs/default_config.json")
     parser.add_argument("--allow-live-hardware", action="store_true")
+    add_engineering_diagnostic_guard_args(parser)
     parser.add_argument("--analyzer", default=DEFAULT_ANALYZER_ID)
     parser.add_argument("--co2-group", choices=("auto", "A", "B", "a", "b"), default="auto")
     parser.add_argument("--variants", default="A,B,C", help="Process variants to run (default: A,B,C).")
@@ -3739,6 +3744,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if not args.allow_live_hardware:
         _log("Safety gate: pass --allow-live-hardware to run this independent metrology diagnostic.")
         return 2
+    parser = argparse.ArgumentParser(description="Independent metrology-grade seal/pressure qualification diagnostic V2. Does not write coefficients.")
+    add_engineering_diagnostic_guard_args(parser)
+    require_engineering_diagnostic_guard(args, parser, context="room-temperature CO2 pressure diagnostic")
     if float(args.min_flush_s) < 120.0:
         _log("min_flush_s must stay >= 120s.")
         return 2

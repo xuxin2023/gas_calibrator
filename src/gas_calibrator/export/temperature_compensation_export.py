@@ -6,6 +6,7 @@ import csv
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
+import numpy as np
 from openpyxl import Workbook
 
 from ..calibration.temperature_compensation_fit import (
@@ -35,6 +36,10 @@ OBSERVATION_FIELDS: List[str] = [
     "valid_for_shell_fit",
     "cell_fit_gate_reason",
     "shell_fit_gate_reason",
+    "configured_temp_setpoint_c",
+    "analyzer_pressure_kpa",
+    "analyzer_max_cache_age_ms",
+    "analyzer_frame_count",
     "snapshot_window_s",
     "env_temp_span_c",
     "box_temp_span_c",
@@ -50,6 +55,10 @@ RESULT_FIELDS: List[str] = [
     "n_points",
     "fit_ok",
     "availability",
+    "write_eligible",
+    "write_block_reason",
+    "covered_temp_setpoints",
+    "blocked_temp_setpoints",
     "polynomial_degree_used",
     "rmse",
     "max_abs_error",
@@ -96,6 +105,64 @@ def _build_command_string(senco_channel: str, coeffs: Sequence[Any], *, export_c
     return f"{senco_channel},YGAS,FFF,{a_str},{b_str},{c_str},{d_str}"
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except Exception:
+        return None
+    return number if np.isfinite(number) else None
+
+
+def _format_setpoints(values: Iterable[Any]) -> str:
+    numbers = sorted(
+        {
+            number
+            for value in values
+            if (number := _float_or_none(value)) is not None
+        }
+    )
+    return ";".join(f"{number:g}" for number in numbers)
+
+
+def _temperature_write_eligibility(rows: Sequence[Dict[str, Any]], valid_key: str) -> Dict[str, Any]:
+    valid_rows = [row for row in rows if row.get(valid_key)]
+    reason_key = "cell_fit_gate_reason" if valid_key == "valid_for_cell_fit" else "shell_fit_gate_reason"
+    blocked_reasons = {
+        "hard_bad_value",
+        "raw_reference_delta_too_large",
+        "missing_analyzer_temperature_evidence",
+        "reference_temperature_stale_or_missing",
+        "stale_or_missing_analyzer_temperature_frame",
+    }
+    bad_rows = [
+        row
+        for row in rows
+        if str(row.get(reason_key) or "").strip() in blocked_reasons
+    ]
+    valid_setpoints = _format_setpoints(
+        row.get("temp_setpoint_c") or row.get("temperature_setpoint_c") for row in valid_rows
+    )
+    blocked_setpoints = _format_setpoints(
+        row.get("temp_setpoint_c") or row.get("temperature_setpoint_c") for row in bad_rows
+    )
+    distinct_valid_count = 0 if not valid_setpoints else len(valid_setpoints.split(";"))
+    if bad_rows:
+        reasons = sorted({str(row.get(reason_key) or "").strip() for row in bad_rows if row.get(reason_key)})
+        block_reason = "temperature_channel_has_blocked_segments:" + ";".join(reasons)
+    elif not valid_rows:
+        block_reason = "no_valid_temperature_evidence"
+    elif distinct_valid_count < 3:
+        block_reason = "insufficient_distinct_temperature_setpoints"
+    else:
+        block_reason = ""
+    return {
+        "write_eligible": not block_reason,
+        "write_block_reason": block_reason,
+        "covered_temp_setpoints": valid_setpoints,
+        "blocked_temp_setpoints": blocked_setpoints,
+    }
+
+
 def _build_fit_result(
     analyzer_id: str,
     fit_type: str,
@@ -111,6 +178,7 @@ def _build_fit_result(
     valid_rows = [row for row in rows if row.get(valid_key)]
     availability = "available" if valid_rows else "unavailable"
     ref_source = _unique_sources(rows, valid_key)
+    eligibility = _temperature_write_eligibility(rows, valid_key)
     raw_temps = [row.get(temp_key) for row in valid_rows]
     ref_temps = [row.get("ref_temp_c") for row in valid_rows]
     fit_result = fit_temperature_compensation(raw_temps, ref_temps, polynomial_order=polynomial_order)
@@ -123,7 +191,12 @@ def _build_fit_result(
     command_string = _build_command_string(
         senco_channel,
         coeffs,
-        export_commands=export_commands and availability == "available",
+        export_commands=(
+            export_commands
+            and availability == "available"
+            and bool(fit_result["fit_ok"])
+            and bool(eligibility["write_eligible"])
+        ),
     )
     return {
         "analyzer_id": analyzer_id,
@@ -133,6 +206,10 @@ def _build_fit_result(
         "n_points": int(fit_result["n_points"]),
         "fit_ok": bool(fit_result["fit_ok"]),
         "availability": availability,
+        "write_eligible": bool(eligibility["write_eligible"]),
+        "write_block_reason": str(eligibility["write_block_reason"]),
+        "covered_temp_setpoints": str(eligibility["covered_temp_setpoints"]),
+        "blocked_temp_setpoints": str(eligibility["blocked_temp_setpoints"]),
         "polynomial_degree_used": int(fit_result["polynomial_degree_used"]),
         "rmse": fit_result["rmse"],
         "max_abs_error": fit_result["max_abs_error"],

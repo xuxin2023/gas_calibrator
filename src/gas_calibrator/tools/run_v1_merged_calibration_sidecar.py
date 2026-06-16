@@ -7,6 +7,10 @@ write/verify actions when the caller explicitly opts in via CLI flags.
 
 from __future__ import annotations
 
+LEGACY_V1_REFERENCE_ONLY = True
+NOT_V1_5_FORMAL_ENTRYPOINT = True
+DO_NOT_USE_FOR_V1_5 = True
+
 import argparse
 import csv
 import json

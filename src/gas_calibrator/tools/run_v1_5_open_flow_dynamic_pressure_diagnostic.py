@@ -20,6 +20,10 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 
 from ..config import load_config
+from .v1_5_entrypoint_guards import (
+    add_engineering_diagnostic_guard_args,
+    require_engineering_diagnostic_guard,
+)
 
 
 DEFAULT_GAS_PPM = 0
@@ -2976,6 +2980,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
     )
     parser.add_argument("--real-com", action="store_true")
+    add_engineering_diagnostic_guard_args(parser)
     parser.add_argument("--i-understand-open-flow-no-write", action="store_true")
     parser.add_argument("--operator-confirm-0ppm-flow", action="store_true")
     parser.add_argument("--no-restore-baseline", action="store_true")
@@ -3012,6 +3017,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if sum(1 for flag in only_mode_flags if flag) > 1:
         parser.error("--only-over1, --only-gaug, --only-outp0-baseline, and --vent-pulse-control-only are mutually exclusive")
     validate_arg_combinations(args, parser)
+    if args.real_com:
+        require_engineering_diagnostic_guard(args, parser, context="open-flow dynamic pressure diagnostic")
     run_root = args.output_dir / (args.run_id or f"run_{_stamp()}")
     if not args.real_com:
         payload = run_offline_plan(
