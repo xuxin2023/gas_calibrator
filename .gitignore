@@ -38,6 +38,10 @@ audit/**/raw/
 /configs/_tmp_*
 /configs/*_points.xlsx
 /configs/points_v1_5_*_nowait.xlsx
+/configs/points_v1_5_*_open_flow_no_write.xlsx
+/configs/site_v1_5_*_active.json
+/configs/site_v1_5_*_active_generated_*.json
+/configs/site_v1_5_*_current_observed_*.json
 
 # One-off local probe/output folders
 pace_isol_probe_20260306_131122/
