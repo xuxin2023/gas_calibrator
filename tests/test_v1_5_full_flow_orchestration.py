@@ -817,3 +817,11 @@ def test_full_flow_closure_readiness_auto_generates_post_run_executor(tmp_path):
     stages = {row["stage_id"]: row for row in closure["stage_statuses"]}
     assert stages["post_run_coefficient_executor"]["status"] in {"ready", "blocked"}
     assert closure["linked_inputs"]["post_run_executor_json"] == str(executor_manifest.resolve())
+    evidence_status = json.loads((out / "v1_5_run_evidence_status.json").read_text(encoding="utf-8"))
+    evidence_stages = {row["stage_id"]: row for row in evidence_status["stage_statuses"]}
+    assert evidence_stages["full_flow_closure_readiness"]["status"] == "pass"
+    roles = {row["role"] for row in evidence_status["artifacts"]}
+    assert {"full_flow_closure_readiness", "full_flow_closure_gaps", "full_flow_device_closure"}.issubset(
+        roles
+    )
+    assert evidence_status["linked_inputs"]["evidence_bundle_json"] == ""

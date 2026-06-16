@@ -41,6 +41,29 @@ from ..validation.v1_5_run_evidence_status import (
 )
 
 
+def _write_run_evidence_status(
+    *,
+    run_dir: str | Path,
+    output_dir: str | Path,
+    full_flow_plan_json: str | Path | None,
+    contract_json: str | Path | None,
+    evidence_bundle_json: str | Path | None,
+) -> tuple[dict, Path, Path]:
+    """Refresh the offline evidence index without touching devices."""
+
+    evidence_status = build_v1_5_run_evidence_status(
+        run_dir=run_dir,
+        full_flow_plan_json=full_flow_plan_json,
+        contract_json=contract_json,
+        evidence_bundle_json=evidence_bundle_json,
+    )
+    status_json = Path(output_dir).resolve() / "v1_5_run_evidence_status.json"
+    status_md = Path(output_dir).resolve() / "v1_5_run_evidence_status.md"
+    status_json.write_text(json.dumps(evidence_status, ensure_ascii=False, indent=2), encoding="utf-8")
+    status_md.write_text(render_v1_5_run_evidence_status_markdown(evidence_status), encoding="utf-8")
+    return evidence_status, status_json, status_md
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate a V1.5 full calibration dry-run chain plan.")
     parser.add_argument("--config", required=True, help="V1.5 runtime config JSON.")
@@ -232,18 +255,16 @@ def main(argv: Iterable[str] | None = None) -> int:
         outputs.update(write_full_flow_supervised_run(supervised, args.output_dir))
         outputs.update(write_full_flow_state(supervised.final_state, args.output_dir))
     status_run_dir = Path(args.reviewed_run_dir).resolve() if args.reviewed_run_dir else Path(args.output_dir).resolve()
-    evidence_status = build_v1_5_run_evidence_status(
+    evidence_status, status_json, status_md = _write_run_evidence_status(
         run_dir=status_run_dir,
+        output_dir=args.output_dir,
         full_flow_plan_json=outputs.get("plan_json"),
         contract_json=outputs.get("contract_json"),
         evidence_bundle_json=args.evidence_bundle_json,
     )
-    status_json = Path(args.output_dir).resolve() / "v1_5_run_evidence_status.json"
-    status_md = Path(args.output_dir).resolve() / "v1_5_run_evidence_status.md"
-    status_json.write_text(json.dumps(evidence_status, ensure_ascii=False, indent=2), encoding="utf-8")
-    status_md.write_text(render_v1_5_run_evidence_status_markdown(evidence_status), encoding="utf-8")
     outputs["run_evidence_status_json"] = status_json
     outputs["run_evidence_status_markdown"] = status_md
+    latest_evidence_bundle_json = args.evidence_bundle_json
     if args.archive_closure:
         pressure_reference_json = args.archive_pressure_reference_json or args.pressure_reference_json
         missing = []
@@ -291,16 +312,16 @@ def main(argv: Iterable[str] | None = None) -> int:
         outputs["archive_closure_evidence_bundle"] = archive_paths["evidence_bundle"]
         outputs["archive_closure_traceability_summary"] = archive_paths["traceability_summary"]
         outputs["archive_closure_database_summary"] = archive_paths["database_import_summary"]
-        evidence_status = build_v1_5_run_evidence_status(
+        latest_evidence_bundle_json = archive_paths["evidence_bundle"]
+        evidence_status, _, _ = _write_run_evidence_status(
             run_dir=status_run_dir,
+            output_dir=args.output_dir,
             full_flow_plan_json=outputs.get("plan_json"),
             contract_json=outputs.get("contract_json"),
-            evidence_bundle_json=archive_paths["evidence_bundle"],
+            evidence_bundle_json=latest_evidence_bundle_json,
         )
-        status_json.write_text(json.dumps(evidence_status, ensure_ascii=False, indent=2), encoding="utf-8")
-        status_md.write_text(render_v1_5_run_evidence_status_markdown(evidence_status), encoding="utf-8")
         outputs["run_evidence_status_refreshed_after_archive_closure"] = status_json
-        outputs["run_evidence_status_evidence_bundle_json"] = archive_paths["evidence_bundle"]
+        outputs["run_evidence_status_evidence_bundle_json"] = latest_evidence_bundle_json
     executor_model = None
     should_build_post_run_executor = bool(args.post_run_coefficient_executor or args.full_flow_closure_readiness)
     if should_build_post_run_executor:
@@ -354,6 +375,16 @@ def main(argv: Iterable[str] | None = None) -> int:
         outputs["full_flow_closure_readiness_markdown"] = closure_paths["readiness_markdown"]
         outputs["full_flow_closure_readiness_gaps"] = closure_paths["gaps"]
         outputs["full_flow_closure_readiness_devices"] = closure_paths["devices"]
+    if args.archive_closure or should_build_post_run_executor or args.full_flow_closure_readiness:
+        evidence_status, _, _ = _write_run_evidence_status(
+            run_dir=Path(args.output_dir).resolve(),
+            output_dir=args.output_dir,
+            full_flow_plan_json=outputs.get("plan_json"),
+            contract_json=outputs.get("contract_json"),
+            evidence_bundle_json=latest_evidence_bundle_json,
+        )
+        outputs["run_evidence_status_final_json"] = status_json
+        outputs["run_evidence_status_final_markdown"] = status_md
     print(json.dumps({key: str(Path(value).resolve()) for key, value in outputs.items()}, ensure_ascii=False, indent=2))
     if args.fail_on_contract_blocked and contract_status == "blocked":
         return 2

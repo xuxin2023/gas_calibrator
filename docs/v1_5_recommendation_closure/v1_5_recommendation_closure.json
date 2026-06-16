@@ -1,12 +1,12 @@
 {
   "schema": "v1_5_recommendation_closure_v1",
-  "created_at": "2026-06-14T08:28:56",
+  "created_at": "2026-06-16T18:08:47",
   "repo_root": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean",
-  "run_dir": "",
+  "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\logs\\v15_6ch_co2h2o_0612_r2",
   "overall_status": "partially_closed",
   "summary_counts": {
-    "closed": 5,
-    "partial": 2,
+    "closed": 6,
+    "partial": 1,
     "open": 0
   },
   "physical_boundaries": {
@@ -273,7 +273,7 @@
     {
       "recommendation_id": "run_evidence_status_auto_refresh",
       "title": "运行证据状态索引自动刷新",
-      "status": "partial",
+      "status": "closed",
       "physical_meaning": "实际跑完、写完、入库、出证后，系统证据索引也必须自动反映最终状态，避免人知道完成但证据树未闭环。",
       "implemented_evidence": [
         {
@@ -294,20 +294,38 @@
           "missing_patterns": []
         },
         {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\src\\gas_calibrator\\tools\\run_v1_5_full_calibration_chain.py",
+          "present": true,
+          "matched_patterns": [
+            "run_evidence_status_final_json",
+            "build_v1_5_run_evidence_status"
+          ],
+          "missing_patterns": []
+        },
+        {
           "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tests\\test_v1_5_formal_archive_closure.py",
           "present": true,
           "matched_patterns": [
             "has_run_evidence_status"
           ],
           "missing_patterns": []
+        },
+        {
+          "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\tests\\test_v1_5_full_flow_orchestration.py",
+          "present": true,
+          "matched_patterns": [
+            "full_flow_closure_readiness"
+          ],
+          "missing_patterns": []
         }
       ],
       "tests": [
         "tests/test_v1_5_run_evidence_status.py",
-        "tests/test_v1_5_formal_archive_closure.py"
+        "tests/test_v1_5_formal_archive_closure.py",
+        "tests/test_v1_5_full_flow_orchestration.py"
       ],
-      "remaining_gap": "已有离线归档闭环，但采样/写入 runner 结束后并非总是自动刷新最新证据状态。",
-      "next_action": "在 full calibration chain 的最后统一调用 archive closure 或 evidence status export。"
+      "remaining_gap": "",
+      "next_action": "继续把最终证据状态索引接入 UI 和报告总览，便于审核员直接看到最终闭环状态。"
     }
   ],
   "recommended_regression_commands": [

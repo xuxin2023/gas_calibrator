@@ -125,7 +125,12 @@ def _seed_repo(root):
     _write(
         root,
         "tests/test_v1_5_full_flow_orchestration.py",
-        "test_full_flow_plan_requires_factory_signal_health_before_fit_review",
+        "test_full_flow_plan_requires_factory_signal_health_before_fit_review full_flow_closure_readiness",
+    )
+    _write(
+        root,
+        "src/gas_calibrator/tools/run_v1_5_full_calibration_chain.py",
+        "run_evidence_status_final_json build_v1_5_run_evidence_status",
     )
     _write(
         root,
@@ -147,7 +152,7 @@ def test_recommendation_closure_marks_code_closed_and_live_evidence_gaps_partial
     assert model["overall_status"] == "partially_closed"
     assert model["summary_counts"]["open"] == 0
     assert model["summary_counts"]["closed"] >= 4
-    assert model["summary_counts"]["partial"] >= 2
+    assert model["summary_counts"]["partial"] >= 1
     assert model["physical_boundaries"]["opens_com_ports"] is False
     assert model["physical_boundaries"]["writes_coefficients"] is False
     assert items["active_frame_recovery"]["status"] == "closed"
@@ -155,6 +160,7 @@ def test_recommendation_closure_marks_code_closed_and_live_evidence_gaps_partial
     assert items["per_analyzer_independent_grade"]["status"] == "closed"
     assert items["status_register_qc_logic"]["status"] == "partial"
     assert items["optical_root_cause_report"]["status"] == "closed"
+    assert items["run_evidence_status_auto_refresh"]["status"] == "closed"
     assert "状态寄存器" in render_v1_5_recommendation_closure_markdown(model)
 
 

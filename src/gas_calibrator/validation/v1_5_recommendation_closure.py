@@ -371,17 +371,27 @@ def build_v1_5_recommendation_closure(
                 ),
                 _file_evidence(
                     root,
+                    "src/gas_calibrator/tools/run_v1_5_full_calibration_chain.py",
+                    ("run_evidence_status_final_json", "build_v1_5_run_evidence_status"),
+                ),
+                _file_evidence(
+                    root,
                     "tests/test_v1_5_formal_archive_closure.py",
                     ("has_run_evidence_status",),
+                ),
+                _file_evidence(
+                    root,
+                    "tests/test_v1_5_full_flow_orchestration.py",
+                    ("full_flow_closure_readiness",),
                 ),
             ],
             tests=(
                 "tests/test_v1_5_run_evidence_status.py",
                 "tests/test_v1_5_formal_archive_closure.py",
+                "tests/test_v1_5_full_flow_orchestration.py",
             ),
-            remaining_gap="已有离线归档闭环，但采样/写入 runner 结束后并非总是自动刷新最新证据状态。",
-            next_action="在 full calibration chain 的最后统一调用 archive closure 或 evidence status export。",
-            force_partial=True,
+            remaining_gap="",
+            next_action="继续把最终证据状态索引接入 UI 和报告总览，便于审核员直接看到最终闭环状态。",
         )
     )
 

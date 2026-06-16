@@ -2,7 +2,7 @@
 
 - 总体状态：`partially_closed`
 - 代码根目录：`D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean`
-- 运行目录：`未指定`
+- 运行目录：`D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\logs\v15_6ch_co2h2o_0612_r2`
 
 ## 物理边界
 
@@ -15,8 +15,8 @@
 
 ## 汇总
 
-- 已闭环：`5`
-- 部分闭环：`2`
+- 已闭环：`6`
+- 部分闭环：`1`
 - 未闭环：`0`
 
 ## 逐项闭环
@@ -29,7 +29,7 @@
 | 每台分析仪独立判稳与独立评级 | `closed` | 多台串联采样时，一台设备通信或光学异常不应污染其它设备的数据结论。 | 需要在 UI/报告中把 rejected_by_device 与 accepted_by_device 更直观地展示。 | 报告按设备 ID 输出 A/B/C/拒绝等级和拒绝原因。 |
 | 工厂模式光学信号健康门禁 | `closed` | ref_signal、CO2/H2O signal、ratio/raw ratio 能区分光路/探测器/参考满值异常和普通系数误差。 | 073/079 这类光学异常仍需要把 SETCO2/SETPOW/状态寄存器读数接成同一份维修诊断证据。 | 在光学健康门禁报告里加入 SETCO2、SETPOW、状态寄存器、同点横向对比。 |
 | 六台设备光学根因中文报告归档 | `closed` | 报告把同点横向比较、工厂模式信号、缓存帧、状态寄存器和可能故障根因交给维修/研发复核，并作为 diagnostic_analysis 进入最终证据包。 |  | 在最终 evidence bundle 中按 diagnostic_analysis 角色审核光学根因报告。 |
-| 运行证据状态索引自动刷新 | `partial` | 实际跑完、写完、入库、出证后，系统证据索引也必须自动反映最终状态，避免人知道完成但证据树未闭环。 | 已有离线归档闭环，但采样/写入 runner 结束后并非总是自动刷新最新证据状态。 | 在 full calibration chain 的最后统一调用 archive closure 或 evidence status export。 |
+| 运行证据状态索引自动刷新 | `closed` | 实际跑完、写完、入库、出证后，系统证据索引也必须自动反映最终状态，避免人知道完成但证据树未闭环。 |  | 继续把最终证据状态索引接入 UI 和报告总览，便于审核员直接看到最终闭环状态。 |
 
 ## 建议回归命令
 
