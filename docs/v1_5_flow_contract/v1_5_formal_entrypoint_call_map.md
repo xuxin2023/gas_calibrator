@@ -64,6 +64,7 @@ flowchart TD
 - 已有 V1.5 full-flow planner 和状态机，能生成顺序、命令、状态和安全边界。
 - 压力、CO2、H2O、候选系数、控制写入、写后复验、证据包、数据库、报告均已有独立入口和测试覆盖。
 - full-flow planner 仍默认不会自动执行真机路线，也不会自动写系数；这是安全设计，不是缺失。
+- full-flow closure readiness 已自动前置生成 no-write post-run coefficient executor：只要请求采集后闭环评审，就会自动产出候选系数执行计划、受控写入包、写后复验计划和归档缺口清单；这一步仍为离线评审，不打开 COM、不控阀、不写 SENCO。
 - 下一步应把“证据包 -> 数据库 -> 中文报告 -> UI 状态”串成更顺的离线闭环，再做新 UI。
 
 ## 后续整理任务

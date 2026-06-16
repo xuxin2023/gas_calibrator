@@ -108,7 +108,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--full-flow-closure-readiness",
         action="store_true",
-        help="Build the offline full-flow closure readiness review after post-run executor/status generation.",
+        help=(
+            "Build the offline full-flow closure readiness review after acquisition. "
+            "This automatically generates the no-write post-run coefficient executor "
+            "first when it was not requested explicitly."
+        ),
     )
     parser.add_argument(
         "--full-flow-closure-readiness-output-dir",
@@ -297,7 +301,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         status_md.write_text(render_v1_5_run_evidence_status_markdown(evidence_status), encoding="utf-8")
         outputs["run_evidence_status_refreshed_after_archive_closure"] = status_json
         outputs["run_evidence_status_evidence_bundle_json"] = archive_paths["evidence_bundle"]
-    if args.post_run_coefficient_executor:
+    executor_model = None
+    should_build_post_run_executor = bool(args.post_run_coefficient_executor or args.full_flow_closure_readiness)
+    if should_build_post_run_executor:
         executor_run_dir = Path(args.reviewed_run_dir).resolve() if args.reviewed_run_dir else Path(args.output_dir).resolve()
         executor_output_dir = (
             Path(args.post_run_executor_output_dir).resolve()
@@ -351,7 +357,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(json.dumps({key: str(Path(value).resolve()) for key, value in outputs.items()}, ensure_ascii=False, indent=2))
     if args.fail_on_contract_blocked and contract_status == "blocked":
         return 2
-    if args.post_run_coefficient_executor and args.post_run_executor_fail_on_blocked:
+    if should_build_post_run_executor and args.post_run_executor_fail_on_blocked:
         if executor_model.get("overall_status") == "blocked":
             return 2
     if args.full_flow_closure_readiness and args.full_flow_closure_readiness_fail_on_blocked:

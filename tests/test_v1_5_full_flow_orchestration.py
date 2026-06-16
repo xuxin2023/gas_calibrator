@@ -767,3 +767,53 @@ def test_full_flow_cli_can_generate_post_run_coefficient_executor_gap_list(tmp_p
     stages = {row["stage_id"]: row for row in manifest["stages"]}
     assert stages["post_write_reverification"]["status"] == "not_attempted"
     assert "V1.5 校准后系数闭环执行计划" in summary_path.read_text(encoding="utf-8-sig")
+
+
+def test_full_flow_closure_readiness_auto_generates_post_run_executor(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    run_dir = tmp_path / "reviewed_run"
+    run_dir.mkdir()
+    plan_json = run_dir / "formal_plan_snapshot.json"
+    plan_json.write_text(
+        json.dumps(
+            {"devices": {"gas_analyzers": [{"runtime_device_id": "077", "serial_port": "COM35"}]}},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    pressure_reference_json = run_dir / "pressure_reference.json"
+    pressure_reference_json.write_text(json.dumps({"device_id": "COM22"}), encoding="utf-8")
+    out = tmp_path / "flow"
+
+    rc = cli_main(
+        [
+            "--config",
+            str(config),
+            "--output-dir",
+            str(out),
+            "--run-id",
+            "closure-demo",
+            "--reviewed-run-dir",
+            str(run_dir),
+            "--archive-plan-json",
+            str(plan_json),
+            "--pressure-reference-json",
+            str(pressure_reference_json),
+            "--full-flow-closure-readiness",
+        ]
+    )
+
+    assert rc == 0
+    executor_manifest = out / "post_run_coefficient_executor" / "executor_manifest.json"
+    closure_json = out / "full_flow_closure_readiness" / "v1_5_full_flow_closure_readiness.json"
+    assert executor_manifest.exists()
+    assert closure_json.exists()
+    executor = json.loads(executor_manifest.read_text(encoding="utf-8"))
+    closure = json.loads(closure_json.read_text(encoding="utf-8"))
+    assert executor["physical_boundaries"]["opens_com_ports"] is False
+    assert executor["physical_boundaries"]["writes_coefficients"] is False
+    stages = {row["stage_id"]: row for row in closure["stage_statuses"]}
+    assert stages["post_run_coefficient_executor"]["status"] in {"ready", "blocked"}
+    assert closure["linked_inputs"]["post_run_executor_json"] == str(executor_manifest.resolve())
