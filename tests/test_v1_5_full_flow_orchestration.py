@@ -232,6 +232,7 @@ def test_full_flow_plan_adds_offline_closure_readiness_gate(tmp_path):
     )
     assert "full_flow_closure_readiness/v1_5_full_flow_closure_readiness.json" in step.expected_outputs
     assert "full_flow_closure_readiness/v1_5_full_flow_device_closure.csv" in step.expected_outputs
+    assert "full_flow_closure_readiness/v1_5_full_flow_release_domains.csv" in step.expected_outputs
     assert "Fit/verification labels do not exclude" in " ".join(step.notes)
 
 
@@ -821,7 +822,10 @@ def test_full_flow_closure_readiness_auto_generates_post_run_executor(tmp_path):
     evidence_stages = {row["stage_id"]: row for row in evidence_status["stage_statuses"]}
     assert evidence_stages["full_flow_closure_readiness"]["status"] == "pass"
     roles = {row["role"] for row in evidence_status["artifacts"]}
-    assert {"full_flow_closure_readiness", "full_flow_closure_gaps", "full_flow_device_closure"}.issubset(
-        roles
-    )
+    assert {
+        "full_flow_closure_readiness",
+        "full_flow_closure_gaps",
+        "full_flow_device_closure",
+        "full_flow_release_domains",
+    }.issubset(roles)
     assert evidence_status["linked_inputs"]["evidence_bundle_json"] == ""

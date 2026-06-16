@@ -188,6 +188,10 @@ def test_run_evidence_status_indexes_full_flow_closure_readiness(tmp_path):
         "device_id,status\n001,ready\n",
         encoding="utf-8",
     )
+    (closure_dir / "v1_5_full_flow_release_domains.csv").write_text(
+        "domain_id,status\nformal_archive,ready\n",
+        encoding="utf-8",
+    )
 
     status = build_v1_5_run_evidence_status(run_dir=run_dir)
     stages = _stages(status)
@@ -196,5 +200,6 @@ def test_run_evidence_status_indexes_full_flow_closure_readiness(tmp_path):
     assert "full_flow_closure_readiness" in roles
     assert "full_flow_closure_gaps" in roles
     assert "full_flow_device_closure" in roles
+    assert "full_flow_release_domains" in roles
     assert stages["full_flow_closure_readiness"]["status"] == "pass"
     assert "controlled SENCO writes" in stages["full_flow_closure_readiness"]["physical_meaning"]

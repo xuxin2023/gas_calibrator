@@ -130,6 +130,8 @@ def _classify_artifact(path: Path) -> str:
         return "per_device_certificate_manifest"
     if name == "per_device_certificate_artifact_hashes.csv":
         return "per_device_certificate_artifact_hashes"
+    if name == "v1_5_full_flow_release_domains.csv":
+        return "full_flow_release_domains"
     if name.startswith("run_report."):
         return "run_report"
     if name.startswith("technical_report."):
@@ -452,15 +454,17 @@ def build_v1_5_run_evidence_status(
                 "full_flow_closure_readiness",
                 "full_flow_closure_gaps",
                 "full_flow_device_closure",
+                "full_flow_release_domains",
             ),
             artifacts=artifacts_tuple,
             physical_meaning=(
                 "Before controlled SENCO writes, the run must show one auditable chain from plan, "
                 "raw open-flow evidence, QC decisions, candidate write package, reverification plan, "
-                "and archive gaps. This gate is offline and does not touch COM ports or routes."
+                "archive gaps, and formal release domains. This gate is offline and does not touch "
+                "COM ports or routes."
             ),
             missing_reason="full-flow closure readiness not generated",
-            pass_reason="full-flow closure readiness, device closure, and gap artifacts are present",
+            pass_reason="full-flow closure readiness, device closure, gap, and release-domain artifacts are present",
             optional=True,
         )
     )

@@ -46,6 +46,20 @@ class ClosureGap:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class ClosureDomain:
+    domain_id: str
+    title: str
+    status: str
+    reason: str
+    evidence_path: str
+    physical_meaning: str
+    next_action: str
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -239,6 +253,174 @@ def _archive_gap_status(executor: Mapping[str, Any], csv_path: Path | None) -> t
     return "partial", "archive gap list not generated yet"
 
 
+def _source_stage_status(payload: Mapping[str, Any], stage_id: str) -> str:
+    for row in payload.get("stage_statuses") or []:
+        if not isinstance(row, Mapping):
+            continue
+        if str(row.get("stage_id") or "") == stage_id:
+            return str(row.get("status") or "")
+    return ""
+
+
+def _closure_domain(
+    *,
+    domain_id: str,
+    title: str,
+    status: str,
+    reason: str,
+    evidence_path: Path | None,
+    physical_meaning: str,
+    next_action: str,
+) -> ClosureDomain:
+    return ClosureDomain(
+        domain_id=domain_id,
+        title=title,
+        status=status,
+        reason=reason,
+        evidence_path=_path_text(evidence_path),
+        physical_meaning=physical_meaning,
+        next_action=next_action,
+    )
+
+
+def _report_family_present(reports: Mapping[str, Any], family: str) -> bool:
+    prefix = f"{family}_"
+    return any(str(key).startswith(prefix) or str(key) == family for key in reports)
+
+
+def _build_closure_domains(
+    *,
+    stages: Sequence[ClosureStage],
+    evidence_status: Mapping[str, Any],
+    archive_closure: Mapping[str, Any],
+    archive_path: Path | None,
+) -> list[dict[str, Any]]:
+    stage_by_id = {stage.stage_id: stage for stage in stages}
+    archive_stage = stage_by_id.get("formal_archive_closure")
+    archive_gap_stage = stage_by_id.get("archive_gap_list")
+    archive_ready = bool(archive_stage and archive_stage.status == "ready")
+    archive_gaps_clear = bool(archive_gap_stage and archive_gap_stage.status == "ready")
+    if archive_ready and archive_gaps_clear:
+        archive_status = "ready"
+        archive_reason = "formal archive index present and archive gap list is clear"
+        archive_next = "carry_forward"
+    elif archive_stage and archive_stage.status == "blocked":
+        archive_status = "blocked"
+        archive_reason = archive_stage.reason
+        archive_next = archive_stage.next_action
+    else:
+        archive_status = "partial"
+        archive_reason = "formal archive or archive gap evidence still needs reviewer closure"
+        archive_next = "close archive gaps and rerun formal archive closure"
+
+    database = archive_closure.get("database") if isinstance(archive_closure.get("database"), Mapping) else {}
+    evidence_database_status = _source_stage_status(evidence_status, "database_import")
+    if database.get("database_imported") is True or evidence_database_status == "pass":
+        database_status = "ready"
+        database_reason = "database import summary confirms indexed evidence"
+        database_next = "carry_forward"
+    elif database:
+        mode = str(database.get("mode") or "unknown")
+        database_status = "partial"
+        database_reason = f"database_imported=false; mode={mode}; {database.get('reason') or 'bundle is not imported yet'}"
+        database_next = "import final evidence bundle into PostgreSQL or record an approved dry-run exception"
+    else:
+        database_status = "blocked"
+        database_reason = "database import summary not found in archive closure or evidence status"
+        database_next = "generate database_import_summary.json from the final evidence bundle"
+
+    reports = archive_closure.get("reports") if isinstance(archive_closure.get("reports"), Mapping) else {}
+    evidence_report_status = _source_stage_status(evidence_status, "reports")
+    required_report_families = ("run_report", "technical_report", "formal_calibration_report")
+    all_required_reports = all(_report_family_present(reports, family) for family in required_report_families)
+    if evidence_report_status == "pass" or all_required_reports:
+        reports_status = "ready"
+        reports_reason = "run, technical, and formal report evidence is present"
+        reports_next = "carry_forward"
+    elif reports:
+        reports_status = "partial"
+        reports_reason = "some report artifacts are present but the required report set is incomplete"
+        reports_next = "regenerate the formal report pack from the final evidence bundle"
+    else:
+        reports_status = "blocked"
+        reports_reason = "run, technical, and formal report artifacts are missing"
+        reports_next = "generate reports from the final evidence bundle"
+
+    certificate_status = _source_stage_status(evidence_status, "per_device_certificates")
+    if certificate_status == "pass":
+        certificates_status = "ready"
+        certificates_reason = "per-device certificate manifest, hashes, and certificate artifacts are indexed"
+        certificates_next = "carry_forward"
+    elif reports_status == "ready":
+        certificates_status = "partial"
+        certificates_reason = "reports are ready but per-device certificate package is not fully indexed"
+        certificates_next = "generate per-device calibration and verification certificates"
+    else:
+        certificates_status = "blocked"
+        certificates_reason = "certificate package cannot be released until report evidence is complete"
+        certificates_next = "finish reports, then regenerate per-device certificate package"
+
+    return [
+        _closure_domain(
+            domain_id="formal_archive",
+            title="Formal archive package",
+            status=archive_status,
+            reason=archive_reason,
+            evidence_path=archive_path,
+            physical_meaning=(
+                "The archive is the frozen evidence package: raw frames, QC decisions, coefficient state, "
+                "hashes, reports, and traceability records must be reconstructable from it."
+            ),
+            next_action=archive_next,
+        ).to_json(),
+        _closure_domain(
+            domain_id="database_index",
+            title="PostgreSQL evidence index",
+            status=database_status,
+            reason=database_reason,
+            evidence_path=archive_path,
+            physical_meaning=(
+                "The database is an audit index over the hashed evidence package; it must not replace raw "
+                "CSV/JSON/PDF/DOCX evidence files."
+            ),
+            next_action=database_next,
+        ).to_json(),
+        _closure_domain(
+            domain_id="formal_reports",
+            title="Run, technical, and formal reports",
+            status=reports_status,
+            reason=reports_reason,
+            evidence_path=archive_path,
+            physical_meaning=(
+                "Reports summarize method, open-flow physical conditions, QC, traceability, uncertainty, "
+                "coefficient write status, and limitations for review."
+            ),
+            next_action=reports_next,
+        ).to_json(),
+        _closure_domain(
+            domain_id="per_device_certificates",
+            title="Per-device certificates",
+            status=certificates_status,
+            reason=certificates_reason,
+            evidence_path=archive_path,
+            physical_meaning=(
+                "Each certificate must bind one analyzer ID to its own point evidence, QC result, coefficient "
+                "state, traceability records, report-release state, and artifact hashes."
+            ),
+            next_action=certificates_next,
+        ).to_json(),
+    ]
+
+
+def _release_status(domains: Sequence[Mapping[str, Any]]) -> str:
+    statuses = {str(row.get("status") or "") for row in domains}
+    if "blocked" in statuses:
+        return "blocked"
+    if "partial" in statuses:
+        return "partial"
+    return "ready_for_formal_release"
+
+
 def _gap_from_stage(stage: ClosureStage) -> ClosureGap | None:
     if stage.status == "ready":
         return None
@@ -397,12 +579,19 @@ def build_v1_5_full_flow_closure_readiness(
         overall_status = "partial"
     else:
         overall_status = "ready_for_controlled_write_review"
+    closure_domains = _build_closure_domains(
+        stages=stages,
+        evidence_status=evidence_status,
+        archive_closure=archive_closure,
+        archive_path=archive_path,
+    )
 
     return {
         "schema": SCHEMA,
         "generated_at": _now(),
         "run_dir": str(root),
         "overall_status": overall_status,
+        "release_status": _release_status(closure_domains),
         "physical_boundaries": {
             "offline_closure_review_only": True,
             "opens_com_ports": False,
@@ -433,6 +622,7 @@ def build_v1_5_full_flow_closure_readiness(
             "archive_closure_json": _path_text(archive_path),
         },
         "stage_statuses": [stage.to_json() for stage in stages],
+        "closure_domains": closure_domains,
         "devices": device_rows,
         "gaps": gaps,
     }
@@ -461,6 +651,16 @@ def render_v1_5_full_flow_closure_readiness_markdown(model: Mapping[str, Any]) -
             lines.append(f"  - 物理意义: {stage.get('physical_meaning')}")
         if stage.get("next_action") and stage.get("status") != "ready":
             lines.append(f"  - 下一步: {stage.get('next_action')}")
+    lines.extend(["", "## 归档 / 数据库 / 报告 / 证书闭环"])
+    lines.append(f"- release_status: `{model.get('release_status')}`")
+    for domain in model.get("closure_domains") or []:
+        lines.append(
+            f"- `{domain.get('domain_id')}` {domain.get('title')}: `{domain.get('status')}` - {domain.get('reason')}"
+        )
+        if domain.get("physical_meaning"):
+            lines.append(f"  - 物理意义: {domain.get('physical_meaning')}")
+        if domain.get("next_action") and domain.get("status") != "ready":
+            lines.append(f"  - 下一步: {domain.get('next_action')}")
     lines.extend(["", "## 逐台设备"])
     devices = list(model.get("devices") or [])
     if not devices:
@@ -507,16 +707,19 @@ def write_v1_5_full_flow_closure_readiness_outputs(
     gaps_path = root / "v1_5_full_flow_closure_gaps.csv"
     devices_path = root / "v1_5_full_flow_device_closure.csv"
     stages_path = root / "v1_5_full_flow_closure_stages.csv"
+    domains_path = root / "v1_5_full_flow_release_domains.csv"
 
     json_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
     md_path.write_text(render_v1_5_full_flow_closure_readiness_markdown(model), encoding="utf-8")
     _write_csv(gaps_path, list(model.get("gaps") or []))
     _write_csv(devices_path, list(model.get("devices") or []))
     _write_csv(stages_path, list(model.get("stage_statuses") or []))
+    _write_csv(domains_path, list(model.get("closure_domains") or []))
     return {
         "readiness_json": json_path,
         "readiness_markdown": md_path,
         "gaps": gaps_path,
         "devices": devices_path,
         "stages": stages_path,
+        "release_domains": domains_path,
     }

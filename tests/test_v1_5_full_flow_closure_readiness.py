@@ -44,7 +44,15 @@ def _seed_ready_closure(root, *, devices=("077", "084")):
     )
     _write_json(
         root / "v1_5_run_evidence_status.json",
-        {"schema": "v1_5_run_evidence_status_v1", "overall_status": "ready_for_reviewer"},
+        {
+            "schema": "v1_5_run_evidence_status_v1",
+            "overall_status": "ready_for_reviewer",
+            "stage_statuses": [
+                {"stage_id": "database_import", "status": "pass"},
+                {"stage_id": "reports", "status": "pass"},
+                {"stage_id": "per_device_certificates", "status": "pass"},
+            ],
+        },
     )
     write_package = []
     reverify_plan = []
@@ -92,7 +100,15 @@ def _seed_ready_closure(root, *, devices=("077", "084")):
     _write_csv(executor_dir / "archive_gap_list.csv", [], fieldnames=["scope", "item", "status"])
     _write_json(
         root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
-        {"overall_status": "ready"},
+        {
+            "overall_status": "ready",
+            "database": {"mode": "import", "database_imported": True},
+            "reports": {
+                "run_report_markdown": str(root / "reports" / "run_report.md"),
+                "technical_report_markdown": str(root / "reports" / "technical_report.md"),
+                "formal_calibration_report_markdown": str(root / "reports" / "formal_calibration_report.md"),
+            },
+        },
     )
     return executor_dir
 
@@ -105,6 +121,7 @@ def test_full_flow_closure_readiness_ready_without_touching_devices(tmp_path):
     stages = {row["stage_id"]: row for row in model["stage_statuses"]}
 
     assert model["overall_status"] == "ready_for_controlled_write_review"
+    assert model["release_status"] == "ready_for_formal_release"
     assert model["physical_boundaries"]["opens_com_ports"] is False
     assert model["physical_boundaries"]["controls_water_or_gas_routes"] is False
     assert model["physical_boundaries"]["writes_coefficients"] is False
@@ -113,6 +130,12 @@ def test_full_flow_closure_readiness_ready_without_touching_devices(tmp_path):
     assert model["workflow_contract"]["co2_zero_anchor_distinct_from_h2o_dry_anchor"] is True
     assert stages["controlled_write_package"]["status"] == "ready"
     assert stages["post_write_reverification_plan"]["status"] == "ready"
+    assert {row["domain_id"]: row["status"] for row in model["closure_domains"]} == {
+        "formal_archive": "ready",
+        "database_index": "ready",
+        "formal_reports": "ready",
+        "per_device_certificates": "ready",
+    }
     assert model["gaps"] == []
     assert {row["device_id"] for row in model["devices"]} == {"077", "084"}
 
@@ -169,7 +192,9 @@ def test_full_flow_closure_readiness_writes_json_markdown_and_csv(tmp_path):
     assert paths["readiness_json"].exists()
     assert paths["gaps"].exists()
     assert paths["devices"].exists()
+    assert paths["release_domains"].exists()
     assert "V1.5 全流程离线闭环验收" in markdown
+    assert "归档 / 数据库 / 报告 / 证书闭环" in markdown
     assert "采样窗口必须在阀门打开时取得" in markdown
     with paths["devices"].open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
@@ -189,6 +214,7 @@ def test_full_flow_closure_readiness_cli_exports_offline_review(tmp_path, capsys
     assert payload["physical_boundaries"]["writes_coefficients"] is False
     assert (out / "v1_5_full_flow_closure_readiness.json").exists()
     assert (out / "v1_5_full_flow_device_closure.csv").exists()
+    assert (out / "v1_5_full_flow_release_domains.csv").exists()
 
 
 def test_full_flow_closure_readiness_markdown_names_physical_boundaries(tmp_path):

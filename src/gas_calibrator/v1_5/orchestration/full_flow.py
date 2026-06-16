@@ -1088,6 +1088,7 @@ def build_full_flow_plan(
                 "full_flow_closure_readiness/v1_5_full_flow_closure_readiness.md",
                 "full_flow_closure_readiness/v1_5_full_flow_closure_gaps.csv",
                 "full_flow_closure_readiness/v1_5_full_flow_device_closure.csv",
+                "full_flow_closure_readiness/v1_5_full_flow_release_domains.csv",
             ),
             physical_meaning=(
                 "This offline gate checks whether plan, evidence index, candidate write package, "
