@@ -19,6 +19,7 @@ from ..config import load_config
 from ..devices import GasAnalyzer
 from ..devices.gas_analyzer import GasAnalyzer as _ProtocolGasAnalyzer
 from ..validation.reporting import ValidationMetadata, write_validation_report
+from .v1_5_serial_safety import require_fragile_serial_timing
 
 
 def _log(message: str) -> None:
@@ -424,9 +425,20 @@ def _write_runtime_bound_config(
     cfg_path: Path,
     destination: Path,
     identity_rows: Sequence[Mapping[str, Any]],
+    command_gap_s: float,
 ) -> Path:
     payload = json.loads(json.dumps(cfg, ensure_ascii=False, default=str))
     devices = payload.setdefault("devices", {})
+    workflow = payload.setdefault("workflow", {})
+    if isinstance(workflow, dict):
+        analyzer_init = workflow.setdefault("analyzer_mode2_init", {})
+        if isinstance(analyzer_init, dict):
+            analyzer_init["command_gap_s"] = float(command_gap_s)
+            analyzer_init["reapply_delay_s"] = max(
+                float(command_gap_s),
+                float(analyzer_init.get("reapply_delay_s") or 0.0),
+            )
+            analyzer_init["fragile_serial_contract"] = "minimum_1s_command_gap"
     by_port = {
         str(row.get("port") or ""): dict(row)
         for row in identity_rows
@@ -465,6 +477,7 @@ def _write_runtime_bound_config(
         "frozen_for_run": True,
         "writes_device_id": False,
         "configured_ids_preserved": True,
+        "analyzer_command_gap_s": float(command_gap_s),
         "identity_rows": list(identity_rows),
     }
     path = destination / "runtime_identity_bound_config.json"
@@ -509,6 +522,15 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
+    try:
+        require_fragile_serial_timing(
+            args,
+            tool_name="probe_v1_5_getco_component_snapshot",
+            fields=("command_gap_s",),
+        )
+    except ValueError as exc:
+        _log(str(exc))
+        return 2
     cfg_path = Path(args.config).resolve()
     groups = _parse_groups(args.groups)
     cfg = load_config(cfg_path)
@@ -687,6 +709,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         cfg_path=cfg_path,
         destination=destination,
         identity_rows=identity_rows,
+        command_gap_s=float(args.command_gap_s),
     )
 
     metadata = ValidationMetadata(

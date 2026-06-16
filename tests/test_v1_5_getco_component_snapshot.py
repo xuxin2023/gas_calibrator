@@ -120,7 +120,7 @@ def test_component_getco_snapshot_captures_old_groups_without_runtime_writes(mon
             "--groups",
             "1,3",
             "--command-gap-s",
-            "0",
+            "1",
             "--pre-drain-s",
             "0",
         ]
@@ -142,6 +142,34 @@ def test_component_getco_snapshot_captures_old_groups_without_runtime_writes(mon
     assert "SETCOMWAY,YGAS,FFF,1" not in commands
 
 
+def test_component_getco_snapshot_rejects_subsecond_command_gap(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = []
+    monkeypatch.setattr(probe, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    out_dir = tmp_path / "out"
+    _write_json(cfg_path, _config(tmp_path))
+
+    rc = probe.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--output-dir",
+            str(out_dir),
+            "--device-id",
+            "023",
+            "--groups",
+            "1,3",
+            "--command-gap-s",
+            "0.5",
+            "--pre-drain-s",
+            "0",
+        ]
+    )
+
+    assert rc == 2
+    assert _FakeGasAnalyzer.instances == []
+
+
 def test_component_getco_snapshot_accepts_senco5_and_senco6_two_value_groups(monkeypatch, tmp_path):
     _FakeGasAnalyzer.instances = []
     monkeypatch.setattr(probe, "GasAnalyzer", _FakeGasAnalyzer)
@@ -160,7 +188,7 @@ def test_component_getco_snapshot_accepts_senco5_and_senco6_two_value_groups(mon
             "--groups",
             "5,6",
             "--command-gap-s",
-            "0",
+            "1",
             "--pre-drain-s",
             "0",
         ]
@@ -195,7 +223,7 @@ def test_component_getco_snapshot_can_optionally_quiet_active_upload(monkeypatch
             "1",
             "--allow-quiet-setcomway",
             "--command-gap-s",
-            "0",
+            "1",
             "--pre-drain-s",
             "0",
         ]
@@ -226,7 +254,7 @@ def test_component_getco_snapshot_blocks_identity_mismatch_by_default(monkeypatc
             "--groups",
             "1",
             "--command-gap-s",
-            "0",
+            "1",
             "--pre-drain-s",
             "0",
         ]
@@ -256,7 +284,7 @@ def test_component_getco_snapshot_can_rebind_runtime_identity_without_writing(mo
             "--groups",
             "1",
             "--command-gap-s",
-            "0",
+            "1",
             "--pre-drain-s",
             "0",
             "--allow-runtime-identity-rebind",
@@ -281,5 +309,8 @@ def test_component_getco_snapshot_can_rebind_runtime_identity_without_writing(mo
     assert bound_analyzer["configured_device_id"] == "023"
     assert bound_analyzer["device_id"] == "090"
     assert bound_analyzer["runtime_identity_bound"] is True
+    assert bound_config["workflow"]["analyzer_mode2_init"]["command_gap_s"] == 1.0
+    assert bound_config["workflow"]["analyzer_mode2_init"]["fragile_serial_contract"] == "minimum_1s_command_gap"
     assert bound_config["v1_5_identity_binding"]["frozen_for_run"] is True
     assert bound_config["v1_5_identity_binding"]["writes_device_id"] is False
+    assert bound_config["v1_5_identity_binding"]["analyzer_command_gap_s"] == 1.0
