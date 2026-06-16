@@ -212,7 +212,9 @@ class _FakePace:
         self.vent_status = 0
         self.hold_active = False
         self.pressure_hpa = 1000.6
+        self.atmosphere_hpa = 1000.6
         self.setpoint_hpa = 1000.6
+        self.source_range = "2.00bara"
 
     def stop_atmosphere_hold(self):
         self.calls.append(("stop_atmosphere_hold",))
@@ -221,6 +223,11 @@ class _FakePace:
 
     def set_units_hpa(self):
         self.calls.append(("set_units_hpa",))
+        return True
+
+    def set_range(self, range_name):
+        self.calls.append(("set_range", range_name))
+        self.source_range = str(range_name)
         return True
 
     def set_in_limits(self, pct, time_s):
@@ -233,6 +240,10 @@ class _FakePace:
 
     def set_slew_mode_linear(self):
         self.calls.append(("set_slew_mode_linear",))
+        return True
+
+    def set_slew_mode_max(self):
+        self.calls.append(("set_slew_mode_max",))
         return True
 
     def set_slew_rate(self, value_hpa_per_s):
@@ -274,7 +285,10 @@ class _FakePace:
     def set_setpoint(self, value_hpa):
         self.calls.append(("set_setpoint", value_hpa))
         self.setpoint_hpa = float(value_hpa)
-        self.pressure_hpa = float(value_hpa)
+        if "barg" in self.source_range.lower():
+            self.pressure_hpa = float(self.atmosphere_hpa) + float(value_hpa)
+        else:
+            self.pressure_hpa = float(value_hpa)
         return True
 
     def enable_control_output(self, **kwargs):
@@ -305,6 +319,9 @@ class _FakePace:
 
     def read_pressure(self):
         return self.pressure_hpa
+
+    def read_gauge_pressure(self):
+        return float(self.pressure_hpa) - float(self.atmosphere_hpa)
 
     def set_vent_after_valve_open(self, open_after_vent):
         self.calls.append(("set_vent_after_valve_open", open_after_vent))
@@ -738,6 +755,121 @@ def test_validate_dry_collect_runs_without_aux_devices(monkeypatch, tmp_path: Pa
     assert next((tmp_path / "out").glob("dry_collect_*")).is_dir()
 
 
+def test_validate_dry_collect_include_temperature_enables_temperature_evidence_devices(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+
+    runtime_cfg = validate_dry_collect._prepare_runtime_cfg(
+        cfg,
+        include_pressure=False,
+        include_temperature=True,
+    )
+
+    devices = runtime_cfg["devices"]
+    assert devices["temperature_chamber"]["enabled"] is True
+    assert devices["thermometer"]["enabled"] is True
+    assert devices["relay"]["enabled"] is False
+    assert devices["relay_8"]["enabled"] is False
+    assert devices["humidity_generator"]["enabled"] is False
+    assert devices["dewpoint_meter"]["enabled"] is False
+    assert devices["pressure_controller"]["enabled"] is False
+    assert devices["pressure_gauge"]["enabled"] is False
+
+
+def test_validate_dry_collect_read_first_only_keeps_analyzer_startup_commands_off(monkeypatch, tmp_path: Path) -> None:
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, _base_cfg(tmp_path / "logs"))
+    fake = _FakeGasAnalyzer()
+    captured_cfg = {}
+
+    def _fake_build_devices(cfg, io_logger=None):
+        captured_cfg.update(cfg)
+        return {"gas_analyzer": fake, "gas_analyzer_01": fake}
+
+    monkeypatch.setattr(validate_dry_collect, "_build_devices", _fake_build_devices)
+    monkeypatch.setattr(validate_dry_collect, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_dry_collect.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--count",
+                "2",
+                "--interval-s",
+                "0",
+                "--read-first-only-analyzers",
+            ]
+        )
+        == 0
+    )
+
+    init_cfg = captured_cfg["workflow"]["analyzer_mode2_init"]
+    assert init_cfg["read_first_before_config"] is True
+    assert init_cfg["sniff_stream_before_config"] is True
+    assert init_cfg["skip_config_when_read_first_ready"] is True
+    assert init_cfg["write_config_on_read_first_fail"] is False
+    assert not any(call[0] in {"mode", "active", "ftd", "avg_filter"} for call in fake.calls)
+
+
+def test_validate_dry_collect_writes_temperature_evidence_from_io(tmp_path: Path) -> None:
+    io_path = tmp_path / "io.csv"
+    _write_csv(
+        io_path,
+        [
+            {
+                "timestamp": "2026-06-07T10:00:00",
+                "port": "COM19",
+                "device": "temperature_chamber",
+                "direction": "RX",
+                "command": "",
+                "response": "temp_c=23.9",
+                "error": "",
+            },
+            {
+                "timestamp": "2026-06-07T10:00:01",
+                "port": "COM19",
+                "device": "temperature_chamber",
+                "direction": "RX",
+                "command": "",
+                "response": "rh_pct=50.0",
+                "error": "",
+            },
+            {
+                "timestamp": "2026-06-07T10:00:02",
+                "port": "COM18",
+                "device": "thermometer",
+                "direction": "RX",
+                "command": "",
+                "response": "+024.50C",
+                "error": "",
+            },
+            {
+                "timestamp": "2026-06-07T10:00:03",
+                "port": "COM23",
+                "device": "pressure_controller",
+                "direction": "RX",
+                "command": "",
+                "response": "1000.0",
+                "error": "",
+            },
+        ],
+    )
+
+    outputs = validate_dry_collect._write_temperature_evidence_from_io(tmp_path, io_path)
+
+    rows = list(csv.DictReader(outputs["csv"].open("r", encoding="utf-8-sig")))
+    assert [row["metric"] for row in rows] == [
+        "temperature_chamber_temp_c",
+        "temperature_chamber_rh_pct",
+        "digital_thermometer_temp_c",
+    ]
+    summary = json.loads(outputs["summary"].read_text(encoding="utf-8"))
+    assert summary["total_temperature_io_rows"] == 3
+    assert {row["metric"]: row["last"] for row in summary["summary"]}["digital_thermometer_temp_c"] == 24.5
+
+
 def test_merged_sidecar_main_writes_summary_workbook(monkeypatch, tmp_path: Path) -> None:
     cfg = _base_cfg(tmp_path / "logs")
     points_path = tmp_path / "points.xlsx"
@@ -861,6 +993,23 @@ def test_validate_pressure_only_runtime_defaults_extend_pressure_fast_signal_wai
     assert runtime_cfg["metadata"]["pressure_only_analyzer_startup_policy"] == (
         "read_first_no_startup_config_writes"
     )
+
+
+def test_validate_pressure_only_runtime_keeps_route_relays_for_controlled_points(tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["relay"]["enabled"] = True
+    cfg["devices"]["relay_8"]["enabled"] = True
+
+    runtime_cfg = validate_pressure_only._prepare_runtime_cfg(
+        cfg,
+        enable_route_relays_for_control=True,
+    )
+
+    assert runtime_cfg["devices"]["relay"]["enabled"] is True
+    assert runtime_cfg["devices"]["relay_8"]["enabled"] is True
+    assert runtime_cfg["devices"]["humidity_generator"]["enabled"] is False
+    assert runtime_cfg["devices"]["dewpoint_meter"]["enabled"] is False
+    assert runtime_cfg["metadata"]["pressure_only_route_relays_enabled_for_control"] is True
 
 
 def test_validate_pressure_only_can_explicitly_configure_1hz_active_upload(tmp_path: Path) -> None:
@@ -1017,9 +1166,11 @@ def test_validate_pressure_only_controls_non_ambient_pressure_no_write(monkeypat
     assert {row["pressure_control_status"] for row in controlled_rows} == {"verified"}
     assert {row["pressure_control_target_hpa"] for row in controlled_rows} == {"900.0"}
     assert {row["pressure_control_atmosphere_release_status"] for row in controlled_rows} == {"verified"}
-    assert {row["pressure_control_atmosphere_release_vent_after_valve_open"] for row in controlled_rows} == {"False"}
+    assert {row["pressure_control_atmosphere_release_vent_after_valve_open"] for row in controlled_rows} == {""}
     assert {row["pressure_control_analyzer_stream_flush_status"] for row in controlled_rows} == {"done"}
     assert {row["pressure_control_controls_water_or_gas_routes"] for row in controlled_rows} == {"False"}
+    assert {row["pressure_control_route_sealed_before_setpoint"] for row in controlled_rows} == {"False"}
+    assert {row["pressure_control_route_seal_reason"] for row in controlled_rows} == {"external_or_manual_closed_volume"}
     assert {row["pressure_control_writes_senco"] for row in controlled_rows} == {"False"}
     assert {row["pressure_control_writes_device_id"] for row in controlled_rows} == {"False"}
     quick_check_rows = list(
@@ -1028,10 +1179,732 @@ def test_validate_pressure_only_controls_non_ambient_pressure_no_write(monkeypat
     assert {row["pressure_mode"] for row in quick_check_rows if row["com22_pressure_hpa"] == "900.0"} == {
         "pace_no_write_controlled"
     }
-    assert any(call[0] == "set_vent_after_valve_open" and call[1] is False for call in fake_pace.calls)
+    assert not any(call[0] == "set_vent_after_valve_open" for call in fake_pace.calls)
     assert any(call[0] == "drain_stream" for call in fake_analyzer.calls)
-    assert any(call[0] == "set_setpoint" and call[1] == 900.0 for call in fake_pace.calls)
+    assert any(call[0] == "set_range" and call[1] == "2.00bara" for call in fake_pace.calls)
+    assert any(
+        call[0] == "set_setpoint" and abs(float(call[1]) - 900.0) < 1e-9
+        for call in fake_pace.calls
+    )
     assert any(call[0] == "enable_control_output" for call in fake_pace.calls)
+    assert ("set_slew_mode_max",) in fake_pace.calls
+    assert ("set_overshoot_allowed", True) in fake_pace.calls
+    setpoint_index = next(idx for idx, call in enumerate(fake_pace.calls) if call[0] == "set_setpoint")
+    output_index = next(idx for idx, call in enumerate(fake_pace.calls) if call[0] == "enable_control_output")
+    assert setpoint_index < output_index
+    assert any(call[0] == "set_range" and call[1] == "2.00bara" for call in fake_pace.calls)
+
+
+def test_validate_pressure_only_defaults_to_absolute_range_without_configured_range_enable(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["pressure_controller"]["enabled"] = True
+    cfg["devices"]["pressure_gauge"]["enabled"] = True
+    cfg.setdefault("workflow", {}).setdefault("pressure", {})["control_range"] = "2.00bara"
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+    fake_analyzer = _FakeGasAnalyzer()
+    fake_pace = _FakePace()
+    fake_gauge = _FakeControlledPressureGauge(fake_pace)
+
+    monkeypatch.setattr(
+        validate_pressure_only,
+        "_build_devices",
+        lambda cfg, io_logger=None: {
+            "gas_analyzer": fake_analyzer,
+            "gas_analyzer_01": fake_analyzer,
+            "pressure_gauge": fake_gauge,
+            "pace": fake_pace,
+        },
+    )
+    monkeypatch.setattr(validate_pressure_only, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_pressure_only.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--run-id",
+                "controlled_pressure_no_range_default",
+                "--pressure-points",
+                "900",
+                "--count",
+                "1",
+                "--interval-s",
+                "0",
+                "--no-prompt",
+                "--control-pressure-points",
+                "--pressure-control-stable-s",
+                "0",
+                "--pressure-control-timeout-s",
+                "2",
+                "--pressure-control-atmosphere-release-wait-s",
+                "0",
+                "--pressure-control-post-stable-wait-s",
+                "0",
+                "--pressure-control-analyzer-stream-flush-s",
+                "0.01",
+            ]
+        )
+        == 0
+    )
+
+    assert ("set_range", "2.00bara") in fake_pace.calls
+    assert ("set_range", "1.00barg") not in fake_pace.calls
+    units_index = fake_pace.calls.index(("set_units_hpa",))
+    enter_hold_index = next(idx for idx, call in enumerate(fake_pace.calls) if call[0] == "enter_atmosphere_mode")
+    slew_index = fake_pace.calls.index(("set_slew_mode_max",))
+    over_index = fake_pace.calls.index(("set_overshoot_allowed", True))
+    setpoint_index = next(idx for idx, call in enumerate(fake_pace.calls) if call[0] == "set_setpoint")
+    assert enter_hold_index < units_index < slew_index < over_index < setpoint_index
+    setpoint_call = next(call for call in fake_pace.calls if call[0] == "set_setpoint")
+    assert abs(float(setpoint_call[1]) - 900.0) < 1e-9
+
+
+def test_validate_pressure_only_reuses_closed_volume_between_control_points(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["pressure_controller"]["enabled"] = True
+    cfg["devices"]["pressure_gauge"]["enabled"] = True
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+    fake_analyzer = _FakeGasAnalyzer()
+    fake_pace = _FakePace()
+    fake_gauge = _FakeControlledPressureGauge(fake_pace)
+
+    monkeypatch.setattr(
+        validate_pressure_only,
+        "_build_devices",
+        lambda cfg, io_logger=None: {
+            "gas_analyzer": fake_analyzer,
+            "gas_analyzer_01": fake_analyzer,
+            "pressure_gauge": fake_gauge,
+            "pace": fake_pace,
+        },
+    )
+    monkeypatch.setattr(validate_pressure_only, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_pressure_only.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--run-id",
+                "controlled_pressure_closed_volume_reuse",
+                "--pressure-points",
+                "1100,500",
+                "--count",
+                "1",
+                "--interval-s",
+                "0",
+                "--no-prompt",
+                "--control-pressure-points",
+                "--pressure-control-setpoint-mode",
+                "absolute",
+                "--pressure-control-stable-s",
+                "0",
+                "--pressure-control-timeout-s",
+                "2",
+                "--pressure-control-atmosphere-release-wait-s",
+                "0",
+                "--pressure-control-post-stable-wait-s",
+                "0",
+                "--pressure-control-analyzer-stream-flush-s",
+                "0.01",
+            ]
+        )
+        == 0
+    )
+
+    run_dir = tmp_path / "out" / "controlled_pressure_closed_volume_reuse"
+    sample_rows = list(csv.DictReader(next(run_dir.glob("samples_*.csv")).open("r", encoding="utf-8-sig", newline="")))
+    controlled_rows = [row for row in sample_rows if row.get("pressure_control_enabled") == "True"]
+    assert [row["pressure_control_target_hpa"] for row in controlled_rows] == ["1100.0", "500.0"]
+    assert [call for call in fake_pace.calls if call[0] == "set_setpoint"] == [
+        ("set_setpoint", 1100.0),
+        ("set_setpoint", 500.0),
+    ]
+    assert sum(1 for call in fake_pace.calls if call[0] == "exit_atmosphere_mode") == 1
+    assert controlled_rows[0]["pressure_control_atmosphere_release_reason"] != (
+        "reused_closed_pressure_volume_between_control_points"
+    )
+    assert controlled_rows[1]["pressure_control_atmosphere_release_reason"] == (
+        "reused_closed_pressure_volume_between_control_points"
+    )
+
+
+def test_validate_pressure_only_auto_control_uses_absolute_range_above_atmosphere(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["pressure_controller"]["enabled"] = True
+    cfg["devices"]["pressure_gauge"]["enabled"] = True
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+    fake_analyzer = _FakeGasAnalyzer()
+    fake_pace = _FakePace()
+    fake_gauge = _FakeControlledPressureGauge(fake_pace)
+
+    monkeypatch.setattr(
+        validate_pressure_only,
+        "_build_devices",
+        lambda cfg, io_logger=None: {
+            "gas_analyzer": fake_analyzer,
+            "gas_analyzer_01": fake_analyzer,
+            "pressure_gauge": fake_gauge,
+            "pace": fake_pace,
+        },
+    )
+    monkeypatch.setattr(validate_pressure_only, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_pressure_only.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--run-id",
+                "controlled_pressure_auto_absolute",
+                "--pressure-points",
+                "1100",
+                "--count",
+                "1",
+                "--interval-s",
+                "0",
+                "--no-prompt",
+                "--control-pressure-points",
+                "--pressure-control-setpoint-mode",
+                "auto",
+                "--pressure-control-stable-s",
+                "0",
+                "--pressure-control-timeout-s",
+                "2",
+                "--pressure-control-atmosphere-release-wait-s",
+                "0",
+                "--pressure-control-post-stable-wait-s",
+                "0",
+                "--pressure-control-analyzer-stream-flush-s",
+                "0.01",
+            ]
+        )
+        == 0
+    )
+
+    assert ("set_range", "2.00bara") in fake_pace.calls
+    assert any(call[0] == "set_setpoint" and abs(float(call[1]) - 1100.0) < 1e-9 for call in fake_pace.calls)
+
+
+def test_validate_pressure_only_auto_control_uses_com22_reference_for_below_atmosphere(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class ReferenceGauge:
+        def read_pressure(self, **kwargs):
+            return 1000.6
+
+        def read_pressure_fast(self, **kwargs):
+            return float(fake_pace.pressure_hpa)
+
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["pressure_controller"]["enabled"] = True
+    cfg["devices"]["pressure_gauge"]["enabled"] = True
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+    fake_analyzer = _FakeGasAnalyzer()
+    fake_pace = _FakePace()
+    fake_pace.source_range = "1.00barg"
+    fake_pace.pressure_hpa = 0.0
+    fake_gauge = ReferenceGauge()
+
+    monkeypatch.setattr(
+        validate_pressure_only,
+        "_build_devices",
+        lambda cfg, io_logger=None: {
+            "gas_analyzer": fake_analyzer,
+            "gas_analyzer_01": fake_analyzer,
+            "pressure_gauge": fake_gauge,
+            "pace": fake_pace,
+        },
+    )
+    monkeypatch.setattr(validate_pressure_only, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_pressure_only.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--run-id",
+                "controlled_pressure_auto_com22_reference",
+                "--pressure-points",
+                "900",
+                "--count",
+                "1",
+                "--interval-s",
+                "0",
+                "--no-prompt",
+                "--control-pressure-points",
+                "--pressure-control-setpoint-mode",
+                "auto",
+                "--pressure-control-stable-s",
+                "0",
+                "--pressure-control-timeout-s",
+                "2",
+                "--pressure-control-atmosphere-release-wait-s",
+                "0",
+                "--pressure-control-post-stable-wait-s",
+                "0",
+                "--pressure-control-analyzer-stream-flush-s",
+                "0.01",
+            ]
+        )
+        == 0
+    )
+
+    assert ("set_range", "1.00barg") in fake_pace.calls
+    assert any(call[0] == "set_setpoint" and abs(float(call[1]) + 100.6) < 1e-9 for call in fake_pace.calls)
+
+
+def test_validate_pressure_only_uses_configured_control_range_when_explicitly_enabled(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["pressure_controller"]["enabled"] = True
+    cfg["devices"]["pressure_gauge"]["enabled"] = True
+    cfg.setdefault("workflow", {}).setdefault("pressure", {})["control_range"] = "2.00bara"
+    cfg["workflow"]["pressure"]["control_range_enabled"] = True
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+    fake_analyzer = _FakeGasAnalyzer()
+    fake_pace = _FakePace()
+    fake_gauge = _FakeControlledPressureGauge(fake_pace)
+
+    monkeypatch.setattr(
+        validate_pressure_only,
+        "_build_devices",
+        lambda cfg, io_logger=None: {
+            "gas_analyzer": fake_analyzer,
+            "gas_analyzer_01": fake_analyzer,
+            "pressure_gauge": fake_gauge,
+            "pace": fake_pace,
+        },
+    )
+    monkeypatch.setattr(validate_pressure_only, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_pressure_only.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--run-id",
+                "controlled_pressure_explicit_range",
+                "--pressure-points",
+                "900",
+                "--count",
+                "1",
+                "--interval-s",
+                "0",
+                "--no-prompt",
+                "--control-pressure-points",
+                "--pressure-control-setpoint-mode",
+                "absolute",
+                "--pressure-control-stable-s",
+                "0",
+                "--pressure-control-timeout-s",
+                "2",
+                "--pressure-control-atmosphere-release-wait-s",
+                "0",
+                "--pressure-control-post-stable-wait-s",
+                "0",
+                "--pressure-control-analyzer-stream-flush-s",
+                "0.01",
+            ]
+        )
+        == 0
+    )
+
+    assert ("set_range", "2.00bara") in fake_pace.calls
+
+
+def test_controlled_pressure_accepts_stable_com22_tail_when_pace_reaches_target(monkeypatch) -> None:
+    class SequenceGauge:
+        def __init__(self):
+            self.values = iter([1098.60, 1098.61, 1098.62, 1098.63, 1098.64, 1098.65])
+
+        def read_pressure_fast(self, **kwargs):
+            return next(self.values)
+
+    fake_pace = _FakePace()
+    fake_pace.pressure_hpa = 1100.02
+    fake_pace.setpoint_hpa = 1100.0
+
+    class Runner:
+        devices = {"pace": fake_pace, "pressure_gauge": SequenceGauge()}
+        cfg = {"workflow": {"pressure": {"control_setpoint_mode": "absolute"}}}
+
+        def _set_pressure_controller_vent(self, enabled, *, reason):
+            fake_pace.vent(enabled)
+            return True
+
+    runner = Runner()
+    now = [0.0]
+
+    monkeypatch.setattr(validate_pressure_only.time, "monotonic", lambda: now[0])
+
+    def fake_sleep(seconds):
+        now[0] += 4.4
+
+    monkeypatch.setattr(validate_pressure_only.time, "sleep", fake_sleep)
+
+    fields = validate_pressure_only._wait_for_controlled_pressure_point(
+        runner,
+        target_hpa=1100.0,
+        tolerance_hpa=1.0,
+        stable_s=8.0,
+        timeout_s=30.0,
+        poll_s=0.5,
+        slew_mode="max",
+        slew_hpa_per_s=10.0,
+        atmosphere_release_wait_s=0.0,
+        post_stable_wait_s=0.0,
+        analyzer_stream_flush_s=0.0,
+    )
+
+    assert fields["pressure_control_status"] == "verified"
+    assert fields["pressure_control_reason"] == "pace_internal_pressure_in_tolerance_fast_anchor"
+    assert fields["pressure_control_sampling_anchor_policy"] == "first_verified_pressure_window"
+    assert fields["pressure_control_reference_hpa"] == 1098.62
+    assert abs(float(fields["pressure_control_pace_hpa"]) - 1100.0) <= 1.0
+    assert fields["pressure_control_stable_s"] >= 8.0
+
+
+def test_controlled_pressure_accepts_actual_stable_anchor_near_nominal(monkeypatch) -> None:
+    class SequenceGauge:
+        def __init__(self):
+            self.values = iter([903.80, 903.82, 903.85, 903.86])
+
+        def read_pressure_fast(self, **kwargs):
+            return next(self.values)
+
+    class NearNominalPace(_FakePace):
+        def __init__(self):
+            super().__init__()
+            self.values = iter([903.20, 903.22, 903.25, 903.26])
+
+        def set_setpoint(self, value_hpa):
+            self.calls.append(("set_setpoint", value_hpa))
+            self.setpoint_hpa = float(value_hpa)
+            return True
+
+        def read_pressure(self):
+            self.pressure_hpa = float(next(self.values))
+            return self.pressure_hpa
+
+    fake_pace = NearNominalPace()
+
+    class Runner:
+        devices = {"pace": fake_pace, "pressure_gauge": SequenceGauge()}
+        cfg = {"workflow": {"pressure": {"control_setpoint_mode": "absolute"}}}
+
+        def _set_pressure_controller_vent(self, enabled, *, reason):
+            fake_pace.vent(enabled)
+            return True
+
+    runner = Runner()
+    now = [0.0]
+    monkeypatch.setattr(validate_pressure_only.time, "monotonic", lambda: now[0])
+
+    def fake_sleep(seconds):
+        now[0] += 2.0
+
+    monkeypatch.setattr(validate_pressure_only.time, "sleep", fake_sleep)
+
+    fields = validate_pressure_only._wait_for_controlled_pressure_point(
+        runner,
+        target_hpa=900.0,
+        tolerance_hpa=1.0,
+        stable_s=4.0,
+        timeout_s=20.0,
+        poll_s=0.5,
+        slew_mode="max",
+        slew_hpa_per_s=10.0,
+        atmosphere_release_wait_s=0.0,
+        post_stable_wait_s=0.0,
+        analyzer_stream_flush_s=0.0,
+        actual_anchor_near_nominal_hpa=5.0,
+        actual_anchor_stability_hpa=1.0,
+    )
+
+    assert fields["pressure_control_status"] == "verified"
+    assert fields["pressure_control_reason"] == (
+        "pace_internal_pressure_actual_pressure_stable_near_nominal_fast_anchor"
+    )
+    assert fields["pressure_control_actual_anchor_policy"] == "actual_reference_pressure"
+    assert fields["pressure_control_actual_anchor_reference_hpa"] == 903.85
+    assert fields["pressure_control_actual_anchor_control_hpa"] == 903.25
+    assert fields["pressure_control_actual_offset_from_nominal_hpa"] == 3.25
+    assert fields["pressure_control_sampling_anchor_policy"] == "first_verified_pressure_window"
+
+
+def test_controlled_pressure_rejects_actual_anchor_far_from_nominal(monkeypatch) -> None:
+    class StableGauge:
+        def read_pressure_fast(self, **kwargs):
+            return 930.0
+
+    class FarNominalPace(_FakePace):
+        def set_setpoint(self, value_hpa):
+            self.calls.append(("set_setpoint", value_hpa))
+            self.setpoint_hpa = float(value_hpa)
+            self.pressure_hpa = 930.0
+            return True
+
+    fake_pace = FarNominalPace()
+
+    class Runner:
+        devices = {"pace": fake_pace, "pressure_gauge": StableGauge()}
+        cfg = {"workflow": {"pressure": {"control_setpoint_mode": "absolute"}}}
+
+        def _set_pressure_controller_vent(self, enabled, *, reason):
+            fake_pace.vent(enabled)
+            return True
+
+    runner = Runner()
+    now = [0.0]
+    monkeypatch.setattr(validate_pressure_only.time, "monotonic", lambda: now[0])
+
+    def fake_sleep(seconds):
+        now[0] += 2.0
+
+    monkeypatch.setattr(validate_pressure_only.time, "sleep", fake_sleep)
+
+    try:
+        validate_pressure_only._wait_for_controlled_pressure_point(
+            runner,
+            target_hpa=900.0,
+            tolerance_hpa=1.0,
+            stable_s=4.0,
+            timeout_s=8.0,
+            poll_s=0.5,
+            slew_mode="max",
+            slew_hpa_per_s=10.0,
+            atmosphere_release_wait_s=0.0,
+            post_stable_wait_s=0.0,
+            analyzer_stream_flush_s=0.0,
+            actual_anchor_near_nominal_hpa=5.0,
+            actual_anchor_stability_hpa=1.0,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Far-from-nominal pressure was incorrectly accepted")
+
+    assert "reference_side_branch_far_from_nominal" in message
+
+
+def test_controlled_pressure_post_settle_uses_independent_deadline(monkeypatch) -> None:
+    class StableGauge:
+        def read_pressure_fast(self, **kwargs):
+            return 1099.82
+
+    fake_pace = _FakePace()
+    fake_pace.pressure_hpa = 1100.08
+    fake_pace.setpoint_hpa = 1100.0
+    fake_pace.output_state = 1
+
+    class Runner:
+        devices = {"pace": fake_pace, "pressure_gauge": StableGauge()}
+        cfg = {}
+
+    runner = Runner()
+    now = [100.0]
+    monkeypatch.setattr(validate_pressure_only.time, "monotonic", lambda: now[0])
+
+    def fake_sleep(seconds):
+        now[0] += float(seconds)
+
+    monkeypatch.setattr(validate_pressure_only.time, "sleep", fake_sleep)
+
+    fields = validate_pressure_only._finalize_pressure_control_after_candidate(
+        runner,
+        pace=fake_pace,
+        target_hpa=1100.0,
+        tolerance_hpa=1.0,
+        stable_s=2.0,
+        deadline=99.0,
+        poll_s=0.5,
+        start=90.0,
+        post_stable_wait_s=0.0,
+        analyzer_stream_flush_s=0.0,
+        release_fields={},
+    )
+
+    assert fields is not None
+    assert fields["pressure_control_status"] == "verified"
+    assert fields["pressure_control_reason"] == "pace_internal_pressure_in_tolerance_after_settle"
+
+
+def test_controlled_pressure_blocks_when_pace_internal_pressure_does_not_build(monkeypatch) -> None:
+    class SequenceGauge:
+        def read_pressure_fast(self, **kwargs):
+            return 1098.62
+
+    class NoBuildPace(_FakePace):
+        def set_setpoint(self, value_hpa):
+            self.calls.append(("set_setpoint", value_hpa))
+            self.setpoint_hpa = float(value_hpa)
+            return True
+
+    fake_pace = NoBuildPace()
+    fake_pace.pressure_hpa = 1000.6
+    fake_pace.setpoint_hpa = 1000.6
+
+    class Runner:
+        devices = {"pace": fake_pace, "pressure_gauge": SequenceGauge()}
+        cfg = {}
+
+        def _set_pressure_controller_vent(self, enabled, *, reason):
+            fake_pace.vent(enabled)
+            return True
+
+    runner = Runner()
+    now = [0.0]
+
+    monkeypatch.setattr(validate_pressure_only.time, "monotonic", lambda: now[0])
+
+    def fake_sleep(seconds):
+        now[0] += 4.4
+
+    monkeypatch.setattr(validate_pressure_only.time, "sleep", fake_sleep)
+
+    try:
+        validate_pressure_only._wait_for_controlled_pressure_point(
+            runner,
+            target_hpa=1100.0,
+            tolerance_hpa=1.0,
+            stable_s=8.0,
+            timeout_s=20.0,
+            poll_s=0.5,
+            slew_mode="linear",
+            slew_hpa_per_s=10.0,
+            atmosphere_release_wait_s=0.0,
+            post_stable_wait_s=0.0,
+            analyzer_stream_flush_s=0.0,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("PACE internal pressure did not reach target but control was accepted")
+
+    assert "pace_internal_pressure_far_from_target" in message or (
+        "controller_output_on_but_pressure_not_building" in message
+    )
+
+
+def test_pressure_control_wait_trace_records_reference_and_pace() -> None:
+    rows = []
+
+    class Runner:
+        def _append_pressure_trace_row(self, **kwargs):
+            rows.append(kwargs)
+
+    validate_pressure_only._append_pressure_control_wait_trace(
+        Runner(),
+        target_hpa=1100.0,
+        reference_hpa=1004.2,
+        pace_hpa=1004.1,
+        error_hpa=-95.8,
+        stable_for_s=0.0,
+        allowed_error_hpa=1.0,
+        elapsed_s=12.5,
+        reason="reference_pressure_far_from_nominal",
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["trace_stage"] == "pressure_control_wait_poll"
+    assert row["pressure_target_hpa"] == 1100.0
+    assert row["pressure_gauge_hpa"] == 1004.2
+    assert row["pace_pressure_hpa"] == 1004.1
+    assert row["trigger_reason"] == "reference_pressure_far_from_nominal"
+    assert row["extra_fields"]["pressure_delta_to_target_hpa"] == -95.8
+    assert row["extra_fields"]["pressure_in_limit"] is False
+    assert "stable_for_s=0.000" in row["extra_fields"]["pressure_stable_evidence"]
+
+
+def test_validate_pressure_only_closes_aux_vent_after_valve_only_when_enabled(monkeypatch, tmp_path: Path) -> None:
+    cfg = _base_cfg(tmp_path / "logs")
+    cfg["devices"]["pressure_controller"]["enabled"] = True
+    cfg["devices"]["pressure_gauge"]["enabled"] = True
+    cfg.setdefault("workflow", {}).setdefault("pressure", {})["vent_after_valve_open"] = True
+    cfg["workflow"]["pressure"]["control_range"] = "2.00bara"
+    cfg["workflow"]["pressure"]["control_range_enabled"] = True
+    cfg_path = tmp_path / "cfg.json"
+    _write_json(cfg_path, cfg)
+    fake_analyzer = _FakeGasAnalyzer()
+    fake_pace = _FakePace()
+    fake_gauge = _FakeControlledPressureGauge(fake_pace)
+
+    monkeypatch.setattr(
+        validate_pressure_only,
+        "_build_devices",
+        lambda cfg, io_logger=None: {
+            "gas_analyzer": fake_analyzer,
+            "gas_analyzer_01": fake_analyzer,
+            "pressure_gauge": fake_gauge,
+            "pace": fake_pace,
+        },
+    )
+    monkeypatch.setattr(validate_pressure_only, "_close_devices", lambda devices: None)
+
+    assert (
+        validate_pressure_only.main(
+            [
+                "--config",
+                str(cfg_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--run-id",
+                "controlled_pressure_aux",
+                "--pressure-points",
+                "900",
+                "--count",
+                "1",
+                "--interval-s",
+                "0",
+                "--no-prompt",
+                "--control-pressure-points",
+                "--pressure-control-setpoint-mode",
+                "absolute",
+                "--pressure-control-stable-s",
+                "0",
+                "--pressure-control-timeout-s",
+                "2",
+                "--pressure-control-atmosphere-release-wait-s",
+                "0",
+                "--pressure-control-post-stable-wait-s",
+                "0",
+                "--pressure-control-analyzer-stream-flush-s",
+                "0.01",
+            ]
+        )
+        == 0
+    )
+
+    assert any(call[0] == "set_vent_after_valve_open" and call[1] is False for call in fake_pace.calls)
 
 
 def test_validate_pressure_only_exports_all_active_analyzer_pressure_channels(monkeypatch, tmp_path: Path) -> None:

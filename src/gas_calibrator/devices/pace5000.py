@@ -180,8 +180,35 @@ class Pace5000:
     def set_units_hpa(self) -> None:
         self.write(":UNIT:PRES HPA")
 
+    def set_range(self, range_name: str) -> None:
+        text = str(range_name or "").strip()
+        if not text:
+            return
+        self.write(f':SOUR:PRES:RANG "{text.replace(chr(34), "")}"')
+
+    def get_source_range(self) -> str:
+        return self.query(":SOUR:PRES:RANG?")
+
+    def set_remote_mode(self) -> None:
+        self.write(":REM")
+
+    def set_local_mode(self) -> None:
+        self.write(":LOC")
+
     def set_output(self, on: bool) -> None:
+        # K0472/PACE firmware used in V1.5 pressure calibration responds more
+        # reliably to the legacy OUTP form; keep :OUTP:STAT? for readback.
         self.write(f":OUTP {1 if on else 0}")
+
+    def set_output_state(self, on: bool) -> None:
+        # Documented output-state form; retained for explicit diagnostics and
+        # read/write experiments. The production V1.5 pressure contract uses
+        # the legacy OUTP form via set_output(), matching the successful
+        # 2026-05-27 SENCO9 pressure run.
+        self.write(f":OUTP:STAT {1 if on else 0}")
+
+    def set_output_status(self, on: bool) -> None:
+        self.write(f":OUTP:STAT {1 if on else 0}")
 
     def set_output_mode_active(self) -> None:
         self.write(":OUTP:MODE ACT")
@@ -232,6 +259,13 @@ class Pace5000:
     def set_setpoint(self, value_hpa: float) -> None:
         # Per SCPI manual, control setpoint is written via LEV:IMM:AMPL.
         self.write(f":SOUR:PRES:LEV:IMM:AMPL {value_hpa}")
+
+    def read_gauge_pressure(self) -> float:
+        resp = self.query(":SENS:PRES?")
+        value = self._parse_first_float(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return float(value)
 
     def read_pressure(self) -> float:
         last_exc: Optional[Exception] = None
@@ -622,6 +656,10 @@ class Pace5000:
         timeout_s: float = 2.0,
         poll_s: float = 0.1,
     ) -> None:
+        # Keep this sequence aligned with the proven V1.5/K0472 pressure
+        # calibration contract. Historical successful runs did not send :REM
+        # before OUTP 1; forcing remote mode here can leave some units accepting
+        # SCPI while the pressure output never actually builds.
         self.set_isolation_open(True)
         try:
             self.wait_for_vent_idle(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import math
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
@@ -24,6 +25,18 @@ SHELL_TEMP_SUFFIX = "机壳温度C_平均值"
 DEFAULT_TARGET_DEVICE_IDS = ("022", "030", "033", "051")
 DEFAULT_EXCLUDED_DEVICE_IDS = ("023", "100")
 HARD_BAD_TEMP_VALUES_C = (60.0, -40.0)
+
+ZH_SAMPLE_TIME_KEY = "\u91c7\u6837\u65f6\u95f4"
+ZH_TEMP_SET_KEY = "\u6e29\u7bb1\u8bbe\u5b9a\u6e29\u5ea6C"
+ZH_ANALYZER_PREFIX = "\u6c14\u4f53\u5206\u6790\u4eea"
+ZH_DEVICE_ID_SUFFIX = "\u8bbe\u5907ID"
+ZH_CELL_TEMP_SUFFIX = "\u6e29\u5ea6\u7bb1\u6e29\u5ea6C"
+ZH_SHELL_TEMP_SUFFIX = "\u673a\u58f3\u6e29\u5ea6C"
+ZH_ANALYZER_PRESSURE_SUFFIX = "\u5206\u6790\u4eea\u538b\u529bkPa"
+ZH_ANALYZER_CACHE_AGE_SUFFIX = "\u5206\u6790\u4eea\u7f13\u5b58\u5e74\u9f84ms"
+ZH_DIGITAL_THERMOMETER_TEMP_KEY = "\u6570\u5b57\u6e29\u5ea6\u8ba1\u6e29\u5ea6C"
+ZH_DIGITAL_THERMOMETER_AGE_KEY = "\u6570\u5b57\u6e29\u5ea6\u8ba1\u7f13\u5b58\u5e74\u9f84ms"
+ZH_CHAMBER_TEMP_KEY = "\u6e29\u5ea6\u7bb1\u73af\u5883\u6e29\u5ea6C"
 
 
 def _safe_float(value: Any) -> float | None:
@@ -48,6 +61,57 @@ def _read_first_row(path: Path) -> Dict[str, str] | None:
         for row in reader:
             return dict(row)
     return None
+
+
+def _mean(values: Iterable[Any]) -> float | None:
+    numbers: list[float] = []
+    for value in values:
+        numeric = _safe_float(value)
+        if numeric is not None:
+            numbers.append(numeric)
+    if not numbers:
+        return None
+    return float(sum(numbers) / len(numbers))
+
+
+def _min(values: Iterable[Any]) -> float | None:
+    numbers = [number for number in (_safe_float(value) for value in values) if number is not None]
+    return float(min(numbers)) if numbers else None
+
+
+def _max(values: Iterable[Any]) -> float | None:
+    numbers = [number for number in (_safe_float(value) for value in values) if number is not None]
+    return float(max(numbers)) if numbers else None
+
+
+def _read_json(path: Path) -> Dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _summary_metric(summary_payload: Mapping[str, Any], metric: str, key: str = "mean") -> float | None:
+    for row in summary_payload.get("summary") or []:
+        if str(row.get("metric") or "") == metric:
+            return _safe_float(row.get(key))
+    return None
+
+
+def _slot_column(slot: int, suffix: str) -> str:
+    return f"{ZH_ANALYZER_PREFIX}{slot}_{suffix}"
+
+
+def _ga_column(slot: int, suffix: str) -> str:
+    return f"ga{slot:02d}_{suffix}"
+
+
+def _first_existing_sample_csv(run_dir: Path) -> Path | None:
+    candidates = sorted(Path(run_dir).glob("samples_*.csv"))
+    if candidates:
+        return candidates[0]
+    candidates = sorted(Path(run_dir).glob("point_*_samples.csv"))
+    return candidates[0] if candidates else None
 
 
 def _is_hard_bad_temperature(value: float, *, tolerance_c: float = 0.05) -> bool:
@@ -197,6 +261,387 @@ def build_temperature_observations_from_point_dirs(
     return observations
 
 
+def build_temperature_observations_from_open_flow_point_dirs(
+    point_dirs: Iterable[Path],
+    *,
+    target_device_ids: Sequence[str] = DEFAULT_TARGET_DEVICE_IDS,
+    excluded_device_ids: Sequence[str] = DEFAULT_EXCLUDED_DEVICE_IDS,
+    ref_temp_source: str = "digital_thermometer_from_co2_open_flow_samples",
+    max_abs_delta_from_ref_c: float = 8.0,
+    raw_temp_min_c: float = -35.0,
+    raw_temp_max_c: float = 85.0,
+    max_reference_age_ms: float | None = 5000.0,
+) -> List[Dict[str, Any]]:
+    """Extract SENCO7/8 observations from V1.5 open-flow sample artifacts.
+
+    The CO2/H2O open-flow runners write one `samples_machine_readable.csv` per
+    point. Each row freezes the digital thermometer, route pressure/dewpoint,
+    and all active analyzer MODE2 frames at the same sampling instant. For
+    temperature-channel review we use only existing evidence; this function does
+    not open COM ports, control valves, or write coefficients.
+    """
+
+    target_ids = {str(item).zfill(3) for item in target_device_ids}
+    excluded_ids = {str(item).zfill(3) for item in excluded_device_ids}
+    requested_ids = target_ids | excluded_ids
+    observations: List[Dict[str, Any]] = []
+
+    for point_dir in sorted(Path(p) for p in point_dirs):
+        if not point_dir.is_dir():
+            continue
+        samples_csv = point_dir / "samples_machine_readable.csv"
+        if not samples_csv.exists():
+            continue
+
+        with samples_csv.open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = [dict(row) for row in csv.DictReader(handle)]
+        if not rows:
+            continue
+
+        fresh_ref_rows = []
+        for row in rows:
+            ref_value = _safe_float(row.get("thermometer_temp_c"))
+            if ref_value is None:
+                continue
+            ref_age_ms = _safe_float(row.get("thermometer_cache_age_ms"))
+            if max_reference_age_ms is not None and ref_age_ms is not None and ref_age_ms > max_reference_age_ms:
+                continue
+            fresh_ref_rows.append(row)
+
+        ref_rows = fresh_ref_rows or [row for row in rows if _safe_float(row.get("thermometer_temp_c")) is not None]
+        ref_temp_c = _mean(row.get("thermometer_temp_c") for row in ref_rows)
+        ref_age_ms = _mean(row.get("thermometer_cache_age_ms") for row in ref_rows)
+        reference_fresh = bool(fresh_ref_rows)
+        temp_setpoint_c = _mean(row.get("temp_set_c") for row in rows)
+        snapshot_time = str(rows[0].get("sample_ts") or rows[0].get("sample_begin_ts") or "")
+        point_tag = str(rows[0].get("point_tag") or point_dir.name)
+        point_title = str(rows[0].get("point_title") or point_dir.name)
+        route = str(rows[0].get("route") or rows[0].get("step") or "")
+        route_type = f"{route or 'open'}_open_flow_full_temperature"
+
+        slot_rows: Dict[str, Dict[str, Any]] = {}
+        for slot in range(1, 17):
+            device_values = [row.get(_ga_column(slot, "analyzer_device_id")) for row in rows]
+            device_ids = [
+                str(value).strip().zfill(3)
+                for value in device_values
+                if str(value or "").strip()
+            ]
+            if not device_ids:
+                continue
+            device_id = max(set(device_ids), key=device_ids.count)
+            if requested_ids and device_id not in requested_ids:
+                continue
+            device_rows = [
+                row
+                for row in rows
+                if str(row.get(_ga_column(slot, "analyzer_device_id")) or "").strip().zfill(3) == device_id
+            ]
+            if not device_rows:
+                continue
+            cell_values = [row.get(_ga_column(slot, "chamber_temp_c")) for row in device_rows]
+            shell_values = [row.get(_ga_column(slot, "case_temp_c")) for row in device_rows]
+            slot_rows[device_id] = {
+                "slot": slot,
+                "device_id": device_id,
+                "cell_temp_c": _mean(cell_values),
+                "shell_temp_c": _mean(shell_values),
+                "cell_temp_min_c": _min(cell_values),
+                "cell_temp_max_c": _max(cell_values),
+                "shell_temp_min_c": _min(shell_values),
+                "shell_temp_max_c": _max(shell_values),
+                "pressure_kpa": _mean(row.get(_ga_column(slot, "pressure_kpa")) for row in device_rows),
+                "max_cache_age_ms": _max(row.get(_ga_column(slot, "frame_cache_age_ms")) for row in device_rows),
+                "usable_count": len(
+                    [
+                        row
+                        for row in device_rows
+                        if str(row.get(_ga_column(slot, "frame_usable")) or "").strip().lower() == "true"
+                    ]
+                ),
+                "frame_count": len(device_rows),
+            }
+
+        for device_id in sorted(requested_ids | set(slot_rows.keys())):
+            slot_payload = slot_rows.get(device_id, {})
+            cell_temp_c = _safe_float(slot_payload.get("cell_temp_c"))
+            shell_temp_c = _safe_float(slot_payload.get("shell_temp_c"))
+            pressure_kpa = _safe_float(slot_payload.get("pressure_kpa"))
+            cache_age_ms = _safe_float(slot_payload.get("max_cache_age_ms"))
+            frame_count = int(slot_payload.get("frame_count") or 0)
+            usable_count = int(slot_payload.get("usable_count") or 0)
+            cell_min = _safe_float(slot_payload.get("cell_temp_min_c"))
+            cell_max = _safe_float(slot_payload.get("cell_temp_max_c"))
+            shell_min = _safe_float(slot_payload.get("shell_temp_min_c"))
+            shell_max = _safe_float(slot_payload.get("shell_temp_max_c"))
+
+            ref_age_ok = reference_fresh
+            ref_age_reason = ""
+            if not ref_age_ok:
+                ref_age_reason = "reference_temperature_stale_or_missing"
+
+            cell_ok, cell_reason = _temperature_gate(
+                raw_temp_c=cell_temp_c,
+                ref_temp_c=ref_temp_c,
+                max_abs_delta_from_ref_c=max_abs_delta_from_ref_c,
+                raw_temp_min_c=raw_temp_min_c,
+                raw_temp_max_c=raw_temp_max_c,
+            )
+            shell_ok, shell_reason = _temperature_gate(
+                raw_temp_c=shell_temp_c,
+                ref_temp_c=ref_temp_c,
+                max_abs_delta_from_ref_c=max_abs_delta_from_ref_c,
+                raw_temp_min_c=raw_temp_min_c,
+                raw_temp_max_c=raw_temp_max_c,
+            )
+
+            excluded = device_id in excluded_ids
+            if frame_count <= 0:
+                cell_ok = False
+                shell_ok = False
+                cell_reason = "missing_analyzer_temperature_evidence"
+                shell_reason = "missing_analyzer_temperature_evidence"
+            if excluded:
+                if not cell_reason:
+                    cell_reason = "excluded_device_id"
+                if not shell_reason:
+                    shell_reason = "excluded_device_id"
+            if not ref_age_ok:
+                if not cell_reason:
+                    cell_reason = ref_age_reason
+                if not shell_reason:
+                    shell_reason = ref_age_reason
+
+            valid_for_cell = bool(cell_ok and ref_age_ok and not excluded)
+            valid_for_shell = bool(shell_ok and ref_age_ok and not excluded)
+            observations.append(
+                {
+                    "snapshot_time": snapshot_time,
+                    "timestamp": snapshot_time,
+                    "analyzer_id": device_id,
+                    "analyzer_device_id": device_id,
+                    "temp_setpoint_c": temp_setpoint_c,
+                    "temperature_setpoint_c": temp_setpoint_c,
+                    "chamber_temperature_box_c": temp_setpoint_c,
+                    "chamber_temperature_env_c": ref_temp_c,
+                    "ref_temp_c": ref_temp_c,
+                    "ref_temp_source": ref_temp_source,
+                    "cell_temp_raw_c": cell_temp_c,
+                    "shell_temp_raw_c": shell_temp_c,
+                    "analyzer_cell_temp_raw_c": cell_temp_c,
+                    "analyzer_shell_temp_raw_c": shell_temp_c,
+                    "route_type": route_type,
+                    "is_temp_calibration_snapshot": True,
+                    "valid_for_cell_fit": valid_for_cell,
+                    "valid_for_shell_fit": valid_for_shell,
+                    "cell_fit_gate_reason": "" if valid_for_cell else (cell_reason or "not_valid_for_cell_fit"),
+                    "shell_fit_gate_reason": "" if valid_for_shell else (shell_reason or "not_valid_for_shell_fit"),
+                    "snapshot_window_s": "",
+                    "env_temp_span_c": "",
+                    "box_temp_span_c": "",
+                    "cell_temp_span_c": (
+                        cell_max - cell_min if cell_min is not None and cell_max is not None else ""
+                    ),
+                    "shell_temp_span_c": (
+                        shell_max - shell_min if shell_min is not None and shell_max is not None else ""
+                    ),
+                    "source_point_dir": str(point_dir),
+                    "source_samples_csv": str(samples_csv),
+                    "point_tag": point_tag,
+                    "point_title": point_title,
+                    "digital_thermometer_age_ms": ref_age_ms,
+                    "configured_temp_setpoint_c": temp_setpoint_c,
+                    "analyzer_pressure_kpa": pressure_kpa,
+                    "analyzer_max_cache_age_ms": cache_age_ms,
+                    "analyzer_frame_count": frame_count,
+                    "analyzer_usable_frame_count": usable_count,
+                    "cell_delta_from_ref_c": (
+                        cell_temp_c - ref_temp_c if cell_temp_c is not None and ref_temp_c is not None else None
+                    ),
+                    "shell_delta_from_ref_c": (
+                        shell_temp_c - ref_temp_c if shell_temp_c is not None and ref_temp_c is not None else None
+                    ),
+                    "excluded_device_id": excluded,
+                }
+            )
+
+    return observations
+
+
+def build_temperature_observations_from_snapshot_run_dirs(
+    snapshot_run_dirs: Iterable[Path],
+    *,
+    target_device_ids: Sequence[str] = DEFAULT_TARGET_DEVICE_IDS,
+    excluded_device_ids: Sequence[str] = DEFAULT_EXCLUDED_DEVICE_IDS,
+    ref_temp_source: str = "digital_thermometer_from_validate_dry_collect_snapshot",
+    max_abs_delta_from_ref_c: float = 8.0,
+    raw_temp_min_c: float = -35.0,
+    raw_temp_max_c: float = 85.0,
+    max_reference_age_ms: float | None = 5000.0,
+) -> List[Dict[str, Any]]:
+    """Extract temperature observations from validate_dry_collect snapshot runs.
+
+    These runs are no-write evidence snapshots. They are useful for channel
+    health and evidence-gap review, but one setpoint is not enough for a formal
+    SENCO7/SENCO8 compensation fit.
+    """
+
+    target_ids = {str(item).zfill(3) for item in target_device_ids}
+    excluded_ids = {str(item).zfill(3) for item in excluded_device_ids}
+    requested_ids = target_ids | excluded_ids
+    observations: List[Dict[str, Any]] = []
+
+    for run_dir in sorted(Path(p) for p in snapshot_run_dirs):
+        if not run_dir.is_dir():
+            continue
+        samples_csv = _first_existing_sample_csv(run_dir)
+        if samples_csv is None:
+            continue
+
+        summary_payload = _read_json(run_dir / "temperature_evidence_from_io_summary.json")
+        ref_temp_c = _summary_metric(summary_payload, "digital_thermometer_temp_c")
+        chamber_temp_c = _summary_metric(summary_payload, "temperature_chamber_temp_c")
+
+        rows: List[Dict[str, str]] = []
+        with samples_csv.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            rows = [dict(row) for row in reader]
+        if not rows:
+            continue
+
+        if ref_temp_c is None:
+            ref_temp_c = _mean(row.get(ZH_DIGITAL_THERMOMETER_TEMP_KEY) for row in rows)
+        ref_age_ms = _mean(row.get(ZH_DIGITAL_THERMOMETER_AGE_KEY) for row in rows)
+        configured_temp_setpoint_c = _mean(row.get(ZH_TEMP_SET_KEY) for row in rows)
+        temp_setpoint_c = chamber_temp_c if chamber_temp_c is not None else configured_temp_setpoint_c
+        snapshot_time = str(rows[0].get(ZH_SAMPLE_TIME_KEY) or "")
+
+        slot_rows: Dict[str, Dict[str, Any]] = {}
+        for slot in range(1, 17):
+            device_values = [row.get(_slot_column(slot, ZH_DEVICE_ID_SUFFIX)) for row in rows]
+            device_ids = [
+                str(value).strip().zfill(3)
+                for value in device_values
+                if str(value or "").strip()
+            ]
+            if not device_ids:
+                continue
+            device_id = max(set(device_ids), key=device_ids.count)
+            if requested_ids and device_id not in requested_ids:
+                continue
+            slot_rows[device_id] = {
+                "slot": slot,
+                "device_id": device_id,
+                "cell_temp_c": _mean(row.get(_slot_column(slot, ZH_CELL_TEMP_SUFFIX)) for row in rows),
+                "shell_temp_c": _mean(row.get(_slot_column(slot, ZH_SHELL_TEMP_SUFFIX)) for row in rows),
+                "pressure_kpa": _mean(row.get(_slot_column(slot, ZH_ANALYZER_PRESSURE_SUFFIX)) for row in rows),
+                "max_cache_age_ms": _max(row.get(_slot_column(slot, ZH_ANALYZER_CACHE_AGE_SUFFIX)) for row in rows),
+                "frame_count": len(
+                    [
+                        row
+                        for row in rows
+                        if str(row.get(_slot_column(slot, ZH_DEVICE_ID_SUFFIX)) or "").strip()
+                    ]
+                ),
+            }
+
+        for device_id in sorted(requested_ids | set(slot_rows.keys())):
+            slot_payload = slot_rows.get(device_id, {})
+            cell_temp_c = _safe_float(slot_payload.get("cell_temp_c"))
+            shell_temp_c = _safe_float(slot_payload.get("shell_temp_c"))
+            pressure_kpa = _safe_float(slot_payload.get("pressure_kpa"))
+            cache_age_ms = _safe_float(slot_payload.get("max_cache_age_ms"))
+            frame_count = int(slot_payload.get("frame_count") or 0)
+
+            ref_age_ok = True
+            ref_age_reason = ""
+            if max_reference_age_ms is not None and ref_age_ms is not None and ref_age_ms > max_reference_age_ms:
+                ref_age_ok = False
+                ref_age_reason = "reference_temperature_stale"
+
+            cell_ok, cell_reason = _temperature_gate(
+                raw_temp_c=cell_temp_c,
+                ref_temp_c=ref_temp_c,
+                max_abs_delta_from_ref_c=max_abs_delta_from_ref_c,
+                raw_temp_min_c=raw_temp_min_c,
+                raw_temp_max_c=raw_temp_max_c,
+            )
+            shell_ok, shell_reason = _temperature_gate(
+                raw_temp_c=shell_temp_c,
+                ref_temp_c=ref_temp_c,
+                max_abs_delta_from_ref_c=max_abs_delta_from_ref_c,
+                raw_temp_min_c=raw_temp_min_c,
+                raw_temp_max_c=raw_temp_max_c,
+            )
+
+            excluded = device_id in excluded_ids
+            if frame_count <= 0:
+                cell_ok = False
+                shell_ok = False
+                cell_reason = "missing_analyzer_temperature_evidence"
+                shell_reason = "missing_analyzer_temperature_evidence"
+            if excluded:
+                if not cell_reason:
+                    cell_reason = "excluded_device_id"
+                if not shell_reason:
+                    shell_reason = "excluded_device_id"
+            if not ref_age_ok:
+                if not cell_reason:
+                    cell_reason = ref_age_reason
+                if not shell_reason:
+                    shell_reason = ref_age_reason
+
+            valid_for_cell = bool(cell_ok and ref_age_ok and not excluded)
+            valid_for_shell = bool(shell_ok and ref_age_ok and not excluded)
+            observations.append(
+                {
+                    "snapshot_time": snapshot_time,
+                    "timestamp": snapshot_time,
+                    "analyzer_id": device_id,
+                    "analyzer_device_id": device_id,
+                    "temp_setpoint_c": temp_setpoint_c,
+                    "temperature_setpoint_c": temp_setpoint_c,
+                    "chamber_temperature_box_c": chamber_temp_c,
+                    "chamber_temperature_env_c": ref_temp_c,
+                    "ref_temp_c": ref_temp_c,
+                    "ref_temp_source": ref_temp_source,
+                    "cell_temp_raw_c": cell_temp_c,
+                    "shell_temp_raw_c": shell_temp_c,
+                    "analyzer_cell_temp_raw_c": cell_temp_c,
+                    "analyzer_shell_temp_raw_c": shell_temp_c,
+                    "route_type": "validate_dry_collect_temperature_snapshot",
+                    "is_temp_calibration_snapshot": True,
+                    "valid_for_cell_fit": valid_for_cell,
+                    "valid_for_shell_fit": valid_for_shell,
+                    "cell_fit_gate_reason": "" if valid_for_cell else (cell_reason or "not_valid_for_cell_fit"),
+                    "shell_fit_gate_reason": "" if valid_for_shell else (shell_reason or "not_valid_for_shell_fit"),
+                    "snapshot_window_s": "",
+                    "env_temp_span_c": "",
+                    "box_temp_span_c": "",
+                    "cell_temp_span_c": "",
+                    "shell_temp_span_c": "",
+                    "source_snapshot_run_dir": str(run_dir),
+                    "source_samples_csv": str(samples_csv),
+                    "point_tag": run_dir.name,
+                    "point_title": run_dir.name,
+                    "digital_thermometer_age_ms": ref_age_ms,
+                    "configured_temp_setpoint_c": configured_temp_setpoint_c,
+                    "analyzer_pressure_kpa": pressure_kpa,
+                    "analyzer_max_cache_age_ms": cache_age_ms,
+                    "analyzer_frame_count": frame_count,
+                    "cell_delta_from_ref_c": (
+                        cell_temp_c - ref_temp_c if cell_temp_c is not None and ref_temp_c is not None else None
+                    ),
+                    "shell_delta_from_ref_c": (
+                        shell_temp_c - ref_temp_c if shell_temp_c is not None and ref_temp_c is not None else None
+                    ),
+                    "excluded_device_id": excluded,
+                }
+            )
+
+    return observations
+
+
 def _fit_temperature_map(rows: Sequence[Mapping[str, Any]], raw_key: str) -> Dict[str, Any]:
     valid_key = "valid_for_cell_fit" if raw_key == "cell_temp_raw_c" else "valid_for_shell_fit"
     valid = [row for row in rows if row.get(valid_key)]
@@ -247,6 +692,32 @@ def build_temperature_channel_summary(
         )
         cell_fit = _fit_temperature_map(device_rows, "cell_temp_raw_c")
         shell_fit = _fit_temperature_map(device_rows, "shell_temp_raw_c")
+        if not cell_valid and not shell_valid:
+            coverage_status = "blocked_missing_analyzer_temperature_evidence"
+            physical_note = (
+                "Digital-thermometer/reference temperature exists, but no analyzer chamber/case "
+                "temperature evidence was available for this device. Do not generate SENCO7/SENCO8 "
+                "write candidates from this run."
+            )
+        elif len(temp_setpoints) < 3:
+            coverage_status = "blocked_insufficient_temperature_setpoints"
+            physical_note = (
+                "Analyzer and reference temperature evidence exists, but fewer than three distinct "
+                "temperature setpoints were available. This is suitable for a fast channel sanity "
+                "check only; do not generate SENCO7/SENCO8 write candidates from this evidence."
+            )
+        elif temp_setpoints == [0.0, 10.0, 20.0, 30.0, 40.0]:
+            coverage_status = "pass_0_to_40_only"
+            physical_note = (
+                "Digital-thermometer evidence covers 0..40 C H2O run only; "
+                "negative CO2 temperature groups need separate reference evidence before full-range temperature writes."
+            )
+        else:
+            coverage_status = "review"
+            physical_note = (
+                "Temperature evidence is partial or uneven. Review setpoint coverage and raw/reference "
+                "temperature residuals before any SENCO7/SENCO8 write."
+            )
         rows.append(
             {
                 "analyzer_id": device_id,
@@ -263,11 +734,8 @@ def build_temperature_channel_summary(
                 "cell_fit_max_abs_error_c": cell_fit.get("max_abs_error"),
                 "shell_fit_rmse_c": shell_fit.get("rmse"),
                 "shell_fit_max_abs_error_c": shell_fit.get("max_abs_error"),
-                "coverage_status": "pass_0_to_40_only" if temp_setpoints == [0.0, 10.0, 20.0, 30.0, 40.0] else "review",
-                "physical_note": (
-                    "Digital-thermometer evidence covers 0..40 C H2O run only; "
-                    "negative CO2 temperature groups need separate reference evidence before full-range temperature writes."
-                ),
+                "coverage_status": coverage_status,
+                "physical_note": physical_note,
             }
         )
     return rows
@@ -408,18 +876,45 @@ def _least_squares_co2_stats(
 def export_temperature_channel_review(
     output_dir: Path,
     *,
-    h2o_points_parent: Path,
+    h2o_points_parent: Path | None = None,
+    open_flow_points_parent: Path | None = None,
+    snapshot_run_dirs: Sequence[Path] = (),
     co2_residual_csv: Path | None = None,
     target_device_ids: Sequence[str] = DEFAULT_TARGET_DEVICE_IDS,
     excluded_device_ids: Sequence[str] = DEFAULT_EXCLUDED_DEVICE_IDS,
     export_commands: bool = True,
 ) -> Dict[str, Any]:
-    point_dirs = sorted(path for path in Path(h2o_points_parent).glob("p*_h2o") if path.is_dir())
-    observations = build_temperature_observations_from_point_dirs(
-        point_dirs,
-        target_device_ids=target_device_ids,
-        excluded_device_ids=excluded_device_ids,
-    )
+    observations: List[Dict[str, Any]] = []
+    if h2o_points_parent is not None:
+        point_dirs = sorted(path for path in Path(h2o_points_parent).glob("p*_h2o") if path.is_dir())
+        observations.extend(
+            build_temperature_observations_from_point_dirs(
+                point_dirs,
+                target_device_ids=target_device_ids,
+                excluded_device_ids=excluded_device_ids,
+            )
+        )
+    if open_flow_points_parent is not None:
+        point_dirs = sorted(
+            path
+            for path in Path(open_flow_points_parent).glob("p*")
+            if path.is_dir() and (path / "samples_machine_readable.csv").exists()
+        )
+        observations.extend(
+            build_temperature_observations_from_open_flow_point_dirs(
+                point_dirs,
+                target_device_ids=target_device_ids,
+                excluded_device_ids=excluded_device_ids,
+            )
+        )
+    if snapshot_run_dirs:
+        observations.extend(
+            build_temperature_observations_from_snapshot_run_dirs(
+                snapshot_run_dirs,
+                target_device_ids=target_device_ids,
+                excluded_device_ids=excluded_device_ids,
+            )
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     temp_bundle = export_temperature_compensation_artifacts(
         output_dir,
@@ -451,7 +946,9 @@ def export_temperature_channel_review(
         _render_markdown_report(
             summary_rows,
             impact_rows,
-            h2o_points_parent=Path(h2o_points_parent),
+            h2o_points_parent=Path(h2o_points_parent) if h2o_points_parent is not None else None,
+            open_flow_points_parent=Path(open_flow_points_parent) if open_flow_points_parent is not None else None,
+            snapshot_run_dirs=[Path(item) for item in snapshot_run_dirs],
             co2_residual_csv=Path(co2_residual_csv) if co2_residual_csv else None,
         ),
         encoding="utf-8",
@@ -491,7 +988,9 @@ def _render_markdown_report(
     summary_rows: Sequence[Mapping[str, Any]],
     impact_rows: Sequence[Mapping[str, Any]],
     *,
-    h2o_points_parent: Path,
+    h2o_points_parent: Path | None,
+    open_flow_points_parent: Path | None,
+    snapshot_run_dirs: Sequence[Path] = (),
     co2_residual_csv: Path | None,
 ) -> str:
     lines = [
@@ -504,10 +1003,17 @@ def _render_markdown_report(
         "- SENCO7 is the analyzer chamber/cell temperature input compensation.",
         "- SENCO8 is the analyzer case/shell temperature input compensation.",
         "- CO2 SENCO1/3 and H2O SENCO2/4 use temperature as a model input, so the temperature input must be validated independently.",
-        "- The H2O full-temperature run provides digital-thermometer evidence for 0..40 C. It does not cover the negative CO2 groups.",
+        "- Open-flow CO2/H2O point samples can provide digital-thermometer evidence without opening COM ports or re-running routes.",
         "",
-        f"H2O evidence parent: `{h2o_points_parent}`",
     ]
+    if h2o_points_parent is not None:
+        lines.append(f"H2O evidence parent: `{h2o_points_parent}`")
+    if open_flow_points_parent is not None:
+        lines.append(f"Open-flow evidence parent: `{open_flow_points_parent}`")
+    if snapshot_run_dirs:
+        lines.append("Snapshot evidence run dirs:")
+        for run_dir in snapshot_run_dirs:
+            lines.append(f"- `{run_dir}`")
     if co2_residual_csv:
         lines.append(f"CO2 residual input: `{co2_residual_csv}`")
     lines.extend(["", "## Temperature Summary", ""])
@@ -545,13 +1051,40 @@ def _render_markdown_report(
                     note=_fmt_value(row.get("note")),
                 )
             )
+    has_any_valid_temperature_evidence = any(
+        int(row.get("cell_valid_points") or 0) > 0 or int(row.get("shell_valid_points") or 0) > 0
+        for row in summary_rows
+    )
+    has_candidate_grade_temperature_evidence = any(
+        str(row.get("coverage_status") or "") in {"pass_0_to_40_only", "review"}
+        and int(row.get("cell_valid_points") or 0) >= 3
+        and int(row.get("shell_valid_points") or 0) >= 3
+        for row in summary_rows
+    )
+    if has_candidate_grade_temperature_evidence:
+        evidence_conclusion = (
+            "- The current extracted evidence can generate SENCO7/SENCO8 candidates for devices with non-zero "
+            "valid cell/shell points. Confirm the covered setpoints match the intended CO2/H2O temperature range "
+            "before any controlled live write."
+        )
+    elif has_any_valid_temperature_evidence:
+        evidence_conclusion = (
+            "- The current extracted evidence contains valid analyzer/reference temperature pairs, but the temperature "
+            "setpoint coverage is insufficient for formal SENCO7/SENCO8 fitting. Treat it as channel sanity evidence "
+            "and collect a multi-temperature evidence set before any write."
+        )
+    else:
+        evidence_conclusion = (
+            "- The current extracted evidence has zero valid analyzer chamber/case temperature points for the requested "
+            "target devices. Do not generate or write SENCO7/SENCO8 candidates from this run."
+        )
     lines.extend(
         [
             "",
             "## Review Conclusion",
             "",
             "- Temperature-channel calibration is physically relevant and should be reviewed before final CO2/H2O coefficient approval.",
-            "- The current H2O-derived evidence can generate SENCO7/SENCO8 candidates for 0..40 C, but it should be treated as partial-range evidence for the full CO2 plan because -20 C and -10 C were not covered by the digital thermometer in this extraction.",
+            evidence_conclusion,
             "- If the CO2 residual impact table shows little improvement after candidate-corrected temperature refit, the remaining CO2 error should not be blamed primarily on simple chamber-temperature offset. Continue with ratio/zero/route/model residual analysis.",
             "- Any live SENCO7/SENCO8 write still requires a controlled write plan, old GETCO7/8 backup, readback, and post-write verification.",
         ]

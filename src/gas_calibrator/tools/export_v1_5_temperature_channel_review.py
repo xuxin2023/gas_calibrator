@@ -14,33 +14,50 @@ from ..validation.v1_5_temperature_channel_review import (
 
 
 def _split_ids(text: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
-    if not text:
+    if text is None:
         return default
     values = [item.strip().zfill(3) for item in text.replace(";", ",").split(",") if item.strip()]
     return tuple(values) or default
+
+
+def _split_ids_allow_empty(text: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
+    if text is None:
+        return default
+    if not text.strip():
+        return ()
+    return _split_ids(text, default)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Build offline no-write SENCO7/SENCO8 temperature-channel review from V1.5 "
-            "full-temperature H2O point artifacts."
+            "full-temperature point artifacts."
         )
     )
     parser.add_argument(
         "--h2o-points-parent",
         type=Path,
-        default=Path("logs/v1_5_formal_h2o_multitemp_no_write_20260530"),
+        default=None,
         help="Directory containing p*_h2o point folders.",
+    )
+    parser.add_argument(
+        "--open-flow-points-parent",
+        type=Path,
+        default=None,
+        help="Directory containing V1.5 open-flow p* point folders with samples_machine_readable.csv.",
+    )
+    parser.add_argument(
+        "--snapshot-run-dir",
+        type=Path,
+        action="append",
+        default=[],
+        help="validate_dry_collect run directory containing samples_*.csv and temperature IO evidence.",
     )
     parser.add_argument(
         "--co2-residual-csv",
         type=Path,
-        default=Path(
-            "logs/co2_fulltemp_all_eligible_exclude023_100_candidate_20260531/"
-            "candidate_temp_terms_all_points_reference_h2o_no_pressure_r3/"
-            "candidate_fit_residuals.csv"
-        ),
+        default=None,
         help="Optional CO2 candidate residual CSV used for temperature-impact diagnostics.",
     )
     parser.add_argument(
@@ -60,6 +77,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated device IDs to include as rejected observations only.",
     )
     parser.add_argument(
+        "--no-excluded-device-ids",
+        action="store_true",
+        help="Do not mark any analyzer IDs as excluded in this review.",
+    )
+    parser.add_argument(
         "--no-command-preview",
         action="store_true",
         help="Do not include SENCO7/8 command strings in generated artifacts.",
@@ -74,9 +96,13 @@ def main(argv: list[str] | None = None) -> int:
     payload = export_temperature_channel_review(
         args.output_dir,
         h2o_points_parent=args.h2o_points_parent,
+        open_flow_points_parent=args.open_flow_points_parent,
+        snapshot_run_dirs=tuple(args.snapshot_run_dir or ()),
         co2_residual_csv=args.co2_residual_csv,
         target_device_ids=_split_ids(args.target_device_ids, DEFAULT_TARGET_DEVICE_IDS),
-        excluded_device_ids=_split_ids(args.excluded_device_ids, DEFAULT_EXCLUDED_DEVICE_IDS),
+        excluded_device_ids=()
+        if args.no_excluded_device_ids
+        else _split_ids_allow_empty(args.excluded_device_ids, DEFAULT_EXCLUDED_DEVICE_IDS),
         export_commands=not args.no_command_preview,
     )
     summary = {
@@ -94,6 +120,9 @@ def main(argv: list[str] | None = None) -> int:
             "thermometer evidence only."
         ),
         "paths": {key: str(value) for key, value in payload["paths"].items()},
+        "h2o_points_parent": str(args.h2o_points_parent) if args.h2o_points_parent else None,
+        "open_flow_points_parent": str(args.open_flow_points_parent) if args.open_flow_points_parent else None,
+        "snapshot_run_dirs": [str(path) for path in args.snapshot_run_dir or []],
     }
     (args.output_dir / "temperature_channel_review_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),

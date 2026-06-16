@@ -80,6 +80,17 @@ def _device_sort_key(device_id: str, write_by_device: Mapping[str, Mapping[str, 
     return (str(row.get("analyzer_prefix") or ""), str(device_id))
 
 
+def _normalize_device_ids(values: Optional[Sequence[str]]) -> List[str]:
+    out: List[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        device = _device_id(value)
+        if device and device not in seen:
+            out.append(device)
+            seen.add(device)
+    return out
+
+
 def _first_traceability_status(trace_rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     if trace_rows:
         row = dict(trace_rows[0])
@@ -182,8 +193,11 @@ def build_pressure_channel_completion_tables(
     pressure_reference_path: str | Path,
     pressure_reference_traceability_path: str | Path | None = None,
     old_getco_snapshot_path: str | Path | None = None,
+    selected_device_ids: Optional[Sequence[str]] = None,
+    known_limitations: Optional[Sequence[Mapping[str, Any]]] = None,
     max_abs_offset_kpa: float = 0.05,
     max_residual_hpa: float = 0.5,
+    acceptance_policy_note: str = "",
     today: Any = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Build pressure-channel completion/readiness tables from existing artifacts."""
@@ -204,10 +218,45 @@ def build_pressure_channel_completion_tables(
 
     write_by_device = _index_by_device(write_rows)
     fit_by_device = _index_by_device(fit_rows)
-    all_devices = sorted(
+    observed_devices = sorted(
         set(write_by_device) | set(fit_by_device),
         key=lambda item: _device_sort_key(item, write_by_device, fit_by_device),
     )
+    selected_devices = _normalize_device_ids(selected_device_ids)
+    if selected_devices:
+        selected_set = set(selected_devices)
+        all_devices = sorted(
+            set(selected_devices),
+            key=lambda item: _device_sort_key(item, write_by_device, fit_by_device),
+        )
+    else:
+        selected_set = set(observed_devices)
+        all_devices = observed_devices
+    excluded_rows: List[Dict[str, Any]] = []
+    for device in observed_devices:
+        if device in selected_set:
+            continue
+        write_row = write_by_device.get(device, {})
+        fit_row = fit_by_device.get(device, {})
+        reasons = ["not_in_selected_pressure_completion_scope"]
+        if str(fit_row.get("status") or "").strip().lower() != "pass":
+            reasons.append("post_write_pressure_fit_not_pass")
+        if str(write_row.get("status") or "").strip() != "written_readback_verified":
+            reasons.append("senco9_write_not_verified")
+        excluded_rows.append(
+            {
+                "analyzer_prefix": write_row.get("analyzer_prefix") or fit_row.get("analyzer_prefix") or "",
+                "analyzer_device_id": device,
+                "exclusion_status": "excluded_from_this_completion_scope",
+                "exclusion_reasons": ";".join(reasons),
+                "post_write_fit_status": fit_row.get("status", ""),
+                "valid_pair_count": fit_row.get("valid_pair_count", ""),
+                "distinct_pressure_points": fit_row.get("distinct_pressure_points", ""),
+                "can_enter_open_flow_main_calibration": False,
+                "pressure_channel_only": True,
+                "not_co2_h2o_fit_evidence": True,
+            }
+        )
     device_rows: List[Dict[str, Any]] = []
     for device in all_devices:
         write_row = write_by_device.get(device, {})
@@ -251,12 +300,28 @@ def build_pressure_channel_completion_tables(
         )
 
     all_ready = bool(device_rows) and all(row["readiness_status"] == "pass" for row in device_rows)
+    limitation_rows: List[Dict[str, Any]] = []
+    for item in known_limitations or []:
+        limitation_rows.append(
+            {
+                "limitation_id": str(item.get("limitation_id") or item.get("id") or ""),
+                "status": str(item.get("status") or "engineering_diagnostic"),
+                "reason": str(item.get("reason") or ""),
+                "impact": str(item.get("impact") or ""),
+                "blocks_selected_device_completion": _truthy(item.get("blocks_selected_device_completion")),
+                "pressure_channel_only": True,
+                "not_co2_h2o_fit_evidence": True,
+            }
+        )
     summary_rows = [
         {
             "overall_status": "ready_for_open_flow_main_calibration" if all_ready else "blocked",
+            "completion_scope_device_ids": ",".join(all_devices),
             "device_count": len(device_rows),
             "ready_device_count": sum(1 for row in device_rows if row["readiness_status"] == "pass"),
             "blocked_device_count": sum(1 for row in device_rows if row["readiness_status"] != "pass"),
+            "excluded_device_count": len(excluded_rows),
+            "known_limitation_count": len(limitation_rows),
             "pressure_reference_status": traceability_rows[0].get("status", ""),
             "pressure_reference_validation_level": traceability_rows[0].get("validation_level", ""),
             "pressure_reference_certificate_id": traceability_rows[0].get("certificate_id", ""),
@@ -286,6 +351,17 @@ def build_pressure_channel_completion_tables(
             "reason": "" if all_ready else "one_or_more_pressure_channel_completion_checks_failed",
         }
     ]
+    policy_rows = [
+        {
+            "policy_id": "pressure_channel_completion_acceptance_policy",
+            "max_abs_offset_kpa_limit": float(max_abs_offset_kpa),
+            "max_residual_hpa_limit": float(max_residual_hpa),
+            "scope": "independent_pressure_input_readiness_for_open_flow_co2_h2o",
+            "not_pressure_compensation_acceptance": True,
+            "not_co2_h2o_fit_evidence": True,
+            "note": str(acceptance_policy_note or "").strip(),
+        }
+    ]
     artifacts = _artifact_rows(
         {
             "senco9_write_summary": senco9_write_summary_path,
@@ -298,8 +374,11 @@ def build_pressure_channel_completion_tables(
     return {
         "pressure_channel_completion_summary": summary_rows,
         "pressure_channel_device_readiness": device_rows,
+        "pressure_channel_excluded_devices": excluded_rows,
+        "pressure_channel_known_limitations": limitation_rows,
         "pressure_channel_traceability": traceability_rows,
         "pressure_channel_readiness_gate": gate_rows,
+        "pressure_channel_acceptance_policy": policy_rows,
         "pressure_channel_completion_artifacts": artifacts,
     }
 
@@ -313,9 +392,14 @@ def _write_markdown_report(destination: Path, tables: Mapping[str, Sequence[Mapp
         "# V1.5 Pressure Channel Completion Report",
         "",
         f"- Overall status: {summary.get('overall_status', '')}",
+        f"- Completion scope: {summary.get('completion_scope_device_ids', '')}",
         f"- Ready devices: {summary.get('ready_device_count', 0)} / {summary.get('device_count', 0)}",
+        f"- Excluded devices: {summary.get('excluded_device_count', 0)}",
+        f"- Known limitations: {summary.get('known_limitation_count', 0)}",
         f"- Pressure reference: {trace.get('certificate_id', '')} ({trace.get('status', '')})",
         f"- Certificate hash: {trace.get('certificate_hash', '')}",
+        f"- Offset limit: {summary.get('max_abs_offset_kpa_limit', '')} kPa",
+        f"- Residual limit: {summary.get('max_residual_hpa_limit', '')} hPa",
         "- Boundary: offline evidence consolidation only; no COM ports opened, no PACE/valve/water/gas route control, no coefficient writes.",
         "",
         "## Device Readiness",
@@ -336,6 +420,67 @@ def _write_markdown_report(destination: Path, tables: Mapping[str, Sequence[Mapp
                 status=row.get("readiness_status", ""),
             )
         )
+    excluded = list(tables.get("pressure_channel_excluded_devices") or [])
+    if excluded:
+        lines.extend(
+            [
+                "",
+                "## Excluded Devices",
+                "",
+                "| Analyzer | Device ID | Reason | Post-write fit status |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for row in excluded:
+            lines.append(
+                "| {prefix} | {device} | {reason} | {fit} |".format(
+                    prefix=row.get("analyzer_prefix", ""),
+                    device=row.get("analyzer_device_id", ""),
+                    reason=row.get("exclusion_reasons", ""),
+                    fit=row.get("post_write_fit_status", ""),
+                )
+            )
+    limitations = list(tables.get("pressure_channel_known_limitations") or [])
+    if limitations:
+        lines.extend(
+            [
+                "",
+                "## Known Limitations",
+                "",
+                "| Limitation | Status | Reason | Impact |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        for row in limitations:
+            lines.append(
+                "| {item} | {status} | {reason} | {impact} |".format(
+                    item=row.get("limitation_id", ""),
+                    status=row.get("status", ""),
+                    reason=row.get("reason", ""),
+                    impact=row.get("impact", ""),
+                )
+            )
+    policy = list(tables.get("pressure_channel_acceptance_policy") or [])
+    if policy:
+        lines.extend(
+            [
+                "",
+                "## Acceptance Policy",
+                "",
+                "| Policy | Scope | Offset limit kPa | Residual limit hPa | Note |",
+                "| --- | --- | ---: | ---: | --- |",
+            ]
+        )
+        for row in policy:
+            lines.append(
+                "| {policy} | {scope} | {offset} | {residual} | {note} |".format(
+                    policy=row.get("policy_id", ""),
+                    scope=row.get("scope", ""),
+                    offset=row.get("max_abs_offset_kpa_limit", ""),
+                    residual=row.get("max_residual_hpa_limit", ""),
+                    note=str(row.get("note", "")).replace("|", "/"),
+                )
+            )
     lines.extend(
         [
             "",
@@ -360,8 +505,11 @@ def write_pressure_channel_completion_report(
     pressure_reference_path: str | Path,
     pressure_reference_traceability_path: str | Path | None = None,
     old_getco_snapshot_path: str | Path | None = None,
+    selected_device_ids: Optional[Sequence[str]] = None,
+    known_limitations: Optional[Sequence[Mapping[str, Any]]] = None,
     max_abs_offset_kpa: float = 0.05,
     max_residual_hpa: float = 0.5,
+    acceptance_policy_note: str = "",
     today: Any = None,
 ) -> Dict[str, Path]:
     """Write the pressure-channel completion workbook, CSVs, and markdown report."""
@@ -373,8 +521,11 @@ def write_pressure_channel_completion_report(
         pressure_reference_path=pressure_reference_path,
         pressure_reference_traceability_path=pressure_reference_traceability_path,
         old_getco_snapshot_path=old_getco_snapshot_path,
+        selected_device_ids=selected_device_ids,
+        known_limitations=known_limitations,
         max_abs_offset_kpa=max_abs_offset_kpa,
         max_residual_hpa=max_residual_hpa,
+        acceptance_policy_note=acceptance_policy_note,
         today=today,
     )
     devices = [
@@ -396,6 +547,9 @@ def write_pressure_channel_completion_report(
         config_summary={
             "max_abs_offset_kpa": float(max_abs_offset_kpa),
             "max_residual_hpa": float(max_residual_hpa),
+            "acceptance_policy_note": str(acceptance_policy_note or "").strip(),
+            "selected_device_ids": _normalize_device_ids(selected_device_ids),
+            "known_limitations": list(known_limitations or []),
             "opens_com_ports": False,
             "controls_water_or_gas_routes": False,
             "writes_coefficients": False,

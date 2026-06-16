@@ -94,6 +94,11 @@ def _write_inputs(tmp_path, *, expired=False, residual="0.22"):
     return write_summary, fit_summary, traceability, reference, old_getco
 
 
+def _append_csv(path, rows):
+    existing = _read_csv(path)
+    _write_csv(path, existing + rows)
+
+
 def test_pressure_channel_completion_marks_ready_when_all_evidence_passes(tmp_path):
     write_summary, fit_summary, traceability, reference, old_getco = _write_inputs(tmp_path)
 
@@ -114,6 +119,72 @@ def test_pressure_channel_completion_marks_ready_when_all_evidence_passes(tmp_pa
     assert device["can_enter_open_flow_main_calibration"] is True
     assert device["can_write_co2_h2o_coefficients"] is False
     assert device["not_co2_h2o_fit_evidence"] is True
+
+
+def test_pressure_channel_completion_can_scope_selected_devices_and_record_limitations(tmp_path):
+    write_summary, fit_summary, traceability, reference, old_getco = _write_inputs(tmp_path)
+    _append_csv(
+        fit_summary,
+        [
+            {
+                "analyzer_prefix": "ga06",
+                "analyzer_device_id": "090",
+                "status": "insufficient_evidence",
+                "valid_pair_count": "0",
+                "distinct_pressure_points": "0",
+                "reference_span_hpa": "0",
+            }
+        ],
+    )
+
+    tables = build_pressure_channel_completion_tables(
+        senco9_write_summary_path=write_summary,
+        post_write_fit_summary_path=fit_summary,
+        pressure_reference_path=reference,
+        pressure_reference_traceability_path=traceability,
+        old_getco_snapshot_path=old_getco,
+        selected_device_ids=["023"],
+        known_limitations=[
+            {
+                "limitation_id": "500hpa_low_pressure_micro_leak",
+                "reason": "excluded_from_formal_pressure_fit",
+                "impact": "500 hPa remains engineering diagnostic until the leak is repaired.",
+            }
+        ],
+        today="2026-05-25",
+    )
+
+    summary = tables["pressure_channel_completion_summary"][0]
+    gate = tables["pressure_channel_readiness_gate"][0]
+    assert summary["overall_status"] == "ready_for_open_flow_main_calibration"
+    assert summary["completion_scope_device_ids"] == "023"
+    assert summary["excluded_device_count"] == 1
+    assert gate["status"] == "pass"
+    assert tables["pressure_channel_excluded_devices"][0]["analyzer_device_id"] == "090"
+    assert "post_write_pressure_fit_not_pass" in tables["pressure_channel_excluded_devices"][0]["exclusion_reasons"]
+    assert tables["pressure_channel_known_limitations"][0]["limitation_id"] == "500hpa_low_pressure_micro_leak"
+
+
+def test_pressure_channel_completion_records_acceptance_policy_note(tmp_path):
+    write_summary, fit_summary, traceability, reference, old_getco = _write_inputs(tmp_path)
+
+    tables = build_pressure_channel_completion_tables(
+        senco9_write_summary_path=write_summary,
+        post_write_fit_summary_path=fit_summary,
+        pressure_reference_path=reference,
+        pressure_reference_traceability_path=traceability,
+        old_getco_snapshot_path=old_getco,
+        max_abs_offset_kpa=0.08,
+        acceptance_policy_note="Near-atmospheric open-flow component calibration precondition.",
+        today="2026-05-25",
+    )
+
+    policy = tables["pressure_channel_acceptance_policy"][0]
+    summary = tables["pressure_channel_completion_summary"][0]
+    assert policy["max_abs_offset_kpa_limit"] == 0.08
+    assert policy["not_pressure_compensation_acceptance"] is True
+    assert "Near-atmospheric" in policy["note"]
+    assert summary["max_abs_offset_kpa_limit"] == 0.08
 
 
 def test_pressure_channel_completion_blocks_expired_reference(tmp_path):
@@ -151,6 +222,12 @@ def test_pressure_channel_completion_cli_writes_report(tmp_path):
             str(old_getco),
             "--output-dir",
             str(out_dir),
+            "--device-id",
+            "023",
+            "--known-limitation",
+            "500hpa_low_pressure_micro_leak|excluded_from_formal_pressure_fit|500 hPa remains diagnostic until repaired",
+            "--acceptance-policy-note",
+            "CLI policy note",
             "--today",
             "2026-05-25",
         ]
@@ -159,5 +236,8 @@ def test_pressure_channel_completion_cli_writes_report(tmp_path):
     assert rc == 0
     rows = _read_csv(out_dir / "pressure_channel_completion_summary.csv")
     assert rows[0]["overall_status"] == "ready_for_open_flow_main_calibration"
+    assert rows[0]["completion_scope_device_ids"] == "023"
+    policy_rows = _read_csv(out_dir / "pressure_channel_acceptance_policy.csv")
+    assert policy_rows[0]["note"] == "CLI policy note"
     assert (out_dir / "pressure_channel_completion_report.md").exists()
     assert (out_dir / "pressure_channel_completion.xlsx").exists()

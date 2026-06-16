@@ -176,7 +176,7 @@ def test_controlled_senco9_write_requires_explicit_unlock(tmp_path):
             "--inter-device-delay-s",
             "0",
             "--restore-command-gap-s",
-            "0",
+            "1",
         ]
     )
 

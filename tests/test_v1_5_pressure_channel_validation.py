@@ -315,6 +315,40 @@ def test_pressure_channel_tables_detect_prefixes_from_quick_check_long_rows():
     assert [row["analyzer_prefix"] for row in tables["pressure_validation_summary"]] == ["ga01", "ga02"]
 
 
+def test_pressure_channel_tables_accept_device_id_prefix_from_archive_rows():
+    rows = []
+    for index in range(1, 4):
+        rows.append(
+            {
+                "sample_index": index,
+                "sample_ts": f"2026-05-30T12:00:{index:02d}",
+                "pressure_mode": "ambient_open",
+                "pressure_channel_row_status": "paired",
+                "source_analyzer_prefix": "ga03",
+                "analyzer_prefix": "ga022",
+                "analyzer_device_id": "022",
+                "analyzer_pressure_kpa": 100.05,
+                "com22_pressure_hpa": 1000.5,
+                "pressure_atmosphere_hold_status": "verified",
+                "pressure_atmosphere_hold_active": "true",
+            }
+        )
+
+    assert detect_pressure_analyzer_prefixes(rows) == ["ga022"]
+    tables = build_pressure_channel_tables(
+        rows,
+        pressure_reference=_reference(),
+        analyzer_prefix="all",
+        today="2026-05-30",
+    )
+
+    summary = tables["pressure_validation_summary"][0]
+    assert summary["analyzer_prefix"] == "ga022"
+    assert summary["analyzer_device_id"] == "022"
+    assert summary["status"] == "pass"
+    assert len(tables["paired_samples"]) == 3
+
+
 def test_pressure_channel_report_and_cli_write_sidecar_artifacts(tmp_path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -495,6 +529,32 @@ def test_pressure_senco9_fit_tables_and_cli_are_no_write_sidecar_artifacts(tmp_p
     )
     assert rc == 0
     assert (cli_dir / "pressure_fit_summary.csv").exists()
+
+
+def test_pressure_senco9_report_prefers_full_samples_over_quick_check_sidecar(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    samples_path = run_dir / "samples_20260607_160006.csv"
+    quick_check_path = run_dir / "pressure_channel_quick_check_latest.csv"
+    _write_csv(samples_path, _pressure_scan_rows(offset_kpa=0.7))
+    _write_csv(
+        quick_check_path,
+        _rows(3, analyzer_kpa=99.25, com22_hpa=1000.0),
+    )
+    reference_path = tmp_path / "pressure_reference.json"
+    reference_path.write_text(json.dumps(_reference(), ensure_ascii=False), encoding="utf-8")
+
+    outputs = write_pressure_senco9_fit_report(
+        run_dir=run_dir,
+        pressure_reference_path=reference_path,
+        output_dir=tmp_path / "senco9_report",
+        today="2026-06-07",
+    )
+
+    summary = _read_csv(outputs["pressure_fit_summary_csv"])
+    assert summary[0]["recommendation"] == "review_senco9_offset_candidate_no_write"
+    assert summary[0]["valid_pair_count"] == "15"
+    assert summary[0]["distinct_pressure_points"] == "3"
 
 
 def test_pressure_channel_report_cli_supports_all_analyzer_prefixes(tmp_path):

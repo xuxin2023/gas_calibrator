@@ -22,6 +22,7 @@ from ..devices import GasAnalyzer
 from ..validation.common import load_csv_rows
 from ..validation.reporting import ValidationMetadata, write_validation_report
 from .run_v1_corrected_autodelivery import write_senco_groups_with_full_verification
+from .v1_5_serial_safety import require_fragile_serial_timing
 
 
 CONFIRMATION_TEXT = "WRITE_SENCO9_V1_5_PRESSURE_ONLY"
@@ -272,7 +273,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--restore-command-gap-s",
         type=float,
-        default=0.5,
+        default=1.0,
         help="Delay between runtime restore commands.",
     )
     parser.add_argument(
@@ -295,7 +296,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--coefficient-read-delay-s",
         type=float,
-        default=0.2,
+        default=1.0,
         help="Delay after GETCO command before reading response.",
     )
     parser.add_argument(
@@ -315,6 +316,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
+    try:
+        require_fragile_serial_timing(args, tool_name="run_v1_5_pressure_senco9_controlled_write")
+    except ValueError as exc:
+        _log(str(exc))
+        return 2
     if not args.enable_senco9_write or args.operator_confirmation != CONFIRMATION_TEXT:
         _log("Refusing SENCO9 write: pass --enable-senco9-write and the exact operator confirmation text.")
         return 2

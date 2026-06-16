@@ -586,8 +586,38 @@ def test_enable_control_output_sets_active_mode_and_output_on(monkeypatch) -> No
 
     dev.enable_control_output()
 
+    assert not any(":REM" in w for w in dev.ser.writes)
     assert any(":OUTP:MODE ACT" in w for w in dev.ser.writes)
     assert any(":OUTP 1" in w for w in dev.ser.writes)
+    assert not any(":OUTP:STAT 1" in w for w in dev.ser.writes)
+
+
+def test_set_range_uses_source_pressure_range_command(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    dev.set_range("2.00bara")
+
+    assert any(':SOUR:PRES:RANG "2.00bara"' in w for w in dev.ser.writes)
 
 
 def test_set_setpoint_uses_level_amplitude_command(monkeypatch) -> None:

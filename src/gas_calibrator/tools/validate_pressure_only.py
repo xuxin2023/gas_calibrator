@@ -54,6 +54,63 @@ def _truthy(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "pass", "ok", "verified"}
 
 
+def _cfg_get(mapping: Mapping[str, Any], path: str, default: Any = None) -> Any:
+    current: Any = mapping
+    for part in str(path or "").split("."):
+        if not isinstance(current, Mapping):
+            return default
+        if part not in current:
+            return default
+        current = current[part]
+    return current
+
+
+def _pressure_control_range(cfg: Mapping[str, Any]) -> str:
+    # Range switching is an explicit opt-in. The proven V1.5 pressure-control
+    # contract did not force a range when the site config carried
+    # control_range_enabled=false.
+    enabled = _truthy(_cfg_get(cfg, "workflow.pressure.control_range_enabled", False)) or _truthy(
+        _cfg_get(cfg, "devices.pressure_controller.control_range_enabled", False)
+    )
+    if not enabled:
+        return ""
+    for path in ("workflow.pressure.control_range", "devices.pressure_controller.control_range"):
+        text = str(_cfg_get(cfg, path, "") or "").strip()
+        if text:
+            return text.replace('"', "")
+    return ""
+
+
+def _normalize_pressure_control_setpoint_mode(value: Any) -> str:
+    text = str(value or "").strip().lower().replace("-", "_")
+    if text in {"", "auto", "auto_absolute_or_gauge", "absolute_or_gauge", "hybrid"}:
+        return "auto"
+    if text in {"gauge_from_atmosphere", "gauge", "barg", "relative_to_atmosphere"}:
+        return "gauge_from_atmosphere"
+    return "absolute"
+
+
+def _pressure_control_source_range(
+    cfg: Mapping[str, Any],
+    *,
+    setpoint_mode: str,
+    target_hpa: Optional[float] = None,
+    atmosphere_reference_hpa: Optional[float] = None,
+) -> str:
+    configured = _pressure_control_range(cfg)
+    if configured:
+        return configured
+    mode = _normalize_pressure_control_setpoint_mode(setpoint_mode)
+    if mode == "auto":
+        if target_hpa is not None and atmosphere_reference_hpa is not None:
+            if float(target_hpa) < float(atmosphere_reference_hpa):
+                return "1.00barg"
+        return "2.00bara"
+    if mode == "gauge_from_atmosphere":
+        return "1.00barg"
+    return ""
+
+
 def _decorate_pressure_validation_point(
     point: Any,
     target: Optional[float],
@@ -106,10 +163,14 @@ def _prepare_runtime_cfg(
     cfg: Dict[str, Any],
     *,
     analyzer_active_upload_hz: Optional[int] = None,
+    enable_route_relays_for_control: bool = False,
 ) -> Dict[str, Any]:
     runtime_cfg = copy.deepcopy(cfg)
     devices_cfg = runtime_cfg.setdefault("devices", {})
-    for key in ("humidity_generator", "dewpoint_meter", "relay", "relay_8", "temperature_chamber", "thermometer"):
+    disabled_device_keys = ["humidity_generator", "dewpoint_meter", "temperature_chamber", "thermometer"]
+    if not enable_route_relays_for_control:
+        disabled_device_keys.extend(["relay", "relay_8"])
+    for key in disabled_device_keys:
         if isinstance(devices_cfg.get(key), dict):
             devices_cfg[key]["enabled"] = False
     workflow_cfg = runtime_cfg.setdefault("workflow", {})
@@ -127,6 +188,9 @@ def _prepare_runtime_cfg(
     )
     runtime_cfg.setdefault("metadata", {})["pressure_only_analyzer_startup_policy"] = (
         "read_first_no_startup_config_writes"
+    )
+    runtime_cfg["metadata"]["pressure_only_route_relays_enabled_for_control"] = bool(
+        enable_route_relays_for_control
     )
     if analyzer_active_upload_hz is not None:
         _apply_analyzer_active_upload_hz(runtime_cfg, int(analyzer_active_upload_hz))
@@ -172,6 +236,26 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="COM22/PACE reference tolerance for a controlled pressure plateau.",
     )
     parser.add_argument(
+        "--pressure-control-actual-anchor-near-nominal-hpa",
+        type=float,
+        default=5.0,
+        help=(
+            "Allow pressure-channel no-write sampling at the actual stable "
+            "reference pressure when it is this close to the commanded nominal "
+            "target. The actual reference pressure is recorded and must be used "
+            "for fitting; this does not relabel the point as the nominal target."
+        ),
+    )
+    parser.add_argument(
+        "--pressure-control-actual-anchor-stability-hpa",
+        type=float,
+        default=None,
+        help=(
+            "Maximum span of the actual pressure window for the near-nominal "
+            "actual-pressure anchor. Defaults to --pressure-control-tolerance-hpa."
+        ),
+    )
+    parser.add_argument(
         "--pressure-control-stable-s",
         type=float,
         default=5.0,
@@ -190,10 +274,55 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Polling interval while waiting for controlled pressure stability.",
     )
     parser.add_argument(
+        "--pressure-control-setpoint-mode",
+        choices=["absolute", "auto", "gauge-from-atmosphere"],
+        default="absolute",
+        help=(
+            "PACE setpoint contract for controlled pressure points. The V1.5 "
+            "sealed pressure-channel workflow defaults to absolute: targets are "
+            "written as absolute hPa on the 2.00bara source range. Use "
+            "gauge-from-atmosphere only for an explicit relative-pressure "
+            "engineering probe."
+        ),
+    )
+    parser.add_argument(
+        "--pressure-control-slew-mode",
+        choices=["max", "linear"],
+        default="max",
+        help=(
+            "PACE slew mode for controlled pressure points. The restored K0472 "
+            "pressure-calibration contract defaults to MAX because the current "
+            "controller builds pressure reliably with ACT + MAX + overshoot."
+        ),
+    )
+    parser.add_argument(
+        "--pressure-control-allow-overshoot",
+        dest="pressure_control_overshoot_allowed",
+        action="store_true",
+        default=True,
+        help=(
+            "Allow PACE SLEW:OVER 1. This is the default for sealed pressure "
+            "calibration because short diagnostics showed linear/no-overshoot "
+            "left the controller output on with no pressure build."
+        ),
+    )
+    parser.add_argument(
+        "--pressure-control-no-overshoot",
+        dest="pressure_control_overshoot_allowed",
+        action="store_false",
+        help=(
+            "Force PACE SLEW:OVER 0 for diagnostics. Do not use this as the "
+            "default sealed pressure calibration contract on the current K0472."
+        ),
+    )
+    parser.add_argument(
         "--pressure-control-slew-hpa-per-s",
         type=float,
         default=10.0,
-        help="PACE slew rate used only when --control-pressure-points is set.",
+        help=(
+            "PACE linear slew rate used only when --control-pressure-points is "
+            "set and --pressure-control-slew-mode=linear."
+        ),
     )
     parser.add_argument(
         "--pressure-control-atmosphere-release-wait-s",
@@ -212,6 +341,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         type=float,
         default=1.2,
         help="Drain active analyzer upload streams after pressure stability wait to avoid stale pressure frames.",
+    )
+    parser.add_argument(
+        "--no-pressure-control-fast-anchor",
+        action="store_true",
+        help=(
+            "Disable the V1.5 fast pressure-window anchor and re-qualify pressure "
+            "after the post-stable analyzer stream wait. The default preserves the "
+            "first verified sealed-pressure window so sampling is not delayed until "
+            "the closed volume has already drifted."
+        ),
     )
     parser.add_argument(
         "--pre-sample-freshness-timeout-s",
@@ -344,6 +483,34 @@ def _ensure_pressure_atmosphere_hold(
     return fields
 
 
+def _prestart_pressure_atmosphere_hold_for_control(
+    runner: CalibrationRunner,
+    *,
+    pressure_points: Sequence[Optional[float]],
+    control_pressure_points: bool,
+    enabled: bool,
+    require: bool,
+) -> Optional[Dict[str, Any]]:
+    """Restore the proven V1.5 PACE precondition before sealed setpoints.
+
+    The successful pressure-only runs kept PACE continuously vented while the
+    analyzer streams were configured, then released that hold immediately before
+    the first sealed pressure target. Non-ambient-only runs still need that
+    pre-control atmosphere state even though they do not sample an ambient row.
+    """
+
+    has_controlled_point = bool(control_pressure_points) and any(target is not None for target in pressure_points)
+    has_ambient_point = any(target is None for target in pressure_points)
+    if not has_controlled_point or has_ambient_point:
+        return None
+    return _ensure_pressure_atmosphere_hold(
+        runner,
+        enabled=enabled,
+        require=require,
+        reason="pressure channel no-write pre-control continuous atmosphere hold",
+    )
+
+
 def _annotate_rows_with_pressure_atmosphere_hold(
     rows: Sequence[Dict[str, Any]],
     fields: Mapping[str, Any],
@@ -396,6 +563,18 @@ def _pressure_control_fields(
         "pressure_control_writes_senco": False,
         "pressure_control_writes_device_id": False,
         "pressure_control_not_real_acceptance_evidence": True,
+        "pressure_control_nominal_target_hpa": target_hpa if target_hpa is not None else "",
+        "pressure_control_actual_anchor_policy": "",
+        "pressure_control_actual_anchor_reference_hpa": "",
+        "pressure_control_actual_anchor_control_hpa": "",
+        "pressure_control_actual_offset_from_nominal_hpa": "",
+        "pressure_control_actual_anchor_near_nominal_hpa": "",
+        "pressure_control_actual_anchor_stability_hpa": "",
+        "pressure_control_setpoint_mode": "",
+        "pressure_control_source_range": "",
+        "pressure_control_command_setpoint_hpa": "",
+        "pressure_control_atmosphere_reference_hpa": "",
+        "pressure_control_pace_pressure_read_mode": "",
     }
 
 
@@ -417,6 +596,85 @@ def _call_pressure_gauge_read(pressure_gauge: Any) -> float:
         return float(read())
 
 
+def _call_pressure_gauge_reference_read(pressure_gauge: Any) -> float:
+    read = getattr(pressure_gauge, "read_pressure", None)
+    if callable(read):
+        try:
+            return float(read(response_timeout_s=2.2, retries=3, clear_buffer=True))
+        except TypeError:
+            return float(read())
+        except Exception:
+            pass
+    return _call_pressure_gauge_read(pressure_gauge)
+
+
+def _pressure_control_setpoint_mode_from_runner(runner: CalibrationRunner) -> str:
+    explicit = getattr(runner, "_pressure_control_requested_setpoint_mode", None)
+    if explicit:
+        return _normalize_pressure_control_setpoint_mode(explicit)
+    return _normalize_pressure_control_setpoint_mode(
+        _cfg_get(runner.cfg, "workflow.pressure.control_setpoint_mode", "absolute")
+    )
+
+
+def _pressure_control_atmosphere_reference_hpa(
+    runner: CalibrationRunner,
+    pace: Any,
+) -> Optional[float]:
+    current = getattr(runner, "_pressure_control_atmosphere_reference_hpa", None)
+    if current is not None:
+        try:
+            return float(current)
+        except Exception:
+            pass
+    pressure_gauge = runner.devices.get("pressure_gauge")
+    if pressure_gauge is not None:
+        try:
+            value = float(_call_pressure_gauge_reference_read(pressure_gauge))
+            setattr(runner, "_pressure_control_atmosphere_reference_hpa", value)
+            setattr(runner, "_pressure_control_atmosphere_reference_source", "com22_pressure_reference")
+            return value
+        except Exception:
+            pass
+    read_pressure = getattr(pace, "read_pressure", None)
+    if not callable(read_pressure):
+        return None
+    try:
+        value = float(read_pressure())
+    except Exception:
+        return None
+    setattr(runner, "_pressure_control_atmosphere_reference_hpa", value)
+    setattr(runner, "_pressure_control_atmosphere_reference_source", "pace_pressure_fallback")
+    return value
+
+
+def _read_pace_pressure_for_control(
+    runner: CalibrationRunner,
+    pace: Any,
+) -> tuple[Optional[float], str, str]:
+    mode = _normalize_pressure_control_setpoint_mode(
+        getattr(runner, "_pressure_control_effective_setpoint_mode", None)
+        or _pressure_control_setpoint_mode_from_runner(runner)
+    )
+    if mode == "gauge_from_atmosphere":
+        atmosphere_hpa = getattr(runner, "_pressure_control_atmosphere_reference_hpa", None)
+        read_gauge = getattr(pace, "read_gauge_pressure", None)
+        if atmosphere_hpa is not None and callable(read_gauge):
+            try:
+                gauge_hpa = float(read_gauge())
+                return float(atmosphere_hpa) + gauge_hpa, "", "gauge_plus_atmosphere"
+            except Exception as exc:
+                return None, f"pace_gauge:{exc}", "gauge_plus_atmosphere"
+        return None, "pace_gauge:atmosphere_reference_or_reader_unavailable", "gauge_plus_atmosphere"
+    read_pressure = getattr(pace, "read_pressure", None)
+    if callable(read_pressure):
+        try:
+            return float(read_pressure()), "", "absolute_read_pressure"
+        except Exception as exc:
+            return None, f"pace:{exc}", "absolute_read_pressure"
+    return None, "pace:read_unavailable", "absolute_read_pressure"
+
+
 def _read_pressure_reference_pair(runner: CalibrationRunner) -> tuple[Optional[float], Optional[float], str]:
     pressure_gauge = runner.devices.get("pressure_gauge")
     pace = runner.devices.get("pace")
@@ -431,17 +689,50 @@ def _read_pressure_reference_pair(runner: CalibrationRunner) -> tuple[Optional[f
     else:
         errors.append("com22:unavailable")
     if pace is not None:
-        read_pressure = getattr(pace, "read_pressure", None)
-        if callable(read_pressure):
-            try:
-                pace_hpa = float(read_pressure())
-            except Exception as exc:
-                errors.append(f"pace:{exc}")
-        else:
-            errors.append("pace:read_unavailable")
+        pace_hpa, pace_error, read_mode = _read_pace_pressure_for_control(runner, pace)
+        setattr(runner, "_pressure_control_pace_pressure_read_mode", read_mode)
+        if pace_error:
+            errors.append(pace_error)
     else:
         errors.append("pace:unavailable")
     return com22_hpa, pace_hpa, ";".join(errors)
+
+
+def _pressure_control_measurement(
+    *,
+    com22_hpa: Optional[float],
+    pace_hpa: Optional[float],
+    target_hpa: float,
+    reference_target_guard_hpa: float,
+) -> Dict[str, Any]:
+    control_hpa = pace_hpa if pace_hpa is not None else com22_hpa
+    reference_hpa = com22_hpa if com22_hpa is not None else pace_hpa
+    control_role = (
+        "pace_internal_pressure"
+        if pace_hpa is not None
+        else ("com22_pressure_reference" if com22_hpa is not None else "pressure_reference_unavailable")
+    )
+    control_error = None if control_hpa is None else float(control_hpa) - float(target_hpa)
+    reference_error = None if reference_hpa is None else float(reference_hpa) - float(target_hpa)
+    pace_reference_delta = (
+        None if pace_hpa is None or com22_hpa is None else float(pace_hpa) - float(com22_hpa)
+    )
+    reference_consistent = (
+        pace_reference_delta is None or abs(float(pace_reference_delta)) <= float(reference_target_guard_hpa)
+    )
+    reference_near_nominal = (
+        reference_error is None or abs(float(reference_error)) <= float(reference_target_guard_hpa)
+    )
+    return {
+        "control_hpa": control_hpa,
+        "reference_hpa": reference_hpa,
+        "control_role": control_role,
+        "control_error": control_error,
+        "reference_error": reference_error,
+        "pace_reference_delta": pace_reference_delta,
+        "reference_consistent": reference_consistent,
+        "reference_near_nominal": reference_near_nominal,
+    }
 
 
 def _safe_pace_state(pace: Any, name: str) -> Any:
@@ -513,6 +804,10 @@ def _close_vent_after_valve_if_supported(pace: Any) -> tuple[Any, str]:
         return "", f"readback_failed:{exc}"
 
 
+def _pressure_control_aux_vent_after_valve_enabled(cfg: Mapping[str, Any]) -> bool:
+    return _truthy(_cfg_get(cfg, "workflow.pressure.vent_after_valve_open", False))
+
+
 def _release_pressure_atmosphere_before_control(
     runner: CalibrationRunner,
     *,
@@ -532,9 +827,11 @@ def _release_pressure_atmosphere_before_control(
     if not vent_off_ok:
         reason_parts.append("vent_off_failed")
 
-    vent_after_valve_open, aux_reason = _close_vent_after_valve_if_supported(pace)
-    if aux_reason and aux_reason != "unsupported":
-        reason_parts.append(f"vent_after_valve:{aux_reason}")
+    vent_after_valve_open: Any = ""
+    if _pressure_control_aux_vent_after_valve_enabled(runner.cfg):
+        vent_after_valve_open, aux_reason = _close_vent_after_valve_if_supported(pace)
+        if aux_reason and aux_reason != "unsupported":
+            reason_parts.append(f"vent_after_valve:{aux_reason}")
 
     settle_s = max(0.0, float(wait_s or 0.0))
     if settle_s > 0:
@@ -551,7 +848,7 @@ def _release_pressure_atmosphere_before_control(
     vent_status = _safe_pace_state(pace, "get_vent_status")
     output_state = _safe_pace_state(pace, "get_output_state")
     isolation_state = _safe_pace_state(pace, "get_isolation_state")
-    if vent_after_valve_open == "":
+    if vent_after_valve_open == "" and _pressure_control_aux_vent_after_valve_enabled(runner.cfg):
         vent_after_valve_open = _pace_vent_after_valve_open(pace)
 
     hold_stopped = hold_active is False or hold_active == ""
@@ -584,6 +881,59 @@ def _release_pressure_atmosphere_before_control(
     if status != "verified":
         raise RuntimeError(f"PRESSURE_ATMOSPHERE_RELEASE_NOT_VERIFIED:{fields['pressure_control_atmosphere_release_reason']}")
     return fields
+
+
+def _reuse_closed_pressure_volume_fields(runner: CalibrationRunner) -> Dict[str, Any]:
+    pace = runner.devices.get("pace")
+    if pace is None:
+        raise RuntimeError("PRESSURE_CONTROL_PACE_UNAVAILABLE")
+    return {
+        "pressure_control_atmosphere_release_status": "verified",
+        "pressure_control_atmosphere_release_reason": "reused_closed_pressure_volume_between_control_points",
+        "pressure_control_atmosphere_release_wait_s": 0.0,
+        "pressure_control_atmosphere_release_hold_active": _pace_hold_active(pace),
+        "pressure_control_atmosphere_release_vent_status": _safe_pace_state(pace, "get_vent_status"),
+        "pressure_control_atmosphere_release_output_state": _safe_pace_state(pace, "get_output_state"),
+        "pressure_control_atmosphere_release_isolation_state": _safe_pace_state(pace, "get_isolation_state"),
+        "pressure_control_atmosphere_release_vent_after_valve_open": _pace_vent_after_valve_open(pace),
+    }
+
+
+def _seal_pressure_validation_route_before_control(runner: CalibrationRunner) -> Dict[str, Any]:
+    """Close the downstream route before PACE setpoint/output control.
+
+    This mirrors the protected V1.5/V2 seal-then-control contract used by the
+    route runners.  Pressure-channel validation is not a CO2/H2O fitting point,
+    but non-ambient pressure control still needs a closed downstream volume.
+    """
+    try:
+        runner._apply_valve_states([])
+    except Exception as exc:
+        raise RuntimeError(f"PRESSURE_CONTROL_ROUTE_SEAL_FAILED:{exc}") from exc
+    actual_open: Any = ""
+    try:
+        actual_open = ",".join(str(v) for v in runner._cached_actual_open_valves())
+    except Exception:
+        actual_open = ""
+    return {
+        "pressure_control_controls_water_or_gas_routes": True,
+        "pressure_control_route_sealed_before_setpoint": True,
+        "pressure_control_route_seal_reason": "pressure_validation_closed_downstream_volume_before_pace_control",
+        "pressure_control_actual_open_valves_after_route_seal": actual_open,
+    }
+
+
+def _pressure_validation_route_seal_enabled(cfg: Mapping[str, Any]) -> bool:
+    return _truthy(_cfg_get(cfg, "workflow.pressure.pressure_only_route_seal_enabled", False))
+
+
+def _pressure_validation_route_seal_fields_not_applicable() -> Dict[str, Any]:
+    return {
+        "pressure_control_controls_water_or_gas_routes": False,
+        "pressure_control_route_sealed_before_setpoint": False,
+        "pressure_control_route_seal_reason": "external_or_manual_closed_volume",
+        "pressure_control_actual_open_valves_after_route_seal": "",
+    }
 
 
 def _analyzer_entries_for_stream_flush(runner: CalibrationRunner) -> List[tuple[str, Any]]:
@@ -638,27 +988,342 @@ def _settle_analyzer_pressure_stream_after_control(
     }
 
 
+def _wait_for_sampling_pressure_ready_after_settle(
+    runner: CalibrationRunner,
+    *,
+    target_hpa: float,
+    tolerance_hpa: float,
+    stable_s: float,
+    deadline: float,
+    poll_s: float,
+    actual_anchor_near_nominal_hpa: Optional[float] = None,
+    actual_anchor_stability_hpa: Optional[float] = None,
+) -> tuple[bool, Dict[str, Any]]:
+    allowed_error = max(0.01, abs(float(tolerance_hpa)))
+    actual_near_nominal = max(
+        allowed_error,
+        abs(float(actual_anchor_near_nominal_hpa))
+        if actual_anchor_near_nominal_hpa is not None
+        else max(5.0, allowed_error),
+    )
+    actual_stability = max(
+        0.01,
+        abs(float(actual_anchor_stability_hpa))
+        if actual_anchor_stability_hpa is not None
+        else allowed_error,
+    )
+    reference_target_guard_hpa = max(actual_near_nominal, allowed_error)
+    required_stable_s = max(0.0, float(stable_s))
+    poll_interval = max(0.05, float(poll_s))
+    stable_window: List[tuple[float, float]] = []
+    actual_anchor_window: List[tuple[float, float]] = []
+    last_reference: Optional[float] = None
+    last_pace: Optional[float] = None
+    last_error: Optional[float] = None
+    last_reason = "post_settle_pressure_reference_unavailable"
+    stable_for = 0.0
+    actual_stable_for = 0.0
+
+    while time.monotonic() <= deadline:
+        com22_hpa, pace_hpa, read_error = _read_pressure_reference_pair(runner)
+        measurement = _pressure_control_measurement(
+            com22_hpa=com22_hpa,
+            pace_hpa=pace_hpa,
+            target_hpa=target_hpa,
+            reference_target_guard_hpa=reference_target_guard_hpa,
+        )
+        control_hpa = measurement["control_hpa"]
+        reference_hpa = measurement["reference_hpa"]
+        control_error = measurement["control_error"]
+        control_role = str(measurement["control_role"])
+        last_reference = reference_hpa
+        last_pace = pace_hpa
+        if control_hpa is None or control_error is None:
+            stable_window = []
+            last_reason = f"post_settle_{read_error or 'pressure_reference_unavailable'}"
+        else:
+            last_error = float(control_error)
+            control_in_tolerance = abs(last_error) <= allowed_error
+            reference_ok = bool(measurement["reference_near_nominal"]) and bool(
+                measurement["reference_consistent"]
+            )
+            if control_in_tolerance and reference_ok:
+                actual_anchor_window = []
+                actual_stable_for = 0.0
+                now = time.monotonic()
+                stable_window.append((now, float(control_hpa)))
+                for idx in range(len(stable_window)):
+                    candidate = stable_window[idx:]
+                    candidate_span_s = candidate[-1][0] - candidate[0][0]
+                    candidate_values = [item[1] for item in candidate]
+                    candidate_control_span_hpa = max(candidate_values) - min(candidate_values)
+                    if candidate_span_s >= required_stable_s and candidate_control_span_hpa <= allowed_error:
+                        reason_prefix = (
+                            "pace_internal_pressure"
+                            if control_role == "pace_internal_pressure"
+                            else "reference_pressure"
+                        )
+                        reason = f"{reason_prefix}_in_tolerance_after_settle"
+                        return True, {
+                            "reason": reason,
+                            "reference_hpa": reference_hpa,
+                            "pace_hpa": pace_hpa,
+                            "error_hpa": last_error,
+                            "stable_s": candidate_span_s,
+                            "actual_anchor_policy": "nominal_target",
+                        }
+                if stable_window:
+                    stable_for = stable_window[-1][0] - stable_window[0][0]
+                last_reason = "post_settle_waiting_pressure_stability"
+            elif reference_ok and abs(last_error) <= actual_near_nominal:
+                stable_window = []
+                stable_for = 0.0
+                now = time.monotonic()
+                actual_anchor_window.append((now, float(control_hpa)))
+                for idx in range(len(actual_anchor_window)):
+                    candidate = actual_anchor_window[idx:]
+                    candidate_span_s = candidate[-1][0] - candidate[0][0]
+                    candidate_values = [item[1] for item in candidate]
+                    candidate_control_span_hpa = max(candidate_values) - min(candidate_values)
+                    if candidate_span_s >= required_stable_s and candidate_control_span_hpa <= actual_stability:
+                        reason_prefix = (
+                            "pace_internal_pressure"
+                            if control_role == "pace_internal_pressure"
+                            else "reference_pressure"
+                        )
+                        return True, {
+                            "reason": f"{reason_prefix}_actual_pressure_stable_near_nominal_after_settle",
+                            "reference_hpa": reference_hpa,
+                            "pace_hpa": pace_hpa,
+                            "error_hpa": last_error,
+                            "stable_s": candidate_span_s,
+                            "actual_anchor_policy": "actual_reference_pressure",
+                            "actual_anchor_reference_hpa": reference_hpa,
+                            "actual_anchor_control_hpa": control_hpa,
+                            "actual_offset_from_nominal_hpa": last_error,
+                            "actual_anchor_near_nominal_hpa": actual_near_nominal,
+                            "actual_anchor_stability_hpa": actual_stability,
+                        }
+                if actual_anchor_window:
+                    actual_stable_for = actual_anchor_window[-1][0] - actual_anchor_window[0][0]
+                stable_for = actual_stable_for
+                last_reason = "post_settle_waiting_actual_pressure_anchor_stability"
+            else:
+                stable_window = []
+                actual_anchor_window = []
+                stable_for = 0.0
+                actual_stable_for = 0.0
+                if not bool(measurement["reference_consistent"]):
+                    last_reason = "post_settle_pace_reference_disagree"
+                elif not bool(measurement["reference_near_nominal"]):
+                    last_reason = "post_settle_reference_side_branch_far_from_nominal"
+                elif not control_in_tolerance and control_role == "pace_internal_pressure":
+                    last_reason = "post_settle_pace_internal_pressure_outside_tolerance"
+                elif not control_in_tolerance:
+                    last_reason = "post_settle_reference_pressure_far_from_nominal"
+                else:
+                    last_reason = "post_settle_outside_tolerance"
+        time.sleep(poll_interval)
+
+    return False, {
+        "reason": last_reason,
+        "reference_hpa": last_reference,
+        "pace_hpa": last_pace,
+        "error_hpa": last_error,
+        "stable_s": stable_for,
+    }
+
+
+def _finalize_pressure_control_after_candidate(
+    runner: CalibrationRunner,
+    *,
+    pace: Any,
+    target_hpa: float,
+    tolerance_hpa: float,
+    stable_s: float,
+    deadline: float,
+    poll_s: float,
+    start: float,
+    post_stable_wait_s: float,
+    analyzer_stream_flush_s: float,
+    release_fields: Mapping[str, Any],
+    ready_fields: Optional[Mapping[str, Any]] = None,
+    fast_anchor: bool = True,
+    actual_anchor_near_nominal_hpa: Optional[float] = None,
+    actual_anchor_stability_hpa: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    if fast_anchor and ready_fields is not None:
+        settle_fields = _settle_analyzer_pressure_stream_after_control(
+            runner,
+            wait_s=0.0,
+            drain_s=analyzer_stream_flush_s,
+        )
+        elapsed_s = time.monotonic() - start
+        ready_reason = str(ready_fields.get("reason") or "pressure_in_tolerance")
+        if not ready_reason.endswith("_fast_anchor"):
+            ready_reason = f"{ready_reason}_fast_anchor"
+        fields = _pressure_control_fields(
+            enabled=True,
+            status="verified",
+            reason=ready_reason,
+            target_hpa=float(target_hpa),
+            reference_hpa=ready_fields.get("reference_hpa"),
+            pace_hpa=ready_fields.get("pace_hpa"),
+            error_hpa=ready_fields.get("error_hpa"),
+            stable_s=float(ready_fields.get("stable_s") or 0.0),
+            elapsed_s=elapsed_s,
+            output_state=_safe_pace_state(pace, "get_output_state"),
+            vent_status=_safe_pace_state(pace, "get_vent_status"),
+            isolation_state=_safe_pace_state(pace, "get_isolation_state"),
+        )
+        fields.update(release_fields)
+        fields.update(settle_fields)
+        fields["pressure_control_sampling_anchor_policy"] = "first_verified_pressure_window"
+        fields["pressure_control_configured_post_stable_wait_s"] = max(0.0, float(post_stable_wait_s))
+        for key in (
+            "actual_anchor_policy",
+            "actual_anchor_reference_hpa",
+            "actual_anchor_control_hpa",
+            "actual_offset_from_nominal_hpa",
+            "actual_anchor_near_nominal_hpa",
+            "actual_anchor_stability_hpa",
+        ):
+            if key in ready_fields:
+                fields[f"pressure_control_{key}"] = ready_fields.get(key)
+        if not fields.get("pressure_control_actual_anchor_policy"):
+            fields["pressure_control_actual_anchor_policy"] = str(
+                ready_fields.get("actual_anchor_policy") or "nominal_target"
+            )
+        return fields
+
+    settle_fields = _settle_analyzer_pressure_stream_after_control(
+        runner,
+        wait_s=post_stable_wait_s,
+        drain_s=analyzer_stream_flush_s,
+    )
+    post_settle_deadline = time.monotonic() + max(
+        5.0,
+        float(stable_s) + float(post_stable_wait_s) + 3.0,
+    )
+    ready, ready_fields = _wait_for_sampling_pressure_ready_after_settle(
+        runner,
+        target_hpa=target_hpa,
+        tolerance_hpa=tolerance_hpa,
+        stable_s=stable_s,
+        deadline=post_settle_deadline,
+        poll_s=poll_s,
+        actual_anchor_near_nominal_hpa=actual_anchor_near_nominal_hpa,
+        actual_anchor_stability_hpa=actual_anchor_stability_hpa,
+    )
+    if not ready:
+        return None
+    elapsed_s = time.monotonic() - start
+    fields = _pressure_control_fields(
+        enabled=True,
+        status="verified",
+        reason=str(ready_fields["reason"]),
+        target_hpa=float(target_hpa),
+        reference_hpa=ready_fields.get("reference_hpa"),
+        pace_hpa=ready_fields.get("pace_hpa"),
+        error_hpa=ready_fields.get("error_hpa"),
+        stable_s=float(ready_fields.get("stable_s") or 0.0),
+        elapsed_s=elapsed_s,
+        output_state=_safe_pace_state(pace, "get_output_state"),
+        vent_status=_safe_pace_state(pace, "get_vent_status"),
+        isolation_state=_safe_pace_state(pace, "get_isolation_state"),
+    )
+    fields.update(release_fields)
+    fields.update(settle_fields)
+    for key in (
+        "actual_anchor_policy",
+        "actual_anchor_reference_hpa",
+        "actual_anchor_control_hpa",
+        "actual_offset_from_nominal_hpa",
+        "actual_anchor_near_nominal_hpa",
+        "actual_anchor_stability_hpa",
+    ):
+        if key in ready_fields:
+            fields[f"pressure_control_{key}"] = ready_fields.get(key)
+    if not fields.get("pressure_control_actual_anchor_policy"):
+        fields["pressure_control_actual_anchor_policy"] = str(
+            ready_fields.get("actual_anchor_policy") or "nominal_target"
+        )
+    return fields
+
+
 def _prepare_pace_control(
     runner: CalibrationRunner,
     *,
     target_hpa: float,
+    slew_mode: str,
     slew_hpa_per_s: float,
     atmosphere_release_wait_s: float,
+    overshoot_allowed: bool = True,
 ) -> Dict[str, Any]:
     pace = runner.devices.get("pace")
     if pace is None:
         raise RuntimeError("PRESSURE_CONTROL_PACE_UNAVAILABLE")
-    release_fields = _release_pressure_atmosphere_before_control(
-        runner,
-        wait_s=atmosphere_release_wait_s,
+    requested_setpoint_mode = _pressure_control_setpoint_mode_from_runner(runner)
+    atmosphere_reference_hpa: Optional[float] = None
+    command_setpoint_hpa = float(target_hpa)
+    setpoint_mode = requested_setpoint_mode
+    if requested_setpoint_mode in {"auto", "gauge_from_atmosphere"}:
+        atmosphere_reference_hpa = _pressure_control_atmosphere_reference_hpa(runner, pace)
+        if atmosphere_reference_hpa is None:
+            raise RuntimeError("PRESSURE_CONTROL_ATMOSPHERE_REFERENCE_UNAVAILABLE")
+    if requested_setpoint_mode == "auto":
+        setpoint_mode = (
+            "gauge_from_atmosphere"
+            if float(target_hpa) < float(atmosphere_reference_hpa)
+            else "absolute"
+        )
+    setattr(runner, "_pressure_control_effective_setpoint_mode", setpoint_mode)
+    source_range = _pressure_control_source_range(
+        runner.cfg,
+        setpoint_mode=setpoint_mode,
+        target_hpa=float(target_hpa),
+        atmosphere_reference_hpa=atmosphere_reference_hpa,
     )
-    for method_name, args in (
+    if setpoint_mode == "gauge_from_atmosphere":
+        if "BARG" not in str(source_range or "").upper():
+            raise RuntimeError("PRESSURE_CONTROL_GAUGE_MODE_REQUIRES_BARG_RANGE")
+        command_setpoint_hpa = float(target_hpa) - float(atmosphere_reference_hpa)
+    elif setpoint_mode == "absolute" and not source_range:
+        source_range = "2.00bara"
+    if bool(getattr(runner, "_pressure_control_closed_volume_active", False)):
+        release_fields = _reuse_closed_pressure_volume_fields(runner)
+        route_seal_fields = _pressure_validation_route_seal_fields_not_applicable()
+    else:
+        release_fields = _release_pressure_atmosphere_before_control(
+            runner,
+            wait_s=atmosphere_release_wait_s,
+        )
+        if _pressure_validation_route_seal_enabled(runner.cfg):
+            route_seal_fields = _seal_pressure_validation_route_before_control(runner)
+        else:
+            route_seal_fields = _pressure_validation_route_seal_fields_not_applicable()
+    prep_calls = [
         ("set_units_hpa", ()),
-        ("set_slew_mode_linear", ()),
-        ("set_slew_rate", (float(slew_hpa_per_s),)),
-        ("set_overshoot_allowed", (False,)),
-        ("set_in_limits", (0.02, 10.0)),
-    ):
+    ]
+    if source_range:
+        prep_calls.append(("set_range", (source_range,)))
+    normalized_slew_mode = str(slew_mode or "linear").strip().lower()
+    if normalized_slew_mode == "linear":
+        prep_calls.extend(
+            [
+                ("set_slew_mode_linear", ()),
+                ("set_slew_rate", (float(slew_hpa_per_s),)),
+            ]
+        )
+    else:
+        prep_calls.append(("set_slew_mode_max", ()))
+    prep_calls.extend(
+        [
+            ("set_overshoot_allowed", (bool(overshoot_allowed),)),
+            ("set_in_limits", (0.02, 10.0)),
+        ]
+    )
+    for method_name, args in prep_calls:
         method = getattr(pace, method_name, None)
         if callable(method):
             try:
@@ -668,7 +1333,7 @@ def _prepare_pace_control(
     setpoint = getattr(pace, "set_setpoint", None)
     if not callable(setpoint):
         raise RuntimeError("PRESSURE_CONTROL_SETPOINT_UNAVAILABLE")
-    setpoint(float(target_hpa))
+    setpoint(float(command_setpoint_hpa))
     enable_output = getattr(pace, "enable_control_output", None)
     if callable(enable_output):
         enable_output(timeout_s=3.0, poll_s=0.1)
@@ -682,7 +1347,20 @@ def _prepare_pace_control(
             set_output_mode_active()
         if callable(set_output):
             set_output(True)
-    return release_fields
+    setattr(runner, "_pressure_control_closed_volume_active", True)
+    return {
+        **release_fields,
+        **route_seal_fields,
+        "pressure_control_setpoint_mode": setpoint_mode,
+        "pressure_control_source_range": source_range,
+        "pressure_control_command_setpoint_hpa": float(command_setpoint_hpa),
+        "pressure_control_atmosphere_reference_hpa": (
+            "" if atmosphere_reference_hpa is None else float(atmosphere_reference_hpa)
+        ),
+        "pressure_control_pace_pressure_read_mode": getattr(
+            runner, "_pressure_control_pace_pressure_read_mode", ""
+        ),
+    }
 
 
 def _wait_for_controlled_pressure_point(
@@ -693,10 +1371,15 @@ def _wait_for_controlled_pressure_point(
     stable_s: float,
     timeout_s: float,
     poll_s: float,
+    slew_mode: str,
     slew_hpa_per_s: float,
     atmosphere_release_wait_s: float,
     post_stable_wait_s: float,
     analyzer_stream_flush_s: float,
+    overshoot_allowed: bool = True,
+    fast_anchor: bool = True,
+    actual_anchor_near_nominal_hpa: Optional[float] = None,
+    actual_anchor_stability_hpa: Optional[float] = None,
 ) -> Dict[str, Any]:
     pace = runner.devices.get("pace")
     if pace is None:
@@ -704,8 +1387,10 @@ def _wait_for_controlled_pressure_point(
     release_fields = _prepare_pace_control(
         runner,
         target_hpa=target_hpa,
+        slew_mode=slew_mode,
         slew_hpa_per_s=slew_hpa_per_s,
         atmosphere_release_wait_s=atmosphere_release_wait_s,
+        overshoot_allowed=overshoot_allowed,
     )
 
     deadline = time.monotonic() + max(1.0, float(timeout_s))
@@ -715,56 +1400,201 @@ def _wait_for_controlled_pressure_point(
     last_pace: Optional[float] = None
     last_error: Optional[float] = None
     last_reason = "not_started"
+    initial_reference: Optional[float] = None
+    initial_pace: Optional[float] = None
+    initial_control: Optional[float] = None
     stable_for = 0.0
     required_stable_s = max(0.0, float(stable_s))
     allowed_error = max(0.01, abs(float(tolerance_hpa)))
+    actual_near_nominal = max(
+        allowed_error,
+        abs(float(actual_anchor_near_nominal_hpa))
+        if actual_anchor_near_nominal_hpa is not None
+        else max(5.0, allowed_error),
+    )
+    actual_stability = max(
+        0.01,
+        abs(float(actual_anchor_stability_hpa))
+        if actual_anchor_stability_hpa is not None
+        else allowed_error,
+    )
+    reference_target_guard_hpa = max(actual_near_nominal, allowed_error)
     poll_interval = max(0.05, float(poll_s))
+    actual_anchor_window: List[tuple[float, float]] = []
 
     while time.monotonic() <= deadline:
         com22_hpa, pace_hpa, read_error = _read_pressure_reference_pair(runner)
-        reference_hpa = com22_hpa if com22_hpa is not None else pace_hpa
+        measurement = _pressure_control_measurement(
+            com22_hpa=com22_hpa,
+            pace_hpa=pace_hpa,
+            target_hpa=target_hpa,
+            reference_target_guard_hpa=reference_target_guard_hpa,
+        )
+        control_hpa = measurement["control_hpa"]
+        reference_hpa = measurement["reference_hpa"]
+        control_error = measurement["control_error"]
+        control_role = str(measurement["control_role"])
         last_reference = reference_hpa
         last_pace = pace_hpa
-        if reference_hpa is None:
+        if initial_reference is None and reference_hpa is not None:
+            initial_reference = float(reference_hpa)
+        if initial_pace is None and pace_hpa is not None:
+            initial_pace = float(pace_hpa)
+        if initial_control is None and control_hpa is not None:
+            initial_control = float(control_hpa)
+        if control_hpa is None or control_error is None:
             stable_start = None
             stable_for = 0.0
             last_reason = read_error or "pressure_reference_unavailable"
         else:
-            last_error = float(reference_hpa) - float(target_hpa)
-            if abs(last_error) <= allowed_error:
+            last_error = float(control_error)
+            control_in_tolerance = abs(last_error) <= allowed_error
+            reference_ok = bool(measurement["reference_near_nominal"]) and bool(
+                measurement["reference_consistent"]
+            )
+            if control_in_tolerance and reference_ok:
+                actual_anchor_window = []
                 now = time.monotonic()
                 if stable_start is None:
                     stable_start = now
                 stable_for = now - stable_start
-                last_reason = "in_tolerance"
+                last_reason = (
+                    "pace_internal_pressure_in_tolerance"
+                    if control_role == "pace_internal_pressure"
+                    else "reference_pressure_in_tolerance"
+                )
                 if stable_for >= required_stable_s:
-                    settle_fields = _settle_analyzer_pressure_stream_after_control(
+                    ready_fields = {
+                        "reason": last_reason,
+                        "reference_hpa": reference_hpa,
+                        "pace_hpa": pace_hpa,
+                        "error_hpa": last_error,
+                        "stable_s": stable_for,
+                        "actual_anchor_policy": "nominal_target",
+                    }
+                    fields = _finalize_pressure_control_after_candidate(
                         runner,
-                        wait_s=post_stable_wait_s,
-                        drain_s=analyzer_stream_flush_s,
-                    )
-                    elapsed_s = time.monotonic() - start
-                    fields = _pressure_control_fields(
-                        enabled=True,
-                        status="verified",
-                        reason="reference_pressure_in_tolerance",
+                        pace=pace,
                         target_hpa=float(target_hpa),
-                        reference_hpa=reference_hpa,
-                        pace_hpa=pace_hpa,
-                        error_hpa=last_error,
-                        stable_s=stable_for,
-                        elapsed_s=elapsed_s,
-                        output_state=_safe_pace_state(pace, "get_output_state"),
-                        vent_status=_safe_pace_state(pace, "get_vent_status"),
-                        isolation_state=_safe_pace_state(pace, "get_isolation_state"),
+                        tolerance_hpa=allowed_error,
+                        stable_s=required_stable_s,
+                        deadline=deadline,
+                        poll_s=poll_interval,
+                        start=start,
+                        post_stable_wait_s=post_stable_wait_s,
+                        analyzer_stream_flush_s=analyzer_stream_flush_s,
+                        release_fields=release_fields,
+                        ready_fields=ready_fields,
+                        fast_anchor=fast_anchor,
+                        actual_anchor_near_nominal_hpa=actual_near_nominal,
+                        actual_anchor_stability_hpa=actual_stability,
                     )
-                    fields.update(release_fields)
-                    fields.update(settle_fields)
-                    return fields
+                    if fields is not None:
+                        return fields
+                    stable_start = None
+                    stable_for = 0.0
+                    last_reason = "post_settle_pressure_not_ready"
+            elif reference_ok and abs(last_error) <= actual_near_nominal:
+                stable_start = None
+                now = time.monotonic()
+                actual_anchor_window.append((now, float(control_hpa)))
+                for idx in range(len(actual_anchor_window)):
+                    candidate = actual_anchor_window[idx:]
+                    candidate_span_s = candidate[-1][0] - candidate[0][0]
+                    candidate_values = [item[1] for item in candidate]
+                    candidate_control_span_hpa = max(candidate_values) - min(candidate_values)
+                    if candidate_span_s >= required_stable_s and candidate_control_span_hpa <= actual_stability:
+                        reason_prefix = (
+                            "pace_internal_pressure"
+                            if control_role == "pace_internal_pressure"
+                            else "reference_pressure"
+                        )
+                        ready_fields = {
+                            "reason": f"{reason_prefix}_actual_pressure_stable_near_nominal",
+                            "reference_hpa": reference_hpa,
+                            "pace_hpa": pace_hpa,
+                            "error_hpa": last_error,
+                            "stable_s": candidate_span_s,
+                            "actual_anchor_policy": "actual_reference_pressure",
+                            "actual_anchor_reference_hpa": reference_hpa,
+                            "actual_anchor_control_hpa": control_hpa,
+                            "actual_offset_from_nominal_hpa": last_error,
+                            "actual_anchor_near_nominal_hpa": actual_near_nominal,
+                            "actual_anchor_stability_hpa": actual_stability,
+                        }
+                        fields = _finalize_pressure_control_after_candidate(
+                            runner,
+                            pace=pace,
+                            target_hpa=float(target_hpa),
+                            tolerance_hpa=allowed_error,
+                            stable_s=required_stable_s,
+                            deadline=deadline,
+                            poll_s=poll_interval,
+                            start=start,
+                            post_stable_wait_s=post_stable_wait_s,
+                            analyzer_stream_flush_s=analyzer_stream_flush_s,
+                            release_fields=release_fields,
+                            ready_fields=ready_fields,
+                            fast_anchor=fast_anchor,
+                            actual_anchor_near_nominal_hpa=actual_near_nominal,
+                            actual_anchor_stability_hpa=actual_stability,
+                        )
+                        if fields is not None:
+                            return fields
+                        actual_anchor_window = []
+                        stable_for = 0.0
+                        last_reason = "post_settle_pressure_not_ready"
+                        break
+                if actual_anchor_window:
+                    stable_for = actual_anchor_window[-1][0] - actual_anchor_window[0][0]
+                last_reason = "waiting_actual_pressure_anchor_stability"
             else:
                 stable_start = None
+                actual_anchor_window = []
                 stable_for = 0.0
-                last_reason = "outside_tolerance"
+                if not bool(measurement["reference_consistent"]):
+                    last_reason = "pace_reference_disagree"
+                elif not bool(measurement["reference_near_nominal"]):
+                    last_reason = "reference_side_branch_far_from_nominal"
+                elif not control_in_tolerance and control_role == "pace_internal_pressure":
+                    last_reason = "pace_internal_pressure_far_from_target"
+                elif not control_in_tolerance:
+                    last_reason = "reference_pressure_far_from_nominal"
+                else:
+                    last_reason = "outside_tolerance"
+        elapsed_before_trace = time.monotonic() - start
+        if (
+            control_hpa is not None
+            and initial_control is not None
+            and abs(float(control_hpa) - float(target_hpa)) > reference_target_guard_hpa
+            and elapsed_before_trace >= min(30.0, max(10.0, float(timeout_s) / 3.0))
+        ):
+            control_build_hpa = abs(float(control_hpa) - float(initial_control))
+            reference_build_hpa = (
+                None
+                if reference_hpa is None or initial_reference is None
+                else abs(float(reference_hpa) - float(initial_reference))
+            )
+            pace_build_hpa = (
+                None if pace_hpa is None or initial_pace is None else abs(float(pace_hpa) - float(initial_pace))
+            )
+            if (
+                control_build_hpa < 2.0
+                and (reference_build_hpa is None or reference_build_hpa < 2.0)
+                and (pace_build_hpa is None or pace_build_hpa < 2.0)
+            ):
+                last_reason = "controller_output_on_but_pressure_not_building"
+        _append_pressure_control_wait_trace(
+            runner,
+            target_hpa=float(target_hpa),
+            reference_hpa=last_reference,
+            pace_hpa=last_pace,
+            error_hpa=last_error,
+            stable_for_s=stable_for,
+            allowed_error_hpa=allowed_error,
+            elapsed_s=elapsed_before_trace,
+            reason=last_reason,
+        )
         time.sleep(poll_interval)
 
     elapsed_s = time.monotonic() - start
@@ -788,6 +1618,54 @@ def _wait_for_controlled_pressure_point(
         f"target={target_hpa:g}hPa status={fields['pressure_control_status']} "
         f"reason={fields['pressure_control_reason']} error={fields['pressure_control_error_hpa']}"
     )
+
+
+def _append_pressure_control_wait_trace(
+    runner: CalibrationRunner,
+    *,
+    target_hpa: float,
+    reference_hpa: Optional[float],
+    pace_hpa: Optional[float],
+    error_hpa: Optional[float],
+    stable_for_s: float,
+    allowed_error_hpa: float,
+    elapsed_s: float,
+    reason: str,
+) -> None:
+    append_trace = getattr(runner, "_append_pressure_trace_row", None)
+    if not callable(append_trace):
+        return
+    pressure_in_limit = ""
+    if error_hpa is not None:
+        pressure_in_limit = abs(float(error_hpa)) <= float(allowed_error_hpa)
+    try:
+        append_trace(
+            point=None,
+            route="pressure",
+            point_phase="pressure",
+            trace_stage="pressure_control_wait_poll",
+            trigger_reason=str(reason or ""),
+            pressure_target_hpa=float(target_hpa),
+            pace_pressure_hpa=pace_hpa,
+            pressure_gauge_hpa=reference_hpa,
+            refresh_pace_state=False,
+            extra_fields={
+                "current_target_hpa": float(target_hpa),
+                "pressure_delta_to_target_hpa": error_hpa,
+                "pressure_in_limit": pressure_in_limit,
+                "pressure_stable_evidence": (
+                    f"stable_for_s={float(stable_for_s):.3f};"
+                    f"allowed_error_hpa={float(allowed_error_hpa):.3f};"
+                    f"elapsed_s={float(elapsed_s):.3f}"
+                ),
+            },
+            note=(
+                f"reason={reason};stable_for_s={float(stable_for_s):.3f};"
+                f"elapsed_s={float(elapsed_s):.3f}"
+            ),
+        )
+    except Exception:
+        return
 
 
 def _restore_pressure_controller_to_atmosphere(devices: Mapping[str, Any]) -> None:
@@ -970,12 +1848,19 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         analyzer_active_upload_hz=None
         if bool(args.no_analyzer_active_upload_config)
         else args.analyzer_active_upload_hz,
+        enable_route_relays_for_control=(
+            bool(args.control_pressure_points)
+            and _truthy(_cfg_get(cfg, "workflow.pressure.pressure_only_route_seal_enabled", False))
+        ),
     )
     _apply_pressure_only_sampling_runtime_defaults(
         runtime_cfg,
         pre_sample_freshness_timeout_s=float(args.pre_sample_freshness_timeout_s),
         pre_sample_signal_max_age_s=float(args.pre_sample_signal_max_age_s),
     )
+    runtime_cfg.setdefault("workflow", {}).setdefault("pressure", {})[
+        "control_setpoint_mode"
+    ] = _normalize_pressure_control_setpoint_mode(args.pressure_control_setpoint_mode)
     if args.count is not None:
         runtime_cfg.setdefault("workflow", {}).setdefault("sampling", {})["stable_count"] = int(args.count)
         runtime_cfg["workflow"]["sampling"]["count"] = int(args.count)
@@ -1005,6 +1890,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 enabled=bool(args.continuous_atmosphere_hold),
                 require=bool(args.require_continuous_atmosphere_hold),
                 reason="pressure channel quick check pre-startup continuous atmosphere",
+            )
+        else:
+            _prestart_pressure_atmosphere_hold_for_control(
+                runner,
+                pressure_points=pressure_points,
+                control_pressure_points=bool(args.control_pressure_points),
+                enabled=bool(args.continuous_atmosphere_hold),
+                require=bool(args.require_continuous_atmosphere_hold),
             )
         runner._configure_devices()
 
@@ -1053,10 +1946,21 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                         stable_s=float(args.pressure_control_stable_s),
                         timeout_s=float(args.pressure_control_timeout_s),
                         poll_s=float(args.pressure_control_poll_s),
+                        slew_mode=str(args.pressure_control_slew_mode),
                         slew_hpa_per_s=float(args.pressure_control_slew_hpa_per_s),
                         atmosphere_release_wait_s=float(args.pressure_control_atmosphere_release_wait_s),
                         post_stable_wait_s=float(args.pressure_control_post_stable_wait_s),
                         analyzer_stream_flush_s=float(args.pressure_control_analyzer_stream_flush_s),
+                        overshoot_allowed=bool(args.pressure_control_overshoot_allowed),
+                        fast_anchor=not bool(args.no_pressure_control_fast_anchor),
+                        actual_anchor_near_nominal_hpa=float(
+                            args.pressure_control_actual_anchor_near_nominal_hpa
+                        ),
+                        actual_anchor_stability_hpa=(
+                            None
+                            if args.pressure_control_actual_anchor_stability_hpa is None
+                            else float(args.pressure_control_actual_anchor_stability_hpa)
+                        ),
                     )
                 else:
                     control_fields = _pressure_control_fields(
@@ -1135,10 +2039,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "pressure_control_tolerance_hpa": float(args.pressure_control_tolerance_hpa),
                 "pressure_control_stable_s": float(args.pressure_control_stable_s),
                 "pressure_control_timeout_s": float(args.pressure_control_timeout_s),
+                "pressure_control_setpoint_mode": _normalize_pressure_control_setpoint_mode(
+                    args.pressure_control_setpoint_mode
+                ),
+                "pressure_control_slew_mode": str(args.pressure_control_slew_mode),
                 "pressure_control_slew_hpa_per_s": float(args.pressure_control_slew_hpa_per_s),
+                "pressure_control_overshoot_allowed": bool(args.pressure_control_overshoot_allowed),
                 "pressure_control_atmosphere_release_wait_s": float(args.pressure_control_atmosphere_release_wait_s),
                 "pressure_control_post_stable_wait_s": float(args.pressure_control_post_stable_wait_s),
                 "pressure_control_analyzer_stream_flush_s": float(args.pressure_control_analyzer_stream_flush_s),
+                "pressure_control_fast_anchor": not bool(args.no_pressure_control_fast_anchor),
                 "pre_sample_freshness_timeout_s": float(args.pre_sample_freshness_timeout_s),
                 "pre_sample_signal_max_age_s": float(args.pre_sample_signal_max_age_s),
                 "pressure_quick_check_csv": str(pressure_quick_check_path),

@@ -37,7 +37,7 @@ AMBIENT_PRESSURE_MODES = {
 }
 
 _ANALYZER_PREFIX_RE = re.compile(
-    r"^(?P<prefix>ga\d{2})_"
+    r"^(?P<prefix>ga\d{2,})_"
     r"(?P<field>pressure_kpa|analyzer_device_id|device_id|id|frame_usable|mode2_contract_status)$",
     re.IGNORECASE,
 )
@@ -202,7 +202,7 @@ def detect_pressure_analyzer_prefixes(rows: Sequence[Mapping[str, Any]]) -> List
     prefixes: set[str] = set()
     for row in rows:
         selected_prefix = str(row.get("analyzer_prefix") or "").strip().lower()
-        if re.fullmatch(r"ga\d{2}", selected_prefix):
+        if re.fullmatch(r"ga\d{2,}", selected_prefix):
             prefixes.add(selected_prefix)
         for key in row.keys():
             match = _ANALYZER_PREFIX_RE.match(str(key or ""))
@@ -407,7 +407,7 @@ def pressure_pair_rows(
         requested_prefix = str(analyzer_prefix or "").strip().lower()
         selected_prefix = str(row.get("analyzer_prefix") or "").strip().lower()
         is_long_row = bool(
-            re.fullmatch(r"ga\d{2}", selected_prefix)
+            re.fullmatch(r"ga\d{2,}", selected_prefix)
             and ("pressure_channel_row_status" in row or "verified_quantity" in row)
         )
         if is_long_row and selected_prefix != requested_prefix:
@@ -1015,7 +1015,14 @@ def write_pressure_senco9_fit_report(
     """Write a no-write pressure fit report for deciding whether SENCO9 is needed."""
 
     root = Path(run_dir).resolve()
-    rows_path, rows = load_pressure_validation_rows(root, samples_csv=samples_csv)
+    if samples_csv is None:
+        # SENCO9 multi-point fitting needs the full sampled plateau rows when
+        # they are present. Quick-check sidecars may coexist in the same run
+        # folder and are intentionally narrower pressure-channel evidence.
+        preferred_samples = latest_artifact(root, "samples_*.csv")
+        rows_path, rows = load_pressure_validation_rows(root, samples_csv=preferred_samples)
+    else:
+        rows_path, rows = load_pressure_validation_rows(root, samples_csv=samples_csv)
     reference = dict(pressure_reference) if pressure_reference is not None else _load_pressure_reference(pressure_reference_path)
     config = cfg or PressureSenco9FitConfig()
     tables = build_pressure_senco9_fit_tables(
