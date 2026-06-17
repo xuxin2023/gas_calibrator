@@ -588,6 +588,57 @@ def test_h2o_traceability_accepts_device_id_prefixed_raw_fields(tmp_path):
     assert "candidate_coefficient_review" in roles
 
 
+def test_open_flow_point_tag_infers_ambient_pressure_mode_for_h2o_traceability(tmp_path):
+    run_dir = tmp_path / "run_h2o_open_flow_inferred"
+    run_dir.mkdir()
+    rows = []
+    for index in range(1, 4):
+        rows.append(
+            {
+                "sample_index": index,
+                "sample_ts": f"2026-06-17T02:00:{index:02d}",
+                "point_phase": "h2o",
+                "route": "h2o",
+                "point_tag": "h2o_20c_50rh_open_flow",
+                "pressure_gauge_hpa": 1000.5 + index * 0.002,
+                "controller_pressure": 1000.6 + index * 0.002,
+                "dewpoint_c": -6.0 + index * 0.001,
+                "h2o_mmol_target": 3.6,
+                "h2o_wet_ppmv": 3600.0,
+                "h2o_dry_ppmv": 3613.0,
+                "ga022_frame_usable": "true",
+                "ga022_mode2_contract_status": "pass",
+                "ga022_mode2_qc_status": "pass",
+                "ga022_h2o_signal": 2631.0,
+                "ga022_h2o_ratio_f": 0.7000 + index * 0.00001,
+                "ga022_h2o_mmol": 3.6 + index * 0.0001,
+            }
+        )
+    _write_csv(run_dir / "samples_20260617.csv", rows)
+    plan_path = tmp_path / "formal_plan.json"
+    plan_path.write_text(json.dumps(_plan(), ensure_ascii=False), encoding="utf-8")
+    pressure_reference_path = tmp_path / "pressure_reference.json"
+    pressure_reference_path.write_text(
+        json.dumps(_pressure_reference(), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        component="h2o",
+        analyzer_prefix="all",
+        require_quick_check_artifact=False,
+        today="2026-06-17",
+    )
+    summary = bundle_traceability_summary(bundle)
+
+    assert bundle["tables"]["calibration_points"][0]["pressure_mode"] == "ambient_open"
+    assert summary["water_route_evidence"]["h2o_open_flow_points_present"] is True
+    assert summary["traceability_checks"]["has_water_route_traceability"] is True
+
+
 def test_evidence_bundle_splits_device_keyed_old_getco_snapshots(tmp_path):
     run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
     snapshot_dir = run_dir / "old_getco_component_snapshot"

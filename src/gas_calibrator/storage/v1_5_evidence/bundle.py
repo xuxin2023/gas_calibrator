@@ -569,11 +569,24 @@ def _component_from_point_row(row: Mapping[str, Any]) -> str:
     return text or "unknown"
 
 
+def _pressure_mode_from_point_row(row: Mapping[str, Any]) -> str:
+    explicit = str(row.get("pressure_mode") or "").strip().lower()
+    if explicit:
+        return explicit
+    identity_text = " ".join(
+        str(row.get(key) or "").strip().lower()
+        for key in ("point_tag", "point_phase", "route", "point_key", "source_point_identity")
+    )
+    if "open_flow" in identity_text or "开放流通" in identity_text:
+        return "ambient_open"
+    return ""
+
+
 def _point_group_key(row: Mapping[str, Any]) -> tuple[str, str, str, str]:
     component = _component_from_point_row(row)
     point_key = str(row.get("point_row") or row.get("sample_point") or row.get("point_phase") or row.get("route") or "point")
     point_tag = str(row.get("point_tag") or row.get("point_phase") or row.get("route") or "")
-    pressure_mode = str(row.get("pressure_mode") or "").strip().lower()
+    pressure_mode = _pressure_mode_from_point_row(row)
     return component, point_key, point_tag, pressure_mode
 
 
