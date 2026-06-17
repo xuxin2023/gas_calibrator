@@ -9,7 +9,9 @@ from gas_calibrator.storage.v1_5_evidence.bundle import (
     verify_evidence_bundle_integrity,
     write_bundle_json,
     _build_qc_rows,
+    _h2o_raw_field_evidence,
     _point_group_key,
+    _raw_sample_header_evidence,
     _target_value,
 )
 from gas_calibrator.storage.v1_5_evidence.repository import TABLE_COLUMNS, mask_dsn
@@ -93,6 +95,7 @@ def _row(index: int, component: str):
         "ga01_pressure_kpa": 100.05 + index * 0.0002,
         "ga01_co2_ratio_f": 1.3000 + index * 0.0001,
         "ga01_co2_ppm": 900.0 + index * 0.01,
+        "ga01_h2o_ratio_raw": 0.6900 + index * 0.00001,
         "ga01_h2o_ratio_f": 0.7000 + index * 0.00001,
         "ga01_h2o_mmol": 0.5 + index * 0.0001,
     }
@@ -166,6 +169,100 @@ def _write_post_write_reverification_artifacts(run_dir):
         "# V1.5 post-write reverification\n\noverall_status: pass\n",
         encoding="utf-8",
     )
+
+
+def test_h2o_raw_evidence_unions_all_raw_sample_headers(tmp_path):
+    partial = tmp_path / "samples_20260613_001901.csv"
+    machine = tmp_path / "samples_machine_readable.csv"
+    _write_csv(
+        partial,
+        [
+            {
+                "sample_index": 1,
+                "dewpoint_sample_ts": "2026-06-13T00:19:01",
+                "dewpoint_sample_age_ms": 100,
+            }
+        ],
+    )
+    _write_csv(
+        machine,
+        [
+            {
+                "sample_index": 1,
+                "dewpoint_c": -6.0,
+                "h2o_dry_ppmv": 3613.0,
+                "h2o_wet_ppmv": 3600.0,
+                "ga02_h2o_mmol": 3.6,
+                "h2o_mmol": 3.6,
+                "ga02_h2o_ratio_f": 0.7001,
+                "h2o_ratio_f": 0.7001,
+                "ga02_h2o_ratio_raw": 0.6901,
+                "h2o_ratio_raw": 0.6901,
+                "ga02_ref_signal": 3322.0,
+                "ref_signal": 3322.0,
+                "ga02_h2o_signal": 2631.0,
+                "h2o_signal": 2631.0,
+            }
+        ],
+    )
+
+    header_evidence = _raw_sample_header_evidence(
+        [
+            {"artifact_role": "raw_samples", "path": str(partial)},
+            {"artifact_role": "raw_samples", "path": str(machine)},
+        ]
+    )
+    h2o_evidence = _h2o_raw_field_evidence(header_evidence["headers"])
+
+    assert header_evidence["readable"] is True
+    assert header_evidence["path"] == str(partial)
+    assert header_evidence["paths"] == [str(partial), str(machine)]
+    assert h2o_evidence["complete"] is True
+    assert h2o_evidence["missing"] == []
+
+
+def test_h2o_raw_evidence_accepts_recomputable_reference_without_dry_wet_ppmv(tmp_path):
+    partial = tmp_path / "samples_20260613_001901.csv"
+    machine = tmp_path / "samples_machine_readable.csv"
+    _write_csv(
+        partial,
+        [
+            {
+                "sample_index": 1,
+                "dewpoint_sample_ts": "2026-06-13T00:19:01",
+                "dewpoint_sample_age_ms": 100,
+            }
+        ],
+    )
+    _write_csv(
+        machine,
+        [
+            {
+                "sample_index": 1,
+                "dewpoint_live_c": -6.0,
+                "h2o_mmol_target": 3.6,
+                "ga02_h2o_mmol": 3.6,
+                "ga02_h2o_ratio_f": 0.7001,
+                "ga02_h2o_ratio_raw": 0.6901,
+                "ga02_ref_signal": 3322.0,
+                "ga02_h2o_signal": 2631.0,
+            }
+        ],
+    )
+
+    header_evidence = _raw_sample_header_evidence(
+        [
+            {"artifact_role": "raw_samples", "path": str(partial)},
+            {"artifact_role": "raw_samples", "path": str(machine)},
+        ]
+    )
+    h2o_evidence = _h2o_raw_field_evidence(header_evidence["headers"])
+
+    assert h2o_evidence["complete"] is True
+    assert h2o_evidence["missing"] == []
+    assert h2o_evidence["base_fields_by_group"]["dewpoint_reference"] == ["dewpoint_live_c"]
+    assert h2o_evidence["base_fields_by_group"]["h2o_reference_amount"] == ["h2o_mmol_target"]
+    assert h2o_evidence["optional_missing_base"] == ["h2o_dry_ppmv", "h2o_wet_ppmv"]
 
 
 def _make_run(tmp_path, *, quick_check=True, write_package=True):
@@ -542,7 +639,9 @@ def test_h2o_traceability_accepts_device_id_prefixed_raw_fields(tmp_path):
                     ["YGAS", "022", "0000.000", "03.600", "1768.000", "00.410"],
                     separators=(",", ":"),
                 ),
+                "ga022_ref_signal": 3322.0,
                 "ga022_h2o_signal": 2631.0,
+                "ga022_h2o_ratio_raw": 0.6900 + index * 0.00001,
                 "ga022_h2o_ratio_f": 0.7000 + index * 0.00001,
                 "ga022_h2o_mmol": 3.6 + index * 0.0001,
                 "ga022_pressure_kpa": 100.05 + index * 0.0002,
@@ -581,7 +680,9 @@ def test_h2o_traceability_accepts_device_id_prefixed_raw_fields(tmp_path):
     assert water["missing_raw_h2o_fields"] == []
     assert set(water["h2o_analyzer_fields_by_suffix"]) == {
         "h2o_signal",
+        "h2o_ratio_raw",
         "h2o_ratio_f",
+        "ref_signal",
         "h2o_mmol",
     }
     assert bundle["tables"]["calibration_points"][0]["target_value"] == 3.6
@@ -609,7 +710,9 @@ def test_open_flow_point_tag_infers_ambient_pressure_mode_for_h2o_traceability(t
                 "ga022_frame_usable": "true",
                 "ga022_mode2_contract_status": "pass",
                 "ga022_mode2_qc_status": "pass",
+                "ga022_ref_signal": 3322.0,
                 "ga022_h2o_signal": 2631.0,
+                "ga022_h2o_ratio_raw": 0.6900 + index * 0.00001,
                 "ga022_h2o_ratio_f": 0.7000 + index * 0.00001,
                 "ga022_h2o_mmol": 3.6 + index * 0.0001,
             }

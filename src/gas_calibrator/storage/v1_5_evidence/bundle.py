@@ -33,15 +33,29 @@ TABLE_NAMES = (
 )
 
 H2O_RAW_EVIDENCE_FIELDS = (
-    "dewpoint_c",
-    "h2o_dry_ppmv",
-    "h2o_wet_ppmv",
+    "dewpoint_c|dewpoint_live_c|reference_dewpoint_c",
+    "h2o_mmol_target|live_reference_h2o_mmol|nominal_reference_h2o_mmol|h2o_dry_ppmv|h2o_wet_ppmv",
+    "optional:h2o_dry_ppmv",
+    "optional:h2o_wet_ppmv",
     "ga*_h2o_signal",
+    "ga*_h2o_ratio_raw",
     "ga*_h2o_ratio_f",
+    "ga*_ref_signal",
     "ga*_h2o_mmol",
 )
-H2O_RAW_BASE_FIELDS = ("dewpoint_c", "h2o_dry_ppmv", "h2o_wet_ppmv")
-H2O_RAW_ANALYZER_SUFFIXES = ("h2o_signal", "h2o_ratio_f", "h2o_mmol")
+H2O_RAW_BASE_FIELD_GROUPS = {
+    "dewpoint_reference": ("dewpoint_c", "dewpoint_live_c", "reference_dewpoint_c"),
+    "h2o_reference_amount": (
+        "h2o_mmol_target",
+        "live_reference_h2o_mmol",
+        "nominal_reference_h2o_mmol",
+        "reference_h2o_mmol",
+        "h2o_dry_ppmv",
+        "h2o_wet_ppmv",
+    ),
+}
+H2O_RAW_OPTIONAL_BASE_FIELDS = ("h2o_dry_ppmv", "h2o_wet_ppmv")
+H2O_RAW_ANALYZER_SUFFIXES = ("h2o_signal", "h2o_ratio_raw", "h2o_ratio_f", "ref_signal", "h2o_mmol")
 
 
 def _now_iso() -> str:
@@ -108,13 +122,23 @@ def _clean_row(row: Mapping[str, Any]) -> Dict[str, Any]:
 
 def _h2o_raw_field_evidence(raw_headers: Sequence[str]) -> Dict[str, Any]:
     headers = {str(item or "").strip().lower() for item in raw_headers}
-    present_base = [field for field in H2O_RAW_BASE_FIELDS if field in headers]
-    missing_base = [field for field in H2O_RAW_BASE_FIELDS if field not in headers]
+    present_base: List[str] = []
+    missing_base: List[str] = []
+    base_fields_by_group: Dict[str, List[str]] = {}
+    for group, candidates in H2O_RAW_BASE_FIELD_GROUPS.items():
+        matched = [field for field in candidates if field in headers]
+        base_fields_by_group[group] = matched
+        if matched:
+            present_base.extend(matched)
+        else:
+            missing_base.append("|".join(candidates))
+    optional_missing_base = [field for field in H2O_RAW_OPTIONAL_BASE_FIELDS if field not in headers]
     analyzer_fields_by_suffix: Dict[str, List[str]] = {suffix: [] for suffix in H2O_RAW_ANALYZER_SUFFIXES}
     for header in sorted(headers):
-        match = re.match(r"^(ga\d{2,})_(h2o_signal|h2o_ratio_f|h2o_mmol)$", header)
-        if match:
-            analyzer_fields_by_suffix[match.group(2)].append(header)
+        for suffix in H2O_RAW_ANALYZER_SUFFIXES:
+            if header == suffix or header.endswith(f"_{suffix}"):
+                analyzer_fields_by_suffix[suffix].append(header)
+                break
     missing_analyzer_suffixes = [
         suffix for suffix, fields in analyzer_fields_by_suffix.items() if not fields
     ]
@@ -127,6 +151,8 @@ def _h2o_raw_field_evidence(raw_headers: Sequence[str]) -> Dict[str, Any]:
         "missing": missing_base + [f"ga*_{suffix}" for suffix in missing_analyzer_suffixes],
         "present_base": present_base,
         "missing_base": missing_base,
+        "base_fields_by_group": base_fields_by_group,
+        "optional_missing_base": optional_missing_base,
         "present_analyzer_fields": present_analyzer_fields,
         "missing_analyzer_suffixes": missing_analyzer_suffixes,
         "analyzer_fields_by_suffix": analyzer_fields_by_suffix,
@@ -1489,6 +1515,8 @@ def _metadata(row: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _raw_sample_header_evidence(artifacts: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    headers: set[str] = set()
+    readable_paths: List[str] = []
     for row in artifacts:
         if row.get("artifact_role") != "raw_samples":
             continue
@@ -1503,12 +1531,14 @@ def _raw_sample_header_evidence(artifacts: Sequence[Mapping[str, Any]]) -> Dict[
                 header = next(csv.reader(handle), [])
         except Exception:
             continue
-        return {
-            "readable": True,
-            "path": str(path),
-            "headers": {str(field).strip() for field in header if str(field).strip()},
-        }
-    return {"readable": False, "path": None, "headers": set()}
+        readable_paths.append(str(path))
+        headers.update(str(field).strip() for field in header if str(field).strip())
+    return {
+        "readable": bool(readable_paths),
+        "path": readable_paths[0] if readable_paths else None,
+        "paths": readable_paths,
+        "headers": headers,
+    }
 
 
 def _component_name(row: Mapping[str, Any]) -> str:
@@ -1702,15 +1732,19 @@ def build_traceability_summary_from_tables(
         ),
         "raw_sample_header_readable": bool(raw_header_evidence["readable"]),
         "raw_sample_header_path": raw_header_evidence["path"],
+        "raw_sample_header_paths": raw_header_evidence.get("paths") or [],
         "required_raw_h2o_fields": h2o_raw_evidence["required"],
         "present_raw_h2o_fields": h2o_raw_evidence["present"],
         "missing_raw_h2o_fields": missing_h2o_raw_fields,
+        "optional_missing_raw_h2o_fields": h2o_raw_evidence["optional_missing_base"],
         "raw_h2o_fields_present": bool(h2o_raw_evidence["complete"]),
+        "h2o_base_fields_by_group": h2o_raw_evidence["base_fields_by_group"],
         "h2o_analyzer_fields_by_suffix": h2o_raw_evidence["analyzer_fields_by_suffix"],
         "interpretation": (
-            "H2O open-flow evidence must preserve the humidity reference, dewpoint, dry/wet water-vapor "
-            "amount, and analyzer H2O ratio/signal fields so water-route stability can be reviewed separately "
-            "from CO2 fitting."
+            "H2O open-flow evidence must preserve the humidity reference, dewpoint, and analyzer H2O "
+            "ratio/raw-ratio/ref/signal fields so water-route stability can be reviewed separately from CO2 "
+            "fitting. Derived dry/wet ppmv fields are useful normalization evidence, but are optional when "
+            "dewpoint and reference H2O amount are available for offline recomputation."
         ),
     }
     return {

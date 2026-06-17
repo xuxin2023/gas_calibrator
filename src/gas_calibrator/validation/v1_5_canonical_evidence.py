@@ -135,6 +135,7 @@ def _sample_row(index: int, component: str, *, pressure_mode: str = "ambient_ope
         "ga01_pressure_kpa": pressure_hpa / 10.0,
         "ga01_co2_ratio_f": 1.3000 + index * 0.0001,
         "ga01_co2_ppm": co2_ppm,
+        "ga01_h2o_ratio_raw": 0.6900 + index * 0.00001,
         "ga01_h2o_ratio_f": 0.7000 + index * 0.00001,
         "ga01_h2o_mmol": h2o_mmol,
     }
