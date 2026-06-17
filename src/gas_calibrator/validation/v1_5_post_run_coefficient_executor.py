@@ -48,6 +48,8 @@ class DeviceClosure:
     overall_status: str
     blockers: tuple[str, ...]
     next_action: str
+    blocker_summary_zh: str = ""
+    next_action_zh: str = ""
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -61,6 +63,8 @@ class ClosureGap:
     reason: str
     next_action: str
     physical_meaning: str
+    reason_zh: str = ""
+    next_action_zh: str = ""
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -108,6 +112,95 @@ def _normalize_device_id(value: Any) -> str:
     if text.isdigit():
         return f"{int(text):03d}"
     return text
+
+
+def _reason_to_zh(reason: Any) -> str:
+    """Translate common internal blocker/status tokens into reviewer Chinese."""
+
+    text = str(reason or "").strip()
+    if not text:
+        return "未给出具体原因，需要回到对应证据表核对。"
+    lower = text.lower()
+    mappings = [
+        (
+            ("missing_initial_identity_or_getco_snapshot", "identity_initialization"),
+            "缺少初始化身份绑定或 GETCO1-9 旧系数快照，不能证明写入对象和旧值可追溯。",
+        ),
+        (
+            ("needs_senco9_review_or_calibration", "senco9_write_not_verified", "senco9_write_not_applied"),
+            "压力输入量 P 尚未完成 SENCO9 评审、写入回读或复验闭环；压力问题应先独立处理，不能混入 CO2/H2O 拟合。",
+        ),
+        (
+            ("needs_senco78_review_or_temperature_gate", "temperature"),
+            "温度输入量 T 尚未完成评审或修正；多温度组分拟合前必须确认腔体/壳体温度可信。",
+        ),
+        (
+            ("needs_s5_s6_linear_trim_review", "output_layer_trim", "s5", "s6"),
+            "S5/S6 输出层线性修正还未评审；它们应在 S1/S3、S2/S4 主链路之后单独处理。",
+        ),
+        (
+            ("h2o_blocked:model_matrix_rank_deficient", "model_matrix_rank_deficient"),
+            "H2O 拟合矩阵秩不足，通常意味着有效湿度点、干气锚点、温度覆盖或被剔除样本不足。",
+        ),
+        (
+            ("fail_senco24_raw_state_transfer", "h2o_state_transfer_failed"),
+            "H2O S2/S4 主链路状态转移失败，应检查 H2O ratio、露点、dry/wet ppmv 与 S6 是否误吸收主链路误差。",
+        ),
+        (
+            ("ratio_stable_but_curve_inconsistent", "factory_signal_health", "device_rejected_or_unqualified"),
+            "ratio 虽可能稳定，但曲线或光学健康不符合标气响应；应检查 ref_signal、CO2/H2O signal、SETCO2、SETPOW 和状态寄存器。",
+        ),
+        (
+            ("candidate_missing", "candidate_not_ready", "formal_candidate_review_not_ready"),
+            "候选系数证据不足，需补齐稳定样本、模型选择和残差评审后再进入写入评审。",
+        ),
+        (
+            ("fit_samples", "sample_count"),
+            "有效样本数不足，需回到采样窗口和 QC 分级，确认是否能补证据或明确拒绝原因。",
+        ),
+        (
+            ("archive", "database", "report", "certificate"),
+            "归档、数据库、报告或证书证据尚未闭环；需要补齐 hash、路径、数据库索引或报告重建证据。",
+        ),
+    ]
+    for needles, zh in mappings:
+        if any(needle in lower for needle in needles):
+            return zh
+    if "missing_roles=" in lower:
+        return "必要角色证据缺失，需要先补齐对应 artifact，再进入下一阶段。"
+    if "invalid_roles=" in lower:
+        return "发现对应 artifact，但状态无效或失败；不能作为正式初始化/评审证据。"
+    if "not_attempted" in lower:
+        return "该阶段尚未执行，不影响前序离线评审，但不能作为最终发布证据。"
+    return f"需要人工复核内部原因：{text}"
+
+
+def _next_action_to_zh(action: Any, blockers: Sequence[Any] | None = None) -> str:
+    text = str(action or "").strip()
+    lower = text.lower()
+    blocker_text = ";".join(str(item) for item in blockers or ())
+    if "export_controlled_write_package" in lower:
+        return "进入受控写入评审：先核对设备 ID 和旧系数快照，再由写入工具逐台执行并回读。"
+    if "repair_missing_evidence" in lower or "exclude_bad_device" in lower:
+        return "先修复缺失证据；若确认设备自身异常，应只阻断该设备并写明拒绝原因，不拖死其它设备。"
+    if "pressure" in lower or "senco9" in lower or "senco9" in blocker_text.lower():
+        return "先做压力通道 SENCO9 评审/校准/复验，合格后再释放 CO2/H2O 写入。"
+    if "temperature" in lower or "senco78" in lower or "temperature" in blocker_text.lower():
+        return "先做温度通道评审或 SENCO7/SENCO8 修复，避免温度错误被组分系数吸收。"
+    if "candidate" in lower or "model" in lower:
+        return "补齐候选系数、模型选择、残差和被拒绝样本理由，再重新运行采集后闭环。"
+    if "archive" in lower or "database" in lower or "report" in lower:
+        return "补齐归档索引、数据库 sidecar、报告和证书证据，并重新刷新 evidence status。"
+    if text:
+        return f"按内部动作执行并补充审计记录：{text}"
+    return "回到对应阶段证据表，确认缺口后重新生成离线闭环。"
+
+
+def _blocker_summary_zh(blockers: Sequence[Any]) -> str:
+    unique = [str(item) for item in dict.fromkeys(str(item) for item in blockers if str(item))]
+    if not unique:
+        return "无阻断项，设备可进入受控写入评审。"
+    return "；".join(_reason_to_zh(item) for item in unique)
 
 
 def _existing_latest(root: Path, patterns: Sequence[str]) -> Path | None:
@@ -751,6 +844,7 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
             if overall == "ready_for_controlled_write_review"
             else "repair_missing_evidence_or_exclude_bad_device_with_reason"
         )
+        unique_blockers = tuple(dict.fromkeys(blockers))
         closures.append(
             DeviceClosure(
                 device_id=device_id,
@@ -762,8 +856,10 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
                 h2o_status=h2o_status,
                 output_trim_status=output_trim_status,
                 overall_status=overall,
-                blockers=tuple(dict.fromkeys(blockers)),
+                blockers=unique_blockers,
                 next_action=next_action,
+                blocker_summary_zh=_blocker_summary_zh(unique_blockers),
+                next_action_zh=_next_action_to_zh(next_action, unique_blockers),
             )
         )
     return tuple(closures)
@@ -987,6 +1083,8 @@ def _closure_gaps(stages: Sequence[ExecutorStage], devices: Sequence[DeviceClosu
                 reason=stage.reason,
                 next_action=stage.next_action,
                 physical_meaning=stage.physical_meaning,
+                reason_zh=_reason_to_zh(stage.reason or stage.stage_id),
+                next_action_zh=_next_action_to_zh(stage.next_action),
             )
         )
     for device in devices:
@@ -1004,6 +1102,8 @@ def _closure_gaps(stages: Sequence[ExecutorStage], devices: Sequence[DeviceClosu
                         "This device must not inherit another analyzer's evidence; "
                         "repair the missing input or exclude the device with an auditable reason."
                     ),
+                    reason_zh=_reason_to_zh(blocker),
+                    next_action_zh=_next_action_to_zh(device.next_action, device.blockers),
                 )
             )
     return gaps
@@ -1341,327 +1441,40 @@ def build_post_run_coefficient_executor_model(
 
 
 def render_post_run_coefficient_executor_markdown(model: Mapping[str, Any]) -> str:
-    lines = [
-        "# V1.5 校准后系数闭环执行计划",
-        "",
-        f"- 运行目录：`{model.get('run_dir')}`",
-        f"- 总体状态：`{model.get('overall_status')}`",
-        "- 性质：离线/no-write 计划；不打开串口，不控阀，不写 SENCO。",
-        "",
-        "## 物理顺序",
-        "",
-        "压力 P 和温度 T 是分析仪内部 CO2/H2O 算法的输入量，必须先独立验证或修正；CO2/H2O 主链路只使用开放流通稳定样本；S5/S6 只是最终显示层线性修正，必须放在主链路之后。",
-        "",
-        "## 阶段门禁",
-        "",
-        "| 阶段 | 状态 | 原因 | 证据数 | 下一步 |",
-        "| --- | --- | --- | ---: | --- |",
-    ]
-    for row in model.get("stages") or []:
-        lines.append(
-            "| {stage} | {status} | {reason} | {count} | {next_action} |".format(
-                stage=row.get("title", row.get("stage_id", "")),
-                status=row.get("status", ""),
-                reason=row.get("reason", ""),
-                count=row.get("artifact_count", 0),
-                next_action=row.get("next_action", ""),
-            )
-        )
-    lines.extend(["", "## 逐台设备状态", "", "| 设备ID | 压力 | 温度 | CO2 | H2O | S5/S6 | 总体 | 阻塞原因 |", "| --- | --- | --- | --- | --- | --- | --- | --- |"])
-    for row in model.get("devices") or []:
-        lines.append(
-            "| {device} | {pressure} | {temperature} | {quality} | {co2} | {h2o} | {trim} | {overall} | {blockers} |".format(
-                device=row.get("device_id", ""),
-                pressure=row.get("pressure_status", ""),
-                temperature=row.get("temperature_status", ""),
-                quality=row.get("device_quality_status", ""),
-                co2=row.get("co2_status", ""),
-                h2o=row.get("h2o_status", ""),
-                trim=row.get("output_trim_status", ""),
-                overall=row.get("overall_status", ""),
-                blockers=";".join(row.get("blockers") or []),
-            )
-        )
-    lines.extend(
-        [
-            "",
-            "## 固化原则",
-            "",
-            "- 使用设备自身 ID 作为身份，不按 COM 或 GA 标签写系数。",
-            "- CO2 零气低端锚点和 H2O 干气低水锚点物理意义不同，不能互相替代。",
-            "- 当前大气开放流通 CO2/H2O 主拟合不引入压力项，压力由 SENCO9 独立处理。",
-            "- fit / verification 标签不默认排除样本；只要样本满足稳定、证书、状态寄存器和物理门禁，就可以进入拟合。真正复验必须在写入后单独跑。",
-            "- 某台设备异常只阻断该设备，不拖死其它设备；异常点必须保留拒绝原因。",
-            "- 采样窗口必须在气路/水路保持开放流通时取得，采样完成后才允许关阀。",
-        ]
-    )
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def render_post_run_coefficient_executor_markdown(model: Mapping[str, Any]) -> str:
-    """Render a Chinese reviewer summary for the post-run coefficient workflow."""
-
-    lines = [
-        "# V1.5 校准后系数闭环执行计划",
-        "",
-        f"- 运行目录：`{model.get('run_dir')}`",
-        f"- 总体状态：`{model.get('overall_status')}`",
-        "- 性质：离线 no-write 计划；不打开串口，不控制阀门/PACE，不写 SENCO。",
-        "",
-        "## 物理顺序",
-        "",
-        "压力 P 和温度 T 是分析仪内部 CO2/H2O 算法的输入量，必须先独立验证或修正；"
-        "CO2/H2O 主链路只使用开放流通稳定样本；S5/S6 只是最终显示层线性修正，"
-        "必须放在主链路之后。",
-        "",
-        "## 阶段门禁",
-        "",
-        "| 阶段 | 状态 | 原因 | 证据数 | 下一步 |",
-        "| --- | --- | --- | ---: | --- |",
-    ]
-    for row in model.get("stages") or []:
-        lines.append(
-            "| {stage} | {status} | {reason} | {count} | {next_action} |".format(
-                stage=row.get("title", row.get("stage_id", "")),
-                status=row.get("status", ""),
-                reason=row.get("reason", ""),
-                count=row.get("artifact_count", 0),
-                next_action=row.get("next_action", ""),
-            )
-        )
-    lines.extend(
-        [
-            "",
-            "## 逐台设备状态",
-            "",
-            "| 设备 ID | 压力 | 温度 | CO2 | H2O | S5/S6 | 总体 | 阻塞原因 |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- |",
-        ]
-    )
-    for row in model.get("devices") or []:
-        lines.append(
-            "| {device} | {pressure} | {temperature} | {quality} | {co2} | {h2o} | {trim} | {overall} | {blockers} |".format(
-                device=row.get("device_id", ""),
-                pressure=row.get("pressure_status", ""),
-                temperature=row.get("temperature_status", ""),
-                quality=row.get("device_quality_status", ""),
-                co2=row.get("co2_status", ""),
-                h2o=row.get("h2o_status", ""),
-                trim=row.get("output_trim_status", ""),
-                overall=row.get("overall_status", ""),
-                blockers=";".join(row.get("blockers") or []),
-            )
-        )
-    lines.extend(
-        [
-            "",
-            "## 固化原则",
-            "",
-            "- 使用设备自身 ID 作为身份，不按 COM 或 GA 标签写系数。",
-            "- CO2 零气低端锚点和 H2O 干气低水锚点物理意义不同，不能互相替代。",
-            "- 当前大气开放流通 CO2/H2O 主拟合不引入压力项，压力由 SENCO9 独立处理。",
-            "- fit / verification 标签不默认排除样本；只要样本满足稳定、证书、状态寄存器和物理门禁，就可以进入拟合。真正复验必须在写入后单独跑。",
-            "- 某台设备异常只阻断该设备，不拖死其它设备；异常点必须保留拒绝原因。",
-            "- 采样窗口必须在气路/水路保持开放流通时取得，采样完成后才允许关阀。",
-        ]
-    )
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def render_post_run_coefficient_executor_markdown(model: Mapping[str, Any]) -> str:
     """Render a readable Chinese reviewer summary for the post-run workflow."""
 
     lines = [
-        "# V1.5 校准后系数闭环执行计划",
+        "# V1.5 采集后系数闭环执行计划",
         "",
         f"- 运行目录：`{model.get('run_dir')}`",
         f"- 总体状态：`{model.get('overall_status')}`",
-        "- 性质：离线 no-write 计划；不打开串口，不控制阀门/PACE，不写 SENCO。",
+        "- 性质：离线 no-write 计划；不打开串口、不控制阀门或 PACE、不写 SENCO、不修改设备 ID。",
+        "",
+        "## 默认离线收口入口",
+        "",
+        "采集完成后默认先运行 post-acquisition closure。它只整理证据链：生成候选系数评审、受控写入包、写后复验计划、归档缺口清单和总 readiness，不执行真实设备动作。",
         "",
         "## 物理顺序",
         "",
         (
             "压力 P 和温度 T 是分析仪内部 CO2/H2O 算法的输入量，必须先独立验证或修正；"
-            "CO2/H2O 主链路只使用开放流通稳定样本；S5/S6 只是最终显示层线性修正，"
-            "必须放在主链路之后。"
-        ),
-        "",
-        "## 阶段门禁",
-        "",
-        "| 阶段 | 状态 | 原因 | 证据数 | 下一步 |",
-        "| --- | --- | --- | ---: | --- |",
-    ]
-    for row in model.get("stages") or []:
-        lines.append(
-            "| {stage} | {status} | {reason} | {count} | {next_action} |".format(
-                stage=row.get("title", row.get("stage_id", "")),
-                status=row.get("status", ""),
-                reason=row.get("reason", ""),
-                count=row.get("artifact_count", 0),
-                next_action=row.get("next_action", ""),
-            )
-        )
-    lines.extend(
-        [
-            "",
-            "## 逐台设备状态",
-            "",
-            "| 设备 ID | 压力 | 温度 | CO2 | H2O | S5/S6 | 总体 | 阻塞原因 |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- |",
-        ]
-    )
-    for row in model.get("devices") or []:
-        lines.append(
-            "| {device} | {pressure} | {temperature} | {quality} | {co2} | {h2o} | {trim} | {overall} | {blockers} |".format(
-                device=row.get("device_id", ""),
-                pressure=row.get("pressure_status", ""),
-                temperature=row.get("temperature_status", ""),
-                quality=row.get("device_quality_status", ""),
-                co2=row.get("co2_status", ""),
-                h2o=row.get("h2o_status", ""),
-                trim=row.get("output_trim_status", ""),
-                overall=row.get("overall_status", ""),
-                blockers=";".join(row.get("blockers") or []),
-            )
-        )
-    lines.extend(
-        [
-            "",
-            "## 固化原则",
-            "",
-            "- 使用设备自身 ID 作为身份，不按 COM 或 GA 标签写系数。",
-            "- CO2 零气低端锚点和 H2O 干气低水锚点物理意义不同，不能互相替代。",
-            "- 当前大气开放流通 CO2/H2O 主拟合不引入压力项，压力由 SENCO9 独立处理。",
-            "- fit / verification 标签不默认排除样本；只要样本满足稳定、证书、状态寄存器和物理门禁，就可以进入拟合。真正复验必须在写入后单独跑。",
-            "- 某台设备异常只阻断该设备，不拖死其它设备；异常点必须保留拒绝原因。",
-            "- 采样窗口必须在气路/水路保持开放流通时取得，采样完成后才允许关阀。",
-        ]
-    )
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def render_post_run_coefficient_executor_markdown(model: Mapping[str, Any]) -> str:
-    """Render a readable Chinese reviewer summary for the post-run workflow."""
-
-    lines = [
-        "# V1.5 校准后系数闭环执行计划",
-        "",
-        f"- 运行目录：`{model.get('run_dir')}`",
-        f"- 总体状态：`{model.get('overall_status')}`",
-        "- 性质：离线 no-write 计划；不打开串口，不控制阀门/PACE，不写 SENCO。",
-        "",
-        "## 物理顺序",
-        "",
-        (
-            "压力 P 和温度 T 是分析仪内部 CO2/H2O 算法的输入量，必须先独立验证或修正；"
-            "CO2/H2O 主链路只使用开放流通稳定样本；S5/S6 是最终显示层线性修正，"
-            "必须放在主链路拟合之后。"
-        ),
-        "",
-        "## 阶段门禁",
-        "",
-        "| 阶段 | 状态 | 原因 | 证据数 | 下一步 |",
-        "| --- | --- | --- | ---: | --- |",
-    ]
-    for row in model.get("stages") or []:
-        lines.append(
-            "| {stage} | {status} | {reason} | {count} | {next_action} |".format(
-                stage=row.get("title", row.get("stage_id", "")),
-                status=row.get("status", ""),
-                reason=row.get("reason", ""),
-                count=row.get("artifact_count", 0),
-                next_action=row.get("next_action", ""),
-            )
-        )
-    lines.extend(
-        [
-            "",
-            "## 逐台设备状态",
-            "",
-            "| 设备 ID | 压力 | 温度 | CO2 | H2O | S5/S6 | 总体 | 阻塞原因 |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- |",
-        ]
-    )
-    for row in model.get("devices") or []:
-        lines.append(
-            "| {device} | {pressure} | {temperature} | {quality} | {co2} | {h2o} | {trim} | {overall} | {blockers} |".format(
-                device=row.get("device_id", ""),
-                pressure=row.get("pressure_status", ""),
-                temperature=row.get("temperature_status", ""),
-                quality=row.get("device_quality_status", ""),
-                co2=row.get("co2_status", ""),
-                h2o=row.get("h2o_status", ""),
-                trim=row.get("output_trim_status", ""),
-                overall=row.get("overall_status", ""),
-                blockers=";".join(row.get("blockers") or []),
-            )
-        )
-    lines.extend(
-        [
-            "",
-            "## 缺口清单",
-            "",
-            "| 范围 | 项目 | 状态 | 原因 | 下一步 |",
-            "| --- | --- | --- | --- | --- |",
-        ]
-    )
-    for row in model.get("closure_gaps") or []:
-        lines.append(
-            "| {scope} | {item} | {status} | {reason} | {next_action} |".format(
-                scope=row.get("scope", ""),
-                item=row.get("item", ""),
-                status=row.get("status", ""),
-                reason=row.get("reason", ""),
-                next_action=row.get("next_action", ""),
-            )
-        )
-    lines.extend(
-        [
-            "",
-            "## 固化原则",
-            "",
-            "- 使用设备自身 ID 作为身份，不按 COM 或 GA 标签写系数。",
-            "- CO2 零气低端锚点和 H2O 干气低水锚点物理意义不同，不能互相替代。",
-            "- 当前大气开放流通 CO2/H2O 主拟合不引入压力项，压力由 SENCO9 独立处理。",
-            "- fit / verification 标签不默认排除样本；只要样本满足稳定、证书、状态寄存器和物理门禁，就可以进入拟合。真正复验必须在写入后单独跑。",
-            "- 某台设备异常只阻断该设备，不拖死其它设备；异常点必须保留拒绝原因。",
-            "- 采样窗口必须在气路/水路保持开放流通时取得，采样完成后才允许关阀。",
-        ]
-    )
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def render_post_run_coefficient_executor_markdown(model: Mapping[str, Any]) -> str:
-    """Render a readable Chinese reviewer summary for the post-run workflow."""
-
-    lines = [
-        "# V1.5 校准后系数闭环执行计划",
-        "",
-        f"- 运行目录：`{model.get('run_dir')}`",
-        f"- 总体状态：`{model.get('overall_status')}`",
-        "- 性质：离线 no-write 计划；不打开串口，不控制阀门/PACE，不写 SENCO。",
-        "",
-        "## 物理顺序",
-        "",
-        (
-            "压力 P 和温度 T 是分析仪内部 CO2/H2O 算法的输入量，必须先独立验证或修正；"
-            "CO2/H2O 主链路只使用开放流通、组分稳定且可追溯的样本；"
+            "CO2/H2O 主链路只使用开放流通、组分稳定、可追溯的样本；"
             "S5/S6 是最终显示层线性修正，必须放在 S1/S3 与 S2/S4 主链路之后。"
         ),
         "",
         "## 阶段门禁",
         "",
-        "| 阶段 | 状态 | 原因 | 证据数 | 下一步 |",
+        "| 阶段 | 状态 | 原因 | 证据数 | 中文建议 |",
         "| --- | --- | --- | ---: | --- |",
     ]
     for row in model.get("stages") or []:
         lines.append(
-            "| {stage} | {status} | {reason} | {count} | {next_action} |".format(
+            "| {stage} | `{status}` | {reason} | {count} | {next_action} |".format(
                 stage=row.get("title", row.get("stage_id", "")),
                 status=row.get("status", ""),
                 reason=row.get("reason", ""),
                 count=row.get("artifact_count", 0),
-                next_action=row.get("next_action", ""),
+                next_action=_next_action_to_zh(row.get("next_action")),
             )
         )
 
@@ -1670,13 +1483,16 @@ def render_post_run_coefficient_executor_markdown(model: Mapping[str, Any]) -> s
             "",
             "## 逐台设备状态",
             "",
-            "| 设备 ID | 压力 | 温度 | 质量 | CO2 | H2O | S5/S6 | 总体 | 阻塞原因 |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| 设备 ID | 压力 | 温度 | 质量 | CO2 | H2O | S5/S6 | 总体 | 中文阻断解释 | 下一步 |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     )
     for row in model.get("devices") or []:
+        blockers = row.get("blockers") or []
+        if isinstance(blockers, str):
+            blockers = [item for item in blockers.split(";") if item]
         lines.append(
-            "| {device} | {pressure} | {temperature} | {quality} | {co2} | {h2o} | {trim} | {overall} | {blockers} |".format(
+            "| {device} | {pressure} | {temperature} | {quality} | {co2} | {h2o} | {trim} | {overall} | {blockers_zh} | {next_action_zh} |".format(
                 device=row.get("device_id", ""),
                 pressure=row.get("pressure_status", ""),
                 temperature=row.get("temperature_status", ""),
@@ -1685,7 +1501,32 @@ def render_post_run_coefficient_executor_markdown(model: Mapping[str, Any]) -> s
                 h2o=row.get("h2o_status", ""),
                 trim=row.get("output_trim_status", ""),
                 overall=row.get("overall_status", ""),
-                blockers=";".join(row.get("blockers") or []),
+                blockers_zh=row.get("blocker_summary_zh") or _blocker_summary_zh(blockers),
+                next_action_zh=row.get("next_action_zh") or _next_action_to_zh(row.get("next_action"), blockers),
+            )
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 闭环缺口清单",
+            "",
+            "| 范围 | 项目 | 状态 | 内部原因 | 中文原因 | 中文下一步 |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    gaps = list(model.get("closure_gaps") or [])
+    if not gaps:
+        lines.append("| - | - | ready | 无缺口 | 暂未发现闭环缺口。 | 可进入下一阶段评审。 |")
+    for row in gaps:
+        lines.append(
+            "| {scope} | {item} | `{status}` | {reason} | {reason_zh} | {next_action_zh} |".format(
+                scope=row.get("scope", ""),
+                item=row.get("item", ""),
+                status=row.get("status", ""),
+                reason=row.get("reason", ""),
+                reason_zh=row.get("reason_zh") or _reason_to_zh(row.get("reason")),
+                next_action_zh=row.get("next_action_zh") or _next_action_to_zh(row.get("next_action")),
             )
         )
 

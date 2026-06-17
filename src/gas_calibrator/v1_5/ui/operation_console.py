@@ -153,6 +153,13 @@ STATUS_LABELS = {
     "import": "已导入数据库",
     "skip": "跳过",
     "skipped": "跳过",
+    "present": "已发现",
+    "not_found": "未发现",
+    "authorization_required": "需授权",
+    "blocked_controlled_gate": "受控门禁",
+    "waiting_for_artifacts": "等待证据",
+    "manual_review": "人工评审",
+    "planned_controlled_gates": "受控计划",
 }
 
 
@@ -175,6 +182,13 @@ STATUS_TONE = {
     "not_attempted": "muted",
     "skipped": "muted",
     "skip": "muted",
+    "present": "warn",
+    "not_found": "muted",
+    "authorization_required": "warn",
+    "blocked_controlled_gate": "warn",
+    "waiting_for_artifacts": "warn",
+    "manual_review": "warn",
+    "planned_controlled_gates": "warn",
 }
 
 
@@ -243,6 +257,75 @@ def _stage_map(run_evidence_status: Mapping[str, Any] | None) -> Dict[str, Mappi
         str(row.get("stage_id") or ""): row
         for row in run_evidence_status.get("stage_statuses", [])
         if isinstance(row, Mapping) and str(row.get("stage_id") or "")
+    }
+
+
+def _full_flow_stage_manifest_panel(run_evidence_status: Mapping[str, Any] | None) -> Dict[str, Any]:
+    manifest = (
+        run_evidence_status.get("full_flow_stage_manifest")
+        if isinstance(run_evidence_status, Mapping)
+        and isinstance(run_evidence_status.get("full_flow_stage_manifest"), Mapping)
+        else {}
+    )
+    if not manifest:
+        return {
+            "key": "full_flow_stage_manifest",
+            "available": False,
+            "status": "not_found",
+            "label": _status_label("not_found"),
+            "source_path": "",
+            "stage_count": 0,
+            "current_manifest_stage": "",
+            "one_button_live_runner_ready": False,
+            "status_counts": {},
+            "attention_rows": [],
+            "detail": "stage_manifest_missing",
+        }
+
+    stage_rows = [row for row in manifest.get("stage_statuses") or [] if isinstance(row, Mapping)]
+    status_counts = {
+        str(key): int(value)
+        for key, value in (manifest.get("status_counts") or {}).items()
+        if str(key)
+    }
+    attention_rows = [
+        {
+            "order": row.get("order"),
+            "step_id": str(row.get("step_id") or ""),
+            "title": str(row.get("title") or row.get("step_id") or ""),
+            "phase": str(row.get("phase") or ""),
+            "automation_state": str(row.get("automation_state") or ""),
+            "status": str(row.get("status") or "pending"),
+            "status_label": _status_label(row.get("status")),
+            "reason": str(row.get("reason") or ""),
+            "expected_output_count": int(row.get("expected_output_count") or 0),
+            "present_output_count": int(row.get("present_output_count") or 0),
+        }
+        for row in stage_rows
+        if str(row.get("status") or "") not in {"pass", "not_attempted"}
+    ][:12]
+
+    summary_status = "pass"
+    if str(manifest.get("status") or "") == "not_found":
+        summary_status = "not_found"
+    elif attention_rows:
+        summary_status = "planned_controlled_gates"
+    return {
+        "key": "full_flow_stage_manifest",
+        "available": True,
+        "status": summary_status,
+        "label": _status_label(summary_status),
+        "source_path": str(manifest.get("source_path") or ""),
+        "schema": str(manifest.get("schema") or ""),
+        "stage_count": int(manifest.get("stage_count") or len(stage_rows)),
+        "current_manifest_stage": str(manifest.get("current_manifest_stage") or ""),
+        "one_button_live_runner_ready": bool(manifest.get("one_button_live_runner_ready")),
+        "status_counts": dict(sorted(status_counts.items())),
+        "attention_rows": attention_rows,
+        "detail": (
+            f"current={manifest.get('current_manifest_stage') or 'none'}; "
+            f"one_button_live_runner_ready={bool(manifest.get('one_button_live_runner_ready'))}"
+        ),
     }
 
 
@@ -392,11 +475,24 @@ def build_operation_console_model(
     cards = _cards_by_key(workbench_model)
     stages = _stage_map(run_evidence_status)
     role_key = role if role in ROLE_PERMISSIONS else "operator"
+    stage_manifest_panel = _full_flow_stage_manifest_panel(run_evidence_status)
     summary_cards = _summary_cards(
         cards=cards,
         run_evidence_status=run_evidence_status,
         calibration_capability=calibration_capability,
         archive_index=archive_index,
+    )
+    summary_cards.append(
+        {
+            "key": "full_flow_stage_manifest",
+            "title": "全流程阶段清单",
+            "status": stage_manifest_panel["status"],
+            "label": stage_manifest_panel["label"],
+            "detail": (
+                f"{stage_manifest_panel['detail']}; "
+                f"stage_count={stage_manifest_panel['stage_count']}"
+            ),
+        }
     )
 
     pages: List[Dict[str, Any]] = []
@@ -472,12 +568,14 @@ def build_operation_console_model(
             or ""
         ),
         "summary_cards": summary_cards,
+        "stage_manifest_panel": stage_manifest_panel,
         "pages": pages,
         "source_evidence": {
             "has_workbench_model": bool(workbench_model),
             "has_run_evidence_status": bool(run_evidence_status),
             "has_calibration_capability": bool(calibration_capability),
             "has_archive_index": bool(archive_index),
+            "has_full_flow_stage_manifest": bool(stage_manifest_panel.get("available")),
         },
         "physical_boundary_statement": (
             "本操作台仅展示证据状态；不打开串口、不控制水路/气路、不控制阀或 PACE、"
@@ -502,6 +600,58 @@ def render_operation_console_html(model: Mapping[str, Any]) -> str:
         for card in model.get("summary_cards", [])
         if isinstance(card, Mapping)
     )
+    manifest_panel = model.get("stage_manifest_panel") if isinstance(model.get("stage_manifest_panel"), Mapping) else {}
+    manifest_rows = [
+        row for row in manifest_panel.get("attention_rows", []) if isinstance(row, Mapping)
+    ]
+    manifest_rows_html = "\n".join(
+        f"""
+        <tr>
+          <td>{_esc(row.get('order'))}</td>
+          <td><strong>{_esc(row.get('title'))}</strong><br><span>{_esc(row.get('step_id'))}</span></td>
+          <td>{_badge(str(row.get('status_label') or row.get('status')), _tone(row.get('status')))}</td>
+          <td>{_esc(row.get('phase'))}</td>
+          <td>{_esc(row.get('automation_state'))}</td>
+          <td>{_esc(row.get('reason'))}</td>
+        </tr>
+        """
+        for row in manifest_rows
+    )
+    if not manifest_rows_html:
+        manifest_rows_html = """
+        <tr>
+          <td colspan="6">当前没有需要关注的 full-flow 阶段门禁；若 manifest 不存在，请先运行 full-flow plan/status 导出。</td>
+        </tr>
+        """
+    manifest_html = f"""
+    <section class="manifest-panel">
+      <div class="manifest-head">
+        <div>
+          <h2>全流程阶段清单</h2>
+          <p>{_esc(manifest_panel.get('detail'))}</p>
+        </div>
+        <div>{_badge(str(manifest_panel.get('label') or manifest_panel.get('status') or 'pending'), _tone(manifest_panel.get('status')))}</div>
+      </div>
+      <div class="manifest-meta">
+        <span>current_manifest_stage={_esc(manifest_panel.get('current_manifest_stage') or 'none')}</span>
+        <span>one_button_live_runner_ready={_esc(manifest_panel.get('one_button_live_runner_ready'))}</span>
+        <span>stage_count={_esc(manifest_panel.get('stage_count'))}</span>
+      </div>
+      <table aria-label="V1.5 full-flow stage manifest attention rows">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>阶段</th>
+            <th>状态</th>
+            <th>物理阶段</th>
+            <th>自动化状态</th>
+            <th>原因</th>
+          </tr>
+        </thead>
+        <tbody>{manifest_rows_html}</tbody>
+      </table>
+    </section>
+    """
     pages_html = "\n".join(
         f"""
         <tr>
@@ -572,7 +722,7 @@ def render_operation_console_html(model: Mapping[str, Any]) -> str:
     }}
     .summary {{
       display: grid;
-      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      grid-template-columns: repeat(5, minmax(170px, 1fr));
       gap: 12px;
       margin-bottom: 16px;
     }}
@@ -586,6 +736,33 @@ def render_operation_console_html(model: Mapping[str, Any]) -> str:
     .card-title {{ font-weight: 700; margin-bottom: 8px; }}
     .card-status {{ margin-bottom: 8px; }}
     p {{ margin: 0; line-height: 1.55; color: var(--muted); }}
+    .manifest-panel {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 16px;
+    }}
+    .manifest-head {{
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }}
+    h2 {{
+      margin: 0 0 6px;
+      font-size: 18px;
+      line-height: 1.3;
+    }}
+    .manifest-meta {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      margin-bottom: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }}
     table {{
       width: 100%;
       border-collapse: collapse;
@@ -651,6 +828,7 @@ def render_operation_console_html(model: Mapping[str, Any]) -> str:
       archive={_esc(source.get('has_archive_index'))}
     </section>
     <section class="summary">{cards_html}</section>
+    {manifest_html}
     <table aria-label="V1.5 操作页面状态">
       <thead>
         <tr>

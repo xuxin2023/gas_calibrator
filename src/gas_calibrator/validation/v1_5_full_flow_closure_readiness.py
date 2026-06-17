@@ -41,6 +41,8 @@ class ClosureGap:
     reason: str
     next_action: str
     physical_meaning: str
+    reason_zh: str = ""
+    next_action_zh: str = ""
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -123,6 +125,90 @@ def _explicit_or_latest(root: Path, explicit: str | Path | None, *patterns: str)
 
 def _path_text(path: Path | None) -> str:
     return str(path.resolve()) if path and path.exists() else ""
+
+
+def _reason_to_zh(reason: Any) -> str:
+    text = str(reason or "").strip()
+    if not text:
+        return "未给出具体原因，需要回到对应证据表核对。"
+    lower = text.lower()
+    mappings = [
+        (
+            ("post-run executor manifest missing", "post_run_coefficient_executor"),
+            "缺少采集后系数闭环执行器结果；需要先生成候选系数评审、写入包和复验计划。",
+        ),
+        (
+            ("source_status=blocked", "blocked"),
+            "源证据状态为 blocked，当前不能发布，需要先修复对应证据或明确设备拒绝原因。",
+        ),
+        (
+            ("source_status=partial", "partial"),
+            "源证据状态为 partial，证据不完整，只能进入人工评审，不能作为最终发布。",
+        ),
+        (
+            ("controlled write package", "controlled_write_package"),
+            "缺少受控写入包；必须按设备 ID 生成待写 payload、旧值快照和回读要求。",
+        ),
+        (
+            ("post-write reverification", "post_write_reverification"),
+            "缺少写后复验计划；写入后必须重新用开放流通样本独立验证。",
+        ),
+        (
+            ("archive_gap_count", "archive gap", "archive_gap"),
+            "仍存在归档缺口，需要补齐原始数据、QC、报告、证书、数据库或 hash 证据。",
+        ),
+        (
+            ("formal archive closure", "formal archive closure index"),
+            "正式归档闭包索引未生成，报告和证书还不能声明可从证据包重建。",
+        ),
+        (
+            ("h2o_blocked:model_matrix_rank_deficient", "model_matrix_rank_deficient"),
+            "H2O 拟合矩阵秩不足，通常意味着有效湿度点、干气锚点、温度覆盖或被剔除样本不足。",
+        ),
+        (
+            ("ratio_stable_but_curve_inconsistent", "device_rejected_or_unqualified", "factory_signal_health"),
+            "设备响应曲线或光学健康异常，应检查 ref_signal、CO2/H2O signal、SETCO2、SETPOW 和状态寄存器。",
+        ),
+        (
+            ("senco9", "pressure"),
+            "压力输入量 P 未闭环；需要先完成 SENCO9 压力评审/校准/复验。",
+        ),
+        (
+            ("temperature", "senco7", "senco8"),
+            "温度输入量 T 未闭环；需要先完成温度评审或 SENCO7/SENCO8 修复。",
+        ),
+    ]
+    for needles, zh in mappings:
+        if any(needle in lower for needle in needles):
+            return zh
+    return f"需要人工复核内部原因：{text}"
+
+
+def _next_action_to_zh(action: Any, reason: Any = "") -> str:
+    text = str(action or "").strip()
+    lower = text.lower()
+    reason_lower = str(reason or "").lower()
+    if "carry_forward" in lower:
+        return "证据已满足，可带入下一阶段。"
+    if "controlled write" in lower or "write package" in lower:
+        return "生成或复核受控写入包，确认设备 ID、旧系数快照、待写 payload 和回读要求。"
+    if "archive" in lower or "database" in lower or "report" in lower or "archive" in reason_lower:
+        return "补齐归档、数据库、报告、证书和 hash 证据，然后刷新总 evidence status。"
+    if "reverification" in lower:
+        return "生成写后开放流通复验计划，并确保采样发生在阀门保持打开、气/水路持续流通状态下。"
+    if "post-run coefficient executor" in lower or "coefficient executor" in lower:
+        return "先运行采集后系数闭环执行器，得到逐台设备 eligibility、写入包、复验计划和缺口表。"
+    if "factory_signal" in reason_lower or "device_rejected" in reason_lower or "optical" in lower:
+        return "按设备 ID 单独复核光学/信号问题；若确认异常，只阻断该设备并写明拒绝原因，不拖死其它设备。"
+    if "review_partial" in lower:
+        return "由工程师/审核员逐项确认 partial 缺口，未闭环前不能发布正式证书。"
+    if "pressure" in lower or "senco9" in lower or "pressure" in reason_lower:
+        return "先完成压力通道 SENCO9 评审或校准，确认 P 输入量可信。"
+    if "temperature" in lower or "senco7" in lower or "temperature" in reason_lower:
+        return "先完成温度通道评审或修复，避免温度错误被 CO2/H2O 系数吸收。"
+    if text:
+        return f"按内部动作执行并补充审计记录：{text}"
+    return "回到对应证据表，补齐缺口后重新生成离线闭环。"
 
 
 def _status_from_existing_json(
@@ -216,6 +302,8 @@ def _executor_device_rows(executor: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "output_trim_status": str(row.get("output_trim_status") or ""),
                 "blockers": blockers_text,
                 "next_action": str(row.get("next_action") or ""),
+                "blocker_summary_zh": str(row.get("blocker_summary_zh") or ("无阻断项，设备可进入受控写入评审。" if not blockers_text else _reason_to_zh(blockers_text))),
+                "next_action_zh": str(row.get("next_action_zh") or _next_action_to_zh(row.get("next_action"), blockers_text)),
             }
         )
     return rows
@@ -440,6 +528,8 @@ def _gap_from_stage(stage: ClosureStage) -> ClosureGap | None:
         reason=stage.reason,
         next_action=stage.next_action,
         physical_meaning=stage.physical_meaning,
+        reason_zh=_reason_to_zh(stage.reason or stage.stage_id),
+        next_action_zh=_next_action_to_zh(stage.next_action, stage.reason),
     )
 
 
@@ -577,6 +667,8 @@ def build_v1_5_full_flow_closure_readiness(
                     reason=row["blockers"] or "device not ready for controlled write review",
                     next_action=row["next_action"] or "review per-device blocker",
                     physical_meaning="Each analyzer is fitted and released independently; a failed device should be blocked with a reason without hiding other devices that are ready.",
+                    reason_zh=row.get("blocker_summary_zh") or _reason_to_zh(row["blockers"]),
+                    next_action_zh=row.get("next_action_zh") or _next_action_to_zh(row["next_action"], row["blockers"]),
                 ).to_json()
             )
 
@@ -641,8 +733,10 @@ def render_v1_5_full_flow_closure_readiness_markdown(model: Mapping[str, Any]) -
     lines = [
         "# V1.5 全流程离线闭环验收",
         "",
-        f"- overall_status: `{model.get('overall_status')}`",
-        f"- run_dir: `{model.get('run_dir')}`",
+        f"- `overall_status`: `{model.get('overall_status')}`",
+        f"- `release_status`: `{model.get('release_status')}`",
+        f"- 运行目录：`{model.get('run_dir')}`",
+        "- 性质：离线 readiness 审查；不打开 COM、不控制气路/水路/PACE、不写 SENCO、不修改设备 ID。",
         "",
         "## 物理边界",
     ]
@@ -651,15 +745,21 @@ def render_v1_5_full_flow_closure_readiness_markdown(model: Mapping[str, Any]) -
     lines.extend(["", "## 工作流合同"])
     for key, value in (model.get("workflow_contract") or {}).items():
         lines.append(f"- `{key}`: `{value}`")
-    lines.extend(["", "## 阶段状态"])
+
+    lines.extend(["", "## 阶段状态", ""])
+    lines.append("| 阶段 | 状态 | 内部原因 | 中文原因 | 中文下一步 |")
+    lines.append("| --- | --- | --- | --- | --- |")
     for stage in model.get("stage_statuses") or []:
         lines.append(
-            f"- `{stage.get('stage_id')}` {stage.get('title')}: `{stage.get('status')}` - {stage.get('reason')}"
+            "| {stage} | `{status}` | {reason} | {reason_zh} | {next_action_zh} |".format(
+                stage=stage.get("title") or stage.get("stage_id", ""),
+                status=stage.get("status", ""),
+                reason=stage.get("reason", ""),
+                reason_zh=_reason_to_zh(stage.get("reason") or stage.get("stage_id")),
+                next_action_zh=_next_action_to_zh(stage.get("next_action"), stage.get("reason")),
+            )
         )
-        if stage.get("physical_meaning"):
-            lines.append(f"  - 物理意义: {stage.get('physical_meaning')}")
-        if stage.get("next_action") and stage.get("status") != "ready":
-            lines.append(f"  - 下一步: {stage.get('next_action')}")
+
     lines.extend(["", "## 归档 / 数据库 / 报告 / 证书闭环"])
     lines.append(f"- release_status: `{model.get('release_status')}`")
     for domain in model.get("closure_domains") or []:
@@ -667,30 +767,51 @@ def render_v1_5_full_flow_closure_readiness_markdown(model: Mapping[str, Any]) -
             f"- `{domain.get('domain_id')}` {domain.get('title')}: `{domain.get('status')}` - {domain.get('reason')}"
         )
         if domain.get("physical_meaning"):
-            lines.append(f"  - 物理意义: {domain.get('physical_meaning')}")
+            lines.append(f"  - 物理意义：{domain.get('physical_meaning')}")
         if domain.get("next_action") and domain.get("status") != "ready":
-            lines.append(f"  - 下一步: {domain.get('next_action')}")
+            lines.append(f"  - 下一步：{_next_action_to_zh(domain.get('next_action'), domain.get('reason'))}")
+
     lines.extend(["", "## 逐台设备"])
     devices = list(model.get("devices") or [])
     if not devices:
         lines.append("- 未发现逐台设备闭环结果。")
-    for row in devices:
-        lines.append(
-            f"- `{row.get('device_id')}`: `{row.get('overall_status')}`; "
-            f"pressure=`{row.get('pressure_status')}`, temperature=`{row.get('temperature_status')}`, "
-            f"CO2=`{row.get('co2_status')}`, H2O=`{row.get('h2o_status')}`, trim=`{row.get('output_trim_status')}`"
-        )
-        if row.get("blockers"):
-            lines.append(f"  - 阻塞: {row.get('blockers')}")
+    else:
+        lines.append("| 设备 ID | 总体状态 | 压力 | 温度 | CO2 | H2O | S5/S6 | 中文阻断解释 | 下一步 |")
+        lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+        for row in devices:
+            lines.append(
+                "| {device} | `{overall}` | {pressure} | {temperature} | {co2} | {h2o} | {trim} | {blockers_zh} | {next_action_zh} |".format(
+                    device=row.get("device_id", ""),
+                    overall=row.get("overall_status", ""),
+                    pressure=row.get("pressure_status", ""),
+                    temperature=row.get("temperature_status", ""),
+                    co2=row.get("co2_status", ""),
+                    h2o=row.get("h2o_status", ""),
+                    trim=row.get("output_trim_status", ""),
+                    blockers_zh=row.get("blocker_summary_zh") or _reason_to_zh(row.get("blockers")),
+                    next_action_zh=row.get("next_action_zh") or _next_action_to_zh(row.get("next_action"), row.get("blockers")),
+                )
+            )
+
     lines.extend(["", "## 缺口清单"])
     gaps = list(model.get("gaps") or [])
     if not gaps:
         lines.append("- 未发现闭环缺口。")
-    for gap in gaps:
-        lines.append(
-            f"- `{gap.get('scope')}` `{gap.get('item')}`: `{gap.get('status')}` - {gap.get('reason')}; "
-            f"下一步: {gap.get('next_action')}"
-        )
+    else:
+        lines.append("| 范围 | 项目 | 状态 | 内部原因 | 中文原因 | 中文下一步 |")
+        lines.append("| --- | --- | --- | --- | --- | --- |")
+        for gap in gaps:
+            lines.append(
+                "| {scope} | {item} | `{status}` | {reason} | {reason_zh} | {next_action_zh} |".format(
+                    scope=gap.get("scope", ""),
+                    item=gap.get("item", ""),
+                    status=gap.get("status", ""),
+                    reason=gap.get("reason", ""),
+                    reason_zh=gap.get("reason_zh") or _reason_to_zh(gap.get("reason")),
+                    next_action_zh=gap.get("next_action_zh") or _next_action_to_zh(gap.get("next_action"), gap.get("reason")),
+                )
+            )
+
     lines.extend(
         [
             "",

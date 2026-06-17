@@ -5,7 +5,9 @@ from dataclasses import replace
 from gas_calibrator.tools.run_v1_5_full_calibration_chain import main as cli_main
 from gas_calibrator.validation.v1_5_canonical_evidence import write_canonical_v1_5_evidence_package
 from gas_calibrator.v1_5.orchestration.full_flow import (
+    STAGE_MANIFEST_SCHEMA,
     build_full_flow_plan,
+    build_full_flow_stage_manifest,
     build_full_flow_state,
     run_supervised_full_flow,
     write_full_flow_plan,
@@ -95,6 +97,55 @@ def test_full_flow_plan_uses_v1_5_validated_entries_and_blocks_auto_writes(tmp_p
     ]
     assert all(step.execution_mode == "blocked_pending_explicit_authorization" for step in write_steps)
     assert all(step.command == () for step in write_steps)
+
+
+def test_full_flow_stage_manifest_makes_automation_boundaries_explicit(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(
+        config_path=config,
+        output_dir=tmp_path / "plan",
+        run_id="demo",
+        operator="operator-a",
+        analyzer_id="multi-device",
+    )
+
+    manifest = build_full_flow_stage_manifest(plan)
+    by_step = {stage.step_id: stage for stage in manifest.stages}
+
+    assert manifest.schema == STAGE_MANIFEST_SCHEMA
+    assert manifest.one_button_live_runner_ready is False
+    assert manifest.safety_summary["does_not_modify_run_app"] is True
+    assert manifest.safety_summary["planner_opens_com_ports"] is False
+    assert manifest.safety_summary["planner_writes_coefficients"] is False
+    assert manifest.safety_summary["identity_key"] == "analyzer_device_id_not_com_port_or_ga_alias"
+    assert manifest.automation_summary["blocked_controlled_write"] == 2
+
+    identity = by_step["device_identity_and_getco_snapshot"]
+    assert identity.automation_state == "read_only_real_com_requires_authorization"
+    assert identity.authorization_required["real_com"] is True
+    assert identity.evidence_contract["readback_required"] is True
+
+    co2 = by_step["co2_open_flow_sampling"]
+    h2o = by_step["h2o_open_flow_sampling"]
+    assert co2.automation_state == "dedicated_open_flow_runner_requires_authorization"
+    assert h2o.automation_state == "dedicated_open_flow_runner_requires_authorization"
+    assert co2.authorization_required["route_control"] is True
+    assert h2o.authorization_required["route_control"] is True
+    assert co2.evidence_contract["raw_frames_preserved"] is True
+    assert h2o.evidence_contract["raw_frames_preserved"] is True
+    assert co2.evidence_contract["reject_reasons_required"] is True
+    assert h2o.evidence_contract["reject_reasons_required"] is True
+
+    pressure = by_step["pressure_senco9_no_write_acquisition"]
+    assert pressure.automation_state == "dedicated_pressure_runner_requires_authorization"
+    assert pressure.authorization_required["pressure_control"] is True
+    assert pressure.authorization_required["coefficient_write"] is False
+
+    write = by_step["controlled_component_write_placeholder"]
+    assert write.automation_state == "blocked_controlled_write"
+    assert write.authorization_required["coefficient_write"] is True
+    assert write.evidence_contract["post_write_reverify_required"] is True
 
 
 def test_full_flow_plan_freezes_getco_1_to_9_before_sampling(tmp_path):
@@ -289,14 +340,24 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert plan_json.exists()
     assert (out / "v1_5_full_flow_plan.md").exists()
     assert (out / "v1_5_full_flow_commands.ps1").exists()
+    assert (out / "v1_5_full_flow_stage_manifest.json").exists()
+    assert (out / "v1_5_full_flow_stage_manifest.md").exists()
     assert (out / "v1_5_formal_flow_contract.json").exists()
     assert (out / "v1_5_formal_flow_contract.md").exists()
     assert (out / "v1_5_run_evidence_status.json").exists()
     assert (out / "v1_5_run_evidence_status.md").exists()
+    operation_console_json = out / "operation_console" / "v1_5_operation_console.json"
+    operation_console_html = out / "operation_console" / "v1_5_operation_console.html"
+    assert operation_console_json.exists()
+    assert operation_console_html.exists()
     payload = json.loads(plan_json.read_text(encoding="utf-8"))
     assert payload["schema"] == "v1_5_full_calibration_flow_plan_v0"
     assert payload["dry_run_only"] is True
     assert payload["safety_contract"]["does_not_modify_run_app"] is True
+    stage_manifest = json.loads((out / "v1_5_full_flow_stage_manifest.json").read_text(encoding="utf-8"))
+    assert stage_manifest["schema"] == STAGE_MANIFEST_SCHEMA
+    assert stage_manifest["one_button_live_runner_ready"] is False
+    assert stage_manifest["safety_summary"]["planner_writes_coefficients"] is False
     contract = json.loads((out / "v1_5_formal_flow_contract.json").read_text(encoding="utf-8"))
     assert contract["status"] == "pass"
     assert contract["physical_boundaries"]["not_real_acceptance_evidence"] is True
@@ -304,6 +365,14 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert evidence_status["physical_boundaries"]["opens_com_ports"] is False
     assert evidence_status["physical_boundaries"]["writes_coefficients"] is False
     assert evidence_status["contract_status"] == "pass"
+    operation_console = json.loads(operation_console_json.read_text(encoding="utf-8"))
+    assert operation_console["source_evidence"]["has_full_flow_stage_manifest"] is True
+    assert operation_console["opens_com_ports"] is False
+    assert operation_console["controls_water_or_gas_routes"] is False
+    assert operation_console["writes_coefficients"] is False
+    assert operation_console["cannot_write_senco"] is True
+    assert operation_console["stage_manifest_panel"]["status"] != "not_found"
+    assert operation_console["stage_manifest_panel"]["one_button_live_runner_ready"] is False
     assert (out / "v1_5_full_flow_state.json").exists()
     assert (out / "v1_5_full_flow_state.md").exists()
 
@@ -815,7 +884,7 @@ def test_full_flow_cli_can_generate_post_run_coefficient_executor_gap_list(tmp_p
     assert manifest["physical_boundaries"]["writes_coefficients"] is False
     stages = {row["stage_id"]: row for row in manifest["stages"]}
     assert stages["post_write_reverification"]["status"] == "not_attempted"
-    assert "V1.5 校准后系数闭环执行计划" in summary_path.read_text(encoding="utf-8-sig")
+    assert "V1.5 采集后系数闭环执行计划" in summary_path.read_text(encoding="utf-8-sig")
 
 
 def test_full_flow_closure_readiness_auto_generates_post_run_executor(tmp_path, capsys):

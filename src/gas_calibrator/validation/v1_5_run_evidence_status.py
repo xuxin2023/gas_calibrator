@@ -73,6 +73,10 @@ def _classify_artifact(path: Path) -> str:
     parent_text = "/".join(part.lower() for part in path.parts)
     if name == "v1_5_full_flow_plan.json":
         return "full_flow_plan"
+    if name == "v1_5_full_flow_stage_manifest.json":
+        return "full_flow_stage_manifest"
+    if name == "v1_5_full_flow_stage_manifest.md":
+        return "full_flow_stage_manifest_markdown"
     if name == "v1_5_formal_flow_contract.json":
         return "full_flow_contract"
     if name == "runtime_identity_bound_config.json":
@@ -311,10 +315,131 @@ def _report_types_present(traceability: Mapping[str, Any]) -> set[str]:
     }
 
 
+def _is_manifest_placeholder(value: Any) -> bool:
+    text = str(value or "").strip()
+    return not text or (text.startswith("<") and text.endswith(">"))
+
+
+def _matches_expected_output(artifact: EvidenceArtifact, expected_output: str) -> bool:
+    expected = str(expected_output or "").strip()
+    if _is_manifest_placeholder(expected):
+        return False
+    expected_norm = expected.replace("\\", "/").strip("/").lower()
+    artifact_norm = artifact.path.replace("\\", "/").lower()
+    if artifact_norm.endswith(expected_norm):
+        return True
+    expected_name = Path(expected).name.lower()
+    return bool(expected_name and Path(artifact.path).name.lower() == expected_name)
+
+
+def _manifest_stage_status(stage: Mapping[str, Any], artifacts: Sequence[EvidenceArtifact]) -> dict[str, Any]:
+    expected_outputs = [
+        str(item)
+        for item in stage.get("expected_outputs") or []
+        if not _is_manifest_placeholder(item)
+    ]
+    present_outputs = []
+    for expected in expected_outputs:
+        if any(_matches_expected_output(artifact, expected) for artifact in artifacts):
+            present_outputs.append(expected)
+    missing_outputs = [item for item in expected_outputs if item not in set(present_outputs)]
+    auth = stage.get("authorization_required") if isinstance(stage.get("authorization_required"), Mapping) else {}
+    automation_state = str(stage.get("automation_state") or "")
+
+    if expected_outputs and not missing_outputs:
+        status = "pass"
+        reason = "all_manifest_expected_outputs_present"
+    elif present_outputs:
+        status = "partial"
+        reason = "some_manifest_expected_outputs_present"
+    elif auth.get("coefficient_write") or auth.get("device_id_write"):
+        status = "blocked_controlled_gate"
+        reason = "controlled_write_or_device_id_gate_requires_explicit_review"
+    elif auth.get("real_com") or auth.get("pressure_control") or auth.get("route_control"):
+        status = "authorization_required"
+        reason = "live_stage_requires_explicit_authorization_and_external_execution"
+    elif expected_outputs:
+        status = "waiting_for_artifacts"
+        reason = "manifest_expected_outputs_missing"
+    elif automation_state == "manual_review_gate":
+        status = "manual_review"
+        reason = "manual_review_gate_without_generated_outputs"
+    else:
+        status = "not_attempted"
+        reason = "no_manifest_output_contract_to_evaluate"
+
+    return {
+        "order": stage.get("order"),
+        "step_id": stage.get("step_id"),
+        "title": stage.get("title"),
+        "phase": stage.get("phase"),
+        "automation_state": automation_state,
+        "status": status,
+        "reason": reason,
+        "expected_output_count": len(expected_outputs),
+        "present_output_count": len(present_outputs),
+        "missing_expected_outputs": missing_outputs,
+        "authorization_required": dict(auth),
+    }
+
+
+def _stage_manifest_summary(
+    manifest: Mapping[str, Any],
+    *,
+    manifest_path: Path | None,
+    artifacts: Sequence[EvidenceArtifact],
+) -> dict[str, Any]:
+    if not manifest:
+        return {
+            "status": "not_found",
+            "source_path": str(manifest_path) if manifest_path else "",
+            "stage_count": 0,
+            "current_manifest_stage": "",
+            "automation_summary": {},
+            "stage_statuses": [],
+        }
+
+    stage_statuses = [
+        _manifest_stage_status(stage, artifacts)
+        for stage in manifest.get("stages") or []
+        if isinstance(stage, Mapping)
+    ]
+    status_counts: dict[str, int] = {}
+    for row in stage_statuses:
+        status = str(row.get("status") or "")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    current = next(
+        (
+            str(row.get("step_id") or "")
+            for row in stage_statuses
+            if row.get("status")
+            not in {
+                "pass",
+                "not_attempted",
+            }
+        ),
+        "complete" if stage_statuses and all(row.get("status") == "pass" for row in stage_statuses) else "",
+    )
+    return {
+        "status": "present",
+        "source_path": str(manifest_path) if manifest_path else "",
+        "schema": str(manifest.get("schema") or ""),
+        "run_id": str(manifest.get("run_id") or ""),
+        "current_automation_level": str(manifest.get("current_automation_level") or ""),
+        "one_button_live_runner_ready": bool(manifest.get("one_button_live_runner_ready")),
+        "current_manifest_stage": current,
+        "automation_summary": dict(manifest.get("automation_summary") or {}),
+        "status_counts": dict(sorted(status_counts.items())),
+        "stage_count": len(stage_statuses),
+        "stage_statuses": stage_statuses,
+    }
+
+
 def build_v1_5_run_evidence_status(
     *,
     run_dir: str | Path,
     full_flow_plan_json: str | Path | None = None,
+    full_flow_stage_manifest_json: str | Path | None = None,
     contract_json: str | Path | None = None,
     evidence_bundle_json: str | Path | None = None,
     component: str = "both",
@@ -325,10 +450,16 @@ def build_v1_5_run_evidence_status(
     bundle_path = Path(evidence_bundle_json).resolve() if evidence_bundle_json else _find_latest(root, "evidence_bundle.json")
     contract_path = Path(contract_json).resolve() if contract_json else _find_latest(root, "v1_5_formal_flow_contract.json")
     plan_path = Path(full_flow_plan_json).resolve() if full_flow_plan_json else _find_latest(root, "v1_5_full_flow_plan.json")
+    manifest_path = (
+        Path(full_flow_stage_manifest_json).resolve()
+        if full_flow_stage_manifest_json
+        else _find_latest(root, "v1_5_full_flow_stage_manifest.json")
+    )
 
     artifacts = list(_discover_artifacts(root))
     for path, role in (
         (plan_path, "full_flow_plan"),
+        (manifest_path, "full_flow_stage_manifest"),
         (contract_path, "full_flow_contract"),
         (bundle_path, "evidence_bundle"),
     ):
@@ -344,6 +475,7 @@ def build_v1_5_run_evidence_status(
     role_set = _roles(artifacts_tuple)
 
     contract = _load_json(contract_path)
+    stage_manifest = _load_json(manifest_path)
     contract_status = str(contract.get("status") or "missing")
     traceability = bundle_traceability_summary(bundle) if bundle else {}
     checks = traceability.get("traceability_checks") if isinstance(traceability.get("traceability_checks"), Mapping) else {}
@@ -361,6 +493,21 @@ def build_v1_5_run_evidence_status(
     )
 
     stages: list[EvidenceStageStatus] = []
+    stages.append(
+        _stage(
+            stage_id="full_flow_stage_manifest",
+            title="Full-flow stage manifest",
+            roles=("full_flow_stage_manifest",),
+            artifacts=artifacts_tuple,
+            physical_meaning=(
+                "The stage manifest maps the complete V1.5 flow into machine-readable "
+                "automation states, evidence contracts, and live/write authorization gates."
+            ),
+            missing_reason="full-flow stage manifest not generated",
+            pass_reason="full-flow stage manifest artifact is present",
+            optional=True,
+        )
+    )
     stages.append(
         _stage(
             stage_id="full_flow_contract_gate",
@@ -635,10 +782,16 @@ def build_v1_5_run_evidence_status(
         },
         "linked_inputs": {
             "full_flow_plan_json": str(plan_path) if plan_path else "",
+            "full_flow_stage_manifest_json": str(manifest_path) if manifest_path else "",
             "contract_json": str(contract_path) if contract_path else "",
             "evidence_bundle_json": str(bundle_path) if bundle_path else "",
         },
         "contract_status": contract_status,
+        "full_flow_stage_manifest": _stage_manifest_summary(
+            stage_manifest,
+            manifest_path=manifest_path,
+            artifacts=artifacts_tuple,
+        ),
         "stage_statuses": [stage.to_json() for stage in stages],
         "artifact_count": len(artifacts_tuple),
         "artifacts": [artifact.to_json() for artifact in artifacts_tuple],
@@ -661,6 +814,31 @@ def render_v1_5_run_evidence_status_markdown(status: Mapping[str, Any]) -> str:
     ]
     for key, value in (status.get("physical_boundaries") or {}).items():
         lines.append(f"- `{key}`: `{value}`")
+    manifest = status.get("full_flow_stage_manifest") or {}
+    lines.extend(["", "## Full-Flow Stage Manifest", ""])
+    lines.append(f"- status: `{manifest.get('status', 'not_found')}`")
+    if manifest.get("source_path"):
+        lines.append(f"- source_path: `{manifest.get('source_path')}`")
+    if manifest.get("schema"):
+        lines.append(f"- schema: `{manifest.get('schema')}`")
+    if manifest.get("current_manifest_stage"):
+        lines.append(f"- current_manifest_stage: `{manifest.get('current_manifest_stage')}`")
+    if "one_button_live_runner_ready" in manifest:
+        lines.append(f"- one_button_live_runner_ready: `{manifest.get('one_button_live_runner_ready')}`")
+    status_counts = manifest.get("status_counts") or {}
+    if status_counts:
+        lines.append("")
+        lines.append("Stage status counts:")
+        for key, value in status_counts.items():
+            lines.append(f"- `{key}`: `{value}`")
+    stage_rows = manifest.get("stage_statuses") or []
+    if stage_rows:
+        lines.append("")
+        lines.append("Manifest stages:")
+        for row in stage_rows:
+            lines.append(
+                f"- `{row.get('step_id')}`: `{row.get('status')}` - {row.get('reason')}"
+            )
     lines.extend(["", "## Stages", ""])
     for stage in status.get("stage_statuses") or []:
         lines.append(

@@ -8,6 +8,7 @@ from gas_calibrator.validation.v1_5_run_evidence_status import (
     build_v1_5_run_evidence_status,
     render_v1_5_run_evidence_status_markdown,
 )
+from gas_calibrator.v1_5.orchestration.full_flow import build_full_flow_plan, write_full_flow_plan
 
 
 pytestmark = pytest.mark.v1_5_formal_gate
@@ -124,6 +125,37 @@ def test_run_evidence_status_indexes_identity_getco_epoch_from_runtime_snapshot(
 
     assert {"runtime_identity_bound_config", "getco_snapshot"}.issubset(roles)
     assert stages["identity_getco_epoch0"]["status"] == "pass"
+
+
+def test_run_evidence_status_indexes_full_flow_stage_manifest(tmp_path):
+    run_dir = tmp_path / "flow_with_manifest"
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(config_path=config, output_dir=run_dir, run_id="demo")
+    outputs = write_full_flow_plan(plan, run_dir)
+
+    status = build_v1_5_run_evidence_status(
+        run_dir=run_dir,
+        full_flow_plan_json=outputs["json"],
+        full_flow_stage_manifest_json=outputs["stage_manifest_json"],
+    )
+    stages = _stages(status)
+    roles = {row["role"] for row in status["artifacts"]}
+    manifest = status["full_flow_stage_manifest"]
+    manifest_stages = {row["step_id"]: row for row in manifest["stage_statuses"]}
+
+    assert "full_flow_stage_manifest" in roles
+    assert stages["full_flow_stage_manifest"]["status"] == "pass"
+    assert manifest["status"] == "present"
+    assert manifest["one_button_live_runner_ready"] is False
+    assert manifest_stages["device_identity_and_getco_snapshot"]["status"] == "authorization_required"
+    assert manifest_stages["co2_open_flow_sampling"]["status"] == "authorization_required"
+    assert manifest_stages["h2o_open_flow_sampling"]["status"] == "authorization_required"
+    assert manifest_stages["controlled_component_write_placeholder"]["status"] == "blocked_controlled_gate"
+
+    markdown = render_v1_5_run_evidence_status_markdown(status)
+    assert "Full-Flow Stage Manifest" in markdown
+    assert "`controlled_component_write_placeholder`: `blocked_controlled_gate`" in markdown
 
 
 def test_run_evidence_status_cli_writes_json_and_markdown(tmp_path, capsys):

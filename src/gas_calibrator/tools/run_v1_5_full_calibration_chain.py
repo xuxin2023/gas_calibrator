@@ -21,6 +21,7 @@ from ..v1_5.orchestration.full_flow import (
     write_full_flow_state,
     write_full_flow_supervised_run,
 )
+from ..v1_5.ui.operation_console import write_operation_console
 from ..validation.v1_5_formal_flow_contract import (
     read_json,
     render_v1_5_formal_flow_contract_markdown,
@@ -46,6 +47,7 @@ def _write_run_evidence_status(
     run_dir: str | Path,
     output_dir: str | Path,
     full_flow_plan_json: str | Path | None,
+    full_flow_stage_manifest_json: str | Path | None,
     contract_json: str | Path | None,
     evidence_bundle_json: str | Path | None,
 ) -> tuple[dict, Path, Path]:
@@ -54,6 +56,7 @@ def _write_run_evidence_status(
     evidence_status = build_v1_5_run_evidence_status(
         run_dir=run_dir,
         full_flow_plan_json=full_flow_plan_json,
+        full_flow_stage_manifest_json=full_flow_stage_manifest_json,
         contract_json=contract_json,
         evidence_bundle_json=evidence_bundle_json,
     )
@@ -62,6 +65,22 @@ def _write_run_evidence_status(
     status_json.write_text(json.dumps(evidence_status, ensure_ascii=False, indent=2), encoding="utf-8")
     status_md.write_text(render_v1_5_run_evidence_status_markdown(evidence_status), encoding="utf-8")
     return evidence_status, status_json, status_md
+
+
+def _write_operation_console(
+    *,
+    output_dir: str | Path,
+    run_evidence_status: dict,
+) -> tuple[Path, Path]:
+    """Write the offline operator/reviewer console from the current evidence index."""
+
+    console_dir = Path(output_dir).resolve() / "operation_console"
+    outputs = write_operation_console(
+        output_dir=console_dir,
+        run_evidence_status=run_evidence_status,
+        role="operator",
+    )
+    return outputs["model"], outputs["html"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -272,12 +291,19 @@ def main(argv: Iterable[str] | None = None) -> int:
     evidence_status, status_json, status_md = _write_run_evidence_status(
         run_dir=status_run_dir,
         output_dir=args.output_dir,
-        full_flow_plan_json=outputs.get("plan_json"),
+        full_flow_plan_json=outputs.get("plan_json") or outputs.get("json"),
+        full_flow_stage_manifest_json=outputs.get("stage_manifest_json"),
         contract_json=outputs.get("contract_json"),
         evidence_bundle_json=args.evidence_bundle_json,
     )
     outputs["run_evidence_status_json"] = status_json
     outputs["run_evidence_status_markdown"] = status_md
+    console_json, console_html = _write_operation_console(
+        output_dir=args.output_dir,
+        run_evidence_status=evidence_status,
+    )
+    outputs["operation_console_json"] = console_json
+    outputs["operation_console_html"] = console_html
     latest_evidence_bundle_json = args.evidence_bundle_json
     archive_closure_requested = bool(args.archive_closure)
     post_acquisition_closure_requested = bool(args.post_acquisition_closure)
@@ -338,7 +364,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         evidence_status, _, _ = _write_run_evidence_status(
             run_dir=status_run_dir,
             output_dir=args.output_dir,
-            full_flow_plan_json=outputs.get("plan_json"),
+            full_flow_plan_json=outputs.get("plan_json") or outputs.get("json"),
+            full_flow_stage_manifest_json=outputs.get("stage_manifest_json"),
             contract_json=outputs.get("contract_json"),
             evidence_bundle_json=latest_evidence_bundle_json,
         )
@@ -403,12 +430,19 @@ def main(argv: Iterable[str] | None = None) -> int:
         evidence_status, _, _ = _write_run_evidence_status(
             run_dir=Path(args.output_dir).resolve(),
             output_dir=args.output_dir,
-            full_flow_plan_json=outputs.get("plan_json"),
+            full_flow_plan_json=outputs.get("plan_json") or outputs.get("json"),
+            full_flow_stage_manifest_json=outputs.get("stage_manifest_json"),
             contract_json=outputs.get("contract_json"),
             evidence_bundle_json=latest_evidence_bundle_json,
         )
         outputs["run_evidence_status_final_json"] = status_json
         outputs["run_evidence_status_final_markdown"] = status_md
+        console_json, console_html = _write_operation_console(
+            output_dir=args.output_dir,
+            run_evidence_status=evidence_status,
+        )
+        outputs["operation_console_json"] = console_json
+        outputs["operation_console_html"] = console_html
     print(json.dumps({key: str(Path(value).resolve()) for key, value in outputs.items()}, ensure_ascii=False, indent=2))
     if args.fail_on_contract_blocked and contract_status == "blocked":
         return 2

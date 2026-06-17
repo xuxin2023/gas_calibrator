@@ -203,7 +203,10 @@ def test_full_flow_closure_readiness_keeps_device_blockers_per_device(tmp_path):
     assert model["overall_status"] == "partial"
     assert devices["077"]["overall_status"] == "ready_for_controlled_write_review"
     assert devices["079"]["overall_status"] == "blocked_or_partial"
+    assert "光学健康" in devices["079"]["blocker_summary_zh"]
+    assert "不拖死其它设备" in devices["079"]["next_action_zh"]
     assert any(row["scope"] == "device" and row["item"] == "079" for row in model["gaps"])
+    assert any("光学健康" in row["reason_zh"] for row in model["gaps"])
 
 
 def test_full_flow_closure_readiness_writes_json_markdown_and_csv(tmp_path):
@@ -225,6 +228,7 @@ def test_full_flow_closure_readiness_writes_json_markdown_and_csv(tmp_path):
     with paths["devices"].open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert rows[0]["device_id"] == "091"
+    assert rows[0]["blocker_summary_zh"] == "无阻断项，设备可进入受控写入评审。"
 
 
 def test_full_flow_closure_readiness_cli_exports_offline_review(tmp_path, capsys):

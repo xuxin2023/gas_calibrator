@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 PLAN_SCHEMA = "v1_5_full_calibration_flow_plan_v0"
 PLAN_CONTRACT = "pressure_first_temperature_review_then_open_flow_components"
+STAGE_MANIFEST_SCHEMA = "v1_5_full_flow_stage_manifest_v1"
 
 
 @dataclass(frozen=True)
@@ -167,6 +168,52 @@ class FullFlowSupervisedRun:
             "final_state": self.final_state.to_json(),
             "events": [event.to_json() for event in self.events],
         }
+
+
+@dataclass(frozen=True)
+class FullFlowStageManifestEntry:
+    """Machine-readable contract for one V1.5 full-flow stage."""
+
+    order: int
+    step_id: str
+    title: str
+    phase: str
+    tool_module: str
+    automation_state: str
+    execution_mode: str
+    gate: str
+    required_inputs: tuple[str, ...]
+    expected_outputs: tuple[str, ...]
+    physical_meaning: str
+    command: tuple[str, ...]
+    safety_boundaries: Mapping[str, Any]
+    authorization_required: Mapping[str, bool]
+    evidence_contract: Mapping[str, Any]
+    coefficient_epoch_event: str
+    notes: tuple[str, ...]
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class FullFlowStageManifest:
+    """Stable stage manifest for UI, audit, and future executors."""
+
+    schema: str
+    run_id: str
+    contract: str
+    created_at: str
+    current_automation_level: str
+    one_button_live_runner_ready: bool
+    safety_summary: Mapping[str, Any]
+    automation_summary: Mapping[str, int]
+    stages: tuple[FullFlowStageManifestEntry, ...]
+
+    def to_json(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["stages"] = [stage.to_json() for stage in self.stages]
+        return payload
 
 
 def _resolve_optional(path: str | Path | None) -> str:
@@ -353,6 +400,126 @@ def build_full_flow_state(
 
 def plan_step_ids(plan: FullFlowPlan) -> tuple[str, ...]:
     return tuple(step.step_id for step in plan.steps)
+
+
+def _stage_automation_state(step: FullFlowStep) -> str:
+    if step.writes_coefficients:
+        return "blocked_controlled_write"
+    if step.controls_pressure:
+        return "dedicated_pressure_runner_requires_authorization"
+    if step.controls_gas_route or step.controls_water_route:
+        return "dedicated_open_flow_runner_requires_authorization"
+    if step.opens_com_ports:
+        return "read_only_real_com_requires_authorization"
+    if "database" in step.execution_mode.lower() or step.step_id == "database_import":
+        return "offline_database_requires_dsn"
+    if not step.command:
+        return "manual_review_gate"
+    if _has_unresolved_placeholder(step.command):
+        return "offline_review_waiting_for_run_artifacts"
+    if step.execution_mode.startswith("offline"):
+        return "offline_review_auto_candidate"
+    return "review_required"
+
+
+def _stage_safety_boundaries(step: FullFlowStep) -> dict[str, Any]:
+    return {
+        "opens_com_ports": bool(step.opens_com_ports),
+        "controls_pressure": bool(step.controls_pressure),
+        "controls_gas_route": bool(step.controls_gas_route),
+        "controls_water_route": bool(step.controls_water_route),
+        "writes_coefficients": bool(step.writes_coefficients),
+        "writes_device_id": bool(step.writes_device_id),
+        "may_reuse_v1_shared_core": bool(step.may_reuse_v1_shared_core),
+        "uses_validated_v1_5_entry": bool(step.uses_validated_v1_5_entry),
+    }
+
+
+def _stage_authorization_required(step: FullFlowStep) -> dict[str, bool]:
+    return {
+        "real_com": bool(step.opens_com_ports),
+        "pressure_control": bool(step.controls_pressure),
+        "route_control": bool(step.controls_gas_route or step.controls_water_route),
+        "coefficient_write": bool(step.writes_coefficients),
+        "device_id_write": bool(step.writes_device_id),
+    }
+
+
+def _stage_evidence_contract(step: FullFlowStep) -> dict[str, Any]:
+    return {
+        "required_inputs": list(step.required_inputs),
+        "expected_outputs": list(step.expected_outputs),
+        "raw_frames_preserved": step.step_id in {"co2_open_flow_sampling", "h2o_open_flow_sampling"},
+        "reject_reasons_required": step.step_id
+        in {
+            "co2_open_flow_sampling",
+            "h2o_open_flow_sampling",
+            "fit_input_quality_review",
+            "post_run_coefficient_executor",
+            "full_flow_closure_readiness",
+        },
+        "readback_required": step.step_id
+        in {
+            "device_identity_and_getco_snapshot",
+            "auxiliary_senco56789_neutralization_gate",
+            "controlled_component_write_placeholder",
+        },
+        "post_write_reverify_required": step.step_id == "controlled_component_write_placeholder",
+        "database_or_report_only": step.phase in {"DATABASE_IMPORT", "REPORTS", "FINAL_EVIDENCE_STATUS"},
+    }
+
+
+def build_full_flow_stage_manifest(plan: FullFlowPlan) -> FullFlowStageManifest:
+    """Build a stable manifest for UI, audit, and future full-flow executors."""
+
+    stages: list[FullFlowStageManifestEntry] = []
+    automation_counts: dict[str, int] = {}
+    for index, step in enumerate(plan.steps, start=1):
+        automation_state = _stage_automation_state(step)
+        automation_counts[automation_state] = automation_counts.get(automation_state, 0) + 1
+        stages.append(
+            FullFlowStageManifestEntry(
+                order=index,
+                step_id=step.step_id,
+                title=step.title,
+                phase=step.phase,
+                tool_module=step.tool_module or "",
+                automation_state=automation_state,
+                execution_mode=step.execution_mode,
+                gate=step.gate,
+                required_inputs=step.required_inputs,
+                expected_outputs=step.expected_outputs,
+                physical_meaning=step.physical_meaning,
+                command=step.command,
+                safety_boundaries=_stage_safety_boundaries(step),
+                authorization_required=_stage_authorization_required(step),
+                evidence_contract=_stage_evidence_contract(step),
+                coefficient_epoch_event=step.coefficient_epoch_event,
+                notes=step.notes,
+            )
+        )
+
+    return FullFlowStageManifest(
+        schema=STAGE_MANIFEST_SCHEMA,
+        run_id=plan.run_id,
+        contract=plan.contract,
+        created_at=datetime.now().isoformat(timespec="seconds"),
+        current_automation_level="supervised_tool_chain_with_controlled_live_gates",
+        one_button_live_runner_ready=False,
+        safety_summary={
+            "does_not_modify_run_app": bool(plan.safety_contract.get("does_not_modify_run_app")),
+            "planner_opens_com_ports": bool(plan.safety_contract.get("planner_opens_com_ports")),
+            "planner_controls_routes": bool(plan.safety_contract.get("planner_controls_routes")),
+            "planner_writes_coefficients": bool(plan.safety_contract.get("planner_writes_coefficients")),
+            "planner_writes_device_id": bool(plan.safety_contract.get("planner_writes_device_id")),
+            "identity_key": plan.coefficient_epoch_contract.get("identity_key", ""),
+            "not_one_button_live_runner_reason": (
+                "pressure, open-flow route, and coefficient-write stages remain explicit controlled gates"
+            ),
+        },
+        automation_summary=dict(sorted(automation_counts.items())),
+        stages=tuple(stages),
+    )
 
 
 def run_supervised_full_flow(
@@ -1395,6 +1562,110 @@ def _command_line(command: Sequence[str]) -> str:
     return " ".join(quote(str(part)) for part in command)
 
 
+def render_full_flow_stage_manifest_markdown(manifest: FullFlowStageManifest) -> str:
+    """Render a human-readable V1.5 stage manifest review."""
+
+    lines = [
+        "# V1.5 Full-Flow Stage Manifest",
+        "",
+        f"- schema: `{manifest.schema}`",
+        f"- run_id: `{manifest.run_id}`",
+        f"- contract: `{manifest.contract}`",
+        f"- automation_level: `{manifest.current_automation_level}`",
+        f"- one_button_live_runner_ready: `{manifest.one_button_live_runner_ready}`",
+        "",
+        "## Safety Summary",
+        "",
+    ]
+    for key, value in manifest.safety_summary.items():
+        lines.append(f"- `{key}`: `{value}`")
+
+    lines.extend(["", "## Automation Summary", "", "| State | Count |", "| --- | ---: |"])
+    for key, value in manifest.automation_summary.items():
+        lines.append(f"| `{key}` | {value} |")
+
+    lines.extend(
+        [
+            "",
+            "## Stage Contract",
+            "",
+            "| Order | Phase | Step | Automation | Gate | Tool |",
+            "| ---: | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for stage in manifest.stages:
+        tool = stage.tool_module or "manual/placeholder"
+        lines.append(
+            f"| {stage.order} | `{stage.phase}` | `{stage.step_id}` | "
+            f"`{stage.automation_state}` | `{stage.gate}` | `{tool}` |"
+        )
+
+    lines.extend(["", "## Live And Write Gates", ""])
+    gated = [
+        stage
+        for stage in manifest.stages
+        if any(stage.authorization_required.values()) or "requires_authorization" in stage.automation_state
+    ]
+    if gated:
+        lines.extend(
+            [
+                "| Step | Real COM | Pressure | Route | Write | Device ID |",
+                "| --- | --- | --- | --- | --- | --- |",
+            ]
+        )
+        for stage in gated:
+            auth = stage.authorization_required
+            lines.append(
+                f"| `{stage.step_id}` | `{auth['real_com']}` | `{auth['pressure_control']}` | "
+                f"`{auth['route_control']}` | `{auth['coefficient_write']}` | `{auth['device_id_write']}` |"
+            )
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Evidence Requirements", ""])
+    for stage in manifest.stages:
+        if not stage.required_inputs and not stage.expected_outputs:
+            continue
+        lines.append(f"### {stage.order}. `{stage.step_id}`")
+        if stage.required_inputs:
+            lines.append("")
+            lines.append("Required inputs:")
+            for item in stage.required_inputs:
+                lines.append(f"- {item}")
+        if stage.expected_outputs:
+            lines.append("")
+            lines.append("Expected outputs:")
+            for item in stage.expected_outputs:
+                lines.append(f"- {item}")
+        lines.append("")
+
+    lines.extend(
+        [
+            "## Guardrail",
+            "",
+            "- This manifest is generated from the V1.5 full-flow plan.",
+            "- It does not execute commands, open COM ports, control valves, control PACE, or write SENCO.",
+            "- A future executor must treat `automation_state` and `authorization_required` as hard gates.",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_full_flow_stage_manifest(
+    manifest: FullFlowStageManifest,
+    output_dir: str | Path,
+) -> dict[str, Path]:
+    """Write machine-readable and reviewer-facing stage manifest artifacts."""
+
+    root = Path(output_dir).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    json_path = root / "v1_5_full_flow_stage_manifest.json"
+    md_path = root / "v1_5_full_flow_stage_manifest.md"
+    json_path.write_text(json.dumps(manifest.to_json(), ensure_ascii=False, indent=2), encoding="utf-8")
+    md_path.write_text(render_full_flow_stage_manifest_markdown(manifest), encoding="utf-8")
+    return {"stage_manifest_json": json_path, "stage_manifest_markdown": md_path}
+
+
 def write_full_flow_plan(plan: FullFlowPlan, output_dir: str | Path | None = None) -> dict[str, Path]:
     """Write JSON, Markdown, and PowerShell command artifacts for a plan."""
 
@@ -1467,7 +1738,9 @@ def write_full_flow_plan(plan: FullFlowPlan, output_dir: str | Path | None = Non
         ps_lines.append("")
     ps1_path.write_text("\n".join(ps_lines).rstrip() + "\n", encoding="utf-8")
 
-    return {"json": json_path, "markdown": md_path, "powershell": ps1_path}
+    outputs = {"json": json_path, "markdown": md_path, "powershell": ps1_path}
+    outputs.update(write_full_flow_stage_manifest(build_full_flow_stage_manifest(plan), root))
+    return outputs
 
 
 def write_full_flow_state(

@@ -73,6 +73,79 @@ def _run_evidence_status():
                 "artifact_count": 0,
             },
         ],
+        "full_flow_stage_manifest": {
+            "status": "present",
+            "source_path": "D:/runs/demo/v1_5_full_flow_stage_manifest.json",
+            "schema": "v1_5_full_flow_stage_manifest_v1",
+            "run_id": "RUN-UI-001",
+            "current_automation_level": "supervised_tool_chain_with_controlled_live_gates",
+            "one_button_live_runner_ready": False,
+            "current_manifest_stage": "controlled_component_write_placeholder",
+            "status_counts": {
+                "pass": 2,
+                "authorization_required": 1,
+                "blocked_controlled_gate": 1,
+                "waiting_for_artifacts": 1,
+            },
+            "stage_count": 5,
+            "stage_statuses": [
+                {
+                    "order": 1,
+                    "step_id": "formal_initialization",
+                    "title": "Formal initialization",
+                    "phase": "INITIALIZATION",
+                    "automation_state": "offline_review_auto_candidate",
+                    "status": "pass",
+                    "reason": "all_manifest_expected_outputs_present",
+                    "expected_output_count": 2,
+                    "present_output_count": 2,
+                },
+                {
+                    "order": 2,
+                    "step_id": "pressure_channel_calibration",
+                    "title": "Pressure channel calibration",
+                    "phase": "PRESSURE",
+                    "automation_state": "dedicated_pressure_runner_requires_authorization",
+                    "status": "authorization_required",
+                    "reason": "live_stage_requires_explicit_authorization_and_external_execution",
+                    "expected_output_count": 1,
+                    "present_output_count": 0,
+                },
+                {
+                    "order": 3,
+                    "step_id": "co2_open_flow_sampling",
+                    "title": "CO2 open-flow sampling",
+                    "phase": "CO2_OPEN_FLOW",
+                    "automation_state": "dedicated_open_flow_runner_requires_authorization",
+                    "status": "waiting_for_artifacts",
+                    "reason": "manifest_expected_outputs_missing",
+                    "expected_output_count": 1,
+                    "present_output_count": 0,
+                },
+                {
+                    "order": 4,
+                    "step_id": "post_run_coefficient_executor",
+                    "title": "Post-run coefficient executor",
+                    "phase": "COEFFICIENT_REVIEW",
+                    "automation_state": "offline_review_auto_candidate",
+                    "status": "pass",
+                    "reason": "all_manifest_expected_outputs_present",
+                    "expected_output_count": 1,
+                    "present_output_count": 1,
+                },
+                {
+                    "order": 5,
+                    "step_id": "controlled_component_write_placeholder",
+                    "title": "Controlled component write",
+                    "phase": "CONTROLLED_WRITE",
+                    "automation_state": "blocked_controlled_write",
+                    "status": "blocked_controlled_gate",
+                    "reason": "controlled_write_or_device_id_gate_requires_explicit_review",
+                    "expected_output_count": 0,
+                    "present_output_count": 0,
+                },
+            ],
+        },
     }
 
 
@@ -137,6 +210,7 @@ def test_operation_console_has_eight_read_only_pages_and_no_device_controls():
         "has_run_evidence_status": True,
         "has_calibration_capability": True,
         "has_archive_index": True,
+        "has_full_flow_stage_manifest": True,
     }
 
 
@@ -160,6 +234,29 @@ def test_operation_console_surfaces_physical_status_and_release_blockers():
     assert any("uncertainty_budget_not_released" in blocker for blocker in report_page["blockers"])
 
 
+def test_operation_console_surfaces_full_flow_stage_manifest_panel():
+    model = build_operation_console_model(
+        workbench_model=_workbench_model(),
+        run_evidence_status=_run_evidence_status(),
+        calibration_capability=_calibration_capability(),
+        archive_index=_archive_index(),
+        role="engineer",
+    )
+
+    panel = model["stage_manifest_panel"]
+    assert panel["available"] is True
+    assert panel["current_manifest_stage"] == "controlled_component_write_placeholder"
+    assert panel["one_button_live_runner_ready"] is False
+    assert panel["status_counts"]["blocked_controlled_gate"] == 1
+    assert panel["status"] == "planned_controlled_gates"
+    attention_ids = {row["step_id"] for row in panel["attention_rows"]}
+    assert "pressure_channel_calibration" in attention_ids
+    assert "co2_open_flow_sampling" in attention_ids
+    assert "controlled_component_write_placeholder" in attention_ids
+    summary = {row["key"]: row for row in model["summary_cards"]}
+    assert summary["full_flow_stage_manifest"]["status"] == "planned_controlled_gates"
+
+
 def test_operation_console_writer_and_cli(tmp_path):
     outputs = write_operation_console(
         output_dir=tmp_path / "console",
@@ -177,6 +274,8 @@ def test_operation_console_writer_and_cli(tmp_path):
     assert "压力通道验证" in html_text
     assert "开放流通采样" in html_text
     assert "不打开串口" in html_text
+    assert "controlled_component_write_placeholder" in html_text
+    assert "one_button_live_runner_ready=False" in html_text
 
     workbench_path = tmp_path / "workbench.json"
     status_path = tmp_path / "run_status.json"

@@ -165,6 +165,9 @@ def test_post_run_executor_blocks_missing_pressure_and_temperature_inputs(tmp_pa
     assert device["overall_status"] == "blocked_or_partial"
     assert "needs_senco9_review_or_calibration" in device["blockers"]
     assert "needs_senco78_review_or_temperature_gate" in device["blockers"]
+    assert "压力输入量 P" in device["blocker_summary_zh"]
+    assert "缺失证据" in device["next_action_zh"] or "阻断该设备" in device["next_action_zh"]
+    assert any("压力输入量 P" in row["reason_zh"] for row in model["closure_gaps"])
 
 
 def test_post_run_executor_writes_machine_and_chinese_reviewer_outputs(tmp_path):
@@ -187,7 +190,7 @@ def test_post_run_executor_writes_machine_and_chinese_reviewer_outputs(tmp_path)
     assert manifest["devices"][0]["device_id"] == "077"
     assert manifest["controlled_write_package"][0]["device_id"] == "077"
     assert manifest["post_write_reverification_plan"][0]["device_id"] == "077"
-    assert "V1.5 校准后系数闭环执行计划" in summary
+    assert "V1.5 采集后系数闭环执行计划" in summary
     assert "压力 P 和温度 T" in summary
     assert "采样窗口必须在气路/水路保持开放流通时取得" in summary
 
@@ -207,6 +210,9 @@ def test_post_run_executor_writes_machine_and_chinese_reviewer_outputs(tmp_path)
         and "gas route must remain open" in row["route_contract"]
         for row in reverify_rows
     )
+    with paths["devices"].open(encoding="utf-8-sig", newline="") as handle:
+        device_rows = list(csv.DictReader(handle))
+    assert device_rows[0]["blocker_summary_zh"] == "无阻断项，设备可进入受控写入评审。"
 
 
 def test_post_run_executor_cli_exports_no_write_manifest(tmp_path, capsys):
