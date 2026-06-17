@@ -222,6 +222,76 @@ def _external_pressure_quick_rows_for(prefixes):
     return rows
 
 
+def _write_pressure_completion_package(root, device_rows):
+    out_dir = root / "offline_closure" / "pressure_channel_completion_for_formal_package"
+    out_dir.mkdir(parents=True)
+    ready_count = sum(1 for row in device_rows if row["readiness_status"] == "pass")
+    _write_csv(
+        out_dir / "pressure_channel_completion_summary.csv",
+        [
+            {
+                "overall_status": "ready_for_open_flow_main_calibration"
+                if ready_count == len(device_rows)
+                else "blocked",
+                "completion_scope_device_ids": ",".join(row["analyzer_device_id"] for row in device_rows),
+                "device_count": len(device_rows),
+                "ready_device_count": ready_count,
+                "blocked_device_count": len(device_rows) - ready_count,
+                "pressure_reference_status": "pass",
+                "pressure_reference_validation_level": "formal_pressure_validation",
+                "pressure_reference_certificate_id": "P-CERT-001",
+                "pressure_reference_certificate_hash": "pressure-cert-hash",
+            }
+        ],
+    )
+    normalized_rows = []
+    for row in device_rows:
+        status = row["readiness_status"]
+        normalized_rows.append(
+            {
+                "analyzer_prefix": row["analyzer_prefix"],
+                "analyzer_device_id": row["analyzer_device_id"],
+                "readiness_status": status,
+                "readiness_reasons": "" if status == "pass" else "post_write_pressure_fit_not_pass",
+                "senco9_write_status": "written_readback_verified" if status == "pass" else "failed",
+                "write_applied": status == "pass",
+                "readback_verified": True,
+                "post_write_fit_status": "pass" if status == "pass" else "fail",
+                "post_write_offset_kpa": "0.01" if status == "pass" else "0.25",
+                "post_write_residual_max_abs_hpa": "0.1" if status == "pass" else "3.5",
+                "valid_pair_count": "56",
+                "distinct_pressure_points": "7",
+                "pressure_reference_certificate_id": "P-CERT-001",
+                "pressure_reference_certificate_hash": "pressure-cert-hash",
+                "can_enter_open_flow_main_calibration": status == "pass",
+                "pressure_channel_only": True,
+                "not_co2_h2o_fit_evidence": True,
+            }
+        )
+    _write_csv(out_dir / "pressure_channel_device_readiness.csv", normalized_rows)
+    _write_csv(
+        out_dir / "pressure_channel_traceability.csv",
+        [
+            {
+                "status": "pass",
+                "validation_level": "formal_pressure_validation",
+                "certificate_id": "P-CERT-001",
+                "certificate_hash": "pressure-cert-hash",
+            }
+        ],
+    )
+    _write_csv(
+        out_dir / "pressure_channel_acceptance_policy.csv",
+        [
+            {
+                "policy_id": "pressure_channel_completion_acceptance_policy",
+                "scope": "independent_pressure_input_readiness_for_open_flow_co2_h2o",
+            }
+        ],
+    )
+    return out_dir
+
+
 def _write_csv(path, rows):
     keys = []
     for row in rows:
@@ -386,6 +456,62 @@ def test_formal_package_blocks_when_pressure_quick_check_artifact_is_missing(tmp
     assert tables["package_summary"][0]["package_status"] == "blocked"
     blockers = ";".join(row["blockers"] for row in tables["candidate_coefficient_review"])
     assert "pressure_quick_check_artifact_missing" in blockers
+
+
+def test_formal_package_accepts_pressure_channel_completion_as_pressure_precondition(tmp_path):
+    run_dir, _, _ = _make_run(tmp_path, quick_check=False)
+    completion_dir = _write_pressure_completion_package(
+        run_dir,
+        [{"analyzer_prefix": "ga01", "analyzer_device_id": "001", "readiness_status": "pass"}],
+    )
+
+    tables, context = build_formal_calibration_package_tables(
+        run_dir=run_dir,
+        plan=_plan(),
+        pressure_reference=_pressure_reference(),
+        today="2026-05-24",
+    )
+
+    assert context["pressure_check_source"] == "pressure_channel_completion_artifact"
+    assert context["pressure_check_path"].endswith("pressure_channel_completion_summary.csv")
+    assert completion_dir.name in context["pressure_check_path"]
+    assert tables["package_summary"][0]["package_status"] == "ready_for_reviewer"
+    assert {row["candidate_review_status"] for row in tables["candidate_coefficient_review"]} == {
+        "ready_for_reviewer"
+    }
+    assert tables["candidate_coefficient_review"][0]["pressure_validation_level"] == "formal_pressure_completion"
+
+
+def test_formal_package_keeps_blocked_completion_device_blocked_without_missing_artifact(tmp_path):
+    run_dir = tmp_path / "completion_multi_pressure_run"
+    run_dir.mkdir()
+    rows = [_multi_analyzer_row(i, "co2") for i in range(1, 11)]
+    _write_csv(run_dir / "samples_20260524.csv", rows)
+    _write_pressure_completion_package(
+        run_dir,
+        [
+            {"analyzer_prefix": "ga01", "analyzer_device_id": "091", "readiness_status": "pass"},
+            {"analyzer_prefix": "ga02", "analyzer_device_id": "033", "readiness_status": "blocked"},
+            {"analyzer_prefix": "ga03", "analyzer_device_id": "001", "readiness_status": "pass"},
+        ],
+    )
+
+    tables, context = build_formal_calibration_package_tables(
+        run_dir=run_dir,
+        plan=_plan(),
+        pressure_reference=_pressure_reference(),
+        component="co2",
+        analyzer_prefix="all",
+        today="2026-05-24",
+    )
+
+    review = {row["analyzer_device_id"]: row for row in tables["candidate_coefficient_review"]}
+    assert context["pressure_check_source"] == "pressure_channel_completion_artifact"
+    assert review["091"]["candidate_review_status"] == "ready_for_reviewer"
+    assert review["001"]["candidate_review_status"] == "ready_for_reviewer"
+    assert review["033"]["candidate_review_status"] == "blocked"
+    assert "pressure_channel_validation_not_formal_pass" in review["033"]["blockers"]
+    assert "pressure_quick_check_artifact_missing" not in review["033"]["blockers"]
 
 
 def test_formal_package_report_and_cli_write_reviewer_artifacts(tmp_path):

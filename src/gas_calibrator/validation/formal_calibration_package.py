@@ -18,6 +18,7 @@ from .formal_open_flow_artifacts import (
     load_pressure_reference_snapshot,
 )
 from .artifact_rows import load_latest_sample_rows
+from .common import load_csv_rows
 from .pressure_channel import (
     build_pressure_channel_tables,
 )
@@ -54,6 +55,91 @@ def _is_quick_check_artifact_source(value: Any) -> bool:
     return str(value or "").strip() in {
         "pressure_quick_check_artifact",
         "external_pressure_quick_check_artifact",
+        "pressure_channel_completion_artifact",
+        "external_pressure_completion_artifact",
+    }
+
+
+def _is_pressure_completion_source(value: Any) -> bool:
+    return str(value or "").strip() in {
+        "pressure_channel_completion_artifact",
+        "external_pressure_completion_artifact",
+    }
+
+
+def _load_pressure_completion_tables(pressure_path: Optional[Path]) -> Dict[str, List[Dict[str, Any]]]:
+    if pressure_path is None:
+        return {
+            "pressure_validation_summary": [],
+            "pressure_reference_traceability": [],
+            "measurement_model": [],
+            "paired_samples": [],
+            "rejected_samples": [],
+        }
+    root = pressure_path.parent
+    device_path = root / "pressure_channel_device_readiness.csv"
+    trace_path = root / "pressure_channel_traceability.csv"
+    policy_path = root / "pressure_channel_acceptance_policy.csv"
+    device_rows = load_csv_rows(device_path) if device_path.exists() else []
+    trace_rows = load_csv_rows(trace_path) if trace_path.exists() else []
+    policy_rows = load_csv_rows(policy_path) if policy_path.exists() else []
+    validation_summary: List[Dict[str, Any]] = []
+    measurement_model: List[Dict[str, Any]] = []
+    for row in device_rows:
+        allows = _bool_value(row.get("can_enter_open_flow_main_calibration"))
+        readiness_status = str(row.get("readiness_status") or "").strip().lower()
+        status = "pass" if allows and readiness_status == "pass" else "fail"
+        reasons = str(row.get("readiness_reasons") or "").strip()
+        validation_summary.append(
+            {
+                "validation_mode": "pressure_channel_completion",
+                "status": status,
+                "validation_level": "formal_pressure_completion" if status == "pass" else "blocked_pressure_completion",
+                "reason": reasons,
+                "sample_count": row.get("valid_pair_count", ""),
+                "valid_pair_count": row.get("valid_pair_count", ""),
+                "rejected_pair_count": "",
+                "analyzer_pressure_mean_hpa": "",
+                "com22_pressure_mean_hpa": "",
+                "pace_pressure_mean_hpa": "",
+                "analyzer_minus_com22_mean_hpa": "",
+                "analyzer_minus_com22_max_abs_hpa": row.get("post_write_residual_max_abs_hpa", ""),
+                "pace_minus_com22_mean_hpa": "",
+                "allowed_for_co2_h2o_formal_work": status == "pass",
+                "traceability": _compact_json(trace_rows[0] if trace_rows else {}),
+                "measurement_model": _compact_json(
+                    {
+                        "source": "pressure_channel_completion",
+                        "post_write_offset_kpa": row.get("post_write_offset_kpa", ""),
+                        "post_write_residual_max_abs_hpa": row.get("post_write_residual_max_abs_hpa", ""),
+                        "senco9_write_status": row.get("senco9_write_status", ""),
+                        "pressure_reference_certificate_id": row.get("pressure_reference_certificate_id", ""),
+                        "pressure_reference_certificate_hash": row.get("pressure_reference_certificate_hash", ""),
+                    }
+                ),
+                "analyzer_prefix": row.get("analyzer_prefix", ""),
+                "analyzer_device_id": row.get("analyzer_device_id", ""),
+            }
+        )
+        measurement_model.append(
+            {
+                "analyzer_prefix": row.get("analyzer_prefix", ""),
+                "analyzer_device_id": row.get("analyzer_device_id", ""),
+                "model": "pressure_channel_completion_precondition",
+                "pressure_input_quantity": "analyzer_internal_pressure_P",
+                "post_write_fit_status": row.get("post_write_fit_status", ""),
+                "post_write_residual_max_abs_hpa": row.get("post_write_residual_max_abs_hpa", ""),
+                "senco9_write_status": row.get("senco9_write_status", ""),
+                "policy": _compact_json(policy_rows[0] if policy_rows else {}),
+                "not_co2_h2o_fit_evidence": True,
+            }
+        )
+    return {
+        "pressure_validation_summary": validation_summary,
+        "pressure_reference_traceability": trace_rows,
+        "measurement_model": measurement_model,
+        "paired_samples": [],
+        "rejected_samples": [],
     }
 
 
@@ -156,20 +242,30 @@ def build_formal_calibration_package_tables(
     }
     pressure_summary_by_prefix: Dict[str, Mapping[str, Any]] = {}
     pressure_summary_by_device_id: Dict[str, Mapping[str, Any]] = {}
-    for prefix in analyzer_prefixes:
-        per_pressure_tables = build_pressure_channel_tables(
-            pressure_rows,
-            pressure_reference=pressure_reference,
-            analyzer_prefix=prefix,
-            today=today,
-        )
-        for key in pressure_tables:
-            pressure_tables[key].extend(per_pressure_tables.get(key, []))
-        summary_rows = per_pressure_tables.get("pressure_validation_summary") or [{}]
-        pressure_summary_by_prefix[str(prefix)] = summary_rows[0]
-        pressure_device_id = str(summary_rows[0].get("analyzer_device_id") or "").strip()
-        if pressure_device_id:
-            pressure_summary_by_device_id[pressure_device_id] = summary_rows[0]
+    if _is_pressure_completion_source(pressure_source):
+        pressure_tables = _load_pressure_completion_tables(pressure_path)
+        for summary in pressure_tables.get("pressure_validation_summary") or []:
+            prefix = str(summary.get("analyzer_prefix") or "")
+            if prefix:
+                pressure_summary_by_prefix[prefix] = summary
+            pressure_device_id = str(summary.get("analyzer_device_id") or "").strip()
+            if pressure_device_id:
+                pressure_summary_by_device_id[pressure_device_id] = summary
+    else:
+        for prefix in analyzer_prefixes:
+            per_pressure_tables = build_pressure_channel_tables(
+                pressure_rows,
+                pressure_reference=pressure_reference,
+                analyzer_prefix=prefix,
+                today=today,
+            )
+            for key in pressure_tables:
+                pressure_tables[key].extend(per_pressure_tables.get(key, []))
+            summary_rows = per_pressure_tables.get("pressure_validation_summary") or [{}]
+            pressure_summary_by_prefix[str(prefix)] = summary_rows[0]
+            pressure_device_id = str(summary_rows[0].get("analyzer_device_id") or "").strip()
+            if pressure_device_id:
+                pressure_summary_by_device_id[pressure_device_id] = summary_rows[0]
     pressure_summary = (
         pressure_tables["pressure_validation_summary"][0]
         if pressure_tables["pressure_validation_summary"]

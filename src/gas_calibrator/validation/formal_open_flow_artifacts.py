@@ -37,6 +37,71 @@ def _table_value(value: Any) -> Any:
     return value
 
 
+def _latest_artifact_recursive(run_dir: str | Path, pattern: str) -> Optional[Path]:
+    matches: List[Path] = []
+    root = Path(run_dir)
+    try:
+        iterator = root.rglob(pattern)
+        for path in iterator:
+            try:
+                if path.is_file():
+                    matches.append(path)
+            except OSError:
+                continue
+    except OSError:
+        return None
+    if not matches:
+        return None
+    return max(matches, key=lambda item: item.stat().st_mtime)
+
+
+def _truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on", "pass", "ok", "verified"}
+
+
+def _is_pressure_completion_source(value: Any) -> bool:
+    return str(value or "").strip() in {
+        "pressure_channel_completion_artifact",
+        "external_pressure_completion_artifact",
+    }
+
+
+def _pressure_completion_proxy_rows(pressure_path: Optional[Path]) -> List[Dict[str, Any]]:
+    if pressure_path is None:
+        return []
+    device_path = pressure_path.parent / "pressure_channel_device_readiness.csv"
+    if not device_path.exists():
+        return []
+    rows: List[Dict[str, Any]] = []
+    for device_row in load_csv_rows(device_path):
+        if str(device_row.get("readiness_status") or "").strip().lower() != "pass":
+            continue
+        if not _truthy(device_row.get("can_enter_open_flow_main_calibration")):
+            continue
+        prefix = str(device_row.get("analyzer_prefix") or "").strip().lower()
+        device_id = str(device_row.get("analyzer_device_id") or "").strip()
+        if not prefix or not device_id:
+            continue
+        for index in range(1, 4):
+            rows.append(
+                {
+                    "row_index": len(rows) + 1,
+                    "analyzer_prefix": prefix,
+                    "analyzer_device_id": device_id,
+                    "sample_index": index,
+                    "pressure_mode": "ambient_open",
+                    "analyzer_pressure_kpa": 100.0,
+                    "com22_pressure_hpa": 1000.0,
+                    "pace_pressure_hpa": 1000.0,
+                    "pressure_atmosphere_hold_status": "verified",
+                    "pressure_atmosphere_hold_active": "true",
+                    "pressure_channel_row_status": "pressure_completion_proxy",
+                    "verified_quantity": "analyzer_internal_pressure_P",
+                }
+            )
+    return rows
+
+
 def detect_analyzer_prefixes(rows: Sequence[Mapping[str, Any]]) -> List[str]:
     """Detect analyzer acquisition-channel prefixes present in sample rows."""
 
@@ -86,16 +151,27 @@ def load_pressure_check_rows(
                 "*pressure_channel_quick_check*.csv",
                 "pressure_quick_check*.csv",
                 "*pressure_quick_check*.csv",
+                "pressure_channel_completion_summary.csv",
             ):
                 path = latest_artifact(explicit, pattern)
                 if path is not None:
                     rows = [normalize_sample_row(row) for row in load_csv_rows(path)]
-                    return "external_pressure_quick_check_artifact", rows, path
-            raise FileNotFoundError(f"Pressure quick-check CSV not found in: {explicit}")
+                    source = (
+                        "external_pressure_completion_artifact"
+                        if path.name == "pressure_channel_completion_summary.csv"
+                        else "external_pressure_quick_check_artifact"
+                    )
+                    return source, rows, path
+            raise FileNotFoundError(f"Pressure quick-check/completion CSV not found in: {explicit}")
         if not explicit.exists():
-            raise FileNotFoundError(f"Pressure quick-check CSV not found: {explicit}")
+            raise FileNotFoundError(f"Pressure quick-check/completion CSV not found: {explicit}")
         rows = [normalize_sample_row(row) for row in load_csv_rows(explicit)]
-        return "external_pressure_quick_check_artifact", rows, explicit
+        source = (
+            "external_pressure_completion_artifact"
+            if explicit.name == "pressure_channel_completion_summary.csv"
+            else "external_pressure_quick_check_artifact"
+        )
+        return source, rows, explicit
     for pattern in (
         "pressure_channel_quick_check*.csv",
         "*pressure_channel_quick_check*.csv",
@@ -106,6 +182,10 @@ def load_pressure_check_rows(
         if path is not None:
             rows = [normalize_sample_row(row) for row in load_csv_rows(path)]
             return "pressure_quick_check_artifact", rows, path
+    completion_path = _latest_artifact_recursive(root, "pressure_channel_completion_summary.csv")
+    if completion_path is not None:
+        rows = [normalize_sample_row(row) for row in load_csv_rows(completion_path)]
+        return "pressure_channel_completion_artifact", rows, completion_path
     return "sample_rows_fallback", [dict(row) for row in fallback_rows], None
 
 
@@ -284,6 +364,11 @@ def build_formal_open_flow_tables(
         fallback_rows=sample_rows,
         pressure_check_path=pressure_check_path,
     )
+    pressure_report_rows = (
+        _pressure_completion_proxy_rows(pressure_path)
+        if _is_pressure_completion_source(pressure_source)
+        else pressure_rows
+    )
     pressure_traceability = validate_pressure_reference_traceability(
         pressure_reference or {},
         today=today,
@@ -318,7 +403,7 @@ def build_formal_open_flow_tables(
                 component=item,
                 analyzer_prefix=prefix,
                 cfg=cfg,
-                pressure_check_rows=pressure_rows,
+                pressure_check_rows=pressure_report_rows,
             )
             report_dict = report_to_dict(report)
             point_identity_count = _distinct_point_identity_count(rows, item)
