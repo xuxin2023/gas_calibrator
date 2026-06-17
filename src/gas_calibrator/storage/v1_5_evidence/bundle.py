@@ -66,6 +66,8 @@ POST_WRITE_REVERIFICATION_COMPLETION_ROLES = {
     "post_write_reverification_points",
     "post_write_reverification_device_summary",
 }
+NO_WRITE_EVENT_STATUSES = {"not_attempted", "blocked"}
+COEFFICIENT_WRITE_LOG_PLACEHOLDER_EVENT_TYPES = {"coefficient_write_log_present"}
 
 
 def _now_iso() -> str:
@@ -1008,6 +1010,133 @@ def _build_reports(run_db_id: str, files: Sequence[Mapping[str, Any]]) -> List[D
     return rows
 
 
+def _write_event_metadata(row: Mapping[str, Any]) -> Dict[str, Any]:
+    raw = row.get("metadata")
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            return {}
+        if isinstance(payload, Mapping):
+            return dict(payload)
+    return {}
+
+
+def _write_event_readback(row: Mapping[str, Any]) -> Dict[str, Any]:
+    raw = row.get("readback")
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            return {}
+        if isinstance(payload, Mapping):
+            return dict(payload)
+    metadata = _write_event_metadata(row)
+    raw = metadata.get("readback")
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    return {}
+
+
+def _write_event_status(row: Mapping[str, Any]) -> str:
+    return str(row.get("status") or "").strip()
+
+
+def _write_event_type(row: Mapping[str, Any]) -> str:
+    return str(row.get("event_type") or "").strip()
+
+
+def _is_no_write_event(row: Mapping[str, Any]) -> bool:
+    return _write_event_status(row) in NO_WRITE_EVENT_STATUSES
+
+
+def _is_write_log_placeholder(row: Mapping[str, Any]) -> bool:
+    return _write_event_type(row) in COEFFICIENT_WRITE_LOG_PLACEHOLDER_EVENT_TYPES
+
+
+def _is_verified_write_event(row: Mapping[str, Any]) -> bool:
+    status = _write_event_status(row).lower()
+    if "verified" not in status:
+        return False
+    readback = _write_event_readback(row)
+    old_hash = str(row.get("old_coefficients_hash") or "").strip()
+    metadata = _write_event_metadata(row)
+    metadata_old_hash = str(metadata.get("old_coefficients_hash") or "").strip()
+    return bool(readback or old_hash or metadata_old_hash)
+
+
+def _coefficient_write_policy(
+    *,
+    coefficient_snapshots: Sequence[Mapping[str, Any]],
+    write_events: Sequence[Mapping[str, Any]],
+    has_post_write_reverification: bool,
+) -> Dict[str, Any]:
+    """Interpret coefficient-write evidence as no-write or controlled-write.
+
+    Write-log placeholder rows only prove that a write artifact exists; they do
+    not by themselves prove a controlled write. A controlled write is traceable
+    only when the old coefficients, verified/readback write events, and
+    post-write reverification evidence are all present.
+    """
+
+    write_like_events = [row for row in write_events if not _is_no_write_event(row)]
+    placeholders = [row for row in write_like_events if _is_write_log_placeholder(row)]
+    actual_write_events = [row for row in write_like_events if not _is_write_log_placeholder(row)]
+    verified_write_events = [row for row in actual_write_events if _is_verified_write_event(row)]
+    unverified_write_events = [row for row in actual_write_events if not _is_verified_write_event(row)]
+    has_write_evidence = bool(write_like_events)
+    has_old_snapshots = bool(coefficient_snapshots)
+    missing_requirements: List[str] = []
+    mode = "no_write"
+    status = "no_write_traceable"
+    interpretation = "No coefficient-write evidence is present; the run remains a no-write evidence package."
+
+    if has_write_evidence:
+        mode = "controlled_write"
+        if not verified_write_events:
+            missing_requirements.append("verified_write_event_with_readback")
+        if not has_old_snapshots:
+            missing_requirements.append("old_coefficients_snapshot")
+        if not has_post_write_reverification:
+            missing_requirements.append("post_write_reverification_completion")
+        if unverified_write_events:
+            missing_requirements.append("unverified_write_event_review")
+        if missing_requirements:
+            status = "controlled_write_incomplete"
+            interpretation = (
+                "Coefficient-write artifacts exist, but they are not yet a complete controlled-write evidence "
+                "chain. Old coefficients, verified write/readback rows, and post-write reverification are all "
+                "required before reviewer release."
+            )
+        else:
+            status = "controlled_write_traceable"
+            interpretation = (
+                "Coefficient writes are traceable: old coefficients are snapshotted, write/readback rows are "
+                "verified, and post-write reverification evidence is present."
+            )
+
+    return {
+        "mode": mode,
+        "status": status,
+        "policy_satisfied": not missing_requirements,
+        "write_attempt_count": len(write_like_events),
+        "verified_write_event_count": len(verified_write_events),
+        "write_log_placeholder_count": len(placeholders),
+        "unverified_write_event_count": len(unverified_write_events),
+        "has_old_coefficient_snapshots": has_old_snapshots,
+        "has_verified_write_events": bool(verified_write_events),
+        "has_post_write_reverification": bool(has_post_write_reverification),
+        "missing_requirements": missing_requirements,
+        "event_statuses": [_write_event_status(row) for row in write_events],
+        "event_types": [_write_event_type(row) for row in write_events],
+        "interpretation": interpretation,
+    }
+
+
 def _build_integrity_checks(
     *,
     run_db_id: str,
@@ -1020,6 +1149,12 @@ def _build_integrity_checks(
     roles = {str(row.get("artifact_role") or "") for row in files}
     required = [row for row in files if bool(row.get("required"))]
     pressure_input_present = bool(roles & {"pressure_channel_quick_check", "pressure_channel_completion"})
+    has_post_write_reverification = bool(roles & POST_WRITE_REVERIFICATION_COMPLETION_ROLES)
+    write_policy = _coefficient_write_policy(
+        coefficient_snapshots=coefficient_snapshots,
+        write_events=write_events,
+        has_post_write_reverification=has_post_write_reverification,
+    )
     missing_required_roles = [
         role
         for role in ("raw_samples", "formal_plan_snapshot", "pressure_reference_snapshot")
@@ -1066,11 +1201,18 @@ def _build_integrity_checks(
         ),
         (
             "coefficient_write_not_attempted",
-            "pass"
-            if all(str(row.get("status") or "") in {"not_attempted", "blocked"} for row in write_events)
-            else "fail",
+            "pass" if write_policy["write_attempt_count"] == 0 else "warn",
+            "warning",
+            {
+                "event_statuses": write_policy["event_statuses"],
+                "note": "A controlled-write package may contain write evidence; see coefficient_write_policy_satisfied.",
+            },
+        ),
+        (
+            "coefficient_write_policy_satisfied",
+            "pass" if write_policy["policy_satisfied"] else "fail",
             "error",
-            {"event_statuses": [row.get("status") for row in write_events]},
+            write_policy,
         ),
     ]
     return [
@@ -1728,10 +1870,16 @@ def build_traceability_summary_from_tables(
     qc_results = _table_rows(tables, "qc_results")
     coefficient_candidates = _table_rows(tables, "coefficient_candidates")
     candidate_review_rollup = _candidate_review_rollup(coefficient_candidates)
+    coefficient_snapshots = _table_rows(tables, "coefficient_snapshots")
     write_events = _table_rows(tables, "coefficient_write_events")
     write_attempts = [
-        row for row in write_events if str(row.get("status") or "") not in {"not_attempted", "blocked"}
+        row for row in write_events if str(row.get("status") or "") not in NO_WRITE_EVENT_STATUSES
     ]
+    write_policy = _coefficient_write_policy(
+        coefficient_snapshots=coefficient_snapshots,
+        write_events=write_events,
+        has_post_write_reverification=has_post_write_reverification,
+    )
     raw_header_evidence = _raw_sample_header_evidence(artifacts)
     raw_headers = raw_header_evidence["headers"]
     h2o_raw_evidence = _h2o_raw_field_evidence(raw_headers)
@@ -1877,6 +2025,7 @@ def build_traceability_summary_from_tables(
         ],
         "candidate_review_rollup": candidate_review_rollup,
         "h2o_candidate_review_rollup": h2o_candidate_rollup,
+        "coefficient_write_evidence": write_policy,
         "coefficient_write_events": [
             {
                 "event_type": row.get("event_type"),
@@ -1952,6 +2101,8 @@ def build_traceability_summary_from_tables(
             "has_h2o_open_flow_qc": bool(h2o_open_flow_qc),
             "has_h2o_raw_signal_fields": not missing_h2o_raw_fields,
             "has_post_write_reverification": has_post_write_reverification,
+            "has_controlled_write_traceability": write_policy["status"] == "controlled_write_traceable",
+            "coefficient_write_policy_satisfied": bool(write_policy["policy_satisfied"]),
             "has_run_evidence_status": bool(run_evidence_status_artifacts),
         },
     }

@@ -236,6 +236,72 @@ def _write_post_write_reverification_plan_only(run_dir):
     )
 
 
+def _write_old_getco_snapshot(run_dir):
+    snapshot_dir = run_dir / "old_getco_component_snapshot"
+    snapshot_dir.mkdir(exist_ok=True)
+    (snapshot_dir / "old_component_coefficients_snapshot.json").write_text(
+        json.dumps(
+            {
+                "100": {
+                    "analyzer_prefix": "ga100",
+                    "analyzer_device_id": "100",
+                    "port": "COM35",
+                    "source": "read_only_getco_component_snapshot",
+                    "GETCO1_before": [1.0, 2.0, 3.0, 4.0, 0.0, 0.0],
+                    "GETCO3_before": [5.0, 6.0, 7.0, 8.0, 0.0, 0.0],
+                    "GETCO5_before": [0.0, 1.0],
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_controlled_write_sidecar(
+    run_dir,
+    *,
+    status="written_readback_verified",
+    include_readback=True,
+):
+    sidecar_dir = run_dir / "controlled_write_demo"
+    sidecar_dir.mkdir(exist_ok=True)
+    readback = {"senco1": [1.1, 2.2, 3.3, 4.4], "senco3": [5.5, 6.6, 7.7, 8.8]} if include_readback else {}
+    payload = {
+        "schema": "v1_5_controlled_write_database_sidecar_v1",
+        "suggested_rows": [
+            {
+                "db_table": "coefficient_write_events",
+                "record_key": "100_co2_senco13_write",
+                "analyzer_device_id": "100",
+                "event_type": "co2_senco1_senco3_paired_write",
+                "status": status,
+                "approved_by": "reviewer-a",
+                "command_summary": "SENCO1/SENCO3 controlled write with readback.",
+                "old_coefficients_hash": "old-getco-hash",
+                "candidate_id": "candidate-100-co2",
+                "readback_json": json.dumps(readback, ensure_ascii=False, separators=(",", ":")),
+                "metadata_json": json.dumps(
+                    {
+                        "write_applied": True,
+                        "controls_water_or_gas_routes": False,
+                        "writes_device_id": False,
+                        "clears_senco": False,
+                        "old_coefficients_hash": "old-getco-hash",
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            }
+        ],
+    }
+    (sidecar_dir / "co2_senco13_database_sidecar.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def test_h2o_raw_evidence_unions_all_raw_sample_headers(tmp_path):
     partial = tmp_path / "samples_20260613_001901.csv"
     machine = tmp_path / "samples_machine_readable.csv"
@@ -470,6 +536,101 @@ def test_evidence_bundle_does_not_treat_reverification_plan_as_completion(tmp_pa
     assert "post_run_reverification_plan" in roles
     assert summary["traceability_checks"]["has_post_write_reverification"] is False
     assert summary["post_write_reverification_evidence"]["status"] == "planned_only"
+
+
+def test_evidence_bundle_accepts_controlled_write_with_readback_and_post_reverification(tmp_path):
+    run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
+    _write_old_getco_snapshot(run_dir)
+    _write_controlled_write_sidecar(run_dir)
+    _write_post_write_reverification_artifacts(run_dir)
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        today="2026-05-24",
+    )
+    summary = bundle_summary(bundle)
+    traceability = bundle_traceability_summary(bundle)
+    policy_check = next(
+        row
+        for row in bundle["tables"]["evidence_integrity_checks"]
+        if row["check_name"] == "coefficient_write_policy_satisfied"
+    )
+    no_write_check = next(
+        row
+        for row in bundle["tables"]["evidence_integrity_checks"]
+        if row["check_name"] == "coefficient_write_not_attempted"
+    )
+
+    assert summary["evidence_status"] == "ready_for_reviewer"
+    assert traceability["traceability_checks"]["no_coefficient_write_attempted"] is False
+    assert traceability["traceability_checks"]["has_controlled_write_traceability"] is True
+    assert traceability["traceability_checks"]["coefficient_write_policy_satisfied"] is True
+    assert traceability["coefficient_write_evidence"]["status"] == "controlled_write_traceable"
+    assert traceability["coefficient_write_evidence"]["verified_write_event_count"] == 1
+    assert policy_check["status"] == "pass"
+    assert no_write_check["status"] == "warn"
+
+
+def test_evidence_bundle_blocks_controlled_write_without_post_reverification(tmp_path):
+    run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
+    _write_old_getco_snapshot(run_dir)
+    _write_controlled_write_sidecar(run_dir)
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        today="2026-05-24",
+    )
+    summary = bundle_summary(bundle)
+    traceability = bundle_traceability_summary(bundle)
+    policy_check = next(
+        row
+        for row in bundle["tables"]["evidence_integrity_checks"]
+        if row["check_name"] == "coefficient_write_policy_satisfied"
+    )
+
+    assert summary["evidence_status"] == "blocked"
+    assert traceability["traceability_checks"]["has_controlled_write_traceability"] is False
+    assert traceability["traceability_checks"]["coefficient_write_policy_satisfied"] is False
+    assert traceability["coefficient_write_evidence"]["status"] == "controlled_write_incomplete"
+    assert "post_write_reverification_completion" in traceability["coefficient_write_evidence"]["missing_requirements"]
+    assert policy_check["status"] == "fail"
+
+
+def test_evidence_bundle_does_not_accept_write_log_placeholder_without_verified_sidecar(tmp_path):
+    run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
+    _write_old_getco_snapshot(run_dir)
+    _write_post_write_reverification_artifacts(run_dir)
+    write_dir = run_dir / "controlled_write_placeholder_only"
+    write_dir.mkdir()
+    _write_csv(
+        write_dir / "coefficient_writeback.csv",
+        [
+            {
+                "device_id": "100",
+                "component": "co2",
+                "command": "SENCO1,YGAS,100,...",
+                "status": "operator_log_only",
+            }
+        ],
+    )
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        today="2026-05-24",
+    )
+    summary = bundle_summary(bundle)
+    traceability = bundle_traceability_summary(bundle)
+
+    assert summary["evidence_status"] == "blocked"
+    assert traceability["coefficient_write_evidence"]["write_log_placeholder_count"] == 1
+    assert "verified_write_event_with_readback" in traceability["coefficient_write_evidence"]["missing_requirements"]
+    assert traceability["traceability_checks"]["has_controlled_write_traceability"] is False
 
 
 def test_evidence_bundle_indexes_generated_reports_as_traceable_artifacts(tmp_path):
