@@ -1,53 +1,52 @@
 """Read-only V1.5 formal calibration operation console.
 
-This first UI surface is deliberately evidence-first. It reads already-created
-workbench, run-evidence, archive, and calibratability JSON files and renders a
-static operator/reviewer console. It never opens COM ports, controls water/gas
-routes, commands valves/PACE, or writes analyzer coefficients.
+This module only renders evidence that was already produced by the V1.5
+calibration tools. It must never open serial ports, control valves, control
+PACE, or write analyzer coefficients.
 """
 
 from __future__ import annotations
 
 import html
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping
+from typing import Any, Mapping
 
 
-PAGE_DEFINITIONS: List[Dict[str, Any]] = [
+PAGE_DEFINITIONS: list[dict[str, Any]] = [
     {
         "key": "dashboard",
         "title": "首页 / 运行总览",
-        "purpose": "让操作员看到当前 run、阶段、可校准状态、正式签发阻塞项和安全边界。",
+        "purpose": "显示 run_id、阶段状态、正式范围和当前阻塞原因。",
         "physical_signals": ["run_id", "current_stage", "method_backbone_ready", "formal_release_ready"],
         "calibration_gates": ["traceability_bound", "no_write_boundary_visible"],
     },
     {
         "key": "plan_select",
         "title": "校准计划选择",
-        "purpose": "冻结校准计划、标准气证书、配置 hash 和 no-write/受控写入边界。",
+        "purpose": "展示校准计划、标准气证书、采样窗口和配置版本。",
         "physical_signals": ["standard_gas_certificate", "sampling_window", "stability_thresholds"],
         "calibration_gates": ["plan_snapshot_required", "standard_gas_valid"],
     },
     {
         "key": "precheck",
         "title": "设备预检",
-        "purpose": "确认分析仪身份、GETCO 旧系数、状态寄存器和参考设备处于可解释状态。",
+        "purpose": "展示分析仪、参考设备、GETCO 备份和状态寄存器证据。",
         "physical_signals": ["device_id", "GETCO1-9", "status_register", "reference_devices"],
         "calibration_gates": ["device_identity_required", "GETCO_backup_required"],
     },
     {
         "key": "pressure_channel_verify",
         "title": "压力通道验证",
-        "purpose": "先证明分析仪内部 pressure_kpa 与 COM22 压力参考一致，避免把压力错误混入 CO2/H2O 拟合。",
+        "purpose": "展示分析仪内部压力 P 与 COM22/PACE 的独立比对证据。",
         "physical_signals": ["COM22_pressure", "PACE_pressure", "analyzer_pressure_kpa", "delta_hpa"],
         "calibration_gates": ["pressure_channel_pass_required_before_component_calibration"],
     },
     {
         "key": "open_flow_sampling",
         "title": "开放流通采样",
-        "purpose": "显示吹扫、稳定门禁、采样窗口和当前阻塞原因，确保采样时气路/水路仍保持开放流通。",
+        "purpose": "展示 CO2/H2O、露点、压力、ratio/signal 和稳定门禁证据。",
         "physical_signals": [
             "CO2",
             "H2O",
@@ -66,73 +65,86 @@ PAGE_DEFINITIONS: List[Dict[str, Any]] = [
     {
         "key": "qc_review",
         "title": "QC 与点位评审",
-        "purpose": "解释每个点为什么可用于拟合、降级或拒绝，防止坏点静默进入系数。",
+        "purpose": "解释每个点为何进入拟合、降级或拒绝。",
         "physical_signals": ["FrameQC", "PressureChannelQC", "DewpointHumidityQC", "FactorySignalQC"],
         "calibration_gates": ["a_grade_only_enters_formal_fit", "reject_reason_required"],
     },
     {
         "key": "report_review",
         "title": "候选系数与报告",
-        "purpose": "展示旧系数、候选系数、复验误差、报告状态和不确定度状态。",
+        "purpose": "展示候选系数、误差、复验、报告和未闭环项。",
         "physical_signals": ["old_GETCO", "candidate_coefficients", "reverification_error", "uncertainty_budget"],
         "calibration_gates": ["candidate_review_required", "post_write_reverification_required"],
     },
     {
         "key": "approval",
         "title": "审核与归档",
-        "purpose": "记录审核、批准、数据库归档、报告 hash 和写入/回读/复验闭环。",
+        "purpose": "展示审计、数据库归档、证书和受控写入门禁。",
         "physical_signals": ["report_hash", "coefficient_hash", "audit_events", "archive_status"],
         "calibration_gates": ["operator_cannot_self_approve", "database_import_or_dry_run_visible"],
     },
 ]
 
 
-ROLE_PERMISSIONS = {
+ROLE_PERMISSIONS: dict[str, dict[str, bool]] = {
     "operator": {
-        "select_plan": True,
-        "run_sampling": True,
+        "view": True,
+        "select_plan": False,
+        "change_plan": False,
+        "run_sampling": False,
         "view_qc": True,
         "edit_qc_thresholds": False,
         "generate_candidate_coefficients": False,
         "approve_writes": False,
         "write_senco": False,
         "edit_high_risk_parameters": False,
+        "approve_release": False,
     },
     "engineer": {
-        "select_plan": True,
-        "run_sampling": True,
+        "view": True,
+        "select_plan": False,
+        "change_plan": False,
+        "run_sampling": False,
         "view_qc": True,
-        "edit_qc_thresholds": True,
-        "generate_candidate_coefficients": True,
+        "edit_qc_thresholds": False,
+        "generate_candidate_coefficients": False,
         "approve_writes": False,
         "write_senco": False,
         "edit_high_risk_parameters": False,
+        "approve_release": False,
     },
     "reviewer": {
+        "view": True,
         "select_plan": False,
+        "change_plan": False,
         "run_sampling": False,
         "view_qc": True,
-        "edit_qc_thresholds": "review_required",
-        "generate_candidate_coefficients": True,
-        "approve_writes": True,
+        "edit_qc_thresholds": False,
+        "generate_candidate_coefficients": False,
+        "approve_writes": False,
         "write_senco": False,
         "edit_high_risk_parameters": False,
+        "approve_release": False,
     },
     "admin": {
-        "select_plan": True,
-        "run_sampling": True,
+        "view": True,
+        "select_plan": False,
+        "change_plan": False,
+        "run_sampling": False,
         "view_qc": True,
-        "edit_qc_thresholds": True,
-        "generate_candidate_coefficients": True,
-        "approve_writes": True,
-        "write_senco": "controlled_after_approval",
-        "edit_high_risk_parameters": "advanced_authorization_required",
+        "edit_qc_thresholds": False,
+        "generate_candidate_coefficients": False,
+        "approve_writes": False,
+        "write_senco": False,
+        "edit_high_risk_parameters": False,
+        "approve_release": False,
     },
 }
 
 
-STATUS_LABELS = {
+STATUS_LABELS: dict[str, str] = {
     "pass": "通过",
+    "ready": "就绪",
     "ready_for_reviewer": "可评审",
     "formal_release_ready": "可正式签发",
     "demonstrated_calibratable_for_verified_scope": "已证明可校准范围",
@@ -146,6 +158,7 @@ STATUS_LABELS = {
     "partial": "部分完成",
     "blocked": "阻断",
     "fail": "失败",
+    "error": "错误",
     "not_releasable": "不可发布",
     "not_attempted": "未执行",
     "write_attempted": "已发生写入",
@@ -163,75 +176,107 @@ STATUS_LABELS = {
 }
 
 
-STATUS_TONE = {
-    "pass": "ok",
-    "ready_for_reviewer": "ok",
-    "formal_release_ready": "ok",
-    "demonstrated_calibratable_for_verified_scope": "ok",
-    "conditionally_calibratable_needs_release_closure": "warn",
-    "review_ready": "warn",
+STATUS_TONE: dict[str, str] = {
+    "pass": "good",
+    "ready": "good",
+    "ready_for_reviewer": "good",
+    "formal_release_ready": "good",
+    "demonstrated_calibratable_for_verified_scope": "good",
+    "present": "good",
+    "import": "good",
+    "review_ready": "info",
+    "planned_controlled_gates": "info",
+    "authorization_required": "info",
+    "manual_review": "info",
+    "dry_run": "warn",
     "draft_only": "warn",
-    "pending": "warn",
     "partial": "warn",
-    "missing": "bad",
-    "blocked": "bad",
-    "fail": "bad",
-    "not_releasable": "bad",
-    "not_calibratable_until_p0_resolved": "bad",
-    "not_yet_calibratable_evidence_incomplete": "bad",
-    "not_attempted": "muted",
-    "skipped": "muted",
-    "skip": "muted",
-    "present": "warn",
-    "not_found": "muted",
-    "authorization_required": "warn",
-    "blocked_controlled_gate": "warn",
+    "pending": "warn",
     "waiting_for_artifacts": "warn",
-    "manual_review": "warn",
-    "planned_controlled_gates": "warn",
+    "not_attempted": "warn",
+    "missing": "bad",
+    "not_found": "bad",
+    "blocked": "bad",
+    "blocked_controlled_gate": "bad",
+    "fail": "bad",
+    "error": "bad",
+    "not_releasable": "bad",
+    "write_attempted": "bad",
 }
 
 
-STAGE_TO_PAGE = {
+STATUS_SEVERITY = [
+    "error",
+    "fail",
+    "blocked",
+    "blocked_controlled_gate",
+    "missing",
+    "not_found",
+    "not_releasable",
+    "write_attempted",
+    "partial",
+    "waiting_for_artifacts",
+    "authorization_required",
+    "pending",
+    "draft_only",
+    "dry_run",
+    "not_attempted",
+    "manual_review",
+    "planned_controlled_gates",
+    "review_ready",
+    "ready_for_reviewer",
+    "demonstrated_calibratable_for_verified_scope",
+    "formal_release_ready",
+    "present",
+    "ready",
+    "pass",
+]
+
+
+STAGE_TO_PAGE: dict[str, str] = {
     "full_flow_contract_gate": "dashboard",
-    "plan_traceability": "plan_select",
-    "identity_getco_epoch0": "precheck",
+    "formal_initialization": "precheck",
+    "plan_snapshot": "plan_select",
+    "precheck": "precheck",
     "pressure_quick_check": "pressure_channel_verify",
+    "pressure_channel_calibration": "pressure_channel_verify",
     "co2_open_flow": "open_flow_sampling",
     "h2o_open_flow": "open_flow_sampling",
-    "candidate_review": "report_review",
-    "controlled_write_events": "approval",
-    "post_write_reverification": "report_review",
-    "evidence_bundle": "approval",
-    "database_import": "approval",
+    "co2_open_flow_sampling": "open_flow_sampling",
+    "h2o_open_flow_sampling": "open_flow_sampling",
+    "qc_classification": "qc_review",
+    "post_run_coefficient_executor": "report_review",
     "reports": "report_review",
+    "formal_report": "report_review",
+    "database_import": "approval",
+    "controlled_component_write_placeholder": "approval",
+    "controlled_write": "approval",
 }
 
 
-CARD_TO_PAGE = {
+CARD_TO_PAGE: dict[str, str] = {
     "formal_plan": "plan_select",
-    "device_precheck": "precheck",
+    "preflight": "precheck",
+    "preflight_status": "precheck",
     "pressure_quick_check": "pressure_channel_verify",
     "open_flow_samples": "open_flow_sampling",
     "qc_package": "qc_review",
-    "candidate_coefficients": "report_review",
     "post_write_reverification": "report_review",
     "report_release": "report_review",
     "database_import": "approval",
-    "evidence_bundle": "approval",
 }
 
 
-def _now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _esc(value: Any) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
 
-def _as_list(value: Any) -> List[Any]:
-    if value in (None, ""):
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
         return []
     if isinstance(value, list):
         return value
@@ -240,228 +285,254 @@ def _as_list(value: Any) -> List[Any]:
     return [value]
 
 
-def _cards_by_key(workbench_model: Mapping[str, Any] | None) -> Dict[str, Mapping[str, Any]]:
-    if not workbench_model:
-        return {}
-    return {
-        str(card.get("key") or ""): card
-        for card in workbench_model.get("cards", [])
-        if isinstance(card, Mapping)
-    }
+def _status_label(status: str | None) -> str:
+    if not status:
+        return "未知"
+    return STATUS_LABELS.get(status, status)
 
 
-def _stage_map(run_evidence_status: Mapping[str, Any] | None) -> Dict[str, Mapping[str, Any]]:
-    if not run_evidence_status:
-        return {}
-    return {
-        str(row.get("stage_id") or ""): row
-        for row in run_evidence_status.get("stage_statuses", [])
-        if isinstance(row, Mapping) and str(row.get("stage_id") or "")
-    }
+def _tone(status: str | None) -> str:
+    if not status:
+        return "warn"
+    return STATUS_TONE.get(status, "warn")
 
 
-def _full_flow_stage_manifest_panel(run_evidence_status: Mapping[str, Any] | None) -> Dict[str, Any]:
-    manifest = (
-        run_evidence_status.get("full_flow_stage_manifest")
-        if isinstance(run_evidence_status, Mapping)
-        and isinstance(run_evidence_status.get("full_flow_stage_manifest"), Mapping)
-        else {}
-    )
-    if not manifest:
+def _worst_status(statuses: list[str]) -> str:
+    normalized = [status for status in statuses if status]
+    if not normalized:
+        return "pending"
+    for status in STATUS_SEVERITY:
+        if status in normalized:
+            return status
+    return normalized[0]
+
+
+def _cards_by_key(workbench_model: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    cards: dict[str, Mapping[str, Any]] = {}
+    for card in _as_list(workbench_model.get("cards")):
+        if isinstance(card, Mapping) and card.get("key"):
+            cards[str(card["key"])] = card
+    return cards
+
+
+def _stage_rows(run_evidence_status: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    rows = run_evidence_status.get("stage_statuses")
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, Mapping)]
+    return []
+
+
+def _stage_reason(row: Mapping[str, Any]) -> str:
+    title = row.get("title") or row.get("stage_id") or row.get("step_id") or "未命名阶段"
+    reason = row.get("reason") or "无原因说明"
+    status = _status_label(str(row.get("status") or "pending"))
+    return f"{title}: {status} - {reason}"
+
+
+def _card_reason(card: Mapping[str, Any]) -> str:
+    key = card.get("key") or "未命名卡片"
+    status = _status_label(str(card.get("status") or "pending"))
+    blockers = "；".join(str(item) for item in _as_list(card.get("blockers")) if item)
+    metric = card.get("metric")
+    detail = blockers or metric or "无阻塞说明"
+    return f"{key}: {status} - {detail}"
+
+
+def _page_stage_rows(page_key: str, run_evidence_status: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [
+        row
+        for row in _stage_rows(run_evidence_status)
+        if STAGE_TO_PAGE.get(str(row.get("stage_id") or row.get("step_id") or "")) == page_key
+    ]
+
+
+def _page_card_rows(page_key: str, workbench_model: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [
+        card
+        for card in _cards_by_key(workbench_model).values()
+        if CARD_TO_PAGE.get(str(card.get("key") or "")) == page_key
+    ]
+
+
+def _page_status(page_key: str, workbench_model: Mapping[str, Any], run_evidence_status: Mapping[str, Any]) -> str:
+    statuses: list[str] = []
+    for row in _page_stage_rows(page_key, run_evidence_status):
+        statuses.append(str(row.get("status") or "pending"))
+    for card in _page_card_rows(page_key, workbench_model):
+        statuses.append(str(card.get("status") or "pending"))
+    if page_key == "dashboard":
+        statuses.append(str(workbench_model.get("preflight_status") or "pending"))
+    return _worst_status(statuses)
+
+
+def _page_blockers(page_key: str, workbench_model: Mapping[str, Any], run_evidence_status: Mapping[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    for row in _page_stage_rows(page_key, run_evidence_status):
+        status = str(row.get("status") or "pending")
+        if status != "pass":
+            blockers.append(_stage_reason(row))
+    for card in _page_card_rows(page_key, workbench_model):
+        status = str(card.get("status") or "pending")
+        card_blockers = [str(item) for item in _as_list(card.get("blockers")) if item]
+        if status != "pass" or card_blockers:
+            blockers.append(_card_reason(card))
+            blockers.extend(card_blockers)
+    if not blockers:
+        blockers.append("无阻塞；等待对应证据刷新。")
+    return blockers
+
+
+def _full_flow_stage_manifest_panel(run_evidence_status: Mapping[str, Any]) -> dict[str, Any]:
+    manifest = run_evidence_status.get("full_flow_stage_manifest")
+    if not isinstance(manifest, Mapping):
         return {
             "key": "full_flow_stage_manifest",
             "available": False,
             "status": "not_found",
             "label": _status_label("not_found"),
-            "source_path": "",
+            "status_label": _status_label("not_found"),
+            "tone": _tone("not_found"),
+            "source_path": None,
+            "schema": "",
             "stage_count": 0,
-            "current_manifest_stage": "",
+            "current_manifest_stage": None,
             "one_button_live_runner_ready": False,
             "status_counts": {},
-            "attention_rows": [],
             "detail": "stage_manifest_missing",
+            "attention_rows": [],
         }
 
-    stage_rows = [row for row in manifest.get("stage_statuses") or [] if isinstance(row, Mapping)]
-    status_counts = {
-        str(key): int(value)
-        for key, value in (manifest.get("status_counts") or {}).items()
-        if str(key)
-    }
-    attention_rows = [
-        {
-            "order": row.get("order"),
-            "step_id": str(row.get("step_id") or ""),
-            "title": str(row.get("title") or row.get("step_id") or ""),
-            "phase": str(row.get("phase") or ""),
-            "automation_state": str(row.get("automation_state") or ""),
-            "status": str(row.get("status") or "pending"),
-            "status_label": _status_label(row.get("status")),
-            "reason": str(row.get("reason") or ""),
-            "expected_output_count": int(row.get("expected_output_count") or 0),
-            "present_output_count": int(row.get("present_output_count") or 0),
-        }
-        for row in stage_rows
-        if str(row.get("status") or "") not in {"pass", "not_attempted"}
-    ][:12]
-
-    summary_status = "pass"
-    if str(manifest.get("status") or "") == "not_found":
-        summary_status = "not_found"
-    elif attention_rows:
-        summary_status = "planned_controlled_gates"
+    rows = [row for row in _as_list(manifest.get("stage_statuses")) if isinstance(row, Mapping)]
+    attention_rows: list[dict[str, Any]] = []
+    for row in rows:
+        status = str(row.get("status") or "pending")
+        if status in {"pass", "not_attempted"}:
+            continue
+        attention_rows.append(
+            {
+                "order": row.get("order"),
+                "step_id": row.get("step_id") or row.get("stage_id"),
+                "title": row.get("title"),
+                "phase": row.get("phase"),
+                "status": status,
+                "status_label": _status_label(status),
+                "reason": row.get("reason"),
+            }
+        )
+    attention_rows = attention_rows[:12]
+    panel_status = "planned_controlled_gates" if attention_rows else "pass"
+    current = manifest.get("current_manifest_stage") or "none"
+    one_button = bool(manifest.get("one_button_live_runner_ready"))
     return {
         "key": "full_flow_stage_manifest",
         "available": True,
-        "status": summary_status,
-        "label": _status_label(summary_status),
-        "source_path": str(manifest.get("source_path") or ""),
-        "schema": str(manifest.get("schema") or ""),
-        "stage_count": int(manifest.get("stage_count") or len(stage_rows)),
-        "current_manifest_stage": str(manifest.get("current_manifest_stage") or ""),
-        "one_button_live_runner_ready": bool(manifest.get("one_button_live_runner_ready")),
-        "status_counts": dict(sorted(status_counts.items())),
+        "status": panel_status,
+        "label": _status_label(panel_status),
+        "status_label": _status_label(panel_status),
+        "tone": _tone(panel_status),
+        "source_path": manifest.get("source_path"),
+        "schema": manifest.get("schema") or "",
+        "stage_count": int(manifest.get("stage_count") or len(rows)),
+        "current_manifest_stage": manifest.get("current_manifest_stage"),
+        "one_button_live_runner_ready": one_button,
+        "status_counts": dict(manifest.get("status_counts") or {}),
+        "detail": f"current={current}; one_button_live_runner_ready={one_button}",
         "attention_rows": attention_rows,
-        "detail": (
-            f"current={manifest.get('current_manifest_stage') or 'none'}; "
-            f"one_button_live_runner_ready={bool(manifest.get('one_button_live_runner_ready'))}"
-        ),
     }
 
 
-def _status_label(status: Any) -> str:
-    text = str(status or "pending")
-    return STATUS_LABELS.get(text, text)
-
-
-def _tone(status: Any) -> str:
-    return STATUS_TONE.get(str(status or "pending"), "muted")
-
-
-def _worst_status(statuses: Iterable[str]) -> str:
-    values = [str(item or "") for item in statuses if str(item or "")]
-    for status in ("blocked", "fail", "missing"):
-        if status in values:
-            return status
-    for status in ("partial", "pending", "draft_only", "review_ready", "not_attempted"):
-        if status in values:
-            return status
-    for status in ("pass", "ready_for_reviewer", "write_attempted"):
-        if status in values:
-            return "pass"
-    return "pending"
-
-
-def _card_status(cards: Mapping[str, Mapping[str, Any]], key: str, default: str = "pending") -> str:
-    return str(cards.get(key, {}).get("status") or default)
-
-
-def _page_stage_rows(page_key: str, stages: Mapping[str, Mapping[str, Any]]) -> List[Mapping[str, Any]]:
-    return [row for stage_id, row in stages.items() if STAGE_TO_PAGE.get(stage_id) == page_key]
-
-
-def _page_card_rows(page_key: str, cards: Mapping[str, Mapping[str, Any]]) -> List[Mapping[str, Any]]:
-    return [row for key, row in cards.items() if CARD_TO_PAGE.get(key) == page_key]
-
-
-def _stage_reason(row: Mapping[str, Any]) -> str:
-    reason = str(row.get("reason") or "").strip()
-    return reason or str(row.get("status") or "pending")
-
-
-def _stage_line(row: Mapping[str, Any]) -> str:
-    title = str(row.get("title") or row.get("stage_id") or "stage")
-    return f"{title}: {_status_label(row.get('status'))} ({_stage_reason(row)})"
-
-
-def _page_status(page_key: str, cards: Mapping[str, Mapping[str, Any]], stages: Mapping[str, Mapping[str, Any]]) -> str:
-    statuses = [str(row.get("status") or "") for row in _page_stage_rows(page_key, stages)]
-    statuses.extend(str(row.get("status") or "") for row in _page_card_rows(page_key, cards))
-    if page_key == "dashboard":
-        statuses.extend(
-            [
-                _card_status(cards, "formal_plan"),
-                _card_status(cards, "report_release", default="pending"),
-            ]
-        )
-    return _worst_status(statuses)
-
-
-def _page_blockers(page_key: str, cards: Mapping[str, Mapping[str, Any]], stages: Mapping[str, Mapping[str, Any]]) -> List[str]:
-    blockers: List[str] = []
-    for row in _page_stage_rows(page_key, stages):
-        status = str(row.get("status") or "")
-        if status not in {"pass", "ready_for_reviewer", "write_attempted"}:
-            blockers.append(_stage_line(row))
-    for row in _page_card_rows(page_key, cards):
-        blockers.extend(str(item) for item in _as_list(row.get("blockers")) if str(item))
-    return blockers or ["无阻塞；等待对应证据刷新。"]
-
-
 def _summary_cards(
-    *,
-    cards: Mapping[str, Mapping[str, Any]],
-    run_evidence_status: Mapping[str, Any] | None,
-    calibration_capability: Mapping[str, Any] | None,
-    archive_index: Mapping[str, Any] | None,
-) -> List[Dict[str, Any]]:
-    capability = calibration_capability or {}
-    verification = capability.get("verification_rollup") if isinstance(capability.get("verification_rollup"), Mapping) else {}
-    archive_database = archive_index.get("database") if isinstance((archive_index or {}).get("database"), Mapping) else {}
-
+    workbench_model: Mapping[str, Any],
+    run_evidence_status: Mapping[str, Any],
+    calibration_capability: Mapping[str, Any],
+    archive_index: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    cards = _cards_by_key(workbench_model)
+    capability_status = str(
+        calibration_capability.get("status")
+        or calibration_capability.get("capability_status")
+        or "pending"
+    )
     method_status = (
         "pass"
-        if capability.get("method_backbone_ready") is True
-        else _card_status(cards, "formal_plan", "pending")
+        if calibration_capability.get("method_backbone_ready") is True
+        else str(cards.get("formal_plan", {}).get("status") or "pending")
     )
-    capability_status = str(capability.get("status") or capability.get("capability_status") or "pending")
-    release_status = (
+    verification_rollup = calibration_capability.get("verification_rollup") or {}
+    if not isinstance(verification_rollup, Mapping):
+        verification_rollup = {}
+    verification_status = str(
+        verification_rollup.get("status")
+        or cards.get("post_write_reverification", {}).get("status")
+        or "pending"
+    )
+    max_error = verification_rollup.get("max_abs_error_pct")
+    if isinstance(max_error, (int, float)):
+        verification_detail = f"最大相对误差 {max_error:.6g}%"
+    else:
+        verification_detail = "未发现复验证据"
+
+    formal_release_status = (
         "formal_release_ready"
-        if capability.get("formal_release_ready") is True
-        else str(capability_status or _card_status(cards, "report_release", "pending"))
+        if calibration_capability.get("formal_release_ready") is True
+        else capability_status
     )
-    verification_status = str(verification.get("status") or _card_status(cards, "post_write_reverification", "pending"))
+    archive_database = archive_index.get("database") if isinstance(archive_index.get("database"), Mapping) else {}
     database_status = str(
         archive_database.get("mode")
-        or (run_evidence_status or {}).get("database_mode")
-        or _card_status(cards, "database_import", "pending")
+        or run_evidence_status.get("database_mode")
+        or cards.get("database_import", {}).get("status")
+        or "pending"
     )
-
-    max_error = verification.get("max_abs_error_pct")
-    verification_detail = "未发现复验证据"
-    if max_error is not None:
-        verification_detail = f"最大相对误差 {float(max_error):.6g}%"
-
-    return [
+    manifest_panel = _full_flow_stage_manifest_panel(run_evidence_status)
+    result = [
         {
             "key": "method_backbone",
-            "title": "正式方法骨架",
+            "title": "方法主干",
             "status": method_status,
             "label": _status_label(method_status),
-            "detail": "压力先验证，随后开放流通 CO2/H2O，压力补偿后置；封路压力点不进入正式拟合。",
+            "status_label": _status_label(method_status),
+            "tone": _tone(method_status),
+            "detail": "开放流通 CO2/H2O 主校准 + 压力独立验证 + 后置复验。",
         },
         {
             "key": "verification",
-            "title": "复验/能力证据",
+            "title": "写后复验",
             "status": verification_status,
             "label": _status_label(verification_status),
+            "status_label": _status_label(verification_status),
+            "tone": _tone(verification_status),
             "detail": verification_detail,
         },
         {
             "key": "formal_release",
-            "title": "正式签发状态",
-            "status": release_status,
-            "label": _status_label(release_status),
-            "detail": "只有报告、审核、归档、写入回读和复验闭环完成后才可正式签发。",
+            "title": "正式放行",
+            "status": formal_release_status,
+            "label": _status_label(formal_release_status),
+            "status_label": _status_label(formal_release_status),
+            "tone": _tone(formal_release_status),
+            "detail": "正式签发仍要求报告、数据库、审计和证据包闭环。",
         },
         {
             "key": "database",
-            "title": "数据库/证据归档",
+            "title": "数据库归档",
             "status": database_status,
             "label": _status_label(database_status),
-            "detail": "数据库保存索引、审核与状态；原始帧、报告和图表仍以证据包文件为准。",
+            "status_label": _status_label(database_status),
+            "tone": _tone(database_status),
+            "detail": "数据库用于索引证据链；原始帧仍以文件证据包保留。",
+        },
+        {
+            "key": "full_flow_stage_manifest",
+            "title": "全流程阶段清单",
+            "status": manifest_panel["status"],
+            "label": manifest_panel["status_label"],
+            "status_label": manifest_panel["status_label"],
+            "tone": manifest_panel["tone"],
+            "detail": manifest_panel["detail"],
         },
     ]
+    return result
 
 
 def build_operation_console_model(
@@ -471,36 +542,27 @@ def build_operation_console_model(
     calibration_capability: Mapping[str, Any] | None = None,
     archive_index: Mapping[str, Any] | None = None,
     role: str = "operator",
-) -> Dict[str, Any]:
-    cards = _cards_by_key(workbench_model)
-    stages = _stage_map(run_evidence_status)
-    role_key = role if role in ROLE_PERMISSIONS else "operator"
+) -> dict[str, Any]:
+    """Build a serializable read-only operation-console model."""
+
+    workbench_model = workbench_model or {}
+    run_evidence_status = run_evidence_status or {}
+    calibration_capability = calibration_capability or {}
+    archive_index = archive_index or {}
+    role_permissions = ROLE_PERMISSIONS.get(role, ROLE_PERMISSIONS["operator"]).copy()
     stage_manifest_panel = _full_flow_stage_manifest_panel(run_evidence_status)
     summary_cards = _summary_cards(
-        cards=cards,
-        run_evidence_status=run_evidence_status,
-        calibration_capability=calibration_capability,
-        archive_index=archive_index,
+        workbench_model,
+        run_evidence_status,
+        calibration_capability,
+        archive_index,
     )
-    summary_cards.append(
-        {
-            "key": "full_flow_stage_manifest",
-            "title": "全流程阶段清单",
-            "status": stage_manifest_panel["status"],
-            "label": stage_manifest_panel["label"],
-            "detail": (
-                f"{stage_manifest_panel['detail']}; "
-                f"stage_count={stage_manifest_panel['stage_count']}"
-            ),
-        }
-    )
-
-    pages: List[Dict[str, Any]] = []
+    pages: list[dict[str, Any]] = []
     for definition in PAGE_DEFINITIONS:
-        page_key = str(definition["key"])
-        status = _page_status(page_key, cards, stages)
-        stage_rows = _page_stage_rows(page_key, stages)
-        card_rows = _page_card_rows(page_key, cards)
+        key = str(definition["key"])
+        status = _page_status(key, workbench_model, run_evidence_status)
+        stage_rows = _page_stage_rows(key, run_evidence_status)
+        card_rows = _page_card_rows(key, workbench_model)
         pages.append(
             {
                 **definition,
@@ -509,11 +571,11 @@ def build_operation_console_model(
                 "tone": _tone(status),
                 "read_only": True,
                 "device_control_enabled": False,
-                "blockers": _page_blockers(page_key, cards, stages),
+                "blockers": _page_blockers(key, workbench_model, run_evidence_status),
                 "evidence_refs": [
                     {
                         "kind": "stage",
-                        "key": str(row.get("stage_id") or ""),
+                        "key": str(row.get("stage_id") or row.get("step_id") or ""),
                         "status": str(row.get("status") or ""),
                         "title": str(row.get("title") or ""),
                         "artifact_count": int(row.get("artifact_count") or 0),
@@ -533,16 +595,31 @@ def build_operation_console_model(
             }
         )
 
-    capability_status = str(
-        (calibration_capability or {}).get("status")
-        or (calibration_capability or {}).get("capability_status")
-        or "not_available"
+    run_id = (
+        workbench_model.get("run_id")
+        or run_evidence_status.get("run_id")
+        or archive_index.get("run_id")
+        or "unknown"
     )
-    return {
+    run_dir = (
+        workbench_model.get("run_dir")
+        or run_evidence_status.get("run_dir")
+        or archive_index.get("run_dir")
+        or ""
+    )
+    capability_status = str(
+        calibration_capability.get("status")
+        or calibration_capability.get("capability_status")
+        or "pending"
+    )
+    model = {
+        "schema": "v1_5_operation_console_v1",
         "schema_version": "v1_5_operation_console_v1",
-        "generated_at": _now(),
-        "role": role_key,
-        "role_permissions": ROLE_PERMISSIONS[role_key],
+        "generated_at": _now_iso(),
+        "run_id": run_id,
+        "run_dir": run_dir,
+        "role": role,
+        "role_permissions": role_permissions,
         "sidecar_only": True,
         "read_only_first_release": True,
         "opens_com_ports": False,
@@ -555,299 +632,154 @@ def build_operation_console_model(
         "not_real_device_control": True,
         "calibration_capability_status": capability_status,
         "calibration_capability_label": _status_label(capability_status),
-        "run_id": str(
-            (workbench_model or {}).get("run_id")
-            or (run_evidence_status or {}).get("run_id")
-            or (archive_index or {}).get("run_id")
-            or ""
+        "physical_boundary_statement": (
+            "本操作台仅展示证据状态；不打开串口、不控制水路/气路、不控制阀或 PACE、"
+            "不写 SENCO、不清除系数、不修改分析仪 ID。"
         ),
-        "run_dir": str(
-            (workbench_model or {}).get("run_dir")
-            or (run_evidence_status or {}).get("run_dir")
-            or (archive_index or {}).get("run_dir")
-            or ""
-        ),
-        "summary_cards": summary_cards,
-        "stage_manifest_panel": stage_manifest_panel,
-        "pages": pages,
         "source_evidence": {
             "has_workbench_model": bool(workbench_model),
             "has_run_evidence_status": bool(run_evidence_status),
             "has_calibration_capability": bool(calibration_capability),
             "has_archive_index": bool(archive_index),
-            "has_full_flow_stage_manifest": bool(stage_manifest_panel.get("available")),
+            "has_full_flow_stage_manifest": stage_manifest_panel["available"],
         },
-        "physical_boundary_statement": (
-            "本操作台仅展示证据状态；不打开串口、不控制水路/气路、不控制阀或 PACE、"
-            "不写 SENCO、不清除系数、不修改分析仪 ID。"
-        ),
+        "summary_cards": summary_cards,
+        "stage_manifest_panel": stage_manifest_panel,
+        "pages": pages,
     }
+    return model
 
 
-def _badge(label: str, tone: str) -> str:
-    return f'<span class="badge {html.escape(tone)}">{_esc(label)}</span>'
+def _render_summary_cards(cards: list[Mapping[str, Any]]) -> str:
+    items = []
+    for card in cards:
+        items.append(
+            "<section class='card {tone}'>"
+            "<h3>{title}</h3>"
+            "<p class='status'>{status}</p>"
+            "<p>{detail}</p>"
+            "</section>".format(
+                tone=_esc(card.get("tone")),
+                title=_esc(card.get("title")),
+                status=_esc(card.get("status_label")),
+                detail=_esc(card.get("detail")),
+            )
+        )
+    return "\n".join(items)
+
+
+def _render_manifest_panel(panel: Mapping[str, Any]) -> str:
+    rows = []
+    for row in _as_list(panel.get("attention_rows")):
+        if not isinstance(row, Mapping):
+            continue
+        rows.append(
+            "<tr><td>{order}</td><td>{step}</td><td>{phase}</td><td>{status}</td><td>{reason}</td></tr>".format(
+                order=_esc(row.get("order")),
+                step=_esc(row.get("step_id") or row.get("title")),
+                phase=_esc(row.get("phase")),
+                status=_esc(row.get("status_label")),
+                reason=_esc(row.get("reason")),
+            )
+        )
+    if not rows:
+        rows.append("<tr><td colspan='5'>暂无需要人工关注的阶段。</td></tr>")
+    counts = ", ".join(f"{key}={value}" for key, value in dict(panel.get("status_counts") or {}).items())
+    return """
+<section class='panel'>
+  <h2>全流程阶段清单</h2>
+  <p>状态：<strong>{status}</strong>；当前阶段：{current}；one_button_live_runner_ready={ready}</p>
+  <p>状态计数：{counts}</p>
+  <table>
+    <thead><tr><th>序号</th><th>阶段</th><th>环节</th><th>状态</th><th>原因</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>
+""".format(
+        status=_esc(panel.get("status_label")),
+        current=_esc(panel.get("current_manifest_stage") or "none"),
+        ready=_esc(panel.get("one_button_live_runner_ready")),
+        counts=_esc(counts or "无"),
+        rows="\n".join(rows),
+    )
+
+
+def _render_pages(pages: list[Mapping[str, Any]]) -> str:
+    rows = []
+    for page in pages:
+        rows.append(
+            "<tr class='{tone}'><td>{title}</td><td>{status}</td><td>{purpose}</td><td>{blockers}</td></tr>".format(
+                tone=_esc(page.get("tone")),
+                title=_esc(page.get("title")),
+                status=_esc(page.get("status_label")),
+                purpose=_esc(page.get("purpose")),
+                blockers=_esc("；".join(str(item) for item in _as_list(page.get("blockers")))),
+            )
+        )
+    return """
+<section class='panel'>
+  <h2>页面与门禁</h2>
+  <table>
+    <thead><tr><th>页面</th><th>状态</th><th>物理意义</th><th>阻塞 / 说明</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</section>
+""".format(rows="\n".join(rows))
 
 
 def render_operation_console_html(model: Mapping[str, Any]) -> str:
-    cards_html = "\n".join(
-        f"""
-        <section class="summary-card {html.escape(str(card.get('status') or 'pending'))}">
-          <div class="card-title">{_esc(card.get('title'))}</div>
-          <div class="card-status">{_badge(str(card.get('label') or card.get('status') or '待补齐'), _tone(card.get('status')))}</div>
-          <p>{_esc(card.get('detail'))}</p>
-        </section>
-        """
-        for card in model.get("summary_cards", [])
-        if isinstance(card, Mapping)
-    )
-    manifest_panel = model.get("stage_manifest_panel") if isinstance(model.get("stage_manifest_panel"), Mapping) else {}
-    manifest_rows = [
-        row for row in manifest_panel.get("attention_rows", []) if isinstance(row, Mapping)
-    ]
-    manifest_rows_html = "\n".join(
-        f"""
-        <tr>
-          <td>{_esc(row.get('order'))}</td>
-          <td><strong>{_esc(row.get('title'))}</strong><br><span>{_esc(row.get('step_id'))}</span></td>
-          <td>{_badge(str(row.get('status_label') or row.get('status')), _tone(row.get('status')))}</td>
-          <td>{_esc(row.get('phase'))}</td>
-          <td>{_esc(row.get('automation_state'))}</td>
-          <td>{_esc(row.get('reason'))}</td>
-        </tr>
-        """
-        for row in manifest_rows
-    )
-    if not manifest_rows_html:
-        manifest_rows_html = """
-        <tr>
-          <td colspan="6">当前没有需要关注的 full-flow 阶段门禁；若 manifest 不存在，请先运行 full-flow plan/status 导出。</td>
-        </tr>
-        """
-    manifest_html = f"""
-    <section class="manifest-panel">
-      <div class="manifest-head">
-        <div>
-          <h2>全流程阶段清单</h2>
-          <p>{_esc(manifest_panel.get('detail'))}</p>
-        </div>
-        <div>{_badge(str(manifest_panel.get('label') or manifest_panel.get('status') or 'pending'), _tone(manifest_panel.get('status')))}</div>
-      </div>
-      <div class="manifest-meta">
-        <span>current_manifest_stage={_esc(manifest_panel.get('current_manifest_stage') or 'none')}</span>
-        <span>one_button_live_runner_ready={_esc(manifest_panel.get('one_button_live_runner_ready'))}</span>
-        <span>stage_count={_esc(manifest_panel.get('stage_count'))}</span>
-      </div>
-      <table aria-label="V1.5 full-flow stage manifest attention rows">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>阶段</th>
-            <th>状态</th>
-            <th>物理阶段</th>
-            <th>自动化状态</th>
-            <th>原因</th>
-          </tr>
-        </thead>
-        <tbody>{manifest_rows_html}</tbody>
-      </table>
-    </section>
-    """
-    pages_html = "\n".join(
-        f"""
-        <tr>
-          <td>{index + 1}</td>
-          <td><strong>{_esc(page.get('title'))}</strong><br><span>{_esc(page.get('key'))}</span></td>
-          <td>{_badge(str(page.get('status_label') or page.get('status')), str(page.get('tone') or 'muted'))}</td>
-          <td>{_esc(page.get('purpose'))}</td>
-          <td>{_esc('、'.join(str(item) for item in page.get('physical_signals', [])))}</td>
-          <td>{_esc('；'.join(str(item) for item in page.get('blockers', [])))}</td>
-        </tr>
-        """
-        for index, page in enumerate(model.get("pages", []))
-        if isinstance(page, Mapping)
-    )
+    """Render the operation-console model as standalone UTF-8 HTML."""
+
     source = model.get("source_evidence") if isinstance(model.get("source_evidence"), Mapping) else {}
-    return f"""<!doctype html>
-<html lang="zh-CN">
+    source_text = "；".join(f"{key}={value}" for key, value in dict(source).items())
+    return """<!doctype html>
+<html lang='zh-CN'>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset='utf-8'>
   <title>V1.5 正式校准操作台</title>
   <style>
-    :root {{
-      color-scheme: light;
-      --ink: #162033;
-      --muted: #627084;
-      --line: #d7dee8;
-      --panel: #ffffff;
-      --bg: #f3f6fa;
-      --ok: #167a45;
-      --warn: #9a5a00;
-      --bad: #a32727;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
-      background: var(--bg);
-      color: var(--ink);
-      letter-spacing: 0;
-    }}
-    header {{
-      padding: 22px 28px 14px;
-      border-bottom: 1px solid var(--line);
-      background: #fff;
-    }}
-    h1 {{
-      margin: 0 0 8px;
-      font-size: 26px;
-      line-height: 1.25;
-      font-weight: 700;
-    }}
-    .meta {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px 22px;
-      color: var(--muted);
-      font-size: 13px;
-    }}
-    main {{ padding: 18px 28px 28px; }}
-    .boundary {{
-      border: 1px solid var(--line);
-      background: #fff;
-      padding: 12px 14px;
-      margin-bottom: 16px;
-      font-size: 14px;
-      line-height: 1.6;
-    }}
-    .summary {{
-      display: grid;
-      grid-template-columns: repeat(5, minmax(170px, 1fr));
-      gap: 12px;
-      margin-bottom: 16px;
-    }}
-    .summary-card {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
-      min-height: 126px;
-    }}
-    .card-title {{ font-weight: 700; margin-bottom: 8px; }}
-    .card-status {{ margin-bottom: 8px; }}
-    p {{ margin: 0; line-height: 1.55; color: var(--muted); }}
-    .manifest-panel {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 14px;
-      margin-bottom: 16px;
-    }}
-    .manifest-head {{
-      display: flex;
-      justify-content: space-between;
-      gap: 16px;
-      align-items: flex-start;
-      margin-bottom: 10px;
-    }}
-    h2 {{
-      margin: 0 0 6px;
-      font-size: 18px;
-      line-height: 1.3;
-    }}
-    .manifest-meta {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px 18px;
-      margin-bottom: 10px;
-      color: var(--muted);
-      font-size: 12px;
-    }}
-    table {{
-      width: 100%;
-      border-collapse: collapse;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      table-layout: fixed;
-    }}
-    th, td {{
-      border-bottom: 1px solid var(--line);
-      padding: 9px 10px;
-      text-align: left;
-      vertical-align: top;
-      font-size: 13px;
-      line-height: 1.45;
-      overflow-wrap: anywhere;
-    }}
-    th {{ background: #eaf0f7; color: #243247; }}
-    th:nth-child(1), td:nth-child(1) {{ width: 44px; text-align: center; }}
-    th:nth-child(2), td:nth-child(2) {{ width: 180px; }}
-    th:nth-child(3), td:nth-child(3) {{ width: 96px; }}
-    th:nth-child(4), td:nth-child(4) {{ width: 25%; }}
-    th:nth-child(5), td:nth-child(5) {{ width: 24%; }}
-    .badge {{
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      border: 1px solid currentColor;
-      white-space: nowrap;
-    }}
-    .badge.ok {{ color: var(--ok); background: #e9f6ef; }}
-    .badge.warn {{ color: var(--warn); background: #fff5dc; }}
-    .badge.bad {{ color: var(--bad); background: #ffecec; }}
-    .badge.muted {{ color: var(--muted); background: #f2f4f7; }}
-    span {{ color: var(--muted); }}
-    @media (max-width: 1180px) {{
-      .summary {{ grid-template-columns: repeat(2, minmax(180px, 1fr)); }}
-      table {{ table-layout: auto; }}
-    }}
+    body {{ font-family: "Microsoft YaHei", "Segoe UI", sans-serif; margin: 0; background: #f5f7fb; color: #1f2937; }}
+    header {{ background: #102033; color: #fff; padding: 22px 32px; }}
+    main {{ padding: 24px 32px; }}
+    h1, h2, h3 {{ margin-top: 0; }}
+    .boundary {{ background: #fff7ed; border-left: 5px solid #f97316; padding: 12px 16px; margin: 16px 0; }}
+    .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 18px 0; }}
+    .card, .panel {{ background: #fff; border: 1px solid #dbe3ee; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); }}
+    .status {{ font-weight: 700; }}
+    .good .status, tr.good td:nth-child(2) {{ color: #047857; }}
+    .warn .status, tr.warn td:nth-child(2) {{ color: #b45309; }}
+    .bad .status, tr.bad td:nth-child(2) {{ color: #b91c1c; }}
+    .info .status, tr.info td:nth-child(2) {{ color: #1d4ed8; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+    th, td {{ border-bottom: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }}
+    th {{ background: #eef2f7; }}
+    code {{ background: #eef2f7; padding: 2px 4px; border-radius: 4px; }}
   </style>
 </head>
 <body>
   <header>
     <h1>V1.5 正式校准操作台</h1>
-    <div class="meta">
-      <div>生成时间：{_esc(model.get('generated_at'))}</div>
-      <div>角色：{_esc(model.get('role'))}</div>
-      <div>Run ID：{_esc(model.get('run_id') or '未绑定')}</div>
-      <div>可校准状态：{_esc(model.get('calibration_capability_label'))}</div>
-    </div>
+    <p>run_id={run_id}；角色={role}；生成时间={generated_at}</p>
   </header>
   <main>
-    <section class="boundary">
-      <strong>安全边界：</strong>{_esc(model.get('physical_boundary_statement'))}
-      <br>
-      <strong>证据来源：</strong>
-      workbench={_esc(source.get('has_workbench_model'))}，
-      run_evidence={_esc(source.get('has_run_evidence_status'))}，
-      capability={_esc(source.get('has_calibration_capability'))}，
-      archive={_esc(source.get('has_archive_index'))}
-    </section>
-    <section class="summary">{cards_html}</section>
-    {manifest_html}
-    <table aria-label="V1.5 操作页面状态">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>页面</th>
-          <th>状态</th>
-          <th>物理/校准意义</th>
-          <th>关键物理量</th>
-          <th>阻塞或待刷新证据</th>
-        </tr>
-      </thead>
-      <tbody>
-        {pages_html}
-      </tbody>
-    </table>
+    <section class='boundary'><strong>安全边界：</strong>{boundary}</section>
+    <p><strong>证据来源：</strong>{source}</p>
+    <section class='cards'>{cards}</section>
+    {manifest}
+    {pages}
   </main>
 </body>
 </html>
-"""
+""".format(
+        run_id=_esc(model.get("run_id")),
+        role=_esc(model.get("role")),
+        generated_at=_esc(model.get("generated_at")),
+        boundary=_esc(model.get("physical_boundary_statement")),
+        source=_esc(source_text),
+        cards=_render_summary_cards(_as_list(model.get("summary_cards"))),
+        manifest=_render_manifest_panel(model.get("stage_manifest_panel") or {}),
+        pages=_render_pages(_as_list(model.get("pages"))),
+    )
 
 
 def write_operation_console(
@@ -858,9 +790,11 @@ def write_operation_console(
     calibration_capability: Mapping[str, Any] | None = None,
     archive_index: Mapping[str, Any] | None = None,
     role: str = "operator",
-) -> Dict[str, Path]:
-    out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
+) -> dict[str, Path]:
+    """Write JSON and HTML operation-console artifacts."""
+
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
     model = build_operation_console_model(
         workbench_model=workbench_model,
         run_evidence_status=run_evidence_status,
@@ -868,8 +802,8 @@ def write_operation_console(
         archive_index=archive_index,
         role=role,
     )
-    model_path = out / "v1_5_operation_console.json"
-    html_path = out / "v1_5_operation_console.html"
+    model_path = output / "v1_5_operation_console.json"
+    html_path = output / "v1_5_operation_console.html"
     model_path.write_text(json.dumps(model, ensure_ascii=False, indent=2), encoding="utf-8")
     html_path.write_text(render_operation_console_html(model), encoding="utf-8-sig")
     return {"model": model_path, "html": html_path}
