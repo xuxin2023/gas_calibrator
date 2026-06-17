@@ -20,6 +20,7 @@ from typing import Any, Iterable, Mapping, Sequence
 PLAN_SCHEMA = "v1_5_full_calibration_flow_plan_v0"
 PLAN_CONTRACT = "pressure_first_temperature_review_then_open_flow_components"
 STAGE_MANIFEST_SCHEMA = "v1_5_full_flow_stage_manifest_v1"
+LIVE_RUNNER_READINESS_SCHEMA = "v1_5_full_flow_live_runner_readiness_v1"
 
 
 @dataclass(frozen=True)
@@ -213,6 +214,44 @@ class FullFlowStageManifest:
     def to_json(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["stages"] = [stage.to_json() for stage in self.stages]
+        return payload
+
+
+@dataclass(frozen=True)
+class FullFlowLiveRunnerReadinessDomain:
+    """One physical/automation domain in the V1.5 live-runner readiness review."""
+
+    domain: str
+    status: str
+    reason: str
+    stage_ids: tuple[str, ...]
+    required_authorizations: tuple[str, ...] = ()
+    physical_risk: str = ""
+    next_action: str = ""
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class FullFlowLiveRunnerReadiness:
+    """Reviewer-facing readiness summary for future one-button V1.5 execution."""
+
+    schema: str
+    run_id: str
+    created_at: str
+    one_button_live_runner_ready: bool
+    current_automation_level: str
+    summary: str
+    ready_domains: tuple[str, ...]
+    blocked_domains: tuple[str, ...]
+    required_authorizations: tuple[str, ...]
+    not_ready_reasons: tuple[str, ...]
+    domains: tuple[FullFlowLiveRunnerReadinessDomain, ...]
+
+    def to_json(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["domains"] = [domain.to_json() for domain in self.domains]
         return payload
 
 
@@ -513,12 +552,192 @@ def build_full_flow_stage_manifest(plan: FullFlowPlan) -> FullFlowStageManifest:
             "planner_writes_coefficients": bool(plan.safety_contract.get("planner_writes_coefficients")),
             "planner_writes_device_id": bool(plan.safety_contract.get("planner_writes_device_id")),
             "identity_key": plan.coefficient_epoch_contract.get("identity_key", ""),
+            "live_runner_readiness_artifact": "v1_5_full_flow_live_runner_readiness.json",
             "not_one_button_live_runner_reason": (
                 "pressure, open-flow route, and coefficient-write stages remain explicit controlled gates"
             ),
         },
         automation_summary=dict(sorted(automation_counts.items())),
         stages=tuple(stages),
+    )
+
+
+def _existing_stage_ids(plan: FullFlowPlan, stage_ids: Iterable[str]) -> tuple[str, ...]:
+    known = {step.step_id for step in plan.steps}
+    return tuple(step_id for step_id in stage_ids if step_id in known)
+
+
+def _readiness_domain(
+    plan: FullFlowPlan,
+    *,
+    domain: str,
+    status: str,
+    reason: str,
+    stage_ids: Iterable[str],
+    required_authorizations: Iterable[str] = (),
+    physical_risk: str = "",
+    next_action: str = "",
+) -> FullFlowLiveRunnerReadinessDomain:
+    return FullFlowLiveRunnerReadinessDomain(
+        domain=domain,
+        status=status,
+        reason=reason,
+        stage_ids=_existing_stage_ids(plan, stage_ids),
+        required_authorizations=tuple(dict.fromkeys(str(item) for item in required_authorizations if str(item))),
+        physical_risk=physical_risk,
+        next_action=next_action,
+    )
+
+
+def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRunnerReadiness:
+    """Build an offline readiness review for a future one-button V1.5 runner.
+
+    The readiness artifact does not grant live authority. It summarizes which
+    physical domains are already supervised offline and which still require a
+    controlled live gate before an executor may run hardware or write SENCO.
+    """
+
+    domains = (
+        _readiness_domain(
+            plan,
+            domain="offline_planning",
+            status="ready_offline_supervised",
+            reason="plan, state, stage manifest, contract audit, operation console, and offline status can be generated without hardware",
+            stage_ids=(
+                "load_plan_and_traceability",
+                "post_run_coefficient_executor",
+                "full_flow_closure_readiness",
+                "formal_evidence_sidecar",
+                "database_import",
+                "final_evidence_status_refresh",
+            ),
+            physical_risk="none during generation; artifacts remain review evidence, not real acceptance",
+            next_action="keep these stages as offline prerequisites before any controlled live step",
+        ),
+        _readiness_domain(
+            plan,
+            domain="identity_and_epoch0",
+            status="requires_real_com_authorization",
+            reason="formal calibration must bind every COM transport to analyzer device ID and GETCO1-9 before sampling",
+            stage_ids=("device_identity_and_getco_snapshot",),
+            required_authorizations=("real_com",),
+            physical_risk="wrong ID/COM binding corrupts traceability and may write coefficients to the wrong analyzer",
+            next_action="run the validated identity/GETCO snapshot with 1s or longer command spacing and device-ID binding",
+        ),
+        _readiness_domain(
+            plan,
+            domain="auxiliary_coefficients",
+            status="blocked_controlled_write",
+            reason="S5/S6 display trims and S7/S8/S9 input channels must be backed up, neutralized, repaired, or explicitly modeled",
+            stage_ids=("auxiliary_senco56789_neutralization_gate",),
+            required_authorizations=("real_com", "coefficient_write"),
+            physical_risk="old output trims or bad T/P input coefficients can be silently absorbed into CO2/H2O candidate fits",
+            next_action="backup old coefficients; neutralize S5/S6 when appropriate; review S7/S8/S9 before component fitting",
+        ),
+        _readiness_domain(
+            plan,
+            domain="pressure_channel",
+            status="requires_pressure_authorization",
+            reason="analyzer pressure P is an input to CO2/H2O firmware calculations and must be verified or calibrated first",
+            stage_ids=(
+                "pressure_quick_check",
+                "pressure_senco9_no_write_acquisition",
+                "pressure_senco9_no_write_review",
+            ),
+            required_authorizations=("real_com", "pressure_control"),
+            physical_risk="bad internal pressure contaminates component outputs and makes pressure compensation impossible to interpret",
+            next_action="run pressure SENCO9 acquisition/review with the restored closed-volume PACE control contract before component sampling",
+        ),
+        _readiness_domain(
+            plan,
+            domain="temperature_channel",
+            status="offline_review_waiting_for_temperature_evidence",
+            reason="temperature evidence can be reviewed offline, but abnormal S7/S8 must be repaired before component acceptance",
+            stage_ids=("temperature_channel_fast_review", "temperature_senco78_candidate_review"),
+            required_authorizations=("real_com",),
+            physical_risk="bad chamber/case temperature input can be absorbed into CO2/H2O coefficients across temperature groups",
+            next_action="use digital thermometer evidence to review S7/S8; do single-point repair only as documented recovery, not final full-range proof",
+        ),
+        _readiness_domain(
+            plan,
+            domain="co2_open_flow",
+            status="requires_route_authorization",
+            reason="CO2 sampling controls gas valves and must prove clean open-flow gas, dewpoint condition, ratio stability, and per-device sample eligibility",
+            stage_ids=("co2_open_flow_sampling",),
+            required_authorizations=("real_com", "route_control"),
+            physical_risk="sampling after valve closure, dirty/damp line state, or unstable ratio creates non-representative CO2 fit data",
+            next_action="run validated CO2 open-flow runner; sample only while the gas route remains open and preserve per-device reject reasons",
+        ),
+        _readiness_domain(
+            plan,
+            domain="h2o_open_flow",
+            status="requires_route_authorization",
+            reason="H2O sampling controls water route/HGEN and must prove dewpoint, H2O ratio, dry/wet ppmv, and reference evidence stability",
+            stage_ids=("h2o_open_flow_sampling",),
+            required_authorizations=("real_com", "route_control"),
+            physical_risk="HGEN cycling, wet line memory, or unstable dewpoint can produce water evidence that is not a stable humidity state",
+            next_action="run validated H2O open-flow runner with continuous HGEN strategy during the water route and per-device grading",
+        ),
+        _readiness_domain(
+            plan,
+            domain="candidate_fit_and_qc",
+            status="offline_review_waiting_for_run_artifacts",
+            reason="candidate fitting is offline-ready after raw open-flow samples, factory-signal health, and fit-input QC exist",
+            stage_ids=("factory_signal_health_review", "fit_input_quality_review", "co2_candidate_write_review"),
+            physical_risk="optical saturation, invalid frames, wrong low-end anchors, or unmodeled trims can make offline residuals disagree with real output",
+            next_action="use all traceable stable fit-eligible points while keeping CO2 zero gas and H2O dry-gas anchors conceptually separate",
+        ),
+        _readiness_domain(
+            plan,
+            domain="controlled_write_and_reverify",
+            status="blocked_controlled_write",
+            reason="SENCO writes change the analyzer measurement model and require per-device review, readback, rollback plan, and independent reverification",
+            stage_ids=("controlled_component_write_placeholder", "post_write_reverification_placeholder"),
+            required_authorizations=("real_com", "coefficient_write", "route_control"),
+            physical_risk="wrong coefficient epoch or missing post-write proof can create a calibrated-looking but invalid analyzer",
+            next_action="write only reviewed per-device candidates, then run independent open-flow reverification before release",
+        ),
+        _readiness_domain(
+            plan,
+            domain="archive_and_release",
+            status="offline_review_waiting_for_run_artifacts",
+            reason="database import, evidence status refresh, and reports are offline-ready once final run artifacts exist",
+            stage_ids=("database_import", "zh_calibration_reports", "final_evidence_status_refresh"),
+            physical_risk="if evidence status is stale, the operator may believe a run is complete while audit artifacts remain incomplete",
+            next_action="refresh evidence status after acquisition/write/report steps; generate per-device certificates from the evidence package",
+        ),
+    )
+
+    ready_statuses = {"ready", "ready_offline_supervised"}
+    ready_domains = tuple(domain.domain for domain in domains if domain.status in ready_statuses)
+    blocked_domains = tuple(domain.domain for domain in domains if domain.status not in ready_statuses)
+    authorization_order = ("real_com", "pressure_control", "route_control", "coefficient_write")
+    required = {
+        authorization
+        for domain in domains
+        for authorization in domain.required_authorizations
+        if authorization
+    }
+    not_ready_reasons = tuple(
+        f"{domain.domain}: {domain.reason}" for domain in domains if domain.status not in ready_statuses
+    )
+
+    return FullFlowLiveRunnerReadiness(
+        schema=LIVE_RUNNER_READINESS_SCHEMA,
+        run_id=plan.run_id,
+        created_at=datetime.now().isoformat(timespec="seconds"),
+        one_button_live_runner_ready=False,
+        current_automation_level="supervised_tool_chain_with_controlled_live_gates",
+        summary=(
+            "V1.5 can generate an auditable supervised plan and offline review chain, "
+            "but it is not yet a one-button unattended live runner because identity, "
+            "pressure, CO2/H2O route control, and SENCO writes remain explicit controlled gates."
+        ),
+        ready_domains=ready_domains,
+        blocked_domains=blocked_domains,
+        required_authorizations=tuple(item for item in authorization_order if item in required),
+        not_ready_reasons=not_ready_reasons,
+        domains=domains,
     )
 
 
@@ -1666,6 +1885,75 @@ def write_full_flow_stage_manifest(
     return {"stage_manifest_json": json_path, "stage_manifest_markdown": md_path}
 
 
+def render_full_flow_live_runner_readiness_markdown(readiness: FullFlowLiveRunnerReadiness) -> str:
+    """Render a reviewer-facing live-runner readiness report."""
+
+    lines = [
+        "# V1.5 全流程 Live Runner Readiness",
+        "",
+        f"- schema: `{readiness.schema}`",
+        f"- run_id: `{readiness.run_id}`",
+        f"- one_button_live_runner_ready: `{readiness.one_button_live_runner_ready}`",
+        f"- automation_level: `{readiness.current_automation_level}`",
+        f"- summary: {readiness.summary}",
+        "",
+        "## Required Authorizations",
+        "",
+    ]
+    if readiness.required_authorizations:
+        for item in readiness.required_authorizations:
+            lines.append(f"- `{item}`")
+    else:
+        lines.append("- none")
+
+    lines.extend(
+        [
+            "",
+            "## Domain Readiness",
+            "",
+            "| Domain | Status | Required authorization | Physical risk | Next action |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    for domain in readiness.domains:
+        auth = ", ".join(domain.required_authorizations) if domain.required_authorizations else "none"
+        lines.append(
+            f"| `{domain.domain}` | `{domain.status}` | `{auth}` | "
+            f"{domain.physical_risk or '-'} | {domain.next_action or '-'} |"
+        )
+
+    lines.extend(["", "## Not Ready Reasons", ""])
+    for reason in readiness.not_ready_reasons:
+        lines.append(f"- {reason}")
+
+    lines.extend(
+        [
+            "",
+            "## Guardrail",
+            "",
+            "- This readiness artifact is generated offline from the V1.5 full-flow plan.",
+            "- It does not open COM ports, control PACE, control gas/water routes, or write SENCO.",
+            "- `one_button_live_runner_ready=false` is intentional until controlled live gates are implemented end to end.",
+        ]
+    )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_full_flow_live_runner_readiness(
+    readiness: FullFlowLiveRunnerReadiness,
+    output_dir: str | Path,
+) -> dict[str, Path]:
+    """Write machine-readable and reviewer-facing live-runner readiness artifacts."""
+
+    root = Path(output_dir).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    json_path = root / "v1_5_full_flow_live_runner_readiness.json"
+    md_path = root / "v1_5_full_flow_live_runner_readiness.md"
+    json_path.write_text(json.dumps(readiness.to_json(), ensure_ascii=False, indent=2), encoding="utf-8")
+    md_path.write_text(render_full_flow_live_runner_readiness_markdown(readiness), encoding="utf-8")
+    return {"live_runner_readiness_json": json_path, "live_runner_readiness_markdown": md_path}
+
+
 def write_full_flow_plan(plan: FullFlowPlan, output_dir: str | Path | None = None) -> dict[str, Path]:
     """Write JSON, Markdown, and PowerShell command artifacts for a plan."""
 
@@ -1740,6 +2028,7 @@ def write_full_flow_plan(plan: FullFlowPlan, output_dir: str | Path | None = Non
 
     outputs = {"json": json_path, "markdown": md_path, "powershell": ps1_path}
     outputs.update(write_full_flow_stage_manifest(build_full_flow_stage_manifest(plan), root))
+    outputs.update(write_full_flow_live_runner_readiness(build_full_flow_live_runner_readiness(plan), root))
     return outputs
 
 

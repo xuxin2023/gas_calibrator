@@ -77,6 +77,10 @@ def _classify_artifact(path: Path) -> str:
         return "full_flow_stage_manifest"
     if name == "v1_5_full_flow_stage_manifest.md":
         return "full_flow_stage_manifest_markdown"
+    if name == "v1_5_full_flow_live_runner_readiness.json":
+        return "full_flow_live_runner_readiness"
+    if name == "v1_5_full_flow_live_runner_readiness.md":
+        return "full_flow_live_runner_readiness_markdown"
     if name == "v1_5_formal_flow_contract.json":
         return "full_flow_contract"
     if name == "runtime_identity_bound_config.json":
@@ -455,11 +459,13 @@ def build_v1_5_run_evidence_status(
         if full_flow_stage_manifest_json
         else _find_latest(root, "v1_5_full_flow_stage_manifest.json")
     )
+    readiness_path = _find_latest(root, "v1_5_full_flow_live_runner_readiness.json")
 
     artifacts = list(_discover_artifacts(root))
     for path, role in (
         (plan_path, "full_flow_plan"),
         (manifest_path, "full_flow_stage_manifest"),
+        (readiness_path, "full_flow_live_runner_readiness"),
         (contract_path, "full_flow_contract"),
         (bundle_path, "evidence_bundle"),
     ):
@@ -476,6 +482,7 @@ def build_v1_5_run_evidence_status(
 
     contract = _load_json(contract_path)
     stage_manifest = _load_json(manifest_path)
+    live_runner_readiness = _load_json(readiness_path)
     contract_status = str(contract.get("status") or "missing")
     traceability = bundle_traceability_summary(bundle) if bundle else {}
     checks = traceability.get("traceability_checks") if isinstance(traceability.get("traceability_checks"), Mapping) else {}
@@ -505,6 +512,22 @@ def build_v1_5_run_evidence_status(
             ),
             missing_reason="full-flow stage manifest not generated",
             pass_reason="full-flow stage manifest artifact is present",
+            optional=True,
+        )
+    )
+    stages.append(
+        _stage(
+            stage_id="full_flow_live_runner_readiness",
+            title="Full-flow live-runner readiness",
+            roles=("full_flow_live_runner_readiness",),
+            artifacts=artifacts_tuple,
+            physical_meaning=(
+                "The readiness artifact states which V1.5 domains are offline-supervised and which "
+                "still require controlled real-COM, pressure, route, or SENCO-write gates before a "
+                "future one-button live runner may be trusted."
+            ),
+            missing_reason="full-flow live-runner readiness not generated",
+            pass_reason="full-flow live-runner readiness artifact is present",
             optional=True,
         )
     )
@@ -783,6 +806,7 @@ def build_v1_5_run_evidence_status(
         "linked_inputs": {
             "full_flow_plan_json": str(plan_path) if plan_path else "",
             "full_flow_stage_manifest_json": str(manifest_path) if manifest_path else "",
+            "full_flow_live_runner_readiness_json": str(readiness_path) if readiness_path else "",
             "contract_json": str(contract_path) if contract_path else "",
             "evidence_bundle_json": str(bundle_path) if bundle_path else "",
         },
@@ -792,6 +816,14 @@ def build_v1_5_run_evidence_status(
             manifest_path=manifest_path,
             artifacts=artifacts_tuple,
         ),
+        "full_flow_live_runner_readiness": {
+            "status": "present" if live_runner_readiness else "not_found",
+            "source_path": str(readiness_path) if readiness_path else "",
+            "schema": live_runner_readiness.get("schema", ""),
+            "one_button_live_runner_ready": bool(live_runner_readiness.get("one_button_live_runner_ready", False)),
+            "required_authorizations": list(live_runner_readiness.get("required_authorizations") or []),
+            "blocked_domains": list(live_runner_readiness.get("blocked_domains") or []),
+        },
         "stage_statuses": [stage.to_json() for stage in stages],
         "artifact_count": len(artifacts_tuple),
         "artifacts": [artifact.to_json() for artifact in artifacts_tuple],
@@ -839,6 +871,21 @@ def render_v1_5_run_evidence_status_markdown(status: Mapping[str, Any]) -> str:
             lines.append(
                 f"- `{row.get('step_id')}`: `{row.get('status')}` - {row.get('reason')}"
             )
+    readiness = status.get("full_flow_live_runner_readiness") or {}
+    lines.extend(["", "## Full-Flow Live Runner Readiness", ""])
+    lines.append(f"- status: `{readiness.get('status', 'not_found')}`")
+    if readiness.get("source_path"):
+        lines.append(f"- source_path: `{readiness.get('source_path')}`")
+    if readiness.get("schema"):
+        lines.append(f"- schema: `{readiness.get('schema')}`")
+    if "one_button_live_runner_ready" in readiness:
+        lines.append(f"- one_button_live_runner_ready: `{readiness.get('one_button_live_runner_ready')}`")
+    blocked = readiness.get("blocked_domains") or []
+    if blocked:
+        lines.append("- blocked_domains: " + ", ".join(f"`{item}`" for item in blocked))
+    auth = readiness.get("required_authorizations") or []
+    if auth:
+        lines.append("- required_authorizations: " + ", ".join(f"`{item}`" for item in auth))
     lines.extend(["", "## Stages", ""])
     for stage in status.get("stage_statuses") or []:
         lines.append(

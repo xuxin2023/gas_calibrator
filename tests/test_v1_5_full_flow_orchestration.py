@@ -5,7 +5,9 @@ from dataclasses import replace
 from gas_calibrator.tools.run_v1_5_full_calibration_chain import main as cli_main
 from gas_calibrator.validation.v1_5_canonical_evidence import write_canonical_v1_5_evidence_package
 from gas_calibrator.v1_5.orchestration.full_flow import (
+    LIVE_RUNNER_READINESS_SCHEMA,
     STAGE_MANIFEST_SCHEMA,
+    build_full_flow_live_runner_readiness,
     build_full_flow_plan,
     build_full_flow_stage_manifest,
     build_full_flow_state,
@@ -146,6 +148,46 @@ def test_full_flow_stage_manifest_makes_automation_boundaries_explicit(tmp_path)
     assert write.automation_state == "blocked_controlled_write"
     assert write.authorization_required["coefficient_write"] is True
     assert write.evidence_contract["post_write_reverify_required"] is True
+
+
+def test_full_flow_live_runner_readiness_lists_controlled_live_gates(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(
+        config_path=config,
+        output_dir=tmp_path / "plan",
+        run_id="demo",
+        operator="operator-a",
+        analyzer_id="multi-device",
+    )
+
+    readiness = build_full_flow_live_runner_readiness(plan)
+    domains = {domain.domain: domain for domain in readiness.domains}
+
+    assert readiness.schema == LIVE_RUNNER_READINESS_SCHEMA
+    assert readiness.one_button_live_runner_ready is False
+    assert readiness.current_automation_level == "supervised_tool_chain_with_controlled_live_gates"
+    assert readiness.ready_domains == ("offline_planning",)
+    assert set(readiness.required_authorizations) == {
+        "real_com",
+        "pressure_control",
+        "route_control",
+        "coefficient_write",
+    }
+    assert {"identity_and_epoch0", "pressure_channel", "co2_open_flow", "h2o_open_flow"}.issubset(
+        set(readiness.blocked_domains)
+    )
+    assert domains["pressure_channel"].status == "requires_pressure_authorization"
+    assert domains["pressure_channel"].required_authorizations == ("real_com", "pressure_control")
+    assert "pressure P" in domains["pressure_channel"].reason
+    assert domains["co2_open_flow"].required_authorizations == ("real_com", "route_control")
+    assert "gas route remains open" in domains["co2_open_flow"].next_action
+    assert domains["h2o_open_flow"].required_authorizations == ("real_com", "route_control")
+    assert "continuous HGEN" in domains["h2o_open_flow"].next_action
+    assert domains["candidate_fit_and_qc"].status == "offline_review_waiting_for_run_artifacts"
+    assert "CO2 zero gas and H2O dry-gas anchors" in domains["candidate_fit_and_qc"].next_action
+    assert domains["controlled_write_and_reverify"].status == "blocked_controlled_write"
+    assert "coefficient_write" in domains["controlled_write_and_reverify"].required_authorizations
 
 
 def test_full_flow_plan_freezes_getco_1_to_9_before_sampling(tmp_path):
@@ -342,6 +384,8 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert (out / "v1_5_full_flow_commands.ps1").exists()
     assert (out / "v1_5_full_flow_stage_manifest.json").exists()
     assert (out / "v1_5_full_flow_stage_manifest.md").exists()
+    assert (out / "v1_5_full_flow_live_runner_readiness.json").exists()
+    assert (out / "v1_5_full_flow_live_runner_readiness.md").exists()
     assert (out / "v1_5_formal_flow_contract.json").exists()
     assert (out / "v1_5_formal_flow_contract.md").exists()
     assert (out / "v1_5_run_evidence_status.json").exists()
@@ -358,6 +402,15 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert stage_manifest["schema"] == STAGE_MANIFEST_SCHEMA
     assert stage_manifest["one_button_live_runner_ready"] is False
     assert stage_manifest["safety_summary"]["planner_writes_coefficients"] is False
+    assert (
+        stage_manifest["safety_summary"]["live_runner_readiness_artifact"]
+        == "v1_5_full_flow_live_runner_readiness.json"
+    )
+    readiness = json.loads((out / "v1_5_full_flow_live_runner_readiness.json").read_text(encoding="utf-8"))
+    assert readiness["schema"] == LIVE_RUNNER_READINESS_SCHEMA
+    assert readiness["one_button_live_runner_ready"] is False
+    assert "pressure_channel" in readiness["blocked_domains"]
+    assert "coefficient_write" in readiness["required_authorizations"]
     contract = json.loads((out / "v1_5_formal_flow_contract.json").read_text(encoding="utf-8"))
     assert contract["status"] == "pass"
     assert contract["physical_boundaries"]["not_real_acceptance_evidence"] is True
@@ -365,6 +418,8 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert evidence_status["physical_boundaries"]["opens_com_ports"] is False
     assert evidence_status["physical_boundaries"]["writes_coefficients"] is False
     assert evidence_status["contract_status"] == "pass"
+    assert evidence_status["full_flow_live_runner_readiness"]["status"] == "present"
+    assert evidence_status["full_flow_live_runner_readiness"]["one_button_live_runner_ready"] is False
     operation_console = json.loads(operation_console_json.read_text(encoding="utf-8"))
     assert operation_console["source_evidence"]["has_full_flow_stage_manifest"] is True
     assert operation_console["opens_com_ports"] is False

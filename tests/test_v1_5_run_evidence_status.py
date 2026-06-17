@@ -142,12 +142,19 @@ def test_run_evidence_status_indexes_full_flow_stage_manifest(tmp_path):
     stages = _stages(status)
     roles = {row["role"] for row in status["artifacts"]}
     manifest = status["full_flow_stage_manifest"]
+    readiness = status["full_flow_live_runner_readiness"]
     manifest_stages = {row["step_id"]: row for row in manifest["stage_statuses"]}
 
     assert "full_flow_stage_manifest" in roles
+    assert "full_flow_live_runner_readiness" in roles
     assert stages["full_flow_stage_manifest"]["status"] == "pass"
+    assert stages["full_flow_live_runner_readiness"]["status"] == "pass"
     assert manifest["status"] == "present"
     assert manifest["one_button_live_runner_ready"] is False
+    assert readiness["status"] == "present"
+    assert readiness["one_button_live_runner_ready"] is False
+    assert "pressure_channel" in readiness["blocked_domains"]
+    assert "coefficient_write" in readiness["required_authorizations"]
     assert manifest_stages["device_identity_and_getco_snapshot"]["status"] == "authorization_required"
     assert manifest_stages["co2_open_flow_sampling"]["status"] == "authorization_required"
     assert manifest_stages["h2o_open_flow_sampling"]["status"] == "authorization_required"
@@ -155,6 +162,7 @@ def test_run_evidence_status_indexes_full_flow_stage_manifest(tmp_path):
 
     markdown = render_v1_5_run_evidence_status_markdown(status)
     assert "Full-Flow Stage Manifest" in markdown
+    assert "Full-Flow Live Runner Readiness" in markdown
     assert "`controlled_component_write_placeholder`: `blocked_controlled_gate`" in markdown
 
 
