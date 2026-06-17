@@ -124,6 +124,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Build the offline no-write post-run coefficient closure plan after evidence status/archive refresh.",
     )
     parser.add_argument(
+        "--post-acquisition-closure",
+        action="store_true",
+        help=(
+            "After CO2/H2O acquisition evidence is available, generate the offline no-write "
+            "post-run coefficient executor, full-flow closure readiness, and final evidence-status "
+            "refresh in one step. This does not imply archive closure unless --archive-closure is also set."
+        ),
+    )
+    parser.add_argument(
         "--post-run-executor-output-dir",
         default=None,
         help="Output directory for the post-run coefficient executor. Defaults to output-dir/post_run_coefficient_executor.",
@@ -270,7 +279,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     outputs["run_evidence_status_json"] = status_json
     outputs["run_evidence_status_markdown"] = status_md
     latest_evidence_bundle_json = args.evidence_bundle_json
-    if args.archive_closure:
+    archive_closure_requested = bool(args.archive_closure)
+    post_acquisition_closure_requested = bool(args.post_acquisition_closure)
+    post_run_executor_requested = bool(args.post_run_coefficient_executor or post_acquisition_closure_requested)
+    full_flow_closure_readiness_requested = bool(
+        args.full_flow_closure_readiness or post_acquisition_closure_requested
+    )
+    if archive_closure_requested:
         pressure_reference_json = args.archive_pressure_reference_json or args.pressure_reference_json
         archive_standard_gases_json = args.archive_standard_gases_json or args.standard_gases_json
         missing = []
@@ -330,7 +345,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         outputs["run_evidence_status_refreshed_after_archive_closure"] = status_json
         outputs["run_evidence_status_evidence_bundle_json"] = latest_evidence_bundle_json
     executor_model = None
-    should_build_post_run_executor = bool(args.post_run_coefficient_executor or args.full_flow_closure_readiness)
+    should_build_post_run_executor = bool(post_run_executor_requested or full_flow_closure_readiness_requested)
     if should_build_post_run_executor:
         executor_run_dir = Path(args.reviewed_run_dir).resolve() if args.reviewed_run_dir else Path(args.output_dir).resolve()
         executor_output_dir = (
@@ -359,7 +374,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         ]
         outputs["post_run_coefficient_executor_archive_gap_list"] = executor_paths["archive_gap_list"]
     closure_model = None
-    if args.full_flow_closure_readiness:
+    if full_flow_closure_readiness_requested:
         closure_output_dir = (
             Path(args.full_flow_closure_readiness_output_dir).resolve()
             if args.full_flow_closure_readiness_output_dir
@@ -384,7 +399,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         outputs["full_flow_closure_readiness_gaps"] = closure_paths["gaps"]
         outputs["full_flow_closure_readiness_devices"] = closure_paths["devices"]
         outputs["full_flow_closure_readiness_release_domains"] = closure_paths["release_domains"]
-    if args.archive_closure or should_build_post_run_executor or args.full_flow_closure_readiness:
+    if archive_closure_requested or should_build_post_run_executor or full_flow_closure_readiness_requested:
         evidence_status, _, _ = _write_run_evidence_status(
             run_dir=Path(args.output_dir).resolve(),
             output_dir=args.output_dir,
@@ -400,7 +415,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     if should_build_post_run_executor and args.post_run_executor_fail_on_blocked:
         if executor_model.get("overall_status") == "blocked":
             return 2
-    if args.full_flow_closure_readiness and args.full_flow_closure_readiness_fail_on_blocked:
+    if full_flow_closure_readiness_requested and args.full_flow_closure_readiness_fail_on_blocked:
         if closure_model and closure_model.get("overall_status") == "blocked":
             return 2
     return 0

@@ -892,3 +892,66 @@ def test_full_flow_closure_readiness_auto_generates_post_run_executor(tmp_path, 
         "full_flow_release_domains",
     }.issubset(roles)
     assert evidence_status["linked_inputs"]["evidence_bundle_json"] == ""
+
+
+def test_full_flow_cli_post_acquisition_closure_generates_offline_closure_chain(tmp_path, capsys):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    run_dir = tmp_path / "reviewed_run"
+    run_dir.mkdir()
+    plan_json = run_dir / "formal_plan_snapshot.json"
+    plan_json.write_text(
+        json.dumps(
+            {"devices": {"gas_analyzers": [{"runtime_device_id": "084", "serial_port": "COM36"}]}},
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    pressure_reference_json = run_dir / "pressure_reference.json"
+    pressure_reference_json.write_text(json.dumps({"device_id": "COM22"}), encoding="utf-8")
+    out = tmp_path / "flow"
+
+    rc = cli_main(
+        [
+            "--config",
+            str(config),
+            "--output-dir",
+            str(out),
+            "--run-id",
+            "post-acquisition-demo",
+            "--reviewed-run-dir",
+            str(run_dir),
+            "--archive-plan-json",
+            str(plan_json),
+            "--pressure-reference-json",
+            str(pressure_reference_json),
+            "--post-acquisition-closure",
+        ]
+    )
+    cli_result = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    executor_manifest = out / "post_run_coefficient_executor" / "executor_manifest.json"
+    readiness_json = out / "full_flow_closure_readiness" / "v1_5_full_flow_closure_readiness.json"
+    status_json = out / "v1_5_run_evidence_status.json"
+    assert executor_manifest.exists()
+    assert readiness_json.exists()
+    assert status_json.exists()
+    assert cli_result["post_run_coefficient_executor_manifest"] == str(executor_manifest.resolve())
+    assert cli_result["full_flow_closure_readiness_json"] == str(readiness_json.resolve())
+    assert cli_result["run_evidence_status_final_json"] == str(status_json.resolve())
+
+    executor = json.loads(executor_manifest.read_text(encoding="utf-8"))
+    readiness = json.loads(readiness_json.read_text(encoding="utf-8"))
+    evidence_status = json.loads(status_json.read_text(encoding="utf-8"))
+    assert executor["physical_boundaries"]["opens_com_ports"] is False
+    assert executor["physical_boundaries"]["writes_coefficients"] is False
+    assert readiness["linked_inputs"]["post_run_executor_json"] == str(executor_manifest.resolve())
+    evidence_stages = {row["stage_id"]: row for row in evidence_status["stage_statuses"]}
+    assert evidence_stages["post_run_coefficient_executor"]["status"] == "pass"
+    assert evidence_stages["full_flow_closure_readiness"]["status"] == "pass"
+    roles = {row["role"] for row in evidence_status["artifacts"]}
+    assert "post_run_controlled_write_package" in roles
+    assert "post_run_reverification_plan" in roles
+    assert "full_flow_closure_readiness" in roles
