@@ -337,6 +337,114 @@ def test_report_model_preserves_scope_boundaries_and_no_write(tmp_path):
     assert any(row["source"] == "pressure_channel_bias" for row in model["uncertainty_budget"])
 
 
+def test_report_model_prefers_current_validation_tables_over_stale_artifacts(tmp_path):
+    stale_open_flow = tmp_path / "open_flow_run_summary.csv"
+    stale_pressure = tmp_path / "pressure_validation_summary.csv"
+    stale_rejected = tmp_path / "rejected_samples.csv"
+    _write_csv(
+        stale_open_flow,
+        [
+            {
+                "component": "co2",
+                "analyzer_device_id": "079",
+                "pressure_check_source": "sample_rows_fallback",
+                "candidate_fit_allowed": "false",
+                "candidate_fit_blockers": "pressure_channel_quick_check_not_passed",
+            }
+        ],
+    )
+    _write_csv(
+        stale_pressure,
+        [
+            {
+                "analyzer_device_id": "079",
+                "status": "insufficient_evidence",
+                "allowed_for_co2_h2o_formal_work": "false",
+                "reason": "pressure_pair_count<3",
+            }
+        ],
+    )
+    _write_csv(
+        stale_rejected,
+        [
+            {
+                "component": "co2",
+                "reject_reason": "stale_rejected_artifact_must_not_leak",
+            }
+        ],
+    )
+    bundle = {
+        "schema": "v1_5_evidence_registry",
+        "schema_version": "001",
+        "run_id": "run-current-validation-tables",
+        "tables": {
+            "runs": [
+                {
+                    "run_id": "run-current-validation-tables",
+                    "package_status": "ready_for_reviewer",
+                    "evidence_status": "ready_for_reviewer",
+                }
+            ],
+            "standard_gases": [
+                {"component": "co2", "certificate_value": 900.0, "certificate_uncertainty": 0.9}
+            ],
+            "reference_certificates": [],
+            "calibration_points": [],
+            "sample_files": [
+                {"path": str(stale_open_flow), "artifact_role": "formal_open_flow_report"},
+                {"path": str(stale_pressure), "artifact_role": "pressure_channel_validation_report"},
+                {"path": str(stale_rejected), "artifact_role": "formal_open_flow_report"},
+            ],
+            "qc_results": [],
+            "coefficient_snapshots": [],
+            "coefficient_candidates": [],
+            "coefficient_write_events": [],
+            "evidence_integrity_checks": [],
+        },
+        "validation_tables": {
+            "a_grade_samples": [
+                {
+                    "component": "co2",
+                    "point_tag": "900ppm",
+                    "co2_ppm": "900.2",
+                }
+            ],
+            "rejected_samples": [],
+            "open_flow_run_summary": [
+                {
+                    "component": "co2",
+                    "analyzer_device_id": "079",
+                    "point_id": "T20_900ppm",
+                    "calibratability_grade": "A",
+                    "candidate_fit_allowed": "true",
+                    "candidate_fit_blockers": "",
+                    "pressure_check_source": "pressure_channel_completion_artifact",
+                }
+            ],
+            "pressure_validation_summary": [
+                {
+                    "analyzer_device_id": "079",
+                    "status": "pass",
+                    "allowed_for_co2_h2o_formal_work": "true",
+                    "validation_level": "formal_pressure_completion",
+                    "pressure_check_source": "pressure_channel_completion_artifact",
+                    "reason": "",
+                }
+            ],
+        },
+    }
+
+    model = build_report_model_from_bundle(bundle)
+
+    assert model["open_flow_summary"][0]["pressure_check_source"] == "pressure_channel_completion_artifact"
+    assert model["open_flow_summary"][0]["candidate_fit_allowed"] == "true"
+    assert model["open_flow_summary"][0]["candidate_fit_blockers"] == ""
+    assert model["pressure_summary"][0]["status"] == "pass"
+    assert model["pressure_summary"][0]["validation_level"] == "formal_pressure_completion"
+    assert model["result_rows"][0]["measured_mean"] == "900.200"
+    assert model["rejected_rows"] == []
+
+
 def test_write_v1_5_calibration_reports_outputs_markdown_docx_pdf_and_model(tmp_path):
     bundle_path = _make_evidence_bundle(tmp_path, quick_check=True)
     outputs = write_v1_5_calibration_reports(
@@ -728,6 +836,11 @@ def test_reports_apply_h2o_queue_exclusion_as_diagnostic_only_fit_blocker(tmp_pa
             row["candidate_fit_allowed"] = "True"
             break
     _write_csv(open_flow_path, rows)
+    for row in bundle.get("validation_tables", {}).get("open_flow_run_summary", []):
+        if row.get("component") == "h2o":
+            row["point_id"] = "h2o_abort_point"
+            row["candidate_fit_allowed"] = "True"
+            break
 
     exclusion_path = tmp_path / "queue_abort_exclusion.csv"
     _write_csv(

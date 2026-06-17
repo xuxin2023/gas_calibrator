@@ -121,6 +121,21 @@ def _artifact_rows(bundle: Mapping[str, Any], filename: str) -> List[Dict[str, A
         return []
 
 
+def _validation_table_rows(bundle: Mapping[str, Any], name: str) -> Optional[List[Dict[str, Any]]]:
+    tables = bundle.get("validation_tables") if isinstance(bundle.get("validation_tables"), Mapping) else {}
+    if not isinstance(tables, Mapping) or name not in tables:
+        return None
+    rows = tables.get(name) or []
+    return [dict(row) for row in rows or [] if isinstance(row, Mapping)]
+
+
+def _validation_or_artifact_rows(bundle: Mapping[str, Any], table_name: str, filename: str) -> List[Dict[str, Any]]:
+    rows = _validation_table_rows(bundle, table_name)
+    if rows is not None:
+        return rows
+    return _artifact_rows(bundle, filename)
+
+
 def _artifact_rows_all(bundle: Mapping[str, Any], filename: str) -> List[Dict[str, Any]]:
     tables = bundle.get("tables") if isinstance(bundle.get("tables"), Mapping) else {}
     rows = tables.get("sample_files") or []
@@ -1155,10 +1170,18 @@ def _build_report_model_from_bundle_base(
     candidates = _table_rows(bundle, "coefficient_candidates")
     write_events = _table_rows(bundle, "coefficient_write_events")
     integrity_checks = _table_rows(bundle, "evidence_integrity_checks")
-    a_grade_rows = _artifact_rows(bundle, "a_grade_samples.csv")
-    rejected_rows = _artifact_rows(bundle, "rejected_samples.csv")
-    pressure_summary = _artifact_rows(bundle, "pressure_validation_summary.csv")
-    open_flow_summary = _artifact_rows(bundle, "open_flow_run_summary.csv")
+    a_grade_rows = _validation_or_artifact_rows(bundle, "a_grade_samples", "a_grade_samples.csv")
+    rejected_rows = _validation_or_artifact_rows(bundle, "rejected_samples", "rejected_samples.csv")
+    pressure_summary = _validation_or_artifact_rows(
+        bundle,
+        "pressure_validation_summary",
+        "pressure_validation_summary.csv",
+    )
+    open_flow_summary = _validation_or_artifact_rows(
+        bundle,
+        "open_flow_run_summary",
+        "open_flow_run_summary.csv",
+    )
     h2o_queue_exclusions = _h2o_queue_exclusion_rows(bundle)
     open_flow_summary = _apply_h2o_queue_exclusions(open_flow_summary, h2o_queue_exclusions)
     post_write_reverification = _post_write_reverification_model(bundle)

@@ -1637,6 +1637,15 @@ def build_evidence_bundle(
             ),
             "evidence_integrity_checks": checks,
         },
+        "validation_tables": {
+            name: [dict(row) for row in tables.get(name, []) if isinstance(row, Mapping)]
+            for name in (
+                "a_grade_samples",
+                "rejected_samples",
+                "pressure_validation_summary",
+                "open_flow_run_summary",
+            )
+        },
     }
     return bundle
 
