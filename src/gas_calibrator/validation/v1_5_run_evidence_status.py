@@ -119,6 +119,8 @@ def _classify_artifact(path: Path) -> str:
         return "formal_plan_snapshot"
     if name in {"com22_pressure_reference.json", "pressure_reference.json"}:
         return "pressure_reference_snapshot"
+    if name == "pressure_channel_completion_summary.csv" or "pressure_channel_completion" in name:
+        return "pressure_channel_completion"
     if "pressure_channel_quick_check" in name or "pressure_quick_check" in name:
         return "pressure_channel_quick_check"
     if name in {"queue_abort_exclusion.csv", "queue_abort_exclusion.json"}:
@@ -394,15 +396,23 @@ def build_v1_5_run_evidence_status(
             pass_reason="device identity and coefficient epoch 0 evidence are present",
         )
     )
+    pressure_input_roles = ("pressure_channel_quick_check", "pressure_channel_completion")
+    pressure_roles_present = tuple(role for role in pressure_input_roles if role in role_set)
     stages.append(
         _stage(
             stage_id="pressure_quick_check",
-            title="Pressure channel quick check",
-            roles=("pressure_channel_quick_check",),
+            title="Pressure channel quick check or completion",
+            roles=pressure_input_roles,
             artifacts=artifacts_tuple,
             physical_meaning="Analyzer pressure P is an input to CO2/H2O compensation and must be verified before component calibration.",
-            missing_reason="pressure quick-check evidence missing",
-            pass_reason="pressure quick-check artifact is present",
+            missing_reason="pressure quick-check or pressure-channel completion evidence missing",
+            pass_reason="pressure-channel input evidence is present",
+            status_override="pass" if pressure_roles_present else None,
+            reason_override=(
+                f"pressure_input_roles_present={','.join(pressure_roles_present)}"
+                if pressure_roles_present
+                else None
+            ),
         )
     )
 

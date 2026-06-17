@@ -164,6 +164,8 @@ def _artifact_role(path: Path, *, plan_path: Optional[Path], pressure_reference_
         return "diagnostic_analysis"
     if name.startswith("v1_5_recommendation_closure"):
         return "formal_analysis"
+    if name == "pressure_channel_completion_summary.csv" or "pressure_channel_completion" in name:
+        return "pressure_channel_completion"
     if "pressure_channel_quick_check" in name or "pressure_quick_check" in name:
         return "pressure_channel_quick_check"
     if "package_summary" in name:
@@ -948,11 +950,14 @@ def _build_integrity_checks(
 ) -> List[Dict[str, Any]]:
     roles = {str(row.get("artifact_role") or "") for row in files}
     required = [row for row in files if bool(row.get("required"))]
+    pressure_input_present = bool(roles & {"pressure_channel_quick_check", "pressure_channel_completion"})
     missing_required_roles = [
         role
-        for role in ("raw_samples", "pressure_channel_quick_check", "formal_plan_snapshot", "pressure_reference_snapshot")
+        for role in ("raw_samples", "formal_plan_snapshot", "pressure_reference_snapshot")
         if role not in roles
     ]
+    if not pressure_input_present:
+        missing_required_roles.append("pressure_channel_quick_check_or_completion")
     checks = [
         (
             "required_artifacts_hashed",
@@ -962,9 +967,12 @@ def _build_integrity_checks(
         ),
         (
             "pressure_quick_check_artifact_present",
-            "pass" if "pressure_channel_quick_check" in roles else "fail",
+            "pass" if pressure_input_present else "fail",
             "error",
-            {"pressure_check_source": context.get("pressure_check_source", "")},
+            {
+                "pressure_check_source": context.get("pressure_check_source", ""),
+                "accepted_roles": sorted(roles & {"pressure_channel_quick_check", "pressure_channel_completion"}),
+            },
         ),
         (
             "formal_package_ready_for_reviewer",
@@ -1040,7 +1048,8 @@ def _source_artifact_map(files: Sequence[Mapping[str, Any]]) -> Dict[str, Option
         "formal_calibration_package": _artifact_id_by_role(files, "formal_calibration_package")
         or _artifact_id_by_role(files, "formal_package_summary"),
         "formal_open_flow_report": _artifact_id_by_role(files, "formal_open_flow_report"),
-        "pressure_channel_quick_check": _artifact_id_by_role(files, "pressure_channel_quick_check"),
+        "pressure_channel_quick_check": _artifact_id_by_role(files, "pressure_channel_quick_check")
+        or _artifact_id_by_role(files, "pressure_channel_completion"),
         "pressure_reference_snapshot": _artifact_id_by_role(files, "pressure_reference_snapshot"),
         "candidate_coefficient_review": _artifact_id_by_role(files, "candidate_coefficient_review"),
     }
@@ -1825,7 +1834,8 @@ def build_traceability_summary_from_tables(
             "has_pressure_reference_traceability": bool(_table_rows(tables, "reference_certificates")),
             "has_raw_samples": any(row.get("artifact_role") == "raw_samples" for row in artifacts),
             "has_pressure_quick_check": any(
-                row.get("artifact_role") == "pressure_channel_quick_check" for row in artifacts
+                row.get("artifact_role") in {"pressure_channel_quick_check", "pressure_channel_completion"}
+                for row in artifacts
             ),
             "has_water_route_traceability": bool(h2o_gases and h2o_open_flow_points),
             "has_h2o_open_flow_qc": bool(h2o_open_flow_qc),

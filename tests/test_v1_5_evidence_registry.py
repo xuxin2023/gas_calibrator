@@ -414,6 +414,41 @@ def test_evidence_bundle_blocks_when_pressure_quick_check_artifact_is_missing(tm
     assert bundle["tables"]["runs"][0]["package_status"] == "blocked"
 
 
+def test_evidence_bundle_accepts_pressure_completion_as_pressure_input(tmp_path):
+    run_dir, plan_path, pressure_reference_path = _make_run(
+        tmp_path,
+        quick_check=False,
+        write_package=False,
+    )
+    _write_csv(
+        run_dir / "pressure_channel_completion_summary.csv",
+        [
+            {
+                "overall_status": "ready",
+                "ready_for_component_calibration": "true",
+                "reason": "",
+            }
+        ],
+    )
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        today="2026-05-24",
+    )
+    checks = {row["check_name"]: row for row in bundle["tables"]["evidence_integrity_checks"]}
+    roles = {row["artifact_role"] for row in bundle["tables"]["sample_files"]}
+    traceability = bundle_traceability_summary(bundle)
+
+    assert "pressure_channel_completion" in roles
+    assert checks["pressure_quick_check_artifact_present"]["status"] == "pass"
+    assert checks["pressure_quick_check_artifact_present"]["details"]["accepted_roles"] == [
+        "pressure_channel_completion"
+    ]
+    assert traceability["traceability_checks"]["has_pressure_quick_check"] is True
+
+
 def test_evidence_bundle_all_analyzers_indexes_each_sensor_id(tmp_path):
     run_dir = tmp_path / "run_multi_analyzer"
     run_dir.mkdir()

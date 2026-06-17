@@ -79,6 +79,53 @@ def test_run_evidence_status_blocks_when_contract_audit_blocks(tmp_path):
     assert stages["full_flow_contract_gate"]["reason"] == "contract_status=blocked"
 
 
+def test_run_evidence_status_accepts_pressure_completion_as_pressure_input(tmp_path):
+    run_dir = tmp_path / "pressure_completion_run"
+    run_dir.mkdir()
+    _write_contract(run_dir / "v1_5_formal_flow_contract.json", status="pass")
+    (run_dir / "pressure_channel_completion_summary.csv").write_text(
+        "overall_status,ready_for_component_calibration\nready,true\n",
+        encoding="utf-8",
+    )
+
+    status = build_v1_5_run_evidence_status(run_dir=run_dir)
+    stages = _stages(status)
+    roles = {row["role"] for row in status["artifacts"]}
+
+    assert "pressure_channel_completion" in roles
+    assert stages["pressure_quick_check"]["status"] == "pass"
+    assert stages["pressure_quick_check"]["reason"] == "pressure_input_roles_present=pressure_channel_completion"
+    assert status["physical_boundaries"]["opens_com_ports"] is False
+
+
+def test_run_evidence_status_indexes_identity_getco_epoch_from_runtime_snapshot(tmp_path):
+    run_dir = tmp_path / "identity_snapshot_run"
+    snapshot_dir = run_dir / "coefficient_epoch_0_getco_snapshot"
+    snapshot_dir.mkdir(parents=True)
+    (snapshot_dir / "runtime_identity_bound_config.json").write_text(
+        json.dumps(
+            {
+                "schema": "v1_5_runtime_identity_bound_config_v1",
+                "analyzers": [{"name": "ga01", "device_id": "077", "port": "COM35"}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (snapshot_dir / "getco_component_snapshot_identity.csv").write_text(
+        "analyzer_name,analyzer_device_id,identity_verified,requested_groups,found_groups,all_groups_found\n"
+        "ga01,077,true,\"1,2,3,4,5,6,7,8,9\",\"1,2,3,4,5,6,7,8,9\",true\n",
+        encoding="utf-8",
+    )
+
+    status = build_v1_5_run_evidence_status(run_dir=run_dir)
+    stages = _stages(status)
+    roles = {row["role"] for row in status["artifacts"]}
+
+    assert {"runtime_identity_bound_config", "getco_snapshot"}.issubset(roles)
+    assert stages["identity_getco_epoch0"]["status"] == "pass"
+
+
 def test_run_evidence_status_cli_writes_json_and_markdown(tmp_path, capsys):
     outputs = write_canonical_v1_5_evidence_package(tmp_path / "canonical_cli", include_reports=False)
     contract_path = _write_contract(outputs["root"] / "v1_5_formal_flow_contract.json", status="pass")

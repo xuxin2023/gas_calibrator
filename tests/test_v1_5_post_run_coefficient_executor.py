@@ -543,6 +543,94 @@ def test_post_run_executor_does_not_accept_failed_initialization_confirmation(tm
     assert device["identity_status"] == "missing_initial_identity_or_getco_snapshot"
 
 
+def test_post_run_executor_accepts_getco_identity_snapshot_as_initialization_evidence(tmp_path):
+    run_dir = tmp_path / "getco_identity_snapshot_init"
+    _seed_complete_post_run_evidence(run_dir, devices=("077", "091"))
+    (run_dir / "initialization_readiness.json").unlink()
+    _write_csv(
+        run_dir / "candidate_fit_all6_20260613" / "getco_snapshot_before_main_write_20260614" / "getco_component_snapshot_identity.csv",
+        [
+            {
+                "analyzer_name": "ga01",
+                "configured_device_id": "077",
+                "analyzer_device_id": "077",
+                "runtime_device_id": "077",
+                "requested_groups": "1,2,3,4,5,6,7,8,9",
+                "found_groups": "1,2,3,4,5,6,7,8,9",
+                "all_groups_found": "True",
+                "identity_before": "077",
+                "identity_after": "077",
+                "identity_verified": "True",
+                "error": "",
+                "writes_senco": "False",
+                "writes_device_id": "False",
+                "controls_water_or_gas_routes": "False",
+                "controls_pace": "False",
+            },
+            {
+                "analyzer_name": "ga02",
+                "configured_device_id": "091",
+                "analyzer_device_id": "091",
+                "runtime_device_id": "091",
+                "requested_groups": "1,2,3,4,5,6,7,8,9",
+                "found_groups": "1,2,3,4,5,6,7,8,9",
+                "all_groups_found": "True",
+                "identity_before": "091",
+                "identity_after": "091",
+                "identity_verified": "True",
+                "error": "",
+                "writes_senco": "False",
+                "writes_device_id": "False",
+                "controls_water_or_gas_routes": "False",
+                "controls_pace": "False",
+            },
+        ],
+    )
+
+    model = build_post_run_coefficient_executor_model(run_dir=run_dir)
+    stages = {row["stage_id"]: row for row in model["stages"]}
+
+    assert stages["identity_initialization"]["status"] == "ready"
+    assert "getco_component_snapshot_identity.csv" in "\n".join(model["artifact_paths"]["initialization_readiness"])
+    assert {row["identity_status"] for row in model["devices"]} == {"ready"}
+
+
+def test_post_run_executor_rejects_incomplete_getco_identity_snapshot(tmp_path):
+    run_dir = tmp_path / "incomplete_getco_identity_snapshot_init"
+    _seed_complete_post_run_evidence(run_dir, devices=("077",))
+    (run_dir / "initialization_readiness.json").unlink()
+    _write_csv(
+        run_dir / "candidate_fit_all6_20260613" / "getco_snapshot_before_main_write_20260614" / "getco_component_snapshot_identity.csv",
+        [
+            {
+                "analyzer_name": "ga01",
+                "configured_device_id": "077",
+                "analyzer_device_id": "077",
+                "runtime_device_id": "077",
+                "requested_groups": "1,2,3,4,5,6,7,8,9",
+                "found_groups": "1,2,3,4,5,6,7,8",
+                "all_groups_found": "False",
+                "identity_before": "077",
+                "identity_after": "077",
+                "identity_verified": "True",
+                "error": "",
+                "writes_senco": "False",
+                "writes_device_id": "False",
+                "controls_water_or_gas_routes": "False",
+                "controls_pace": "False",
+            }
+        ],
+    )
+
+    model = build_post_run_coefficient_executor_model(run_dir=run_dir)
+    stages = {row["stage_id"]: row for row in model["stages"]}
+    device = model["devices"][0]
+
+    assert stages["identity_initialization"]["status"] == "partial"
+    assert stages["identity_initialization"]["reason"] == "invalid_roles=initialization_readiness"
+    assert device["identity_status"] == "missing_initial_identity_or_getco_snapshot"
+
+
 def test_post_run_executor_indexes_database_sidecar_but_still_requires_archive_closure(tmp_path):
     run_dir = tmp_path / "database_sidecar_only"
     _seed_complete_post_run_evidence(run_dir, devices=("001",))

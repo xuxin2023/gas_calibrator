@@ -14,7 +14,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 
 SCHEMA = "v1_5_post_run_coefficient_executor_v1"
@@ -119,6 +119,13 @@ def _existing_latest(root: Path, patterns: Sequence[str]) -> Path | None:
     return max(matches, key=lambda item: item.stat().st_mtime)
 
 
+def _existing_latest_matching(root: Path, pattern: str, predicate: Callable[[Path], bool]) -> Path | None:
+    matches = [path for path in _safe_rglob(root, pattern) if path.is_file() and predicate(path)]
+    if not matches:
+        return None
+    return max(matches, key=lambda item: item.stat().st_mtime)
+
+
 def _safe_rglob(root: Path, pattern: str) -> tuple[Path, ...]:
     try:
         return tuple(root.rglob(pattern))
@@ -176,13 +183,29 @@ def _discover_artifacts(run_dir: Path, explicit: Mapping[str, str | Path | None]
             return ()
         return (max(matches, key=lambda item: item.stat().st_mtime),)
 
+    def one_initialization() -> tuple[Path, ...]:
+        value = explicit.get("initialization_readiness_json")
+        if value:
+            path = Path(value).resolve()
+            if path.exists():
+                return (path,)
+        readiness = _existing_latest(
+            run_dir,
+            ("initialization_readiness.json", "v1_5_initialization_readiness.json", "*initialization_archive_confirmation*.json"),
+        )
+        if readiness:
+            return (readiness.resolve(),)
+        prewrite_snapshot = _existing_latest_matching(
+            run_dir,
+            "getco_component_snapshot_identity.csv",
+            lambda path: "before" in str(path).lower() and "after_main_senco_write" not in str(path).lower(),
+        )
+        return (prewrite_snapshot.resolve(),) if prewrite_snapshot else ()
+
     artifacts: dict[str, tuple[Path, ...]] = {
         "plan_snapshot": one("plan_json", ("formal_plan_snapshot.json", "v1_5_full_flow_plan.json")),
         "pressure_reference": one("pressure_reference_json", ("pressure_reference.json", "com22_pressure_reference.json")),
-        "initialization_readiness": one(
-            "initialization_readiness_json",
-            ("initialization_readiness.json", "v1_5_initialization_readiness.json", "*initialization_archive_confirmation*.json"),
-        ),
+        "initialization_readiness": one_initialization(),
         "run_evidence_status": one("run_evidence_status_json", ("v1_5_run_evidence_status.json",)),
         "pressure_review": one(
             "pressure_review_json",
@@ -294,6 +317,58 @@ def _status_text(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def _truthy_text(value: Any) -> bool:
+    return _status_text(value) in {"true", "1", "yes", "y", "ok", "pass", "passed", "ready"}
+
+
+def _csv_group_set(value: Any) -> set[str]:
+    text = str(value or "").strip()
+    if not text:
+        return set()
+    return {item.strip() for item in text.replace(";", ",").split(",") if item.strip()}
+
+
+def _initialization_getco_snapshot_csv_ready(rows: Sequence[Mapping[str, str]]) -> bool | None:
+    marker_keys = {
+        "identity_verified",
+        "requested_groups",
+        "found_groups",
+        "all_groups_found",
+        "writes_senco",
+        "writes_device_id",
+        "controls_water_or_gas_routes",
+        "controls_pace",
+    }
+    if not any(marker_keys & set(row) for row in rows):
+        return None
+
+    required_groups = {str(index) for index in range(1, 10)}
+    unsafe_action_keys = (
+        "writes_senco",
+        "writes_device_id",
+        "controls_water_or_gas_routes",
+        "controls_pace",
+    )
+    for row in rows:
+        if str(row.get("error") or "").strip():
+            return False
+        if not _truthy_text(row.get("identity_verified")):
+            return False
+        if any(_truthy_text(row.get(key)) for key in unsafe_action_keys):
+            return False
+
+        if "all_groups_found" in row and row.get("all_groups_found") not in (None, ""):
+            if not _truthy_text(row.get("all_groups_found")):
+                return False
+            continue
+
+        requested_groups = _csv_group_set(row.get("requested_groups"))
+        found_groups = _csv_group_set(row.get("found_groups"))
+        if not required_groups.issubset(requested_groups) or not required_groups.issubset(found_groups):
+            return False
+    return True
+
+
 def _float_or_none(value: Any) -> float | None:
     try:
         return float(str(value or "").strip())
@@ -360,6 +435,10 @@ def _csv_artifact_ready(role: str, path: Path) -> bool:
     rows = _read_csv(path)
     if not rows:
         return False
+    if role == "initialization_readiness":
+        snapshot_ready = _initialization_getco_snapshot_csv_ready(rows)
+        if snapshot_ready is not None:
+            return snapshot_ready
     status_keys = ("overall_status", "status", "readiness_status", "review_status", "candidate_status")
     ready_markers = {
         "ready",
