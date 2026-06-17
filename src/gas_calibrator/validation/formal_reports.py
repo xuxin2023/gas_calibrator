@@ -312,6 +312,20 @@ def _device_id_from_row(row: Mapping[str, Any]) -> str:
     return ""
 
 
+def _is_single_report_analyzer_id(device_id: Any) -> bool:
+    text = str(device_id or "").strip()
+    if not text:
+        return False
+    lower = text.lower()
+    if lower in {"all", "unknown", "not_available", "not_specified", "n/a"}:
+        return False
+    if any(marker in text for marker in (";", ",", "|", "[", "]", "{", "}")):
+        return False
+    if len(text.split()) != 1:
+        return False
+    return True
+
+
 def _open_flow_fit_allowed(row: Mapping[str, Any]) -> bool:
     return _bool_value(row.get("candidate_fit_allowed"))
 
@@ -504,7 +518,10 @@ def _device_ids_from_evidence(*groups: Sequence[Mapping[str, Any]]) -> List[str]
     for rows in groups:
         for row in rows:
             device_id = _device_id_from_row(row)
-            if device_id and device_id not in ids:
+            if (
+                _is_single_report_analyzer_id(device_id)
+                and device_id not in ids
+            ):
                 ids.append(device_id)
     return sorted(ids)
 

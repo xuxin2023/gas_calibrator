@@ -125,7 +125,16 @@ def _path_text(path: Path | None) -> str:
     return str(path.resolve()) if path and path.exists() else ""
 
 
-def _status_from_existing_json(payload: Mapping[str, Any], keys: Sequence[str] = ("overall_status", "status")) -> str:
+def _status_from_existing_json(
+    payload: Mapping[str, Any],
+    keys: Sequence[str] = (
+        "overall_status",
+        "status",
+        "package_status",
+        "evidence_status",
+        "capability_status",
+    ),
+) -> str:
     for key in keys:
         value = str(payload.get(key) or "").strip()
         if value:

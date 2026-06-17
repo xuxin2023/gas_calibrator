@@ -663,6 +663,54 @@ def test_reports_prepare_per_device_certificate_evidence_from_open_flow_qc(tmp_p
     assert all(row["candidate_fit_allowed"] is True for row in point_evidence)
 
 
+def test_reports_do_not_issue_per_device_certificate_for_aggregate_device_id(tmp_path):
+    bundle_path = _make_evidence_bundle(tmp_path, quick_check=True)
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle["tables"].setdefault("coefficient_snapshots", []).extend(
+        [
+            {
+                "analyzer_id": "077",
+                "snapshot_type": "old_component_getco_coefficients",
+                "coefficients": {"GETCO1_before": [1, 2, 3]},
+                "coefficients_hash": "hash-077",
+            },
+            {
+                "analyzer_id": "001;077",
+                "snapshot_type": "run_level_aggregate_snapshot",
+                "coefficients": {"GETCO1_before": [4, 5, 6]},
+                "coefficients_hash": "hash-aggregate",
+            },
+        ]
+    )
+    bundle["tables"].setdefault("coefficient_write_events", []).append(
+        {
+            "analyzer_id": "001;077",
+            "event_type": "aggregate_review_marker",
+            "status": "not_a_device_write",
+        }
+    )
+    aggregate_bundle_path = tmp_path / "aggregate_guard_evidence_bundle.json"
+    aggregate_bundle_path.write_text(
+        json.dumps(bundle, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    outputs = write_v1_5_calibration_reports(
+        evidence_bundle_path=aggregate_bundle_path,
+        output_dir=tmp_path / "aggregate_guard_reports",
+    )
+    model = json.loads(outputs["report_model"].read_text(encoding="utf-8"))
+    readiness_ids = {
+        row["analyzer_device_id"]
+        for row in model["per_device_certificate_readiness"]
+    }
+
+    assert "001" in readiness_ids
+    assert "077" in readiness_ids
+    assert "001;077" not in readiness_ids
+    assert not any("001_077" in key for key in outputs)
+
+
 def test_reports_apply_h2o_queue_exclusion_as_diagnostic_only_fit_blocker(tmp_path):
     bundle_path = _make_evidence_bundle(tmp_path, quick_check=True)
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))

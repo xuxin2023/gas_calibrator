@@ -140,6 +140,32 @@ def test_full_flow_closure_readiness_ready_without_touching_devices(tmp_path):
     assert {row["device_id"] for row in model["devices"]} == {"077", "084"}
 
 
+def test_full_flow_closure_readiness_uses_archive_package_status(tmp_path):
+    run_dir = tmp_path / "archive_package_status"
+    _seed_ready_closure(run_dir)
+    _write_json(
+        run_dir / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
+        {
+            "schema": "v1_5_formal_archive_closure_v1",
+            "package_status": "blocked",
+            "evidence_status": "blocked",
+            "database": {"mode": "dry_run", "database_imported": False},
+            "reports": {
+                "run_report_markdown": str(run_dir / "reports" / "run_report.md"),
+                "technical_report_markdown": str(run_dir / "reports" / "technical_report.md"),
+                "formal_calibration_report_markdown": str(run_dir / "reports" / "formal_calibration_report.md"),
+            },
+        },
+    )
+
+    model = build_v1_5_full_flow_closure_readiness(run_dir=run_dir)
+    stages = {row["stage_id"]: row for row in model["stage_statuses"]}
+
+    assert stages["formal_archive_closure"]["status"] == "blocked"
+    assert stages["formal_archive_closure"]["reason"] == "source_status=blocked"
+    assert stages["formal_archive_closure"]["reason"] != "source_status=missing"
+
+
 def test_full_flow_closure_readiness_blocks_missing_executor(tmp_path):
     run_dir = tmp_path / "blocked"
     _write_json(
