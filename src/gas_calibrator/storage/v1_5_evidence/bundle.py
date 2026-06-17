@@ -57,6 +57,16 @@ H2O_RAW_BASE_FIELD_GROUPS = {
 H2O_RAW_OPTIONAL_BASE_FIELDS = ("h2o_dry_ppmv", "h2o_wet_ppmv")
 H2O_RAW_ANALYZER_SUFFIXES = ("h2o_signal", "h2o_ratio_raw", "h2o_ratio_f", "ref_signal", "h2o_mmol")
 
+POST_WRITE_REVERIFICATION_EVIDENCE_ROLES = {
+    "post_write_reverification_review",
+    "post_write_reverification_points",
+    "post_write_reverification_device_summary",
+}
+POST_WRITE_REVERIFICATION_COMPLETION_ROLES = {
+    "post_write_reverification_points",
+    "post_write_reverification_device_summary",
+}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -178,6 +188,7 @@ def _artifact_role(path: Path, *, plan_path: Optional[Path], pressure_reference_
         return "pressure_reference_snapshot"
     name = path.name.lower()
     parent = path.parent.name.lower()
+    path_text = str(path).replace("\\", "/").lower()
     if name.startswith("samples_") and name.endswith(".csv"):
         return "raw_samples"
     if (
@@ -210,6 +221,25 @@ def _artifact_role(path: Path, *, plan_path: Optional[Path], pressure_reference_
         return "post_write_reverification_points"
     if name == "post_write_reverification_device_summary.csv":
         return "post_write_reverification_device_summary"
+    if name == "post_write_reverification_plan.csv":
+        return "post_run_reverification_plan"
+    if "post_write_reverify" in path_text or "post_write_reverification" in path_text:
+        if any(token in name for token in ("candidate", "projected_errors", "review_ready_for_write")):
+            return "candidate_coefficient_review"
+        if "result_summary" in name or "device_max_summary" in name:
+            return "post_write_reverification_device_summary"
+        if re.search(r"(?:co2|h2o)_post_write_reverify_.*\.csv$", name) or re.search(
+            r"(?:co2|h2o)_after_s\d+_reverify_.*\.csv$",
+            name,
+        ):
+            return "post_write_reverification_points"
+        if (
+            name == "post_write_reverify_manifest.json"
+            or name.endswith("_process_record.json")
+            or name.endswith("_stdout.log")
+            or name.endswith("_stderr.log")
+        ):
+            return "post_write_reverification_review"
     if name == "evidence_bundle.json":
         return "evidence_bundle"
     if name == "evidence_bundle_integrity.json":
@@ -1669,10 +1699,20 @@ def build_traceability_summary_from_tables(
         for row in _table_rows(tables, "sample_files")
     ]
     required_artifacts = [row for row in artifacts if row["required"]]
-    has_post_write_reverification = any(
-        str(row.get("artifact_role") or "").startswith("post_write_reverification")
+    post_write_reverification_artifacts = [
+        row
         for row in artifacts
-    )
+        if str(row.get("artifact_role") or "") in POST_WRITE_REVERIFICATION_EVIDENCE_ROLES
+    ]
+    post_write_reverification_completion_artifacts = [
+        row
+        for row in post_write_reverification_artifacts
+        if str(row.get("artifact_role") or "") in POST_WRITE_REVERIFICATION_COMPLETION_ROLES
+    ]
+    post_write_reverification_plan_artifacts = [
+        row for row in artifacts if str(row.get("artifact_role") or "") == "post_run_reverification_plan"
+    ]
+    has_post_write_reverification = bool(post_write_reverification_completion_artifacts)
     run_evidence_status_artifacts = [
         row
         for row in artifacts
@@ -1864,6 +1904,30 @@ def build_traceability_summary_from_tables(
             }
             for row in run_evidence_status_artifacts
         ],
+        "post_write_reverification_evidence": {
+            "status": (
+                "present"
+                if has_post_write_reverification
+                else ("planned_only" if post_write_reverification_plan_artifacts else "missing")
+            ),
+            "completion_roles_present": sorted(
+                {str(row.get("artifact_role") or "") for row in post_write_reverification_completion_artifacts}
+            ),
+            "support_roles_present": sorted(
+                {str(row.get("artifact_role") or "") for row in post_write_reverification_artifacts}
+            ),
+            "artifact_paths": [
+                str(row.get("path") or "") for row in post_write_reverification_artifacts[:20]
+            ],
+            "plan_artifact_paths": [
+                str(row.get("path") or "") for row in post_write_reverification_plan_artifacts[:20]
+            ],
+            "interpretation": (
+                "Post-write reverification is complete only when actual post-write point or device-summary "
+                "evidence is present. A post_write_reverification_plan.csv is a required plan for the next action, "
+                "but it is not itself proof that the written coefficients were reverified."
+            ),
+        },
         "integrity_checks": [
             {
                 "check_name": row.get("check_name"),

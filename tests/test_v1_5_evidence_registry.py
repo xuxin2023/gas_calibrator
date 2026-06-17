@@ -171,6 +171,71 @@ def _write_post_write_reverification_artifacts(run_dir):
     )
 
 
+def _write_legacy_post_write_reverify_artifacts(run_dir):
+    review_dir = run_dir / "post_write_reverify_001_077_084_091_20260614"
+    review_dir.mkdir()
+    _write_csv(
+        review_dir / "co2_post_write_reverify_result_summary.csv",
+        [
+            {
+                "device_id": "077",
+                "component": "co2",
+                "point_count": 3,
+                "pass_count": 3,
+                "fail_count": 0,
+                "max_abs_error_pct": 0.42,
+                "status": "pass",
+            }
+        ],
+    )
+    _write_csv(
+        review_dir / "co2_post_write_reverify_T20_100_400_800.csv",
+        [
+            {
+                "device_id": "077",
+                "point_id": "T20_400ppm",
+                "standard_value": 400.0,
+                "measured_value": 401.2,
+                "error_pct": 0.30,
+                "status": "pass",
+            }
+        ],
+    )
+    _write_csv(
+        review_dir / "co2_s5_candidate_from_post_write_reverify.csv",
+        [
+            {
+                "device_id": "077",
+                "component": "co2",
+                "c0": -1.2,
+                "c1": 1.003,
+                "candidate_status": "ready_for_review",
+            }
+        ],
+    )
+    (review_dir / "post_write_reverify_manifest.json").write_text(
+        json.dumps({"schema": "legacy_post_write_reverify_manifest_v1"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _write_post_write_reverification_plan_only(run_dir):
+    executor_dir = run_dir / "post_run_coefficient_executor"
+    executor_dir.mkdir()
+    _write_csv(
+        executor_dir / "post_write_reverification_plan.csv",
+        [
+            {
+                "device_id": "077",
+                "component": "co2",
+                "point_id": "T20_400ppm",
+                "route": "open_flow",
+                "required": "true",
+            }
+        ],
+    )
+
+
 def test_h2o_raw_evidence_unions_all_raw_sample_headers(tmp_path):
     partial = tmp_path / "samples_20260613_001901.csv"
     machine = tmp_path / "samples_machine_readable.csv"
@@ -363,6 +428,48 @@ def test_evidence_bundle_indexes_post_write_reverification_artifacts(tmp_path):
     assert len(post_write_files) == 4
     assert all(row["sha256"] for row in post_write_files)
     assert summary["traceability_checks"]["has_post_write_reverification"] is True
+    assert summary["post_write_reverification_evidence"]["status"] == "present"
+
+
+def test_evidence_bundle_indexes_legacy_post_write_reverify_artifacts(tmp_path):
+    run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
+    _write_legacy_post_write_reverify_artifacts(run_dir)
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        today="2026-05-24",
+    )
+    roles = {row["artifact_role"] for row in bundle["tables"]["sample_files"]}
+    summary = bundle_traceability_summary(bundle)
+
+    assert roles >= {
+        "post_write_reverification_review",
+        "post_write_reverification_points",
+        "post_write_reverification_device_summary",
+        "candidate_coefficient_review",
+    }
+    assert summary["traceability_checks"]["has_post_write_reverification"] is True
+    assert summary["post_write_reverification_evidence"]["status"] == "present"
+
+
+def test_evidence_bundle_does_not_treat_reverification_plan_as_completion(tmp_path):
+    run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
+    _write_post_write_reverification_plan_only(run_dir)
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        today="2026-05-24",
+    )
+    roles = {row["artifact_role"] for row in bundle["tables"]["sample_files"]}
+    summary = bundle_traceability_summary(bundle)
+
+    assert "post_run_reverification_plan" in roles
+    assert summary["traceability_checks"]["has_post_write_reverification"] is False
+    assert summary["post_write_reverification_evidence"]["status"] == "planned_only"
 
 
 def test_evidence_bundle_indexes_generated_reports_as_traceable_artifacts(tmp_path):
