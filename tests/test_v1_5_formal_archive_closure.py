@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from gas_calibrator.tools.run_v1_5_formal_archive_closure import main as closure_main
 from gas_calibrator.validation.v1_5_canonical_evidence import write_canonical_v1_5_evidence_package
 from gas_calibrator.validation.v1_5_formal_archive_closure import build_v1_5_formal_archive_closure
@@ -202,6 +204,27 @@ def test_formal_archive_closure_cli_keeps_output_inside_run_dir(tmp_path):
         "formal_calibration_report.md"
     )
     assert index["calibration_capability"]["method_backbone_ready"] is True
+
+
+def test_formal_archive_closure_blocks_too_long_per_device_certificate_paths(tmp_path):
+    canonical = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical_long_path",
+        include_reports=False,
+    )
+    run_dir = canonical["root"] / "run"
+    contract_path = _write_contract(run_dir / "v1_5_formal_flow_contract.json")
+    closure_dir = run_dir / ("formal_archive_closure_" + ("x" * 220))
+
+    with pytest.raises(ValueError, match="output_dir path is too long"):
+        build_v1_5_formal_archive_closure(
+            run_dir=run_dir,
+            plan_json=canonical["plan"],
+            pressure_reference_json=canonical["pressure_reference"],
+            contract_json=contract_path,
+            output_dir=closure_dir,
+            today="2026-05-24",
+            db_mode="dry_run",
+        )
 
 
 def test_formal_archive_closure_excludes_previous_archive_closure_dirs(tmp_path):

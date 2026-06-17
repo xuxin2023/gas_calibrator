@@ -34,6 +34,10 @@ from .v1_5_run_evidence_status import (
 
 
 SCHEMA = "v1_5_formal_archive_closure_v1"
+_WINDOWS_LEGACY_PATH_LIMIT = 260
+_LONGEST_PER_DEVICE_REPORT_RELATIVE_PATH = Path(
+    "reports/per_device_certificates/device_000_calibration_certificate.docx"
+)
 DB_MODE_CHOICES = ("skip", "dry_run", "import")
 
 
@@ -84,6 +88,18 @@ def _archive_dirs_to_exclude(root: Path, *, keep: Path | None = None) -> Sequenc
         if _is_archive_closure_dir(child):
             excluded.append(child.resolve())
     return excluded
+
+
+def _validate_report_path_budget(closure_dir: Path) -> None:
+    longest_expected = closure_dir / _LONGEST_PER_DEVICE_REPORT_RELATIVE_PATH
+    if len(str(longest_expected)) >= _WINDOWS_LEGACY_PATH_LIMIT:
+        raise ValueError(
+            "output_dir path is too long for V1.5 per-device certificate artifacts on Windows; "
+            "use a shorter archive output directory name, for example 'arc_stdgas'. "
+            f"longest_expected_path_length={len(str(longest_expected))}, "
+            f"limit={_WINDOWS_LEGACY_PATH_LIMIT}, "
+            f"longest_expected_path={longest_expected}"
+        )
 
 
 def _artifact_record(role: str, path: str | Path) -> Dict[str, Any]:
@@ -257,6 +273,7 @@ def build_v1_5_formal_archive_closure(
     closure_dir = Path(output_dir).resolve() if output_dir else root / "formal_archive_closure"
     if not _is_relative_to(closure_dir, root):
         raise ValueError("output_dir must be inside run_dir so generated reports can be indexed by the final bundle")
+    _validate_report_path_budget(closure_dir)
     closure_dir.mkdir(parents=True, exist_ok=True)
     working_plan_path, traceability_snapshot_paths = _plan_with_reviewed_standard_gases(
         plan_path=plan_path,
