@@ -97,6 +97,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="COM22 pressure-reference snapshot JSON for archive closure. Defaults to --pressure-reference-json.",
     )
     parser.add_argument(
+        "--archive-standard-gases-json",
+        default=None,
+        help="Reviewed standard-gases JSON for archive closure. Defaults to --standard-gases-json.",
+    )
+    parser.add_argument(
         "--archive-output-dir",
         default=None,
         help="Archive closure output directory. Must be inside reviewed-run-dir.",
@@ -267,6 +272,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     latest_evidence_bundle_json = args.evidence_bundle_json
     if args.archive_closure:
         pressure_reference_json = args.archive_pressure_reference_json or args.pressure_reference_json
+        archive_standard_gases_json = args.archive_standard_gases_json or args.standard_gases_json
         missing = []
         if not args.reviewed_run_dir:
             missing.append("--reviewed-run-dir")
@@ -290,6 +296,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             run_dir=status_run_dir,
             plan_json=args.archive_plan_json,
             pressure_reference_json=pressure_reference_json,
+            standard_gases_json=archive_standard_gases_json,
             output_dir=archive_output_dir,
             pressure_check_csv=args.archive_pressure_check_csv,
             component=args.archive_component,

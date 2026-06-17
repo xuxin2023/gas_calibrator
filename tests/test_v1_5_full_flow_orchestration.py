@@ -652,6 +652,40 @@ def test_full_flow_cli_can_generate_offline_archive_closure_for_reviewed_run(tmp
     out = tmp_path / "flow"
     run_dir = canonical["root"] / "run"
     archive_dir = run_dir / "formal_archive_from_full_chain"
+    reviewed_standard_gases = tmp_path / "reviewed_standard_gases.json"
+    reviewed_standard_gases.write_text(
+        json.dumps(
+            {
+                "standard_gases": [
+                    {
+                        "component": "CO2",
+                        "cylinder_id": "CO2-REVIEWED-FULL-FLOW",
+                        "certificate_value": 897.04,
+                        "unit": "ppm",
+                        "uncertainty": 1.0,
+                        "uncertainty_k": 2,
+                        "certificate_id": "CERT-CO2-FULL-FLOW",
+                        "certificate_hash": "reviewed-co2-full-flow-hash",
+                        "valid_until": "2027-03-03",
+                    },
+                    {
+                        "component": "H2O",
+                        "cylinder_id": "H2O-REVIEWED-FULL-FLOW",
+                        "certificate_value": 5.0,
+                        "unit": "mmol/mol",
+                        "uncertainty": 2.0,
+                        "uncertainty_k": 2,
+                        "certificate_id": "CERT-H2O-FULL-FLOW",
+                        "certificate_hash": "reviewed-h2o-full-flow-hash",
+                        "valid_until": "2027-03-03",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     rc = cli_main(
         [
@@ -668,6 +702,8 @@ def test_full_flow_cli_can_generate_offline_archive_closure_for_reviewed_run(tmp
             "--archive-closure",
             "--archive-plan-json",
             str(canonical["plan"]),
+            "--archive-standard-gases-json",
+            str(reviewed_standard_gases),
             "--archive-output-dir",
             str(archive_dir),
             "--archive-db-mode",
@@ -698,6 +734,9 @@ def test_full_flow_cli_can_generate_offline_archive_closure_for_reviewed_run(tmp
     archive_index = json.loads(archive_index_path.read_text(encoding="utf-8"))
     assert archive_index["database"]["mode"] == "dry_run"
     assert archive_index["database"]["database_imported"] is False
+    assert archive_index["standard_gases_json"] == str(reviewed_standard_gases.resolve())
+    assert (archive_dir / "standard_gases_reviewed_snapshot.json").exists()
+    assert (archive_dir / "formal_plan_snapshot_with_standard_gases.json").exists()
     assert archive_index["physical_boundaries"]["opens_com_ports"] is False
     assert archive_index["physical_boundaries"]["controls_water_or_gas_routes"] is False
     assert archive_index["physical_boundaries"]["writes_coefficients"] is False
@@ -709,6 +748,15 @@ def test_full_flow_cli_can_generate_offline_archive_closure_for_reviewed_run(tmp
     assert {"run_report", "technical_report", "formal_calibration_report", "report_model"}.issubset(
         report_types
     )
+    gas_rows = bundle["tables"]["standard_gases"]
+    assert {row["cylinder_id"] for row in gas_rows} == {
+        "CO2-REVIEWED-FULL-FLOW",
+        "H2O-REVIEWED-FULL-FLOW",
+    }
+    assert {row["certificate_hash"] for row in gas_rows} == {
+        "reviewed-co2-full-flow-hash",
+        "reviewed-h2o-full-flow-hash",
+    }
     evidence_status = json.loads((out / "v1_5_run_evidence_status.json").read_text(encoding="utf-8"))
     assert evidence_status["physical_boundaries"]["opens_com_ports"] is False
     assert evidence_status["physical_boundaries"]["writes_coefficients"] is False

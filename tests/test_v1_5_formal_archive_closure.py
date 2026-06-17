@@ -22,6 +22,33 @@ def _write_contract(path):
     return path
 
 
+def _reviewed_standard_gases():
+    return {
+        "standard_gases": [
+            {
+                "component": "co2",
+                "cylinder_id": "CO2-900",
+                "certificate_id": "CO2-CERT-REVIEWED",
+                "certificate_value": 900.0,
+                "certificate_uncertainty": 0.9,
+                "valid_until": "2027-01-01",
+                "supplier": "reviewed-standard-lab",
+                "certificate_hash": "reviewed-co2-cert-hash",
+            },
+            {
+                "component": "h2o",
+                "cylinder_id": "H2O-GEN-REVIEWED",
+                "certificate_id": "H2O-CERT-REVIEWED",
+                "certificate_value": 0.5,
+                "certificate_uncertainty": 0.01,
+                "valid_until": "2027-01-01",
+                "supplier": "reviewed-standard-lab",
+                "certificate_hash": "reviewed-h2o-cert-hash",
+            },
+        ],
+    }
+
+
 def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_run_db(tmp_path):
     canonical = write_canonical_v1_5_evidence_package(
         tmp_path / "canonical",
@@ -91,6 +118,49 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
     assert "V1.5 正式归档闭环索引" in index_text
     assert "控制气路/水路" not in index_text
     assert "controls_water_or_gas_routes" in index_text
+
+
+def test_formal_archive_closure_can_bind_reviewed_standard_gas_snapshot(tmp_path):
+    canonical = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical_reviewed_gases",
+        include_reports=False,
+    )
+    run_dir = canonical["root"] / "run"
+    closure_dir = run_dir / "formal_archive_closure_reviewed_gases"
+    contract_path = _write_contract(run_dir / "v1_5_formal_flow_contract.json")
+    source_plan = json.loads(canonical["plan"].read_text(encoding="utf-8"))
+    source_plan.pop("standard_gases", None)
+    plan_without_gases = run_dir / "formal_plan_without_standard_gases.json"
+    plan_without_gases.write_text(json.dumps(source_plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    gases_path = run_dir / "standard_gases_reviewed.json"
+    gases_path.write_text(json.dumps(_reviewed_standard_gases(), ensure_ascii=False), encoding="utf-8")
+
+    result = build_v1_5_formal_archive_closure(
+        run_dir=run_dir,
+        plan_json=plan_without_gases,
+        pressure_reference_json=canonical["pressure_reference"],
+        standard_gases_json=gases_path,
+        contract_json=contract_path,
+        output_dir=closure_dir,
+        today="2026-05-24",
+        report_no="RPT-CLOSURE-GASES",
+        db_mode="dry_run",
+    )
+
+    index = result["index"]
+    paths = result["paths"]
+    traceability = json.loads(paths["traceability_summary"].read_text(encoding="utf-8"))
+    final_bundle = json.loads(paths["evidence_bundle"].read_text(encoding="utf-8"))
+    gases = {row["component"]: row for row in final_bundle["tables"]["standard_gases"]}
+
+    assert index["source_plan_json"] == str(plan_without_gases.resolve())
+    assert index["standard_gases_json"] == str(gases_path.resolve())
+    assert paths["standard_gases_reviewed_snapshot"].exists()
+    assert paths["formal_plan_with_standard_gases"].exists()
+    assert traceability["traceability_checks"]["has_standard_gas_traceability"] is True
+    assert traceability["traceability_checks"]["has_water_route_traceability"] is True
+    assert gases["co2"]["certificate_hash"] == "reviewed-co2-cert-hash"
+    assert gases["h2o"]["cylinder_id"] == "H2O-GEN-REVIEWED"
 
 
 def test_formal_archive_closure_cli_keeps_output_inside_run_dir(tmp_path):

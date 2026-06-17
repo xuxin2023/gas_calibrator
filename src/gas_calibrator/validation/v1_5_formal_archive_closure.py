@@ -104,6 +104,65 @@ def _artifact_records(paths: Mapping[str, Path]) -> list[Dict[str, Any]]:
     return rows
 
 
+def _load_reviewed_standard_gases(path: str | Path) -> list[Dict[str, Any]]:
+    source = Path(path).resolve()
+    payload = json.loads(source.read_text(encoding="utf-8-sig"))
+    gases = payload.get("standard_gases") if isinstance(payload, Mapping) else payload
+    if not isinstance(gases, Sequence) or isinstance(gases, (str, bytes, bytearray)):
+        raise ValueError("standard_gases_json must contain a list or a 'standard_gases' list")
+    rows = [dict(item) for item in gases if isinstance(item, Mapping)]
+    if not rows:
+        raise ValueError("standard_gases_json does not contain any standard gas rows")
+    return rows
+
+
+def _plan_with_reviewed_standard_gases(
+    *,
+    plan_path: Path,
+    standard_gases_json: str | Path | None,
+    closure_dir: Path,
+) -> tuple[Path, Dict[str, Path]]:
+    """Return an archive-local plan snapshot with explicit reviewed gas evidence."""
+
+    if not standard_gases_json:
+        return plan_path, {}
+    gases_source = Path(standard_gases_json).resolve()
+    gases = _load_reviewed_standard_gases(gases_source)
+    gas_snapshot = {
+        "schema": "v1_5_reviewed_standard_gases_snapshot_v1",
+        "created_at": _now(),
+        "source_path": str(gases_source),
+        "source_sha256": sha256_file(gases_source),
+        "standard_gases": gases,
+        "physical_meaning": (
+            "Reviewed standard-gas and H2O reference rows used to bind the V1.5 evidence "
+            "bundle to traceable CO2/H2O input quantities. This snapshot is archive-only "
+            "and does not infer certificate values from sample data."
+        ),
+    }
+    gas_snapshot_path = _write_json(closure_dir / "standard_gases_reviewed_snapshot.json", gas_snapshot)
+
+    plan = json.loads(plan_path.read_text(encoding="utf-8-sig"))
+    if not isinstance(plan, Mapping):
+        raise ValueError("plan_json must contain a JSON object")
+    merged_plan = dict(plan)
+    merged_plan["standard_gases"] = gases
+    traceability_sources = dict(merged_plan.get("traceability_sources") or {})
+    traceability_sources["standard_gases_json"] = {
+        "path": str(gases_source),
+        "sha256": sha256_file(gases_source),
+        "snapshot_path": str(gas_snapshot_path),
+        "reviewed": True,
+    }
+    merged_plan["traceability_sources"] = traceability_sources
+    merged_plan["archive_standard_gases_snapshot"] = str(gas_snapshot_path)
+    merged_plan_path = _write_json(closure_dir / "formal_plan_snapshot_with_standard_gases.json", merged_plan)
+    return merged_plan_path, {
+        "standard_gases_reviewed_snapshot": gas_snapshot_path,
+        "formal_plan_with_standard_gases": merged_plan_path,
+    }
+
+
 def _render_markdown_zh(index: Mapping[str, Any]) -> str:
     lines = [
         "# V1.5 \u6b63\u5f0f\u5f52\u6863\u95ed\u73af\u7d22\u5f15",
@@ -166,6 +225,7 @@ def build_v1_5_formal_archive_closure(
     run_dir: str | Path,
     plan_json: str | Path,
     pressure_reference_json: str | Path,
+    standard_gases_json: str | Path | None = None,
     contract_json: str | Path | None = None,
     output_dir: str | Path | None = None,
     pressure_check_csv: str | Path | None = None,
@@ -198,10 +258,15 @@ def build_v1_5_formal_archive_closure(
     if not _is_relative_to(closure_dir, root):
         raise ValueError("output_dir must be inside run_dir so generated reports can be indexed by the final bundle")
     closure_dir.mkdir(parents=True, exist_ok=True)
+    working_plan_path, traceability_snapshot_paths = _plan_with_reviewed_standard_gases(
+        plan_path=plan_path,
+        standard_gases_json=standard_gases_json,
+        closure_dir=closure_dir,
+    )
 
     initial_bundle = build_evidence_bundle(
         run_dir=root,
-        plan_path=plan_path,
+        plan_path=working_plan_path,
         pressure_reference_path=pressure_reference_path,
         component=component,
         analyzer_prefix=analyzer_prefix,
@@ -226,7 +291,7 @@ def build_v1_5_formal_archive_closure(
 
     bundle_for_status = build_evidence_bundle(
         run_dir=root,
-        plan_path=plan_path,
+        plan_path=working_plan_path,
         pressure_reference_path=pressure_reference_path,
         component=component,
         analyzer_prefix=analyzer_prefix,
@@ -263,7 +328,7 @@ def build_v1_5_formal_archive_closure(
 
     final_bundle = build_evidence_bundle(
         run_dir=root,
-        plan_path=plan_path,
+        plan_path=working_plan_path,
         pressure_reference_path=pressure_reference_path,
         component=component,
         analyzer_prefix=analyzer_prefix,
@@ -312,13 +377,16 @@ def build_v1_5_formal_archive_closure(
         "calibration_capability_json": capability_json,
         "calibration_capability_markdown": capability_md,
     }
+    output_paths.update(traceability_snapshot_paths)
     output_paths.update({f"report_{key}": value for key, value in reports.items()})
 
     index_without_self = {
         "schema": SCHEMA,
         "created_at": _now(),
         "run_dir": str(root),
-        "plan_json": str(plan_path),
+        "plan_json": str(working_plan_path),
+        "source_plan_json": str(plan_path),
+        "standard_gases_json": str(Path(standard_gases_json).resolve()) if standard_gases_json else "",
         "pressure_reference_json": str(pressure_reference_path),
         "contract_json": str(contract_path) if contract_path else "",
         "output_dir": str(closure_dir),

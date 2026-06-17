@@ -21,6 +21,14 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--run-dir", required=True, help="Existing V1.5 run directory.")
     parser.add_argument("--plan-json", required=True, help="Formal calibration plan snapshot JSON.")
     parser.add_argument("--pressure-reference-json", required=True, help="COM22 pressure-reference snapshot JSON.")
+    parser.add_argument(
+        "--standard-gases-json",
+        default=None,
+        help=(
+            "Optional reviewed standard-gases JSON. When provided, archive closure writes an "
+            "archive-local plan snapshot with these gas/reference rows for traceability."
+        ),
+    )
     parser.add_argument("--contract-json", default=None, help="Optional v1_5_formal_flow_contract.json.")
     parser.add_argument("--output-dir", default=None, help="Closure output directory. Must be inside run-dir.")
     parser.add_argument("--pressure-check-csv", default=None, help="Optional pressure quick-check CSV or directory.")
@@ -61,6 +69,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             run_dir=args.run_dir,
             plan_json=args.plan_json,
             pressure_reference_json=args.pressure_reference_json,
+            standard_gases_json=args.standard_gases_json,
             contract_json=args.contract_json,
             output_dir=args.output_dir,
             pressure_check_csv=args.pressure_check_csv,
