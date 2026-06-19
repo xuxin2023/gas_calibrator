@@ -23,6 +23,10 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 from ..config import load_config
 from ..data.points import CalibrationPoint
 from ..logging_utils import RunLogger
+from ..validation.v1_5_h2o_queue_failure_audit import (
+    audit_and_write as _audit_h2o_queue_failures,
+    classify_point_failure_from_log as _classify_point_failure_from_log,
+)
 from ..validation.v1_5_open_flow_purge_contract import resolve_v1_5_open_flow_purge
 from ..workflow.runner import CalibrationRunner
 from .run_headless import _build_devices, _close_devices
@@ -31,6 +35,7 @@ from .run_v1_5_formal_h2o_open_flow_sampling import (
     _safe_stop_humidity_generator,
 )
 from .run_v1_5_formal_open_flow_sampling import (
+    FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
     _apply_analyzer_acquisition_policy,
     _defer_startup_mode2_disabled_analyzers,
 )
@@ -68,6 +73,15 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     ftd_group.add_argument("--allow-ftd-write", dest="allow_ftd_write", action="store_true", default=True)
     ftd_group.add_argument("--no-ftd-write", dest="allow_ftd_write", action="store_false")
     parser.add_argument("--min-valid-analyzers", type=int, default=1)
+    parser.add_argument(
+        "--analyzer-gate-prefer-all-stable-grace-s",
+        type=float,
+        default=FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
+        help=(
+            "After min-valid analyzers become stable, wait this many seconds for the remaining "
+            "analyzers to become stable before accepting the point with independent grading."
+        ),
+    )
     parser.add_argument(
         "--h2o-pressure-presample-policy",
         choices=("warn", "fail", "skip"),
@@ -636,6 +650,8 @@ def _build_point_command(
         acquisition,
         "--min-valid-analyzers",
         str(int(args.min_valid_analyzers)),
+        "--analyzer-gate-prefer-all-stable-grace-s",
+        _format_value(args.analyzer_gate_prefer_all_stable_grace_s),
         "--h2o-pressure-presample-policy",
         str(args.h2o_pressure_presample_policy),
         "--no-prompt",
@@ -759,6 +775,22 @@ def _write_queue_exclusion_evidence(
         + "\n",
         encoding="utf-8",
     )
+
+
+def _write_queue_failure_audit(queue_dir: Path) -> Dict[str, Any]:
+    """Write log-based H2O queue failure audit artifacts."""
+
+    manifest_path = Path(queue_dir) / "queue_manifest.csv"
+    output_dir = Path(queue_dir) / "queue_failure_audit"
+    audit = _audit_h2o_queue_failures(manifest_path, output_dir)
+    return {
+        "status": "ok",
+        "output_dir": str(output_dir),
+        "total_points": audit.get("total_points"),
+        "status_counts": dict(audit.get("status_counts") or {}),
+        "failure_category_counts": dict(audit.get("failure_category_counts") or {}),
+        "outputs": dict(audit.get("outputs") or {}),
+    }
 
 
 def _point_run_id(*, index: int, temp_c: float, hgen_temp_c: float, hgen_rh_pct: float) -> str:
@@ -985,6 +1017,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             manifest_row["ended_at"] = datetime.now().isoformat(timespec="seconds")
             manifest_row["returncode"] = int(completed.returncode)
             manifest_row["status"] = "ok" if completed.returncode == 0 else "failed"
+            if completed.returncode != 0:
+                manifest_row.update(_classify_point_failure_from_log(point_log_path))
             _write_manifest_csv(queue_dir / "queue_manifest.csv", manifest_rows)
 
             if completed.returncode != 0:
@@ -1040,6 +1074,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             manifest_rows=manifest_rows,
             reason=abort_reason or "h2o_queue_failed",
         )
+    try:
+        queue_summary["failure_audit"] = _write_queue_failure_audit(queue_dir)
+    except Exception as exc:  # pragma: no cover - audit must not mask route shutdown evidence.
+        queue_summary["failure_audit"] = {
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     (queue_dir / "queue_summary.json").write_text(
         json.dumps(queue_summary, ensure_ascii=False, indent=2, default=str) + "\n",
         encoding="utf-8",

@@ -42,6 +42,17 @@ from ..validation.dewpoint_flush_gate import (
 from .tuning import workflow_param
 
 
+FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S = 1800.0
+
+
+def _cap_formal_open_flow_dewpoint_wait_s(value: Any, *, fallback: float = 300.0) -> float:
+    try:
+        resolved = float(value if value is not None else fallback)
+    except (TypeError, ValueError):
+        resolved = float(fallback)
+    return min(max(0.0, resolved), FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S)
+
+
 class StabilityWindow:
     """Sliding time window stability detector based on peak-to-peak value."""
 
@@ -10248,6 +10259,11 @@ class CalibrationRunner:
     def _refresh_live_analyzer_snapshots(self, *, force: bool = False, reason: str = "") -> None:
         cfg = self._live_snapshot_cfg()
         if not bool(cfg.get("enabled", True)):
+            return
+        if (
+            reason == "temperature target wait"
+            and not bool(cfg.get("refresh_during_temperature_target_wait", False))
+        ):
             return
         analyzers = self._all_gas_analyzers()
         if not analyzers:
@@ -25598,6 +25614,10 @@ class CalibrationRunner:
         invalid_frame_min_count = max(1, int(policy.get("invalid_frame_min_count") or 1))
         silent_timeout_s = max(0.0, float(policy.get("silent_timeout_s") or 0.0))
         wait_full_timeout_for_optional = bool(policy.get("wait_full_timeout_for_optional", False))
+        prefer_all_stable_grace_s = max(
+            0.0,
+            float(policy.get("prefer_all_stable_grace_s") or 0.0),
+        )
         spike_filter_enabled = bool(
             policy.get(
                 "spike_filter_enabled",
@@ -25638,6 +25658,7 @@ class CalibrationRunner:
             for label in analyzer_labels
         }
         dropped_reasons: Dict[str, str] = {}
+        min_valid_first_met_at: Optional[float] = None
 
         def _analyzer_gate_json(value: Any) -> str:
             return json.dumps(value, ensure_ascii=False, sort_keys=True)
@@ -25699,6 +25720,12 @@ class CalibrationRunner:
                         dropped_reasons and allow_pass_with_dropped_optional
                     ),
                     "analyzer_gate_max_wait_s": timeout_s,
+                    "analyzer_gate_prefer_all_stable_grace_s": prefer_all_stable_grace_s,
+                    "analyzer_gate_prefer_all_stable_grace_elapsed_s": (
+                        None
+                        if min_valid_first_met_at is None
+                        else max(0.0, time.time() - min_valid_first_met_at)
+                    ),
                     "analyzer_gate_zero_value_policy": zero_value_policy,
                     "analyzer_gate_drop_summary": _analyzer_gate_json(dropped_reasons),
                     "analyzer_gate_per_analyzer_status": _analyzer_gate_json(public_states),
@@ -25892,12 +25919,43 @@ class CalibrationRunner:
                             if not bool(per_label.get(label, {}).get("dropped"))
                         ]
                     )
+                    if valid_stable_count >= active_count:
+                        reason = "all_active_stable"
+                        if dropped_reasons and allow_pass_with_dropped_optional:
+                            reason = "all_active_stable_with_dropped_optional"
+                        _publish_analyzer_gate_result(reason)
+                        self.log(
+                            "Sensor stable (analyzer gate all-active "
+                            f"{key}: stable={','.join(stable_labels)} "
+                            f"dropped={','.join(dropped_reasons.keys()) or 'none'} "
+                            f"min_valid={min_valid_analyzers})"
+                        )
+                        return True
+                    if min_valid_first_met_at is None:
+                        min_valid_first_met_at = time.time()
+                        if prefer_all_stable_grace_s > 0 and not wait_full_timeout_for_optional:
+                            self.log(
+                                "Sensor analyzer gate min-valid reached; waiting for remaining analyzers "
+                                f"up to {prefer_all_stable_grace_s:.1f}s before accepting min-valid "
+                                f"({key}: stable={','.join(stable_labels)} active={active_count})"
+                            )
+                    grace_elapsed_s = max(0.0, time.time() - min_valid_first_met_at)
                     if wait_full_timeout_for_optional and valid_stable_count < active_count:
                         all_stable = False
+                    elif (
+                        prefer_all_stable_grace_s > 0
+                        and valid_stable_count < active_count
+                        and grace_elapsed_s < prefer_all_stable_grace_s
+                    ):
+                        all_stable = False
                     else:
-                        reason = "min_valid_met"
+                        reason = (
+                            "min_valid_met_after_prefer_all_grace"
+                            if prefer_all_stable_grace_s > 0 and valid_stable_count < active_count
+                            else "min_valid_met"
+                        )
                         if dropped_reasons and allow_pass_with_dropped_optional:
-                            reason = "min_valid_met_with_dropped_optional"
+                            reason = f"{reason}_with_dropped_optional"
                         _publish_analyzer_gate_result(reason)
                         self.log(
                             "Sensor stable (analyzer gate min-valid "
@@ -25906,6 +25964,8 @@ class CalibrationRunner:
                             f"min_valid={min_valid_analyzers})"
                         )
                         return True
+                else:
+                    min_valid_first_met_at = None
 
             if all_stable and len(stable_snapshot) == len(analyzers):
                 summary = " ".join(
@@ -27426,27 +27486,32 @@ class CalibrationRunner:
                         f"run_state={timeout_run_state}, reason=hard_max_wait_exceeded"
                     )
                     return False
-                close_to_target = (
+                close_to_target_now = (
                     near_target_continue_margin_c > 0
                     and last_temp is not None
-                    and abs(float(last_temp) - float(target_c)) <= float(near_target_continue_margin_c)
+                    and abs(float(last_temp) - float(target_c)) < float(near_target_continue_margin_c)
                 )
+                close_to_target_seen = (
+                    near_target_continue_margin_c > 0
+                    and best_abs_error is not None
+                    and float(best_abs_error) < float(near_target_continue_margin_c)
+                )
+                close_to_target = close_to_target_now or close_to_target_seen
                 close_to_target_still_allowed = (
                     close_to_target
-                    and (
-                        elapsed_s < timeout_s
-                        or last_progress_age_s <= float(progress_window_s)
-                    )
+                    and continue_wait_while_progress
                 )
                 if close_to_target_still_allowed:
                     if last_near_target_log_ts is None or (now - last_near_target_log_ts) >= 60.0:
                         last_near_target_log_ts = now
+                        best_error_text = f"{best_abs_error:.2f}" if best_abs_error is not None else "NA"
                         self.log(
                             "Chamber close to target; continue waiting for target-band entry "
                             "instead of treating slow thermal oscillation as stalled: "
                             f"target={target_c:.2f}, last_temp={last_temp}, "
                             f"tol={tol:.2f}, near_target_continue_margin="
                             f"{float(near_target_continue_margin_c):.2f}, "
+                            f"best_abs_error={best_error_text}, "
                             f"last_progress_age_s={last_progress_age_s:.1f}"
                         )
                     time.sleep(1.0)
@@ -28057,9 +28122,9 @@ class CalibrationRunner:
             "enabled": self._gas_route_dewpoint_gate_enabled(),
             "policy": self._gas_route_dewpoint_gate_policy(),
             "window_s": window_s,
-            "max_total_wait_s": max(
-                0.0,
-                float(self._wf("workflow.stability.gas_route_dewpoint_gate_max_total_wait_s", 300.0) or 300.0),
+            "max_total_wait_s": _cap_formal_open_flow_dewpoint_wait_s(
+                self._wf("workflow.stability.gas_route_dewpoint_gate_max_total_wait_s", 300.0),
+                fallback=300.0,
             ),
             "poll_s": poll_s,
             "tail_min_samples": max(
@@ -28110,6 +28175,16 @@ class CalibrationRunner:
                     or 0.005
                 ),
             ),
+            "deep_dry_tail_relax_margin_c": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.stability.gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c",
+                        4.0,
+                    )
+                    or 0.0
+                ),
+            ),
             "rebound_window_s": max(
                 1.0,
                 float(self._wf("workflow.stability.gas_route_dewpoint_gate_rebound_window_s", 180.0) or 180.0),
@@ -28147,15 +28222,12 @@ class CalibrationRunner:
                     or 60.0
                 ),
             ),
-            "max_total_wait_s": max(
-                0.0,
-                float(
-                    self._wf(
-                        "workflow.stability.water_route_dewpoint_gate_max_total_wait_s",
-                        self._wf("workflow.stability.gas_route_dewpoint_gate_max_total_wait_s", 300.0),
-                    )
-                    or 300.0
+            "max_total_wait_s": _cap_formal_open_flow_dewpoint_wait_s(
+                self._wf(
+                    "workflow.stability.water_route_dewpoint_gate_max_total_wait_s",
+                    self._wf("workflow.stability.gas_route_dewpoint_gate_max_total_wait_s", 300.0),
                 ),
+                fallback=300.0,
             ),
             "poll_s": max(
                 0.2,
@@ -28665,6 +28737,12 @@ class CalibrationRunner:
             "dewpoint_gate_tail_max_gap_s",
             "dewpoint_gate_tail_reference_method",
             "dewpoint_gate_tail_reference_c",
+            "dewpoint_gate_deep_dry_tail_relax_enabled",
+            "dewpoint_gate_deep_dry_tail_relax_margin_c",
+            "dewpoint_gate_deep_dry_threshold_c",
+            "dewpoint_gate_deep_dry_tail_all_passed",
+            "dewpoint_gate_deep_dry_tail_direction_ok",
+            "dewpoint_gate_deep_dry_tail_relax_applied",
             "dewpoint_gate_rebound_warning_only",
             "dewpoint_gate_require_dry_enough",
             "dewpoint_gate_dry_enough_c",
@@ -28818,6 +28896,9 @@ class CalibrationRunner:
                 min_tail_coverage_ratio=float(cfg["tail_min_coverage_ratio"]),
                 max_tail_gap_s=float(cfg["tail_max_gap_s"]),
                 tail_reference_method=str(cfg["tail_reference_method"] or "median"),
+                deep_dry_tail_relax_margin_c=self._as_float(
+                    cfg.get("deep_dry_tail_relax_margin_c")
+                ),
             )
             dewpoint_tail_span_60s = self._as_float(gate_eval.get("dewpoint_tail_span_60s"))
             dewpoint_tail_slope_60s = self._as_float(gate_eval.get("dewpoint_tail_slope_60s"))
@@ -30166,7 +30247,11 @@ class CalibrationRunner:
             self.log("CO2 preseal analyzer stability gate skipped: sensor stability disabled by configuration")
             return True
 
-        tol = float(sensor_cfg.get("co2_ratio_f_preseal_tol", sensor_cfg.get("co2_ratio_f_tol", 0.001)))
+        hard_tol = float(sensor_cfg.get("co2_ratio_f_preseal_tol", sensor_cfg.get("co2_ratio_f_tol", 0.001)))
+        a_grade_tol = float(sensor_cfg.get("co2_ratio_f_preseal_a_grade_tol", hard_tol) or hard_tol)
+        if a_grade_tol <= 0:
+            a_grade_tol = hard_tol
+        tol = min(hard_tol, a_grade_tol)
         window_s = float(sensor_cfg.get("co2_ratio_f_preseal_window_s", sensor_cfg.get("window_s", 30)))
         timeout_s = float(sensor_cfg.get("co2_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300)))
         min_samples = max(2, int(sensor_cfg.get("co2_ratio_f_preseal_min_samples", 10)))
@@ -30213,6 +30298,9 @@ class CalibrationRunner:
                 stability_cfg.get("analyzer_gate_wait_full_timeout_for_optional"),
                 False,
             ),
+            "prefer_all_stable_grace_s": float(
+                stability_cfg.get("analyzer_gate_prefer_all_stable_grace_s", 0.0) or 0.0
+            ),
             "spike_filter_enabled": self._as_bool(
                 stability_cfg.get("analyzer_gate_spike_filter_enabled"),
                 True,
@@ -30258,6 +30346,10 @@ class CalibrationRunner:
             point,
             phase="co2",
             analyzer_gate_begin_ts=analyzer_gate_begin_ts,
+            analyzer_gate_ratio_fit_quality_target="A",
+            analyzer_gate_ratio_a_grade_tol=a_grade_tol,
+            analyzer_gate_ratio_hard_tol=hard_tol,
+            analyzer_gate_ratio_effective_tol=tol,
         )
         fresh_reset_result: Dict[str, Any] = {}
         if self._as_bool(sensor_cfg.get("co2_ratio_f_preseal_flush_active_stream_before_gate"), True):
@@ -30299,7 +30391,15 @@ class CalibrationRunner:
                 "analyzer_gate_required_labels": ",".join(analyzer_gate_policy.get("required_labels") or []),
                 "analyzer_gate_optional_labels": ",".join(analyzer_gate_policy.get("optional_labels") or []),
                 "analyzer_gate_max_wait_s": timeout_s,
+                "analyzer_gate_prefer_all_stable_grace_s": analyzer_gate_policy.get(
+                    "prefer_all_stable_grace_s"
+                )
+                or "",
                 "analyzer_gate_zero_value_policy": analyzer_gate_policy.get("zero_value_policy") or "",
+                "analyzer_gate_ratio_fit_quality_target": "A",
+                "analyzer_gate_ratio_a_grade_tol": a_grade_tol,
+                "analyzer_gate_ratio_hard_tol": hard_tol,
+                "analyzer_gate_ratio_effective_tol": tol,
                 "analyzer_gate_fresh_frame_reset": bool(fresh_reset_result),
                 "analyzer_gate_fresh_frame_reset_flushed_labels": ",".join(
                     fresh_reset_result.get("flushed_labels") or []
@@ -30314,7 +30414,8 @@ class CalibrationRunner:
                 **raw_tap_begin,
             },
             note=(
-                f"key=co2_ratio_f tol={tol:.6f} window_s={window_s:.3f} "
+                f"key=co2_ratio_f fit_quality_target=A tol={tol:.6f} "
+                f"a_grade_tol={a_grade_tol:.6f} hard_tol={hard_tol:.6f} window_s={window_s:.3f} "
                 f"timeout_s={timeout_s:.3f} min_samples={min_samples} "
                 f"read_interval_s={read_interval_s:.3f} policy={policy}"
             ),
@@ -30390,6 +30491,12 @@ class CalibrationRunner:
             phase="co2",
             analyzer_gate_end_ts=analyzer_gate_end_ts,
             analyzer_gate_elapsed_s=analyzer_gate_elapsed_s,
+            analyzer_gate_ratio_fit_quality_target="A",
+            analyzer_gate_ratio_a_grade_tol=a_grade_tol,
+            analyzer_gate_ratio_hard_tol=hard_tol,
+            analyzer_gate_ratio_effective_tol=tol,
+            analyzer_gate_fit_quality_grade="A" if stable else "not_a",
+            analyzer_gate_a_grade_target_passed=bool(stable),
             **dewpoint_monitor_summary,
             **analyzer_gate_result,
         )
@@ -30410,13 +30517,20 @@ class CalibrationRunner:
                 "analyzer_gate_elapsed_s": analyzer_gate_elapsed_s,
                 **dewpoint_monitor_summary,
                 **analyzer_gate_result,
+                "analyzer_gate_ratio_fit_quality_target": "A",
+                "analyzer_gate_ratio_a_grade_tol": a_grade_tol,
+                "analyzer_gate_ratio_hard_tol": hard_tol,
+                "analyzer_gate_ratio_effective_tol": tol,
+                "analyzer_gate_fit_quality_grade": "A" if stable else "not_a",
+                "analyzer_gate_a_grade_target_passed": bool(stable),
                 **raw_tap_summary,
                 "final_decision": self._controlled_exit_final_decision
                 if not stable and getattr(self, "_controlled_exit_final_decision", "")
                 else "",
             },
             note=(
-                f"result={'pass' if stable else 'fail'} key=co2_ratio_f tol={tol:.6f} "
+                f"result={'pass' if stable else 'fail'} key=co2_ratio_f fit_quality_target=A "
+                f"tol={tol:.6f} a_grade_tol={a_grade_tol:.6f} hard_tol={hard_tol:.6f} "
                 f"window_s={window_s:.3f} timeout_s={timeout_s:.3f} min_samples={min_samples} "
                 f"policy={policy}"
             ),
@@ -30587,7 +30701,13 @@ class CalibrationRunner:
             self.log("H2O precondition analyzer stability gate skipped: sensor stability disabled by configuration")
             return True
 
-        tol = float(sensor_cfg.get("h2o_ratio_f_preseal_tol", sensor_cfg.get("h2o_ratio_f_tol", 0.001)))
+        base_tol = float(sensor_cfg.get("h2o_ratio_f_tol", sensor_cfg.get("h2o_ratio_raw_tol", 0.001)) or 0.001)
+        configured_tol = float(sensor_cfg.get("h2o_ratio_f_preseal_tol", base_tol) or base_tol)
+        hard_tol = min(configured_tol, base_tol)
+        a_grade_tol = float(sensor_cfg.get("h2o_ratio_f_preseal_a_grade_tol", hard_tol) or hard_tol)
+        if a_grade_tol <= 0:
+            a_grade_tol = hard_tol
+        tol = min(hard_tol, a_grade_tol)
         window_s = float(sensor_cfg.get("h2o_ratio_f_preseal_window_s", sensor_cfg.get("window_s", 30)))
         timeout_s = float(sensor_cfg.get("h2o_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300)))
         min_samples = max(2, int(sensor_cfg.get("h2o_ratio_f_preseal_min_samples", 10)))
@@ -30631,6 +30751,9 @@ class CalibrationRunner:
                 stability_cfg.get("analyzer_gate_wait_full_timeout_for_optional"),
                 False,
             ),
+            "prefer_all_stable_grace_s": float(
+                stability_cfg.get("analyzer_gate_prefer_all_stable_grace_s", 0.0) or 0.0
+            ),
             "spike_filter_enabled": self._as_bool(
                 stability_cfg.get("analyzer_gate_spike_filter_enabled"),
                 True,
@@ -30649,10 +30772,12 @@ class CalibrationRunner:
                 int(stability_cfg.get("analyzer_gate_stable_min_samples", min_samples) or min_samples),
             )
         analyzer_gate_result: Dict[str, Any] = {}
-        policy_raw = sensor_cfg.get("h2o_ratio_f_preseal_policy", "warn")
-        policy = str(policy_raw or "warn").strip().lower()
+        policy_raw = sensor_cfg.get("h2o_ratio_f_preseal_policy", "reject")
+        policy = str(policy_raw or "reject").strip().lower()
         if policy not in {"reject", "warn", "pass"}:
-            policy = "warn"
+            policy = "reject"
+        if configured_tol > base_tol and policy == "warn":
+            policy = "reject"
         self._append_pressure_trace_row(
             point=point,
             route="h2o",
@@ -30665,10 +30790,20 @@ class CalibrationRunner:
                 "analyzer_gate_required_labels": ",".join(analyzer_gate_policy.get("required_labels") or []),
                 "analyzer_gate_optional_labels": ",".join(analyzer_gate_policy.get("optional_labels") or []),
                 "analyzer_gate_max_wait_s": timeout_s,
+                "analyzer_gate_prefer_all_stable_grace_s": analyzer_gate_policy.get(
+                    "prefer_all_stable_grace_s"
+                )
+                or "",
                 "analyzer_gate_zero_value_policy": analyzer_gate_policy.get("zero_value_policy") or "",
+                "analyzer_gate_ratio_fit_quality_target": "A",
+                "analyzer_gate_ratio_a_grade_tol": a_grade_tol,
+                "analyzer_gate_ratio_hard_tol": hard_tol,
+                "analyzer_gate_ratio_effective_tol": tol,
             },
             note=(
-                f"key=h2o_ratio_f tol={tol:.6f} window_s={window_s:.3f} "
+                f"key=h2o_ratio_f fit_quality_target=A tol={tol:.6f} "
+                f"a_grade_tol={a_grade_tol:.6f} hard_tol={hard_tol:.6f} "
+                f"configured_tol={configured_tol:.6f} base_tol={base_tol:.6f} "
                 f"timeout_s={timeout_s:.3f} min_samples={min_samples} "
                 f"read_interval_s={read_interval_s:.3f} policy={policy}"
             ),
@@ -30688,6 +30823,12 @@ class CalibrationRunner:
         self._set_point_runtime_fields(
             point,
             phase="h2o",
+            analyzer_gate_ratio_fit_quality_target="A",
+            analyzer_gate_ratio_a_grade_tol=a_grade_tol,
+            analyzer_gate_ratio_hard_tol=hard_tol,
+            analyzer_gate_ratio_effective_tol=tol,
+            analyzer_gate_fit_quality_grade="A" if stable else "not_a",
+            analyzer_gate_a_grade_target_passed=bool(stable),
             **analyzer_gate_result,
         )
         self._append_pressure_trace_row(
@@ -30697,9 +30838,18 @@ class CalibrationRunner:
             trace_stage="h2o_precondition_analyzer_gate_end",
             pressure_target_hpa=point.target_pressure_hpa,
             refresh_pace_state=False,
-            extra_fields=analyzer_gate_result,
+            extra_fields={
+                **analyzer_gate_result,
+                "analyzer_gate_ratio_fit_quality_target": "A",
+                "analyzer_gate_ratio_a_grade_tol": a_grade_tol,
+                "analyzer_gate_ratio_hard_tol": hard_tol,
+                "analyzer_gate_ratio_effective_tol": tol,
+                "analyzer_gate_fit_quality_grade": "A" if stable else "not_a",
+                "analyzer_gate_a_grade_target_passed": bool(stable),
+            },
             note=(
-                f"result={'pass' if stable else 'fail'} key=h2o_ratio_f tol={tol:.6f} "
+                f"result={'pass' if stable else 'fail'} key=h2o_ratio_f fit_quality_target=A "
+                f"tol={tol:.6f} a_grade_tol={a_grade_tol:.6f} hard_tol={hard_tol:.6f} "
                 f"window_s={window_s:.3f} timeout_s={timeout_s:.3f} min_samples={min_samples} "
                 f"policy={policy}"
             ),

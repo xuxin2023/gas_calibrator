@@ -47,6 +47,9 @@ def test_formal_initialization_plan_freezes_getco_and_keeps_planner_safe(tmp_pat
         "subordinate_read_only_identity_and_getco_snapshot"
     )
     assert plan.tool_ownership["controlled_writers"]["role"] == "subordinate_authorized_write_tools"
+    assert plan.tool_ownership["formal_route_readiness_probe"]["role"] == (
+        "subordinate_initialization_route_readiness_probe"
+    )
 
     getco = next(step for step in plan.steps if step.step_id == "identity_and_getco_epoch0_snapshot")
     command = list(getco.command)
@@ -98,11 +101,17 @@ def test_formal_initialization_records_s7_s8_and_s9_physical_policies(tmp_path):
 
     current_temp_gate = next(step for step in plan.steps if step.step_id == "temperature_current_point_review_gate")
     pressure_gate = next(step for step in plan.steps if step.step_id == "senco9_pressure_policy_gate")
+    route_gate = next(step for step in plan.steps if step.step_id == "formal_route_readiness_probe")
     assert "sub-zero" in current_temp_gate.physical_meaning
     assert current_temp_gate.writes_coefficients is False
     assert "old_component_coefficients_snapshot.json" in " ".join(current_temp_gate.command or ())
     assert "multi-pressure calibration" in pressure_gate.physical_meaning
     assert pressure_gate.execution_mode == "clear_only_when_pressure_channel_is_fixed_or_prior_s9_is_untrustworthy"
+    assert "chamber soak" in route_gate.physical_meaning
+    assert route_gate.opens_com_ports is True
+    assert route_gate.controls_gas_route is False
+    assert route_gate.controls_water_route is False
+    assert "run_v1_5_formal_route_readiness_probe" in " ".join(route_gate.command or ())
 
 
 def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
@@ -132,7 +141,9 @@ def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
         "temperature_current_point_review_gate",
         "temperature_current_point_single_point_repair_gate",
         "senco9_pressure_policy_gate",
+        "pressure_channel_completion_audit",
         "mode2_1hz_filter_startup_contract",
+        "formal_route_readiness_probe",
         "initialization_readiness_audit",
     ]
 
@@ -144,6 +155,8 @@ def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
     assert "# CONTROLLED WRITE GATE" in ps1
     assert "# python -m gas_calibrator.tools.run_v1_5_co2_senco5_neutral_controlled_write" in ps1
     assert "export_v1_5_initialization_readiness" in ps1
+    assert "run_v1_5_formal_route_readiness_probe" in ps1
+    assert "pressure_channel_completion_audit" in ps1
     assert "--readback-retry-delay-s 1.2" in ps1
     assert "--coefficient-read-delay-s 1.2" in ps1
 
@@ -270,6 +283,57 @@ def test_formal_initialization_executor_runs_only_offline_without_unlocks(tmp_pa
     assert execution_outputs["execution_csv"].exists()
 
 
+def test_formal_initialization_executor_exports_pressure_completion_before_readiness_when_paths_are_supplied(tmp_path):
+    config = _write_config(tmp_path / "runtime.json")
+    out = tmp_path / "exec_pressure_completion"
+    pressure_inputs = tmp_path / "pressure_inputs"
+    pressure_inputs.mkdir()
+    senco9_write = pressure_inputs / "senco9_write_summary.csv"
+    post_write = pressure_inputs / "pressure_fit_summary.csv"
+    reference = pressure_inputs / "com22_reference.json"
+    traceability = pressure_inputs / "com22_traceability.json"
+    for path in (senco9_write, post_write):
+        path.write_text("analyzer_id,status\n001,ready\n", encoding="utf-8")
+    reference.write_text(json.dumps({"device_id": "COM22"}, ensure_ascii=False), encoding="utf-8")
+    traceability.write_text(json.dumps({"certificate_id": "demo"}, ensure_ascii=False), encoding="utf-8")
+    plan = build_formal_initialization_plan(
+        config_path=config,
+        output_dir=out,
+        run_id="demo",
+        pressure_completion_senco9_write_summary=senco9_write,
+        pressure_completion_post_write_fit_summary=post_write,
+        pressure_completion_reference_json=reference,
+        pressure_completion_reference_traceability=traceability,
+        pressure_completion_device_ids=("001",),
+        pressure_completion_known_limitations=("090_command_chain_blocked|excluded|observe only|diagnostic"),
+    )
+    outputs = write_formal_initialization_plan(plan)
+    calls = []
+
+    def fake_runner(command, **_kwargs):
+        calls.append(tuple(command))
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    report, _execution_outputs = execute_formal_initialization_plan(
+        plan,
+        outputs=outputs,
+        command_runner=fake_runner,
+        selected_steps=("pressure_channel_completion_audit", "initialization_readiness_audit"),
+        stop_on_failure=False,
+    )
+
+    assert report.status == "passed"
+    joined = [" ".join(command) for command in calls]
+    assert len(calls) == 2
+    assert "export_v1_5_pressure_channel_completion" in joined[0]
+    assert "export_v1_5_initialization_readiness" in joined[1]
+    assert "--device-id 001" in joined[0]
+    by_step = {row.step_id: row for row in report.step_results}
+    assert by_step["pressure_channel_completion_audit"].status == "passed"
+    assert by_step["pressure_channel_completion_audit"].opens_com_ports is False
+    assert by_step["pressure_channel_completion_audit"].writes_coefficients is False
+
+
 def test_formal_initialization_executor_read_only_unlock_does_not_run_writers(tmp_path):
     config = _write_config(tmp_path / "runtime.json")
     out = tmp_path / "exec_readonly"
@@ -293,6 +357,7 @@ def test_formal_initialization_executor_read_only_unlock_does_not_run_writers(tm
     joined = [" ".join(command) for command in calls]
     assert any("probe_v1_5_getco_component_snapshot" in command for command in joined)
     assert any("run_v1_5_temperature_current_point_review" in command for command in joined)
+    assert any("run_v1_5_formal_route_readiness_probe" in command for command in joined)
     assert any("export_v1_5_initialization_readiness" in command for command in joined)
     assert not any("controlled_write" in command for command in joined)
     by_step = {row.step_id: row for row in report.step_results}
@@ -355,7 +420,7 @@ def test_formal_initialization_executor_runs_controlled_writes_when_approved(tmp
 
     assert report.status == "passed"
     joined = [" ".join(command) for command in calls]
-    assert len(calls) == 7
+    assert len(calls) == 8
     assert any("run_v1_5_co2_senco5_neutral_controlled_write" in command for command in joined)
     assert any("run_v1_5_h2o_senco6_neutral_controlled_write" in command for command in joined)
     assert any("run_v1_5_temperature_current_point_review" in command for command in joined)

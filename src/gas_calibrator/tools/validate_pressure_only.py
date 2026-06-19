@@ -2081,6 +2081,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 if prefix == "ga01"
                 else f"pressure_channel_validation_{prefix}"
             )
+            output_dir.mkdir(parents=True, exist_ok=True)
             prefix_outputs = write_pressure_channel_report(
                 run_dir=logger.run_dir,
                 output_dir=output_dir,
@@ -2092,9 +2093,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 pressure_outputs = prefix_outputs
         pressure_outputs_all: Dict[str, Path] = {}
         if pressure_quick_check_all_path is not None:
+            pressure_channel_all_dir = logger.run_dir / "pressure_channel_validation_all"
+            pressure_channel_all_dir.mkdir(parents=True, exist_ok=True)
             pressure_outputs_all = write_pressure_channel_report(
                 run_dir=logger.run_dir,
-                output_dir=logger.run_dir / "pressure_channel_validation_all",
+                output_dir=pressure_channel_all_dir,
                 pressure_reference_path=args.pressure_reference_json,
                 samples_csv=pressure_quick_check_all_path,
                 analyzer_prefix="all",

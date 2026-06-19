@@ -324,7 +324,7 @@ def _is_supervised_stage_safe(
         return bool(allow_database_import)
     if step.opens_com_ports:
         return bool(allow_real_com) and step.execution_mode == "read_only_real_com_requires_authorization"
-    return step.execution_mode in {"offline_sidecar", "offline_review"}
+    return step.execution_mode.startswith("offline")
 
 
 def build_full_flow_state(
@@ -1218,6 +1218,49 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="pressure_channel_completion_audit",
+            title="Export pressure-channel completion package after SENCO9 write and post-write verification",
+            phase="PRESSURE_CHANNEL_COMPLETION",
+            tool_module="gas_calibrator.tools.export_v1_5_pressure_channel_completion",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_pressure_channel_completion",
+                "--senco9-write-summary",
+                pressure_dir / "senco9_controlled_write" / "senco9_write_summary.csv",
+                "--post-write-fit-summary",
+                pressure_dir / "post_write_pressure_verify" / "pressure_fit_summary.csv",
+                "--pressure-reference-json",
+                pressure_ref or "<pressure_reference_json>",
+                "--old-getco-json",
+                getco_dir / "old_component_coefficients_snapshot.json",
+                "--output-dir",
+                pressure_dir / "pressure_channel_completion",
+            ),
+            required_inputs=(
+                "SENCO9 controlled write summary",
+                "post-write pressure verification fit summary",
+                "COM22 pressure certificate",
+                "GETCO9 epoch-0 snapshot",
+            ),
+            expected_outputs=(
+                "pressure_channel_completion/pressure_channel_completion_summary.csv",
+                "pressure_channel_completion/pressure_channel_device_readiness.csv",
+                "pressure_channel_completion/pressure_channel_completion_report.md",
+            ),
+            physical_meaning=(
+                "This offline audit is the bridge between pressure-channel repair and component calibration. "
+                "It proves the analyzer pressure input P is traceably ready before CO2/H2O fitting consumes it."
+            ),
+            execution_mode="offline_sidecar_after_controlled_senco9_write_and_reverify",
+            gate="required_when_senco9_was_written_before_component_sampling",
+            notes=(
+                "No COM is opened and no SENCO is written by this step.",
+                "If pressure quick-check passes and no SENCO9 write was needed, this step documents that completion evidence is not applicable.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="temperature_channel_fast_review",
             title="Review SENCO7/SENCO8 temperature input evidence",
             phase="TEMPERATURE_CHANNEL_REVIEW",
@@ -1395,6 +1438,10 @@ def build_full_flow_plan(
                 root / "v1_5_run_evidence_status.json",
                 "--pressure-review-json",
                 pressure_dir / "pressure_senco9_review.json",
+                "--pressure-completion-summary-csv",
+                pressure_dir / "pressure_channel_completion" / "pressure_channel_completion_summary.csv",
+                "--pressure-device-readiness-csv",
+                pressure_dir / "pressure_channel_completion" / "pressure_channel_device_readiness.csv",
                 "--temperature-review-csv",
                 temp_dir / "temperature_current_point_review.csv",
                 "--main-precheck-meta-json",
@@ -1738,6 +1785,7 @@ def build_full_flow_plan(
             "device_identity_and_GETCO_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",
             "pressure_quick_check_then_SENCO9_no_write_acquisition_if_needed",
+            "pressure_channel_completion_evidence_after_SENCO9_write_and_reverify",
             "temperature_fast_review_and_process_evidence",
             "CO2_open_flow",
             "H2O_open_flow",

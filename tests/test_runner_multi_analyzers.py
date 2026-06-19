@@ -83,6 +83,28 @@ class _FakeRecoveringGasAnalyzer(_FakeGasAnalyzer):
         return None
 
 
+class _FakeCyclingRatioGasAnalyzer(_FakeGasAnalyzer):
+    def __init__(self, ratio_values, *, ratio_key: str = "co2_ratio_f"):
+        super().__init__({})
+        self._ratio_values = list(ratio_values)
+        self._ratio_key = ratio_key
+        self._read_count = 0
+
+    def read_latest_data(self, *args, **kwargs):
+        line = f"YGAS,001,FRAME,{self._read_count}"
+        self._read_count += 1
+        return line
+
+    def parse_line_mode2(self, line):
+        try:
+            idx = int(str(line).rsplit(",", 1)[-1])
+        except ValueError:
+            idx = max(0, self._read_count - 1)
+        if not self._ratio_values:
+            return None
+        return self._normalized_parsed({self._ratio_key: self._ratio_values[idx % len(self._ratio_values)]})
+
+
 class _FakeStreamingGasAnalyzer(_FakeGasAnalyzer):
     def __init__(self, parsed):
         super().__init__(parsed)
@@ -483,6 +505,77 @@ def test_analyzer_gate_filters_single_ratio_spike_but_records_evidence(tmp_path:
     assert ga01["stability_spike_filtered_count"] == 1
 
 
+def test_co2_preseal_gate_records_a_grade_ratio_target_when_passed(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=0.5)
+    cfg["devices"]["gas_analyzers"] = [{"name": "ga01"}]
+    stability = cfg["workflow"]["stability"]
+    stability["analyzer_gate_optional_labels"] = ["ga01"]
+    stability["analyzer_gate_stable_window_s"] = 0.2
+    stability["analyzer_gate_spike_filter_enabled"] = False
+    sensor_cfg = stability["sensor"]
+    sensor_cfg["co2_ratio_f_preseal_tol"] = 0.001
+    sensor_cfg["co2_ratio_f_preseal_a_grade_tol"] = 0.0005
+    sensor_cfg["co2_ratio_f_preseal_window_s"] = 0.2
+    sensor_cfg["co2_ratio_f_preseal_timeout_s"] = 0.5
+    sensor_cfg["co2_ratio_f_preseal_min_samples"] = 2
+    sensor_cfg["co2_ratio_f_preseal_read_interval_s"] = 0.0
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeCyclingRatioGasAnalyzer([1.0000, 1.0004]),
+        },
+    )
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(_point()) is True
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="co2") or {}
+    assert state["analyzer_gate_ratio_fit_quality_target"] == "A"
+    assert state["analyzer_gate_ratio_a_grade_tol"] == 0.0005
+    assert state["analyzer_gate_ratio_hard_tol"] == 0.001
+    assert state["analyzer_gate_ratio_effective_tol"] == 0.0005
+    assert state["analyzer_gate_fit_quality_grade"] == "A"
+    assert state["analyzer_gate_a_grade_target_passed"] is True
+
+
+def test_co2_preseal_gate_does_not_treat_hard_limit_as_a_grade(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=0.12)
+    cfg["devices"]["gas_analyzers"] = [{"name": "ga01"}]
+    stability = cfg["workflow"]["stability"]
+    stability["analyzer_gate_optional_labels"] = ["ga01"]
+    stability["analyzer_gate_stable_window_s"] = 0.2
+    stability["analyzer_gate_spike_filter_enabled"] = False
+    sensor_cfg = stability["sensor"]
+    sensor_cfg["co2_ratio_f_preseal_tol"] = 0.001
+    sensor_cfg["co2_ratio_f_preseal_a_grade_tol"] = 0.0005
+    sensor_cfg["co2_ratio_f_preseal_window_s"] = 0.2
+    sensor_cfg["co2_ratio_f_preseal_timeout_s"] = 0.12
+    sensor_cfg["co2_ratio_f_preseal_min_samples"] = 2
+    sensor_cfg["co2_ratio_f_preseal_read_interval_s"] = 0.0
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeCyclingRatioGasAnalyzer([1.0000, 1.0008]),
+        },
+    )
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(_point()) is False
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="co2") or {}
+    assert state["analyzer_gate_ratio_fit_quality_target"] == "A"
+    assert state["analyzer_gate_ratio_a_grade_tol"] == 0.0005
+    assert state["analyzer_gate_ratio_hard_tol"] == 0.001
+    assert state["analyzer_gate_ratio_effective_tol"] == 0.0005
+    assert state["analyzer_gate_fit_quality_grade"] == "not_a"
+    assert state["analyzer_gate_a_grade_target_passed"] is False
+    statuses = json.loads(state["analyzer_gate_per_analyzer_status"])
+    assert statuses[0]["stable_window_span"] > 0.0005
+    assert statuses[0]["stable_window_span"] <= 0.001
+
+
 def test_analyzer_gate_can_wait_full_timeout_before_accepting_min_valid(tmp_path: Path) -> None:
     cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=0.2)
     cfg["workflow"]["stability"]["analyzer_gate_wait_full_timeout_for_optional"] = True
@@ -512,6 +605,81 @@ def test_analyzer_gate_can_wait_full_timeout_before_accepting_min_valid(tmp_path
     assert state["analyzer_gate_final_decision_reason"] == "max_wait_min_valid_met"
     statuses = json.loads(state["analyzer_gate_per_analyzer_status"])
     assert [item["stable"] for item in statuses] == [True, False, False, False]
+
+
+def test_analyzer_gate_prefers_all_stable_with_bounded_grace_before_min_valid(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=0.8)
+    cfg["devices"]["gas_analyzers"] = [{"name": "ga01"}, {"name": "ga02"}]
+    stability = cfg["workflow"]["stability"]
+    stability["analyzer_gate_optional_labels"] = ["ga01", "ga02"]
+    stability["analyzer_gate_prefer_all_stable_grace_s"] = 0.4
+    stability["analyzer_gate_stable_window_s"] = 0.1
+    stability["analyzer_gate_spike_filter_enabled"] = False
+    sensor_cfg = stability["sensor"]
+    sensor_cfg["co2_ratio_f_preseal_window_s"] = 0.1
+    sensor_cfg["co2_ratio_f_preseal_timeout_s"] = 0.8
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeGasAnalyzer({"co2_ratio_f": 1.0000}),
+            "gas_analyzer_02": _FakeRecoveringGasAnalyzer(
+                [
+                    {"co2_ratio_f": 1.0000},
+                    {"co2_ratio_f": 1.1000},
+                    {"co2_ratio_f": 1.0500},
+                    {"co2_ratio_f": 1.0500},
+                    {"co2_ratio_f": 1.0500},
+                    {"co2_ratio_f": 1.0500},
+                ]
+                * 10
+            ),
+        },
+    )
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(_point()) is True
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="co2") or {}
+    assert state["analyzer_gate_valid_stable_count"] == 2
+    assert state["analyzer_gate_final_decision_reason"] == "all_active_stable"
+    assert state["analyzer_gate_prefer_all_stable_grace_s"] == 0.4
+    statuses = json.loads(state["analyzer_gate_per_analyzer_status"])
+    assert [item["stable"] for item in statuses] == [True, True]
+
+
+def test_analyzer_gate_accepts_min_valid_after_bounded_all_stable_grace(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=0.5)
+    cfg["devices"]["gas_analyzers"] = [{"name": "ga01"}, {"name": "ga02"}]
+    stability = cfg["workflow"]["stability"]
+    stability["analyzer_gate_optional_labels"] = ["ga01", "ga02"]
+    stability["analyzer_gate_prefer_all_stable_grace_s"] = 0.12
+    stability["analyzer_gate_stable_window_s"] = 0.1
+    stability["analyzer_gate_spike_filter_enabled"] = False
+    sensor_cfg = stability["sensor"]
+    sensor_cfg["co2_ratio_f_preseal_window_s"] = 0.1
+    sensor_cfg["co2_ratio_f_preseal_timeout_s"] = 0.5
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeGasAnalyzer({"co2_ratio_f": 1.0000}),
+            "gas_analyzer_02": _FakeRecoveringGasAnalyzer(
+                [{"co2_ratio_f": 1.0000}, {"co2_ratio_f": 1.1000}] * 100
+            ),
+        },
+    )
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(_point()) is True
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="co2") or {}
+    assert state["analyzer_gate_valid_stable_count"] == 1
+    assert state["analyzer_gate_final_decision_reason"] == "min_valid_met_after_prefer_all_grace"
+    assert state["analyzer_gate_prefer_all_stable_grace_s"] == 0.12
+    assert state["analyzer_gate_prefer_all_stable_grace_elapsed_s"] >= 0.12
+    statuses = json.loads(state["analyzer_gate_per_analyzer_status"])
+    assert [item["stable"] for item in statuses] == [True, False]
 
 
 def test_h2o_analyzer_gate_can_drop_optional_without_disabling_for_sidecar_sampling(tmp_path: Path) -> None:
@@ -581,6 +749,43 @@ def test_h2o_analyzer_gate_can_wait_full_timeout_before_accepting_min_valid(tmp_
     assert [item["stable"] for item in statuses] == [True, False, False, False]
 
 
+def test_h2o_analyzer_gate_accepts_min_valid_after_bounded_all_stable_grace(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=0.5)
+    cfg["devices"]["gas_analyzers"] = [{"name": "ga01"}, {"name": "ga02"}]
+    stability = cfg["workflow"]["stability"]
+    stability["analyzer_gate_optional_labels"] = ["ga01", "ga02"]
+    stability["analyzer_gate_prefer_all_stable_grace_s"] = 0.12
+    stability["analyzer_gate_stable_window_s"] = 0.1
+    stability["analyzer_gate_spike_filter_enabled"] = False
+    sensor_cfg = stability["sensor"]
+    sensor_cfg["h2o_ratio_f_preseal_tol"] = 0.001
+    sensor_cfg["h2o_ratio_f_preseal_window_s"] = 0.1
+    sensor_cfg["h2o_ratio_f_preseal_timeout_s"] = 0.5
+    sensor_cfg["h2o_ratio_f_preseal_min_samples"] = 2
+    sensor_cfg["h2o_ratio_f_preseal_read_interval_s"] = 0.0
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeGasAnalyzer({"h2o_ratio_f": 0.7000}),
+            "gas_analyzer_02": _FakeRecoveringGasAnalyzer(
+                [{"h2o_ratio_f": 0.7000}, {"h2o_ratio_f": 0.7200}] * 100
+            ),
+        },
+    )
+
+    assert runner._wait_h2o_precondition_primary_sensor_gate(_point()) is True
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="h2o") or {}
+    assert state["analyzer_gate_valid_stable_count"] == 1
+    assert state["analyzer_gate_final_decision_reason"] == "min_valid_met_after_prefer_all_grace"
+    assert state["analyzer_gate_prefer_all_stable_grace_s"] == 0.12
+    assert state["analyzer_gate_prefer_all_stable_grace_elapsed_s"] >= 0.12
+    statuses = json.loads(state["analyzer_gate_per_analyzer_status"])
+    assert [item["stable"] for item in statuses] == [True, False]
+
+
 def test_h2o_analyzer_gate_filters_single_ratio_spike_but_records_evidence(tmp_path: Path) -> None:
     cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=1.0)
     stability = cfg["workflow"]["stability"]
@@ -621,6 +826,40 @@ def test_h2o_analyzer_gate_filters_single_ratio_spike_but_records_evidence(tmp_p
     assert ga01["stable_window_span"] > 0.001
     assert ga01["stable_window_span_after_spike_filter"] <= 0.001
     assert ga01["stability_spike_filtered_count"] == 1
+
+
+def test_h2o_preseal_gate_records_a_grade_ratio_target_when_passed(tmp_path: Path) -> None:
+    cfg = _preseal_gate_cfg(min_valid=1, max_wait_s=0.5)
+    cfg["devices"]["gas_analyzers"] = [{"name": "ga01"}]
+    stability = cfg["workflow"]["stability"]
+    stability["analyzer_gate_optional_labels"] = ["ga01"]
+    stability["analyzer_gate_stable_window_s"] = 0.2
+    stability["analyzer_gate_spike_filter_enabled"] = False
+    sensor_cfg = stability["sensor"]
+    sensor_cfg["h2o_ratio_f_preseal_tol"] = 0.001
+    sensor_cfg["h2o_ratio_f_preseal_a_grade_tol"] = 0.0005
+    sensor_cfg["h2o_ratio_f_preseal_window_s"] = 0.2
+    sensor_cfg["h2o_ratio_f_preseal_timeout_s"] = 0.5
+    sensor_cfg["h2o_ratio_f_preseal_min_samples"] = 2
+    sensor_cfg["h2o_ratio_f_preseal_read_interval_s"] = 0.0
+    runner, logger = _runner_for_preseal_gate(
+        tmp_path,
+        cfg,
+        {
+            "gas_analyzer_01": _FakeCyclingRatioGasAnalyzer([0.7000, 0.7004], ratio_key="h2o_ratio_f"),
+        },
+    )
+
+    assert runner._wait_h2o_precondition_primary_sensor_gate(_point()) is True
+    logger.close()
+
+    state = runner._point_runtime_state(_point(), phase="h2o") or {}
+    assert state["analyzer_gate_ratio_fit_quality_target"] == "A"
+    assert state["analyzer_gate_ratio_a_grade_tol"] == 0.0005
+    assert state["analyzer_gate_ratio_hard_tol"] == 0.001
+    assert state["analyzer_gate_ratio_effective_tol"] == 0.0005
+    assert state["analyzer_gate_fit_quality_grade"] == "A"
+    assert state["analyzer_gate_a_grade_target_passed"] is True
 
 
 def test_sampling_freshness_ignores_analyzer_dropped_by_ratio_gate(tmp_path: Path) -> None:

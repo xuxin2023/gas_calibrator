@@ -1048,6 +1048,41 @@ def test_temperature_close_to_target_waits_through_slow_oscillation(monkeypatch,
     assert not any("stalled before reaching target" in msg.lower() for msg in logs)
 
 
+def test_temperature_near_target_seen_survives_short_thermal_rebound(monkeypatch, tmp_path: Path) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(runner_mod.time, "time", clock.time)
+    monkeypatch.setattr(runner_mod.time, "sleep", clock.sleep)
+
+    chamber = _FakeChamber([9.5] + [8.9] * 12 + [10.0], run_state=1)
+    logs = []
+    cfg = {
+        "workflow": {
+            "stability": {
+                "temperature": {
+                    "tol": 0.2,
+                    "timeout_s": 0.5,
+                    "continue_wait_while_progress": True,
+                    "progress_window_s": 0.8,
+                    "progress_min_delta_c": 0.05,
+                    "near_target_continue_margin_c": 1.0,
+                    "hard_max_wait_s": 0.0,
+                    "soak_after_reach_s": 0.0,
+                    "analyzer_chamber_temp_enabled": False,
+                }
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    try:
+        r = runner_mod.CalibrationRunner(cfg, {"temp_chamber": chamber}, logger, logs.append, lambda *_: None)
+        assert r._set_temperature(10.0) is True
+    finally:
+        logger.close()
+
+    assert any("best_abs_error=0.50" in msg for msg in logs)
+    assert not any("stalled before reaching target" in msg.lower() for msg in logs)
+
+
 def test_temperature_near_target_margin_defaults_to_one_degree(monkeypatch, tmp_path: Path) -> None:
     clock = _FakeClock()
     monkeypatch.setattr(runner_mod.time, "time", clock.time)

@@ -29,6 +29,7 @@ def _config(*, unsafe=False):
         "workflow": {
             "controlled_write": False,
             "startup_pressure_sensor_calibration": {"enabled": False, "apply_write": False},
+            "nitrogen_purge": {"co2_prepurge_s": 300, "source_valve": 27},
             "analyzer_mode2_init": {
                 "read_first_before_config": True,
                 "sniff_stream_before_config": True,
@@ -40,11 +41,37 @@ def _config(*, unsafe=False):
         "devices": {
             "pressure_controller": {"enabled": True, "present": True, "port": "COM23"},
             "pressure_gauge": {"enabled": True, "present": True, "port": "COM22"},
+            "relay": {"enabled": True, "port": "COM20", "addr": 1},
+            "relay_8": {"enabled": True, "port": "COM21", "addr": 1},
+            "dewpoint_meter": {"enabled": True, "port": "COM18", "station": "A"},
             "gas_analyzer": {"name": "GA01", "port": "COM35", "device_id": "023", "enabled": True},
             "gas_analyzers": [
                 {"name": "GA01", "port": "COM35", "device_id": "023", "enabled": True},
                 {"name": "GA02", "port": "COM36", "device_id": "003", "enabled": True},
             ]
+        },
+        "valves": {
+            "h2o_path": 1,
+            "gas_main": 2,
+            "co2_path": 3,
+            "co2_path_group2": 4,
+            "hold": 5,
+            "flow_switch": 6,
+            "nitrogen_purge_source": 27,
+            "co2_map": {"100ppm": 7, "400ppm": 8},
+            "co2_map_group2": {"800ppm": 9},
+            "relay_map": {
+                "1": {"relay": "relay", "channel": 1},
+                "2": {"relay": "relay", "channel": 2},
+                "3": {"relay": "relay", "channel": 3},
+                "4": {"relay": "relay", "channel": 4},
+                "5": {"relay": "relay", "channel": 5},
+                "6": {"relay": "relay", "channel": 6},
+                "7": {"relay": "relay", "channel": 7},
+                "8": {"relay": "relay", "channel": 8},
+                "9": {"relay": "relay_8", "channel": 1},
+                "27": {"relay": "relay_8", "channel": 2},
+            },
         },
     }
 
@@ -185,12 +212,78 @@ def _write_archive_confirmation(path, *, pressure_verified=True):
     return path_obj
 
 
+def _write_pressure_completion(path, *, ready=True):
+    completion_dir = path / "pressure_channel_completion_after_senco9"
+    completion_dir.mkdir(parents=True)
+    summary_status = "ready_for_open_flow_main_calibration" if ready else "blocked"
+    with (completion_dir / "pressure_channel_completion_summary.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "overall_status",
+                "completion_scope_device_ids",
+                "device_count",
+                "ready_device_count",
+                "blocked_device_count",
+                "pressure_reference_status",
+                "pressure_reference_certificate_id",
+            ],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "overall_status": summary_status,
+                "completion_scope_device_ids": "023,003",
+                "device_count": "2",
+                "ready_device_count": "2" if ready else "1",
+                "blocked_device_count": "0" if ready else "1",
+                "pressure_reference_status": "pass",
+                "pressure_reference_certificate_id": "FRGsz25038057",
+            }
+        )
+    with (completion_dir / "pressure_channel_device_readiness.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["analyzer_device_id", "readiness_status"])
+        writer.writeheader()
+        writer.writerow({"analyzer_device_id": "023", "readiness_status": "pass"})
+        writer.writerow({"analyzer_device_id": "003", "readiness_status": "pass" if ready else "blocked"})
+    return completion_dir / "pressure_channel_completion_summary.csv"
+
+
+def _write_formal_route_readiness(path, *, ok=True):
+    route_dir = path / "formal_route_readiness"
+    route_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "v1_5_formal_route_readiness_v1",
+        "status": "pass" if ok else "fail",
+        "ok": bool(ok),
+        "n2_prepurge_enabled": True,
+        "n2_source_valve": "27",
+        "opens_com_ports": True,
+        "controls_n2_prepurge_valve": True,
+        "controls_co2_route": False,
+        "controls_h2o_route": False,
+        "writes_coefficients": False,
+        "writes_device_id": False,
+        "checks": [
+            {"check": "formal_route_relay_map", "status": "pass" if ok else "fail"},
+            {"check": "relay_ports_readable_writable", "status": "pass" if ok else "fail"},
+            {"check": "dewpoint_online", "status": "pass" if ok else "fail"},
+            {"check": "n2_prepurge_valve_open_close", "status": "pass" if ok else "fail"},
+        ],
+        "issues": [] if ok else [{"code": "DEWPOINT_OFFLINE", "severity": "fail"}],
+    }
+    target = route_dir / "formal_route_readiness.json"
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return target
+
+
 def _make_ready_inputs(tmp_path, *, unsafe=False, aux=True):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     config_path = _write_config(tmp_path / "runtime.json", unsafe=unsafe)
     getco_dir = _write_getco_snapshot(run_dir / "coefficient_epoch_0_getco_snapshot")
     aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization") if aux else None
+    _write_formal_route_readiness(run_dir, ok=True)
     return run_dir, config_path, getco_dir, aux_dir
 
 
@@ -225,6 +318,41 @@ def test_initialization_blocks_when_auxiliary_evidence_is_missing(tmp_path):
     senco5 = next(row for row in model["checks"] if row["check"] == "senco5_neutralization_evidence")
     assert senco5["status"] == "fail"
     assert "senco5_neutral_write_events.csv_missing" in senco5["reasons"]
+
+
+def test_initialization_blocks_when_formal_route_readiness_is_missing(tmp_path):
+    run_dir, config_path, getco_dir, aux_dir = _make_ready_inputs(tmp_path)
+    (run_dir / "formal_route_readiness" / "formal_route_readiness.json").unlink()
+
+    model = build_initialization_readiness_model(
+        run_dir=run_dir,
+        config_path=config_path,
+        getco_snapshot_dir=getco_dir,
+        aux_neutralization_dir=aux_dir,
+    )
+
+    assert model["readiness_status"] == "initialization_blocked"
+    route = next(row for row in model["checks"] if row["check"] == "formal_route_readiness_evidence")
+    assert route["status"] == "fail"
+    assert "formal_route_readiness.json_missing" in route["reasons"]
+
+
+def test_initialization_blocks_when_formal_route_readiness_failed(tmp_path):
+    run_dir, config_path, getco_dir, aux_dir = _make_ready_inputs(tmp_path)
+    (run_dir / "formal_route_readiness" / "formal_route_readiness.json").unlink()
+    _write_formal_route_readiness(run_dir, ok=False)
+
+    model = build_initialization_readiness_model(
+        run_dir=run_dir,
+        config_path=config_path,
+        getco_snapshot_dir=getco_dir,
+        aux_neutralization_dir=aux_dir,
+    )
+
+    assert model["readiness_status"] == "initialization_blocked"
+    route = next(row for row in model["checks"] if row["check"] == "formal_route_readiness_evidence")
+    assert route["status"] == "fail"
+    assert "DEWPOINT_OFFLINE" in route["reasons"]
 
 
 def test_continuation_recovery_marks_missing_auxiliary_evidence_as_review_required(tmp_path):
@@ -327,6 +455,49 @@ def test_archive_confirmation_blocks_s9_when_pressure_verification_is_not_comple
     assert "pressure_channel_device_ids_missing=003" in s9_check["reasons"]
 
 
+def test_pressure_completion_satisfies_s9_when_clear_event_is_absent(tmp_path):
+    run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
+    aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization", include_senco78=False)
+    (aux_dir / "senco9_clear_write_events.csv").unlink()
+    _write_temperature_review(aux_dir, status="pass")
+    _write_pressure_completion(run_dir, ready=True)
+
+    model = build_initialization_readiness_model(
+        run_dir=run_dir,
+        config_path=config_path,
+        getco_snapshot_dir=getco_dir,
+        aux_neutralization_dir=aux_dir,
+    )
+
+    assert model["readiness_status"] == "initialization_ready"
+    checks = {row["check"]: row for row in model["checks"]}
+    s9 = checks["senco9_pressure_completion_evidence"]
+    assert s9["status"] == "pass"
+    assert s9["details"]["completion_scope_device_ids"] == ["023", "003"]
+    assert "senco9_neutralization_evidence" not in checks
+
+
+def test_pressure_completion_blocks_s9_when_selected_device_not_ready(tmp_path):
+    run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
+    aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization", include_senco78=False)
+    (aux_dir / "senco9_clear_write_events.csv").unlink()
+    _write_temperature_review(aux_dir, status="pass")
+    _write_pressure_completion(run_dir, ready=False)
+
+    model = build_initialization_readiness_model(
+        run_dir=run_dir,
+        config_path=config_path,
+        getco_snapshot_dir=getco_dir,
+        aux_neutralization_dir=aux_dir,
+    )
+
+    assert model["readiness_status"] == "initialization_blocked"
+    s9 = next(row for row in model["checks"] if row["check"] == "senco9_pressure_completion_evidence")
+    assert s9["status"] == "fail"
+    assert "pressure_completion_overall_status=blocked" in s9["reasons"]
+    assert "003:pressure_completion_status=blocked" in s9["reasons"]
+
+
 def test_initialization_blocks_when_runtime_config_allows_writes(tmp_path):
     run_dir, config_path, getco_dir, aux_dir = _make_ready_inputs(tmp_path, unsafe=True)
 
@@ -422,6 +593,7 @@ def test_initialization_readiness_writer_and_cli(tmp_path):
         "initialization_readiness_report",
         "initialization_database_sidecar",
         "epoch0_getco_snapshot",
+        "formal_route_readiness",
         "auxiliary_coefficient_neutralization",
     } <= roles
     assert all(row["sha256"] for row in index_rows)

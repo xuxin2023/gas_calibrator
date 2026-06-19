@@ -40,7 +40,7 @@ def _seed_repo(root):
         (
             "route_open_until_sample_end gas_route_open_until_sample_end "
             "per_analyzer_ratio_stability_required "
-            "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+            "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject"
         ),
     )
     _write(
@@ -49,7 +49,7 @@ def _seed_repo(root):
         (
             "route_open_until_sample_end h2o_route_open_until_sample_end "
             "per_analyzer_status_register_qc_required "
-            "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+            "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject"
         ),
     )
     _write(
@@ -111,7 +111,7 @@ def _seed_repo(root):
         "tests/test_v1_5_formal_open_flow_sampling_runner.py",
         (
             "per_analyzer_ratio_stability_required "
-            "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+            "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject"
         ),
     )
     _write(
@@ -119,7 +119,7 @@ def _seed_repo(root):
         "tests/test_v1_5_formal_h2o_open_flow_sampling_runner.py",
         (
             "per_analyzer_h2o_ratio_stability_required "
-            "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+            "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject"
         ),
     )
     _write(

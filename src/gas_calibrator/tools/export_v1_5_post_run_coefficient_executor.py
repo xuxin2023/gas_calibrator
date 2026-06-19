@@ -29,6 +29,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--initialization-readiness-json", default="", help="Optional initialization readiness JSON.")
     parser.add_argument("--run-evidence-status-json", default="", help="Optional run evidence status JSON.")
     parser.add_argument("--pressure-review-json", default="", help="Optional pressure/SENCO9 review JSON.")
+    parser.add_argument(
+        "--pressure-completion-summary-csv",
+        default="",
+        help="Optional pressure-channel completion summary CSV from the offline completion audit.",
+    )
+    parser.add_argument(
+        "--pressure-device-readiness-csv",
+        default="",
+        help="Optional per-device pressure-channel readiness CSV from the offline completion audit.",
+    )
     parser.add_argument("--temperature-review-csv", default="", help="Optional temperature/SENCO7/8 review CSV.")
     parser.add_argument("--device-quality-review-csv", default="", help="Optional device root-cause/quality review CSV.")
     parser.add_argument("--main-precheck-meta-json", default="", help="Optional main SENCO write precheck metadata JSON.")
@@ -52,6 +62,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             initialization_readiness_json=args.initialization_readiness_json or None,
             run_evidence_status_json=args.run_evidence_status_json or None,
             pressure_review_json=args.pressure_review_json or None,
+            pressure_completion_summary_csv=args.pressure_completion_summary_csv or None,
+            pressure_device_readiness_csv=args.pressure_device_readiness_csv or None,
             temperature_review_csv=args.temperature_review_csv or None,
             device_quality_review_csv=args.device_quality_review_csv or None,
             main_precheck_meta_json=args.main_precheck_meta_json or None,

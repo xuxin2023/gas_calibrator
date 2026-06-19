@@ -29,6 +29,39 @@ from ..workflow.runner import CalibrationRunner
 from .run_headless import _build_devices, _close_devices
 
 
+FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S = 1.0
+FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S = 1800.0
+FORMAL_OPEN_FLOW_ANALYZER_GATE_MAX_WAIT_S = 1800.0
+FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S = 120.0
+
+
+def _formal_open_flow_dewpoint_gate_max_wait_s(value: Any, *, default: Optional[float] = None) -> float:
+    """Normalize formal open-flow dewpoint wait without wasting standard gas.
+
+    Temperature chamber settling has its own longer timeout. This cap applies
+    only while a gas/water route is flowing and the program is waiting for
+    dewpoint evidence to become physically acceptable.
+    """
+
+    fallback = FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S if default is None else float(default)
+    try:
+        resolved = float(value if value is not None else fallback)
+    except (TypeError, ValueError):
+        resolved = fallback
+    return min(max(0.0, resolved), FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S)
+
+
+def _formal_open_flow_analyzer_gate_max_wait_s(value: Any, *, default: Optional[float] = None) -> float:
+    """Cap per-point analyzer ratio waits while a certified gas route is open."""
+
+    fallback = FORMAL_OPEN_FLOW_ANALYZER_GATE_MAX_WAIT_S if default is None else float(default)
+    try:
+        resolved = float(value if value is not None else fallback)
+    except (TypeError, ValueError):
+        resolved = fallback
+    return min(max(0.0, resolved), FORMAL_OPEN_FLOW_ANALYZER_GATE_MAX_WAIT_S)
+
+
 def _log(message: str) -> None:
     print(message, flush=True)
 
@@ -152,6 +185,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--analyzer-gate-prefer-all-stable-grace-s",
+        type=float,
+        default=FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
+        help=(
+            "After the minimum analyzer count first becomes stable, keep the route open for this "
+            "bounded grace period to let the remaining analyzers become A-grade before accepting "
+            "min-valid evidence."
+        ),
+    )
+    parser.add_argument(
         "--co2-ratio-f-preseal-tol",
         type=float,
         default=None,
@@ -216,6 +259,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--gas-route-dewpoint-gate-window-s", type=float, default=None)
     parser.add_argument("--gas-route-dewpoint-gate-tail-span-max-c", type=float, default=None)
     parser.add_argument("--gas-route-dewpoint-gate-tail-slope-abs-max-c-per-s", type=float, default=None)
+    parser.add_argument("--gas-route-dewpoint-gate-deep-dry-tail-relax-margin-c", type=float, default=None)
     parser.add_argument("--skip-stability-gate", action="store_true")
     parser.add_argument("--no-prompt", action="store_true")
     return parser.parse_args(list(argv) if argv is not None else None)
@@ -412,7 +456,7 @@ def _apply_analyzer_acquisition_policy(
         init_cfg["send_active_freq"] = False
     if active_stream:
         init_cfg["write_config_on_read_first_fail"] = True
-        init_cfg["skip_config_when_read_first_ready"] = False
+        init_cfg["skip_config_when_read_first_ready"] = True
     return policy
 
 
@@ -450,6 +494,7 @@ def _prepare_runtime_cfg(
     analyzer_acquisition: str = "active_stream_1hz",
     allow_ftd_write: bool = True,
     analyzer_gate_required_labels: Optional[Iterable[str]] = None,
+    analyzer_gate_prefer_all_stable_grace_s: Optional[float] = None,
     co2_ratio_f_preseal_tol: Optional[float] = None,
     co2_ratio_f_preseal_window_s: Optional[float] = None,
     co2_ratio_f_preseal_timeout_s: Optional[float] = None,
@@ -463,6 +508,7 @@ def _prepare_runtime_cfg(
     gas_route_dewpoint_gate_window_s: Optional[float] = None,
     gas_route_dewpoint_gate_tail_span_max_c: Optional[float] = None,
     gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s: Optional[float] = None,
+    gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c: Optional[float] = None,
 ) -> Dict[str, Any]:
     runtime_cfg = copy.deepcopy(cfg)
     runtime_cfg.setdefault("workflow", {})["collect_only"] = True
@@ -485,8 +531,11 @@ def _prepare_runtime_cfg(
         ),
         "per_analyzer_ratio_stability_required": True,
         "per_analyzer_status_register_qc_required": True,
-        "unstable_analyzer_handling": "independent_grade_or_reject_do_not_block_all_when_min_valid_met",
+        "unstable_analyzer_handling": "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject",
         "pressure_role": "traceability_and_qc_input_not_co2_fit_variable",
+        "sample_readiness_basis": "dry_enough_dewpoint_plus_ratio_stability_plus_best_live_stable_window",
+        "normal_point_timeout_s": FORMAL_OPEN_FLOW_ANALYZER_GATE_MAX_WAIT_S,
+        "extreme_display_values_require_factory_signal_root_cause_review": True,
     }
 
     devices_cfg = runtime_cfg.setdefault("devices", {})
@@ -538,10 +587,23 @@ def _prepare_runtime_cfg(
         base_tol = float(sensor_cfg.get("co2_ratio_f_tol", 0.001) or 0.001)
         current_tol = float(sensor_cfg.get("co2_ratio_f_preseal_tol", base_tol) or base_tol)
         sensor_cfg["co2_ratio_f_preseal_tol"] = min(current_tol, base_tol)
+    co2_hard_tol = float(sensor_cfg.get("co2_ratio_f_preseal_tol", 0.001) or 0.001)
+    co2_a_grade_tol = float(
+        sensor_cfg.get("co2_ratio_f_preseal_a_grade_tol", min(0.0005, co2_hard_tol))
+        or min(0.0005, co2_hard_tol)
+    )
+    sensor_cfg["co2_ratio_f_preseal_a_grade_tol"] = min(co2_a_grade_tol, co2_hard_tol)
     if co2_ratio_f_preseal_window_s is not None:
         sensor_cfg["co2_ratio_f_preseal_window_s"] = float(co2_ratio_f_preseal_window_s)
     if co2_ratio_f_preseal_timeout_s is not None:
-        sensor_cfg["co2_ratio_f_preseal_timeout_s"] = float(co2_ratio_f_preseal_timeout_s)
+        sensor_cfg["co2_ratio_f_preseal_timeout_s"] = _formal_open_flow_analyzer_gate_max_wait_s(
+            co2_ratio_f_preseal_timeout_s
+        )
+    else:
+        sensor_cfg["co2_ratio_f_preseal_timeout_s"] = _formal_open_flow_analyzer_gate_max_wait_s(
+            sensor_cfg.get("co2_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300)),
+            default=300.0,
+        )
     if co2_ratio_f_preseal_min_samples is not None:
         sensor_cfg["co2_ratio_f_preseal_min_samples"] = int(co2_ratio_f_preseal_min_samples)
     if co2_ratio_f_preseal_policy is not None:
@@ -555,11 +617,21 @@ def _prepare_runtime_cfg(
         stability_cfg["gas_route_dewpoint_gate_require_dry_enough"] = bool(
             gas_route_dewpoint_require_dry_enough
         )
+    elif stability_cfg.get("gas_route_dewpoint_gate_enabled", True):
+        stability_cfg["gas_route_dewpoint_gate_require_dry_enough"] = bool(
+            stability_cfg.get("gas_route_dewpoint_gate_require_dry_enough", True)
+        )
     if gas_route_dewpoint_dry_enough_c is not None:
         stability_cfg["gas_route_dewpoint_gate_dry_enough_c"] = float(gas_route_dewpoint_dry_enough_c)
     if gas_route_dewpoint_gate_max_total_wait_s is not None:
-        stability_cfg["gas_route_dewpoint_gate_max_total_wait_s"] = float(
-            gas_route_dewpoint_gate_max_total_wait_s
+        stability_cfg["gas_route_dewpoint_gate_max_total_wait_s"] = (
+            _formal_open_flow_dewpoint_gate_max_wait_s(gas_route_dewpoint_gate_max_total_wait_s)
+        )
+    else:
+        stability_cfg["gas_route_dewpoint_gate_max_total_wait_s"] = (
+            _formal_open_flow_dewpoint_gate_max_wait_s(
+                stability_cfg.get("gas_route_dewpoint_gate_max_total_wait_s")
+            )
         )
     if gas_route_dewpoint_gate_window_s is not None:
         stability_cfg["gas_route_dewpoint_gate_window_s"] = float(gas_route_dewpoint_gate_window_s)
@@ -570,6 +642,14 @@ def _prepare_runtime_cfg(
     if gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s is not None:
         stability_cfg["gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s"] = float(
             gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s
+        )
+    if gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c is not None:
+        stability_cfg["gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c"] = float(
+            gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c
+        )
+    elif stability_cfg.get("gas_route_dewpoint_gate_enabled", True):
+        stability_cfg["gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c"] = float(
+            stability_cfg.get("gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c", 4.0) or 0.0
         )
     analyzer_labels = _configured_analyzer_labels(runtime_cfg)
     required_labels = _parse_label_list(analyzer_gate_required_labels)
@@ -589,9 +669,21 @@ def _prepare_runtime_cfg(
     stability_cfg["analyzer_gate_zero_value_policy"] = "drop_optional_not_block"
     stability_cfg["analyzer_gate_invalid_frame_min_count"] = 3
     stability_cfg["analyzer_gate_silent_timeout_s"] = max(15.0, float(sensor_read_interval_s) * 3.0)
-    stability_cfg["analyzer_gate_max_wait_s"] = max(
-        float(sensor_cfg.get("co2_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300)) or 300),
-        90.0,
+    stability_cfg["analyzer_gate_max_wait_s"] = _formal_open_flow_analyzer_gate_max_wait_s(
+        max(
+            float(sensor_cfg.get("co2_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300)) or 300),
+            90.0,
+        ),
+        default=300.0,
+    )
+    prefer_all_grace_s = (
+        FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S
+        if analyzer_gate_prefer_all_stable_grace_s is None
+        else float(analyzer_gate_prefer_all_stable_grace_s)
+    )
+    stability_cfg["analyzer_gate_prefer_all_stable_grace_s"] = min(
+        max(0.0, prefer_all_grace_s),
+        float(stability_cfg["analyzer_gate_max_wait_s"]),
     )
     temp_cfg = runtime_cfg["workflow"].setdefault("stability", {}).setdefault("temperature", {})
     current_span = float(temp_cfg.get("analyzer_chamber_temp_span_c", 0.08) or 0.08)
@@ -802,9 +894,10 @@ def _write_purge_trace(
     max_pressure_hpa: float,
     transient_grace_s: float = 30.0,
     hard_limit_hpa: float = 1300.0,
-) -> None:
+) -> List[Dict[str, Any]]:
     path.parent.mkdir(parents=True, exist_ok=True)
     start = time.time()
+    rows: List[Dict[str, Any]] = []
     fields = [
         "ts",
         "elapsed_s",
@@ -861,25 +954,41 @@ def _write_purge_trace(
                     )
             else:
                 over_limit_start = None
-            writer.writerow(
+            row = {
+                "ts": datetime.now().isoformat(timespec="milliseconds"),
+                "elapsed_s": round(now - start, 3),
+                "open_valves": ",".join(str(v) for v in open_valves),
+                "pace_pressure_hpa": pace_pressure,
+                "com22_pressure_hpa": gauge_pressure,
+                "dewpoint_c": dew.get("dewpoint_c"),
+                "dewpoint_temp_c": dew.get("temp_c"),
+                "dewpoint_rh_pct": dew.get("rh_pct"),
+                "pressure_limit_hpa": float(max_pressure_hpa),
+                "pressure_hard_limit_hpa": float(hard_limit_hpa),
+                "pressure_over_limit_elapsed_s": round(over_elapsed, 3),
+                "pressure_transient_status": pressure_transient_status,
+            }
+            writer.writerow(row)
+            rows.append(
                 {
-                    "ts": datetime.now().isoformat(timespec="milliseconds"),
-                    "elapsed_s": round(now - start, 3),
-                    "open_valves": ",".join(str(v) for v in open_valves),
-                    "pace_pressure_hpa": pace_pressure,
-                    "com22_pressure_hpa": gauge_pressure,
-                    "dewpoint_c": dew.get("dewpoint_c"),
-                    "dewpoint_temp_c": dew.get("temp_c"),
-                    "dewpoint_rh_pct": dew.get("rh_pct"),
-                    "pressure_limit_hpa": float(max_pressure_hpa),
-                    "pressure_hard_limit_hpa": float(hard_limit_hpa),
-                    "pressure_over_limit_elapsed_s": round(over_elapsed, 3),
+                    "timestamp": row["ts"],
+                    "phase_elapsed_s": row["elapsed_s"],
+                    "elapsed_s": row["elapsed_s"],
+                    "phase": "open_flow_purge",
+                    "open_valves": row["open_valves"],
+                    "controller_vent_state": "VENT_ON",
+                    "controller_pressure_hpa": pace_pressure,
+                    "gauge_pressure_hpa": gauge_pressure,
+                    "dewpoint_c": row["dewpoint_c"],
+                    "dewpoint_temp_c": row["dewpoint_temp_c"],
+                    "dewpoint_rh_pct": row["dewpoint_rh_pct"],
                     "pressure_transient_status": pressure_transient_status,
                 }
             )
             handle.flush()
             remain = float(purge_s) - (time.time() - start)
             time.sleep(min(max(0.2, float(interval_s)), max(0.0, remain)))
+    return rows
 
 
 def _write_route_timing(
@@ -953,7 +1062,11 @@ def _write_machine_readable_samples(run_dir: Path, rows: List[Dict[str, Any]]) -
     return {"jsonl": str(jsonl_path), "csv": str(csv_path)}
 
 
-def _enter_continuous_atmosphere(pace: Any, *, hold_interval_s: float = 2.0) -> None:
+def _enter_continuous_atmosphere(
+    pace: Any,
+    *,
+    hold_interval_s: float = FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
+) -> None:
     if pace is None:
         return
     enter = getattr(pace, "enter_atmosphere_mode", None)
@@ -985,6 +1098,7 @@ def _wait_open_flow_co2_dewpoint_gate(
     purge_s: float,
     purge_begin_wall_s: float,
     purge_end_wall_s: float,
+    base_soak_dewpoint_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> bool:
     enabled = getattr(runner, "_gas_route_dewpoint_gate_enabled", lambda: False)
     if not bool(enabled()):
@@ -997,6 +1111,7 @@ def _wait_open_flow_co2_dewpoint_gate(
             log_context="open-flow sidecar after minimum purge",
             base_soak_begin_wall_s=purge_begin_wall_s,
             base_soak_end_wall_s=purge_end_wall_s,
+            base_soak_dewpoint_rows=list(base_soak_dewpoint_rows or []),
         )
     )
 
@@ -1018,6 +1133,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         analyzer_acquisition=args.analyzer_acquisition,
         allow_ftd_write=args.allow_ftd_write,
         analyzer_gate_required_labels=_parse_label_list(args.analyzer_gate_required_labels),
+        analyzer_gate_prefer_all_stable_grace_s=args.analyzer_gate_prefer_all_stable_grace_s,
         co2_ratio_f_preseal_tol=args.co2_ratio_f_preseal_tol,
         co2_ratio_f_preseal_window_s=args.co2_ratio_f_preseal_window_s,
         co2_ratio_f_preseal_timeout_s=args.co2_ratio_f_preseal_timeout_s,
@@ -1032,6 +1148,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         gas_route_dewpoint_gate_tail_span_max_c=args.gas_route_dewpoint_gate_tail_span_max_c,
         gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s=(
             args.gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s
+        ),
+        gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c=(
+            args.gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c
         ),
     )
     if args.n2_purge_source_valve is not None:
@@ -1075,7 +1194,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         _defer_startup_mode2_disabled_analyzers(runner)
 
         pace = devices.get("pace")
-        _enter_continuous_atmosphere(pace, hold_interval_s=2.0)
+        _enter_continuous_atmosphere(
+            pace,
+            hold_interval_s=FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
+        )
         if float(args.n2_prepurge_s) > 0.0:
             n2_open_valves = _build_nitrogen_purge_open_valves(runner, point)
             if not n2_open_valves:
@@ -1167,7 +1289,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         purge_path = logger.run_dir / "formal_open_flow_purge_trace.csv"
         _log(f"Open-flow purge start: {args.purge_s:g}s")
         purge_begin_wall_s = time.time()
-        _write_purge_trace(
+        purge_dewpoint_rows = _write_purge_trace(
             purge_path,
             devices=devices,
             open_valves=open_valves,
@@ -1187,6 +1309,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 purge_s=float(args.purge_s),
                 purge_begin_wall_s=purge_begin_wall_s,
                 purge_end_wall_s=purge_end_wall_s,
+                base_soak_dewpoint_rows=purge_dewpoint_rows,
             ):
                 _log("Open-flow route dewpoint gate failed.")
                 return 1
@@ -1204,7 +1327,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             minimum_purge_s=float(args.minimum_purge_s),
             open_flow_purge_elapsed_s=float(args.purge_s),
             sample_readiness_basis=(
-                "minimum_purge_plus_ratio_dewpoint_pressure_temperature_traceability"
+                "minimum_purge_plus_dry_enough_dewpoint_gate_plus_ratio_stability_plus_best_live_stable_window"
             ),
             standard_gas_certificate_value_ppm=args.certificate_co2_ppm,
             standard_gas_certificate_uncertainty_ppm=args.certificate_uncertainty_ppm,

@@ -33,6 +33,10 @@ def _inventory_for_plan():
                 "category": "formal_review_evidence",
             },
             {
+                "path": "src/gas_calibrator/tools/export_v1_5_pressure_channel_completion.py",
+                "category": "formal_review_evidence",
+            },
+            {
                 "path": "src/gas_calibrator/tools/export_v1_5_temperature_channel_review.py",
                 "category": "formal_review_evidence",
             },
@@ -84,6 +88,12 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert report.formal_runner_steps == ("co2_open_flow_sampling", "h2o_open_flow_sampling")
     assert report.step_sequence.index("pressure_senco9_no_write_acquisition") < report.step_sequence.index(
         "pressure_senco9_no_write_review"
+    )
+    assert report.step_sequence.index("pressure_senco9_no_write_review") < report.step_sequence.index(
+        "pressure_channel_completion_audit"
+    )
+    assert report.step_sequence.index("pressure_channel_completion_audit") < report.step_sequence.index(
+        "temperature_channel_fast_review"
     )
     assert report.step_sequence.index("controlled_component_write_placeholder") < report.step_sequence.index(
         "post_write_reverification_placeholder"
@@ -157,6 +167,25 @@ def test_formal_flow_contract_blocks_senco9_review_that_is_only_preflight(tmp_pa
 
     assert report.status == "blocked"
     assert any(issue.code == "pressure_senco9_review_wrong_tool" for issue in report.issues)
+
+
+def test_formal_flow_contract_blocks_pressure_completion_that_is_not_offline_completion_export(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("pressure_channel_completion_audit")
+    broken = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.validate_pressure_only",
+        opens_com_ports=True,
+    )
+    steps[index] = broken
+
+    report = validate_v1_5_formal_flow_contract(replace(plan, steps=tuple(steps)), inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "pressure_channel_completion_wrong_tool" in codes
+    assert "pressure_channel_completion_must_be_offline" in codes
 
 
 def test_formal_flow_contract_blocks_diagnostic_tool_in_formal_route(tmp_path):

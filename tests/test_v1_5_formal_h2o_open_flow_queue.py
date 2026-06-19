@@ -92,6 +92,8 @@ def test_h2o_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path):
             str(tmp_path),
             "--no-prompt",
             "--no-ftd-write",
+            "--analyzer-gate-prefer-all-stable-grace-s",
+            "75",
         ]
     )
     cmd = _build_point_command(
@@ -121,6 +123,7 @@ def test_h2o_point_command_keeps_no_write_open_flow_sidecar_contract(tmp_path):
     assert "--hgen-rh 70" in text
     assert "--certificate-h2o-mmol 16.3715" in text
     assert "--h2o-pressure-presample-policy skip" in text
+    assert "--analyzer-gate-prefer-all-stable-grace-s 75" in text
     assert "--keep-hgen-running-after-point" in cmd
 
 
@@ -449,10 +452,14 @@ def test_h2o_queue_dry_run_writes_manifest_without_real_com(tmp_path):
     payload = json.loads(summary.read_text(encoding="utf-8"))
     assert payload["selected_points"] == 2
     assert payload["dry_run_points"] == 2
+    assert payload["failure_audit"]["status"] == "ok"
+    assert payload["failure_audit"]["total_points"] == 2
     assert payload["sealed_pressure_control"] is False
     assert payload["writes_senco"] is False
     assert payload["hgen_point_shutdown_policy"] == "queue_managed_keep_running_between_points"
     assert payload["hgen_final_safe_stop_required"] is True
+    assert (tmp_path / "out" / "queue_dry" / "queue_failure_audit" / "h2o_queue_failure_audit.json").exists()
+    assert (tmp_path / "out" / "queue_dry" / "queue_failure_audit" / "queue_failure_audit.json").exists()
 
 
 def test_h2o_queue_prewarms_humidity_generator_before_temperature_settle(tmp_path, monkeypatch):

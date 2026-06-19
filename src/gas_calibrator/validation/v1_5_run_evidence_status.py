@@ -133,6 +133,29 @@ def _classify_artifact(path: Path) -> str:
         return "pressure_channel_quick_check"
     if name in {"queue_abort_exclusion.csv", "queue_abort_exclusion.json"}:
         return "h2o_queue_exclusion"
+    generic_failure_audit_names = {
+        "queue_failure_audit.csv",
+        "queue_failure_audit.json",
+        "queue_failure_audit_zh.md",
+    }
+    is_h2o_failure_audit = name.startswith("h2o_queue_failure_audit") or (
+        name in generic_failure_audit_names and ("h2o_open_flow" in parent_text or "h2o" in parent_parts)
+    )
+    is_co2_failure_audit = name.startswith("co2_queue_failure_audit") or (
+        name in generic_failure_audit_names and not is_h2o_failure_audit
+    )
+    if is_h2o_failure_audit:
+        if name.endswith(".json"):
+            return "h2o_queue_failure_audit"
+        if name.endswith(".md"):
+            return "h2o_queue_failure_audit_markdown"
+        return "h2o_queue_failure_audit_table"
+    if is_co2_failure_audit:
+        if name.endswith(".json"):
+            return "co2_queue_failure_audit"
+        if name.endswith(".md"):
+            return "co2_queue_failure_audit_markdown"
+        return "co2_queue_failure_audit_table"
     if name.startswith("samples_") and path.suffix.lower() == ".csv":
         return "raw_samples"
     if "co2_open_flow" in parent_text or ("co2" in parent_parts and "open_flow" in parent_text):
@@ -603,6 +626,23 @@ def build_v1_5_run_evidence_status(
                 reason_override="co2 calibration points or open-flow artifacts present" if co2_present else None,
             )
         )
+        stages.append(
+            _stage(
+                stage_id="co2_queue_failure_audit",
+                title="CO2 queue failure audit",
+                roles=("co2_queue_failure_audit",),
+                artifacts=artifacts_tuple,
+                physical_meaning=(
+                    "A finished CO2 queue must preserve why any point failed: insufficiently dry "
+                    "dewpoint, dewpoint rebound, analyzer startup, route readiness, or other "
+                    "diagnostic causes. Failed or downgraded points remain evidence, but must not "
+                    "silently enter formal coefficient fitting."
+                ),
+                missing_reason="CO2 queue failure audit not generated",
+                pass_reason="CO2 queue failure audit artifact is present",
+                optional=True,
+            )
+        )
     if component_lower in {"h2o", "both"}:
         stages.append(
             _stage(
@@ -615,6 +655,24 @@ def build_v1_5_run_evidence_status(
                 pass_reason="H2O open-flow points are present",
                 status_override="pass" if h2o_present else None,
                 reason_override="h2o calibration points or open-flow artifacts present" if h2o_present else None,
+            )
+        )
+        stages.append(
+            _stage(
+                stage_id="h2o_queue_failure_audit",
+                title="H2O queue failure audit",
+                roles=("h2o_queue_failure_audit",),
+                artifacts=artifacts_tuple,
+                physical_meaning=(
+                    "A finished H2O queue must preserve why any point failed: humidity "
+                    "generator state, dewpoint/reference instability, H2O ratio or signal "
+                    "instability, route readiness, or diagnostic pressure causes. Failed or "
+                    "downgraded H2O points remain evidence, but must not silently enter formal "
+                    "H2O fitting."
+                ),
+                missing_reason="no H2O queue failure audit artifact found",
+                pass_reason="H2O queue failure audit artifact is present",
+                optional=True,
             )
         )
     stages.append(

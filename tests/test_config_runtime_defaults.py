@@ -49,6 +49,7 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["analyzer_live_snapshot"]["enabled"] is True
     assert cfg["workflow"]["analyzer_live_snapshot"]["interval_s"] == 5.0
     assert cfg["workflow"]["analyzer_live_snapshot"]["cache_ttl_s"] == 2.5
+    assert cfg["workflow"]["analyzer_live_snapshot"]["refresh_during_temperature_target_wait"] is False
     assert cfg["workflow"]["analyzer_live_snapshot"]["sampling_worker_enabled"] is True
     assert cfg["workflow"]["analyzer_live_snapshot"]["sampling_worker_interval_s"] == 0.2
     assert cfg["workflow"]["analyzer_live_snapshot"]["passive_round_robin_enabled"] is True
@@ -127,20 +128,23 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["fast_gauge_read_retries"] == 1
     assert cfg["workflow"]["pressure"]["open_flow_vent1_gap_fail_closed_enabled"] is False
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_enabled"] is True
-    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_policy"] == "warn"
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_policy"] == "reject"
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_require_dry_enough"] is True
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_dry_enough_c"] == -28.0
     assert cfg["workflow"]["stability"]["analyzer_gate_dry_enough_violation_policy"] == "warn"
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_enabled"] is True
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_policy"] == "warn"
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_window_s"] == 60.0
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_window_s"] == 60.0
-    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_max_total_wait_s"] == 1080.0
-    assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_max_total_wait_s"] == 1080.0
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_max_total_wait_s"] == 1800.0
+    assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_max_total_wait_s"] == 1800.0
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_poll_s"] == 2.0
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_poll_s"] == 2.0
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_tail_span_max_c"] == 0.45
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_tail_span_max_c"] == 0.45
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s"] == 0.005
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_tail_slope_abs_max_c_per_s"] == 0.005
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c"] == 4.0
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_rebound_window_s"] == 180.0
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_rebound_window_s"] == 180.0
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_rebound_min_rise_c"] == 1.3
@@ -311,7 +315,11 @@ def test_default_config_shortens_h2o_preseal_soak_to_30s() -> None:
     cfg = load_config(root / "configs" / "default_config.json")
 
     assert cfg["workflow"]["stability"]["h2o_route"]["preseal_soak_s"] == 30
-    assert cfg["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_policy"] == "warn"
+    assert cfg["workflow"]["stability"]["sensor"]["co2_ratio_f_preseal_tol"] == 0.001
+    assert cfg["workflow"]["stability"]["sensor"]["co2_ratio_f_preseal_a_grade_tol"] == 0.0005
+    assert cfg["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_tol"] == 0.001
+    assert cfg["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_a_grade_tol"] == 0.0005
+    assert cfg["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_policy"] == "reject"
     assert cfg["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_window_s"] == 60
     assert cfg["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_timeout_s"] == 300
     assert cfg["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_min_samples"] == 10
@@ -322,7 +330,7 @@ def test_default_config_shortens_h2o_preseal_soak_to_30s() -> None:
     assert cfg["workflow"]["stability"]["dewpoint"]["rh_match_tol_pct"] == 3.3
     assert cfg["workflow"]["stability"]["temperature"]["analyzer_chamber_temp_span_c"] == 0.08
     assert cfg["workflow"]["stability"]["temperature"]["near_target_continue_margin_c"] == 1.0
-    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_max_total_wait_s"] == 1080.0
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_max_total_wait_s"] == 1800.0
     assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_enabled"] is True
     assert cfg["workflow"]["sampling"]["pressure_gauge_continuous_enabled"] is True
     assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_warn_hpa"] == 10.0

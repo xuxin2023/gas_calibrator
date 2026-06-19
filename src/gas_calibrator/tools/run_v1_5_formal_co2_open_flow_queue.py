@@ -15,18 +15,27 @@ import json
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from ..config import load_config
 from ..logging_utils import RunLogger
+from ..validation.v1_5_co2_queue_failure_audit import (
+    audit_and_write as _audit_co2_queue_failures,
+    classify_point_failure_from_log as _classify_point_failure_from_log,
+)
 from ..validation.v1_5_open_flow_purge_contract import resolve_v1_5_open_flow_purge
+from ..validation.v1_5_open_flow_purge_contract import CO2_NORMAL_PURGE_S
 from ..workflow.runner import CalibrationRunner
 from .run_headless import _build_devices, _close_devices
 from .run_v1_5_formal_open_flow_sampling import (
+    FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S,
+    FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
     _apply_analyzer_acquisition_policy,
     _defer_startup_mode2_disabled_analyzers,
+    _formal_open_flow_dewpoint_gate_max_wait_s,
 )
 
 
@@ -60,12 +69,31 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--purge-s", type=float, default=None, help="Override purge seconds.")
     parser.add_argument(
+        "--co2-adaptive-purge-after-first-point",
+        action="store_true",
+        help=(
+            "For ordinary CO2 points after the first point in the same temperature group, "
+            "shorten the fixed open-flow purge to --co2-subsequent-purge-s while keeping "
+            "the dewpoint and ratio gates mandatory. Conservative/recovery points are not shortened."
+        ),
+    )
+    parser.add_argument(
+        "--co2-subsequent-purge-s",
+        type=float,
+        default=240.0,
+        help=(
+            "Fixed purge seconds for non-first ordinary CO2 points when "
+            "--co2-adaptive-purge-after-first-point is enabled."
+        ),
+    )
+    parser.add_argument(
         "--n2-prepurge-s",
         type=float,
-        default=0.0,
+        default=None,
         help=(
-            "Optional nitrogen pre-purge seconds before each CO2 point. "
-            "This is passed to the single-point open-flow sidecar and remains no-write."
+            "Optional nitrogen pre-purge seconds before the first CO2 dry anchor in each temperature group. "
+            "When omitted the queue inherits workflow.nitrogen_purge.co2_prepurge_s "
+            "from the runtime config; pass 0 to disable explicitly. This remains no-write."
         ),
     )
     parser.add_argument(
@@ -103,6 +131,15 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="",
         help="Comma-separated analyzer labels that must pass the CO2 ratio gate before each point.",
     )
+    parser.add_argument(
+        "--analyzer-gate-prefer-all-stable-grace-s",
+        type=float,
+        default=FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
+        help=(
+            "After min-valid analyzers become stable, wait this many seconds for the remaining "
+            "analyzers to become stable before accepting the point with independent grading."
+        ),
+    )
     parser.add_argument("--co2-ratio-f-preseal-tol", type=float, default=None)
     parser.add_argument("--co2-ratio-f-preseal-window-s", type=float, default=None)
     parser.add_argument("--co2-ratio-f-preseal-timeout-s", type=float, default=None)
@@ -131,6 +168,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         "--gas-route-dewpoint-gate-policy",
         choices=("reject", "warn", "pass"),
         default="reject",
+        help=(
+            "Policy when the CO2 route dewpoint gate has stable evidence but the absolute dry-enough "
+            "threshold is not met. Formal CO2 calibration defaults to reject so insufficiently dry "
+            "route evidence cannot enter the main coefficient fit."
+        ),
     )
     dry_gate = parser.add_mutually_exclusive_group()
     dry_gate.add_argument(
@@ -146,14 +188,31 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         action="store_false",
         help="Use dewpoint tail stability only; records the disabled dry-enough gate in evidence.",
     )
-    parser.add_argument("--gas-route-dewpoint-dry-enough-c", type=float, default=-25.0)
-    parser.add_argument("--gas-route-dewpoint-gate-max-total-wait-s", type=float, default=1200.0)
+    parser.add_argument("--gas-route-dewpoint-dry-enough-c", type=float, default=-28.0)
+    parser.add_argument(
+        "--gas-route-dewpoint-gate-max-total-wait-s",
+        type=float,
+        default=FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S,
+        help=(
+            "Maximum normal CO2 open-flow dewpoint wait before the point is downgraded/rejected. "
+            "Formal automation caps this at 1800 s so an abnormal route does not consume gas for an hour."
+        ),
+    )
     parser.add_argument("--gas-route-dewpoint-gate-window-s", type=float, default=60.0)
     parser.add_argument("--gas-route-dewpoint-gate-tail-span-max-c", type=float, default=0.45)
     parser.add_argument(
         "--gas-route-dewpoint-gate-tail-slope-abs-max-c-per-s",
         type=float,
         default=0.005,
+    )
+    parser.add_argument(
+        "--gas-route-dewpoint-gate-deep-dry-tail-relax-margin-c",
+        type=float,
+        default=4.0,
+        help=(
+            "CO2 dry-route only: once the whole dewpoint tail is this many degrees below "
+            "the dry-enough threshold and still falling, do not keep waiting only for tail slope/span."
+        ),
     )
     parser.add_argument(
         "--control-temperature",
@@ -283,6 +342,20 @@ def _resolve_formal_min_valid_analyzers(
     return min(max(1, int(explicit_min_valid)), configured_count)
 
 
+def _resolve_n2_prepurge_s(cfg: Mapping[str, Any], explicit_seconds: Optional[float]) -> float:
+    """Resolve optional N2 pre-purge without inheriting it into formal CO2.
+
+    Formal gas-route calibration now relies on the certified gas point itself
+    reaching a dry-enough dewpoint and stable ratio. N2 pre-purge remains
+    available only when explicitly requested as engineering conditioning.
+    """
+
+    if explicit_seconds is not None:
+        return max(0.0, float(explicit_seconds))
+    _ = cfg
+    return 0.0
+
+
 def _select_queue_rows(
     rows: Sequence[Mapping[str, Any]],
     *,
@@ -330,6 +403,24 @@ def _ordered_temperature_groups(
         )
         for temp in temps
     ]
+
+
+def _temperature_group_n2_prepurge_index(rows: Sequence[Mapping[str, Any]]) -> Optional[int]:
+    """Return the row index that should receive the temperature-group N2 pre-purge.
+
+    N2 pre-purge is a route-conditioning action. It should remove humidity-route
+    residue and dead-volume gas before the dry CO2 evidence for a temperature
+    group begins, not interrupt every certified CO2 point. Prefer the 0 ppm dry
+    anchor when present; otherwise use the first point in the temperature group.
+    """
+
+    if not rows:
+        return None
+    for index, row in enumerate(rows):
+        ppm = _safe_float(row.get("source_nominal_ppm"))
+        if ppm is not None and abs(float(ppm)) <= 1e-9:
+            return index
+    return 0
 
 
 def _prepare_temperature_runtime_cfg(
@@ -506,11 +597,13 @@ def _build_point_command(
     row: Mapping[str, Any],
     run_id: str,
     args: argparse.Namespace,
+    n2_prepurge_s_for_point: Optional[float] = None,
+    row_index_in_temperature_group: int = 0,
 ) -> List[str]:
-    purge_resolution = resolve_v1_5_open_flow_purge(
-        component="co2",
+    purge_resolution = _resolve_co2_point_purge(
         row=row,
-        explicit_purge_s=args.purge_s,
+        args=args,
+        row_index_in_temperature_group=row_index_in_temperature_group,
     )
     purge_s = purge_resolution.purge_s
     sample_count = int(args.sample_count if args.sample_count is not None else row.get("sample_count") or 10)
@@ -550,12 +643,22 @@ def _build_point_command(
     ]
     if not args.allow_ftd_write:
         cmd.append("--no-ftd-write")
-    if float(args.n2_prepurge_s or 0.0) > 0.0:
-        cmd.extend(["--n2-prepurge-s", _format_value(args.n2_prepurge_s)])
+    point_n2_prepurge_source = (
+        args.n2_prepurge_s if n2_prepurge_s_for_point is None else n2_prepurge_s_for_point
+    )
+    point_n2_prepurge_s = float(point_n2_prepurge_source or 0.0)
+    if point_n2_prepurge_s > 0.0:
+        cmd.extend(["--n2-prepurge-s", _format_value(point_n2_prepurge_s)])
         if args.n2_purge_source_valve is not None:
             cmd.extend(["--n2-purge-source-valve", str(int(args.n2_purge_source_valve))])
     if str(args.analyzer_gate_required_labels or "").strip():
         cmd.extend(["--analyzer-gate-required-labels", str(args.analyzer_gate_required_labels).strip()])
+    cmd.extend(
+        [
+            "--analyzer-gate-prefer-all-stable-grace-s",
+            _format_value(args.analyzer_gate_prefer_all_stable_grace_s),
+        ]
+    )
     if args.co2_ratio_f_preseal_tol is not None:
         cmd.extend(["--co2-ratio-f-preseal-tol", _format_value(args.co2_ratio_f_preseal_tol)])
     if args.co2_ratio_f_preseal_window_s is not None:
@@ -595,6 +698,12 @@ def _build_point_command(
             _format_value(args.gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s),
         ]
     )
+    cmd.extend(
+        [
+            "--gas-route-dewpoint-gate-deep-dry-tail-relax-margin-c",
+            _format_value(args.gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c),
+        ]
+    )
     certificate_co2_ppm = _safe_float(
         row.get("certificate_co2_ppm")
         or row.get("standard_gas_certificate_value_ppm")
@@ -614,6 +723,49 @@ def _build_point_command(
     return cmd
 
 
+def _resolve_co2_point_purge(
+    *,
+    row: Mapping[str, Any],
+    args: argparse.Namespace,
+    row_index_in_temperature_group: int,
+):
+    base_resolution = resolve_v1_5_open_flow_purge(
+        component="co2",
+        row=row,
+        explicit_purge_s=args.purge_s,
+    )
+    if not bool(getattr(args, "co2_adaptive_purge_after_first_point", False)):
+        return base_resolution
+    if int(row_index_in_temperature_group) <= 0:
+        return base_resolution
+
+    subsequent_purge_s = _safe_float(getattr(args, "co2_subsequent_purge_s", None))
+    if subsequent_purge_s is None or subsequent_purge_s <= 0.0:
+        return base_resolution
+
+    # Only shorten ordinary, already-known CO2 route points. If the row asks for
+    # conservative/recovery handling, keep that longer physical conditioning time.
+    if (
+        float(base_resolution.purge_s) > CO2_NORMAL_PURGE_S
+        or float(base_resolution.minimum_purge_s) > CO2_NORMAL_PURGE_S
+    ):
+        return base_resolution
+
+    shortened = min(float(subsequent_purge_s), CO2_NORMAL_PURGE_S)
+    return replace(
+        base_resolution,
+        purge_s=shortened,
+        minimum_purge_s=shortened,
+        profile="adaptive_after_first_point",
+        explicit_override=True,
+        reasons=tuple(base_resolution.reasons)
+        + (
+            "same_temperature_group_after_first_point",
+            "dewpoint_and_ratio_gates_remain_mandatory",
+        ),
+    )
+
+
 def _write_manifest_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fields: List[str] = []
@@ -626,6 +778,26 @@ def _write_manifest_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
+
+
+def _write_queue_failure_audit(queue_dir: Path) -> Dict[str, Any]:
+    """Write an offline queue failure audit from the current manifest.
+
+    This is deliberately post-run and file-only. It must never reopen COM ports
+    or influence whether the already-finished queue is considered complete.
+    """
+
+    manifest_path = Path(queue_dir) / "queue_manifest.csv"
+    output_dir = Path(queue_dir) / "queue_failure_audit"
+    audit = _audit_co2_queue_failures(manifest_path, output_dir)
+    return {
+        "status": "ok",
+        "output_dir": str(output_dir),
+        "total_points": audit.get("total_points"),
+        "status_counts": dict(audit.get("status_counts") or {}),
+        "failure_category_counts": dict(audit.get("failure_category_counts") or {}),
+        "outputs": dict(audit.get("outputs") or {}),
+    }
 
 
 def _point_run_id(*, index: int, temp_c: float, ppm: float, role: Any) -> str:
@@ -642,6 +814,9 @@ def _temperature_settle_run_id(temp_c: float) -> str:
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
+    args.gas_route_dewpoint_gate_max_total_wait_s = _formal_open_flow_dewpoint_gate_max_wait_s(
+        args.gas_route_dewpoint_gate_max_total_wait_s
+    )
     if not args.no_prompt:
         _log("Refusing to run real CO2 queue without --no-prompt.")
         return 2
@@ -665,8 +840,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     groups = _ordered_temperature_groups(selected, order=args.temperature_order)
     cfg = load_config(cfg_path)
     args.min_valid_analyzers = _resolve_formal_min_valid_analyzers(cfg, args.min_valid_analyzers)
+    args.n2_prepurge_s = _resolve_n2_prepurge_s(cfg, args.n2_prepurge_s)
 
     manifest_rows: List[Dict[str, Any]] = []
+    n2_policy = (
+        "explicit_engineering_conditioning_once_per_temperature_group"
+        if float(args.n2_prepurge_s or 0.0) > 0.0
+        else "disabled_by_default_certified_gas_dewpoint_ratio_gate_only"
+    )
     queue_summary = {
         "schema_version": "v1_5_co2_open_flow_queue_v0",
         "queue_run_id": queue_run_id,
@@ -689,15 +870,22 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         "gas_route_dewpoint_require_dry_enough": bool(args.gas_route_dewpoint_require_dry_enough),
         "gas_route_dewpoint_dry_enough_c": float(args.gas_route_dewpoint_dry_enough_c),
         "gas_route_dewpoint_gate_max_total_wait_s": float(args.gas_route_dewpoint_gate_max_total_wait_s),
+        "gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c": float(
+            args.gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c
+        ),
+        "co2_adaptive_purge_after_first_point": bool(args.co2_adaptive_purge_after_first_point),
+        "co2_subsequent_purge_s": float(args.co2_subsequent_purge_s),
         "n2_prepurge_s": max(0.0, float(args.n2_prepurge_s or 0.0)),
+        "n2_prepurge_policy": n2_policy,
         "n2_purge_source_valve": (
             None if args.n2_purge_source_valve is None else int(args.n2_purge_source_valve)
         ),
         "physical_meaning": (
             "CO2 standards are sampled in open flow after each temperature group is settled. "
             "Pressure is recorded as an input quantity and sealed pressure points are excluded "
-            "from formal CO2 fitting. Optional nitrogen pre-purge uses the same open-flow path "
-            "to remove humidity-route residue and dead-volume gas before CO2 evidence is taken. "
+            "from formal CO2 fitting. Nitrogen pre-purge is disabled by default; every certified "
+            "gas point must prove its own dry-enough dewpoint state and per-analyzer ratio stability "
+            "before sampling. Explicit N2 pre-purge is engineering conditioning evidence only. "
             "Analyzer ratio gates are per-device evidence gates by default: an invalid analyzer "
             "is downgraded in QC instead of blocking valid analyzers in the same gas state."
         ),
@@ -733,13 +921,19 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 _log(f"Temperature group {temp_c:g}C failed; stop queue.")
                 break
 
-        for row in rows:
+        n2_prepurge_index = _temperature_group_n2_prepurge_index(rows)
+        for row_index, row in enumerate(rows):
             point_index += 1
             ppm = float(row["source_nominal_ppm"])
-            purge_resolution = resolve_v1_5_open_flow_purge(
-                component="co2",
+            point_n2_prepurge_s = (
+                max(0.0, float(args.n2_prepurge_s or 0.0))
+                if n2_prepurge_index is not None and row_index == n2_prepurge_index
+                else 0.0
+            )
+            purge_resolution = _resolve_co2_point_purge(
                 row=row,
-                explicit_purge_s=args.purge_s,
+                args=args,
+                row_index_in_temperature_group=row_index,
             )
             point_run_id = _point_run_id(
                 index=point_index,
@@ -753,6 +947,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 row=row,
                 run_id=point_run_id,
                 args=args,
+                n2_prepurge_s_for_point=point_n2_prepurge_s,
+                row_index_in_temperature_group=row_index,
             )
             started = datetime.now().isoformat(timespec="seconds")
             point_log_path = point_log_dir / f"{point_run_id}.log"
@@ -773,7 +969,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "purge_profile": purge_resolution.profile,
                 "purge_explicit_override": purge_resolution.explicit_override,
                 "purge_reasons": ";".join(purge_resolution.reasons),
-                "n2_prepurge_s": max(0.0, float(args.n2_prepurge_s or 0.0)),
+                "n2_prepurge_s": point_n2_prepurge_s,
+                "n2_prepurge_policy": n2_policy,
                 "n2_purge_source_valve": (
                     None
                     if args.n2_purge_source_valve is None
@@ -782,6 +979,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "min_valid_analyzers": int(args.min_valid_analyzers),
                 "gas_route_dewpoint_gate_enabled": bool(args.gas_route_dewpoint_gate_enabled),
                 "gas_route_dewpoint_dry_enough_c": float(args.gas_route_dewpoint_dry_enough_c),
+                "gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c": float(
+                    args.gas_route_dewpoint_gate_deep_dry_tail_relax_margin_c
+                ),
+                "failure_category": "",
+                "failure_reason": "",
             }
             manifest_rows.append(manifest_row)
             _write_manifest_csv(queue_dir / "queue_manifest.csv", manifest_rows)
@@ -808,6 +1010,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             manifest_row["ended_at"] = datetime.now().isoformat(timespec="seconds")
             manifest_row["returncode"] = int(completed.returncode)
             manifest_row["status"] = "ok" if completed.returncode == 0 else "failed"
+            if completed.returncode != 0:
+                manifest_row.update(_classify_point_failure_from_log(point_log_path))
             _write_manifest_csv(queue_dir / "queue_manifest.csv", manifest_rows)
 
             if completed.returncode != 0:
@@ -836,6 +1040,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "hard_failure": hard_failure,
         }
     )
+    try:
+        queue_summary["failure_audit"] = _write_queue_failure_audit(queue_dir)
+    except Exception as exc:
+        queue_summary["failure_audit"] = {
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     (queue_dir / "queue_summary.json").write_text(
         json.dumps(queue_summary, ensure_ascii=False, indent=2, default=str) + "\n",
         encoding="utf-8",

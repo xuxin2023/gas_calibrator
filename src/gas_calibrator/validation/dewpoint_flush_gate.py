@@ -213,6 +213,139 @@ def slope_per_s(rows: Sequence[Mapping[str, Any]], key: str) -> Optional[float]:
     return fit["slope"]
 
 
+def _window_rows_ending_at(
+    ordered: Sequence[Mapping[str, Any]],
+    *,
+    end_index: int,
+    window_s: float,
+) -> list[dict[str, Any]]:
+    if end_index < 0 or end_index >= len(ordered):
+        return []
+    end_ts = parse_timestamp(ordered[end_index].get("timestamp"))
+    if end_ts is None:
+        return []
+    cutoff = end_ts - timedelta(seconds=max(0.0, float(window_s)))
+    return [
+        dict(row)
+        for row in ordered[: end_index + 1]
+        if (parse_timestamp(row.get("timestamp")) or datetime.min) >= cutoff
+    ]
+
+
+def select_best_dewpoint_stable_window(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    gate_window_s: float = DEFAULT_DEWPOINT_GATE_WINDOW_S,
+    max_tail_span_c: float = 0.35,
+    max_abs_tail_slope_c_per_s: float = 0.003,
+    require_dry_enough: bool = False,
+    dry_enough_c: Optional[float] = None,
+    min_tail_samples: int = 2,
+    min_tail_coverage_ratio: float = 0.0,
+    max_tail_gap_s: Optional[float] = None,
+    tail_reference_method: str = "median",
+    deep_dry_tail_relax_margin_c: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Find the best physically stable dry dewpoint window in the trace.
+
+    This is evidence selection, not post-hoc acceptance. Formal sampling still
+    uses the live tail gate; the best-window fields help explain whether the
+    gas path ever reached a clean, stable dry state during the purge.
+    """
+
+    ordered = ordered_rows(rows)
+    tail_window_s = max(1.0, float(gate_window_s))
+    min_samples = max(2, int(min_tail_samples or 2))
+    min_coverage_s = tail_window_s * max(0.0, min(1.0, float(min_tail_coverage_ratio)))
+    dry_enough_threshold_c = safe_float(dry_enough_c)
+    dry_enough_required = bool(require_dry_enough)
+    method = str(tail_reference_method or "median").strip().lower()
+    if method not in {"last", "mean", "median"}:
+        method = "median"
+
+    best: Optional[tuple[tuple[float, float, float, float], Dict[str, Any]]] = None
+    for end_index, _row in enumerate(ordered):
+        candidate = _window_rows_ending_at(ordered, end_index=end_index, window_s=tail_window_s)
+        dewpoint_values = series(candidate, "dewpoint_c")
+        if len(dewpoint_values) < min_samples:
+            continue
+        coverage_s = duration_seconds(candidate)
+        if coverage_s < min_coverage_s:
+            continue
+        max_gap_s = max_timestamp_gap_s(candidate)
+        if max_tail_gap_s is not None and max_gap_s is not None and max_gap_s > float(max_tail_gap_s):
+            continue
+        slope = slope_per_s(candidate, "dewpoint_c")
+        if slope is None or abs(slope) > float(max_abs_tail_slope_c_per_s):
+            continue
+        span_c = max(dewpoint_values) - min(dewpoint_values)
+        if span_c > float(max_tail_span_c):
+            continue
+        ordered_candidate = ordered_rows(candidate)
+        reference_by_method = {
+            "last": safe_float(ordered_candidate[-1].get("dewpoint_c")) if ordered_candidate else None,
+            "mean": sum(dewpoint_values) / len(dewpoint_values),
+            "median": median(dewpoint_values),
+        }
+        reference_c = reference_by_method.get(method)
+        if reference_c is None:
+            continue
+        dry_enough_passed = (
+            (not dry_enough_required)
+            or (
+                dry_enough_threshold_c is not None
+                and reference_c <= dry_enough_threshold_c
+            )
+        )
+        if dry_enough_required and not dry_enough_passed:
+            continue
+        start_ts = parse_timestamp(ordered_candidate[0].get("timestamp")) if ordered_candidate else None
+        end_ts = parse_timestamp(ordered_candidate[-1].get("timestamp")) if ordered_candidate else None
+        metrics = {
+            "dewpoint_gate_best_window_found": True,
+            "dewpoint_gate_best_window_start_ts": safe_iso(start_ts),
+            "dewpoint_gate_best_window_end_ts": safe_iso(end_ts),
+            "dewpoint_gate_best_window_reference_method": method,
+            "dewpoint_gate_best_window_reference_c": reference_c,
+            "dewpoint_gate_best_window_min_c": min(dewpoint_values),
+            "dewpoint_gate_best_window_max_c": max(dewpoint_values),
+            "dewpoint_gate_best_window_span_c": span_c,
+            "dewpoint_gate_best_window_slope_c_per_min": slope * 60.0,
+            "dewpoint_gate_best_window_abs_slope_c_per_min": abs(slope) * 60.0,
+            "dewpoint_gate_best_window_coverage_s": coverage_s,
+            "dewpoint_gate_best_window_sample_count": len(dewpoint_values),
+            "dewpoint_gate_best_window_max_gap_s": max_gap_s,
+            "dewpoint_gate_best_window_dry_enough_passed": bool(dry_enough_passed),
+        }
+        score = (
+            float(reference_c),
+            float(span_c),
+            float(abs(slope)),
+            -float(coverage_s),
+        )
+        if best is None or score < best[0]:
+            best = (score, metrics)
+
+    if best is None:
+        return {
+            "dewpoint_gate_best_window_found": False,
+            "dewpoint_gate_best_window_start_ts": None,
+            "dewpoint_gate_best_window_end_ts": None,
+            "dewpoint_gate_best_window_reference_method": method,
+            "dewpoint_gate_best_window_reference_c": None,
+            "dewpoint_gate_best_window_min_c": None,
+            "dewpoint_gate_best_window_max_c": None,
+            "dewpoint_gate_best_window_span_c": None,
+            "dewpoint_gate_best_window_slope_c_per_min": None,
+            "dewpoint_gate_best_window_abs_slope_c_per_min": None,
+            "dewpoint_gate_best_window_coverage_s": None,
+            "dewpoint_gate_best_window_sample_count": 0,
+            "dewpoint_gate_best_window_max_gap_s": None,
+            "dewpoint_gate_best_window_dry_enough_passed": False,
+        }
+    return best[1]
+
+
 def preferred_pressure_series(rows: Sequence[Mapping[str, Any]]) -> list[float]:
     out: list[float] = []
     for row in rows:
@@ -366,6 +499,7 @@ def evaluate_dewpoint_flush_gate(
     min_tail_coverage_ratio: float = 0.0,
     max_tail_gap_s: Optional[float] = None,
     tail_reference_method: str = "median",
+    deep_dry_tail_relax_margin_c: Optional[float] = None,
 ) -> Dict[str, Any]:
     ordered = ordered_rows(rows)
     duration_s = phase_duration_s(ordered)
@@ -401,6 +535,43 @@ def evaluate_dewpoint_flush_gate(
         rebound_min_rise_c=rebound_min_rise_c,
         rebound_require_no_new_actuation=rebound_require_no_new_actuation,
     )
+    best_window = select_best_dewpoint_stable_window(
+        ordered,
+        gate_window_s=gate_window_s,
+        max_tail_span_c=max_tail_span_c,
+        max_abs_tail_slope_c_per_s=max_abs_tail_slope_c_per_s,
+        require_dry_enough=require_dry_enough,
+        dry_enough_c=dry_enough_c,
+        min_tail_samples=min_tail_samples,
+        min_tail_coverage_ratio=min_tail_coverage_ratio,
+        max_tail_gap_s=max_tail_gap_s,
+        tail_reference_method=tail_reference_method,
+    )
+    dry_enough_threshold_c = safe_float(dry_enough_c)
+    dry_enough_required = bool(require_dry_enough)
+    deep_dry_margin_c = safe_float(deep_dry_tail_relax_margin_c)
+    deep_dry_relax_enabled = bool(
+        dry_enough_required
+        and dry_enough_threshold_c is not None
+        and deep_dry_margin_c is not None
+        and float(deep_dry_margin_c) > 0.0
+    )
+    deep_dry_threshold_c = (
+        float(dry_enough_threshold_c) - float(deep_dry_margin_c)
+        if deep_dry_relax_enabled
+        else None
+    )
+    deep_dry_tail_all_passed = bool(
+        deep_dry_threshold_c is not None
+        and dewpoint_tail_max_c is not None
+        and float(dewpoint_tail_max_c) <= float(deep_dry_threshold_c)
+    )
+    deep_dry_tail_direction_ok = bool(
+        dewpoint_slope is not None and float(dewpoint_slope) <= 0.0
+    )
+    deep_dry_tail_relax_applied = bool(
+        deep_dry_relax_enabled and deep_dry_tail_all_passed and deep_dry_tail_direction_ok
+    )
     reasons: list[str] = []
     min_samples = max(2, int(min_tail_samples or 2))
     min_coverage_s = tail_window_s * max(0.0, min(1.0, float(min_tail_coverage_ratio)))
@@ -422,14 +593,15 @@ def evaluate_dewpoint_flush_gate(
         reasons.append("dewpoint_tail_reference_missing")
     if dewpoint_slope is None:
         reasons.append("dewpoint_tail_window_missing")
-    elif abs(dewpoint_slope) > float(max_abs_tail_slope_c_per_s):
+    elif (
+        abs(dewpoint_slope) > float(max_abs_tail_slope_c_per_s)
+        and not deep_dry_tail_relax_applied
+    ):
         reasons.append("dewpoint_tail_slope_too_large")
     if dewpoint_span is None:
         reasons.append("dewpoint_tail_span_missing")
-    elif dewpoint_span > float(max_tail_span_c):
+    elif dewpoint_span > float(max_tail_span_c) and not deep_dry_tail_relax_applied:
         reasons.append("dewpoint_tail_span_too_large")
-    dry_enough_threshold_c = safe_float(dry_enough_c)
-    dry_enough_required = bool(require_dry_enough)
     dry_enough_passed = (
         (not dry_enough_required)
         or (
@@ -452,6 +624,8 @@ def evaluate_dewpoint_flush_gate(
         pass_parts = ["tail_stable"]
         if dry_enough_required:
             pass_parts.append("dry_enough")
+        if deep_dry_tail_relax_applied:
+            pass_parts.append("deep_dry_tail_relax")
         if bool(rebound_warning_only) and bool(rebound.get("dewpoint_rebound_detected")):
             pass_parts.append("rebound_warning_only")
         pass_reason = ";".join(pass_parts)
@@ -484,6 +658,12 @@ def evaluate_dewpoint_flush_gate(
         "dewpoint_gate_tail_max_gap_s": dewpoint_tail_max_gap_s,
         "dewpoint_gate_tail_reference_method": method,
         "dewpoint_gate_tail_reference_c": dewpoint_tail_reference_c,
+        "dewpoint_gate_deep_dry_tail_relax_enabled": bool(deep_dry_relax_enabled),
+        "dewpoint_gate_deep_dry_tail_relax_margin_c": deep_dry_margin_c,
+        "dewpoint_gate_deep_dry_threshold_c": deep_dry_threshold_c,
+        "dewpoint_gate_deep_dry_tail_all_passed": bool(deep_dry_tail_all_passed),
+        "dewpoint_gate_deep_dry_tail_direction_ok": bool(deep_dry_tail_direction_ok),
+        "dewpoint_gate_deep_dry_tail_relax_applied": bool(deep_dry_tail_relax_applied),
         "dewpoint_gate_rebound_warning_only": bool(rebound_warning_only),
         "dewpoint_gate_require_dry_enough": dry_enough_required,
         "dewpoint_gate_dry_enough_c": dry_enough_threshold_c,
@@ -492,5 +672,6 @@ def evaluate_dewpoint_flush_gate(
         "pressure_tail_std_60s": pressure_std,
         "pressure_tail_span_60s": pressure_span,
         "vent_state_during_flush": "VENT_ON" if vent_on else "NOT_ALL_VENT_ON",
+        **best_window,
         **rebound,
     }

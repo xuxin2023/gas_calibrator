@@ -299,6 +299,120 @@ def test_post_run_executor_discovers_r4_style_candidate_artifacts(tmp_path):
     assert device["overall_status"] == "ready_for_controlled_write_review"
 
 
+def test_post_run_executor_indexes_h2o_dry_anchor_bridge_review(tmp_path):
+    run_dir = tmp_path / "dry_anchor_bridge_ready"
+    _seed_complete_post_run_evidence(run_dir, devices=("022",))
+    bridge_dir = run_dir / "h2o_dry_anchor_bridge_review_20260618"
+    _write_json(
+        bridge_dir / "h2o_dry_anchor_bridge_manifest.json",
+        {
+            "no_write": True,
+            "opens_com_ports": False,
+            "controls_water_or_gas_routes": False,
+            "writes_coefficients": False,
+            "dry_anchor_bridge_contract": (
+                "Gas-route dry anchors use dewpoint/pressure-derived H2O targets "
+                "before being allowed into any main fit."
+            ),
+        },
+    )
+    _write_csv(
+        bridge_dir / "h2o_dry_anchor_bridge_device_summary.csv",
+        [
+            {
+                "component": "h2o",
+                "analyzer_device_id": "022",
+                "dry_anchor_count": "3",
+                "dry_anchor_compatible_count": "3",
+                "dry_bridge_max_abs_error_mmol": "0.041",
+                "dry_bridge_max_abs_relative_error_pct": "0.52",
+                "recommendation": "dry_anchors_can_enter_low_end_fit_review",
+            }
+        ],
+    )
+    _write_csv(
+        bridge_dir / "h2o_dry_anchor_bridge_predictions.csv",
+        [
+            {
+                "component": "h2o",
+                "analyzer_device_id": "022",
+                "reference_dewpoint_c": "-32.0",
+                "reference_pressure_hpa": "1012.0",
+                "bridge_status": "bridge_fit_compatible",
+            }
+        ],
+    )
+    _write_csv(
+        bridge_dir / "h2o_dry_anchor_bridge_strategy_comparison.csv",
+        [{"strategy_id": "dry_le_0_relative", "worst_device_id": "022"}],
+    )
+
+    model = build_post_run_coefficient_executor_model(run_dir=run_dir)
+    stages = {row["stage_id"]: row for row in model["stages"]}
+    device = model["devices"][0]
+    command_actions = {row["action"] for row in model["execution_order"]}
+
+    assert stages["h2o_dry_anchor_bridge_review"]["status"] == "ready"
+    assert "h2o_dry_anchor_bridge_review" in command_actions
+    assert model["workflow_contract"]["h2o_dry_anchor_requires_dewpoint_pressure_temperature_bridge"] is True
+    assert device["h2o_dry_anchor_bridge_status"] == "ready:dry_anchors_can_enter_low_end_fit_review"
+    assert device["overall_status"] == "ready_for_controlled_write_review"
+    assert model["artifact_paths"]["h2o_dry_anchor_bridge"]
+
+    h2o_write = next(
+        row
+        for row in model["controlled_write_package"]
+        if row["device_id"] == "022" and row["component"] == "h2o_senco2_senco4"
+    )
+    assert "dry-gas low-water anchors" in h2o_write["physical_gate"]
+    assert "dry_anchors_can_enter_low_end_fit_review" in h2o_write["source_status"]
+
+
+def test_post_run_executor_blocks_device_when_h2o_dry_anchor_bridge_requires_new_evidence(tmp_path):
+    run_dir = tmp_path / "dry_anchor_bridge_blocked"
+    _seed_complete_post_run_evidence(run_dir, devices=("022", "030"))
+    bridge_dir = run_dir / "h2o_dry_anchor_bridge_review_20260618"
+    _write_json(
+        bridge_dir / "h2o_dry_anchor_bridge_manifest.json",
+        {"no_write": True, "opens_com_ports": False, "writes_coefficients": False},
+    )
+    _write_csv(
+        bridge_dir / "h2o_dry_anchor_bridge_device_summary.csv",
+        [
+            {
+                "component": "h2o",
+                "analyzer_device_id": "022",
+                "dry_anchor_count": "2",
+                "dry_anchor_compatible_count": "0",
+                "dry_bridge_max_abs_error_mmol": "0.83",
+                "dry_bridge_max_abs_relative_error_pct": "14.2",
+                "recommendation": "collect_new_formal_dry_h2o_anchor_evidence",
+            },
+            {
+                "component": "h2o",
+                "analyzer_device_id": "030",
+                "dry_anchor_count": "2",
+                "dry_anchor_compatible_count": "2",
+                "dry_bridge_max_abs_error_mmol": "0.03",
+                "dry_bridge_max_abs_relative_error_pct": "0.4",
+                "recommendation": "dry_anchors_can_enter_low_end_fit_review",
+            },
+        ],
+    )
+
+    model = build_post_run_coefficient_executor_model(run_dir=run_dir)
+    devices = {row["device_id"]: row for row in model["devices"]}
+
+    assert model["overall_status"] == "partial"
+    assert devices["030"]["overall_status"] == "ready_for_controlled_write_review"
+    assert devices["022"]["overall_status"] == "blocked_or_partial"
+    assert (
+        "h2o_dry_anchor_bridge_blocked:collect_new_formal_dry_h2o_anchor_evidence"
+        in devices["022"]["blockers"]
+    )
+    assert any("h2o_dry_anchor_bridge_blocked" in row["reason"] for row in model["closure_gaps"])
+
+
 def test_post_run_executor_uses_latest_candidate_review_instead_of_stale_blocker(tmp_path):
     run_dir = tmp_path / "latest_candidate"
     _write_json(
@@ -496,6 +610,52 @@ def test_post_run_executor_uses_per_device_pressure_completion_readiness(tmp_pat
         "needs_senco9_review_or_calibration:post_write_offset_out_of_limit"
     )
     assert devices["077"]["overall_status"] == "blocked_or_partial"
+
+
+def test_post_run_executor_uses_explicit_pressure_completion_alongside_review_json(tmp_path):
+    run_dir = tmp_path / "explicit_pressure_completion"
+    _seed_complete_post_run_evidence(run_dir, devices=("097", "091"))
+    pressure_review = run_dir / "pressure_senco9_review.json"
+    pressure_completion = _write_csv(
+        run_dir / "pressure_channel_completion" / "pressure_channel_completion_summary.csv",
+        [
+            {
+                "overall_status": "blocked",
+                "device_count": "2",
+                "ready_device_count": "1",
+                "blocked_device_count": "1",
+            }
+        ],
+    )
+    pressure_readiness = _write_csv(
+        run_dir / "pressure_channel_completion" / "pressure_channel_device_readiness.csv",
+        [
+            {
+                "analyzer_device_id": "097",
+                "readiness_status": "pass",
+                "readiness_reasons": "",
+            },
+            {
+                "analyzer_device_id": "091",
+                "readiness_status": "blocked",
+                "readiness_reasons": "needs_reverify_after_restart",
+            },
+        ],
+    )
+
+    model = build_post_run_coefficient_executor_model(
+        run_dir=run_dir,
+        pressure_review_json=pressure_review,
+        pressure_completion_summary_csv=pressure_completion,
+        pressure_device_readiness_csv=pressure_readiness,
+    )
+    devices = {row["device_id"]: row for row in model["devices"]}
+
+    assert model["overall_status"] == "partial"
+    assert devices["097"]["pressure_status"] == "ready"
+    assert devices["097"]["overall_status"] == "ready_for_controlled_write_review"
+    assert devices["091"]["pressure_status"] == "needs_senco9_review_or_calibration:needs_reverify_after_restart"
+    assert devices["091"]["overall_status"] == "blocked_or_partial"
 
 
 def test_post_run_executor_accepts_initialization_ready_with_warnings(tmp_path):

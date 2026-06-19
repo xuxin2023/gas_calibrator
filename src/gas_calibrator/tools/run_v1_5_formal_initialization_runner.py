@@ -55,6 +55,12 @@ INITIALIZATION_TOOL_OWNERSHIP: Mapping[str, Mapping[str, str]] = {
         "allowed_use": "Check existing evidence and explain missing initialization proof before open-flow sampling.",
         "forbidden_use": "Does not open COM or repair missing evidence.",
     },
+    "formal_route_readiness_probe": {
+        "tool": "gas_calibrator.tools.run_v1_5_formal_route_readiness_probe",
+        "role": "subordinate_initialization_route_readiness_probe",
+        "allowed_use": "Before chamber soak, prove relay_map completeness, relay/relay_8 read-write availability, dewpoint-meter online status, and N2 prepurge valve open/close when enabled.",
+        "forbidden_use": "Not a formal CO2/H2O sampling runner; does not open CO2/H2O source valves, write SENCO, write device IDs, or run V2 real COM.",
+    },
     "historical_artifacts": {
         "tool": "logs, reports, archived artifacts",
         "role": "traceability_reference_only",
@@ -251,6 +257,8 @@ def _artifact_role(path: Path) -> str:
         return "temperature_reference_samples"
     if name == "temperature_current_point_analyzer_samples.csv":
         return "temperature_analyzer_samples"
+    if name == "formal_route_readiness.json":
+        return "formal_route_readiness_model"
     if name == "v1_5_initialization_readiness.json":
         return "initialization_readiness_model"
     if name == "v1_5_initialization_readiness.md":
@@ -270,6 +278,7 @@ def _required_artifact_role(role: str) -> bool:
         "initialization_identity_snapshot",
         "initialization_runtime_identity_config",
         "temperature_current_point_review_model",
+        "formal_route_readiness_model",
     }
 
 
@@ -989,6 +998,69 @@ def _write_unlock_command(
     )
 
 
+def _optional_path(value: str | Path | None) -> str:
+    return "" if value is None or str(value).strip() == "" else str(value)
+
+
+def _pressure_completion_command(
+    *,
+    senco9_write_summary: str | Path | None,
+    post_write_fit_summary: str | Path | None,
+    pressure_reference_json: str | Path | None,
+    output_dir: Path,
+    pressure_reference_traceability: str | Path | None = None,
+    old_getco_json: str | Path | None = None,
+    selected_device_ids: Sequence[str] = (),
+    known_limitations: Sequence[str] = (),
+    max_abs_offset_kpa: float = 0.05,
+    max_residual_hpa: float = 0.5,
+    acceptance_policy_note: str = "",
+    today: str = "",
+) -> tuple[str, ...]:
+    """Build the offline pressure-channel completion command when evidence is available."""
+
+    if not (
+        _optional_path(senco9_write_summary)
+        and _optional_path(post_write_fit_summary)
+        and _optional_path(pressure_reference_json)
+    ):
+        return ()
+
+    parts: list[object] = [
+        "python",
+        "-m",
+        "gas_calibrator.tools.export_v1_5_pressure_channel_completion",
+        "--senco9-write-summary",
+        senco9_write_summary,
+        "--post-write-fit-summary",
+        post_write_fit_summary,
+        "--pressure-reference-json",
+        pressure_reference_json,
+        "--output-dir",
+        output_dir,
+        "--max-abs-offset-kpa",
+        f"{float(max_abs_offset_kpa):.6g}",
+        "--max-residual-hpa",
+        f"{float(max_residual_hpa):.6g}",
+    ]
+    if _optional_path(pressure_reference_traceability):
+        parts.extend(["--pressure-reference-traceability", pressure_reference_traceability])
+    if _optional_path(old_getco_json):
+        parts.extend(["--old-getco-json", old_getco_json])
+    for device_id in selected_device_ids:
+        normalized = _device_id(device_id)
+        if normalized:
+            parts.extend(["--device-id", normalized])
+    for limitation in known_limitations:
+        if str(limitation).strip():
+            parts.extend(["--known-limitation", limitation])
+    if acceptance_policy_note:
+        parts.extend(["--acceptance-policy-note", acceptance_policy_note])
+    if today:
+        parts.extend(["--today", today])
+    return _cmd(*parts)
+
+
 def build_formal_initialization_plan(
     *,
     config_path: str | Path,
@@ -1002,6 +1074,18 @@ def build_formal_initialization_plan(
     senco9_policy: str = "direct_pressure_calibration",
     average_filter: int = 49,
     ftd_hz: int = 1,
+    pressure_completion_senco9_write_summary: str | Path | None = None,
+    pressure_completion_post_write_fit_summary: str | Path | None = None,
+    pressure_completion_reference_json: str | Path | None = None,
+    pressure_completion_reference_traceability: str | Path | None = None,
+    pressure_completion_old_getco_json: str | Path | None = None,
+    pressure_completion_output_dir: str | Path | None = None,
+    pressure_completion_device_ids: Sequence[str] = (),
+    pressure_completion_known_limitations: Sequence[str] = (),
+    pressure_completion_max_abs_offset_kpa: float = 0.05,
+    pressure_completion_max_residual_hpa: float = 0.5,
+    pressure_completion_policy_note: str = "",
+    pressure_completion_today: str = "",
 ) -> InitializationPlan:
     gap = _validate_command_gap(command_gap_s)
     config = Path(config_path).resolve()
@@ -1014,6 +1098,15 @@ def build_formal_initialization_plan(
     aux_dir = root / "auxiliary_senco56789_neutralization"
     temp_review_dir = aux_dir / "temperature_current_point_review"
     temp_repair_dir = aux_dir / "temperature_current_point_single_point_repair"
+    route_readiness_dir = root / "formal_route_readiness"
+    pressure_completion_dir = Path(pressure_completion_output_dir).resolve() if pressure_completion_output_dir else (
+        root / "pressure_channel_completion"
+    )
+    pressure_completion_old_getco = (
+        pressure_completion_old_getco_json
+        if pressure_completion_old_getco_json is not None
+        else getco_dir / "old_component_coefficients_snapshot.json"
+    )
 
     getco_cmd = _python_module(
         "gas_calibrator.tools.probe_v1_5_getco_component_snapshot",
@@ -1049,6 +1142,13 @@ def build_formal_initialization_plan(
         "--output-dir",
         root,
     )
+    route_readiness_cmd = _python_module(
+        "gas_calibrator.tools.run_v1_5_formal_route_readiness_probe",
+        "--config",
+        config,
+        "--output-dir",
+        route_readiness_dir,
+    )
     temp_current_review_cmd = _python_module(
         "gas_calibrator.tools.run_v1_5_temperature_current_point_review",
         "--config",
@@ -1073,6 +1173,20 @@ def build_formal_initialization_plan(
         f"{gap:.1f}",
         "--coefficient-read-delay-s",
         f"{gap:.1f}",
+    )
+    pressure_completion_cmd = _pressure_completion_command(
+        senco9_write_summary=pressure_completion_senco9_write_summary,
+        post_write_fit_summary=pressure_completion_post_write_fit_summary,
+        pressure_reference_json=pressure_completion_reference_json,
+        pressure_reference_traceability=pressure_completion_reference_traceability,
+        old_getco_json=pressure_completion_old_getco,
+        output_dir=pressure_completion_dir,
+        selected_device_ids=pressure_completion_device_ids,
+        known_limitations=pressure_completion_known_limitations,
+        max_abs_offset_kpa=pressure_completion_max_abs_offset_kpa,
+        max_residual_hpa=pressure_completion_max_residual_hpa,
+        acceptance_policy_note=pressure_completion_policy_note,
+        today=pressure_completion_today,
     )
 
     steps = (
@@ -1279,6 +1393,57 @@ def build_formal_initialization_plan(
             gate="pressure_calibration_required_before_component_sampling",
         ),
         InitializationStep(
+            step_id="pressure_channel_completion_audit",
+            title="Export pressure-channel completion evidence after SENCO9 write and verification",
+            phase="input_quantity_control",
+            command=pressure_completion_cmd,
+            execution_mode="offline_audit_when_pressure_write_and_reverify_evidence_exist",
+            required_inputs=(
+                "senco9_write_summary.csv",
+                "post-write pressure_fit_summary.csv",
+                "COM22 pressure reference certificate JSON",
+                _artifact(getco_dir, "old_component_coefficients_snapshot.json"),
+            ),
+            expected_outputs=(
+                _artifact(pressure_completion_dir, "pressure_channel_completion_summary.csv"),
+                _artifact(pressure_completion_dir, "pressure_channel_device_readiness.csv"),
+                _artifact(pressure_completion_dir, "pressure_channel_completion_report.md"),
+            ),
+            physical_meaning=(
+                "After SENCO9 is written and independently verified, this offline gate freezes the traceable "
+                "pressure-input evidence that readiness and later CO2/H2O reports consume. It does not "
+                "control PACE, open COM, or write coefficients."
+            ),
+            safety_notes=(
+                "Skipped as not_applicable until SENCO9 write and post-write pressure verification evidence paths are supplied.",
+                "This is the bridge from pressure-channel calibration to component open-flow readiness.",
+            ),
+            gate="required_before_open_flow_sampling_when_pressure_channel_was_repaired",
+        ),
+        InitializationStep(
+            step_id="formal_route_readiness_probe",
+            title="Verify formal N2/CO2/H2O route readiness before chamber soak",
+            phase="route_precheck",
+            command=route_readiness_cmd,
+            execution_mode="read_only_route_hardware_probe_when_operator_runs_command",
+            opens_com_ports=True,
+            required_inputs=(str(config),),
+            expected_outputs=(_artifact(route_readiness_dir, "formal_route_readiness.json"),),
+            physical_meaning=(
+                "Before any temperature-chamber soak, prove that all N2/CO2/H2O logical valves "
+                "are present in relay_map, relay and relay_8 ports are readable/writable, the "
+                "dewpoint meter is online, and the N2 prepurge source valve can open/close when "
+                "prepurge is enabled. This prevents wasting hours before discovering a missing "
+                "route or offline reference device."
+            ),
+            safety_notes=(
+                "Does not write SENCO or device ID.",
+                "Does not open formal CO2/H2O source valves or run gas/water sampling routes.",
+                "Only the N2 source valve is toggled, and only when N2 prepurge is enabled.",
+            ),
+            gate="required_before_open_flow_sampling",
+        ),
+        InitializationStep(
             step_id="initialization_readiness_audit",
             title="Export initialization readiness after evidence and gates",
             phase="readiness_audit",
@@ -1344,12 +1509,17 @@ def build_formal_initialization_plan(
             "formal_initialization_must_project_GETCO7_8_over_negative_temperatures"
         ),
         "s9_reason": "pressure_input_errors_pollute_R_T_P_component_model",
+        "route_readiness_before_components": (
+            "relay_map, relay/relay_8, dewpoint meter, and N2 prepurge source must be proven in initialization "
+            "before chamber soak or open-flow sampling."
+        ),
     }
     warnings = (
         "This tool writes a plan only; controlled real writes still require the dedicated writer confirmations.",
         "If S7/S8 are abnormal, neutralize or repair them before CO2/H2O sampling; do not let component fits absorb temperature error.",
         "Temperature current-point review must include sub-zero projection checks so above-zero normal readings do not hide a 60 C low-temperature failure.",
         "Production pressure handling should proceed to direct multi-point SENCO9 calibration/review before component sampling.",
+        "Formal N2/CO2/H2O route readiness must pass in initialization before temperature chamber soak starts.",
     )
     return InitializationPlan(
         schema=SCHEMA,
@@ -1480,7 +1650,9 @@ def write_formal_initialization_plan(plan: InitializationPlan, output_dir: str |
                     "temperature_current_point_review_gate",
                     "temperature_current_point_single_point_repair_gate",
                     "senco9_pressure_policy_gate",
+                    "pressure_channel_completion_audit",
                     "mode2_1hz_filter_startup_contract",
+                    "formal_route_readiness_probe",
                     "initialization_readiness_audit",
                 ],
             },
@@ -1520,6 +1692,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--average-filter", type=int, default=49)
     parser.add_argument("--ftd-hz", type=int, default=1)
+    parser.add_argument(
+        "--pressure-completion-senco9-write-summary",
+        default=None,
+        help="Existing senco9_write_summary.csv to convert into pressure-channel completion evidence.",
+    )
+    parser.add_argument(
+        "--pressure-completion-post-write-fit-summary",
+        default=None,
+        help="Existing post-write pressure_fit_summary.csv used to verify SENCO9.",
+    )
+    parser.add_argument(
+        "--pressure-completion-reference-json",
+        default=None,
+        help="COM22 pressure reference certificate JSON for pressure-channel completion.",
+    )
+    parser.add_argument("--pressure-completion-reference-traceability", default=None)
+    parser.add_argument("--pressure-completion-old-getco-json", default=None)
+    parser.add_argument("--pressure-completion-output-dir", default=None)
+    parser.add_argument("--pressure-completion-device-id", action="append", default=[])
+    parser.add_argument("--pressure-completion-known-limitation", action="append", default=[])
+    parser.add_argument("--pressure-completion-max-abs-offset-kpa", type=float, default=0.05)
+    parser.add_argument("--pressure-completion-max-residual-hpa", type=float, default=0.5)
+    parser.add_argument("--pressure-completion-policy-note", default="")
+    parser.add_argument("--pressure-completion-today", default="")
     parser.add_argument(
         "--execute",
         action="store_true",
@@ -1563,6 +1759,18 @@ def main(argv: Iterable[str] | None = None) -> int:
             senco9_policy=args.senco9_policy,
             average_filter=args.average_filter,
             ftd_hz=args.ftd_hz,
+            pressure_completion_senco9_write_summary=args.pressure_completion_senco9_write_summary,
+            pressure_completion_post_write_fit_summary=args.pressure_completion_post_write_fit_summary,
+            pressure_completion_reference_json=args.pressure_completion_reference_json,
+            pressure_completion_reference_traceability=args.pressure_completion_reference_traceability,
+            pressure_completion_old_getco_json=args.pressure_completion_old_getco_json,
+            pressure_completion_output_dir=args.pressure_completion_output_dir,
+            pressure_completion_device_ids=tuple(args.pressure_completion_device_id or ()),
+            pressure_completion_known_limitations=tuple(args.pressure_completion_known_limitation or ()),
+            pressure_completion_max_abs_offset_kpa=args.pressure_completion_max_abs_offset_kpa,
+            pressure_completion_max_residual_hpa=args.pressure_completion_max_residual_hpa,
+            pressure_completion_policy_note=args.pressure_completion_policy_note,
+            pressure_completion_today=args.pressure_completion_today,
         )
         outputs = write_formal_initialization_plan(plan, args.output_dir)
         if args.execute:

@@ -70,6 +70,80 @@ def test_evaluate_dewpoint_flush_gate_passes_after_min_flush_when_tail_is_stable
     assert gate["gate_pass"] is True
     assert gate["gate_status"] == "pass"
     assert float(gate["dewpoint_time_to_gate"]) >= 60.0
+    assert gate["dewpoint_gate_best_window_found"] is True
+
+
+def test_evaluate_dewpoint_flush_gate_allows_falling_deep_dry_tail() -> None:
+    start = datetime(2026, 4, 3, 9, 0, 0)
+    rows = [
+        _row(start + timedelta(seconds=idx * 10), float(idx * 10), -33.0 - idx * 0.30)
+        for idx in range(7)
+    ]
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=60.0,
+        gate_window_s=60.0,
+        max_tail_span_c=0.2,
+        max_abs_tail_slope_c_per_s=0.003,
+        require_dry_enough=True,
+        dry_enough_c=-28.0,
+        deep_dry_tail_relax_margin_c=4.0,
+    )
+
+    assert gate["gate_pass"] is True
+    assert gate["dewpoint_gate_deep_dry_tail_relax_applied"] is True
+    assert gate["dewpoint_gate_deep_dry_threshold_c"] == -32.0
+    assert "deep_dry_tail_relax" in str(gate["dewpoint_gate_pass_reason"])
+
+
+def test_evaluate_dewpoint_flush_gate_does_not_relax_rising_deep_dry_tail() -> None:
+    start = datetime(2026, 4, 3, 9, 0, 0)
+    rows = [
+        _row(start + timedelta(seconds=idx * 10), float(idx * 10), -35.0 + idx * 0.30)
+        for idx in range(7)
+    ]
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=60.0,
+        gate_window_s=60.0,
+        max_tail_span_c=0.2,
+        max_abs_tail_slope_c_per_s=0.003,
+        require_dry_enough=True,
+        dry_enough_c=-28.0,
+        deep_dry_tail_relax_margin_c=4.0,
+    )
+
+    assert gate["gate_pass"] is False
+    assert gate["dewpoint_gate_deep_dry_tail_relax_applied"] is False
+    assert "dewpoint_tail_slope_too_large" in str(gate["gate_reason"])
+
+
+def test_evaluate_dewpoint_flush_gate_records_best_stable_dry_window() -> None:
+    start = datetime(2026, 4, 3, 9, 0, 0)
+    dewpoints = [-24.0, -25.0, -28.70, -28.72, -28.71, -28.715, -27.2, -27.1]
+    rows = [
+        _row(start + timedelta(seconds=idx * 10), float(idx * 10), dewpoint_c)
+        for idx, dewpoint_c in enumerate(dewpoints)
+    ]
+
+    gate = evaluate_dewpoint_flush_gate(
+        rows,
+        min_flush_s=60.0,
+        gate_window_s=30.0,
+        max_tail_span_c=0.35,
+        max_abs_tail_slope_c_per_s=0.003,
+        require_dry_enough=True,
+        dry_enough_c=-28.0,
+        min_tail_samples=3,
+    )
+
+    assert gate["gate_pass"] is False
+    assert "dewpoint_tail_reference_not_dry_enough" in str(gate["gate_reason"])
+    assert gate["dewpoint_gate_best_window_found"] is True
+    assert float(gate["dewpoint_gate_best_window_reference_c"]) <= -28.0
+    assert float(gate["dewpoint_gate_best_window_span_c"]) <= 0.35
 
 
 def test_evaluate_dewpoint_flush_gate_reports_rebound_when_enabled() -> None:

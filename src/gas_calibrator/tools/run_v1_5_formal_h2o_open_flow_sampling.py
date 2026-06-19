@@ -31,11 +31,15 @@ from ..validation.reporting import ValidationMetadata, write_validation_report
 from ..workflow.runner import CalibrationRunner
 from .run_headless import _build_devices, _close_devices
 from .run_v1_5_formal_open_flow_sampling import (
+    FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
+    FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
+    FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S,
     _apply_analyzer_acquisition_policy,
     _configured_analyzer_labels,
     _defer_startup_mode2_disabled_analyzers,
     _enable_formal_summary_outlier_filter,
     _enter_continuous_atmosphere,
+    _formal_open_flow_dewpoint_gate_max_wait_s,
     _read_dewpoint_snapshot,
     _read_optional_float,
     _stop_continuous_atmosphere,
@@ -205,6 +209,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--analyzer-gate-prefer-all-stable-grace-s",
+        type=float,
+        default=FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S,
+        help=(
+            "After the minimum analyzer count first becomes stable, keep the H2O route open for this "
+            "bounded grace period to let the remaining analyzers become A-grade before accepting "
+            "min-valid evidence."
+        ),
+    )
+    parser.add_argument(
         "--analyzer-acquisition",
         choices=("active_stream_10hz", "active_stream_1hz", "passive_query"),
         default="active_stream_1hz",
@@ -274,6 +288,7 @@ def _prepare_runtime_cfg(
     analyzer_acquisition: str = "active_stream_1hz",
     allow_ftd_write: bool = True,
     min_valid_analyzers: int = 1,
+    analyzer_gate_prefer_all_stable_grace_s: Optional[float] = None,
     h2o_pressure_presample_policy: str = "skip",
     keep_hgen_running_after_point: bool = False,
 ) -> Dict[str, Any]:
@@ -308,7 +323,7 @@ def _prepare_runtime_cfg(
         "dewpoint_reference_gate_required": True,
         "per_analyzer_h2o_ratio_stability_required": True,
         "per_analyzer_status_register_qc_required": True,
-        "unstable_analyzer_handling": "independent_grade_or_reject_do_not_block_all_when_min_valid_met",
+        "unstable_analyzer_handling": "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject",
         "pressure_role": "diagnostic_or_qc_input_not_h2o_fit_hard_blocker",
     }
 
@@ -361,9 +376,9 @@ def _prepare_runtime_cfg(
         float(stability_cfg.get("water_route_dewpoint_gate_window_s", 60.0) or 60.0),
         60.0,
     )
-    stability_cfg["water_route_dewpoint_gate_max_total_wait_s"] = max(
-        float(stability_cfg.get("water_route_dewpoint_gate_max_total_wait_s", 1080.0) or 1080.0),
-        1080.0,
+    stability_cfg["water_route_dewpoint_gate_max_total_wait_s"] = _formal_open_flow_dewpoint_gate_max_wait_s(
+        stability_cfg.get("water_route_dewpoint_gate_max_total_wait_s"),
+        default=FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S,
     )
     stability_cfg["water_route_dewpoint_gate_poll_s"] = max(
         float(stability_cfg.get("water_route_dewpoint_gate_poll_s", 2.0) or 2.0),
@@ -393,6 +408,12 @@ def _prepare_runtime_cfg(
     h2o_base_tol = float(sensor_cfg.get("h2o_ratio_f_tol", 0.001) or 0.001)
     h2o_current_tol = float(sensor_cfg.get("h2o_ratio_f_preseal_tol", h2o_base_tol) or h2o_base_tol)
     sensor_cfg["h2o_ratio_f_preseal_tol"] = min(h2o_current_tol, h2o_base_tol)
+    h2o_hard_tol = float(sensor_cfg.get("h2o_ratio_f_preseal_tol", h2o_base_tol) or h2o_base_tol)
+    h2o_a_grade_tol = float(
+        sensor_cfg.get("h2o_ratio_f_preseal_a_grade_tol", min(0.0005, h2o_hard_tol))
+        or min(0.0005, h2o_hard_tol)
+    )
+    sensor_cfg["h2o_ratio_f_preseal_a_grade_tol"] = min(h2o_a_grade_tol, h2o_hard_tol)
     sensor_cfg["h2o_ratio_f_preseal_window_s"] = max(
         float(sensor_cfg.get("h2o_ratio_f_preseal_window_s", sensor_cfg.get("window_s", 60.0)) or 60.0),
         60.0,
@@ -463,6 +484,15 @@ def _prepare_runtime_cfg(
     stability_cfg["analyzer_gate_max_wait_s"] = max(
         float(sensor_cfg.get("h2o_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300.0)) or 300.0),
         90.0,
+    )
+    prefer_all_grace_s = (
+        FORMAL_OPEN_FLOW_ANALYZER_GATE_PREFER_ALL_STABLE_GRACE_S
+        if analyzer_gate_prefer_all_stable_grace_s is None
+        else float(analyzer_gate_prefer_all_stable_grace_s)
+    )
+    stability_cfg["analyzer_gate_prefer_all_stable_grace_s"] = min(
+        max(0.0, prefer_all_grace_s),
+        float(stability_cfg["analyzer_gate_max_wait_s"]),
     )
     metadata["h2o_open_flow_wait_contract"] = "v1_5_dewpoint_tail_h2o_ratio_with_pressure_diagnostic_only"
     metadata["h2o_pressure_kpa_presample_policy"] = policy
@@ -1039,7 +1069,7 @@ def _analyzer_port_text(ga: Any) -> str:
 def _enter_h2o_pressure_diagnostic_atmosphere(
     pace: Any,
     *,
-    hold_interval_s: float = 2.0,
+    hold_interval_s: float = FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
     vent_after_valve: bool = False,
 ) -> bool:
     if pace is None:
@@ -1427,6 +1457,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         analyzer_acquisition=args.analyzer_acquisition,
         allow_ftd_write=args.allow_ftd_write,
         min_valid_analyzers=args.min_valid_analyzers,
+        analyzer_gate_prefer_all_stable_grace_s=args.analyzer_gate_prefer_all_stable_grace_s,
         h2o_pressure_presample_policy=args.h2o_pressure_presample_policy,
         keep_hgen_running_after_point=args.keep_hgen_running_after_point,
     )
@@ -1477,7 +1508,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             pace = devices.get("pace")
             pace_vent_after_valve_opened = _enter_h2o_pressure_diagnostic_atmosphere(
                 pace,
-                hold_interval_s=2.0,
+                hold_interval_s=FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
                 vent_after_valve=False,
             )
             runner._apply_valve_states([])
@@ -1602,7 +1633,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         pace = devices.get("pace")
         pace_vent_after_valve_opened = _enter_h2o_pressure_diagnostic_atmosphere(
             pace,
-            hold_interval_s=2.0,
+            hold_interval_s=FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
             vent_after_valve=bool(args.pace_vent_after_valve_diagnostic),
         )
         open_valves = runner._h2o_open_valves(point)

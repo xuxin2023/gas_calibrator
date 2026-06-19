@@ -95,7 +95,7 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert out["workflow"]["analyzer_mode2_init"]["read_first_before_config"] is True
     assert out["workflow"]["analyzer_mode2_init"]["write_config_on_read_first_fail"] is True
     assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is True
-    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is False
+    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
     assert out["workflow"]["stability"]["temperature"]["analyzer_chamber_temp_span_c"] == 0.08
     assert out["workflow"]["postrun_corrected_delivery"]["enabled"] is False
     assert out["workflow"]["postrun_corrected_delivery"]["write_devices"] is False
@@ -123,7 +123,7 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert contract["per_analyzer_h2o_ratio_stability_required"] is True
     assert contract["per_analyzer_status_register_qc_required"] is True
     assert contract["unstable_analyzer_handling"] == (
-        "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+        "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject"
     )
     assert contract["pressure_role"] == "diagnostic_or_qc_input_not_h2o_fit_hard_blocker"
     assert out["metadata"]["humidity_reference_role"] == "dewpoint_meter_primary_hgen_state_review"
@@ -138,7 +138,7 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert [item["active_send"] for item in out["devices"]["gas_analyzers"]] == [True, True]
     assert out["devices"]["humidity_generator"]["enabled"] is True
     assert out["workflow"]["stability"]["dewpoint"]["timeout_s"] == 1800.0
-    assert out["workflow"]["stability"]["water_route_dewpoint_gate_max_total_wait_s"] == 1080.0
+    assert out["workflow"]["stability"]["water_route_dewpoint_gate_max_total_wait_s"] == 1800.0
     assert out["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_timeout_s"] == 300.0
     assert out["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_window_s"] == 60.0
     assert out["workflow"]["stability"]["sensor"]["h2o_ratio_f_preseal_tol"] == 0.001
@@ -151,6 +151,23 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert out["workflow"]["stability"]["analyzer_gate_optional_labels"] == ["ga01", "ga02"]
     assert out["workflow"]["stability"]["analyzer_gate_required_labels"] == []
     assert out["workflow"]["stability"]["analyzer_gate_allow_pass_with_dropped_optional"] is True
+    assert out["workflow"]["stability"]["analyzer_gate_prefer_all_stable_grace_s"] == 120.0
+
+
+def test_h2o_runtime_cfg_caps_route_dewpoint_wait_to_half_hour():
+    out = _prepare_runtime_cfg(
+        {
+            "devices": {"gas_analyzers": [{"name": "ga01"}], "humidity_generator": {"enabled": True}},
+            "workflow": {"stability": {"water_route_dewpoint_gate_max_total_wait_s": 3600.0}},
+            "paths": {"output_dir": "logs/example"},
+        },
+        output_dir=None,
+        sample_count=10,
+        sample_interval_s=1.0,
+        sensor_read_interval_s=1.0,
+    )
+
+    assert out["workflow"]["stability"]["water_route_dewpoint_gate_max_total_wait_s"] == 1800.0
 
 
 def test_h2o_keep_hgen_running_flag_records_queue_managed_shutdown_policy():
@@ -723,7 +740,12 @@ def test_h2o_pressure_route_closed_baseline_keeps_valves_closed_and_does_not_com
 
     assert rc == 0
     assert runner_box["runner"].valve_calls == [[], []]
-    assert atmosphere_calls == [{"hold_interval_s": 2.0, "vent_after_valve": False}]
+    assert atmosphere_calls == [
+        {
+            "hold_interval_s": h2o_tool.FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
+            "vent_after_valve": False,
+        }
+    ]
     run_dir = tmp_path / "route_closed"
     baseline = json.loads((run_dir / "h2o_pressure_route_closed_baseline.json").read_text(encoding="utf-8"))
     assert baseline["route_opened"] is False
@@ -759,6 +781,26 @@ def test_h2o_pressure_diagnostic_can_use_vent_after_valve_then_close_it():
     assert pace.calls[0][0] == "enter_open"
     assert pace.calls[1] == ("hold", 2.0)
     assert pace.calls[-1] == ("set_after_valve", False)
+
+
+def test_h2o_pressure_diagnostic_default_keepalive_is_one_second():
+    class Pace:
+        def __init__(self):
+            self.calls = []
+
+        def enter_atmosphere_mode_with_open_vent_valve(self, **kwargs):
+            self.calls.append(("enter_open", kwargs))
+
+        def start_atmosphere_hold(self, interval_s):
+            self.calls.append(("hold", interval_s))
+
+    pace = Pace()
+
+    opened = _enter_h2o_pressure_diagnostic_atmosphere(pace, vent_after_valve=True)
+
+    assert opened is True
+    assert pace.calls[1] == ("hold", h2o_tool.FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S)
+    assert pace.calls[1][1] <= 1.0
 
 
 def test_h2o_pressure_stability_diagnostic_classifies_stable_local_backpressure(tmp_path, monkeypatch):
@@ -970,7 +1012,7 @@ def test_prepare_runtime_cfg_h2o_supports_explicit_1hz_active_stream_ftd_trial()
     assert out["metadata"]["analyzer_acquisition_policy"] == "active_mode2_stream_1hz_ftd01_controlled"
     assert out["metadata"]["ftd_write_enabled"] is True
     assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is True
-    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is False
+    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
     assert out["devices"]["gas_analyzer"]["active_send"] is True
     assert out["devices"]["gas_analyzer"]["ftd_hz"] == 1
     assert out["devices"]["humidity_generator"]["enabled"] is True

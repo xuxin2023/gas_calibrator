@@ -24,6 +24,9 @@ AUXILIARY_EVENT_FILES = {
 }
 TEMPERATURE_REVIEW_FILE = "temperature_current_point_review.csv"
 ARCHIVE_CONFIRMATION_FILE = "v1_5_initialization_archive_confirmation.json"
+PRESSURE_COMPLETION_SUMMARY_FILE = "pressure_channel_completion_summary.csv"
+PRESSURE_COMPLETION_DEVICE_FILE = "pressure_channel_device_readiness.csv"
+FORMAL_ROUTE_READINESS_FILE = "formal_route_readiness.json"
 PRESSURE_HARDWARE_KEYS = ("pressure_controller", "pressure_gauge")
 PASS_STATUSES = {
     "pass",
@@ -429,6 +432,93 @@ def _assess_auxiliary_archive_confirmation(
     )
 
 
+def _find_pressure_completion_summary(run_dir: Path) -> Optional[Path]:
+    candidates = [
+        run_dir / PRESSURE_COMPLETION_SUMMARY_FILE,
+        run_dir / "pressure_channel_completion" / PRESSURE_COMPLETION_SUMMARY_FILE,
+    ]
+    candidates.extend(run_dir.glob(f"**/{PRESSURE_COMPLETION_SUMMARY_FILE}"))
+    existing: List[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen or not candidate.exists():
+            continue
+        seen.add(resolved)
+        existing.append(candidate)
+    if not existing:
+        return None
+    return max(existing, key=lambda path: path.stat().st_mtime)
+
+
+def _assess_senco9_pressure_completion(
+    *,
+    run_dir: Path,
+    expected_device_ids: Sequence[str],
+) -> Optional[Dict[str, Any]]:
+    summary_path = _find_pressure_completion_summary(run_dir)
+    if not summary_path:
+        return None
+    summary_rows = _load_csv(summary_path)
+    if not summary_rows:
+        return _check(
+            "senco9_pressure_completion_evidence",
+            "fail",
+            [f"{PRESSURE_COMPLETION_SUMMARY_FILE}_empty"],
+            evidence_role="pressure_channel_completion",
+            path=str(summary_path.resolve()),
+        )
+    summary = summary_rows[0]
+    device_path = summary_path.parent / PRESSURE_COMPLETION_DEVICE_FILE
+    device_rows = _load_csv(device_path)
+    ready_by_id = {
+        str(row.get("analyzer_device_id") or row.get("device_id") or "").strip(): str(
+            row.get("readiness_status") or ""
+        ).strip().lower()
+        for row in device_rows
+        if str(row.get("analyzer_device_id") or row.get("device_id") or "").strip()
+    }
+    completion_ids = [
+        item.strip()
+        for item in str(summary.get("completion_scope_device_ids") or "").split(",")
+        if item.strip()
+    ]
+    devices_to_check = list(expected_device_ids) or completion_ids
+    reasons: List[str] = []
+    overall_status = str(summary.get("overall_status") or "").strip().lower()
+    if overall_status != "ready_for_open_flow_main_calibration":
+        reasons.append(f"pressure_completion_overall_status={overall_status or 'missing'}")
+    if not devices_to_check:
+        reasons.append("no_expected_or_pressure_completion_devices")
+    for device_id in devices_to_check:
+        if device_id not in completion_ids and device_id not in ready_by_id:
+            reasons.append(f"{device_id}:device_missing_in_pressure_completion")
+            continue
+        if ready_by_id and ready_by_id.get(device_id) != "pass":
+            reasons.append(f"{device_id}:pressure_completion_status={ready_by_id.get(device_id) or 'missing'}")
+
+    return _check(
+        "senco9_pressure_completion_evidence",
+        "pass" if not reasons else "fail",
+        reasons,
+        evidence_role="pressure_channel_completion",
+        path=str(summary_path.resolve()),
+        details={
+            "confirmed_device_ids": sorted([device_id for device_id in devices_to_check if ready_by_id.get(device_id) == "pass"]),
+            "completion_scope_device_ids": completion_ids,
+            "ready_device_count": str(summary.get("ready_device_count") or ""),
+            "device_count": str(summary.get("device_count") or ""),
+            "pressure_reference_certificate_id": str(summary.get("pressure_reference_certificate_id") or ""),
+            "pressure_reference_status": str(summary.get("pressure_reference_status") or ""),
+            "physical_meaning": (
+                "SENCO9 is the analyzer pressure input correction. A pressure-channel completion "
+                "package proves multi-pressure SENCO9 write/readback plus COM22-traceable "
+                "post-write verification before open-flow CO2/H2O fitting."
+            ),
+        },
+    )
+
+
 def _assess_senco78_temperature_review(
     *,
     run_dir: Path,
@@ -522,6 +612,14 @@ def _assess_auxiliary_neutralization(
         file_name = AUXILIARY_EVENT_FILES[group]
         path = aux_dir / file_name if aux_dir else None
         if not path or not path.exists():
+            if group == "senco9":
+                pressure_completion_check = _assess_senco9_pressure_completion(
+                    run_dir=run_dir,
+                    expected_device_ids=expected_device_ids,
+                )
+                if pressure_completion_check is not None:
+                    checks.append(pressure_completion_check)
+                    continue
             archive_check = _assess_auxiliary_archive_confirmation(
                 run_dir=run_dir,
                 group=group,
@@ -683,6 +781,97 @@ def _assess_pressure_hardware(
     )
 
 
+def _find_formal_route_readiness(run_dir: Path) -> Optional[Path]:
+    candidates = [
+        run_dir / "formal_route_readiness" / FORMAL_ROUTE_READINESS_FILE,
+        run_dir / FORMAL_ROUTE_READINESS_FILE,
+    ]
+    candidates.extend(run_dir.glob(f"**/{FORMAL_ROUTE_READINESS_FILE}"))
+    existing: List[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen or not candidate.exists():
+            continue
+        seen.add(resolved)
+        existing.append(candidate)
+    if not existing:
+        return None
+    return max(existing, key=lambda path: path.stat().st_mtime)
+
+
+def _assess_formal_route_readiness(*, run_dir: Path) -> Dict[str, Any]:
+    path = _find_formal_route_readiness(run_dir)
+    if not path:
+        return _check(
+            "formal_route_readiness_evidence",
+            "fail",
+            [f"{FORMAL_ROUTE_READINESS_FILE}_missing"],
+            stage="route_precheck",
+            evidence_role="formal_route_readiness",
+            details={
+                "physical_meaning": (
+                    "N2/CO2/H2O relay mapping, relay/relay_8 read-write availability, dewpoint-meter "
+                    "online status, and N2 prepurge valve readback must be proven during initialization "
+                    "before temperature soak or open-flow sampling."
+                )
+            },
+        )
+    payload = _load_json(path)
+    if not isinstance(payload, Mapping):
+        return _check(
+            "formal_route_readiness_evidence",
+            "fail",
+            [f"{FORMAL_ROUTE_READINESS_FILE}_invalid_json"],
+            stage="route_precheck",
+            evidence_role="formal_route_readiness",
+            path=str(path.resolve()),
+        )
+
+    reasons: List[str] = []
+    status_text = str(payload.get("status") or "").strip().lower()
+    if not (_truthy(payload.get("ok")) or status_text in PASS_STATUSES):
+        reasons.append(f"formal_route_status={status_text or 'missing'}")
+    if _truthy(payload.get("controls_co2_route")):
+        reasons.append("formal_route_probe_controls_co2_route_true")
+    if _truthy(payload.get("controls_h2o_route")):
+        reasons.append("formal_route_probe_controls_h2o_route_true")
+    if _truthy(payload.get("writes_coefficients")):
+        reasons.append("formal_route_probe_writes_coefficients_true")
+    if _truthy(payload.get("writes_device_id")):
+        reasons.append("formal_route_probe_writes_device_id_true")
+
+    issue_codes: List[str] = []
+    for issue in payload.get("issues") or []:
+        if not isinstance(issue, Mapping):
+            continue
+        severity = str(issue.get("severity") or "").strip().lower()
+        code = str(issue.get("code") or "route_issue").strip()
+        if severity in {"fail", "error", "blocked"}:
+            issue_codes.append(code)
+    reasons.extend(issue_codes)
+    checks = payload.get("checks") if isinstance(payload.get("checks"), list) else []
+    details = {
+        "n2_prepurge_enabled": bool(payload.get("n2_prepurge_enabled")),
+        "n2_source_valve": str(payload.get("n2_source_valve") or ""),
+        "check_count": len(checks),
+        "issue_count": len(payload.get("issues") or []),
+        "physical_meaning": (
+            "Formal route readiness blocks missing relay_map entries, offline relay hardware, offline "
+            "dewpoint evidence, or unusable N2 prepurge before the calibration enters chamber soak."
+        ),
+    }
+    return _check(
+        "formal_route_readiness_evidence",
+        "pass" if not reasons else "fail",
+        reasons,
+        stage="route_precheck",
+        evidence_role="formal_route_readiness",
+        path=str(path.resolve()),
+        details=details,
+    )
+
+
 def build_initialization_readiness_model(
     *,
     run_dir: str | Path,
@@ -706,6 +895,7 @@ def build_initialization_readiness_model(
     ]
     checks.extend(_assess_config(config))
     checks.append(_assess_pressure_hardware(config=config, pressure_hardware_missing=pressure_hardware_missing))
+    checks.append(_assess_formal_route_readiness(run_dir=root))
     getco_check, _devices, expected_device_ids = _assess_getco_snapshot(
         run_dir=root,
         config=config,
@@ -906,6 +1096,10 @@ def _check_physical_meaning(row: Mapping[str, Any]) -> str:
         return "GETCO1-9 epoch-0 snapshot freezes the analyzer coefficients before any calibration repair."
     if role == "initialization_archive_confirmation":
         return "Archive confirmation proves identity binding, GETCO completeness, and S5/S6/S9 initialization status for this batch."
+    if role == "pressure_channel_completion":
+        return "Pressure-channel completion proves SENCO9 pressure input calibration and post-write COM22-traceable verification before open-flow CO2/H2O fitting."
+    if role == "formal_route_readiness":
+        return "Formal route readiness proves relay_map, relay/relay_8, dewpoint meter, and N2 prepurge source before chamber soak and open-flow sampling."
     if role == "temperature_input_quantity_review":
         return "Temperature review protects CO2/H2O fitting from absorbing analyzer temperature-channel errors."
     if role == "auxiliary_coefficient_neutralization":

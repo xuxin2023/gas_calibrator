@@ -2,11 +2,13 @@ import csv
 import json
 
 from gas_calibrator.tools.run_v1_5_formal_open_flow_sampling import (
+    FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S,
     _apply_certificate_target_after_valve_selection,
     _build_open_flow_point,
     _build_nitrogen_purge_open_valves,
     _configured_analyzer_labels,
     _defer_startup_mode2_disabled_analyzers,
+    _enter_continuous_atmosphere,
     _nitrogen_purge_source_valve,
     _parse_args,
     _prepare_runtime_cfg,
@@ -47,6 +49,21 @@ def test_open_flow_point_keeps_source_nominal_for_group_b_valve_selection():
     assert point.hgen_rh_pct is None
 
 
+def test_formal_co2_continuous_atmosphere_default_keepalive_is_one_second():
+    calls = []
+
+    class Pace:
+        def enter_atmosphere_mode(self, **kwargs):
+            calls.append(kwargs)
+
+    _enter_continuous_atmosphere(Pace())
+
+    assert calls
+    assert calls[0]["hold_open"] is True
+    assert calls[0]["hold_interval_s"] == FORMAL_OPEN_FLOW_ATMOSPHERE_HOLD_INTERVAL_S
+    assert calls[0]["hold_interval_s"] <= 1.0
+
+
 def test_formal_co2_open_flow_default_purge_is_360s():
     args = _parse_args(["--config", "config.json", "--co2-source-ppm", "100"])
 
@@ -74,7 +91,7 @@ def test_purge_trace_records_short_pressure_spike_without_abort(tmp_path):
         "pressure_gauge": _SequencePressure([1240.0, 1013.0, 1013.0]),
     }
 
-    _write_purge_trace(
+    gate_rows = _write_purge_trace(
         trace_path,
         devices=devices,
         open_valves=[1, 2],
@@ -87,6 +104,9 @@ def test_purge_trace_records_short_pressure_spike_without_abort(tmp_path):
 
     rows = _read_trace_rows(trace_path)
     assert rows
+    assert gate_rows
+    assert gate_rows[0]["timestamp"] == rows[0]["ts"]
+    assert gate_rows[0]["controller_vent_state"] == "VENT_ON"
     assert rows[0]["pressure_transient_status"] == "transient_over_limit"
     assert any(row["pressure_transient_status"] == "in_limit" for row in rows)
 
@@ -287,7 +307,7 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_with_ftd01
     assert out["workflow"]["analyzer_mode2_init"]["read_first_before_config"] is True
     assert out["workflow"]["analyzer_mode2_init"]["write_config_on_read_first_fail"] is True
     assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is True
-    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is False
+    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
     assert out["workflow"]["analyzer_mode2_init"]["reapply_attempts"] >= 2
     assert out["workflow"]["analyzer_mode2_init"]["stream_attempts"] >= 15
     assert out["workflow"]["analyzer_mode2_init"]["post_enable_stream_wait_s"] >= 4.0
@@ -306,7 +326,7 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_with_ftd01
     assert contract["per_analyzer_ratio_stability_required"] is True
     assert contract["per_analyzer_status_register_qc_required"] is True
     assert contract["unstable_analyzer_handling"] == (
-        "independent_grade_or_reject_do_not_block_all_when_min_valid_met"
+        "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject"
     )
     assert contract["pressure_role"] == "traceability_and_qc_input_not_co2_fit_variable"
     assert out["metadata"]["analyzer_acquisition_policy"] == "active_mode2_stream_1hz_ftd01_controlled"
@@ -339,6 +359,7 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_with_ftd01
     assert stability["analyzer_gate_allow_pass_with_dropped_optional"] is True
     assert stability["analyzer_gate_disable_dropped_optional"] is False
     assert stability["analyzer_gate_zero_value_policy"] == "drop_optional_not_block"
+    assert stability["analyzer_gate_prefer_all_stable_grace_s"] == 120.0
     assert stability["sensor"]["co2_ratio_f_preseal_tol"] == 0.001
     assert stability["sensor"]["co2_ratio_f_preseal_flush_active_stream_before_gate"] is True
     summary_filter = out["workflow"]["sampling"]["summary_outlier_filter"]
@@ -389,6 +410,66 @@ def test_prepare_runtime_cfg_accepts_formal_co2_dewpoint_gate_options():
     assert stability["gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s"] == 0.005
 
 
+def test_prepare_runtime_cfg_defaults_gas_route_to_dry_enough_required():
+    cfg = {
+        "devices": {"gas_analyzers": [{"name": "ga01"}]},
+        "workflow": {"stability": {"sensor": {}}},
+        "paths": {"output_dir": "logs/example"},
+    }
+
+    out = _prepare_runtime_cfg(
+        cfg,
+        output_dir=None,
+        sample_count=10,
+        sample_interval_s=1.0,
+        sensor_read_interval_s=1.0,
+    )
+
+    stability = out["workflow"]["stability"]
+    assert stability["gas_route_dewpoint_gate_require_dry_enough"] is True
+    assert out["metadata"]["open_flow_sampling_physical_contract"]["normal_point_timeout_s"] == 1800.0
+
+
+def test_prepare_runtime_cfg_caps_formal_co2_dewpoint_wait_to_half_hour():
+    cfg = {
+        "devices": {"gas_analyzers": [{"name": "ga01"}]},
+        "workflow": {"stability": {"sensor": {}}},
+        "paths": {"output_dir": "logs/example"},
+    }
+
+    out = _prepare_runtime_cfg(
+        cfg,
+        output_dir=None,
+        sample_count=10,
+        sample_interval_s=1.0,
+        sensor_read_interval_s=1.0,
+        gas_route_dewpoint_gate_max_total_wait_s=3600.0,
+    )
+
+    assert out["workflow"]["stability"]["gas_route_dewpoint_gate_max_total_wait_s"] == 1800.0
+
+
+def test_prepare_runtime_cfg_caps_formal_co2_ratio_wait_to_half_hour():
+    cfg = {
+        "devices": {"gas_analyzers": [{"name": "ga01"}]},
+        "workflow": {"stability": {"sensor": {}}},
+        "paths": {"output_dir": "logs/example"},
+    }
+
+    out = _prepare_runtime_cfg(
+        cfg,
+        output_dir=None,
+        sample_count=10,
+        sample_interval_s=1.0,
+        sensor_read_interval_s=1.0,
+        co2_ratio_f_preseal_timeout_s=3600.0,
+    )
+
+    stability = out["workflow"]["stability"]
+    assert stability["sensor"]["co2_ratio_f_preseal_timeout_s"] == 1800.0
+    assert stability["analyzer_gate_max_wait_s"] == 1800.0
+
+
 def test_open_flow_co2_dewpoint_gate_runs_after_purge_before_ratio_gate():
     calls = []
 
@@ -414,12 +495,14 @@ def test_open_flow_co2_dewpoint_gate_runs_after_purge_before_ratio_gate():
         purge_s=360.0,
         purge_begin_wall_s=10.0,
         purge_end_wall_s=370.0,
+        base_soak_dewpoint_rows=[{"dewpoint_c": -29.0}],
     )
 
     assert calls[0] == "enabled"
     assert calls[1][0] == "dewpoint"
     assert calls[1][2]["base_soak_s"] == 360.0
     assert calls[1][2]["log_context"] == "open-flow sidecar after minimum purge"
+    assert calls[1][2]["base_soak_dewpoint_rows"] == [{"dewpoint_c": -29.0}]
 
 
 def test_prepare_runtime_cfg_keeps_passive_query_as_explicit_fallback():
@@ -491,7 +574,7 @@ def test_prepare_runtime_cfg_supports_explicit_1hz_active_stream_ftd_trial():
         "nearest_usable_mode2_frame_at_1hz_anchor_from_1hz_stream"
     )
     assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is True
-    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is False
+    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
     assert out["workflow"]["analyzer_mode2_init"]["reapply_attempts"] >= 2
     assert out["workflow"]["analyzer_mode2_init"]["stream_attempts"] >= 15
     assert out["devices"]["gas_analyzer"]["active_send"] is True
@@ -529,7 +612,7 @@ def test_prepare_runtime_cfg_1hz_active_stream_does_not_write_ftd_without_explic
     assert out["metadata"]["analyzer_stream_frequency_control"] == "existing_device_setting_no_ftd_write"
     assert out["metadata"]["ftd_write_enabled"] is False
     assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is False
-    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is False
+    assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
 
 
 def test_prepare_runtime_cfg_clamps_min_valid_to_configured_analyzers():

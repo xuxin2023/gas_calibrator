@@ -261,6 +261,70 @@ def test_run_evidence_status_indexes_per_device_certificates_and_h2o_exclusions(
     assert stages["h2o_queue_exclusion"]["status"] == "pass"
 
 
+def test_run_evidence_status_keeps_h2o_queue_failure_audit_separate_from_co2(tmp_path):
+    run_dir = tmp_path / "h2o_failure_audit_run"
+    audit_dir = run_dir / "h2o_open_flow" / "queue_failure_audit"
+    audit_dir.mkdir(parents=True)
+    (audit_dir / "queue_failure_audit.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "v1_5_h2o_queue_failure_audit_v1",
+                "failure_category_counts": {"h2o_ratio_unstable": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (audit_dir / "queue_failure_audit_zh.md").write_text("# V1.5 H2O queue audit\n", encoding="utf-8")
+    (audit_dir / "queue_failure_audit.csv").write_text(
+        "point_run_id,status,failure_category\np001,failed,h2o_ratio_unstable\n",
+        encoding="utf-8",
+    )
+
+    status = build_v1_5_run_evidence_status(run_dir=run_dir, component="h2o")
+    stages = _stages(status)
+    roles = {row["role"] for row in status["artifacts"]}
+
+    assert "h2o_queue_failure_audit" in roles
+    assert "h2o_queue_failure_audit_markdown" in roles
+    assert "h2o_queue_failure_audit_table" in roles
+    assert "co2_queue_failure_audit" not in roles
+    assert stages["h2o_queue_failure_audit"]["status"] == "pass"
+
+
+def test_run_evidence_status_indexes_co2_queue_failure_audit(tmp_path):
+    run_dir = tmp_path / "co2_failure_audit_run"
+    audit_dir = run_dir / "co2_open_flow" / "queue_failure_audit"
+    audit_dir.mkdir(parents=True)
+    (audit_dir / "queue_failure_audit.json").write_text(
+        json.dumps(
+            {
+                "total_points": 3,
+                "status_counts": {"ok": 2, "failed": 1},
+                "failure_category_counts": {"dewpoint_rebound": 1},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (audit_dir / "queue_failure_audit_zh.md").write_text("CO2 队列失败审计", encoding="utf-8")
+    (audit_dir / "queue_failure_audit.csv").write_text(
+        "point_run_id,status,failure_category\np001,failed,dewpoint_rebound\n",
+        encoding="utf-8",
+    )
+
+    status = build_v1_5_run_evidence_status(run_dir=run_dir)
+    stages = _stages(status)
+    roles = {row["role"] for row in status["artifacts"]}
+    markdown = render_v1_5_run_evidence_status_markdown(status)
+
+    assert "co2_queue_failure_audit" in roles
+    assert "co2_queue_failure_audit_markdown" in roles
+    assert "co2_queue_failure_audit_table" in roles
+    assert stages["co2_queue_failure_audit"]["status"] == "pass"
+    assert "must not silently enter formal coefficient fitting" in stages["co2_queue_failure_audit"]["physical_meaning"]
+    assert "`co2_queue_failure_audit` CO2 queue failure audit: `pass`" in markdown
+
+
 def test_run_evidence_status_indexes_full_flow_closure_readiness(tmp_path):
     run_dir = tmp_path / "closure_ready_run"
     closure_dir = run_dir / "full_flow_closure_readiness"

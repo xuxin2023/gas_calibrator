@@ -19,6 +19,12 @@ history or memory.
    error by itself.
 2. Open-route dewpoint stabilization must remain in place. Do not remove or
    bypass the water/gas open-route dewpoint stability logic.
+   For formal CO2 main-calibration sampling, stability alone is not enough:
+   the gas route must be dried to the configured dry-enough threshold, whose
+   current formal default is `dewpoint <= -28 C`, before the formal sample
+   window can start. Nitrogen pre-purge may be used as a conditioning step to
+   dry tubing and remove humidity-route memory, but N2 pre-purge evidence is
+   not a CO2 standard point and must not enter CO2 fitting.
 3. Before sealed pressure control, the flow must exit atmosphere first:
    stop continuous atmosphere hold, send VENT off, wait the configured
    1.5 s window, seal/close the route valves, then enable PACE output for

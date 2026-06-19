@@ -44,6 +44,7 @@ class DeviceClosure:
     device_quality_status: str
     co2_status: str
     h2o_status: str
+    h2o_dry_anchor_bridge_status: str
     output_trim_status: str
     overall_status: str
     blockers: tuple[str, ...]
@@ -295,15 +296,26 @@ def _discover_artifacts(run_dir: Path, explicit: Mapping[str, str | Path | None]
         )
         return (prewrite_snapshot.resolve(),) if prewrite_snapshot else ()
 
+    pressure_review_paths = list(
+        one(
+            "pressure_review_json",
+            ("*pressure*review*.json", "*senco9*review*.json", "pressure_channel_completion_summary.csv"),
+        )
+    )
+    for key in ("pressure_completion_summary_csv", "pressure_device_readiness_csv"):
+        value = explicit.get(key)
+        if not value:
+            continue
+        path = Path(value).resolve()
+        if path.exists() and path.is_file() and path not in pressure_review_paths:
+            pressure_review_paths.append(path)
+
     artifacts: dict[str, tuple[Path, ...]] = {
         "plan_snapshot": one("plan_json", ("formal_plan_snapshot.json", "v1_5_full_flow_plan.json")),
         "pressure_reference": one("pressure_reference_json", ("pressure_reference.json", "com22_pressure_reference.json")),
         "initialization_readiness": one_initialization(),
         "run_evidence_status": one("run_evidence_status_json", ("v1_5_run_evidence_status.json",)),
-        "pressure_review": one(
-            "pressure_review_json",
-            ("*pressure*review*.json", "*senco9*review*.json", "pressure_channel_completion_summary.csv"),
-        ),
+        "pressure_review": tuple(pressure_review_paths),
         "temperature_review": one(
             "temperature_review_csv",
             (
@@ -364,6 +376,15 @@ def _discover_artifacts(run_dir: Path, explicit: Mapping[str, str | Path | None]
     artifacts["candidate_dirs"] = candidate_dirs
     artifacts["model_selection_dirs"] = model_dirs
     artifacts["linear_trim_dirs"] = trim_dirs
+    artifacts["h2o_dry_anchor_bridge"] = _existing_dirs_with_any(
+        run_dir,
+        (
+            "h2o_dry_anchor_bridge_manifest.json",
+            "h2o_dry_anchor_bridge_device_summary.csv",
+            "h2o_dry_anchor_bridge_predictions.csv",
+            "h2o_dry_anchor_bridge_strategy_comparison.csv",
+        ),
+    )
     artifacts["write_events"] = write_events
     artifacts["database_sidecar"] = tuple(
         sorted(
@@ -659,6 +680,7 @@ def _device_ids_from_artifact_dirs(dirs: Sequence[Path]) -> set[str]:
         "co2_best_candidate_summary_all_models.csv",
         "h2o_senco24_device_policy.csv",
         "h2o_senco6_linear_trim_candidate_summary.csv",
+        "h2o_dry_anchor_bridge_device_summary.csv",
         "linear_trim_review.csv",
     )
     out: set[str] = set()
@@ -789,6 +811,47 @@ def _device_quality_status_by_device(artifacts: Mapping[str, Sequence[Path]]) ->
     }
 
 
+def _h2o_dry_anchor_bridge_status_by_device(artifacts: Mapping[str, Sequence[Path]]) -> dict[str, str]:
+    """Return per-device H2O dry-anchor bridge status when bridge evidence exists.
+
+    Dry gas points are not interchangeable with CO2 zero-gas anchors. They can
+    constrain low-water behavior only after dewpoint, pressure, and temperature
+    evidence prove that their residual H2O target is physically compatible with
+    the wet-route H2O model.
+    """
+
+    ready_recommendations = {
+        "dry_anchors_can_enter_low_end_fit_review",
+        "compatible_dry_anchor_subset_can_enter_low_end_review",
+        "wet_points_main_fit_keep_dry_anchors_as_qc",
+        "no_dry_anchor_evidence",
+    }
+    blocked_recommendations = {
+        "collect_new_formal_dry_h2o_anchor_evidence",
+    }
+    statuses: dict[str, str] = {}
+    for directory in artifacts.get("h2o_dry_anchor_bridge", ()):
+        summary = directory / "h2o_dry_anchor_bridge_device_summary.csv"
+        if not summary.exists():
+            continue
+        for row in _read_csv(summary):
+            device_id = _normalize_device_id(
+                row.get("analyzer_device_id") or row.get("device_id") or row.get("runtime_device_id")
+            )
+            if not device_id:
+                continue
+            recommendation = str(row.get("recommendation") or "").strip()
+            if recommendation in blocked_recommendations:
+                statuses[device_id] = f"h2o_dry_anchor_bridge_blocked:{recommendation}"
+                continue
+            if recommendation in ready_recommendations:
+                statuses[device_id] = f"ready:{recommendation}"
+                continue
+            if recommendation:
+                statuses[device_id] = f"h2o_dry_anchor_bridge_review_required:{recommendation}"
+    return statuses
+
+
 def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) -> tuple[DeviceClosure, ...]:
     plan = _load_json(artifacts.get("plan_snapshot", [None])[0] if artifacts.get("plan_snapshot") else None)
     ids = _device_ids_from_plan(plan)
@@ -796,6 +859,7 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
     ids.update(_device_ids_from_artifact_dirs(artifacts.get("candidate_dirs", ())))
     ids.update(_device_ids_from_artifact_dirs(artifacts.get("model_selection_dirs", ())))
     ids.update(_device_ids_from_artifact_dirs(artifacts.get("linear_trim_dirs", ())))
+    ids.update(_device_ids_from_artifact_dirs(artifacts.get("h2o_dry_anchor_bridge", ())))
     snapshot = _existing_latest(run_dir, ("old_component_coefficients_snapshot.json",))
     if snapshot:
         ids.update(_device_ids_from_snapshot(_load_json(snapshot)))
@@ -807,6 +871,7 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
     has_pressure = _role_ready(artifacts, "pressure_review")
     pressure_status_by_device = _pressure_completion_status_by_device(artifacts)
     device_quality_by_device = _device_quality_status_by_device(artifacts)
+    dry_anchor_bridge_by_device = _h2o_dry_anchor_bridge_status_by_device(artifacts)
     has_temp = _role_ready(artifacts, "temperature_review")
     candidate_dirs = artifacts.get("candidate_dirs", ())
     model_dirs = artifacts.get("model_selection_dirs", ())
@@ -835,6 +900,9 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
             blockers.append(co2_status)
         if not h2o_status.startswith("candidate_ready"):
             blockers.append(h2o_status)
+        h2o_dry_anchor_bridge_status = dry_anchor_bridge_by_device.get(device_id, "not_attempted")
+        if h2o_dry_anchor_bridge_status.startswith("h2o_dry_anchor_bridge_blocked"):
+            blockers.append(h2o_dry_anchor_bridge_status)
         output_trim_status = "review_ready" if trim_dirs else "needs_s5_s6_linear_trim_review_after_main_fit"
         if output_trim_status != "review_ready":
             blockers.append(output_trim_status)
@@ -854,6 +922,7 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
                 device_quality_status=device_quality_status,
                 co2_status=co2_status,
                 h2o_status=h2o_status,
+                h2o_dry_anchor_bridge_status=h2o_dry_anchor_bridge_status,
                 output_trim_status=output_trim_status,
                 overall_status=overall,
                 blockers=unique_blockers,
@@ -1026,6 +1095,16 @@ def _execution_commands() -> list[dict[str, Any]]:
             "physical_gate": "H2O fit uses dewpoint-backed water evidence and keeps dry-gas anchor distinct from CO2 zero gas",
         },
         {
+            "order": 55,
+            "action": "h2o_dry_anchor_bridge_review",
+            "tool": "python -m gas_calibrator.tools.export_v1_5_h2o_dry_anchor_bridge_review",
+            "writes_senco": False,
+            "physical_gate": (
+                "gas-route dry anchors may constrain the H2O low end only after "
+                "dewpoint, pressure, and temperature bridge review"
+            ),
+        },
+        {
             "order": 60,
             "action": "model_selection_and_s5_s6_review",
             "tool": "python -m gas_calibrator.tools.export_v1_5_candidate_model_selection_review",
@@ -1182,8 +1261,11 @@ def _controlled_write_package_rows(devices: Sequence[DeviceClosure]) -> list[dic
                     "requires_explicit_authorization": "true",
                     "opens_com_ports": "controlled_writer_only",
                     "writes_senco": "reviewed_payload_only",
-                    "source_status": device.h2o_status,
-                    "physical_gate": "H2O main-chain coefficients come from eligible open-flow humidity samples",
+                    "source_status": f"{device.h2o_status};{device.h2o_dry_anchor_bridge_status}",
+                    "physical_gate": (
+                        "H2O main-chain coefficients come from eligible open-flow humidity samples; "
+                        "dry-gas low-water anchors must pass dewpoint/pressure/temperature bridge review before use"
+                    ),
                     "next_action": "write reviewed SENCO2/SENCO4 candidate, then read back",
                 },
                 {
@@ -1288,6 +1370,8 @@ def build_post_run_coefficient_executor_model(
     initialization_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
     pressure_review_json: str | Path | None = None,
+    pressure_completion_summary_csv: str | Path | None = None,
+    pressure_device_readiness_csv: str | Path | None = None,
     temperature_review_csv: str | Path | None = None,
     device_quality_review_csv: str | Path | None = None,
     main_precheck_meta_json: str | Path | None = None,
@@ -1301,6 +1385,8 @@ def build_post_run_coefficient_executor_model(
         "initialization_readiness_json": initialization_readiness_json,
         "run_evidence_status_json": run_evidence_status_json,
         "pressure_review_json": pressure_review_json,
+        "pressure_completion_summary_csv": pressure_completion_summary_csv,
+        "pressure_device_readiness_csv": pressure_device_readiness_csv,
         "temperature_review_csv": temperature_review_csv,
         "device_quality_review_csv": device_quality_review_csv,
         "main_precheck_meta_json": main_precheck_meta_json,
@@ -1340,6 +1426,18 @@ def build_post_run_coefficient_executor_model(
             required_roles=("candidate_dirs", "model_selection_dirs"),
             physical_meaning="Open-flow stable component data are converted into S1/S3 and S2/S4 candidates.",
             next_action="export_candidate_coefficients_and_model_selection",
+        ),
+        _stage_status(
+            artifacts,
+            stage_id="h2o_dry_anchor_bridge_review",
+            title="H2O dry-anchor bridge review",
+            required_roles=("h2o_dry_anchor_bridge",),
+            physical_meaning=(
+                "Gas-route dry points are low-water bridge evidence only when "
+                "dewpoint, pressure, and temperature prove compatibility with the wet-route H2O model."
+            ),
+            next_action="export_h2o_dry_anchor_bridge_review_if_dry_anchors_are_used",
+            optional=True,
         ),
         _stage_status(
             artifacts,
@@ -1431,6 +1529,7 @@ def build_post_run_coefficient_executor_model(
             "fit_all_eligible_stable_points": True,
             "fit_verification_labels_do_not_exclude_samples_by_default": True,
             "co2_zero_anchor_distinct_from_h2o_dry_anchor": True,
+            "h2o_dry_anchor_requires_dewpoint_pressure_temperature_bridge": True,
             "current_atmosphere_component_fit_freezes_pressure_terms": True,
             "s5_s6_after_main_fit": True,
             "sampling_window_requires_route_open": True,

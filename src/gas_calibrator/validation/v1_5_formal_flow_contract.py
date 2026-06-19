@@ -23,6 +23,7 @@ REQUIRED_STEP_IDS = (
     "pressure_quick_check",
     "pressure_senco9_no_write_acquisition",
     "pressure_senco9_no_write_review",
+    "pressure_channel_completion_audit",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -42,6 +43,7 @@ REQUIRED_ORDER = (
     "pressure_quick_check",
     "pressure_senco9_no_write_acquisition",
     "pressure_senco9_no_write_review",
+    "pressure_channel_completion_audit",
     "temperature_channel_fast_review",
     "co2_open_flow_sampling",
     "h2o_open_flow_sampling",
@@ -57,6 +59,7 @@ ALLOWED_SHARED_TOOL_MODULES = {
 }
 
 PRESSURE_SENCO9_EVALUATION_MODULE = "gas_calibrator.tools.export_v1_5_pressure_senco9_evaluation"
+PRESSURE_CHANNEL_COMPLETION_MODULE = "gas_calibrator.tools.export_v1_5_pressure_channel_completion"
 POST_WRITE_REVERIFY_MODULE = "gas_calibrator.tools.export_v1_5_post_write_reverification"
 
 FORMAL_CO2_TEMPERATURE_ORDER = "desc"
@@ -82,6 +85,7 @@ FORMAL_PHYSICAL_FLOW = (
     "AUX_NEUTRALIZE: after immutable GETCO backup, neutralize SENCO5/6/7/8/9 through controlled tools",
     "PRESSURE: verify analyzer P against COM22 before component calibration",
     "PRESSURE_SENCO9: if needed, use the full V1.5 no-write sealed-pressure runner and transition trace",
+    "PRESSURE_COMPLETION: after SENCO9 write and reverification, freeze traceable pressure-channel completion evidence",
     "TEMPERATURE: review chamber/case temperature evidence before final approval",
     "CO2_OPEN_FLOW: sample clean dry gas under continuous open flow",
     "H2O_OPEN_FLOW: sample water route under dewpoint/reference evidence",
@@ -395,6 +399,8 @@ def validate_v1_5_formal_flow_contract(
     _require_before(step_ids, "auxiliary_senco56789_neutralization_gate", "pressure_quick_check", issues)
     _require_before(step_ids, "pressure_quick_check", "co2_open_flow_sampling", issues)
     _require_before(step_ids, "pressure_quick_check", "h2o_open_flow_sampling", issues)
+    _require_before(step_ids, "pressure_senco9_no_write_review", "pressure_channel_completion_audit", issues)
+    _require_before(step_ids, "pressure_channel_completion_audit", "temperature_channel_fast_review", issues)
     _require_before(step_ids, "temperature_channel_fast_review", "co2_open_flow_sampling", issues)
     _require_before(step_ids, "temperature_channel_fast_review", "h2o_open_flow_sampling", issues)
     _require_before(step_ids, "controlled_component_write_placeholder", "post_write_reverification_placeholder", issues)
@@ -537,6 +543,36 @@ def validate_v1_5_formal_flow_contract(
                     step_id,
                 )
             )
+
+        if step_id == "pressure_channel_completion_audit":
+            if module != PRESSURE_CHANNEL_COMPLETION_MODULE:
+                issues.append(
+                    _issue(
+                        "error",
+                        "pressure_channel_completion_wrong_tool",
+                        "Pressure-channel completion must be exported from SENCO9 write and post-write verification evidence",
+                        step_id,
+                    )
+                )
+            expected_outputs = " ".join(str(item) for item in (step.get("expected_outputs") or ()))
+            if "pressure_channel_completion_summary.csv" not in expected_outputs:
+                issues.append(
+                    _issue(
+                        "error",
+                        "pressure_channel_completion_summary_missing",
+                        "Pressure-channel completion audit must require pressure_channel_completion_summary.csv",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("writes_coefficients")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "pressure_channel_completion_must_be_offline",
+                        "Pressure-channel completion audit must be offline and cannot open COM or write SENCO",
+                        step_id,
+                    )
+                )
 
         if step_id == "co2_open_flow_sampling":
             _require_temperature_order(

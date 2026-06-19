@@ -43,7 +43,8 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     assert step_ids.index("pressure_quick_check") < step_ids.index("h2o_open_flow_sampling")
     assert step_ids.index("pressure_quick_check") < step_ids.index("pressure_senco9_no_write_acquisition")
     assert step_ids.index("pressure_senco9_no_write_acquisition") < step_ids.index("pressure_senco9_no_write_review")
-    assert step_ids.index("pressure_senco9_no_write_review") < step_ids.index("temperature_channel_fast_review")
+    assert step_ids.index("pressure_senco9_no_write_review") < step_ids.index("pressure_channel_completion_audit")
+    assert step_ids.index("pressure_channel_completion_audit") < step_ids.index("temperature_channel_fast_review")
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index("co2_open_flow_sampling")
     assert step_ids.index("temperature_channel_fast_review") < step_ids.index("h2o_open_flow_sampling")
     assert step_ids.index("co2_open_flow_sampling") < step_ids.index("factory_signal_health_review")
@@ -143,6 +144,12 @@ def test_full_flow_stage_manifest_makes_automation_boundaries_explicit(tmp_path)
     assert pressure.automation_state == "dedicated_pressure_runner_requires_authorization"
     assert pressure.authorization_required["pressure_control"] is True
     assert pressure.authorization_required["coefficient_write"] is False
+
+    pressure_completion = by_step["pressure_channel_completion_audit"]
+    assert pressure_completion.automation_state == "offline_review_waiting_for_run_artifacts"
+    assert pressure_completion.authorization_required["real_com"] is False
+    assert pressure_completion.authorization_required["coefficient_write"] is False
+    assert "pressure_channel_completion_summary.csv" in " ".join(pressure_completion.expected_outputs)
 
     write = by_step["controlled_component_write_placeholder"]
     assert write.automation_state == "blocked_controlled_write"
@@ -290,6 +297,24 @@ def test_full_flow_plan_adds_no_write_post_run_coefficient_executor(tmp_path):
     assert _flag_value(command, "--run-dir") == str((tmp_path / "reviewed_run").resolve())
     assert _flag_value(command, "--output-dir") == str(
         (tmp_path / "plan" / "post_run_coefficient_executor").resolve()
+    )
+    assert _flag_value(command, "--pressure-completion-summary-csv") == str(
+        (
+            tmp_path
+            / "plan"
+            / "pressure_channel"
+            / "pressure_channel_completion"
+            / "pressure_channel_completion_summary.csv"
+        ).resolve()
+    )
+    assert _flag_value(command, "--pressure-device-readiness-csv") == str(
+        (
+            tmp_path
+            / "plan"
+            / "pressure_channel"
+            / "pressure_channel_completion"
+            / "pressure_channel_device_readiness.csv"
+        ).resolve()
     )
     assert "post_run_coefficient_executor/executor_manifest.json" in step.expected_outputs
     assert "post_run_coefficient_executor/device_eligibility.csv" in step.expected_outputs
@@ -528,6 +553,7 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
             "pressure_quick_check",
             "pressure_senco9_no_write_acquisition",
             "pressure_senco9_no_write_review",
+            "pressure_channel_completion_audit",
             "temperature_channel_fast_review",
         ],
         allow_real_com=True,

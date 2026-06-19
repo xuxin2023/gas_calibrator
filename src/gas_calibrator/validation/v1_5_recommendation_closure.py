@@ -252,7 +252,7 @@ def build_v1_5_recommendation_closure(
                     "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
                     (
                         "per_analyzer_ratio_stability_required",
-                        "independent_grade_or_reject_do_not_block_all_when_min_valid_met",
+                        "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject",
                     ),
                 ),
                 _file_evidence(
@@ -260,7 +260,7 @@ def build_v1_5_recommendation_closure(
                     "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py",
                     (
                         "per_analyzer_status_register_qc_required",
-                        "independent_grade_or_reject_do_not_block_all_when_min_valid_met",
+                        "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject",
                     ),
                 ),
                 _file_evidence(
@@ -268,7 +268,7 @@ def build_v1_5_recommendation_closure(
                     "tests/test_v1_5_formal_open_flow_sampling_runner.py",
                     (
                         "per_analyzer_ratio_stability_required",
-                        "independent_grade_or_reject_do_not_block_all_when_min_valid_met",
+                        "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject",
                     ),
                 ),
                 _file_evidence(
@@ -276,7 +276,7 @@ def build_v1_5_recommendation_closure(
                     "tests/test_v1_5_formal_h2o_open_flow_sampling_runner.py",
                     (
                         "per_analyzer_h2o_ratio_stability_required",
-                        "independent_grade_or_reject_do_not_block_all_when_min_valid_met",
+                        "prefer_all_stable_with_bounded_grace_then_independent_grade_or_reject",
                     ),
                 ),
             ],

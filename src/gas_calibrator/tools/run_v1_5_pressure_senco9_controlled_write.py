@@ -259,6 +259,12 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--identity-timeout-s", type=float, default=4.0)
     parser.add_argument("--readback-attempts", type=int, default=3)
     parser.add_argument(
+        "--readback-retry-delay-s",
+        type=float,
+        default=1.0,
+        help="Delay between SENCO9 write/readback retry attempts. Keep at least 1s for fragile analyzer serial firmware.",
+    )
+    parser.add_argument(
         "--pre-device-cooldown-s",
         type=float,
         default=2.0,
@@ -425,6 +431,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 expected_groups={9: coeffs},
                 restore_mode=int(analyzer_cfg.get("mode", 2) or 2),
                 readback_attempts=max(1, int(args.readback_attempts)),
+                retry_delay_s=float(args.readback_retry_delay_s),
             )
             restore = _restore_analyzer_runtime(
                 ga,
