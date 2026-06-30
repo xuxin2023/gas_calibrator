@@ -1,0 +1,18 @@
+﻿{
+  "schema_version": 1,
+  "generated_at": "2026-06-30T18:10:48",
+  "profile_id": "absorption_ratio_shadow",
+  "design_scope": "sencoa_sencob_r0_writer_design_review",
+  "no_write": true,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "not_real_acceptance_evidence": true,
+  "writer_status": "design_only_no_real_writer",
+  "production_state": "blocked",
+  "minimum_serial_command_gap_s": 1.0,
+  "mode_required": "MODE2",
+  "active_upload_hz": 1,
+  "offline_writer_design_tool": "gas_calibrator.tools.export_v1_5_sencoa_sencob_writer_design_review",
+  "write_requires": "R0_CO2_T_and_R0_H2O_T_model_review;old_GETCOA_GETCOB_snapshot;controlled_SENCOA_SENCOB_writer;readback_verification;rollback_to_old_GETCOA_GETCOB;independent_CO2_and_H2O_no_write_reverification"
+}

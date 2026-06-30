@@ -75,10 +75,33 @@
 - `SENCOA/GETCOA` 与 `SENCOB/GETCOB` 是新算法 R0(T) 生产 blocker
 - 当前没有新增 `SENCOA/SENCOB` 真实 writer，不打开 COM，不写系数
 
+## 小包 D：SENCOA/SENCOB 离线 writer 设计评审
+
+目标：先把未来 `SENCOA/SENCOB` 受控 writer 的 payload、读回、旧值快照、回滚、串口节拍和 no-write preflight 设计成机器可读证据；仍然不实现真实 writer，不打开 COM，不写系数。
+
+文件：
+
+- `configs/v1_5_algorithm_route_profiles.json`
+- `src/gas_calibrator/validation/v1_5_sencoa_sencob_writer_design.py`
+- `src/gas_calibrator/tools/export_v1_5_sencoa_sencob_writer_design_review.py`
+- `tests/test_v1_5_sencoa_sencob_writer_design_review.py`
+- `_handoff/v1_5_algorithm_route_profiles_20260630/sencoa_sencob_writer_design_review/*`
+
+边界：
+
+- `SENCOA` 只用于新算法 `R0_CO2(T)`，读回指令为 `GETCOA,YGAS,<target>`
+- `SENCOB` 只用于新算法 `R0_H2O(T)`，读回指令为 `GETCOB,YGAS,<target>`
+- payload 固定为 4 个有限浮点系数，写入模板为 `SENCOA/SENCOB,YGAS,<target>,c0,c1,c2,c3`
+- 未来真实写入必须在 `MODE2` 下执行，串口命令间隔必须 `>=1.0s`
+- 写入前必须有设备身份绑定、旧 `GETCOA/GETCOB` 快照、相关主链系数快照和候选 payload review
+- 写入后必须 readback 对比；任一组失败必须按旧值快照回滚，不能接受半写入状态
+- 当前状态仍为 `design_only_no_real_writer` / `blocked`，不是生产可用 writer
+
 ## 验证命令
 
 ```powershell
 python -m pytest tests\test_v1_5_algorithm_route_profiles.py tests\test_v1_5_new_algorithm_test_point_plan.py tests\test_v1_5_algorithm_write_contract_review.py tests\test_v1_5_h2o_low_anchor_from_co2_zero.py tests\test_v1_5_h2o_dry_anchor_bridge_review.py -q
+python -m pytest tests\test_v1_5_sencoa_sencob_writer_design_review.py -q
 python -m pytest tests\test_v1_5_entrypoint_inventory.py -q
 ```
 
