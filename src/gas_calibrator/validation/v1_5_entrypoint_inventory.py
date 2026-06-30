@@ -48,6 +48,16 @@ CANONICAL_FORMAL_WORKER_TOOL_NAMES = (
     "run_v1_5_formal_h2o_open_flow_sampling",
 )
 
+FORMAL_INITIALIZATION_SUPPORT_TOOL_NAMES = (
+    "run_v1_5_analyzer_runtime_setup",
+    "run_v1_5_initialization_db_preflight",
+    "run_v1_5_sn_identity_initialization",
+)
+
+FORMAL_PREFLIGHT_SUPPORT_TOOL_NAMES = (
+    "run_v1_5_formal_route_readiness_probe",
+)
+
 
 CANONICAL_FORMAL_PATH: tuple[dict[str, str], ...] = (
     {
@@ -277,6 +287,10 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("pressure-channel no-write validation/calibration runner; separate from CO2/H2O fitting")
     if lower == "probe_v1_5_getco_component_snapshot":
         notes.append("subordinate initialization evidence tool; read-only GETCO1-9 and device-ID snapshot")
+    elif lower in FORMAL_INITIALIZATION_SUPPORT_TOOL_NAMES:
+        notes.append("formal initialization support; use only through the initialization owner or explicit preflight")
+    elif lower in FORMAL_PREFLIGHT_SUPPORT_TOOL_NAMES:
+        notes.append("formal route-readiness preflight support; records readiness evidence before mature route runners")
     elif lower == "run_v1_5_formal_initialization_runner":
         notes.append("canonical initialization owner; offline planner, evidence indexer, and readiness gate")
     elif "formal_archive_closure" in lower:
@@ -397,6 +411,23 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             risk_level = "offline"
             opens_com_ports = False
             controls_routes = False
+            writes_coefficients = False
+        elif lower in FORMAL_INITIALIZATION_SUPPORT_TOOL_NAMES:
+            category = "identity_and_serial_binding"
+            formal_status = "formal_initialization_support"
+            risk_level = "real_com_or_database_risk" if lower != "run_v1_5_initialization_db_preflight" else "offline"
+            opens_com_ports = lower in {
+                "run_v1_5_analyzer_runtime_setup",
+                "run_v1_5_sn_identity_initialization",
+            }
+            controls_routes = False
+            writes_coefficients = False
+        elif lower in FORMAL_PREFLIGHT_SUPPORT_TOOL_NAMES:
+            category = "formal_review_evidence"
+            formal_status = "formal_preflight_support"
+            risk_level = "real_com_or_route_risk"
+            opens_com_ports = True
+            controls_routes = True
             writes_coefficients = False
         elif lower == "run_v1_5_temperature_current_point_review":
             category = "controlled_write"

@@ -22,7 +22,6 @@ AUXILIARY_EVENT_FILES = {
     "senco78": "senco78_neutral_write_events.csv",
     "senco9": "senco9_clear_write_events.csv",
 }
-TEMPERATURE_REVIEW_FILE = "temperature_current_point_review.csv"
 ARCHIVE_CONFIRMATION_FILE = "v1_5_initialization_archive_confirmation.json"
 PRESSURE_COMPLETION_SUMMARY_FILE = "pressure_channel_completion_summary.csv"
 PRESSURE_COMPLETION_DEVICE_FILE = "pressure_channel_device_readiness.csv"
@@ -38,9 +37,6 @@ PASS_STATUSES = {
     "already_neutral",
     "already_clear",
 }
-TEMPERATURE_REVIEW_PASS_STATUSES = {"pass", "single_point_repair_written"}
-TEMPERATURE_REVIEW_WARNING_STATUSES = {"reference_equivalence_required"}
-
 
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -52,7 +48,7 @@ def _load_json(path: str | Path | None) -> Optional[Dict[str, Any]]:
     source = Path(path)
     if not source.exists():
         return None
-    return json.loads(source.read_text(encoding="utf-8"))
+    return json.loads(source.read_text(encoding="utf-8-sig"))
 
 
 def _load_csv(path: Path) -> List[Dict[str, Any]]:
@@ -124,7 +120,7 @@ def _discover_config_analyzers(config: Mapping[str, Any] | None) -> List[Dict[st
         return []
     devices = config.get("devices", {})
     if not isinstance(devices, Mapping):
-        return []
+        devices = {}
     out: List[Dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     gas_analyzers = devices.get("gas_analyzers")
@@ -134,7 +130,7 @@ def _discover_config_analyzers(config: Mapping[str, Any] | None) -> List[Dict[st
                 continue
             row = {
                 "name": str(item.get("name") or f"GA{index:02d}"),
-                "device_id": str(item.get("device_id") or item.get("id") or "").strip(),
+                "device_id": str(item.get("protocol_device_id") or item.get("device_id") or item.get("id") or "").strip(),
                 "port": str(item.get("port") or "").strip(),
             }
             key = (row["device_id"], row["port"])
@@ -145,13 +141,27 @@ def _discover_config_analyzers(config: Mapping[str, Any] | None) -> List[Dict[st
     if isinstance(single, Mapping) and not _explicit_false(single.get("enabled", True)):
         row = {
             "name": str(single.get("name") or "GA01"),
-            "device_id": str(single.get("device_id") or single.get("id") or "").strip(),
+            "device_id": str(single.get("protocol_device_id") or single.get("device_id") or single.get("id") or "").strip(),
             "port": str(single.get("port") or "").strip(),
         }
         key = (row["device_id"], row["port"])
         if key not in seen:
             out.append(row)
             seen.add(key)
+    top_level = config.get("analyzers")
+    if isinstance(top_level, list):
+        for index, item in enumerate(top_level, start=1):
+            if not isinstance(item, Mapping) or _explicit_false(item.get("enabled", True)):
+                continue
+            row = {
+                "name": str(item.get("name") or item.get("slot") or f"GA{index:02d}"),
+                "device_id": str(item.get("protocol_device_id") or item.get("device_id") or item.get("id") or "").strip(),
+                "port": str(item.get("port") or "").strip(),
+            }
+            key = (row["device_id"], row["port"])
+            if key not in seen:
+                out.append(row)
+                seen.add(key)
     return out
 
 
@@ -265,48 +275,6 @@ def _row_passed(row: Mapping[str, Any]) -> bool:
     return False
 
 
-def _row_senco_group(row: Mapping[str, Any]) -> str:
-    raw = str(row.get("senco_group") or row.get("group") or row.get("channel") or "").strip().upper()
-    if raw in {"7", "S7"}:
-        return "SENCO7"
-    if raw in {"8", "S8"}:
-        return "SENCO8"
-    if raw.startswith("SENCO7"):
-        return "SENCO7"
-    if raw.startswith("SENCO8"):
-        return "SENCO8"
-    return raw
-
-
-def _find_temperature_review_csv(run_dir: Path, aux_dir: Optional[Path]) -> Optional[Path]:
-    candidates: List[Path] = []
-    if aux_dir:
-        candidates.extend(
-            [
-                aux_dir / "temperature_current_point_review" / TEMPERATURE_REVIEW_FILE,
-                aux_dir / TEMPERATURE_REVIEW_FILE,
-            ]
-        )
-    candidates.extend(
-        [
-            run_dir / "temperature_current_point_review" / TEMPERATURE_REVIEW_FILE,
-            run_dir / TEMPERATURE_REVIEW_FILE,
-        ]
-    )
-    candidates.extend(run_dir.glob(f"**/{TEMPERATURE_REVIEW_FILE}"))
-    existing = []
-    seen: set[Path] = set()
-    for candidate in candidates:
-        resolved = candidate.resolve()
-        if resolved in seen or not candidate.exists():
-            continue
-        seen.add(resolved)
-        existing.append(candidate)
-    if not existing:
-        return None
-    return max(existing, key=lambda path: path.stat().st_mtime)
-
-
 def _find_initialization_archive_confirmation(run_dir: Path) -> Optional[Path]:
     candidates = [
         run_dir / "initialization_archive_confirmation_20260611" / ARCHIVE_CONFIRMATION_FILE,
@@ -349,6 +317,16 @@ def _archive_device_rows(payload: Mapping[str, Any]) -> Dict[str, Mapping[str, A
     return out
 
 
+def _is_senco78_neutral(values: Any, *, atol: float = 0.05) -> bool:
+    if not isinstance(values, list) or len(values) < 4:
+        return False
+    target = (0.0, 1.0, 0.0, 0.0)
+    try:
+        return all(abs(float(value) - expected) <= atol for value, expected in zip(values[:4], target))
+    except (TypeError, ValueError):
+        return False
+
+
 def _assess_auxiliary_archive_confirmation(
     *,
     run_dir: Path,
@@ -368,9 +346,14 @@ def _assess_auxiliary_archive_confirmation(
             path=str(path.resolve()),
         )
 
-    group_to_field = {"senco5": "s5_epoch0", "senco6": "s6_epoch0", "senco9": "s9_epoch0"}
-    field_name = group_to_field.get(group)
-    if not field_name:
+    group_to_fields = {
+        "senco5": ("s5_epoch0",),
+        "senco6": ("s6_epoch0",),
+        "senco78": ("s7_epoch0", "s8_epoch0"),
+        "senco9": ("s9_epoch0",),
+    }
+    field_names = group_to_fields.get(group)
+    if not field_names:
         return None
 
     row_by_id = _archive_device_rows(payload)
@@ -392,11 +375,18 @@ def _assess_auxiliary_archive_confirmation(
         if not row:
             reasons.append(f"{device_id}:device_missing_in_archive_confirmation")
             continue
-        values = row.get(field_name)
-        if not isinstance(values, list) or not values:
-            reasons.append(f"{device_id}:{field_name}_missing")
-            continue
-        confirmed_ids.append(device_id)
+        confirmed = True
+        for field_name in field_names:
+            values = row.get(field_name)
+            if not isinstance(values, list) or not values:
+                reasons.append(f"{device_id}:{field_name}_missing")
+                confirmed = False
+                continue
+            if group == "senco78" and not _is_senco78_neutral(values):
+                reasons.append(f"{device_id}:{field_name}_not_neutral")
+                confirmed = False
+        if confirmed:
+            confirmed_ids.append(device_id)
 
     if group == "senco9":
         pressure_status = str(payload.get("pressure_channel_status") or "").strip().lower()
@@ -426,7 +416,9 @@ def _assess_auxiliary_archive_confirmation(
                 "Archive confirmation is read-only evidence that identity binding and GETCO1-9 "
                 "snapshots were completed. S5/S6 archive snapshots allow downstream fitting to "
                 "model output-layer trims without requiring duplicate neutralization event CSVs; "
-                "S9 also requires pressure-channel write and post-write verification."
+                "SENCO7/SENCO8 archive snapshots are valid only when both temperature-input "
+                "coefficient groups are already neutral; S9 also requires pressure-channel write "
+                "and post-write verification."
             ),
         },
     )
@@ -519,77 +511,6 @@ def _assess_senco9_pressure_completion(
     )
 
 
-def _assess_senco78_temperature_review(
-    *,
-    run_dir: Path,
-    expected_device_ids: Sequence[str],
-    aux_dir: Optional[Path],
-) -> Optional[Dict[str, Any]]:
-    path = _find_temperature_review_csv(run_dir, aux_dir)
-    if not path:
-        return None
-    rows = _load_csv(path)
-    if not rows:
-        return _check(
-            "senco78_temperature_current_point_review_evidence",
-            "fail",
-            [f"{TEMPERATURE_REVIEW_FILE}_empty"],
-            evidence_role="temperature_input_quantity_review",
-            path=str(path.resolve()),
-        )
-
-    seen_by_device: Dict[str, set[str]] = {}
-    passed_devices: set[str] = set()
-    reference_equivalence_devices: set[str] = set()
-    reasons: List[str] = []
-    review_reasons: List[str] = []
-    for row in rows:
-        device_id = _row_device_id(row)
-        group = _row_senco_group(row)
-        status = str(row.get("status") or "").strip().lower()
-        if device_id:
-            seen_by_device.setdefault(device_id, set()).add(group)
-        if status in TEMPERATURE_REVIEW_PASS_STATUSES:
-            if device_id:
-                passed_devices.add(device_id)
-            continue
-        if status in TEMPERATURE_REVIEW_WARNING_STATUSES:
-            if device_id:
-                reference_equivalence_devices.add(device_id)
-            reason = str(row.get("reason") or "temperature_reference_equivalence_required").strip()
-            review_reasons.append(f"{device_id or 'unknown'}:{group or 'unknown'}:reference_equivalence_required:{reason}")
-            continue
-        reasons.append(f"{device_id or 'unknown'}:{group or 'unknown'}:temperature_review_status={status or 'missing'}")
-
-    devices_to_check = list(expected_device_ids) or sorted(seen_by_device)
-    if not devices_to_check:
-        reasons.append("no_expected_or_review_analyzers")
-    for device_id in devices_to_check:
-        groups = seen_by_device.get(device_id, set())
-        missing = [group for group in ("SENCO7", "SENCO8") if group not in groups]
-        if missing:
-            reasons.append(f"{device_id}:missing_temperature_review_groups={','.join(missing)}")
-
-    status = "fail" if reasons else ("warning" if review_reasons else "pass")
-    return _check(
-        "senco78_temperature_current_point_review_evidence",
-        status,
-        reasons or review_reasons,
-        evidence_role="temperature_input_quantity_review",
-        path=str(path.resolve()),
-        details={
-            "passed_device_ids": sorted(passed_devices),
-            "reference_equivalence_device_ids": sorted(reference_equivalence_devices),
-            "review_row_count": len(rows),
-            "physical_meaning": (
-                "SENCO7/SENCO8 are temperature input corrections. A current-point review can "
-                "prove either that the coefficients are acceptable, that a hard repair is required, "
-                "or that the external thermometer is not thermally equivalent to the analyzer body."
-            ),
-        },
-    )
-
-
 def _assess_auxiliary_neutralization(
     *,
     run_dir: Path,
@@ -600,15 +521,6 @@ def _assess_auxiliary_neutralization(
     aux_dir = _find_aux_dir(run_dir, aux_neutralization_dir)
     checks: List[Dict[str, Any]] = []
     for group in AUXILIARY_GROUPS:
-        if group == "senco78":
-            temp_review_check = _assess_senco78_temperature_review(
-                run_dir=run_dir,
-                expected_device_ids=expected_device_ids,
-                aux_dir=aux_dir,
-            )
-            if temp_review_check is not None:
-                checks.append(temp_review_check)
-                continue
         file_name = AUXILIARY_EVENT_FILES[group]
         path = aux_dir / file_name if aux_dir else None
         if not path or not path.exists():
@@ -667,12 +579,20 @@ def _assess_config(config: Mapping[str, Any] | None) -> List[Dict[str, Any]]:
         return [_check("initialization_runtime_config", "warning", ["config_missing"])]
 
     metadata = config.get("metadata", {}) if isinstance(config.get("metadata"), Mapping) else {}
+    safety = config.get("safety", {}) if isinstance(config.get("safety"), Mapping) else {}
     workflow = config.get("workflow", {}) if isinstance(config.get("workflow"), Mapping) else {}
+    runtime_contract = (
+        config.get("runtime_setup_contract", {})
+        if isinstance(config.get("runtime_setup_contract"), Mapping)
+        else {}
+    )
     reasons: List[str] = []
-    if _truthy(metadata.get("writes_senco")):
+    if _truthy(metadata.get("writes_senco")) or _truthy(safety.get("writes_senco")):
         reasons.append("metadata_writes_senco_true")
-    if _truthy(metadata.get("writes_device_id")):
+    if _truthy(metadata.get("writes_device_id")) or _truthy(safety.get("writes_device_id")):
         reasons.append("metadata_writes_device_id_true")
+    if _truthy(safety.get("writes_sn")):
+        reasons.append("safety_writes_sn_true")
     if _truthy(_nested_get(workflow, "controlled_write")):
         reasons.append("workflow_controlled_write_true")
     if _truthy(_nested_get(workflow, "startup_pressure_sensor_calibration.apply_write")):
@@ -681,7 +601,17 @@ def _assess_config(config: Mapping[str, Any] | None) -> List[Dict[str, Any]]:
     startup_allowed = {str(item).upper() for item in metadata.get("startup_allowed_analyzer_commands", []) if str(item)}
     startup_forbidden = {str(item).upper() for item in metadata.get("startup_forbidden_analyzer_commands", []) if str(item)}
     required_forbidden = {"ID", "SENCO", "CLEARSENCO", "SETPOW", "SETILLUM", "SETCO2"}
-    missing_forbidden = sorted(required_forbidden - startup_forbidden) if startup_forbidden else sorted(required_forbidden)
+    safety_declares_no_writes = (
+        isinstance(safety, Mapping)
+        and not _truthy(safety.get("writes_senco"))
+        and not _truthy(safety.get("writes_device_id"))
+        and not _truthy(safety.get("writes_sn"))
+    )
+    missing_forbidden = (
+        sorted(required_forbidden - startup_forbidden)
+        if startup_forbidden
+        else ([] if safety_declares_no_writes else sorted(required_forbidden))
+    )
     if missing_forbidden:
         reasons.append(f"startup_forbidden_commands_not_declared={','.join(missing_forbidden)}")
     unexpected_allowed = sorted(startup_allowed & required_forbidden)
@@ -689,6 +619,15 @@ def _assess_config(config: Mapping[str, Any] | None) -> List[Dict[str, Any]]:
         reasons.append(f"forbidden_commands_declared_allowed={','.join(unexpected_allowed)}")
 
     analyzer_init = _nested_get(workflow, "analyzer_mode2_init", {})
+    if not isinstance(analyzer_init, Mapping) or not analyzer_init:
+        analyzer_init = {
+            "command_gap_s": runtime_contract.get("command_gap_s"),
+            "reapply_delay_s": runtime_contract.get("runtime_setup_retry_delay_s"),
+            "mode": runtime_contract.get("mode"),
+            "ftd_hz": runtime_contract.get("ftd_hz"),
+            "average1_target": runtime_contract.get("average1_target"),
+            "average2_target": runtime_contract.get("average2_target"),
+        } if runtime_contract else {}
     if isinstance(analyzer_init, Mapping):
         command_gap_s = _as_float(analyzer_init.get("command_gap_s"), 0.0)
         reapply_delay_s = _as_float(analyzer_init.get("reapply_delay_s"), 0.0)
@@ -949,12 +888,7 @@ def _next_actions(
     failures: Sequence[Mapping[str, Any]],
     warnings: Sequence[Mapping[str, Any]],
 ) -> List[Dict[str, Any]]:
-    temperature_reference_warnings = [
-        row
-        for row in warnings
-        if row.get("check") == "senco78_temperature_current_point_review_evidence"
-        and "reference_equivalence" in str(row.get("reasons") or "")
-    ]
+    temperature_reference_warnings: List[Mapping[str, Any]] = []
     if readiness_status == "initialization_ready":
         return [
             {
@@ -971,10 +905,10 @@ def _next_actions(
                 "meaning": "当前可作为恢复/续跑证据，但正式评审前必须补齐或人工确认 S5-S9/GETCO 初始化证据。",
             }
         ]
-        if temperature_reference_warnings:
+        if False and temperature_reference_warnings:
             actions.append(
                 {
-                    "action": "review_temperature_reference_equivalence",
+                    "action": "legacy_disabled_temperature_reference_equivalence",
                     "owner": "engineer+reviewer",
                     "meaning": (
                         "SENCO7/SENCO8 没有硬故障，但当前数字测温仪与分析仪热状态不等效；"
@@ -991,10 +925,10 @@ def _next_actions(
                 "meaning": "初始化没有硬失败，但存在需要审核的警告；审核通过后再进入正式采样或系数计算。",
             }
         ]
-        if temperature_reference_warnings:
+        if False and temperature_reference_warnings:
             actions.append(
                 {
-                    "action": "do_not_single_point_repair_temperature_reference_offset",
+                    "action": "legacy_disabled_single_point_temperature_repair",
                     "owner": "engineer+reviewer",
                     "meaning": (
                         "当前温度差异更像参考位置/分析仪自热造成的等效性问题，不是温度系数硬故障；"
@@ -1037,7 +971,7 @@ def render_initialization_readiness_markdown(model: Mapping[str, Any]) -> str:
         "",
         "V1.5 初始化不是普通通信准备，而是冻结设备身份和旧系数状态，再把会污染主拟合的辅助层归零或中性化。",
         "GETCO1-9 是 epoch-0 证据；S5/S6 是最终 CO2/H2O 输出层线性修正；S7/S8 影响温度输入；S9 影响压力输入。",
-        "温度当前点评审若提示 reference_equivalence_required，表示外部测温参考与分析仪热状态不等效，需要审核测温位置或多温度证据，不能直接写成单点温度系数。",
+        "S7/S8 当前合同为初始化阶段中性化；旧 temperature_current_point_review.csv 只作历史诊断，不再替代中性化读回或归档中性证据。",
         "",
         "## Checks",
         "",
@@ -1308,7 +1242,7 @@ def build_initialization_database_sidecar(
             "This sidecar is generated offline from existing initialization evidence.",
             "Use analyzer device ID as identity; COM/GA labels are transport mapping only.",
             "S5/S6/S9 archive confirmations are valid initialization evidence only when identity and GETCO completeness are present.",
-            "SENCO7/SENCO8 current-point reference-equivalence warnings require reviewer judgment before formal fitting.",
+            "SENCO7/SENCO8 require neutralization evidence or archive proof that both temperature-input coefficient groups are already neutral.",
         ],
     }
 

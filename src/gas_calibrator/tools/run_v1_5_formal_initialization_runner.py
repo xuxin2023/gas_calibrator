@@ -28,6 +28,10 @@ SCHEMA = "v1_5_formal_initialization_plan_v0"
 MIN_ANALYZER_COMMAND_GAP_S = 1.0
 DEFAULT_ANALYZER_COMMAND_GAP_S = 1.2
 DB_BUNDLE_SCHEMA = "v1_5_formal_initialization_db_bundle_v0"
+DEFAULT_COM22_PRESSURE_REFERENCE_JSON = (
+    "logs/v1_5_6ch_initialization_20260617_r2/"
+    "com22_pressure_reference_FRGsz25038057_118288.json"
+)
 
 
 INITIALIZATION_TOOL_OWNERSHIP: Mapping[str, Mapping[str, str]] = {
@@ -42,6 +46,12 @@ INITIALIZATION_TOOL_OWNERSHIP: Mapping[str, Mapping[str, str]] = {
         "role": "subordinate_read_only_identity_and_getco_snapshot",
         "allowed_use": "When V1.5 real hardware is explicitly authorized, bind device ID to transport and read GETCO1-9 with a slow analyzer command gap.",
         "forbidden_use": "Not a top-level formal initialization entrypoint; never writes device ID or SENCO.",
+    },
+    "sn_identity_initialization": {
+        "tool": "gas_calibrator.tools.run_v1_5_sn_identity_initialization",
+        "role": "subordinate_first_discovery_sn_device_code_planner",
+        "allowed_use": "Plan first-discovery 8-digit numeric SN/device_code allocation before GETCO evidence; real SN writes require the dedicated SN authorization phrase.",
+        "forbidden_use": "Never writes SN/device_code from the formal planner or readiness audit; not a CO2/H2O sampling runner.",
     },
     "controlled_writers": {
         "tool": "gas_calibrator.tools.run_v1_5_*_controlled_write",
@@ -106,6 +116,7 @@ class InitializationPlan:
     reviewer: str = ""
     approver: str = ""
     expected_device_ids: tuple[str, ...] = ()
+    analyzer_identities: tuple[Mapping[str, Any], ...] = ()
     safety_contract: Mapping[str, Any] = field(default_factory=dict)
     physical_contract: Mapping[str, Any] = field(default_factory=dict)
     coefficient_policy: Mapping[str, Any] = field(default_factory=dict)
@@ -194,26 +205,93 @@ def _enabled_analyzers(cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
     devices = cfg.get("devices", {}) if isinstance(cfg, Mapping) else {}
     source = devices.get("gas_analyzers") if isinstance(devices, Mapping) else None
     if isinstance(source, list) and source:
-        analyzers = [dict(item) for item in source if isinstance(item, Mapping) and item.get("enabled", True)]
+        raw_analyzers = source
     else:
-        single = devices.get("gas_analyzer") if isinstance(devices, Mapping) else None
-        analyzers = [dict(single)] if isinstance(single, Mapping) and single.get("enabled", False) else []
-    for idx, item in enumerate(analyzers, start=1):
-        item.setdefault("name", f"ga{idx:02d}")
+        top_level = cfg.get("analyzers") if isinstance(cfg, Mapping) else None
+        if isinstance(top_level, list) and top_level:
+            raw_analyzers = top_level
+        else:
+            single = devices.get("gas_analyzer") if isinstance(devices, Mapping) else None
+            raw_analyzers = [single] if isinstance(single, Mapping) and single.get("enabled", False) else []
+    analyzers = [
+        _normalize_analyzer_identity(item, index=idx)
+        for idx, item in enumerate(raw_analyzers, start=1)
+        if isinstance(item, Mapping) and item.get("enabled", True)
+    ]
     return analyzers
 
 
-def _expected_device_ids(config_path: Path) -> tuple[str, ...]:
+def _normalize_analyzer_identity(item: Mapping[str, Any], *, index: int) -> dict[str, Any]:
+    row = dict(item)
+    slot = str(row.get("slot") or row.get("slot_id") or row.get("name") or f"GA{index:02d}").strip()
+    slot_id = slot.upper() if slot.lower().startswith("ga") else slot
+    protocol_id = _device_id(
+        row.get("protocol_device_id")
+        or row.get("device_id")
+        or row.get("runtime_device_id")
+        or row.get("configured_device_id")
+    )
+    sn_code = _sn_code(row.get("sn_code") or row.get("current_sn"))
+    device_code = _sn_code(row.get("device_code") or sn_code)
+    row["slot_id"] = slot_id
+    row["slot"] = slot_id
+    row.setdefault("name", slot_id.lower())
+    if protocol_id:
+        row["protocol_device_id"] = protocol_id
+        row.setdefault("device_id", protocol_id)
+    if sn_code:
+        row["sn_code"] = sn_code
+        row["device_code"] = device_code or sn_code
+    elif device_code:
+        row["sn_code"] = device_code
+        row["device_code"] = device_code
+    return row
+
+
+def _sn_code(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if len(text) == 8 and text.isdigit() and text != "00000000" else ""
+
+
+def _analyzer_identities(config_path: Path) -> tuple[Mapping[str, Any], ...]:
     try:
         cfg = load_config(config_path)
     except Exception:
         return ()
-    ids: list[str] = []
+    rows: list[Mapping[str, Any]] = []
     for analyzer in _enabled_analyzers(cfg):
-        device_id = _device_id(analyzer.get("device_id"))
+        protocol_id = _device_id(analyzer.get("protocol_device_id") or analyzer.get("device_id"))
+        if not protocol_id and not analyzer.get("sn_code"):
+            continue
+        rows.append(
+            {
+                "slot_id": analyzer.get("slot_id") or analyzer.get("slot") or "",
+                "name": analyzer.get("name") or "",
+                "port": analyzer.get("port") or "",
+                "baud": analyzer.get("baud"),
+                "protocol_device_id": protocol_id,
+                "device_id": protocol_id,
+                "sn_code": analyzer.get("sn_code") or "",
+                "device_code": analyzer.get("device_code") or analyzer.get("sn_code") or "",
+                "identity_source": analyzer.get("identity_binding_source")
+                or analyzer.get("runtime_identity_source")
+                or "runtime_config",
+            }
+        )
+    return tuple(rows)
+
+
+def _expected_device_ids_from_identities(analyzer_identities: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    ids: list[str] = []
+    for analyzer in analyzer_identities:
+        device_id = _device_id(analyzer.get("protocol_device_id") or analyzer.get("device_id"))
         if device_id and device_id not in ids:
             ids.append(device_id)
     return tuple(ids)
+
+
+def _expected_device_ids(config_path: Path) -> tuple[str, ...]:
+    return _expected_device_ids_from_identities(_analyzer_identities(config_path))
 
 
 def _read_json(path: Path) -> Any | None:
@@ -353,18 +431,41 @@ def _build_initialization_sample_files(
 def _device_rows(plan: InitializationPlan, run_db_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     devices: list[dict[str, Any]] = []
     run_devices: list[dict[str, Any]] = []
-    for device_id in plan.expected_device_ids:
+    identity_rows = list(plan.analyzer_identities or ())
+    if not identity_rows:
+        identity_rows = [{"protocol_device_id": device_id, "device_id": device_id} for device_id in plan.expected_device_ids]
+    for index, identity in enumerate(identity_rows, start=1):
+        device_id = _device_id(identity.get("protocol_device_id") or identity.get("device_id"))
+        sn_code = str(identity.get("sn_code") or "").strip()
+        device_code = str(identity.get("device_code") or sn_code).strip()
+        slot_id = str(identity.get("slot_id") or identity.get("slot") or f"GA{index:02d}").strip()
+        formal_key = f"gas_analyzer:sn:{sn_code}" if sn_code else f"gas_analyzer:id:{device_id}"
+        display_name = sn_code or device_id
+        identity_key = "sn_code/device_code" if sn_code else "analyzer_internal_mode2_id"
+        metadata = {
+            "identity_source": identity.get("identity_source")
+            or "runtime_config_expected_id_pending_live_mode2_confirmation",
+            "identity_key": identity_key,
+            "com_port_is_transport_only": True,
+            "initialization_expected_device": True,
+            "slot_id": slot_id,
+            "port_at_initialization": identity.get("port") or "",
+            "protocol_device_id_current": device_id,
+            "sn_code": sn_code,
+            "device_code": device_code or sn_code,
+        }
         row = {
-            "id": stable_id("device", "analyzer", device_id),
+            "id": stable_id("device", "analyzer", sn_code or device_id),
             "device_type": "gas_analyzer",
             "device_role": "device_under_test",
-            "display_name": device_id,
-            "serial_number": device_id,
-            "metadata": {
-                "identity_source": "runtime_config_expected_id_pending_live_mode2_confirmation",
-                "com_port_is_transport_only": True,
-                "initialization_expected_device": True,
-            },
+            "display_name": display_name,
+            "serial_number": sn_code or device_id,
+            "device_key": formal_key,
+            "sn_code": sn_code,
+            "device_code": device_code or sn_code,
+            "protocol_device_id_current": device_id,
+            "metadata": metadata,
+            "metadata_json": metadata,
         }
         devices.append(row)
         run_devices.append(
@@ -373,9 +474,19 @@ def _device_rows(plan: InitializationPlan, run_db_id: str) -> tuple[list[dict[st
                 "run_db_id": run_db_id,
                 "device_id": row["id"],
                 "role": "device_under_test",
+                "slot_id": slot_id,
+                "port": identity.get("port") or "",
+                "sn_code": sn_code,
+                "device_code": device_code or sn_code,
+                "protocol_device_id_at_run": device_id,
+                "mode_at_run": "2" if sn_code else "",
+                "status": "formal_initialization_planned_identity_bound" if sn_code else "formal_initialization_planned_device_id_only",
                 "metadata": {
-                    "identity_key": "analyzer_internal_mode2_id",
+                    "identity_key": identity_key,
                     "planned_device_id": device_id,
+                    "sn_code": sn_code,
+                    "device_code": device_code or sn_code,
+                    "com_port_is_transport_only": True,
                 },
             }
         )
@@ -660,6 +771,7 @@ def build_formal_initialization_database_bundle(
                 "metadata": {
                     "schema": DB_BUNDLE_SCHEMA,
                     "expected_device_ids": list(plan.expected_device_ids),
+                    "analyzer_identities": [dict(row) for row in plan.analyzer_identities],
                     "dry_run_only": plan.dry_run_only,
                     "no_real_com_executed_by_planner": True,
                     "database_role": "initialization_traceability_index",
@@ -690,6 +802,7 @@ def build_formal_initialization_database_bundle(
                     "run_id": plan.run_id,
                     "output_dir": str(root),
                     "expected_device_ids": list(plan.expected_device_ids),
+                    "analyzer_identities": [dict(row) for row in plan.analyzer_identities],
                     "opens_com_ports": False,
                     "writes_coefficients": False,
                 },
@@ -1002,6 +1115,16 @@ def _optional_path(value: str | Path | None) -> str:
     return "" if value is None or str(value).strip() == "" else str(value)
 
 
+def _default_pressure_reference_json() -> Path:
+    return Path(__file__).resolve().parents[3] / DEFAULT_COM22_PRESSURE_REFERENCE_JSON
+
+
+def _resolve_pressure_reference_json(value: str | Path | None) -> Path:
+    if _optional_path(value):
+        return Path(value).resolve()
+    return _default_pressure_reference_json().resolve()
+
+
 def _pressure_completion_command(
     *,
     senco9_write_summary: str | Path | None,
@@ -1070,7 +1193,7 @@ def build_formal_initialization_plan(
     reviewer: str = "",
     approver: str = "",
     command_gap_s: float = DEFAULT_ANALYZER_COMMAND_GAP_S,
-    senco78_policy: str = "review_then_single_point_repair_if_abnormal",
+    senco78_policy: str = "neutralize_in_initialization",
     senco9_policy: str = "direct_pressure_calibration",
     average_filter: int = 49,
     ftd_hz: int = 1,
@@ -1086,18 +1209,21 @@ def build_formal_initialization_plan(
     pressure_completion_max_residual_hpa: float = 0.5,
     pressure_completion_policy_note: str = "",
     pressure_completion_today: str = "",
+    pressure_reference_json: str | Path | None = None,
 ) -> InitializationPlan:
     gap = _validate_command_gap(command_gap_s)
     config = Path(config_path).resolve()
     root = Path(output_dir).resolve()
     now = datetime.now().isoformat(timespec="seconds")
     rid = run_id or f"v1_5_formal_initialization_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    expected_ids = _expected_device_ids(config)
+    analyzer_identities = _analyzer_identities(config)
+    expected_ids = _expected_device_ids_from_identities(analyzer_identities)
+    requested_senco78_policy = str(senco78_policy or "").strip() or "neutralize_in_initialization"
+    senco78_policy = "neutralize_in_initialization"
 
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
+    sn_identity_dir = root / "sn_identity_initialization"
     aux_dir = root / "auxiliary_senco56789_neutralization"
-    temp_review_dir = aux_dir / "temperature_current_point_review"
-    temp_repair_dir = aux_dir / "temperature_current_point_single_point_repair"
     route_readiness_dir = root / "formal_route_readiness"
     pressure_completion_dir = Path(pressure_completion_output_dir).resolve() if pressure_completion_output_dir else (
         root / "pressure_channel_completion"
@@ -1107,6 +1233,8 @@ def build_formal_initialization_plan(
         if pressure_completion_old_getco_json is not None
         else getco_dir / "old_component_coefficients_snapshot.json"
     )
+    pressure_reference = _resolve_pressure_reference_json(pressure_reference_json)
+    pressure_senco9_preflight_dir = root / "pressure_senco9_no_write_preflight"
 
     getco_cmd = _python_module(
         "gas_calibrator.tools.probe_v1_5_getco_component_snapshot",
@@ -1129,6 +1257,15 @@ def build_formal_initialization_plan(
         "--include-legacy",
         "--allow-runtime-identity-rebind",
     )
+    sn_identity_cmd = _python_module(
+        "gas_calibrator.tools.run_v1_5_sn_identity_initialization",
+        "--config",
+        config,
+        "--output-dir",
+        sn_identity_dir,
+        "--run-id",
+        f"{rid}_sn_identity",
+    )
     readiness_cmd = _python_module(
         "gas_calibrator.tools.export_v1_5_initialization_readiness",
         "--run-dir",
@@ -1149,31 +1286,6 @@ def build_formal_initialization_plan(
         "--output-dir",
         route_readiness_dir,
     )
-    temp_current_review_cmd = _python_module(
-        "gas_calibrator.tools.run_v1_5_temperature_current_point_review",
-        "--config",
-        config,
-        "--output-dir",
-        temp_review_dir,
-        "--getco-snapshot-json",
-        _artifact(getco_dir, "old_component_coefficients_snapshot.json"),
-        "--sample-count",
-        "5",
-        "--sample-interval-s",
-        "1.0",
-        "--frame-drain-s",
-        "0.4",
-        "--max-current-delta-c",
-        "2.0",
-        "--max-projection-delta-c",
-        "8.0",
-        "--readback-retry-delay-s",
-        f"{gap:.1f}",
-        "--restore-command-gap-s",
-        f"{gap:.1f}",
-        "--coefficient-read-delay-s",
-        f"{gap:.1f}",
-    )
     pressure_completion_cmd = _pressure_completion_command(
         senco9_write_summary=pressure_completion_senco9_write_summary,
         post_write_fit_summary=pressure_completion_post_write_fit_summary,
@@ -1188,8 +1300,49 @@ def build_formal_initialization_plan(
         acceptance_policy_note=pressure_completion_policy_note,
         today=pressure_completion_today,
     )
+    pressure_senco9_preflight_cmd = _python_module(
+        "gas_calibrator.tools.export_v1_5_pressure_senco9_no_write_preflight",
+        "--config",
+        config,
+        "--pressure-reference-json",
+        pressure_reference,
+        "--output-dir",
+        pressure_senco9_preflight_dir,
+        "--pressure-points",
+        "ambient,1100,1000,900,800,700,600,500",
+        "--count",
+        "12",
+        "--interval-s",
+        "1.0",
+    )
 
     steps = (
+        InitializationStep(
+            step_id="sn_identity_initialization_plan",
+            title="Plan first-discovery SN/device_code binding before epoch-0 GETCO",
+            phase="identity_precheck",
+            command=sn_identity_cmd,
+            execution_mode="offline_sn_identity_plan_only",
+            opens_com_ports=False,
+            writes_device_id=False,
+            required_inputs=(str(config),),
+            expected_outputs=(
+                _artifact(sn_identity_dir, "00_plan", "v1_5_sn_identity_initialization_plan.json"),
+                _artifact(sn_identity_dir, "v1_5_sn_identity_initialization_result.json"),
+            ),
+            physical_meaning=(
+                "New analyzers may not have a stable 8-digit SN yet. This step allocates or confirms "
+                "the numeric SN/device_code plan from the device protocol ID before GETCO evidence and "
+                "database indexing. The generated command is dry-run only; actual SN writes remain in "
+                "the dedicated SN tool and require its exact authorization phrase."
+            ),
+            safety_notes=(
+                "No COM is opened unless the dedicated SN tool is run separately with --execute.",
+                "SN format remains 8 numeric digits: hardware version, YYMM, and sequence.",
+                "The formal initializer never writes device ID or SN by itself.",
+            ),
+            gate="required_before_identity_database_indexing",
+        ),
         InitializationStep(
             step_id="identity_and_getco_epoch0_snapshot",
             title="Read analyzer identity and GETCO1-9 epoch-0 snapshot",
@@ -1270,78 +1423,41 @@ def build_formal_initialization_plan(
             gate="controlled_write_required_or_explicit_modeling_required",
         ),
         InitializationStep(
-            step_id="temperature_current_point_review_gate",
-            title="Check current temperature and sub-zero SENCO7/SENCO8 projection",
-            phase="input_quantity_control",
-            command=temp_current_review_cmd,
-            execution_mode="read_only_real_com_when_operator_runs_command",
-            opens_com_ports=True,
-            required_inputs=(
-                _artifact(getco_dir, "old_component_coefficients_snapshot.json"),
-                str(config),
-            ),
-            expected_outputs=(
-                _artifact(temp_review_dir, "temperature_current_point_review.json"),
-                _artifact(temp_review_dir, "temperature_current_point_review.csv"),
-                _artifact(temp_review_dir, "temperature_senco78_projection_check.csv"),
-                _artifact(temp_review_dir, "temperature_current_point_reference_samples.csv"),
-                _artifact(temp_review_dir, "temperature_current_point_analyzer_samples.csv"),
-            ),
-            physical_meaning=(
-                "Current ambient temperature agreement alone is not enough: old SENCO7/SENCO8 can look "
-                "reasonable above 0 C while projecting sub-zero temperatures to 60 C. This gate compares "
-                "current chamber/case temperature with the digital thermometer and projects GETCO7/8 over "
-                "-20..40 C before CO2/H2O sampling."
-            ),
-            safety_notes=(
-                "Read-only unless the separate single-point repair gate is explicitly unlocked.",
-                "Blocks the 0 C and below equals 60 C failure mode before component fitting.",
-            ),
-            gate="required_before_open_flow_sampling",
-        ),
-        InitializationStep(
-            step_id="temperature_current_point_single_point_repair_gate",
-            title="Controlled single-point SENCO7/SENCO8 repair when current-temperature review fails",
-            phase="input_quantity_control",
+            step_id="senco78_neutralization_gate",
+            title="Neutralize temperature input coefficients SENCO7/SENCO8 after snapshot",
+            phase="auxiliary_coefficient_control",
             command=_write_unlock_command(
-                "gas_calibrator.tools.run_v1_5_temperature_current_point_review",
+                "gas_calibrator.tools.run_v1_5_temperature_senco78_neutral_controlled_write",
                 config_path=config,
-                output_dir=temp_repair_dir,
-                enable_flag="enable-single-point-repair",
+                output_dir=aux_dir,
+                enable_flag="enable-senco78-write",
                 confirmation_flag="operator-confirmation",
-                confirmation="WRITE_SENCO78_SINGLE_POINT_V1_5_TEMPERATURE_REPAIR",
+                confirmation="WRITE_SENCO78_NEUTRAL_V1_5_TEMPERATURE_INPUTS",
                 reviewer=reviewer,
                 approver=approver,
-                selector_flag="",
+                selector_flag="--write-all-nonneutral",
                 command_gap_s=gap,
-                extra_args=(
-                    "--getco-snapshot-json",
-                    _artifact(getco_dir, "old_component_coefficients_snapshot.json"),
-                ),
             ),
-            execution_mode="blocked_pending_explicit_write_unlock_when_temperature_review_fails",
+            execution_mode="blocked_pending_explicit_write_unlock",
             opens_com_ports=True,
             writes_coefficients=True,
-            required_inputs=(
-                _artifact(getco_dir, "old_component_coefficients_snapshot.json"),
-                _artifact(temp_review_dir, "temperature_current_point_review.json"),
-            ),
+            required_inputs=(_artifact(getco_dir, "old_component_coefficients_snapshot.json"),),
             expected_outputs=(
-                _artifact(temp_repair_dir, "temperature_current_point_review.json"),
-                _artifact(temp_repair_dir, "temperature_current_point_review.csv"),
-                _artifact(temp_repair_dir, "temperature_senco78_projection_check.csv"),
-                _artifact(temp_repair_dir, "temperature_single_point_repair_write_events.csv"),
+                _artifact(aux_dir, "senco78_neutral_write_events.csv"),
+                _artifact(aux_dir, "senco78_neutral_write_meta.json"),
             ),
             physical_meaning=(
-                "When S7/S8 are abnormal, repair must first write the affected group to neutral, reread "
-                "the analyzer temperature, and only then write a single-point offset against the digital "
-                "thermometer. This prevents old bad coefficients from being compounded."
+                "SENCO7/SENCO8 affect analyzer temperature inputs. V1.5 no longer performs temperature "
+                "calibration for either classic or new-algorithm analyzers; initialization restores both "
+                "temperature coefficient groups to neutral after the epoch-0 GETCO backup so later CO2/H2O "
+                "fits use the analyzer runtime temperature directly."
             ),
             safety_notes=(
-                "Initialization repair only; still not a replacement for a formal multi-temperature temperature certificate.",
+                "Temperature calibration and single-point temperature repair are intentionally disabled.",
+                "Uses explicit SENCO7/SENCO8 neutral payloads and readback verification.",
                 f"Analyzer command gap is forced to {gap:.1f}s.",
             ),
-            gate="controlled_write_required_when_temperature_review_fails",
+            gate="controlled_write_required_before_open_flow_sampling",
         ),
         InitializationStep(
             step_id="mode2_1hz_filter_startup_contract",
@@ -1391,6 +1507,29 @@ def build_formal_initialization_plan(
                 "CLEARSENCO9 is a recovery gate when pressure is clamped/fixed; the formal next step is multi-point pressure calibration.",
             ),
             gate="pressure_calibration_required_before_component_sampling",
+        ),
+        InitializationStep(
+            step_id="pressure_senco9_no_write_preflight",
+            title="Generate traceable no-write pressure/SENCO9 multi-point collection runbook",
+            phase="input_quantity_control",
+            command=pressure_senco9_preflight_cmd,
+            execution_mode="offline_preflight_generates_no_write_pressure_collection_commands",
+            required_inputs=(str(config), str(pressure_reference)),
+            expected_outputs=(
+                _artifact(pressure_senco9_preflight_dir, "pressure_senco9_no_write_preflight.xlsx"),
+                _artifact(pressure_senco9_preflight_dir, "pressure_senco9_no_write_runbook.md"),
+                _artifact(pressure_senco9_preflight_dir, "command_plan.csv"),
+            ),
+            physical_meaning=(
+                "Plan the direct multi-pressure SENCO9 no-write acquisition with COM22 traceability before any "
+                "pressure write decision. This freezes the exact pressure points, sampling cadence, and mature "
+                "V1.5 pressure reference certificate path used by validate_pressure_only and the offline fit review."
+            ),
+            safety_notes=(
+                "This step is offline and does not open COM or control PACE.",
+                "The generated collection command is still no-write; SENCO9 write requires the dedicated controlled writer.",
+            ),
+            gate="required_before_pressure_collection_or_pressure_write_review",
         ),
         InitializationStep(
             step_id="pressure_channel_completion_audit",
@@ -1479,45 +1618,40 @@ def build_formal_initialization_plan(
         "senco5": "neutralize_or_explicitly_model_before_co2_main_fit",
         "senco6": "neutralize_or_explicitly_model_before_h2o_main_fit",
         "senco78": senco78_policy,
+        "senco78_requested_policy": requested_senco78_policy,
         "senco78_epoch0_snapshot": "old_GETCO7_GETCO8_required_before_any_temperature_write",
-        "senco78_current_point_review": (
-            "required_against_digital_thermometer_and_subzero_projection_before_component_sampling"
-        ),
-        "senco78_single_point_repair": (
-            "only_when_review_fails; neutralize_first_then_reread_then_write_current_offset"
-        ),
-        "senco78_if_not_neutralized": (
-            "temperature_fit_must_reverse_or_compose_old_senco78_against_digital_thermometer; "
-            "never_fit_component_coefficients_as_if_temperature_were_neutral"
-        ),
+        "senco78_neutralization": "required_after_epoch0_for_classic_and_new_algorithm_analyzers",
+        "senco78_temperature_calibration": "disabled; no single-point or multi-temperature SENCO7/SENCO8 calibration",
+        "senco78_if_not_neutralized": "blocked_before_open_flow_sampling",
         "senco9": senco9_policy,
         "device_id": "never_rewrite_identity_during_initialization",
     }
     physical_contract = {
         "identity_key": "analyzer_internal_mode2_id",
         "pressure_before_components": "direct_multi_point_pressure_calibration_and_verification",
-        "temperature_before_components": "current_temperature_and_subzero_projection_review_after_senco78_repair",
+        "temperature_before_components": "SENCO7/SENCO8_neutralized; use analyzer runtime chamber/cell temperature directly",
         "co2_route": "open_flow_clean_dry_gas_after_initialization",
         "h2o_route": "open_flow_humidity_route_after_temperature_and_pressure_inputs_are_trusted",
         "s5_s6_reason": "output_layer_trims_can_hide_main_fit_errors_if_not_neutralized_or_modeled",
         "s7_s8_reason": "temperature_input_errors_pollute_R_T_P_component_model",
         "s7_s8_old_coefficient_handling": (
-            "if_SENCO7_8_are_kept_active_during_sampling_then_final_temperature_candidates_must_account_for_epoch0_GETCO7_8"
+            "SENCO7_8_must_be_neutralized_after_epoch0_before_sampling; no temperature calibration path is used"
         ),
-        "s7_s8_subzero_failure_guard": (
-            "current_temperature_may_pass_above_0C_while_old_coefficients_map_subzero_to_60C; "
-            "formal_initialization_must_project_GETCO7_8_over_negative_temperatures"
-        ),
+        "s7_s8_subzero_failure_guard": "neutralization removes old temperature-coefficient projection risk before sampling",
         "s9_reason": "pressure_input_errors_pollute_R_T_P_component_model",
         "route_readiness_before_components": (
             "relay_map, relay/relay_8, dewpoint meter, and N2 prepurge source must be proven in initialization "
             "before chamber soak or open-flow sampling."
         ),
+        "sn_identity_before_getco": (
+            "first-discovery SN/device_code allocation is planned before epoch-0 GETCO and database indexing; "
+            "actual SN writes require dedicated SN authorization and are not performed by this planner"
+        ),
     }
     warnings = (
+        "First-discovery SN/device_code binding is planned before GETCO; real SN writes require the dedicated SN authorization phrase.",
         "This tool writes a plan only; controlled real writes still require the dedicated writer confirmations.",
-        "If S7/S8 are abnormal, neutralize or repair them before CO2/H2O sampling; do not let component fits absorb temperature error.",
-        "Temperature current-point review must include sub-zero projection checks so above-zero normal readings do not hide a 60 C low-temperature failure.",
+        "SENCO7/SENCO8 must be neutralized during initialization; do not run temperature calibration or single-point repair.",
         "Production pressure handling should proceed to direct multi-point SENCO9 calibration/review before component sampling.",
         "Formal N2/CO2/H2O route readiness must pass in initialization before temperature chamber soak starts.",
     )
@@ -1533,6 +1667,7 @@ def build_formal_initialization_plan(
         reviewer=reviewer,
         approver=approver,
         expected_device_ids=expected_ids,
+        analyzer_identities=analyzer_identities,
         safety_contract=safety_contract,
         physical_contract=physical_contract,
         coefficient_policy=coefficient_policy,
@@ -1644,12 +1779,13 @@ def write_formal_initialization_plan(plan: InitializationPlan, output_dir: str |
                 "coefficient_policy": plan.coefficient_policy,
                 "tool_ownership": plan.tool_ownership,
                 "required_before_open_flow": [
+                    "sn_identity_initialization_plan",
                     "identity_and_getco_epoch0_snapshot",
                     "senco5_neutralization_gate",
                     "senco6_neutralization_gate",
-                    "temperature_current_point_review_gate",
-                    "temperature_current_point_single_point_repair_gate",
+                    "senco78_neutralization_gate",
                     "senco9_pressure_policy_gate",
+                    "pressure_senco9_no_write_preflight",
                     "pressure_channel_completion_audit",
                     "mode2_1hz_filter_startup_contract",
                     "formal_route_readiness_probe",
@@ -1678,12 +1814,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--senco78-policy",
         choices=(
+            "neutralize_in_initialization",
             "review_then_single_point_repair_if_abnormal",
             "review_then_neutralize_if_abnormal",
             "neutralize_before_single_point_temperature",
             "review_only",
         ),
-        default="review_then_single_point_repair_if_abnormal",
+        default="neutralize_in_initialization",
     )
     parser.add_argument(
         "--senco9-policy",
@@ -1716,6 +1853,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pressure-completion-max-residual-hpa", type=float, default=0.5)
     parser.add_argument("--pressure-completion-policy-note", default="")
     parser.add_argument("--pressure-completion-today", default="")
+    parser.add_argument(
+        "--pressure-reference-json",
+        default=None,
+        help=(
+            "COM22 pressure reference certificate JSON for pressure/SENCO9 no-write preflight. "
+            f"Defaults to {DEFAULT_COM22_PRESSURE_REFERENCE_JSON}."
+        ),
+    )
     parser.add_argument(
         "--execute",
         action="store_true",
@@ -1771,6 +1916,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             pressure_completion_max_residual_hpa=args.pressure_completion_max_residual_hpa,
             pressure_completion_policy_note=args.pressure_completion_policy_note,
             pressure_completion_today=args.pressure_completion_today,
+            pressure_reference_json=args.pressure_reference_json,
         )
         outputs = write_formal_initialization_plan(plan, args.output_dir)
         if args.execute:

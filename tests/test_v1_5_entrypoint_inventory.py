@@ -153,6 +153,58 @@ def test_entrypoint_classifier_promotes_formal_initialization_runner_as_single_o
     assert getco_entry.opens_com_ports is True
 
 
+def test_entrypoint_classifier_marks_initialization_support_tools(tmp_path: Path) -> None:
+    root = tmp_path
+    runtime_setup = root / "src/gas_calibrator/tools/run_v1_5_analyzer_runtime_setup.py"
+    db_preflight = root / "src/gas_calibrator/tools/run_v1_5_initialization_db_preflight.py"
+    sn_identity = root / "src/gas_calibrator/tools/run_v1_5_sn_identity_initialization.py"
+    for path in (runtime_setup, db_preflight, sn_identity):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+    runtime_entry = classify_v1_5_entrypoint(runtime_setup, root=root)
+    db_entry = classify_v1_5_entrypoint(db_preflight, root=root)
+    sn_entry = classify_v1_5_entrypoint(sn_identity, root=root)
+
+    for entry in (runtime_entry, db_entry, sn_entry):
+        assert entry.category == "identity_and_serial_binding"
+        assert entry.formal_status == "formal_initialization_support"
+        assert entry.controls_routes is False
+        assert entry.writes_coefficients is False
+        assert "formal initialization support" in entry.notes[0]
+    assert runtime_entry.opens_com_ports is True
+    assert sn_entry.opens_com_ports is True
+    assert db_entry.opens_com_ports is False
+    assert db_entry.risk_level == "offline"
+
+
+def test_entrypoint_classifier_marks_route_readiness_as_formal_preflight_support(tmp_path: Path) -> None:
+    root = tmp_path
+    readiness = root / "src/gas_calibrator/tools/run_v1_5_formal_route_readiness_probe.py"
+    initializer = root / "src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py"
+    for path in (readiness, initializer):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+    initializer.write_text(
+        "from gas_calibrator.tools.run_v1_5_formal_route_readiness_probe import main\n",
+        encoding="utf-8",
+    )
+
+    readiness_entry = classify_v1_5_entrypoint(readiness, root=root)
+    issues = audit_v1_5_isolated_reference_integrity(root)
+
+    assert readiness_entry.category == "formal_review_evidence"
+    assert readiness_entry.formal_status == "formal_preflight_support"
+    assert readiness_entry.opens_com_ports is True
+    assert readiness_entry.controls_routes is True
+    assert "formal route-readiness preflight support" in readiness_entry.notes[0]
+    assert [
+        issue.to_json()
+        for issue in issues
+        if issue.isolated_path == "src/gas_calibrator/tools/run_v1_5_formal_route_readiness_probe.py"
+    ] == []
+
+
 def test_entrypoint_discovery_finds_v1_5_tools_libraries_and_tests(tmp_path: Path) -> None:
     paths = [
         "src/gas_calibrator/tools/export_v1_5_formal_readiness.py",

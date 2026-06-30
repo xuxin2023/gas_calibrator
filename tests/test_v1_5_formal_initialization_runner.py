@@ -29,6 +29,37 @@ def _write_config(path):
     return path
 
 
+def _write_top_level_sn_config(path):
+    path.write_text(
+        json.dumps(
+            {
+                "analyzers": [
+                    {
+                        "slot": "GA01",
+                        "port": "COM36",
+                        "protocol_device_id": "047",
+                        "sn_code": "01260601",
+                        "device_code": "01260601",
+                        "enabled": True,
+                    },
+                    {
+                        "slot": "GA02",
+                        "port": "COM37",
+                        "protocol_device_id": "054",
+                        "sn_code": "01260602",
+                        "device_code": "01260602",
+                        "enabled": True,
+                    },
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_formal_initialization_plan_freezes_getco_and_keeps_planner_safe(tmp_path):
     config = _write_config(tmp_path / "runtime.json")
 
@@ -46,10 +77,23 @@ def test_formal_initialization_plan_freezes_getco_and_keeps_planner_safe(tmp_pat
     assert plan.tool_ownership["getco_snapshot_probe"]["role"] == (
         "subordinate_read_only_identity_and_getco_snapshot"
     )
+    assert plan.tool_ownership["sn_identity_initialization"]["role"] == (
+        "subordinate_first_discovery_sn_device_code_planner"
+    )
     assert plan.tool_ownership["controlled_writers"]["role"] == "subordinate_authorized_write_tools"
     assert plan.tool_ownership["formal_route_readiness_probe"]["role"] == (
         "subordinate_initialization_route_readiness_probe"
     )
+
+    sn_step = next(step for step in plan.steps if step.step_id == "sn_identity_initialization_plan")
+    sn_command = " ".join(sn_step.command)
+    assert sn_step.opens_com_ports is False
+    assert sn_step.writes_device_id is False
+    assert sn_step.execution_mode == "offline_sn_identity_plan_only"
+    assert "run_v1_5_sn_identity_initialization" in sn_command
+    assert "--execute" not in sn_command
+    assert "I_AUTHORIZE_V1_5_SN_IDENTITY_WRITE" not in sn_command
+    assert "SN/device_code" in sn_step.physical_meaning
 
     getco = next(step for step in plan.steps if step.step_id == "identity_and_getco_epoch0_snapshot")
     command = list(getco.command)
@@ -58,6 +102,23 @@ def test_formal_initialization_plan_freezes_getco_and_keeps_planner_safe(tmp_pat
     assert command[command.index("--groups") + 1] == "1,2,3,4,5,6,7,8,9"
     assert command[command.index("--command-gap-s") + 1] == "1.2"
     assert "--allow-runtime-identity-rebind" in command
+
+
+def test_formal_initialization_accepts_current_batch_sn_identity_shape(tmp_path):
+    config = _write_top_level_sn_config(tmp_path / "current6_like.json")
+    out = tmp_path / "out"
+
+    plan = build_formal_initialization_plan(config_path=config, output_dir=out, run_id="demo")
+    outputs = write_formal_initialization_plan(plan)
+    bundle = json.loads(outputs["database_bundle_json"].read_text(encoding="utf-8"))
+
+    assert plan.expected_device_ids == ("047", "054")
+    assert [row["sn_code"] for row in plan.analyzer_identities] == ["01260601", "01260602"]
+    assert bundle["tables"]["runs"][0]["analyzer_id"] == "047,054"
+    assert [row["sn_code"] for row in bundle["tables"]["devices"]] == ["01260601", "01260602"]
+    assert [row["device_code"] for row in bundle["tables"]["devices"]] == ["01260601", "01260602"]
+    assert [row["protocol_device_id_at_run"] for row in bundle["tables"]["run_devices"]] == ["047", "054"]
+    assert bundle["tables"]["run_devices"][0]["metadata"]["identity_key"] == "sn_code/device_code"
 
 
 def test_formal_initialization_rejects_subsecond_analyzer_command_gap(tmp_path):
@@ -87,31 +148,49 @@ def test_formal_initialization_records_s7_s8_and_s9_physical_policies(tmp_path):
         senco9_policy="direct_pressure_calibration",
     )
 
-    assert plan.coefficient_policy["senco78"] == "review_then_single_point_repair_if_abnormal"
+    assert plan.coefficient_policy["senco78"] == "neutralize_in_initialization"
+    assert plan.coefficient_policy["senco78_requested_policy"] == "review_then_single_point_repair_if_abnormal"
     assert plan.coefficient_policy["senco78_epoch0_snapshot"] == "old_GETCO7_GETCO8_required_before_any_temperature_write"
-    assert "reverse_or_compose_old_senco78" in plan.coefficient_policy["senco78_if_not_neutralized"]
+    assert plan.coefficient_policy["senco78_neutralization"] == (
+        "required_after_epoch0_for_classic_and_new_algorithm_analyzers"
+    )
+    assert "disabled" in plan.coefficient_policy["senco78_temperature_calibration"]
+    assert plan.coefficient_policy["senco78_if_not_neutralized"] == "blocked_before_open_flow_sampling"
     assert plan.coefficient_policy["senco9"] == "direct_pressure_calibration"
     assert plan.physical_contract["pressure_before_components"] == "direct_multi_point_pressure_calibration_and_verification"
     assert (
         plan.physical_contract["temperature_before_components"]
-        == "current_temperature_and_subzero_projection_review_after_senco78_repair"
+        == "SENCO7/SENCO8_neutralized; use analyzer runtime chamber/cell temperature directly"
     )
-    assert "epoch0_GETCO7_8" in plan.physical_contract["s7_s8_old_coefficient_handling"]
-    assert "subzero" in plan.physical_contract["s7_s8_subzero_failure_guard"]
+    assert "must_be_neutralized" in plan.physical_contract["s7_s8_old_coefficient_handling"]
+    assert "neutralization" in plan.physical_contract["s7_s8_subzero_failure_guard"]
 
-    current_temp_gate = next(step for step in plan.steps if step.step_id == "temperature_current_point_review_gate")
+    temperature_gate = next(step for step in plan.steps if step.step_id == "senco78_neutralization_gate")
     pressure_gate = next(step for step in plan.steps if step.step_id == "senco9_pressure_policy_gate")
+    pressure_preflight = next(step for step in plan.steps if step.step_id == "pressure_senco9_no_write_preflight")
     route_gate = next(step for step in plan.steps if step.step_id == "formal_route_readiness_probe")
-    assert "sub-zero" in current_temp_gate.physical_meaning
-    assert current_temp_gate.writes_coefficients is False
-    assert "old_component_coefficients_snapshot.json" in " ".join(current_temp_gate.command or ())
+    assert "no longer performs temperature calibration" in temperature_gate.physical_meaning
+    assert temperature_gate.writes_coefficients is True
+    temperature_command = " ".join(temperature_gate.command or ())
+    assert "run_v1_5_temperature_senco78_neutral_controlled_write" in temperature_command
+    assert "--enable-senco78-write" in temperature_command
+    assert "WRITE_SENCO78_NEUTRAL_V1_5_TEMPERATURE_INPUTS" in temperature_command
+    assert "--write-all-nonneutral" in temperature_command
+    assert "senco78_neutral_write_events.csv" in " ".join(temperature_gate.expected_outputs)
     assert "multi-pressure calibration" in pressure_gate.physical_meaning
     assert pressure_gate.execution_mode == "clear_only_when_pressure_channel_is_fixed_or_prior_s9_is_untrustworthy"
+    assert pressure_preflight.opens_com_ports is False
+    assert pressure_preflight.writes_coefficients is False
+    assert "export_v1_5_pressure_senco9_no_write_preflight" in " ".join(pressure_preflight.command or ())
+    assert "--pressure-reference-json" in pressure_preflight.command
+    assert "FRGsz25038057" in " ".join(pressure_preflight.command or ())
     assert "chamber soak" in route_gate.physical_meaning
     assert route_gate.opens_com_ports is True
     assert route_gate.controls_gas_route is False
     assert route_gate.controls_water_route is False
     assert "run_v1_5_formal_route_readiness_probe" in " ".join(route_gate.command or ())
+    assert "temperature_current_point_review_gate" not in {step.step_id for step in plan.steps}
+    assert "temperature_current_point_single_point_repair_gate" not in {step.step_id for step in plan.steps}
 
 
 def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
@@ -135,12 +214,13 @@ def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
         "Not a top-level formal initialization entrypoint"
     )
     assert contract["required_before_open_flow"] == [
+        "sn_identity_initialization_plan",
         "identity_and_getco_epoch0_snapshot",
         "senco5_neutralization_gate",
         "senco6_neutralization_gate",
-        "temperature_current_point_review_gate",
-        "temperature_current_point_single_point_repair_gate",
+        "senco78_neutralization_gate",
         "senco9_pressure_policy_gate",
+        "pressure_senco9_no_write_preflight",
         "pressure_channel_completion_audit",
         "mode2_1hz_filter_startup_contract",
         "formal_route_readiness_probe",
@@ -151,11 +231,20 @@ def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
     md = outputs["markdown"].read_text(encoding="utf-8")
     assert "## Tool ownership" in md
     assert "single_formal_initialization_entrypoint" in md
+    assert "subordinate_first_discovery_sn_device_code_planner" in md
+    assert "run_v1_5_sn_identity_initialization" in ps1
+    assert "--execute" not in ps1
+    assert "I_AUTHORIZE_V1_5_SN_IDENTITY_WRITE" not in ps1
     assert "probe_v1_5_getco_component_snapshot" in ps1
     assert "# CONTROLLED WRITE GATE" in ps1
     assert "# python -m gas_calibrator.tools.run_v1_5_co2_senco5_neutral_controlled_write" in ps1
+    assert "run_v1_5_temperature_senco78_neutral_controlled_write" in ps1
+    assert "WRITE_SENCO78_NEUTRAL_V1_5_TEMPERATURE_INPUTS" in ps1
+    assert "run_v1_5_temperature_current_point_review" not in ps1
     assert "export_v1_5_initialization_readiness" in ps1
     assert "run_v1_5_formal_route_readiness_probe" in ps1
+    assert "export_v1_5_pressure_senco9_no_write_preflight" in ps1
+    assert "--pressure-reference-json" in ps1
     assert "pressure_channel_completion_audit" in ps1
     assert "--readback-retry-delay-s 1.2" in ps1
     assert "--coefficient-read-delay-s 1.2" in ps1
@@ -251,6 +340,7 @@ def test_formal_initialization_cli_writes_plan(tmp_path):
     assert payload["run_id"] == "demo"
     assert payload["safety_contract"]["minimum_analyzer_command_gap_s"] == 1.0
     assert payload["coefficient_policy"]["senco5"] == "neutralize_or_explicitly_model_before_co2_main_fit"
+    assert payload["coefficient_policy"]["senco78"] == "neutralize_in_initialization"
     assert (out / "v1_5_formal_initialization_db_bundle.json").exists()
 
 
@@ -273,11 +363,17 @@ def test_formal_initialization_executor_runs_only_offline_without_unlocks(tmp_pa
     )
 
     assert report.status == "partial"
-    assert len(calls) == 1
-    assert any("export_v1_5_initialization_readiness" in part for part in calls[0])
+    assert len(calls) == 3
+    joined = [" ".join(command) for command in calls]
+    assert any("run_v1_5_sn_identity_initialization" in command for command in joined)
+    assert any("export_v1_5_pressure_senco9_no_write_preflight" in command for command in joined)
+    assert any("export_v1_5_initialization_readiness" in command for command in joined)
     by_step = {row.step_id: row for row in report.step_results}
+    assert by_step["sn_identity_initialization_plan"].status == "passed"
+    assert by_step["sn_identity_initialization_plan"].writes_device_id is False
     assert by_step["identity_and_getco_epoch0_snapshot"].reason == "skipped_read_only_real_com_locked"
     assert by_step["senco5_neutralization_gate"].reason == "skipped_controlled_write_locked"
+    assert by_step["pressure_senco9_no_write_preflight"].status == "passed"
     assert by_step["initialization_readiness_audit"].status == "passed"
     assert execution_outputs["execution_json"].exists()
     assert execution_outputs["execution_csv"].exists()
@@ -355,15 +451,16 @@ def test_formal_initialization_executor_read_only_unlock_does_not_run_writers(tm
 
     assert report.status == "partial"
     joined = [" ".join(command) for command in calls]
+    assert any("run_v1_5_sn_identity_initialization" in command for command in joined)
     assert any("probe_v1_5_getco_component_snapshot" in command for command in joined)
-    assert any("run_v1_5_temperature_current_point_review" in command for command in joined)
     assert any("run_v1_5_formal_route_readiness_probe" in command for command in joined)
     assert any("export_v1_5_initialization_readiness" in command for command in joined)
     assert not any("controlled_write" in command for command in joined)
+    assert not any("run_v1_5_temperature_senco78_neutral_controlled_write" in command for command in joined)
     by_step = {row.step_id: row for row in report.step_results}
     assert by_step["identity_and_getco_epoch0_snapshot"].status == "passed"
-    assert by_step["temperature_current_point_review_gate"].status == "passed"
     assert by_step["senco6_neutralization_gate"].reason == "skipped_controlled_write_locked"
+    assert by_step["senco78_neutralization_gate"].reason == "skipped_controlled_write_locked"
 
 
 def test_formal_initialization_executor_blocks_writes_without_reviewer_approver(tmp_path):
@@ -386,8 +483,12 @@ def test_formal_initialization_executor_blocks_writes_without_reviewer_approver(
     )
 
     assert report.status == "blocked"
-    assert len(calls) == 1
+    assert len(calls) == 2
+    joined = [" ".join(command) for command in calls]
+    assert "run_v1_5_sn_identity_initialization" in joined[0]
+    assert "probe_v1_5_getco_component_snapshot" in joined[1]
     by_step = {row.step_id: row for row in report.step_results}
+    assert by_step["sn_identity_initialization_plan"].status == "passed"
     assert by_step["identity_and_getco_epoch0_snapshot"].status == "passed"
     assert by_step["senco5_neutralization_gate"].status == "blocked"
     assert by_step["senco5_neutralization_gate"].reason == "blocked_missing_reviewer_or_approver"
@@ -420,11 +521,13 @@ def test_formal_initialization_executor_runs_controlled_writes_when_approved(tmp
 
     assert report.status == "passed"
     joined = [" ".join(command) for command in calls]
-    assert len(calls) == 8
+    assert len(calls) == 9
+    assert any("run_v1_5_sn_identity_initialization" in command for command in joined)
     assert any("run_v1_5_co2_senco5_neutral_controlled_write" in command for command in joined)
     assert any("run_v1_5_h2o_senco6_neutral_controlled_write" in command for command in joined)
-    assert any("run_v1_5_temperature_current_point_review" in command for command in joined)
+    assert any("run_v1_5_temperature_senco78_neutral_controlled_write" in command for command in joined)
     assert any("run_v1_5_pressure_senco9_clear_controlled_write" in command for command in joined)
+    assert any("export_v1_5_pressure_senco9_no_write_preflight" in command for command in joined)
 
     refreshed_bundle = write_formal_initialization_database_bundle(plan, execution_outputs)
     bundle = json.loads(refreshed_bundle.read_text(encoding="utf-8"))

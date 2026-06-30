@@ -369,7 +369,7 @@ def test_continuation_recovery_marks_missing_auxiliary_evidence_as_review_requir
     assert any(row["status"] == "warning" for row in model["checks"])
 
 
-def test_temperature_reference_equivalence_warning_does_not_require_senco78_neutralization(tmp_path):
+def test_temperature_reference_equivalence_warning_does_not_replace_senco78_neutralization(tmp_path):
     run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
     aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization", include_senco78=False)
     _write_temperature_review(aux_dir, status="reference_equivalence_required")
@@ -381,19 +381,67 @@ def test_temperature_reference_equivalence_warning_does_not_require_senco78_neut
         aux_neutralization_dir=aux_dir,
     )
 
-    assert model["readiness_status"] == "initialization_ready_with_warnings"
+    assert model["readiness_status"] == "initialization_blocked"
     checks = {row["check"]: row for row in model["checks"]}
-    assert "senco78_neutralization_evidence" not in checks
-    temp_check = checks["senco78_temperature_current_point_review_evidence"]
-    assert temp_check["status"] == "warning"
-    assert "reference_equivalence_required" in temp_check["reasons"]
+    senco78_check = checks["senco78_neutralization_evidence"]
+    assert senco78_check["status"] == "fail"
+    assert "senco78_neutral_write_events.csv_missing" in senco78_check["reasons"]
+    assert "senco78_temperature_current_point_review_evidence" not in checks
     assert any(
-        action["action"] == "do_not_single_point_repair_temperature_reference_offset"
+        action["action"] == "repair_initialization_evidence"
         for action in model["next_actions"]
     )
 
 
-def test_temperature_repair_required_blocks_initialization_even_when_auxiliary_events_exist(tmp_path):
+def test_temperature_compact_missing_case_temp_warning_does_not_replace_senco78_neutralization(tmp_path):
+    run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
+    aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization", include_senco78=False)
+    review_dir = aux_dir / "temperature_current_point_review"
+    review_dir.mkdir(parents=True)
+    with (review_dir / "temperature_current_point_review.csv").open(
+        "w", encoding="utf-8-sig", newline=""
+    ) as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["device_id", "senco_group", "status", "reason", "current_analyzer_temp_c"],
+        )
+        writer.writeheader()
+        for device_id in ("023", "003"):
+            writer.writerow(
+                {
+                    "device_id": device_id,
+                    "senco_group": "SENCO7",
+                    "status": "pass",
+                    "reason": "",
+                    "current_analyzer_temp_c": "30.3",
+                }
+            )
+            writer.writerow(
+                {
+                    "device_id": device_id,
+                    "senco_group": "SENCO8",
+                    "status": "not_applicable_missing_case_temperature",
+                    "reason": "case_temperature_not_reported_by_mode2_schema",
+                    "current_analyzer_temp_c": "",
+                }
+            )
+
+    model = build_initialization_readiness_model(
+        run_dir=run_dir,
+        config_path=config_path,
+        getco_snapshot_dir=getco_dir,
+        aux_neutralization_dir=aux_dir,
+    )
+
+    assert model["readiness_status"] == "initialization_blocked"
+    checks = {row["check"]: row for row in model["checks"]}
+    senco78_check = checks["senco78_neutralization_evidence"]
+    assert senco78_check["status"] == "fail"
+    assert "senco78_neutral_write_events.csv_missing" in senco78_check["reasons"]
+    assert "senco78_temperature_current_point_review_evidence" not in checks
+
+
+def test_temperature_repair_required_file_does_not_replace_senco78_neutralization(tmp_path):
     run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
     aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization", include_senco78=False)
     _write_temperature_review(aux_dir, status="repair_required")
@@ -406,15 +454,15 @@ def test_temperature_repair_required_blocks_initialization_even_when_auxiliary_e
     )
 
     assert model["readiness_status"] == "initialization_blocked"
-    temp_check = next(row for row in model["checks"] if row["check"] == "senco78_temperature_current_point_review_evidence")
-    assert temp_check["status"] == "fail"
-    assert "temperature_review_status=repair_required" in temp_check["reasons"]
+    checks = {row["check"]: row for row in model["checks"]}
+    assert "senco78_temperature_current_point_review_evidence" not in checks
+    senco78_check = checks["senco78_neutralization_evidence"]
+    assert "senco78_neutral_write_events.csv_missing" in senco78_check["reasons"]
 
 
 def test_archive_confirmation_satisfies_s5_s6_s9_when_event_tables_are_absent(tmp_path):
     run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
     aux_dir = run_dir / "auxiliary_senco56789_neutralization"
-    _write_temperature_review(aux_dir, status="pass")
     _write_archive_confirmation(run_dir, pressure_verified=True)
 
     model = build_initialization_readiness_model(
@@ -428,6 +476,7 @@ def test_archive_confirmation_satisfies_s5_s6_s9_when_event_tables_are_absent(tm
     checks = {row["check"]: row for row in model["checks"]}
     assert checks["senco5_archive_snapshot_evidence"]["status"] == "pass"
     assert checks["senco6_archive_snapshot_evidence"]["status"] == "pass"
+    assert checks["senco78_archive_snapshot_evidence"]["status"] == "pass"
     assert checks["senco9_archive_snapshot_evidence"]["status"] == "pass"
     assert "senco5_neutralization_evidence" not in checks
     assert checks["senco9_archive_snapshot_evidence"]["details"]["pressure_channel_status"] == (
@@ -435,10 +484,31 @@ def test_archive_confirmation_satisfies_s5_s6_s9_when_event_tables_are_absent(tm
     )
 
 
+def test_archive_confirmation_blocks_senco78_when_temperature_coefficients_are_not_neutral(tmp_path):
+    run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
+    aux_dir = run_dir / "auxiliary_senco56789_neutralization"
+    archive_path = _write_archive_confirmation(run_dir, pressure_verified=True)
+    payload = json.loads(archive_path.read_text(encoding="utf-8"))
+    payload["device_rows"][1]["s8_epoch0"] = [0.8, 1.0, 0.0, 0.0]
+    archive_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    model = build_initialization_readiness_model(
+        run_dir=run_dir,
+        config_path=config_path,
+        getco_snapshot_dir=getco_dir,
+        aux_neutralization_dir=aux_dir,
+    )
+
+    assert model["readiness_status"] == "initialization_blocked"
+    checks = {row["check"]: row for row in model["checks"]}
+    senco78 = checks["senco78_archive_snapshot_evidence"]
+    assert senco78["status"] == "fail"
+    assert "003:s8_epoch0_not_neutral" in senco78["reasons"]
+
+
 def test_archive_confirmation_blocks_s9_when_pressure_verification_is_not_complete(tmp_path):
     run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
     aux_dir = run_dir / "auxiliary_senco56789_neutralization"
-    _write_temperature_review(aux_dir, status="pass")
     _write_archive_confirmation(run_dir, pressure_verified=False)
 
     model = build_initialization_readiness_model(
@@ -457,9 +527,8 @@ def test_archive_confirmation_blocks_s9_when_pressure_verification_is_not_comple
 
 def test_pressure_completion_satisfies_s9_when_clear_event_is_absent(tmp_path):
     run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
-    aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization", include_senco78=False)
+    aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization")
     (aux_dir / "senco9_clear_write_events.csv").unlink()
-    _write_temperature_review(aux_dir, status="pass")
     _write_pressure_completion(run_dir, ready=True)
 
     model = build_initialization_readiness_model(
@@ -479,9 +548,8 @@ def test_pressure_completion_satisfies_s9_when_clear_event_is_absent(tmp_path):
 
 def test_pressure_completion_blocks_s9_when_selected_device_not_ready(tmp_path):
     run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
-    aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization", include_senco78=False)
+    aux_dir = _write_aux_neutralization(run_dir / "auxiliary_senco56789_neutralization")
     (aux_dir / "senco9_clear_write_events.csv").unlink()
-    _write_temperature_review(aux_dir, status="pass")
     _write_pressure_completion(run_dir, ready=False)
 
     model = build_initialization_readiness_model(
@@ -531,6 +599,84 @@ def test_initialization_blocks_when_analyzer_command_gap_is_too_short(tmp_path):
     config_check = next(row for row in model["checks"] if row["check"] == "initialization_runtime_config")
     assert "analyzer_mode2_init_command_gap_too_short=0.35s" in config_check["reasons"]
     assert "analyzer_mode2_init_reapply_delay_too_short=0.75s" in config_check["reasons"]
+
+
+def test_initialization_readiness_accepts_runtime_setup_contract_config_shape(tmp_path):
+    run_dir, _config_path, getco_dir, aux_dir = _make_ready_inputs(tmp_path)
+    runtime_config = tmp_path / "runtime_setup_config.json"
+    runtime_config.write_text(
+        json.dumps(
+            {
+                "schema_version": "v1_5_analyzer_runtime_setup_config_v0",
+                "safety": {
+                    "writes_senco": False,
+                    "writes_device_id": False,
+                    "writes_sn": False,
+                },
+                "runtime_setup_contract": {
+                    "command_gap_s": 1.2,
+                    "runtime_setup_retry_delay_s": 1.2,
+                    "mode": 2,
+                    "ftd_hz": 1,
+                    "average1_target": 49,
+                    "average2_target": 49,
+                },
+                "analyzers": [
+                    {
+                        "slot": "GA01",
+                        "enabled": True,
+                        "port": "COM35",
+                        "protocol_device_id": "023",
+                    },
+                    {
+                        "slot": "GA02",
+                        "enabled": True,
+                        "port": "COM36",
+                        "protocol_device_id": "003",
+                    },
+                ],
+                "devices": {
+                    "pressure_controller": {"enabled": True, "present": True, "port": "COM23"},
+                    "pressure_gauge": {"enabled": True, "present": True, "port": "COM22"},
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    model = build_initialization_readiness_model(
+        run_dir=run_dir,
+        config_path=runtime_config,
+        getco_snapshot_dir=getco_dir,
+        aux_neutralization_dir=aux_dir,
+    )
+
+    assert model["readiness_status"] == "initialization_ready"
+    assert model["expected_device_ids"] == ["023", "003"]
+    config_check = next(row for row in model["checks"] if row["check"] == "initialization_runtime_config")
+    assert config_check["status"] == "pass"
+    assert config_check["details"]["analyzer_mode2_init"]["command_gap_s"] == 1.2
+
+
+def test_initialization_readiness_accepts_bom_runtime_config(tmp_path):
+    run_dir, config_path, getco_dir, aux_dir = _make_ready_inputs(tmp_path)
+    config_path.write_text(
+        json.dumps(_config(), ensure_ascii=False, indent=2),
+        encoding="utf-8-sig",
+    )
+
+    model = build_initialization_readiness_model(
+        run_dir=run_dir,
+        config_path=config_path,
+        getco_snapshot_dir=getco_dir,
+        aux_neutralization_dir=aux_dir,
+    )
+
+    assert model["readiness_status"] == "initialization_ready"
+    config_check = next(row for row in model["checks"] if row["check"] == "initialization_runtime_config")
+    assert config_check["status"] == "pass"
 
 
 def test_initialization_readiness_blocks_when_pressure_hardware_is_declared_missing(tmp_path):
@@ -628,7 +774,6 @@ def test_initialization_readiness_writer_and_cli(tmp_path):
 def test_initialization_evidence_index_and_sidecar_include_archive_confirmation(tmp_path):
     run_dir, config_path, getco_dir, _ = _make_ready_inputs(tmp_path, aux=False)
     aux_dir = run_dir / "auxiliary_senco56789_neutralization"
-    _write_temperature_review(aux_dir, status="pass")
     archive_path = _write_archive_confirmation(run_dir, pressure_verified=True)
 
     model = build_initialization_readiness_model(
@@ -646,6 +791,7 @@ def test_initialization_evidence_index_and_sidecar_include_archive_confirmation(
     assert {row["source_check"] for row in archive_rows} == {
         "senco5_archive_snapshot_evidence",
         "senco6_archive_snapshot_evidence",
+        "senco78_archive_snapshot_evidence",
         "senco9_archive_snapshot_evidence",
     }
     assert all(row["sha256"] for row in archive_rows)
