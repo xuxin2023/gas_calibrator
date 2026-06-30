@@ -1,0 +1,11 @@
+﻿{
+  "schema_version": 1,
+  "generated_at": "2026-06-30T16:50:49",
+  "no_write": true,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "default_profile_id": "legacy_ratio_production",
+  "contract_scope": "co2_main_chain_and_final_linear_trim",
+  "physical_contract": "CO2 main-chain writes use reviewed SENCO1/SENCO3 payloads. New algorithm keeps the old seven coefficient slots but changes the optical input from R to A. SENCO5 remains a separate final affine layer and is never folded into SENCO1/SENCO3."
+}
