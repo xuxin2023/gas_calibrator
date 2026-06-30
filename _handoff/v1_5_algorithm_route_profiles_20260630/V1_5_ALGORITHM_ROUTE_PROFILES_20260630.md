@@ -214,3 +214,22 @@ gas_calibrator.tools.export_v1_5_sencoa_sencob_writer_design_review
 - 未来真实写入必须在 `MODE2` 下执行，串口命令间隔必须 `>=1.0s`
 - 写入前必须有旧值快照，写入失败或 readback 不一致必须可按快照 rollback
 - 当前状态仍为 `design_only_no_real_writer` / `blocked`，不能作为生产写入入口
+
+## SENCOA/SENCOB 受控 writer no-write preflight
+
+未来真实 writer 的解锁门禁由离线工具先行定义：
+
+```text
+gas_calibrator.tools.export_v1_5_sencoa_sencob_controlled_writer_preflight
+```
+
+这个工具只导出 preflight 证据和真实写入边界，不打开 COM、不导入 `GasAnalyzer`、不写系数。它可以检查候选 payload CSV 和旧 `GETCOA/GETCOB` 快照 JSON 的形状，但即使这些材料齐全，真实写入仍保持 `blocked_pending_real_writer_implementation`，直到单独实现并评审真实 controlled writer。
+
+preflight 约束：
+
+- payload 必须同时包含 `SENCOA` 与 `SENCOB`
+- 每组 payload 必须是 4 个有限浮点系数
+- 默认不接受 `FFF` 广播 target
+- 旧值快照必须包含 `GETCOA_before` 与 `GETCOB_before`
+- future command gap 必须 `>=1.0s`
+- 真实写入后必须单独做 CO2/H2O no-write 复验，不能只凭 readback 宣称生产合格

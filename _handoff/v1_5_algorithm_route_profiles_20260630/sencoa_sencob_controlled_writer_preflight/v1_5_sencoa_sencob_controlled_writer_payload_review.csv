@@ -1,0 +1,3 @@
+﻿row_type,analyzer_device_id,sn_code,coefficient_group,readback_group,physical_quantity,target,payload_values,payload_width,status,blocked_reasons
+template,<device_id>,<sn_code>,SENCOA,GETCOA,R0_CO2(T),<device_id>,"[""c0"", ""c1"", ""c2"", ""c3""]",4,template_only,payload_review_csv_not_supplied
+template,<device_id>,<sn_code>,SENCOB,GETCOB,R0_H2O(T),<device_id>,"[""c0"", ""c1"", ""c2"", ""c3""]",4,template_only,payload_review_csv_not_supplied

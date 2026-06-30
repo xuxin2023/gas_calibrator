@@ -1,0 +1,10 @@
+﻿gate,status,required,evidence
+offline_no_write_only,pass,True,"no COM imports, no GasAnalyzer use, writes_coefficients=false"
+real_writer_implementation,blocked,True,missing_real_writer_design_only
+serial_command_gap,pass,True,future_command_gap_s=1; minimum=1
+reviewed_payload_available,planned,True,payload review CSV template emitted only
+old_getcoa_getcob_snapshot_available,planned,True,old snapshot JSON template emitted only
+readback_verification,planned,True,future writer must read GETCOA/GETCOB after each write and compare against reviewed payload
+rollback_contract,planned,True,future writer must rollback changed groups in reverse order using old GETCOA/GETCOB snapshot
+route_and_sampling_untouched,pass,True,preflight does not modify formal CO2/H2O queues or shared sampling
+independent_no_write_reverification,planned,True,future write acceptance requires separate CO2/H2O no-write reverification
