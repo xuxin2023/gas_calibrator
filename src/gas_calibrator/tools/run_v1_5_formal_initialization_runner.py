@@ -28,6 +28,8 @@ SCHEMA = "v1_5_formal_initialization_plan_v0"
 MIN_ANALYZER_COMMAND_GAP_S = 1.0
 DEFAULT_ANALYZER_COMMAND_GAP_S = 1.2
 DB_BUNDLE_SCHEMA = "v1_5_formal_initialization_db_bundle_v0"
+POSTGRESQL_PRODUCTION_MAJOR = 18
+CHECK_MONITOR_ARTIFACT = "analyzer_check_monitor.csv"
 DEFAULT_COM22_PRESSURE_REFERENCE_JSON = (
     "logs/v1_5_6ch_initialization_20260617_r2/"
     "com22_pressure_reference_FRGsz25038057_118288.json"
@@ -64,6 +66,18 @@ INITIALIZATION_TOOL_OWNERSHIP: Mapping[str, Mapping[str, str]] = {
         "role": "subordinate_offline_readiness_audit",
         "allowed_use": "Check existing evidence and explain missing initialization proof before open-flow sampling.",
         "forbidden_use": "Does not open COM or repair missing evidence.",
+    },
+    "initialization_db_preflight": {
+        "tool": "gas_calibrator.tools.run_v1_5_initialization_db_preflight",
+        "role": "subordinate_postgresql18_identity_and_evidence_preflight",
+        "allowed_use": "Verify PostgreSQL 18 identity/runtime/GETCO readiness for the planned 1-6 analyzer batch before formal open-flow sampling.",
+        "forbidden_use": "Does not open COM ports, write device IDs, write SENCO, control routes, or repair missing evidence.",
+    },
+    "analyzer_check_monitor": {
+        "tool": "gas_calibrator.workflow.runner CHECK,YGAS,FFF evidence",
+        "role": "downstream_read_only_chamber_stable_monitor_record",
+        "allowed_use": "After all active analyzer chamber temperatures are stable, read CHECK,YGAS,FFF at >=1s command spacing and record thermostat-monitor voltages.",
+        "forbidden_use": "Not a standalone initialization entrypoint; never writes coefficients, SN, device ID, or route state.",
     },
     "formal_route_readiness_probe": {
         "tool": "gas_calibrator.tools.run_v1_5_formal_route_readiness_probe",
@@ -705,6 +719,67 @@ def _build_initialization_integrity_checks(
         ),
         _integrity_row(
             run_db_id=run_db_id,
+            name="sn_device_code_primary_identity_contract",
+            status="pass",
+            severity="error",
+            details={
+                "identity_key": plan.physical_contract.get("identity_key"),
+                "sn_identity_before_getco": plan.physical_contract.get("sn_identity_before_getco"),
+                "database_identity_lookup": plan.physical_contract.get("database_identity_lookup"),
+                "expected_device_ids": list(plan.expected_device_ids),
+                "analyzer_identities": list(plan.analyzer_identities),
+            },
+        ),
+        _integrity_row(
+            run_db_id=run_db_id,
+            name="runtime_mode2_1hz_filter_contract",
+            status="pass",
+            severity="error",
+            details={
+                "configured_analyzer_command_gap_s": plan.analyzer_command_gap_s,
+                "minimum_analyzer_command_gap_s": MIN_ANALYZER_COMMAND_GAP_S,
+                "runtime_acquisition": plan.physical_contract.get("runtime_acquisition"),
+            },
+        ),
+        _integrity_row(
+            run_db_id=run_db_id,
+            name="postgresql18_initialization_db_preflight_required",
+            status="pass",
+            severity="error",
+            details={
+                "production_database_backend": plan.safety_contract.get("production_database_backend"),
+                "production_database_required_major": plan.safety_contract.get("production_database_required_major"),
+                "database_preflight_before_routes": plan.physical_contract.get("database_preflight_before_routes"),
+            },
+        ),
+        _integrity_row(
+            run_db_id=run_db_id,
+            name="senco78_temperature_calibration_disabled",
+            status="pass",
+            severity="error",
+            details={
+                "senco78": plan.coefficient_policy.get("senco78"),
+                "senco78_neutralization": plan.coefficient_policy.get("senco78_neutralization"),
+                "senco78_temperature_calibration": plan.coefficient_policy.get("senco78_temperature_calibration"),
+                "temperature_before_components": plan.physical_contract.get("temperature_before_components"),
+            },
+        ),
+        _integrity_row(
+            run_db_id=run_db_id,
+            name="check_monitor_after_chamber_temp_stable_contract",
+            status="pass",
+            severity="warning",
+            details={
+                "artifact": CHECK_MONITOR_ARTIFACT,
+                "command": "CHECK,YGAS,FFF",
+                "check_monitor_after_chamber_temp_stable": plan.physical_contract.get(
+                    "check_monitor_after_chamber_temp_stable"
+                ),
+                "minimum_analyzer_command_gap_s": MIN_ANALYZER_COMMAND_GAP_S,
+            },
+        ),
+        _integrity_row(
+            run_db_id=run_db_id,
             name="epoch0_getco1_9_snapshot_indexed",
             status="pass" if coefficient_snapshots else "warn",
             severity="warning",
@@ -1235,6 +1310,7 @@ def build_formal_initialization_plan(
     )
     pressure_reference = _resolve_pressure_reference_json(pressure_reference_json)
     pressure_senco9_preflight_dir = root / "pressure_senco9_no_write_preflight"
+    initialization_db_preflight_dir = root / "initialization_db_preflight"
 
     getco_cmd = _python_module(
         "gas_calibrator.tools.probe_v1_5_getco_component_snapshot",
@@ -1478,6 +1554,60 @@ def build_formal_initialization_plan(
             gate="required_before_open_flow_sampling",
         ),
         InitializationStep(
+            step_id="initialization_db_preflight_postgresql18_gate",
+            title="Verify PostgreSQL 18 SN/device_code and initialization evidence readiness",
+            phase="database_preflight",
+            execution_mode="external_database_preflight_required_before_open_flow",
+            required_inputs=(
+                "PostgreSQL 18 DSN",
+                "expected 1-6 analyzer SN/device_code identities",
+                _artifact(root, "v1_5_formal_initialization_db_bundle.json"),
+                _artifact(getco_dir, "old_component_coefficients_snapshot.json"),
+                "runtime setup event with MODE2, 1 Hz active upload, and AVERAGE1/2 evidence",
+            ),
+            expected_outputs=(
+                _artifact(initialization_db_preflight_dir, "v1_5_initialization_db_preflight.json"),
+                _artifact(initialization_db_preflight_dir, "v1_5_initialization_db_preflight.md"),
+            ),
+            physical_meaning=(
+                "Before formal CO2/H2O open-flow sampling, the production evidence registry must be able "
+                f"to query the 1-6 analyzer batch by 8-digit SN/device_code and protocol device ID in PostgreSQL "
+                f"{POSTGRESQL_PRODUCTION_MAJOR}. This preserves future traceability without using the old "
+                "three-digit ID as the only unique identity."
+            ),
+            safety_notes=(
+                "Run gas_calibrator.tools.run_v1_5_initialization_db_preflight with --require-postgresql-18.",
+                "This planner does not connect to PostgreSQL or mutate database state.",
+                "The preflight does not open COM, write SN/device_code, write SENCO, or control routes.",
+            ),
+            gate="required_before_open_flow_sampling",
+        ),
+        InitializationStep(
+            step_id="analyzer_check_monitor_after_chamber_temp_stable_contract",
+            title="Record CHECK monitor after all active analyzer chamber temperatures are stable",
+            phase="temperature_stability_evidence",
+            execution_mode="performed_by_formal_runner_after_all_active_chamber_temperature_stable",
+            opens_com_ports=True,
+            required_inputs=(
+                "all active analyzer chamber-temperature stable event",
+                "MODE2 active 1 Hz stream",
+                "new-algorithm or CHECK-capable analyzer protocol",
+            ),
+            expected_outputs=(CHECK_MONITOR_ARTIFACT,),
+            physical_meaning=(
+                "New-algorithm analyzers expose thermostat monitor voltages through CHECK,YGAS,FFF. "
+                "The formal runner records the two voltage readings only after all active analyzer chamber "
+                "temperatures pass stability, so the record belongs to the point-level sampling evidence rather "
+                "than to early route setup."
+            ),
+            safety_notes=(
+                f"Adjacent analyzer CHECK commands must keep >= {gap:.1f}s spacing.",
+                "CHECK is read-only and must never be used as a coefficient or identity write path.",
+                "Legacy analyzers that do not support CHECK remain covered by the normal chamber-temperature stability gate.",
+            ),
+            gate="required_before_point_sampling_after_chamber_temperature_stable",
+        ),
+        InitializationStep(
             step_id="senco9_pressure_policy_gate",
             title="Use direct pressure calibration instead of pressure quick-check acceptance",
             phase="input_quantity_control",
@@ -1611,6 +1741,9 @@ def build_formal_initialization_plan(
         "does_not_write_device_id": True,
         "minimum_analyzer_command_gap_s": MIN_ANALYZER_COMMAND_GAP_S,
         "configured_analyzer_command_gap_s": gap,
+        "production_database_backend": "postgresql",
+        "production_database_required_major": POSTGRESQL_PRODUCTION_MAJOR,
+        "check_monitor_command_gap_s": gap,
         "real_execution_requires_operator_to_run_gated_commands": True,
     }
     coefficient_policy = {
@@ -1630,6 +1763,7 @@ def build_formal_initialization_plan(
         "identity_key": "analyzer_internal_mode2_id",
         "pressure_before_components": "direct_multi_point_pressure_calibration_and_verification",
         "temperature_before_components": "SENCO7/SENCO8_neutralized; use analyzer runtime chamber/cell temperature directly",
+        "runtime_acquisition": "MODE2_1Hz_active_upload_with_AVERAGE1_2_filter_before_sampling",
         "co2_route": "open_flow_clean_dry_gas_after_initialization",
         "h2o_route": "open_flow_humidity_route_after_temperature_and_pressure_inputs_are_trusted",
         "s5_s6_reason": "output_layer_trims_can_hide_main_fit_errors_if_not_neutralized_or_modeled",
@@ -1643,6 +1777,18 @@ def build_formal_initialization_plan(
             "relay_map, relay/relay_8, dewpoint meter, and N2 prepurge source must be proven in initialization "
             "before chamber soak or open-flow sampling."
         ),
+        "database_identity_lookup": (
+            f"PostgreSQL {POSTGRESQL_PRODUCTION_MAJOR} must support lookup by 8-digit SN/device_code and by protocol "
+            "device ID; protocol device ID remains useful for compatibility but is not the only unique identity."
+        ),
+        "database_preflight_before_routes": (
+            f"run_v1_5_initialization_db_preflight --require-postgresql-18 must pass for the planned 1-6 analyzer "
+            "batch before formal open-flow sampling is treated as production-ready."
+        ),
+        "check_monitor_after_chamber_temp_stable": (
+            f"When CHECK is supported, record CHECK,YGAS,FFF into {CHECK_MONITOR_ARTIFACT} after all active analyzer "
+            "chamber temperatures are stable and before point sampling; command spacing remains >=1s."
+        ),
         "sn_identity_before_getco": (
             "first-discovery SN/device_code allocation is planned before epoch-0 GETCO and database indexing; "
             "actual SN writes require dedicated SN authorization and are not performed by this planner"
@@ -1652,6 +1798,8 @@ def build_formal_initialization_plan(
         "First-discovery SN/device_code binding is planned before GETCO; real SN writes require the dedicated SN authorization phrase.",
         "This tool writes a plan only; controlled real writes still require the dedicated writer confirmations.",
         "SENCO7/SENCO8 must be neutralized during initialization; do not run temperature calibration or single-point repair.",
+        f"PostgreSQL {POSTGRESQL_PRODUCTION_MAJOR} initialization DB preflight must pass before production open-flow sampling evidence is considered ready.",
+        "CHECK monitor evidence is point-level read-only evidence after chamber-temperature stability, not an early route-control action.",
         "Production pressure handling should proceed to direct multi-point SENCO9 calibration/review before component sampling.",
         "Formal N2/CO2/H2O route readiness must pass in initialization before temperature chamber soak starts.",
     )
@@ -1788,8 +1936,12 @@ def write_formal_initialization_plan(plan: InitializationPlan, output_dir: str |
                     "pressure_senco9_no_write_preflight",
                     "pressure_channel_completion_audit",
                     "mode2_1hz_filter_startup_contract",
+                    "initialization_db_preflight_postgresql18_gate",
                     "formal_route_readiness_probe",
                     "initialization_readiness_audit",
+                ],
+                "required_before_point_sampling_after_chamber_temperature_stable": [
+                    "analyzer_check_monitor_after_chamber_temp_stable_contract",
                 ],
             },
             ensure_ascii=False,
