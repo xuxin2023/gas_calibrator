@@ -93,7 +93,7 @@ def test_default_config_keeps_mode2_post_enable_wait() -> None:
     import json
     from pathlib import Path
 
-    cfg = json.loads(Path("D:/gas_calibrator/configs/default_config.json").read_text(encoding="utf-8"))
+    cfg = json.loads(Path("configs/default_config.json").read_text(encoding="utf-8"))
     assert cfg["workflow"]["analyzer_mode2_init"]["post_enable_stream_wait_s"] == 2.0
-    assert cfg["workflow"]["analyzer_mode2_init"]["command_gap_s"] == 0.15
+    assert cfg["workflow"]["analyzer_mode2_init"]["command_gap_s"] == 1.0
     assert cfg["workflow"]["analyzer_mode2_init"]["post_enable_stream_ack_wait_s"] == 8.0

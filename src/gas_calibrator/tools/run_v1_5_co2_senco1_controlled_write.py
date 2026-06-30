@@ -309,7 +309,7 @@ def _restore_analyzer_runtime(
     ga: GasAnalyzer,
     analyzer_cfg: Mapping[str, Any],
     *,
-    command_gap_s: float = 0.5,
+    command_gap_s: float = 1.0,
     restore_active_freq: bool = True,
 ) -> Dict[str, Any]:
     mode = int(analyzer_cfg.get("mode", 2) or 2)
@@ -677,7 +677,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 command_gap_s=float(args.restore_command_gap_s),
                 restore_active_freq=bool(args.restore_active_freq),
             )
-            _sleep_gap(0.5)
+            _sleep_gap(1.0)
             identity_after = _read_identity_snapshot(
                 ga,
                 prefer_stream=bool(analyzer_cfg.get("active_send", True)),
