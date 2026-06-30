@@ -65,19 +65,51 @@ class SensorRecord(Base):
     __tablename__ = "sensors"
     __table_args__ = (
         UniqueConstraint("device_key", name="uq_sensors_device_key"),
+        UniqueConstraint("sn_code", name="uq_sensors_sn_code"),
+        UniqueConstraint("device_code", name="uq_sensors_device_code"),
         Index("ix_sensors_legacy_identity", "analyzer_id", "analyzer_serial"),
         Index("ix_sensors_serial", "analyzer_serial"),
+        Index("ix_sensors_sn_code", "sn_code"),
+        Index("ix_sensors_device_code", "device_code"),
         Index("ix_sensors_channel_type", "channel_type"),
     )
 
     sensor_id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
     device_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    sn_code: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    device_code: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     analyzer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     analyzer_serial: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     software_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     channel_type: Mapped[str] = mapped_column(String(64), nullable=False, default="co2_h2o_dual")
     metadata_json: Mapped[dict] = mapped_column("metadata", JSON_VARIANT, nullable=False, default=dict)
+    identity_aliases: Mapped[list["SensorIdentityAliasRecord"]] = relationship(
+        back_populates="sensor",
+        cascade="all, delete-orphan",
+    )
+
+
+class SensorIdentityAliasRecord(Base):
+    __tablename__ = "sensor_identity_aliases"
+    __table_args__ = (
+        UniqueConstraint("sensor_id", "alias_type", "alias_value", "source_run_id", name="uq_sensor_identity_alias_source"),
+        Index("ix_sensor_identity_alias_lookup", "alias_type", "alias_value"),
+        Index("ix_sensor_identity_alias_sensor", "sensor_id"),
+        Index("ix_sensor_identity_alias_run", "source_run_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(GUID(), primary_key=True, default=uuid4)
+    sensor_id: Mapped[UUID] = mapped_column(GUID(), ForeignKey("sensors.sensor_id", ondelete="CASCADE"), nullable=False)
+    alias_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    alias_value: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_run_id: Mapped[Optional[UUID]] = mapped_column(GUID(), nullable=True)
+    observed_at: Mapped[Optional[object]] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_from: Mapped[Optional[object]] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[Optional[object]] = mapped_column(DateTime(timezone=True), nullable=True)
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON_VARIANT, nullable=False, default=dict)
+
+    sensor: Mapped[SensorRecord] = relationship(back_populates="identity_aliases")
 
 
 class RunRecord(Base):

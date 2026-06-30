@@ -15,6 +15,7 @@ from .models import (
     RunRecord,
     SampleRecord,
     SensorRecord,
+    SensorIdentityAliasRecord,
 )
 
 
@@ -69,6 +70,8 @@ def _serialize_sensor(record: SensorRecord) -> dict[str, Any]:
     return {
         "sensor_id": str(record.sensor_id),
         "device_key": record.device_key,
+        "sn_code": record.sn_code,
+        "device_code": record.device_code,
         "analyzer_id": record.analyzer_id,
         "analyzer_serial": record.analyzer_serial,
         "software_version": record.software_version,
@@ -200,6 +203,66 @@ class HistoryQueryService:
                 select(SensorRecord).order_by(SensorRecord.device_key.asc()).limit(limit)
             ).scalars().all()
             return [_serialize_sensor(row) for row in rows]
+
+    def sensors_by_identity(self, identity: str, *, limit: int = 100) -> list[dict[str, Any]]:
+        token = str(identity or "").strip()
+        if not token:
+            return []
+        with self.database.session_scope() as session:
+            rows = session.execute(
+                select(SensorRecord)
+                .where(
+                    or_(
+                        SensorRecord.sn_code == token,
+                        SensorRecord.device_code == token,
+                        SensorRecord.analyzer_id == token,
+                        SensorRecord.analyzer_serial == token,
+                        SensorRecord.device_key == token,
+                    )
+                )
+                .order_by(SensorRecord.device_key.asc())
+                .limit(limit)
+            ).scalars().all()
+            found = {str(row.sensor_id): row for row in rows}
+
+            if len(found) < limit:
+                alias_rows = session.execute(
+                    select(SensorRecord)
+                    .join(SensorIdentityAliasRecord, SensorIdentityAliasRecord.sensor_id == SensorRecord.sensor_id)
+                    .where(SensorIdentityAliasRecord.alias_value == token)
+                    .order_by(SensorRecord.device_key.asc())
+                    .limit(limit)
+                ).scalars().all()
+                for row in alias_rows:
+                    found[str(row.sensor_id)] = row
+                    if len(found) >= limit:
+                        break
+
+            if len(found) < limit:
+                metadata_rows = session.execute(
+                    select(SensorRecord).order_by(SensorRecord.device_key.asc())
+                ).scalars().all()
+                for row in metadata_rows:
+                    if str(row.sensor_id) in found:
+                        continue
+                    metadata = dict(row.metadata_json or {})
+                    bridge = metadata.get("storage_bridge") if isinstance(metadata.get("storage_bridge"), dict) else {}
+                    metadata_tokens = {
+                        str(metadata.get("sn_code") or "").strip(),
+                        str(metadata.get("device_code") or "").strip(),
+                        str(metadata.get("protocol_device_id_current") or "").strip(),
+                        str(metadata.get("protocol_device_id") or "").strip(),
+                        str(bridge.get("sn_code") or "").strip(),
+                        str(bridge.get("device_code") or "").strip(),
+                    }
+                    if token in metadata_tokens:
+                        found[str(row.sensor_id)] = row
+                    if len(found) >= limit:
+                        break
+            return [_serialize_sensor(row) for row in found.values()]
+
+    def query_sensors_by_identity(self, identity: str, **kwargs) -> list[dict[str, Any]]:
+        return self.sensors_by_identity(identity, **kwargs)
 
     def _load_sensor(self, session, sensor_id: str) -> SensorRecord:
         record = session.execute(
