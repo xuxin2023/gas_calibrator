@@ -326,11 +326,80 @@ def _co2_write_contract_row(profile: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _h2o_write_contract_row(profile: Mapping[str, Any]) -> Dict[str, Any]:
+    h2o_route = profile.get("h2o_route", {})
+    contract = h2o_route.get("write_contract", {})
+    trim = contract.get("final_linear_trim", {})
+    alternate = contract.get("alternate_absorption_slot_contract", {})
+    return {
+        "profile_id": profile.get("profile_id"),
+        "algorithm_mode": profile.get("algorithm_mode"),
+        "algorithm_contract": contract.get("algorithm_contract"),
+        "contract_status": contract.get("status", "review_ready_after_existing_v1_5_controls"),
+        "firmware_slot_contract": contract.get("firmware_slot_contract"),
+        "fit_input": contract.get("fit_input", profile.get("fit_input", {}).get("h2o", "")),
+        "main_chain_coefficients": _join_values(contract.get("main_chain_coefficients")),
+        "main_chain_controlled_writer": contract.get("main_chain_controlled_writer"),
+        "main_chain_cli_algorithm_flag": contract.get("main_chain_cli_algorithm_flag"),
+        "main_chain_review_artifact": contract.get("main_chain_review_artifact"),
+        "required_review_checks": _join_values(contract.get("required_review_checks")),
+        "candidate_write_pack_evidence": contract.get("candidate_write_pack_evidence", ""),
+        "final_linear_trim_coefficient": trim.get("coefficient"),
+        "senco6_separate_final_affine_layer": bool(trim.get("separate_final_affine_layer")),
+        "senco6_must_not_fold_into_main_chain": bool(trim.get("must_not_fold_into_main_chain")),
+        "senco6_controlled_writer": trim.get("controlled_writer"),
+        "senco6_neutral_writer": trim.get("neutral_writer"),
+        "senco6_clear_command_required_for_neutralization": trim.get(
+            "clear_command_required_for_neutralization"
+        ),
+        "senco6_payload_format": trim.get("payload_format"),
+        "senco6_review_after_main_chain_reverification": bool(
+            trim.get("review_after_main_chain_reverification", False)
+        ),
+        "alternate_absorption_contract": alternate.get("algorithm_contract", ""),
+        "alternate_absorption_status": alternate.get("status", ""),
+        "alternate_absorption_cli_flag": alternate.get("controlled_writer_algorithm_flag", ""),
+        "alternate_absorption_blocker": alternate.get("blocker", ""),
+    }
+
+
+def _r0_write_contract_rows(profile: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    contract = profile.get("r0_write_contract", {})
+    rows: List[Dict[str, Any]] = []
+    for item in contract.get("components", []):
+        rows.append(
+            {
+                "profile_id": profile.get("profile_id"),
+                "algorithm_mode": profile.get("algorithm_mode"),
+                "component": item.get("component"),
+                "coefficient_group": item.get("coefficient_group"),
+                "readback_group": item.get("readback_group"),
+                "physical_quantity": item.get("physical_quantity"),
+                "r0_source": item.get("r0_source"),
+                "fit_input_equation": item.get("fit_input_equation"),
+                "payload_contract": item.get("payload_contract"),
+                "controlled_writer": item.get("controlled_writer", ""),
+                "controlled_writer_status": item.get("controlled_writer_status", ""),
+                "readback_required": bool(item.get("readback_required", False)),
+                "production_blocker": bool(item.get("production_blocker", False)),
+                "profile_r0_contract_status": contract.get("status", ""),
+                "write_requires": _join_values(contract.get("write_requires")),
+                "notes": item.get("notes", ""),
+            }
+        )
+    return rows
+
+
 def build_v1_5_algorithm_write_contract_tables(profile_path: str | Path) -> Dict[str, Any]:
     """Build offline write-contract tables from V1.5 algorithm profiles."""
 
     config = load_v1_5_algorithm_route_profiles(profile_path)
-    rows = [_co2_write_contract_row(profile) for profile in config.get("profiles", [])]
+    profiles = list(config.get("profiles", []))
+    co2_rows = [_co2_write_contract_row(profile) for profile in profiles]
+    h2o_rows = [_h2o_write_contract_row(profile) for profile in profiles]
+    r0_rows: List[Dict[str, Any]] = []
+    for profile in profiles:
+        r0_rows.extend(_r0_write_contract_rows(profile))
     manifest = {
         "schema_version": 1,
         "generated_at": _now(),
@@ -339,14 +408,22 @@ def build_v1_5_algorithm_write_contract_tables(profile_path: str | Path) -> Dict
         "controls_water_or_gas_routes": False,
         "writes_coefficients": False,
         "default_profile_id": config.get("default_profile_id"),
-        "contract_scope": "co2_main_chain_and_final_linear_trim",
+        "contract_scope": "co2_main_chain_h2o_main_chain_final_linear_trims_and_r0_blockers",
         "physical_contract": (
-            "CO2 main-chain writes use reviewed SENCO1/SENCO3 payloads. New algorithm keeps the "
-            "old seven coefficient slots but changes the optical input from R to A. SENCO5 remains "
-            "a separate final affine layer and is never folded into SENCO1/SENCO3."
+            "CO2 main-chain writes use reviewed SENCO1/SENCO3 payloads and H2O main-chain writes "
+            "use reviewed SENCO2/SENCO4 payloads. SENCO5/SENCO6 remain separate final affine "
+            "layers. New algorithm R0(T) dependencies require SENCOA/SENCOB writer/readback "
+            "contracts before production completion."
         ),
+        "h2o_new_algorithm_status": "blocked_until_firmware_input_scale_and_R0_write_contract_are_closed",
+        "r0_contract_status": "blocked_until_controlled_sencoa_sencob_writer_exists",
     }
-    return {"manifest": manifest, "co2_write_contracts": rows}
+    return {
+        "manifest": manifest,
+        "co2_write_contracts": co2_rows,
+        "h2o_write_contracts": h2o_rows,
+        "r0_write_contracts": r0_rows,
+    }
 
 
 def write_v1_5_algorithm_write_contract_review(
@@ -358,10 +435,14 @@ def write_v1_5_algorithm_write_contract_review(
     outputs = {
         "manifest": out / "v1_5_algorithm_write_contract_manifest.json",
         "co2_write_contracts": out / "v1_5_co2_algorithm_write_contracts.csv",
+        "h2o_write_contracts": out / "v1_5_h2o_algorithm_write_contracts.csv",
+        "r0_write_contracts": out / "v1_5_r0_algorithm_write_contracts.csv",
         "summary": out / "V1_5_ALGORITHM_WRITE_CONTRACT_REVIEW.md",
     }
     _write_json(outputs["manifest"], tables["manifest"])
     _write_csv(outputs["co2_write_contracts"], tables["co2_write_contracts"])
+    _write_csv(outputs["h2o_write_contracts"], tables["h2o_write_contracts"])
+    _write_csv(outputs["r0_write_contracts"], tables["r0_write_contracts"])
     summary = [
         "# V1.5 algorithm write contract review",
         "",
@@ -372,6 +453,10 @@ def write_v1_5_algorithm_write_contract_review(
         "- New algorithm uses absorption `A=-ln(R/R0(T))/(P_kPa/100)` inside the old seven slots.",
         "- SENCO5 is a separate final affine layer and must not be folded into SENCO1/SENCO3.",
         "- SENCO5 neutralization requires `CLEARSENCO5,YGAS,FFF`.",
+        "- H2O main-chain payloads are reviewed as SENCO2/SENCO4 paired writes.",
+        "- SENCO6 is a separate final affine layer and must not be folded into SENCO2/SENCO4.",
+        "- SENCO6 neutralization requires `CLEARSENCO6,YGAS,FFF`.",
+        "- New algorithm R0(T) depends on SENCOA/SENCOB, but controlled writer/readback contracts are still blockers.",
     ]
     outputs["summary"].write_text("\n".join(summary) + "\n", encoding="utf-8")
     return {key: str(path) for key, path in outputs.items()}

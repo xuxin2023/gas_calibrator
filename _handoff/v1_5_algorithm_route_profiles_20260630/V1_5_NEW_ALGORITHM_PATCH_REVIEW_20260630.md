@@ -51,6 +51,30 @@
 - 不写 SENCO 系数
 - CO2 0 气点不能直接等同于 H2O=0
 
+## 小包 C：H2O 写入合同与 R0(T) SENCOA/SENCOB blocker
+
+目标：把 H2O `SENCO2/SENCO4 + SENCO6` 和新算法 `SENCOA/SENCOB R0(T)` 写入/读回要求整理成机器可读离线合同，不宣称新算法生产闭环完成。
+
+文件：
+
+- `configs/v1_5_algorithm_route_profiles.json`
+- `src/gas_calibrator/validation/v1_5_algorithm_route_profiles.py`
+- `tests/test_v1_5_algorithm_route_profiles.py`
+- `tests/test_v1_5_algorithm_write_contract_review.py`
+- `_handoff/v1_5_algorithm_route_profiles_20260630/V1_5_ALGORITHM_ROUTE_PROFILES_20260630.md`
+- `_handoff/v1_5_algorithm_route_profiles_20260630/algorithm_write_contract_review/*`
+
+边界：
+
+- 旧算法 H2O 写入合同仍是 `old_ratio_temperature`
+- H2O 主链仍为 `SENCO2/SENCO4`
+- `SENCO6` 是独立最终线性层，不能折进 `SENCO2/SENCO4`
+- `SENCO6` 中性化必须使用 `CLEARSENCO6,YGAS,FFF`
+- 新算法 H2O 合同状态为 `blocked_pending_firmware_input_scale_confirmation`
+- `new_absorption_R0_A_k` 只作为诊断分支，不作为默认生产写入合同
+- `SENCOA/GETCOA` 与 `SENCOB/GETCOB` 是新算法 R0(T) 生产 blocker
+- 当前没有新增 `SENCOA/SENCOB` 真实 writer，不打开 COM，不写系数
+
 ## 验证命令
 
 ```powershell

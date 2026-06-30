@@ -79,6 +79,57 @@ def test_v1_5_algorithm_profiles_define_co2_write_contracts() -> None:
     assert "low_temperature_coverage_guard" in absorption["required_review_checks"]
     assert absorption["final_linear_trim"]["review_after_main_chain_reverification"] is True
     assert absorption["final_linear_trim"]["must_not_fold_into_main_chain"] is True
+    assert not absorption["candidate_write_pack_evidence"].startswith("D:/")
+
+
+def test_v1_5_algorithm_profiles_define_h2o_write_contracts() -> None:
+    profiles = {profile["profile_id"]: profile for profile in _load_profiles()["profiles"]}
+    legacy = profiles["legacy_ratio_production"]["h2o_route"]["write_contract"]
+    absorption = profiles["absorption_ratio_shadow"]["h2o_route"]["write_contract"]
+
+    assert legacy["algorithm_contract"] == "old_ratio_temperature"
+    assert legacy["main_chain_coefficients"] == ["SENCO2", "SENCO4"]
+    assert (
+        legacy["main_chain_controlled_writer"]
+        == "gas_calibrator.tools.run_v1_5_h2o_senco24_controlled_write"
+    )
+    assert legacy["main_chain_cli_algorithm_flag"] == "--h2o-senco24-algorithm old_ratio_temperature"
+    assert legacy["final_linear_trim"]["coefficient"] == "SENCO6"
+    assert legacy["final_linear_trim"]["must_not_fold_into_main_chain"] is True
+    assert (
+        legacy["final_linear_trim"]["clear_command_required_for_neutralization"]
+        == "CLEARSENCO6,YGAS,FFF"
+    )
+
+    assert absorption["status"] == "blocked_pending_firmware_input_scale_confirmation"
+    assert absorption["fit_input"] == "A_H2O=-ln(R_H2O/R0_H2O(T))/(P_kPa/100)"
+    assert "R0_H2O_T_contract_confirmed" in absorption["required_review_checks"]
+    assert absorption["alternate_absorption_slot_contract"]["status"] == (
+        "diagnostic_only_not_default_production"
+    )
+    assert absorption["final_linear_trim"]["review_after_main_chain_reverification"] is True
+
+
+def test_v1_5_absorption_profile_marks_sencoa_sencob_r0_contract_blocked() -> None:
+    profile = next(
+        p for p in _load_profiles()["profiles"] if p["profile_id"] == "absorption_ratio_shadow"
+    )
+
+    contract = profile["r0_write_contract"]
+    components = {item["component"]: item for item in contract["components"]}
+
+    assert contract["status"] == "blocked_until_controlled_sencoa_sencob_writer_exists"
+    assert set(components) == {"co2", "h2o"}
+    assert components["co2"]["coefficient_group"] == "SENCOA"
+    assert components["co2"]["readback_group"] == "GETCOA"
+    assert components["co2"]["physical_quantity"] == "R0_CO2(T)"
+    assert components["h2o"]["coefficient_group"] == "SENCOB"
+    assert components["h2o"]["readback_group"] == "GETCOB"
+    assert components["h2o"]["physical_quantity"] == "R0_H2O(T)"
+    assert {item["controlled_writer_status"] for item in components.values()} == {
+        "missing_controlled_writer"
+    }
+    assert {item["production_blocker"] for item in components.values()} == {True}
 
 
 def test_v1_5_absorption_profile_documents_targeted_supplements_only() -> None:
