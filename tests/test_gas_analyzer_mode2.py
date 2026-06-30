@@ -47,6 +47,27 @@ def test_parse_mode2_manual_factory_example_preserves_all_tokens() -> None:
     assert fields["field_16"] == "103.97"
 
 
+def test_parse_mode2_new_algorithm_15_field_frame_without_case_temp() -> None:
+    line = (
+        "YGAS,001,0524.739,00.000,0918.403,-0.718,1.3045,1.3045,"
+        "0.7145,0.7145,03277,04274,02342,030.11,100.29"
+    )
+    parsed = GasAnalyzer._parse_mode2(line.split(","), line)
+    assert parsed is not None
+    assert parsed["mode"] == 2
+    assert parsed["id"] == "001"
+    assert parsed["mode2_field_count"] == 15
+    assert parsed["mode2_schema_version"] == "factory_mode2_15_no_case_temp_v1"
+    assert parsed["mode2_min_field_count"] == 15
+    assert parsed["chamber_temp_c"] == 30.11
+    assert parsed["case_temp_c"] is None
+    assert parsed["pressure_kpa"] == 100.29
+    fields = json.loads(parsed["mode2_fields_json"])
+    assert fields["field_15"] == "100.29"
+    assert fields["pressure_kpa"] == "100.29"
+    assert json.loads(parsed["mode2_omitted_fields_json"]) == ["case_temp_c"]
+
+
 def test_parse_mode2_17_fields_with_status() -> None:
     line = (
         "YGAS,097,0658.169,06.783,1240.638,05.191,1.2453,1.2430,"
@@ -352,6 +373,55 @@ def test_format_senco_value_normalizes_zero_and_positive_exponent() -> None:
     assert GasAnalyzer._format_senco_value(-0.0) == "0.00000e00"
     assert GasAnalyzer._format_senco_value(1.0) == "1.00000e00"
     assert GasAnalyzer._format_senco_value(65916.6) == "6.59166e04"
+
+
+def test_parse_check_monitor_line_extracts_thermostat_voltages() -> None:
+    parsed = GasAnalyzer.parse_check_monitor_line("<CHECK,YGAS,097,LOCK1=2.70V,LOCK2=1.50V>")
+
+    assert parsed is not None
+    assert parsed["id"] == "097"
+    assert parsed["thermostat_chip1_voltage_v"] == 2.70
+    assert parsed["thermostat_chip2_voltage_v"] == 1.50
+
+
+def test_parse_check_monitor_line_accepts_new_algorithm_ntc_response() -> None:
+    parsed = GasAnalyzer.parse_check_monitor_line(
+        "TEMP:030.04C,PRESS:100.28kPa,NTC1:2.759,NTC2:2.771,V5.000"
+    )
+
+    assert parsed is not None
+    assert parsed["id"] == ""
+    assert parsed["thermostat_chip1_voltage_v"] == 2.759
+    assert parsed["thermostat_chip2_voltage_v"] == 2.771
+
+
+def test_parse_check_monitor_line_rejects_mode2_stream_frame() -> None:
+    line = (
+        "YGAS,097,0658.169,06.783,1240.638,05.191,1.2453,1.2430,"
+        "0.7992,0.7992,03178,03948,02538,031.60,031.74,106.06"
+    )
+
+    assert GasAnalyzer.parse_check_monitor_line(line) is None
+
+
+def test_read_check_monitor_uses_check_query_and_skips_stream_noise() -> None:
+    ga = GasAnalyzer("COM1")
+    fake = _FakeSerialForCoefficientRead(
+        [
+            "YGAS,097,0658.169,06.783,1240.638,05.191,1.2453,1.2430,"
+            "0.7992,0.7992,03178,03948,02538,031.60,031.74,106.06"
+        ],
+        drain_batches=[["<CHECK,YGAS,097,LOCK1=2.70V,LOCK2=2.68V>"]],
+    )
+    ga.ser = fake
+
+    parsed = ga.read_check_monitor(delay_s=0.0, retries=0, timeout_s=0.05)
+
+    assert parsed["ok"] is True
+    assert parsed["id"] == "097"
+    assert parsed["thermostat_chip1_voltage_v"] == 2.70
+    assert parsed["thermostat_chip2_voltage_v"] == 2.68
+    assert fake.writes == ["CHECK,YGAS,FFF\r\n"]
 
 
 class _FakeSerialForCoefficientRead:

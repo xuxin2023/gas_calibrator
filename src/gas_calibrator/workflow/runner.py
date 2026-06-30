@@ -43,6 +43,7 @@ from .tuning import workflow_param
 
 
 FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S = 1800.0
+MIN_ANALYZER_SERIAL_COMMAND_GAP_S = 1.0
 
 
 def _cap_formal_open_flow_dewpoint_wait_s(value: Any, *, fallback: float = 300.0) -> float:
@@ -51,6 +52,14 @@ def _cap_formal_open_flow_dewpoint_wait_s(value: Any, *, fallback: float = 300.0
     except (TypeError, ValueError):
         resolved = float(fallback)
     return min(max(0.0, resolved), FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S)
+
+
+def _coerce_analyzer_serial_command_gap_s(value: Any) -> float:
+    try:
+        gap = float(value)
+    except (TypeError, ValueError):
+        gap = MIN_ANALYZER_SERIAL_COMMAND_GAP_S
+    return max(MIN_ANALYZER_SERIAL_COMMAND_GAP_S, gap)
 
 
 class StabilityWindow:
@@ -152,6 +161,36 @@ def _optional_env_bool(name: str) -> Optional[bool]:
     if text in {"0", "false", "no", "n", "off"}:
         return False
     return None
+
+
+_ANALYZER_CHECK_MONITOR_FIELDS = [
+    "ts",
+    "command",
+    "trigger_stage",
+    "target_c",
+    "analyzer_label",
+    "analyzer_device_id",
+    "analyzer_port",
+    "active_send",
+    "chamber_temp_c",
+    "chamber_temp_span_c",
+    "ok",
+    "error",
+    "raw",
+    "raw_lines_json",
+    "thermostat_chip1_voltage_v",
+    "thermostat_chip2_voltage_v",
+    "thermostat_chip1_state",
+    "thermostat_chip2_state",
+    "thermostat_lock_status",
+    "overtemp_voltage_max_v",
+    "undertemp_voltage_min_v",
+    "undertemp_voltage_max_v",
+    "constant_voltage_min_v",
+    "constant_voltage_max_v",
+    "read_only",
+    "physical_meaning",
+]
 
 
 _PRESSURE_TRACE_FIELDS = [
@@ -1488,6 +1527,8 @@ class CalibrationRunner:
         self._pace_manual_baselines: Dict[str, Dict[str, Any]] = {}
         self._point_timing_summary_path = (run_dir / "point_timing_summary.csv") if run_dir is not None else None
         self._point_timing_summary_error_logged = False
+        self._analyzer_check_monitor_path = (run_dir / "analyzer_check_monitor.csv") if run_dir is not None else None
+        self._analyzer_check_monitor_error_logged = False
         self._sampling_window_context: Optional[Dict[str, Any]] = None
         self._pressure_transition_fast_signal_context: Optional[Dict[str, Any]] = None
         self._pace_state_cache: Dict[str, Any] = {}
@@ -7482,6 +7523,211 @@ class CalibrationRunner:
             detail=detail,
         )
 
+    def _analyzer_check_voltage_thresholds(self) -> Dict[str, float]:
+        return {
+            "overtemp_max_v": float(
+                self._wf("workflow.stability.temperature.analyzer_check_overtemp_max_v", 0.5)
+            ),
+            "undertemp_min_v": float(
+                self._wf("workflow.stability.temperature.analyzer_check_undertemp_min_v", 1.0)
+            ),
+            "undertemp_max_v": float(
+                self._wf("workflow.stability.temperature.analyzer_check_undertemp_max_v", 2.0)
+            ),
+            "constant_min_v": float(
+                self._wf("workflow.stability.temperature.analyzer_check_constant_min_v", 2.3)
+            ),
+            "constant_max_v": float(
+                self._wf("workflow.stability.temperature.analyzer_check_constant_max_v", 3.1)
+            ),
+        }
+
+    @staticmethod
+    def _classify_analyzer_check_voltage(value: Any, thresholds: Mapping[str, float]) -> str:
+        try:
+            voltage = float(value)
+        except Exception:
+            return "missing"
+        if voltage <= float(thresholds.get("overtemp_max_v", 0.5)):
+            return "overtemp"
+        if (
+            float(thresholds.get("constant_min_v", 2.3))
+            <= voltage
+            <= float(thresholds.get("constant_max_v", 3.1))
+        ):
+            return "constant_temp"
+        if (
+            float(thresholds.get("undertemp_min_v", 1.0))
+            <= voltage
+            <= float(thresholds.get("undertemp_max_v", 2.0))
+        ):
+            return "undertemp"
+        return "unknown_voltage"
+
+    @staticmethod
+    def _analyzer_check_lock_status(state1: str, state2: str) -> str:
+        states = {str(state1 or "").strip(), str(state2 or "").strip()}
+        if states == {"constant_temp"}:
+            return "constant_temp"
+        if "overtemp" in states:
+            return "overtemp"
+        if "undertemp" in states:
+            return "undertemp"
+        if "missing" in states:
+            return "missing"
+        return "unknown_voltage"
+
+    def _append_analyzer_check_monitor_row(self, row: Dict[str, Any]) -> None:
+        if self._analyzer_check_monitor_path is None:
+            return
+        try:
+            self._analyzer_check_monitor_path.parent.mkdir(parents=True, exist_ok=True)
+            needs_header = (
+                not self._analyzer_check_monitor_path.exists()
+                or self._analyzer_check_monitor_path.stat().st_size <= 0
+            )
+            with self._analyzer_check_monitor_path.open("a", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=_ANALYZER_CHECK_MONITOR_FIELDS,
+                    extrasaction="ignore",
+                )
+                if needs_header:
+                    writer.writeheader()
+                writer.writerow({field: row.get(field, "") for field in _ANALYZER_CHECK_MONITOR_FIELDS})
+        except Exception as exc:
+            if not self._analyzer_check_monitor_error_logged:
+                self._analyzer_check_monitor_error_logged = True
+                self.log(f"Analyzer CHECK monitor append failed: {exc}")
+
+    def _record_analyzer_check_monitor_after_chamber_temp_stable(
+        self,
+        target_c: float,
+        analyzers: List[Tuple[str, Any, Any]],
+        *,
+        trigger_stage: str,
+        last_values: Optional[Mapping[str, Any]] = None,
+        spans: Optional[Mapping[str, Any]] = None,
+    ) -> bool:
+        enabled = bool(
+            self._wf(
+                "workflow.stability.temperature.analyzer_check_after_chamber_temp_stable_enabled",
+                True,
+            )
+        )
+        if not enabled:
+            return True
+        thresholds = self._analyzer_check_voltage_thresholds()
+        strict = bool(
+            self._wf(
+                "workflow.stability.temperature.analyzer_check_after_chamber_temp_stable_strict",
+                False,
+            )
+        )
+        delay_s = float(self._wf("workflow.stability.temperature.analyzer_check_read_delay_s", 0.1))
+        timeout_s = float(self._wf("workflow.stability.temperature.analyzer_check_read_timeout_s", 0.6))
+        retries = int(self._wf("workflow.stability.temperature.analyzer_check_read_retries", 0))
+        command_gap_s = max(
+            1.0,
+            float(self._wf("workflow.stability.temperature.analyzer_check_command_gap_s", 1.0)),
+        )
+        all_ok = True
+        rows: List[Dict[str, Any]] = []
+
+        for idx, (label, ga, analyzer_cfg) in enumerate(analyzers):
+            cfg_map = analyzer_cfg if isinstance(analyzer_cfg, Mapping) else {}
+            command = "CHECK,YGAS,FFF"
+            reader = getattr(ga, "read_check_monitor", None)
+            if callable(reader):
+                try:
+                    result = dict(
+                        reader(
+                            delay_s=delay_s,
+                            timeout_s=timeout_s,
+                            retries=retries,
+                        )
+                        or {}
+                    )
+                except Exception as exc:
+                    result = {
+                        "ok": False,
+                        "command": command,
+                        "raw": "",
+                        "raw_lines": [],
+                        "error": str(exc),
+                    }
+            else:
+                result = {
+                    "ok": False,
+                    "command": command,
+                    "raw": "",
+                    "raw_lines": [],
+                    "error": "UNSUPPORTED_CHECK_MONITOR",
+                }
+
+            command = str(result.get("command") or command)
+            voltage1 = self._as_float(result.get("thermostat_chip1_voltage_v"))
+            voltage2 = self._as_float(result.get("thermostat_chip2_voltage_v"))
+            state1 = self._classify_analyzer_check_voltage(voltage1, thresholds)
+            state2 = self._classify_analyzer_check_voltage(voltage2, thresholds)
+            lock_status = self._analyzer_check_lock_status(state1, state2)
+            ok = bool(result.get("ok")) and lock_status == "constant_temp"
+            if not ok:
+                all_ok = False
+            serial = getattr(ga, "ser", None)
+            raw_lines = result.get("raw_lines")
+            if raw_lines is None:
+                raw_lines = []
+            if not isinstance(raw_lines, (list, tuple)):
+                raw_lines = [raw_lines]
+            row = {
+                "ts": datetime.now().isoformat(timespec="milliseconds"),
+                "command": command,
+                "trigger_stage": str(trigger_stage or "").strip(),
+                "target_c": float(target_c),
+                "analyzer_label": label,
+                "analyzer_device_id": str(cfg_map.get("device_id") or result.get("id") or "").strip(),
+                "analyzer_port": str(cfg_map.get("port") or getattr(serial, "port", "") or "").strip(),
+                "active_send": bool(getattr(ga, "active_send", False)),
+                "chamber_temp_c": (last_values or {}).get(str(label), ""),
+                "chamber_temp_span_c": (spans or {}).get(str(label), ""),
+                "ok": ok,
+                "error": str(result.get("error") or ""),
+                "raw": str(result.get("raw") or ""),
+                "raw_lines_json": json.dumps(list(raw_lines), ensure_ascii=False, default=str),
+                "thermostat_chip1_voltage_v": voltage1 if voltage1 is not None else "",
+                "thermostat_chip2_voltage_v": voltage2 if voltage2 is not None else "",
+                "thermostat_chip1_state": state1,
+                "thermostat_chip2_state": state2,
+                "thermostat_lock_status": lock_status,
+                "overtemp_voltage_max_v": thresholds["overtemp_max_v"],
+                "undertemp_voltage_min_v": thresholds["undertemp_min_v"],
+                "undertemp_voltage_max_v": thresholds["undertemp_max_v"],
+                "constant_voltage_min_v": thresholds["constant_min_v"],
+                "constant_voltage_max_v": thresholds["constant_max_v"],
+                "read_only": True,
+                "physical_meaning": "post_chamber_temp_stable_thermostat_monitor",
+            }
+            rows.append(row)
+            self._append_analyzer_check_monitor_row(row)
+            self._log_run_event(
+                command=f"analyzer-check-monitor:{label}",
+                response=json.dumps(row, ensure_ascii=False, separators=(",", ":"), default=str),
+            )
+            if idx + 1 < len(analyzers) and command_gap_s > 0:
+                time.sleep(command_gap_s)
+
+        if rows:
+            status_counts = Counter(str(row.get("thermostat_lock_status") or "") for row in rows)
+            self.log(
+                "Analyzer CHECK monitor captured after chamber temp stable: "
+                f"trigger={trigger_stage} count={len(rows)} statuses={dict(status_counts)}"
+            )
+        if strict and not all_ok:
+            self.log("Analyzer CHECK monitor strict gate failed after chamber temp stable")
+            return False
+        return True
+
     def stop(self) -> None:
         if self.stop_event.is_set():
             return
@@ -9143,7 +9389,9 @@ class CalibrationRunner:
         ready_consecutive_frames = max(1, int(init_retry_cfg.get("ready_consecutive_frames", 2) or 2))
         retry_delay_s = max(0.01, float(init_retry_cfg.get("retry_delay_s", 0.2) or 0.2))
         reapply_delay_s = max(0.0, float(init_retry_cfg.get("reapply_delay_s", 0.35) or 0.35))
-        command_gap_s = max(0.0, float(init_retry_cfg.get("command_gap_s", 0.15) or 0.15))
+        command_gap_s = _coerce_analyzer_serial_command_gap_s(
+            init_retry_cfg.get("command_gap_s", MIN_ANALYZER_SERIAL_COMMAND_GAP_S)
+        )
         send_active_freq = bool(init_retry_cfg.get("send_active_freq", True))
         quiet_active_before_config = bool(init_retry_cfg.get("quiet_active_before_config", True))
         read_first_before_config = bool(init_retry_cfg.get("read_first_before_config", False))
@@ -9884,6 +10132,20 @@ class CalibrationRunner:
             return True, f"状态告警({status_text})；{key_status}"
         return True, key_status
 
+    def _configured_min_mode2_fields(self) -> int:
+        return max(0, int(self._analyzer_frame_quality_cfg().get("min_mode2_fields", 16) or 16))
+
+    def _mode2_min_fields_for_parsed(self, parsed: Optional[Dict[str, Any]]) -> int:
+        configured_min = self._configured_min_mode2_fields()
+        if configured_min <= 0 or not isinstance(parsed, dict) or not parsed:
+            return configured_min
+        parsed_min = self._as_int(parsed.get("mode2_min_field_count"))
+        schema_version = str(parsed.get("mode2_schema_version") or "").strip()
+        if parsed_min is not None and parsed_min > 0 and parsed_min < configured_min and configured_min <= 16:
+            if schema_version:
+                return parsed_min
+        return configured_min
+
     def _assess_sensor_frame_for_read(
         self,
         parsed: Optional[Dict[str, Any]],
@@ -9913,7 +10175,7 @@ class CalibrationRunner:
 
         if isinstance(parsed, dict) and parsed:
             field_count = self._as_int(parsed.get("mode2_field_count"))
-            min_mode2_fields = max(0, int(self._analyzer_frame_quality_cfg().get("min_mode2_fields", 16) or 16))
+            min_mode2_fields = self._mode2_min_fields_for_parsed(parsed)
             if field_count is not None and field_count < min_mode2_fields:
                 return f"short_frame({field_count})"
             return "parsed"
@@ -9964,7 +10226,7 @@ class CalibrationRunner:
             issues.append("missing_schema_version")
 
         field_count = self._as_int(parsed.get("mode2_field_count"))
-        min_mode2_fields = max(0, int(self._analyzer_frame_quality_cfg().get("min_mode2_fields", 16) or 16))
+        min_mode2_fields = self._mode2_min_fields_for_parsed(parsed)
         if field_count is None:
             issues.append("missing_field_count")
         elif field_count < min_mode2_fields:
@@ -10010,7 +10272,7 @@ class CalibrationRunner:
 
         cfg = self._analyzer_frame_quality_cfg()
         issues: List[str] = []
-        min_mode2_fields = max(0, int(cfg.get("min_mode2_fields", 16) or 16))
+        min_mode2_fields = self._mode2_min_fields_for_parsed(parsed)
         field_count = self._as_int(parsed.get("mode2_field_count"))
         if field_count is not None and field_count < min_mode2_fields:
             issues.append(f"短帧({field_count})")
@@ -10081,7 +10343,7 @@ class CalibrationRunner:
         cfg = self._analyzer_frame_quality_cfg()
         issues: List[str] = []
         marks: List[str] = []
-        min_mode2_fields = max(0, int(cfg.get("min_mode2_fields", 16) or 16))
+        min_mode2_fields = self._mode2_min_fields_for_parsed(parsed)
         field_count = self._as_int(parsed.get("mode2_field_count"))
         if field_count is not None and field_count < min_mode2_fields:
             issues.append(f"短帧({field_count})")
@@ -11191,6 +11453,25 @@ class CalibrationRunner:
                     "Analyzer chamber temp stable for all active analyzers: "
                     f"labels={','.join(stable_labels)}"
                 )
+                last_values = {label: states[label]["last"] for label in stable_labels}
+                spans = {
+                    label: self._span(states[label]["values"])
+                    for label in stable_labels
+                    if isinstance(states[label].get("values"), list)
+                }
+                check_analyzers = [
+                    (label, ga, cfg)
+                    for label, ga, cfg in analyzers
+                    if str(label) in set(stable_labels)
+                ]
+                if not self._record_analyzer_check_monitor_after_chamber_temp_stable(
+                    target_c,
+                    check_analyzers,
+                    trigger_stage="parallel_all_active_stable",
+                    last_values=last_values,
+                    spans=spans,
+                ):
+                    return False
                 return True
 
             pending_no_valid = sorted(

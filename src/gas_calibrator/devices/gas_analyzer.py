@@ -30,6 +30,9 @@ class GasAnalyzer:
     COEFFICIENT_READ_RETRY_COUNT = 2
     COEFFICIENT_READ_DELAY_S = 0.1
     COEFFICIENT_READ_TIMEOUT_S = 0.3
+    CHECK_MONITOR_READ_RETRY_COUNT = 0
+    CHECK_MONITOR_READ_DELAY_S = 0.1
+    CHECK_MONITOR_READ_TIMEOUT_S = 0.6
     _COEFFICIENT_TOKEN_RE = re.compile(
         r"C(?P<index>\d+)\s*:\s*(?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
     )
@@ -50,7 +53,9 @@ class GasAnalyzer:
         "pressure_kpa",
     ]
     MODE2_SCHEMA_VERSION = "factory_mode2_16_v1"
+    MODE2_COMPACT_NO_CASE_TEMP_SCHEMA_VERSION = "factory_mode2_15_no_case_temp_v1"
     MODE2_MIN_FIELD_COUNT = 2 + len(_MODE2_KEYS)
+    MODE2_COMPACT_NO_CASE_TEMP_FIELD_COUNT = MODE2_MIN_FIELD_COUNT - 1
     _MODE2_TOKEN_LABELS = ["device_marker", "id"] + _MODE2_KEYS + ["status"]
 
     def __init__(
@@ -495,6 +500,156 @@ class GasAnalyzer:
 
         raise RuntimeError(f"GETCO{int(index)} read failed: {last_line or 'NO_RESPONSE'}")
 
+    @staticmethod
+    def _to_voltage_float(token: Any) -> Optional[float]:
+        text = str(token or "").strip()
+        if not text:
+            return None
+        for sep in ("=", ":"):
+            if sep in text:
+                text = text.rsplit(sep, 1)[-1]
+        match = re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", text)
+        if not match:
+            return None
+        try:
+            return float(match.group(0))
+        except Exception:
+            return None
+
+    @classmethod
+    def parse_check_monitor_line(cls, line: str) -> Optional[Dict[str, Any]]:
+        """Parse CHECK,YGAS,FFF thermostat-monitor response into two voltages."""
+
+        for candidate in cls._iter_frame_candidates(line):
+            parts = cls._split_frame_parts(candidate)
+            if len(parts) < 4:
+                continue
+            upper_parts = [str(part or "").strip().upper() for part in parts]
+            has_check = any(part == "CHECK" or part.startswith("CHECK") for part in upper_parts)
+            has_ygas = any(part == "YGAS" for part in upper_parts)
+            has_labeled_ntc = any(part.startswith(("NTC1", "NTC2")) for part in upper_parts)
+            if not has_check and not has_labeled_ntc and not (has_ygas and len(parts) <= 6):
+                continue
+
+            device_id = ""
+            labeled_voltages: dict[int, float] = {}
+            generic_voltages: list[float] = []
+            for idx, (part, upper) in enumerate(zip(parts, upper_parts)):
+                if not part or upper in {"CHECK", "YGAS", "T", "F", "OK", "ACK"}:
+                    continue
+                if upper.startswith(("LOCK1", "NTC1")):
+                    value = cls._to_voltage_float(part)
+                    if value is not None:
+                        labeled_voltages[1] = float(value)
+                    continue
+                if upper.startswith(("LOCK2", "NTC2")):
+                    value = cls._to_voltage_float(part)
+                    if value is not None:
+                        labeled_voltages[2] = float(value)
+                    continue
+                previous = upper_parts[idx - 1] if idx > 0 else ""
+                if previous == "YGAS" and re.fullmatch(r"[0-9A-F]{3}", upper):
+                    if upper != cls.COMMAND_TARGET_ID:
+                        device_id = upper
+                    continue
+                if upper == cls.COMMAND_TARGET_ID:
+                    continue
+                if upper.startswith(("TEMP", "PRESS", "V")):
+                    continue
+                value = cls._to_voltage_float(part)
+                if value is None:
+                    continue
+                generic_voltages.append(float(value))
+
+            voltages = (
+                [labeled_voltages[1], labeled_voltages[2]]
+                if 1 in labeled_voltages and 2 in labeled_voltages
+                else generic_voltages
+            )
+            if len(voltages) < 2:
+                continue
+            return {
+                "raw": str(line or "").strip(),
+                "id": device_id,
+                "thermostat_chip1_voltage_v": voltages[0],
+                "thermostat_chip2_voltage_v": voltages[1],
+                "voltage_count": len(voltages),
+            }
+        return None
+
+    def read_check_monitor(
+        self,
+        *,
+        delay_s: Optional[float] = None,
+        timeout_s: Optional[float] = None,
+        retries: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Read the firmware CHECK monitor without changing analyzer runtime mode."""
+
+        payload = self._cmd("CHECK").strip()
+        attempts = 1 + max(0, int(retries if retries is not None else self.CHECK_MONITOR_READ_RETRY_COUNT))
+        read_delay_s = float(delay_s if delay_s is not None else self.CHECK_MONITOR_READ_DELAY_S)
+        read_timeout_s = float(timeout_s if timeout_s is not None else self.CHECK_MONITOR_READ_TIMEOUT_S)
+        raw_lines: list[str] = []
+
+        try:
+            self.ser.flush_input()
+        except Exception:
+            pass
+
+        for attempt in range(attempts):
+            self.ser.write(payload + "\r\n")
+            if read_delay_s > 0:
+                time.sleep(read_delay_s)
+
+            deadline = time.time() + max(0.05, read_timeout_s)
+            while time.time() < deadline:
+                lines: list[str] = []
+                line = str(self.ser.readline() or "").strip()
+                if line:
+                    lines.extend(self._split_stream_lines(line))
+
+                remaining = max(0.0, deadline - time.time())
+                if remaining > 0:
+                    drain = getattr(self.ser, "drain_input_nonblock", None)
+                    if callable(drain):
+                        lines.extend(
+                            self._split_stream_lines(
+                                drain(drain_s=min(0.05, remaining), read_timeout_s=0.05)
+                            )
+                        )
+
+                if not lines:
+                    time.sleep(min(0.01, max(0.0, deadline - time.time())))
+                    continue
+
+                for candidate in lines:
+                    text = str(candidate or "").strip()
+                    if not text:
+                        continue
+                    raw_lines.append(text)
+                    parsed = self.parse_check_monitor_line(text)
+                    if parsed:
+                        parsed.update(
+                            {
+                                "ok": True,
+                                "command": payload,
+                                "raw_lines": list(raw_lines),
+                            }
+                        )
+                        return parsed
+
+            if attempt + 1 < attempts:
+                time.sleep(max(0.01, read_delay_s))
+
+        return {
+            "ok": False,
+            "command": payload,
+            "raw": raw_lines[-1] if raw_lines else "",
+            "raw_lines": raw_lines,
+            "error": "NO_VALID_CHECK_LINE" if raw_lines else "NO_RESPONSE",
+        }
+
     def read_data_passive(self) -> str:
         payload = self._cmd("READDATA")
         attempts = 1 + max(0, int(self.PASSIVE_READ_RETRY_COUNT))
@@ -668,11 +823,12 @@ class GasAnalyzer:
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
     @classmethod
-    def _mode2_fields_payload(cls, cleaned: list[str]) -> Dict[str, str]:
+    def _mode2_fields_payload(cls, cleaned: list[str], numeric_keys: Optional[list[str]] = None) -> Dict[str, str]:
         payload: Dict[str, str] = {}
         for idx, token in enumerate(cleaned, start=1):
             payload[f"field_{idx:02d}"] = token
-        for idx, label in enumerate(cls._MODE2_TOKEN_LABELS):
+        token_labels = ["device_marker", "id"] + list(numeric_keys or cls._MODE2_KEYS) + ["status"]
+        for idx, label in enumerate(token_labels):
             if idx < len(cleaned):
                 payload[label] = cleaned[idx]
         return payload
@@ -698,34 +854,53 @@ class GasAnalyzer:
     @staticmethod
     def _parse_mode2(parts: list[str], line: str) -> Optional[Dict[str, Any]]:
         cleaned = GasAnalyzer._split_frame_parts(",".join(parts))
-        if len(cleaned) < GasAnalyzer.MODE2_MIN_FIELD_COUNT:
+        if len(cleaned) < GasAnalyzer.MODE2_COMPACT_NO_CASE_TEMP_FIELD_COUNT:
             return None
         head = (cleaned[0] or "").strip().upper()
         if "YGAS" not in head:
             return None
+        numeric_keys = list(GasAnalyzer._MODE2_KEYS)
+        schema_version = GasAnalyzer.MODE2_SCHEMA_VERSION
+        min_field_count = GasAnalyzer.MODE2_MIN_FIELD_COUNT
+        omitted_fields: list[str] = []
+        compact_status_like = (
+            len(cleaned) == GasAnalyzer.MODE2_MIN_FIELD_COUNT
+            and GasAnalyzer._to_float_strict(cleaned[-1]) is None
+            and GasAnalyzer._to_float_strict(cleaned[-2]) is not None
+        )
+        if len(cleaned) == GasAnalyzer.MODE2_COMPACT_NO_CASE_TEMP_FIELD_COUNT or compact_status_like:
+            numeric_keys = [key for key in GasAnalyzer._MODE2_KEYS if key != "case_temp_c"]
+            schema_version = GasAnalyzer.MODE2_COMPACT_NO_CASE_TEMP_SCHEMA_VERSION
+            min_field_count = GasAnalyzer.MODE2_COMPACT_NO_CASE_TEMP_FIELD_COUNT
+            omitted_fields = ["case_temp_c"]
+        elif len(cleaned) < GasAnalyzer.MODE2_MIN_FIELD_COUNT:
+            return None
+        status_index = 2 + len(numeric_keys)
+        extra_start_index = status_index + 1 if len(cleaned) > status_index else status_index
         data = {
             "raw": line,
             "id": cleaned[1] if len(cleaned) > 1 else None,
             "mode": 2,
-            "mode2_schema_version": GasAnalyzer.MODE2_SCHEMA_VERSION,
+            "mode2_schema_version": schema_version,
             "mode2_field_count": len(cleaned),
-            "mode2_min_field_count": GasAnalyzer.MODE2_MIN_FIELD_COUNT,
-            "mode2_known_field_count": len(GasAnalyzer._MODE2_KEYS),
-            "mode2_extra_count": max(0, len(cleaned) - 17),
+            "mode2_min_field_count": min_field_count,
+            "mode2_known_field_count": len(numeric_keys),
+            "mode2_extra_count": max(0, len(cleaned) - extra_start_index),
             "mode2_tokens_json": GasAnalyzer._json_compact(cleaned),
-            "mode2_fields_json": GasAnalyzer._json_compact(GasAnalyzer._mode2_fields_payload(cleaned)),
+            "mode2_fields_json": GasAnalyzer._json_compact(GasAnalyzer._mode2_fields_payload(cleaned, numeric_keys)),
+            "mode2_omitted_fields_json": GasAnalyzer._json_compact(omitted_fields),
         }
         for key in GasAnalyzer._MODE2_KEYS:
             data[key] = None
-        for idx, key in enumerate(GasAnalyzer._MODE2_KEYS, start=2):
+        for idx, key in enumerate(numeric_keys, start=2):
             if len(cleaned) > idx:
                 data[key] = GasAnalyzer._to_float_strict(cleaned[idx])
-        data["status"] = cleaned[16] if len(cleaned) > 16 and cleaned[16] else None
-        if any(data[key] is None for key in GasAnalyzer._MODE2_KEYS):
+        data["status"] = cleaned[status_index] if len(cleaned) > status_index and cleaned[status_index] else None
+        if any(data[key] is None for key in numeric_keys):
             return None
         extras: Dict[str, str] = {}
-        if len(cleaned) > 17:
-            for idx, token in enumerate(cleaned[17:], start=1):
+        if len(cleaned) > extra_start_index:
+            for idx, token in enumerate(cleaned[extra_start_index:], start=1):
                 key = f"mode2_extra_{idx:02d}"
                 data[key] = token
                 extras[key] = token
