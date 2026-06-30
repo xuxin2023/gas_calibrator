@@ -194,3 +194,42 @@ def test_senco5_linear_trim_review_accepts_mean_schema_and_three_decimal_payload
     assert summary["payload_C0"] == -1.234
     assert summary["payload_C1"] == 1.0
     assert coeff["command_preview"] == "SENCO5,YGAS,FFF,-1.234,1.000"
+
+
+def test_senco5_linear_trim_review_accepts_post_write_reverification_schema(tmp_path):
+    rows = []
+    for index, (target, measured) in enumerate(((99.94, 112.31), (299.73, 312.47), (599.54, 612.05)), start=1):
+        rows.append(
+            {
+                "component": "co2",
+                "device_id": "070",
+                "analyzer_label": "GA01",
+                "point_id": f"p{index}",
+                "sample_role": "post_write_verification",
+                "standard_value": target,
+                "measured_value": measured,
+                "unit": "ppm",
+                "point_status": "ok",
+            }
+        )
+    path = tmp_path / "post_write_reverification_by_device.csv"
+    _write_csv(path, rows)
+
+    tables = build_co2_senco5_linear_trim_review(
+        verification_summary_csv=path,
+        cfg=Co2Senco5LinearTrimConfig(
+            target_device_ids=("070",),
+            exclude_device_ids=(),
+            acceptance_pct=1.5,
+            min_points=3,
+            command_c0_decimals=3,
+            command_c1_decimals=3,
+        ),
+    )
+
+    summary = tables["candidate_summary"][0]
+    residuals = tables["candidate_residuals"]
+
+    assert summary["point_count"] == 3
+    assert summary["candidate_status"] == "review_ready"
+    assert len(residuals) == 3

@@ -235,10 +235,16 @@ def build_co2_senco5_linear_trim_review(
         target = _safe_float(
             row.get("certificate_co2_ppm")
             or row.get("standard_gas_certificate_value_ppm")
+            or row.get("standard_value")
             or row.get("target_co2_ppm")
             or row.get("target_ppm")
         )
-        measured = _safe_float(row.get("measured_co2_ppm") or row.get("co2_ppm") or row.get("co2_mean_ppm"))
+        measured = _safe_float(
+            row.get("measured_co2_ppm")
+            or row.get("measured_value")
+            or row.get("co2_ppm")
+            or row.get("co2_mean_ppm")
+        )
         status = str(row.get("point_status") or "").strip().lower()
         reasons: List[str] = []
         if dev in excluded_devices:
