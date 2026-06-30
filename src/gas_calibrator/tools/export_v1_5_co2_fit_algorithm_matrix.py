@@ -15,6 +15,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--old-snapshot-json", default="")
     parser.add_argument("--exclude-device-id", action="append", default=[])
+    parser.add_argument("--fit-point-treatment-plan-csv", default="")
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -25,6 +26,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         output_dir=args.output_dir,
         old_snapshot_json=args.old_snapshot_json or None,
         exclude_device_ids=args.exclude_device_id,
+        fit_point_treatment_plan_csv=args.fit_point_treatment_plan_csv or None,
     )
     print(f"CO2 fitting algorithm matrix saved: {outputs['markdown']}", flush=True)
     return 0

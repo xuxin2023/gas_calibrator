@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +39,11 @@ class FitPoint:
     ratio: float
     temperature_c: float
     pressure_hpa: float
+    h2o_mmol: Optional[float] = None
+    treatment_fit_policy: str = ""
+    treatment_bridge_policy: str = ""
+    treatment_review_priority: str = ""
+    treatment_exclusion_basis: str = ""
 
 
 @dataclass(frozen=True)
@@ -47,6 +53,7 @@ class ModelVariant:
     pressure_unit: str = "kpa"
     preserve_existing_pressure_slots: bool = False
     use_celsius_temperature: bool = False
+    apply_h2o_dry_basis_target_bridge: bool = False
     write_contract: str = "review_only"
 
 
@@ -60,6 +67,12 @@ MODEL_VARIANTS: tuple[ModelVariant, ...] = (
         model_id="senco13_temperature_terms_pressure_zero",
         terms=CORE_TERMS + TEMP_TERMS,
         write_contract="preferred_current_atmosphere_no_pressure_candidate",
+    ),
+    ModelVariant(
+        model_id="senco13_temperature_terms_pressure_zero_h2o_bridge",
+        terms=CORE_TERMS + TEMP_TERMS,
+        apply_h2o_dry_basis_target_bridge=True,
+        write_contract="preferred_current_atmosphere_h2o_dry_bridge_no_pressure_candidate",
     ),
     ModelVariant(
         model_id="senco13_temperature_terms_preserve_existing_pressure_slots",
@@ -80,6 +93,12 @@ MODEL_VARIANTS: tuple[ModelVariant, ...] = (
         write_contract="unit_diagnostic_only_not_write_contract",
     ),
 )
+
+TREATMENT_INCLUDE_POLICIES = {
+    "include_as_standard_s1s3_fit_point",
+    "include_after_target_route_model_review",
+    "include_as_zero_anchor_with_uncertainty",
+}
 
 
 def _now() -> str:
@@ -140,6 +159,29 @@ def _infer_source_role(row: Mapping[str, Any]) -> str:
     return "fit"
 
 
+def _load_treatment_plan(path: str | Path | None) -> Dict[str, Dict[str, Any]]:
+    if not path:
+        return {}
+    rows = _read_csv(path)
+    plan: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        point_identity = str(row.get("point_identity") or "").strip()
+        if point_identity:
+            plan[point_identity] = row
+    return plan
+
+
+def _role_from_treatment(original_role: str, treatment: Mapping[str, Any]) -> str:
+    policy = str(treatment.get("fit_policy") or "").strip()
+    if not policy:
+        return original_role
+    if policy in TREATMENT_INCLUDE_POLICIES:
+        return "fit"
+    if policy.startswith("hold_"):
+        return "diagnostic"
+    return original_role
+
+
 def _zero_anchor_class(row: Mapping[str, Any], target_ppm: float) -> str:
     explicit = str(
         row.get("zero_anchor_class")
@@ -175,8 +217,14 @@ def _is_zero_or_low_anchor(point: FitPoint) -> bool:
     )
 
 
-def _load_fit_points(path: str | Path, *, exclude_device_ids: Iterable[str] = ()) -> List[FitPoint]:
+def _load_fit_points(
+    path: str | Path,
+    *,
+    exclude_device_ids: Iterable[str] = (),
+    treatment_plan_csv: str | Path | None = None,
+) -> List[FitPoint]:
     excluded = {_device_id(item) for item in exclude_device_ids if str(item or "").strip()}
+    treatment_plan = _load_treatment_plan(treatment_plan_csv)
     points: List[FitPoint] = []
     for row in _read_csv(path):
         if str(row.get("component") or "co2").strip().lower() != "co2":
@@ -191,21 +239,36 @@ def _load_fit_points(path: str | Path, *, exclude_device_ids: Iterable[str] = ()
         if pressure is None:
             kpa = _safe_float(row.get("pressure_kpa") or row.get("BAR"))
             pressure = kpa * 10.0 if kpa is not None else None
+        h2o_mmol = _safe_float(
+            row.get("h2o_mmol_mean")
+            or row.get("h2o_mmol")
+            or row.get("h2o_mmol_mol")
+            or row.get("water_mmol_mol")
+            or row.get("h2o_mmol_per_mol")
+        )
         if ratio is None or target is None or temp is None or pressure is None:
             continue
+        point_identity = str(row.get("point_identity") or row.get("sample_index") or "").strip()
+        treatment = treatment_plan.get(point_identity, {})
+        source_role = _role_from_treatment(_infer_source_role(row), treatment)
         target_uncertainty = _safe_float(row.get("target_uncertainty_ppm") or row.get("co2_uncertainty_ppm"))
         points.append(
             FitPoint(
                 device_id=device,
                 analyzer_prefix=str(row.get("analyzer_prefix") or "").strip(),
-                point_identity=str(row.get("point_identity") or row.get("sample_index") or "").strip(),
-                source_role=_infer_source_role(row),
+                point_identity=point_identity,
+                source_role=source_role,
                 target_ppm=float(target),
                 zero_anchor_class=_zero_anchor_class(row, float(target)),
                 target_uncertainty_ppm=target_uncertainty,
                 ratio=float(ratio),
                 temperature_c=float(temp),
                 pressure_hpa=float(pressure),
+                h2o_mmol=h2o_mmol,
+                treatment_fit_policy=str(treatment.get("fit_policy") or "").strip(),
+                treatment_bridge_policy=str(treatment.get("bridge_policy") or "").strip(),
+                treatment_review_priority=str(treatment.get("review_priority") or "").strip(),
+                treatment_exclusion_basis=str(treatment.get("exclusion_basis") or "").strip(),
             )
         )
     return points
@@ -371,6 +434,43 @@ def _preserved_pressure_offset(point: FitPoint, variant: ModelVariant, old_secon
     return pressure_coeff * p + rtp_coeff * float(point.ratio) * t * p
 
 
+def _h2o_dry_basis_factor(point: FitPoint, variant: ModelVariant) -> float:
+    """Return the firmware dry-basis bridge factor for displayed CO2.
+
+    Firmware final CO2 display is modeled as raw SENCO1/3 CO2 divided by
+    (1 - H2O_mmol_mol / 1000). Therefore the raw SENCO1/3 fitting target is
+    the certificate/display target multiplied by the same factor.
+    """
+
+    if not variant.apply_h2o_dry_basis_target_bridge:
+        return 1.0
+    if point.treatment_bridge_policy == "disable_h2o_bridge_for_s1s3":
+        return 1.0
+    if point.h2o_mmol is None:
+        return 1.0
+    h2o = float(point.h2o_mmol)
+    if not math.isfinite(h2o) or h2o < 0.0:
+        return 1.0
+    factor = 1.0 - h2o / 1000.0
+    if factor <= 0.05 or factor > 1.0:
+        return 1.0
+    return factor
+
+
+def _raw_senco13_fit_target(point: FitPoint, variant: ModelVariant, old_secondary: Sequence[float]) -> float:
+    return (
+        float(point.target_ppm) * _h2o_dry_basis_factor(point, variant)
+        - _preserved_pressure_offset(point, variant, old_secondary)
+    )
+
+
+def _display_prediction_from_raw(point: FitPoint, variant: ModelVariant, raw_prediction: float) -> float:
+    factor = _h2o_dry_basis_factor(point, variant)
+    if variant.apply_h2o_dry_basis_target_bridge and factor > 0.0:
+        return float(raw_prediction) / factor
+    return float(raw_prediction)
+
+
 def _scaled_lstsq(matrix: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, int, float]:
     scales = np.linalg.norm(matrix, axis=0)
     scales = np.where(np.isfinite(scales) & (scales > 0.0), scales, 1.0)
@@ -409,15 +509,45 @@ def _fit_coefficients(
     return transformed, centered_rank, centered_condition, absolute_condition, "centered_R_T_transformed_to_firmware_absolute_terms"
 
 
-def _metrics(errors: Sequence[float]) -> Dict[str, Any]:
+def _relative_error_percent(error: float, target: float) -> Optional[float]:
+    if abs(float(target)) <= 1.0e-9:
+        return None
+    return 100.0 * float(error) / float(target)
+
+
+def _metrics(
+    errors: Sequence[float],
+    relative_errors_percent: Sequence[float | None] = (),
+) -> Dict[str, Any]:
     if not errors:
-        return {"n": 0, "rmse": "", "max_abs_error": "", "mean_error": ""}
+        return {
+            "n": 0,
+            "rmse": "",
+            "max_abs_error": "",
+            "mean_error": "",
+            "max_abs_relative_error_percent": "",
+            "mean_abs_relative_error_percent": "",
+        }
     values = np.asarray(errors, dtype=float)
+    relative_values = np.asarray(
+        [
+            float(item)
+            for item in relative_errors_percent
+            if item is not None and math.isfinite(float(item))
+        ],
+        dtype=float,
+    )
     return {
         "n": int(values.size),
         "rmse": float(np.sqrt(np.mean(values**2))),
         "max_abs_error": float(np.max(np.abs(values))),
         "mean_error": float(np.mean(values)),
+        "max_abs_relative_error_percent": (
+            float(np.max(np.abs(relative_values))) if relative_values.size else ""
+        ),
+        "mean_abs_relative_error_percent": (
+            float(np.mean(np.abs(relative_values))) if relative_values.size else ""
+        ),
     }
 
 
@@ -460,10 +590,7 @@ def _fit_one(
     if not fit_points:
         return {}, 0, float("inf"), float("inf"), "", [], _metrics([]), _metrics([])
     target = np.asarray(
-        [
-            point.target_ppm - _preserved_pressure_offset(point, variant, old_secondary)
-            for point in fit_points
-        ],
+        [_raw_senco13_fit_target(point, variant, old_secondary) for point in fit_points],
         dtype=float,
     )
     coeff_array, rank, condition, absolute_condition, fit_basis = _fit_coefficients(fit_points, variant, target)
@@ -471,11 +598,18 @@ def _fit_one(
 
     prediction_rows: List[Dict[str, Any]] = []
     errors_by_role: Dict[str, List[float]] = {"fit": [], "verification": []}
+    relative_errors_by_role: Dict[str, List[float | None]] = {"fit": [], "verification": []}
     for point in list(fit_points) + list(verification_points):
-        pred = float(_matrix([point], variant)[0] @ coeff_array)
-        pred += _preserved_pressure_offset(point, variant, old_secondary)
-        error = pred - float(point.target_ppm)
+        raw_pred = float(_matrix([point], variant)[0] @ coeff_array)
+        raw_pred += _preserved_pressure_offset(point, variant, old_secondary)
+        factor = _h2o_dry_basis_factor(point, variant)
+        display_pred = _display_prediction_from_raw(point, variant, raw_pred)
+        raw_target = float(point.target_ppm) * factor
+        error = display_pred - float(point.target_ppm)
+        relative_error = _relative_error_percent(error, float(point.target_ppm))
+        raw_error = raw_pred - raw_target
         errors_by_role.setdefault(point.source_role, []).append(error)
+        relative_errors_by_role.setdefault(point.source_role, []).append(relative_error)
         prediction_rows.append(
             {
                 "device_id": point.device_id,
@@ -486,11 +620,23 @@ def _fit_one(
                 "target_ppm": point.target_ppm,
                 "zero_anchor_class": point.zero_anchor_class,
                 "target_uncertainty_ppm": point.target_uncertainty_ppm if point.target_uncertainty_ppm is not None else "",
-                "prediction_ppm": pred,
+                "prediction_ppm": display_pred,
                 "error_ppm": error,
+                "relative_error_percent": relative_error if relative_error is not None else "",
+                "raw_senco13_target_ppm": raw_target,
+                "raw_senco13_prediction_ppm": raw_pred,
+                "raw_senco13_error_ppm": raw_error,
                 "ratio": point.ratio,
                 "temperature_c": point.temperature_c,
                 "pressure_hpa": point.pressure_hpa,
+                "h2o_mmol": point.h2o_mmol if point.h2o_mmol is not None else "",
+                "h2o_dry_basis_factor": factor,
+                "h2o_dry_basis_bridge_applied": variant.apply_h2o_dry_basis_target_bridge,
+                "h2o_bridge_disabled_by_treatment": point.treatment_bridge_policy == "disable_h2o_bridge_for_s1s3",
+                "treatment_fit_policy": point.treatment_fit_policy,
+                "treatment_bridge_policy": point.treatment_bridge_policy,
+                "treatment_review_priority": point.treatment_review_priority,
+                "treatment_exclusion_basis": point.treatment_exclusion_basis,
                 "pressure_unit": variant.pressure_unit,
                 "preserves_existing_pressure_slots": variant.preserve_existing_pressure_slots,
             }
@@ -502,8 +648,8 @@ def _fit_one(
         absolute_condition,
         fit_basis,
         prediction_rows,
-        _metrics(errors_by_role["fit"]),
-        _metrics(errors_by_role["verification"]),
+        _metrics(errors_by_role["fit"], relative_errors_by_role["fit"]),
+        _metrics(errors_by_role["verification"], relative_errors_by_role["verification"]),
     )
 
 
@@ -564,8 +710,13 @@ def build_co2_fit_algorithm_matrix_tables(
     fit_residuals_csv: str | Path,
     old_snapshot_json: str | Path | None = None,
     exclude_device_ids: Sequence[str] = (),
+    fit_point_treatment_plan_csv: str | Path | None = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
-    points = _load_fit_points(fit_residuals_csv, exclude_device_ids=exclude_device_ids)
+    points = _load_fit_points(
+        fit_residuals_csv,
+        exclude_device_ids=exclude_device_ids,
+        treatment_plan_csv=fit_point_treatment_plan_csv,
+    )
     snapshot = _load_snapshot(old_snapshot_json)
     by_device: Dict[str, List[FitPoint]] = {}
     for point in points:
@@ -584,6 +735,10 @@ def build_co2_fit_algorithm_matrix_tables(
     coefficient_rows: List[Dict[str, Any]] = []
     prediction_rows: List[Dict[str, Any]] = []
     recommended_by_device: Dict[str, Mapping[str, Any]] = {}
+    candidate_model_ids = {
+        "senco13_temperature_terms_pressure_zero",
+        "senco13_temperature_terms_pressure_zero_h2o_bridge",
+    }
 
     for device_id in sorted(by_device):
         device_points = by_device[device_id]
@@ -593,6 +748,17 @@ def build_co2_fit_algorithm_matrix_tables(
         pressure_span = _pressure_span_hpa(device_points)
         target_count = _distinct_targets(device_points)
         zero_anchor = _zero_anchor_summary(device_points)
+        treatment_counts = Counter(
+            point.treatment_fit_policy or "no_treatment_plan"
+            for point in device_points
+        )
+        bridge_disabled_count = sum(
+            1
+            for point in device_points
+            if point.treatment_bridge_policy == "disable_h2o_bridge_for_s1s3"
+        )
+        held_by_treatment_count = sum(1 for point in device_points if point.source_role == "diagnostic")
+        candidate_rows: List[Mapping[str, Any]] = []
         for variant in MODEL_VARIANTS:
             (
                 coeffs,
@@ -630,8 +796,12 @@ def build_co2_fit_algorithm_matrix_tables(
                 "verification_point_count": verification_metrics["n"],
                 "fit_rmse_ppm": fit_metrics["rmse"],
                 "fit_max_abs_error_ppm": fit_metrics["max_abs_error"],
+                "fit_max_abs_relative_error_percent": fit_metrics["max_abs_relative_error_percent"],
+                "fit_mean_abs_relative_error_percent": fit_metrics["mean_abs_relative_error_percent"],
                 "verification_rmse_ppm": verification_metrics["rmse"],
                 "verification_max_abs_error_ppm": verification_metrics["max_abs_error"],
+                "verification_max_abs_relative_error_percent": verification_metrics["max_abs_relative_error_percent"],
+                "verification_mean_abs_relative_error_percent": verification_metrics["mean_abs_relative_error_percent"],
                 "fit_mean_error_ppm": fit_metrics["mean_error"],
                 "verification_mean_error_ppm": verification_metrics["mean_error"],
                 "matrix_rank": rank,
@@ -644,6 +814,11 @@ def build_co2_fit_algorithm_matrix_tables(
                 "distinct_target_count": target_count,
                 "pressure_unit": variant.pressure_unit,
                 "preserves_existing_pressure_slots": variant.preserve_existing_pressure_slots,
+                "h2o_dry_basis_target_bridge": variant.apply_h2o_dry_basis_target_bridge,
+                "fit_point_treatment_plan_applied": bool(fit_point_treatment_plan_csv),
+                "treatment_fit_policy_counts": json.dumps(dict(treatment_counts), ensure_ascii=False, sort_keys=True),
+                "h2o_bridge_disabled_by_treatment_count": bridge_disabled_count,
+                "held_by_treatment_count": held_by_treatment_count,
                 "zero_anchor_count": zero_anchor["zero_anchor_count"],
                 "estimated_zero_anchor_count": zero_anchor["estimated_zero_anchor_count"],
                 "certified_zero_anchor_count": zero_anchor["certified_zero_anchor_count"],
@@ -675,19 +850,64 @@ def build_co2_fit_algorithm_matrix_tables(
                         "coefficient": coeffs.get(term, ""),
                     }
                 )
-            if variant.model_id == "senco13_temperature_terms_pressure_zero":
-                recommended_by_device[device_id] = row
+            if variant.model_id in candidate_model_ids:
+                candidate_rows.append(row)
+        reviewable_candidates = [
+            row
+            for row in candidate_rows
+            if str(row.get("recommendation_status") or "") == "reviewable_no_write"
+        ]
+        if reviewable_candidates:
+            recommended_by_device[device_id] = min(
+                reviewable_candidates,
+                key=lambda row: (
+                    _safe_float(row.get("fit_rmse_ppm")) if _safe_float(row.get("fit_rmse_ppm")) is not None else float("inf"),
+                    _safe_float(row.get("fit_max_abs_error_ppm"))
+                    if _safe_float(row.get("fit_max_abs_error_ppm")) is not None
+                    else float("inf"),
+                ),
+            )
 
     recommendation_rows = [
         {
             "recommendation_item": "selected_algorithm_contract",
-            "recommendation": "senco13_temperature_terms_pressure_zero",
-            "status": "recommended_for_next_no_write_review_not_authorized_for_write",
+            "recommendation": "evaluate_no_pressure_senco13_with_optional_h2o_dry_basis_bridge_per_device",
+            "status": "data_driven_review_required_not_authorized_for_write",
             "physical_meaning": (
-                "Use clean open-flow multi-temperature CO2 data to fit only SENCO1 ratio terms and SENCO3 "
-                "T/T2/RT. Do not fit P or RTP at current atmosphere. If a full SENCO3 payload is later written, "
-                "the P/RTP target slots remain zero; pressure remains in the independent SENCO9 pressure-channel "
-                "workflow, not in the component fit."
+                "Use clean open-flow multi-temperature CO2 data to fit SENCO1 ratio terms and SENCO3 T/T2/RT "
+                "without pressure terms. Evaluate the H2O dry-basis bridge as an explicit competing contract. "
+                "Select the bridge only when its residuals improve and H2O evidence is credible; otherwise keep "
+                "the no-bridge raw SENCO1/SENCO3 contract and investigate the H2O/S6 evidence separately."
+            ),
+        },
+        {
+            "recommendation_item": "fit_point_treatment_plan",
+            "recommendation": (
+                "apply_ratio_first_treatment_plan_to_fit_set"
+                if fit_point_treatment_plan_csv
+                else "not_supplied"
+            ),
+            "status": (
+                "applied_offline_no_write"
+                if fit_point_treatment_plan_csv
+                else "legacy_source_role_only"
+            ),
+            "physical_meaning": (
+                "When supplied, the treatment plan makes ratio-stable/deep-dry points fit eligible even when "
+                "uncalibrated displayed CO2/H2O disagree, keeps estimated zero anchors with uncertainty review, "
+                "and disables H2O bridge where analyzer H2O output disagrees with dewpoint evidence."
+            ),
+        },
+        {
+            "recommendation_item": "h2o_dry_basis_bridge",
+            "recommendation": "fit_raw_senco13_target_as_display_target_times_1_minus_h2o_mmol_per_1000_when_validated",
+            "status": "candidate_bridge_not_automatic",
+            "physical_meaning": (
+                "Firmware displayed CO2 is modeled as raw SENCO1/SENCO3 CO2 divided by "
+                "(1 - H2O_mmol_mol/1000). Fitting the displayed target directly into SENCO1/SENCO3 mixes the "
+                "H2O correction layer into the optical/temperature CO2 chain and can create common-mode residuals. "
+                "However, if H2O_mmol comes from an untrusted S6/final-output state, applying this bridge can make "
+                "the CO2 fit worse; the matrix must show that explicitly."
             ),
         },
         {
@@ -757,6 +977,11 @@ def _physical_meaning(variant: ModelVariant, status: str) -> str:
         return "Ratio-only SENCO1 can fit a single thermal state, but it discards the measured multi-temperature physics."
     if variant.model_id == "senco13_temperature_terms_pressure_zero":
         return "Fits R and T terms only; P/RTP target slots are zero because pressure is handled by the SENCO9 workflow."
+    if variant.model_id == "senco13_temperature_terms_pressure_zero_h2o_bridge":
+        return (
+            "Fits raw SENCO1/SENCO3 R/T terms after back-calculating the displayed CO2 target through the "
+            "firmware H2O dry-basis correction; P/RTP target slots remain zero."
+        )
     if variant.model_id == "senco13_temperature_terms_preserve_existing_pressure_slots":
         return "Diagnostic only: fits R/T and preserves old secondary pressure slots to estimate old-tail influence."
     if variant.model_id == "legacy_v1_a0_a8_full_rt_p_kpa":
@@ -770,6 +995,7 @@ def write_co2_fit_algorithm_matrix_report(
     output_dir: str | Path,
     old_snapshot_json: str | Path | None = None,
     exclude_device_ids: Sequence[str] = (),
+    fit_point_treatment_plan_csv: str | Path | None = None,
 ) -> Dict[str, Path]:
     destination = Path(output_dir).resolve()
     destination.mkdir(parents=True, exist_ok=True)
@@ -777,6 +1003,7 @@ def write_co2_fit_algorithm_matrix_report(
         fit_residuals_csv=fit_residuals_csv,
         old_snapshot_json=old_snapshot_json,
         exclude_device_ids=exclude_device_ids,
+        fit_point_treatment_plan_csv=fit_point_treatment_plan_csv,
     )
     outputs: Dict[str, Path] = {}
     for name, rows in tables.items():
@@ -791,6 +1018,11 @@ def write_co2_fit_algorithm_matrix_report(
             "fit_residuals_csv": str(Path(fit_residuals_csv).resolve()),
             "old_snapshot_json": str(Path(old_snapshot_json).resolve()) if old_snapshot_json else "",
             "exclude_device_ids": list(exclude_device_ids),
+            "fit_point_treatment_plan_csv": (
+                str(Path(fit_point_treatment_plan_csv).resolve())
+                if fit_point_treatment_plan_csv
+                else ""
+            ),
         },
         "boundary": {
             "opens_com_ports": False,
@@ -814,7 +1046,7 @@ def _write_markdown(path: Path, tables: Mapping[str, Sequence[Mapping[str, Any]]
         "# V1.5 CO2 Fitting Algorithm Matrix",
         "",
         "- Boundary: offline only; no COM, no route control, no SENCO write.",
-        "- Selected next no-write contract: `senco13_temperature_terms_pressure_zero`.",
+        "- Selected next no-write contract: data-driven `SENCO1/SENCO3` no-pressure review with optional H2O bridge.",
         "",
         "## Recommendation",
         "",
@@ -826,18 +1058,21 @@ def _write_markdown(path: Path, tables: Mapping[str, Sequence[Mapping[str, Any]]
             "",
             "## Matrix",
             "",
-            "| Device | Model | Fit RMSE | Verify RMSE | Verify Max | Status | Meaning |",
-            "| --- | --- | ---: | ---: | ---: | --- | --- |",
+            "| Device | Model | Fit RMSE | Fit Max | Fit Max Rel % | Verify RMSE | Verify Max | Verify Max Rel % | Status | Meaning |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |",
         ]
     )
     for row in summary:
         lines.append(
-            "| {device} | {model} | {fit_rmse} | {verify_rmse} | {verify_max} | {status} | {meaning} |".format(
+            "| {device} | {model} | {fit_rmse} | {fit_max} | {fit_max_rel} | {verify_rmse} | {verify_max} | {verify_max_rel} | {status} | {meaning} |".format(
                 device=row.get("device_id", ""),
                 model=row.get("model_id", ""),
                 fit_rmse=_fmt(row.get("fit_rmse_ppm")),
+                fit_max=_fmt(row.get("fit_max_abs_error_ppm")),
+                fit_max_rel=_fmt(row.get("fit_max_abs_relative_error_percent")),
                 verify_rmse=_fmt(row.get("verification_rmse_ppm")),
                 verify_max=_fmt(row.get("verification_max_abs_error_ppm")),
+                verify_max_rel=_fmt(row.get("verification_max_abs_relative_error_percent")),
                 status=row.get("recommendation_status", ""),
                 meaning=(
                     str(row.get("physical_meaning") or "").replace("|", "/")
