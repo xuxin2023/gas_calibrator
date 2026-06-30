@@ -97,11 +97,34 @@
 - 写入后必须 readback 对比；任一组失败必须按旧值快照回滚，不能接受半写入状态
 - 当前状态仍为 `design_only_no_real_writer` / `blocked`，不是生产可用 writer
 
+## 小包 E：SENCOA/SENCOB 受控 writer no-write preflight
+
+目标：把未来真实 `SENCOA/SENCOB` writer 的解锁门禁、候选 payload 检查、旧值快照检查和真实写入边界导出成 no-write 证据；即使 payload 与快照齐全，也仍然保持真实 writer blocker。
+
+文件：
+
+- `configs/v1_5_algorithm_route_profiles.json`
+- `src/gas_calibrator/validation/v1_5_sencoa_sencob_controlled_writer_preflight.py`
+- `src/gas_calibrator/tools/export_v1_5_sencoa_sencob_controlled_writer_preflight.py`
+- `tests/test_v1_5_sencoa_sencob_controlled_writer_preflight.py`
+- `_handoff/v1_5_algorithm_route_profiles_20260630/sencoa_sencob_controlled_writer_preflight/*`
+
+边界：
+
+- 仍然不打开 COM，不导入 `GasAnalyzer`，不写 `SENCOA/SENCOB`
+- `payload_review` 必须同时包含 `SENCOA` 与 `SENCOB`，每组 4 个有限浮点系数
+- 默认拒绝 `FFF` 广播 target，未来真实写入应优先使用身份绑定后的单设备 target
+- `old_snapshot_json` 必须包含 `GETCOA_before` 与 `GETCOB_before`
+- future command gap 小于 `1.0s` 会被拒绝
+- 真实写入步骤必须是：payload review -> identity binding -> old snapshot -> MODE2/1s pacing -> SENCOA write/readback -> SENCOB write/readback -> rollback on mismatch -> independent CO2/H2O no-write reverification
+- 当前 `real_write_unlock_status` 仍为 `blocked_pending_real_writer_implementation`
+
 ## 验证命令
 
 ```powershell
 python -m pytest tests\test_v1_5_algorithm_route_profiles.py tests\test_v1_5_new_algorithm_test_point_plan.py tests\test_v1_5_algorithm_write_contract_review.py tests\test_v1_5_h2o_low_anchor_from_co2_zero.py tests\test_v1_5_h2o_dry_anchor_bridge_review.py -q
 python -m pytest tests\test_v1_5_sencoa_sencob_writer_design_review.py -q
+python -m pytest tests\test_v1_5_sencoa_sencob_controlled_writer_preflight.py -q
 python -m pytest tests\test_v1_5_entrypoint_inventory.py -q
 ```
 

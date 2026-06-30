@@ -133,6 +133,7 @@
       "r0_write_contract": {
         "status": "blocked_until_controlled_sencoa_sencob_writer_exists",
         "offline_writer_design_tool": "gas_calibrator.tools.export_v1_5_sencoa_sencob_writer_design_review",
+        "controlled_writer_preflight_tool": "gas_calibrator.tools.export_v1_5_sencoa_sencob_controlled_writer_preflight",
         "payload_width": 4,
         "minimum_serial_command_gap_s": 1.0,
         "writer_implementation_status": "missing_real_writer_design_only",

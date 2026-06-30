@@ -1,0 +1,2 @@
+﻿row_type,analyzer_device_id,sn_code,GETCOA_before,GETCOB_before,status,blocked_reasons
+template,<device_id>,<sn_code>,"[a0,a1,a2,a3]","[b0,b1,b2,b3]",template_only,old_snapshot_json_not_supplied
