@@ -96,6 +96,7 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_for_h2o():
     assert out["workflow"]["analyzer_mode2_init"]["write_config_on_read_first_fail"] is True
     assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is True
     assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
+    assert out["workflow"]["analyzer_mode2_init"]["command_gap_s"] >= 1.0
     assert out["workflow"]["stability"]["temperature"]["analyzer_chamber_temp_span_c"] == 0.08
     assert out["workflow"]["postrun_corrected_delivery"]["enabled"] is False
     assert out["workflow"]["postrun_corrected_delivery"]["write_devices"] is False
@@ -1013,6 +1014,7 @@ def test_prepare_runtime_cfg_h2o_supports_explicit_1hz_active_stream_ftd_trial()
     assert out["metadata"]["ftd_write_enabled"] is True
     assert out["workflow"]["analyzer_mode2_init"]["send_active_freq"] is True
     assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
+    assert out["workflow"]["analyzer_mode2_init"]["command_gap_s"] >= 1.0
     assert out["devices"]["gas_analyzer"]["active_send"] is True
     assert out["devices"]["gas_analyzer"]["ftd_hz"] == 1
     assert out["devices"]["humidity_generator"]["enabled"] is True

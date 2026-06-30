@@ -310,6 +310,7 @@ def test_prepare_runtime_cfg_blocks_writes_and_uses_1hz_active_stream_with_ftd01
     assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
     assert out["workflow"]["analyzer_mode2_init"]["reapply_attempts"] >= 2
     assert out["workflow"]["analyzer_mode2_init"]["stream_attempts"] >= 15
+    assert out["workflow"]["analyzer_mode2_init"]["command_gap_s"] >= 1.0
     assert out["workflow"]["analyzer_mode2_init"]["post_enable_stream_wait_s"] >= 4.0
     assert out["workflow"]["analyzer_mode2_init"]["post_enable_stream_ack_wait_s"] >= 10.0
     assert out["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
@@ -577,6 +578,7 @@ def test_prepare_runtime_cfg_supports_explicit_1hz_active_stream_ftd_trial():
     assert out["workflow"]["analyzer_mode2_init"]["skip_config_when_read_first_ready"] is True
     assert out["workflow"]["analyzer_mode2_init"]["reapply_attempts"] >= 2
     assert out["workflow"]["analyzer_mode2_init"]["stream_attempts"] >= 15
+    assert out["workflow"]["analyzer_mode2_init"]["command_gap_s"] >= 1.0
     assert out["devices"]["gas_analyzer"]["active_send"] is True
     assert out["devices"]["gas_analyzer"]["ftd_hz"] == 1
     assert [item["ftd_hz"] for item in out["devices"]["gas_analyzers"]] == [1, 1]

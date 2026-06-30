@@ -443,7 +443,7 @@ def _apply_analyzer_acquisition_policy(
         )
         init_cfg["retry_delay_s"] = max(float(init_cfg.get("retry_delay_s", 0.2) or 0.2), 0.25)
         init_cfg["reapply_delay_s"] = max(float(init_cfg.get("reapply_delay_s", 0.35) or 0.35), 1.0)
-        init_cfg["command_gap_s"] = max(float(init_cfg.get("command_gap_s", 0.15) or 0.15), 0.35)
+        init_cfg["command_gap_s"] = max(float(init_cfg.get("command_gap_s", 1.0) or 1.0), 1.0)
         init_cfg["post_enable_stream_wait_s"] = max(
             float(init_cfg.get("post_enable_stream_wait_s", 2.0) or 2.0),
             4.0,
