@@ -23,6 +23,14 @@ def _flag_value(command, flag):
     return values[values.index(flag) + 1]
 
 
+def _pre_identity_offline_steps():
+    return [
+        "load_plan_and_traceability",
+        "formal_initialization_contract_plan",
+        "initialization_readiness_snapshot",
+    ]
+
+
 def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_path):
     config = tmp_path / "config.json"
     config.write_text("{}", encoding="utf-8")
@@ -35,6 +43,9 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     )
 
     step_ids = [step.step_id for step in plan.steps]
+    assert step_ids.index("load_plan_and_traceability") < step_ids.index("formal_initialization_contract_plan")
+    assert step_ids.index("formal_initialization_contract_plan") < step_ids.index("initialization_readiness_snapshot")
+    assert step_ids.index("initialization_readiness_snapshot") < step_ids.index("device_identity_and_getco_snapshot")
     assert step_ids.index("device_identity_and_getco_snapshot") < step_ids.index(
         "auxiliary_senco56789_neutralization_gate"
     )
@@ -67,6 +78,50 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
         == "SENCO5,SENCO6,SENCO7,SENCO8,SENCO9"
     )
     assert plan.coefficient_epoch_contract["identity_key"] == "analyzer_device_id_not_com_port_or_ga_alias"
+    assert plan.physical_order[0] == "formal_initialization_contract_and_readiness_sidecar"
+
+
+def test_full_flow_initialization_contract_stage_is_offline_only(tmp_path):
+    config = tmp_path / "config.json"
+    config.write_text("{}", encoding="utf-8")
+    plan = build_full_flow_plan(
+        config_path=config,
+        output_dir=tmp_path / "plan",
+        run_id="demo",
+        operator="operator-a",
+        analyzer_id="multi-device",
+    )
+
+    init_plan = next(step for step in plan.steps if step.step_id == "formal_initialization_contract_plan")
+    readiness = next(step for step in plan.steps if step.step_id == "initialization_readiness_snapshot")
+    init_command = list(init_plan.command)
+    readiness_command = list(readiness.command)
+
+    assert init_plan.execution_mode == "offline_sidecar"
+    assert init_plan.opens_com_ports is False
+    assert init_plan.writes_coefficients is False
+    assert init_plan.writes_device_id is False
+    assert init_plan.controls_gas_route is False
+    assert init_plan.controls_water_route is False
+    assert init_plan.tool_module == "gas_calibrator.tools.run_v1_5_formal_initialization_runner"
+    assert "v1_5_formal_initialization_db_bundle.json" in " ".join(init_plan.expected_outputs)
+    assert _flag_value(init_command, "--config") == str(config.resolve())
+    assert _flag_value(init_command, "--output-dir") == str((tmp_path / "plan" / "formal_initialization").resolve())
+    assert _flag_value(init_command, "--run-id") == "demo_initialization"
+    assert _flag_value(init_command, "--operator") == "operator-a"
+    assert "--execute" not in init_command
+    assert "--execute-read-only-real-com" not in init_command
+    assert "--execute-controlled-writes" not in init_command
+
+    assert readiness.execution_mode == "offline_sidecar"
+    assert readiness.opens_com_ports is False
+    assert readiness.writes_coefficients is False
+    assert readiness.tool_module == "gas_calibrator.tools.export_v1_5_initialization_readiness"
+    assert _flag_value(readiness_command, "--run-dir") == str(
+        (tmp_path / "plan" / "formal_initialization").resolve()
+    )
+    assert _flag_value(readiness_command, "--config") == str(config.resolve())
+    assert "v1_5_initialization_database_sidecar.json" in " ".join(readiness.expected_outputs)
 
 
 def test_full_flow_plan_uses_v1_5_validated_entries_and_blocks_auto_writes(tmp_path):
@@ -124,6 +179,17 @@ def test_full_flow_stage_manifest_makes_automation_boundaries_explicit(tmp_path)
     assert manifest.safety_summary["identity_key"] == "analyzer_device_id_not_com_port_or_ga_alias"
     assert manifest.automation_summary["blocked_controlled_write"] == 2
 
+    init_plan = by_step["formal_initialization_contract_plan"]
+    init_readiness = by_step["initialization_readiness_snapshot"]
+    assert init_plan.automation_state == "offline_review_auto_candidate"
+    assert init_readiness.automation_state == "offline_review_auto_candidate"
+    assert init_plan.authorization_required["real_com"] is False
+    assert init_readiness.authorization_required["real_com"] is False
+    assert init_plan.authorization_required["coefficient_write"] is False
+    assert init_readiness.authorization_required["coefficient_write"] is False
+    assert "v1_5_formal_initialization_db_bundle.json" in " ".join(init_plan.expected_outputs)
+    assert "v1_5_initialization_database_sidecar.json" in " ".join(init_readiness.expected_outputs)
+
     identity = by_step["device_identity_and_getco_snapshot"]
     assert identity.automation_state == "read_only_real_com_requires_authorization"
     assert identity.authorization_required["real_com"] is True
@@ -174,7 +240,7 @@ def test_full_flow_live_runner_readiness_lists_controlled_live_gates(tmp_path):
     assert readiness.schema == LIVE_RUNNER_READINESS_SCHEMA
     assert readiness.one_button_live_runner_ready is False
     assert readiness.current_automation_level == "supervised_tool_chain_with_controlled_live_gates"
-    assert readiness.ready_domains == ("offline_planning",)
+    assert readiness.ready_domains == ("offline_planning", "initialization_contract")
     assert set(readiness.required_authorizations) == {
         "real_com",
         "pressure_control",
@@ -184,6 +250,12 @@ def test_full_flow_live_runner_readiness_lists_controlled_live_gates(tmp_path):
     assert {"identity_and_epoch0", "pressure_channel", "co2_open_flow", "h2o_open_flow"}.issubset(
         set(readiness.blocked_domains)
     )
+    assert domains["initialization_contract"].status == "ready_offline_supervised"
+    assert domains["initialization_contract"].stage_ids == (
+        "formal_initialization_contract_plan",
+        "initialization_readiness_snapshot",
+    )
+    assert "PostgreSQL 18" in domains["initialization_contract"].reason
     assert domains["pressure_channel"].status == "requires_pressure_authorization"
     assert domains["pressure_channel"].required_authorizations == ("real_com", "pressure_control")
     assert "pressure P" in domains["pressure_channel"].reason
@@ -514,8 +586,10 @@ def test_initial_state_only_allows_first_offline_stage(tmp_path):
     assert state.current_status == "ready"
     assert state.ready_step_ids == ("load_plan_and_traceability",)
     assert "device_identity_and_getco_snapshot" not in state.ready_step_ids
-    second = next(stage for stage in state.stage_states if stage.step_id == "device_identity_and_getco_snapshot")
+    second = next(stage for stage in state.stage_states if stage.step_id == "formal_initialization_contract_plan")
     assert second.status == "pending_previous_stage"
+    identity = next(stage for stage in state.stage_states if stage.step_id == "device_identity_and_getco_snapshot")
+    assert identity.status == "pending_previous_stage"
 
 
 def test_resume_state_blocks_real_com_until_authorized(tmp_path):
@@ -523,6 +597,11 @@ def test_resume_state_blocks_real_com_until_authorized(tmp_path):
     config.write_text("{}", encoding="utf-8")
     plan = build_full_flow_plan(config_path=config, output_dir=tmp_path / "plan", run_id="demo")
     state = build_full_flow_state(plan, completed_steps=["load_plan_and_traceability"])
+
+    assert state.current_step_id == "formal_initialization_contract_plan"
+    assert state.current_status == "ready"
+
+    state = build_full_flow_state(plan, completed_steps=_pre_identity_offline_steps())
 
     assert state.current_step_id == "device_identity_and_getco_snapshot"
     assert state.current_status == "blocked_real_com_authorization"
@@ -547,7 +626,7 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
     state = build_full_flow_state(
         plan,
         completed_steps=[
-            "load_plan_and_traceability",
+            *_pre_identity_offline_steps(),
             "device_identity_and_getco_snapshot",
             "auxiliary_senco56789_neutralization_gate",
             "pressure_quick_check",
@@ -597,7 +676,7 @@ def test_write_full_flow_state_outputs_resume_summary(tmp_path):
     config = tmp_path / "config.json"
     config.write_text("{}", encoding="utf-8")
     plan = build_full_flow_plan(config_path=config, output_dir=tmp_path / "plan", run_id="demo")
-    state = build_full_flow_state(plan, completed_steps=["load_plan_and_traceability"])
+    state = build_full_flow_state(plan, completed_steps=_pre_identity_offline_steps())
 
     outputs = write_full_flow_state(state, tmp_path / "state")
 
@@ -637,24 +716,29 @@ def test_supervised_run_executes_ready_offline_step_and_stops_before_com(tmp_pat
         operator="operator-a",
         analyzer_id="multi-device",
     )
-    first = replace(plan.steps[0], command=(sys.executable, "-c", "print('offline ok')"))
-    plan = replace(plan, steps=(first, *plan.steps[1:]))
+    offline = tuple(
+        replace(step, command=(sys.executable, "-c", f"print('{step.step_id} ok')"))
+        if step.step_id in _pre_identity_offline_steps()
+        else step
+        for step in plan.steps
+    )
+    plan = replace(plan, steps=offline)
 
     result = run_supervised_full_flow(
         plan,
         execute_commands=True,
-        max_steps=2,
+        max_steps=4,
         output_dir=tmp_path / "exec",
         cwd=tmp_path,
     )
 
-    assert [event.status for event in result.events] == ["completed", "stopped"]
-    assert result.final_state.completed_step_ids == ("load_plan_and_traceability",)
+    assert [event.status for event in result.events] == ["completed", "completed", "completed", "stopped"]
+    assert result.final_state.completed_step_ids == tuple(_pre_identity_offline_steps())
     assert result.final_state.current_step_id == "device_identity_and_getco_snapshot"
     assert result.final_state.current_status == "blocked_real_com_authorization"
     stdout = result.events[0].stdout_path
     assert stdout
-    assert "offline ok" in open(stdout, encoding="utf-8").read()
+    assert "load_plan_and_traceability ok" in open(stdout, encoding="utf-8").read()
 
 
 def test_write_final_state_after_supervised_offline_success(tmp_path):
@@ -667,12 +751,17 @@ def test_write_final_state_after_supervised_offline_success(tmp_path):
         operator="operator-a",
         analyzer_id="multi-device",
     )
-    first = replace(plan.steps[0], command=(sys.executable, "-c", "print('offline ok')"))
-    plan = replace(plan, steps=(first, *plan.steps[1:]))
+    offline = tuple(
+        replace(step, command=(sys.executable, "-c", f"print('{step.step_id} ok')"))
+        if step.step_id in _pre_identity_offline_steps()
+        else step
+        for step in plan.steps
+    )
+    plan = replace(plan, steps=offline)
     result = run_supervised_full_flow(
         plan,
         execute_commands=True,
-        max_steps=1,
+        max_steps=3,
         output_dir=tmp_path / "exec",
         cwd=tmp_path,
     )
@@ -680,7 +769,7 @@ def test_write_final_state_after_supervised_offline_success(tmp_path):
     outputs = write_full_flow_state(result.final_state, tmp_path / "state")
     payload = json.loads(outputs["state_json"].read_text(encoding="utf-8"))
 
-    assert payload["completed_step_ids"] == ["load_plan_and_traceability"]
+    assert payload["completed_step_ids"] == _pre_identity_offline_steps()
     assert payload["current_step_id"] == "device_identity_and_getco_snapshot"
     assert payload["current_status"] == "blocked_real_com_authorization"
 
@@ -692,7 +781,7 @@ def test_supervised_run_refuses_hazard_stage_even_when_state_authorized(tmp_path
 
     result = run_supervised_full_flow(
         plan,
-        completed_steps=["load_plan_and_traceability", "device_identity_and_getco_snapshot"],
+        completed_steps=[*_pre_identity_offline_steps(), "device_identity_and_getco_snapshot"],
         failed_steps=[],
         allow_real_com=True,
         allow_pressure_control=True,
@@ -705,7 +794,7 @@ def test_supervised_run_refuses_hazard_stage_even_when_state_authorized(tmp_path
     assert result.events[0].status == "stopped"
     assert result.final_state.current_step_id == "auxiliary_senco56789_neutralization_gate"
     assert result.final_state.completed_step_ids == (
-        "load_plan_and_traceability",
+        *_pre_identity_offline_steps(),
         "device_identity_and_getco_snapshot",
     )
 
@@ -727,7 +816,7 @@ def test_supervised_run_can_execute_read_only_com_stage_when_allowed(tmp_path):
 
     result = run_supervised_full_flow(
         plan,
-        completed_steps=["load_plan_and_traceability"],
+        completed_steps=_pre_identity_offline_steps(),
         allow_real_com=True,
         execute_commands=True,
         max_steps=1,
@@ -740,7 +829,7 @@ def test_supervised_run_can_execute_read_only_com_stage_when_allowed(tmp_path):
     assert result.final_state.current_step_id == "auxiliary_senco56789_neutralization_gate"
     assert result.final_state.current_status == "blocked_write_authorization"
     assert result.final_state.completed_step_ids == (
-        "load_plan_and_traceability",
+        *_pre_identity_offline_steps(),
         "device_identity_and_getco_snapshot",
     )
 

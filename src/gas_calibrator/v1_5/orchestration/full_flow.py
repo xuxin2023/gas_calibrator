@@ -280,6 +280,13 @@ def _maybe_arg(flag: str, value: str | Path | None) -> tuple[str, ...]:
     return (flag, text)
 
 
+def _maybe_text_arg(flag: str, value: str | None) -> tuple[str, ...]:
+    text = str(value or "").strip()
+    if not text:
+        return ()
+    return (flag, text)
+
+
 def _validate_steps(steps: Sequence[FullFlowStep]) -> None:
     for step in steps:
         if step.tool_module and not step.tool_module.startswith("gas_calibrator.tools."):
@@ -616,6 +623,15 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
         ),
         _readiness_domain(
             plan,
+            domain="initialization_contract",
+            status="ready_offline_supervised",
+            reason="formal initialization contract, PostgreSQL 18 sidecar, and readiness snapshot can be generated offline before live identity gates",
+            stage_ids=("formal_initialization_contract_plan", "initialization_readiness_snapshot"),
+            physical_risk="none during generation; missing live GETCO/SENCO/CHECK evidence remains a gate rather than being repaired automatically",
+            next_action="review the generated initialization plan, then run only the dedicated V1.5 identity/SN/auxiliary tools that have explicit authorization",
+        ),
+        _readiness_domain(
+            plan,
             domain="identity_and_epoch0",
             status="requires_real_com_authorization",
             reason="formal calibration must bind every COM transport to analyzer device ID and GETCO1-9 before sampling",
@@ -929,6 +945,7 @@ def build_full_flow_plan(
     root = Path(output_dir).resolve()
     rid = run_id or f"v1_5_full_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     formal_pkg = root / "formal_run_package"
+    formal_initialization_dir = root / "formal_initialization"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
     pressure_dir = root / "pressure_channel"
@@ -979,6 +996,84 @@ def build_full_flow_plan(
             physical_meaning="Freeze traceability inputs before any physical sampling.",
             execution_mode="offline_sidecar",
             gate="required_before_sampling",
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="formal_initialization_contract_plan",
+            title="Generate formal initialization contract and DB bundle",
+            phase="INITIALIZATION_CONTRACT",
+            tool_module="gas_calibrator.tools.run_v1_5_formal_initialization_runner",
+            command=_python_module(
+                "gas_calibrator.tools.run_v1_5_formal_initialization_runner",
+                "--config",
+                cfg,
+                "--output-dir",
+                formal_initialization_dir,
+                "--run-id",
+                f"{rid}_initialization",
+                *_maybe_text_arg("--operator", operator),
+                *_maybe_text_arg("--reviewer", reviewer),
+                *_maybe_text_arg("--approver", approver),
+            ),
+            required_inputs=("runtime config", "operator identity for traceability"),
+            expected_outputs=(
+                "formal_initialization/v1_5_formal_initialization_plan.json",
+                "formal_initialization/v1_5_formal_initialization_contract.json",
+                "formal_initialization/v1_5_formal_initialization_db_bundle.json",
+                "formal_initialization/v1_5_formal_initialization_commands.ps1",
+            ),
+            physical_meaning=(
+                "Before any real analyzer contact, freeze the V1.5 initialization contract: "
+                "SN/device_code identity, PostgreSQL 18 DB preflight, MODE2/1Hz/filter setup, "
+                "S7/S8 neutral policy, CHECK monitor timing, and route-readiness gates. "
+                "This planner command does not execute SN writes, COM reads, SENCO writes, pressure control, or open-flow routes."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_identity_getco_snapshot",
+            notes=(
+                "Do not pass --execute from the full-flow supervised planner.",
+                "The generated initialization commands remain a review artifact until a dedicated controlled tool is authorized.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="initialization_readiness_snapshot",
+            title="Export initialization readiness sidecar before live gates",
+            phase="INITIALIZATION_READINESS",
+            tool_module="gas_calibrator.tools.export_v1_5_initialization_readiness",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_initialization_readiness",
+                "--run-dir",
+                formal_initialization_dir,
+                "--config",
+                cfg,
+                "--getco-snapshot-dir",
+                getco_dir,
+                "--aux-neutralization-dir",
+                aux_neutral_dir,
+                "--output-dir",
+                formal_initialization_dir,
+            ),
+            required_inputs=("runtime config", "planned initialization evidence directory"),
+            expected_outputs=(
+                "formal_initialization/v1_5_initialization_readiness.json",
+                "formal_initialization/v1_5_initialization_readiness.md",
+                "formal_initialization/v1_5_initialization_database_sidecar.json",
+            ),
+            physical_meaning=(
+                "Generate the offline readiness/sidecar view that explains which initialization evidence is present "
+                "or missing before the first real COM identity gate. Missing live evidence remains a gate; this step only reports it."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_identity_getco_snapshot",
+            notes=(
+                "This readiness exporter reads files only; it does not open COM or connect to PostgreSQL.",
+                "PostgreSQL 18 and SN/device_code identity remain pre-open-flow requirements, not implicit repairs.",
+            ),
         )
     )
 
@@ -1773,7 +1868,7 @@ def build_full_flow_plan(
             "gas_analyzer_serial_ports_protected": "COM35-COM42_use_MODE2_identity_binding",
         },
         coefficient_epoch_contract={
-            "initialization": "read_and_freeze_GETCO1_to_GETCO9_before_auxiliary_neutralization_and_sampling",
+            "initialization": "plan_initialization_contract_then_read_and_freeze_GETCO1_to_GETCO9_before_auxiliary_neutralization_and_sampling",
             "do_not_clear_existing_coefficients_on_startup": False,
             "clear_or_neutralize_auxiliary_groups_after_epoch0_snapshot": "SENCO5,SENCO6,SENCO7,SENCO8,SENCO9",
             "displayed_values_are_coefficient_affected": True,
@@ -1782,6 +1877,7 @@ def build_full_flow_plan(
             "identity_key": "analyzer_device_id_not_com_port_or_ga_alias",
         },
         physical_order=(
+            "formal_initialization_contract_and_readiness_sidecar",
             "device_identity_and_GETCO_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",
             "pressure_quick_check_then_SENCO9_no_write_acquisition_if_needed",
