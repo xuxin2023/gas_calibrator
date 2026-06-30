@@ -134,6 +134,7 @@ CO2 写入合同需要和点位合同分开看：
 - 写入前必须有 `candidate_senco_mapping_review.csv` 和公式/SENCO5 分层检查
 - `SENCO5` 是 CO2 最终输出线性层，不能折进 `SENCO1/SENCO3`
 - `SENCO5` 如需中性化必须走 `CLEARSENCO5,YGAS,FFF`，如需线性修正必须走独立 `SENCO5` 评审和三位小数十进制写入合同
+- 新算法的 `R0_CO2(T)` 写入/读回依赖 `SENCOA/GETCOA` 合同；当前只列为离线 blocker，尚无受控 writer
 
 ### H2O
 
@@ -145,6 +146,15 @@ CO2 写入合同需要和点位合同分开看：
 - `T40 / HG30C 50RH`，约 `2.172%`
 
 这说明当前 13 个湿点已经足够建立首版候选，但裕量刚好卡在 2% 附近。未来新算法水路不应优先新增湿度发生器极低湿点；低端锚点优先从 CO2 0 气点的 `R_H2O + 露点 + 压力 + T1` 计算获得。若要把 H2O 稳定压进 2%，应新增 `40C/HGEN30C/30RH`，同时保留一个 `40C` CO2 0 气低水锚点来减少高温 `R0_H2O(T)` 外推风险。`T30/HGEN20C/50RH` 和 `T40/HGEN30C/50RH` 是 SN01260607 的设备特异高残差诊断点，不是所有新算法设备固定复核点。
+
+H2O 写入合同也需要和点位合同分开看：
+
+- 旧算法：`old_ratio_temperature`，主链写入为 `SENCO2/SENCO4`
+- `SENCO6` 是 H2O 最终输出线性层，不能折进 `SENCO2/SENCO4`
+- `SENCO6` 如需中性化必须走 `CLEARSENCO6,YGAS,FFF`，如需线性修正必须走独立 `SENCO6` 评审和三位小数十进制写入合同
+- 新算法 H2O 目前是 `old7_absorption_A_T_pending_firmware_scale`，状态为 `blocked_pending_firmware_input_scale_confirmation`
+- `new_absorption_R0_A_k` 的 `SENCO2=lnR0(T1)`、`SENCO4=k(T1)` 合同只保留为诊断分支，不作为默认生产写入合同
+- 新算法的 `R0_H2O(T)` 写入/读回依赖 `SENCOB/GETCOB` 合同；当前只列为离线 blocker，尚无受控 writer
 
 ## 配置文件
 
@@ -172,10 +182,18 @@ gas_calibrator.tools.export_v1_5_new_algorithm_test_point_plan
 
 ## 新旧算法写入合同导出
 
-CO2 新旧算法写入合同由离线工具导出：
+新旧算法写入合同由离线工具导出：
 
 ```text
 gas_calibrator.tools.export_v1_5_algorithm_write_contract_review
 ```
 
-这个工具只读取 profile JSON，输出 no-write CSV/JSON，不打开 COM、不写系数。它的作用是把 `SENCO1/SENCO3` 主链、`SENCO5` 最终线性层、新算法 `R -> A` 输入替换和所需 review checks 明确成机器可读合同。
+这个工具只读取 profile JSON，输出 no-write CSV/JSON，不打开 COM、不写系数。它的作用是把：
+
+- CO2 `SENCO1/SENCO3` 主链和 `SENCO5` 最终线性层
+- H2O `SENCO2/SENCO4` 主链和 `SENCO6` 最终线性层
+- 新算法 `R -> A` 输入替换
+- `SENCOA/SENCOB` 的 `R0(T)` 写入/读回 blocker
+- 所需 review checks
+
+明确成机器可读合同。当前新算法不能宣称完整生产闭环完成，因为 `SENCOA/SENCOB` 仍缺受控 writer/读回/回滚合同，H2O 新算法主链还需要固件输入变量和缩放确认。
