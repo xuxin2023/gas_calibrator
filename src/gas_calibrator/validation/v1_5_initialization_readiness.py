@@ -27,6 +27,9 @@ PRESSURE_COMPLETION_SUMMARY_FILE = "pressure_channel_completion_summary.csv"
 PRESSURE_COMPLETION_DEVICE_FILE = "pressure_channel_device_readiness.csv"
 FORMAL_ROUTE_READINESS_FILE = "formal_route_readiness.json"
 PRESSURE_HARDWARE_KEYS = ("pressure_controller", "pressure_gauge")
+POSTGRESQL_PRODUCTION_MAJOR = 18
+CHECK_MONITOR_COMMAND = "CHECK,YGAS,FFF"
+CHECK_MONITOR_ARTIFACT = "analyzer_check_monitor.csv"
 PASS_STATUSES = {
     "pass",
     "passed",
@@ -112,6 +115,76 @@ def _check(
         "evidence_role": evidence_role,
         "path": path,
         "details": dict(details or {}),
+    }
+
+
+def _initialization_contract(config: Mapping[str, Any] | None) -> Dict[str, Any]:
+    workflow = config.get("workflow", {}) if isinstance(config, Mapping) and isinstance(config.get("workflow"), Mapping) else {}
+    runtime_contract = (
+        config.get("runtime_setup_contract", {})
+        if isinstance(config, Mapping) and isinstance(config.get("runtime_setup_contract"), Mapping)
+        else {}
+    )
+    analyzer_init = _nested_get(workflow, "analyzer_mode2_init", {})
+    if not isinstance(analyzer_init, Mapping) or not analyzer_init:
+        analyzer_init = {
+            "command_gap_s": runtime_contract.get("command_gap_s"),
+            "reapply_delay_s": runtime_contract.get("runtime_setup_retry_delay_s"),
+            "mode": runtime_contract.get("mode"),
+            "ftd_hz": runtime_contract.get("ftd_hz"),
+            "average1_target": runtime_contract.get("average1_target"),
+            "average2_target": runtime_contract.get("average2_target"),
+        } if runtime_contract else {}
+    configured_check_gap = _nested_get(
+        workflow,
+        "stability.temperature.analyzer_check_command_gap_s",
+        1.0,
+    )
+    return {
+        "scope": "v1_5_formal_initialization_readiness",
+        "sidecar_only": True,
+        "planner_opens_com_ports": False,
+        "planner_connects_postgresql": False,
+        "planner_writes_coefficients": False,
+        "planner_writes_sn_or_device_id": False,
+        "planner_controls_gas_or_water_routes": False,
+        "active_analyzer_count_contract": "supports_1_to_6_active_analyzers",
+        "identity": {
+            "primary_key": "sn_code/device_code",
+            "compatibility_alias": "protocol_device_id",
+            "transport_not_identity": "COM/GA labels are transport mapping only",
+        },
+        "database": {
+            "backend": "postgresql",
+            "required_major": POSTGRESQL_PRODUCTION_MAJOR,
+            "preflight_tool": "gas_calibrator.tools.run_v1_5_initialization_db_preflight",
+            "preflight_flag": "--require-postgresql-18",
+            "preflight_before": "formal_CO2_H2O_open_flow_sampling",
+            "preflight_mutates_database": False,
+        },
+        "runtime": {
+            "mode": 2,
+            "ftd_hz": 1,
+            "average1_target": 49,
+            "average2_target": 49,
+            "minimum_command_gap_s": 1.0,
+            "configured": dict(analyzer_init) if isinstance(analyzer_init, Mapping) else {},
+        },
+        "temperature": {
+            "senco7_senco8_policy": "neutralize_in_initialization_for_classic_and_new_algorithm",
+            "temperature_calibration": "disabled",
+            "fit_temperature_source": "analyzer_runtime_chamber_or_cell_temperature",
+        },
+        "check_monitor": {
+            "command": CHECK_MONITOR_COMMAND,
+            "artifact": CHECK_MONITOR_ARTIFACT,
+            "timing": "after_all_active_analyzer_chamber_temperatures_are_stable_before_point_sampling",
+            "minimum_command_gap_s": 1.0,
+            "configured_command_gap_s": _as_float(configured_check_gap, 1.0),
+            "read_only": True,
+            "legacy_unsupported_policy": "do_not_block_initialization_mainline",
+            "new_algorithm_policy": "record_when_protocol_supports_CHECK",
+        },
     }
 
 
@@ -878,6 +951,7 @@ def build_initialization_readiness_model(
         "writes_device_id": False,
         "not_real_acceptance_evidence": True,
         "expected_device_ids": expected_device_ids,
+        "initialization_contract": _initialization_contract(config),
         "checks": checks,
         "next_actions": _next_actions(readiness_status, failures, warnings),
     }
@@ -976,6 +1050,30 @@ def render_initialization_readiness_markdown(model: Mapping[str, Any]) -> str:
         "## Checks",
         "",
     ]
+    contract = model.get("initialization_contract") if isinstance(model.get("initialization_contract"), Mapping) else {}
+    identity = contract.get("identity", {}) if isinstance(contract.get("identity"), Mapping) else {}
+    database = contract.get("database", {}) if isinstance(contract.get("database"), Mapping) else {}
+    runtime = contract.get("runtime", {}) if isinstance(contract.get("runtime"), Mapping) else {}
+    temperature = contract.get("temperature", {}) if isinstance(contract.get("temperature"), Mapping) else {}
+    check_monitor = contract.get("check_monitor", {}) if isinstance(contract.get("check_monitor"), Mapping) else {}
+    contract_lines = [
+        "",
+        "## Initialization Contract",
+        "",
+        f"- identity.primary_key: `{identity.get('primary_key', '')}`",
+        f"- identity.compatibility_alias: `{identity.get('compatibility_alias', '')}`",
+            f"- database: `PostgreSQL {database.get('required_major', '')}`",
+        f"- database.preflight_tool: `{database.get('preflight_tool', '')} {database.get('preflight_flag', '')}`",
+        f"- runtime: `MODE{runtime.get('mode', '')}, {runtime.get('ftd_hz', '')}Hz, command_gap>={runtime.get('minimum_command_gap_s', '')}s`",
+        f"- temperature.SENCO7_SENCO8: `{temperature.get('senco7_senco8_policy', '')}`",
+        f"- temperature_calibration: `{temperature.get('temperature_calibration', '')}`",
+        f"- check_monitor: `{check_monitor.get('command', '')}` -> `{check_monitor.get('artifact', '')}`",
+        f"- check_monitor.timing: `{check_monitor.get('timing', '')}`",
+        f"- contract_safety: `opens_com_ports={contract.get('planner_opens_com_ports')}; connects_postgresql={contract.get('planner_connects_postgresql')}; writes_coefficients={contract.get('planner_writes_coefficients')}; writes_sn_or_device_id={contract.get('planner_writes_sn_or_device_id')}`",
+        "",
+    ]
+    checks_index = lines.index("## Checks")
+    lines[checks_index:checks_index] = contract_lines
     for row in model.get("checks") or []:
         reason = row.get("reasons") or ""
         suffix = f" - {reason}" if reason else ""
@@ -1216,9 +1314,11 @@ def build_initialization_database_sidecar(
                 "writes_coefficients": model.get("writes_coefficients"),
                 "controls_water_or_gas_routes": model.get("controls_water_or_gas_routes"),
                 "artifact_count": len(artifact_rows),
+                "initialization_contract": model.get("initialization_contract") or {},
                 "physical_meaning": (
                     "Initialization readiness sidecar links identity, GETCO snapshots, auxiliary output trims, "
-                    "pressure input status, and temperature input review into a traceable audit chain."
+                    "pressure input status, temperature neutralization, PostgreSQL 18 identity lookup, "
+                    "and CHECK monitor contracts into a traceable audit chain."
                 ),
             },
         }
@@ -1243,6 +1343,8 @@ def build_initialization_database_sidecar(
             "Use analyzer device ID as identity; COM/GA labels are transport mapping only.",
             "S5/S6/S9 archive confirmations are valid initialization evidence only when identity and GETCO completeness are present.",
             "SENCO7/SENCO8 require neutralization evidence or archive proof that both temperature-input coefficient groups are already neutral.",
+            "Production initialization database preflight targets PostgreSQL 18 and must support SN/device_code plus protocol-ID lookup.",
+            "CHECK,YGAS,FFF is read-only point-level evidence after all active analyzer chamber temperatures are stable; the readiness exporter does not open COM to collect it.",
         ],
     }
 

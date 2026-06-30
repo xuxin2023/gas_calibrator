@@ -301,6 +301,18 @@ def test_initialization_ready_when_getco_and_auxiliary_evidence_exist(tmp_path):
     assert model["opens_com_ports"] is False
     assert model["writes_coefficients"] is False
     assert model["expected_device_ids"] == ["023", "003"]
+    contract = model["initialization_contract"]
+    assert contract["identity"]["primary_key"] == "sn_code/device_code"
+    assert contract["identity"]["compatibility_alias"] == "protocol_device_id"
+    assert contract["database"]["backend"] == "postgresql"
+    assert contract["database"]["required_major"] == 18
+    assert contract["runtime"]["mode"] == 2
+    assert contract["runtime"]["ftd_hz"] == 1
+    assert contract["temperature"]["temperature_calibration"] == "disabled"
+    assert contract["check_monitor"]["command"] == "CHECK,YGAS,FFF"
+    assert contract["check_monitor"]["read_only"] is True
+    assert contract["planner_opens_com_ports"] is False
+    assert contract["planner_connects_postgresql"] is False
     getco_check = next(row for row in model["checks"] if row["check"] == "getco1_to_getco9_epoch0_snapshot")
     assert getco_check["details"]["device_count"] == 2
 
@@ -730,7 +742,12 @@ def test_initialization_readiness_writer_and_cli(tmp_path):
     assert outputs["markdown"].exists()
     assert outputs["evidence_index_csv"].exists()
     assert outputs["database_sidecar_json"].exists()
-    assert "initialization_ready" in outputs["markdown"].read_text(encoding="utf-8")
+    markdown = outputs["markdown"].read_text(encoding="utf-8")
+    assert "initialization_ready" in markdown
+    assert "PostgreSQL 18" in markdown
+    assert "sn_code/device_code" in markdown
+    assert "SENCO7_SENCO8" in markdown
+    assert "CHECK,YGAS,FFF" in markdown
     with outputs["evidence_index_csv"].open("r", encoding="utf-8-sig", newline="") as handle:
         index_rows = list(csv.DictReader(handle))
     roles = {row["artifact_role"] for row in index_rows}
@@ -748,6 +765,14 @@ def test_initialization_readiness_writer_and_cli(tmp_path):
     assert sidecar["sidecar_only"] is True
     assert sidecar["opens_com_ports"] is False
     assert sidecar["writes_coefficients"] is False
+    assert any("PostgreSQL 18" in note for note in sidecar["import_notes"])
+    assert any("CHECK,YGAS,FFF" in note for note in sidecar["import_notes"])
+    audit_events = [row for row in sidecar["suggested_rows"] if row["db_table"] == "audit_events"]
+    assert audit_events
+    assert audit_events[-1]["metadata_json"]["initialization_contract"]["database"]["required_major"] == 18
+    assert audit_events[-1]["metadata_json"]["initialization_contract"]["check_monitor"]["artifact"] == (
+        "analyzer_check_monitor.csv"
+    )
     assert any(row["db_table"] == "sample_files" for row in sidecar["suggested_rows"])
     assert any(row["db_table"] == "qc_results" for row in sidecar["suggested_rows"])
 
