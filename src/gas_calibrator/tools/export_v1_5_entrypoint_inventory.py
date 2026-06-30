@@ -16,6 +16,7 @@ from ..validation.v1_5_entrypoint_inventory import (
     guardrailed_entrypoint_rows,
     summarize_entrypoints,
     validate_v1_5_active_surface_policy,
+    validate_v1_5_canonical_formal_path_contract,
 )
 
 
@@ -359,6 +360,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     active_surface_policy_issues = [
         issue.to_json() for issue in validate_v1_5_active_surface_policy(repo_root, entries=entries)
     ]
+    canonical_formal_path_issues = [
+        issue.to_json() for issue in validate_v1_5_canonical_formal_path_contract(repo_root, entries=entries)
+    ]
     isolation_reference_issues = [
         issue.to_json() for issue in audit_v1_5_isolated_reference_integrity(repo_root, entries=entries)
     ]
@@ -368,6 +372,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         "repo_root": str(repo_root),
         "entrypoint_count": len(rows),
         "canonical_formal_path": list(CANONICAL_FORMAL_PATH),
+        "canonical_formal_path_policy": {
+            "status": (
+                "blocked"
+                if any(issue["severity"] == "blocker" for issue in canonical_formal_path_issues)
+                else "ready_with_review_items"
+                if canonical_formal_path_issues
+                else "ready"
+            ),
+            "issues": canonical_formal_path_issues,
+        },
         "do_not_start_here": guardrails,
         "active_surface_boundaries": active_surface_rows,
         "active_surface_policy": {
@@ -403,7 +417,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     _write_csv(csv_path, rows)
     _write_markdown(md_path, rows, summary, guardrails)
     _write_convergence_report(convergence_path, rows, summary, guardrails)
-    _write_active_surface_report(active_surface_path, active_surface_rows, active_surface_policy_issues)
+    _write_active_surface_report(
+        active_surface_path,
+        active_surface_rows,
+        canonical_formal_path_issues + active_surface_policy_issues,
+    )
     _write_isolation_reference_report(isolation_reference_path, isolation_reference_issues)
 
     print(
