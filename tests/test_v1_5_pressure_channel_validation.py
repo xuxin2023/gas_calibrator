@@ -19,6 +19,7 @@ from gas_calibrator.validation.pressure_channel import (
     write_pressure_quick_check_csv,
     write_pressure_senco9_fit_report,
 )
+from gas_calibrator.validation.reporting import _fs_path
 
 
 def _reference(**overrides):
@@ -381,6 +382,29 @@ def test_pressure_channel_report_and_cli_write_sidecar_artifacts(tmp_path):
     )
     assert rc == 0
     assert (cli_dir / "pressure_validation_summary.csv").exists()
+
+
+def test_pressure_channel_report_writes_traceability_under_deep_output_path(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    samples_path = run_dir / "pressure_channel_quick_check_20260524.csv"
+    _write_csv(samples_path, _rows(5))
+
+    output_dir = tmp_path / "pressure_channel_validation"
+    while len(str((output_dir / "pressure_reference_traceability.csv").resolve())) < 265:
+        output_dir = output_dir / "pressure_senco9_no_write_collection"
+
+    outputs = write_pressure_channel_report(
+        run_dir=run_dir,
+        pressure_reference_path=None,
+        output_dir=output_dir,
+        samples_csv=samples_path,
+        today="2026-05-24",
+    )
+
+    assert len(str(outputs["pressure_reference_traceability_csv"])) >= 265
+    assert _fs_path(outputs["pressure_reference_traceability_csv"]).exists()
+    assert _fs_path(outputs["workbook"]).exists()
 
 
 def test_pressure_senco9_fit_blocks_single_atmosphere_point_even_with_large_offset():

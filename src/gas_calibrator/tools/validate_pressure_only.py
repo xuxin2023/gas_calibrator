@@ -24,9 +24,11 @@ from ..logging_utils import RunLogger
 from ..validation.artifact_rows import normalize_sample_row
 from ..validation.common import analyze_sample_rows, build_validation_point, load_csv_rows
 from ..validation.pressure_channel import (
+    PressureSenco9FitConfig,
     evaluate_pressure_channel_ambient,
     write_pressure_channel_report,
     write_pressure_quick_check_csv,
+    write_pressure_senco9_fit_report,
 )
 from ..validation.reporting import ValidationMetadata, write_validation_report
 from ..workflow.runner import CalibrationRunner
@@ -2102,11 +2104,20 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 samples_csv=pressure_quick_check_all_path,
                 analyzer_prefix="all",
             )
+        senco9_fit_outputs = write_pressure_senco9_fit_report(
+            run_dir=logger.run_dir,
+            output_dir=logger.run_dir / "pressure_senco9_fit_evaluation",
+            pressure_reference_path=args.pressure_reference_json,
+            samples_csv=logger.samples_path if logger.samples_path.exists() else None,
+            analyzer_prefix="all",
+            cfg=PressureSenco9FitConfig(require_traceable_reference=True),
+        )
         _log(f"Pressure-only validation saved: {outputs['workbook']}")
         if pressure_outputs:
             _log(f"Pressure-channel validation saved: {pressure_outputs['workbook']}")
         if pressure_outputs_all:
             _log(f"Pressure-channel fleet validation saved: {pressure_outputs_all['workbook']}")
+        _log(f"Pressure/SENCO9 no-write evaluation saved: {senco9_fit_outputs['workbook']}")
         _log(f"Pressure-channel multi-analyzer summary saved: {multi_analyzer_summary_path}")
         return 0
     except KeyboardInterrupt:

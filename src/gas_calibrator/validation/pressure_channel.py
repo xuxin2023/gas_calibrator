@@ -22,7 +22,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 from ..senco_format import format_senco_values
 from .artifact_rows import normalize_sample_row
 from .common import latest_artifact, load_csv_rows
-from .reporting import ValidationMetadata, write_validation_report
+from .reporting import ValidationMetadata, _fs_path, write_validation_report
 
 
 AMBIENT_PRESSURE_MODES = {
@@ -850,6 +850,11 @@ def evaluate_pressure_senco9_fit(
     status = "insufficient_evidence" if issues else "pass"
     recommendation = "collect_no_write_multi_point_pressure_data"
     if issues:
+        non_traceability_issues = [
+            issue for issue in issues if issue != "pressure_reference_traceability_failed"
+        ]
+        if not non_traceability_issues:
+            recommendation = "attach_traceable_pressure_reference_before_controlled_write_review"
         reason = ";".join([*issues, *warnings])
     else:
         slope_bias_abs = abs(float(linear_slope_bias or 0.0)) if linear_slope_bias is not None else math.inf
@@ -1175,7 +1180,7 @@ def _write_pressure_senco9_review_report(
             "",
         ]
     )
-    report_path.write_text("\n".join(lines), encoding="utf-8")
+    _fs_path(report_path).write_text("\n".join(lines), encoding="utf-8")
     return report_path
 
 

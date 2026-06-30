@@ -955,6 +955,7 @@ def test_validate_pressure_only_exports_pressure_checks(monkeypatch, tmp_path: P
     assert validate_pressure_only.main(["--config", str(cfg_path), "--output-dir", str(tmp_path / "out"), "--pressure-points", "ambient,900", "--count", "2", "--interval-s", "0", "--no-prompt"]) == 0
     run_dir = next((tmp_path / "out").glob("pressure_only_*"))
     assert (run_dir / "pressure_source_check.csv").exists()
+    assert (run_dir / "pressure_senco9_fit_evaluation" / "pressure_fit_summary.csv").exists()
 
 
 def test_validate_pressure_only_runtime_defaults_extend_pressure_fast_signal_wait(tmp_path: Path) -> None:

@@ -69,7 +69,7 @@ def _restore_analyzer_runtime(
     ga: GasAnalyzer,
     analyzer_cfg: Mapping[str, Any],
     *,
-    command_gap_s: float = 0.5,
+    command_gap_s: float = 1.0,
 ) -> Dict[str, Any]:
     mode = int(analyzer_cfg.get("mode", 2) or 2)
     active_send = bool(analyzer_cfg.get("active_send", True))

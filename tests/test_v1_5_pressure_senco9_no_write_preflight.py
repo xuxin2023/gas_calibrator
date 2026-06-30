@@ -14,6 +14,39 @@ from gas_calibrator.validation.pressure_senco9_no_write_plan import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _write_no_write_config(path, analyzers):
+    payload = {
+        "devices": {
+            "pressure_gauge": {"enabled": True},
+            "pressure_controller": {"enabled": True},
+            "relay": {"enabled": False},
+            "relay_8": {"enabled": False},
+            "humidity_generator": {"enabled": False},
+            "dewpoint_meter": {"enabled": False},
+            "gas_analyzers": analyzers,
+        },
+        "workflow": {
+            "controlled_write": False,
+            "postrun_corrected_delivery": {
+                "write_devices": False,
+                "write_pressure_coefficients": False,
+            },
+            "startup_pressure_sensor_calibration": {
+                "enabled": False,
+                "apply_write": False,
+            },
+        },
+        "coefficients": {"enabled": False},
+        "metadata": {
+            "writes_senco": False,
+            "writes_device_id": False,
+            "controls_water_or_gas_routes": False,
+        },
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def _pressure_reference(**overrides):
     data = {
         "device_id": "COM22-DPG-001",
@@ -87,8 +120,16 @@ def test_pressure_senco9_no_write_config_blocks_known_write_paths():
     assert "active_send_enabled_for_ga01" in warnings
 
 
-def test_pressure_senco9_no_write_plan_passes_for_formal_4ch_config():
-    cfg_path = ROOT / "configs" / "site_v1_5_formal_open_flow_4ch_no_write_900ppm.json"
+def test_pressure_senco9_no_write_plan_passes_for_formal_4ch_config(tmp_path):
+    cfg_path = _write_no_write_config(
+        tmp_path / "site_v1_5_formal_open_flow_4ch_no_write_900ppm.json",
+        [
+            {"name": "ga01", "device_id": "023", "port": "COM35", "enabled": True},
+            {"name": "ga02", "device_id": "033", "port": "COM36", "enabled": True},
+            {"name": "ga03", "device_id": "001", "port": "COM37", "enabled": True},
+            {"name": "ga04", "device_id": "091", "port": "COM38", "enabled": True},
+        ],
+    )
     cfg = load_config(cfg_path)
 
     tables, context = build_pressure_senco9_no_write_plan_tables(
@@ -113,11 +154,37 @@ def test_pressure_senco9_no_write_plan_passes_for_formal_4ch_config():
         "091",
     ]
     assert "--require-continuous-atmosphere-hold" in context["collection_command"]
+    assert "--control-pressure-points" in context["collection_command"]
+    assert "--pressure-control-setpoint-mode absolute" in context["collection_command"]
+    assert "--pressure-control-slew-mode max" in context["collection_command"]
+    assert "--analyzer-active-upload-hz 1" in context["collection_command"]
     assert "export_v1_5_pressure_senco9_evaluation" in context["fit_command"]
 
 
-def test_pressure_senco9_5ch_active_config_is_no_write_and_keeps_average_filter():
-    cfg_path = ROOT / "configs" / "site_v1_5_pressure_senco9_no_write_5ch_active.json"
+def test_pressure_senco9_5ch_active_config_is_no_write_and_keeps_average_filter(tmp_path):
+    cfg_path = _write_no_write_config(
+        tmp_path / "site_v1_5_pressure_senco9_no_write_5ch_active.json",
+        [
+            {
+                "name": f"ga{index:02d}",
+                "device_id": device_id,
+                "port": port,
+                "enabled": True,
+                "active_send": True,
+                "ftd_hz": 1,
+                "average_filter": 49,
+                "average_co2": 1,
+                "average_h2o": 1,
+            }
+            for index, (port, device_id) in enumerate(
+                zip(
+                    ["COM35", "COM36", "COM37", "COM41", "COM42"],
+                    ["023", "030", "033", "001", "027"],
+                ),
+                start=1,
+            )
+        ],
+    )
     cfg = load_config(cfg_path)
 
     analyzers = cfg["devices"]["gas_analyzers"]
@@ -151,8 +218,16 @@ def test_pressure_senco9_5ch_active_config_is_no_write_and_keeps_average_filter(
     assert tables["pressure_senco9_no_write_summary"][0]["analyzer_count"] == 5
 
 
-def test_pressure_senco9_no_write_plan_blocks_short_matrix_and_missing_reference():
-    cfg_path = ROOT / "configs" / "site_v1_5_formal_open_flow_4ch_no_write_900ppm.json"
+def test_pressure_senco9_no_write_plan_blocks_short_matrix_and_missing_reference(tmp_path):
+    cfg_path = _write_no_write_config(
+        tmp_path / "site_v1_5_formal_open_flow_4ch_no_write_900ppm.json",
+        [
+            {"name": "ga01", "device_id": "023", "port": "COM35", "enabled": True},
+            {"name": "ga02", "device_id": "033", "port": "COM36", "enabled": True},
+            {"name": "ga03", "device_id": "001", "port": "COM37", "enabled": True},
+            {"name": "ga04", "device_id": "091", "port": "COM38", "enabled": True},
+        ],
+    )
     cfg = load_config(cfg_path)
 
     tables, context = build_pressure_senco9_no_write_plan_tables(
@@ -178,7 +253,15 @@ def test_pressure_senco9_no_write_plan_blocks_short_matrix_and_missing_reference
 
 
 def test_pressure_senco9_no_write_preflight_report_and_cli_write_artifacts(tmp_path):
-    cfg_path = ROOT / "configs" / "site_v1_5_formal_open_flow_4ch_no_write_900ppm.json"
+    cfg_path = _write_no_write_config(
+        tmp_path / "site_v1_5_formal_open_flow_4ch_no_write_900ppm.json",
+        [
+            {"name": "ga01", "device_id": "023", "port": "COM35", "enabled": True},
+            {"name": "ga02", "device_id": "033", "port": "COM36", "enabled": True},
+            {"name": "ga03", "device_id": "001", "port": "COM37", "enabled": True},
+            {"name": "ga04", "device_id": "091", "port": "COM38", "enabled": True},
+        ],
+    )
     cfg = load_config(cfg_path)
     reference_path = tmp_path / "pressure_reference.json"
     reference_path.write_text(json.dumps(_pressure_reference(), ensure_ascii=False), encoding="utf-8")
