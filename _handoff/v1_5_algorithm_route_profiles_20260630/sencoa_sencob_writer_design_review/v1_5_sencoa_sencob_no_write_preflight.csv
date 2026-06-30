@@ -1,0 +1,8 @@
+﻿gate,status,required,evidence
+offline_design_only,pass,True,manifest no_write=true; opens_com_ports=false; writes_coefficients=false
+real_writer_exists,blocked,True,missing_real_writer_design_only
+serial_command_gap,pass,True,minimum_serial_command_gap_s=1
+old_snapshot_required,planned,True,GETCOA/GETCOB snapshot required before future write unlock
+rollback_plan_required,planned,True,rollback rows generated; future writer must implement readback-verified rollback
+route_and_sampling_untouched,pass,True,design package does not modify formal CO2/H2O runners or sampling entrypoints
+independent_reverification_required,planned,True,future write cannot be accepted without separate no-write CO2/H2O reverification

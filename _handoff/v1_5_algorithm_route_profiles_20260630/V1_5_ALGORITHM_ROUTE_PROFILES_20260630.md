@@ -197,3 +197,20 @@ gas_calibrator.tools.export_v1_5_algorithm_write_contract_review
 - 所需 review checks
 
 明确成机器可读合同。当前新算法不能宣称完整生产闭环完成，因为 `SENCOA/SENCOB` 仍缺受控 writer/读回/回滚合同，H2O 新算法主链还需要固件输入变量和缩放确认。
+
+## SENCOA/SENCOB 离线 writer 设计评审
+
+`SENCOA/SENCOB` 的真实受控 writer 仍不存在；当前只新增离线设计评审工具：
+
+```text
+gas_calibrator.tools.export_v1_5_sencoa_sencob_writer_design_review
+```
+
+这个工具只读取 profile JSON 并导出 no-write 设计证据，不打开 COM、不写系数、不控制气路/水路。它固定约束：
+
+- `SENCOA` 对应 `R0_CO2(T)`，未来必须通过 `GETCOA` 读回验证
+- `SENCOB` 对应 `R0_H2O(T)`，未来必须通过 `GETCOB` 读回验证
+- payload 为 4 个有限浮点系数
+- 未来真实写入必须在 `MODE2` 下执行，串口命令间隔必须 `>=1.0s`
+- 写入前必须有旧值快照，写入失败或 readback 不一致必须可按快照 rollback
+- 当前状态仍为 `design_only_no_real_writer` / `blocked`，不能作为生产写入入口
