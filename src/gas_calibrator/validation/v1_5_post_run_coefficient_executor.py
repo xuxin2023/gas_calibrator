@@ -296,6 +296,17 @@ def _discover_artifacts(run_dir: Path, explicit: Mapping[str, str | Path | None]
         )
         return (prewrite_snapshot.resolve(),) if prewrite_snapshot else ()
 
+    def one_gate_dir(key: str, filenames: Sequence[str]) -> tuple[Path, ...]:
+        value = explicit.get(key)
+        if value:
+            path = Path(value).resolve()
+            if path.is_file() and path.name in filenames:
+                return (path.parent,)
+            if path.is_dir() and any((path / filename).is_file() for filename in filenames):
+                return (path,)
+            return ()
+        return _existing_dirs_with_any(run_dir, filenames)
+
     pressure_review_paths = list(
         one(
             "pressure_review_json",
@@ -383,6 +394,13 @@ def _discover_artifacts(run_dir: Path, explicit: Mapping[str, str | Path | None]
             "h2o_dry_anchor_bridge_device_summary.csv",
             "h2o_dry_anchor_bridge_predictions.csv",
             "h2o_dry_anchor_bridge_strategy_comparison.csv",
+        ),
+    )
+    artifacts["co2_source_state_gate"] = one_gate_dir(
+        "co2_source_state_gate",
+        (
+            "co2_s13_source_state_run_summary.csv",
+            "co2_s13_source_state_root_cause_decision.csv",
         ),
     )
     artifacts["write_events"] = write_events
@@ -852,6 +870,61 @@ def _h2o_dry_anchor_bridge_status_by_device(artifacts: Mapping[str, Sequence[Pat
     return statuses
 
 
+def _co2_source_state_gate_status(artifacts: Mapping[str, Sequence[Path]]) -> tuple[str, str, Path | None]:
+    """Return the latest run-level CO2 source-state write gate status.
+
+    The source-state audit is optional for legacy runs. When present, it blocks
+    CO2 S1/S3/S5 write review if the same gas-point targets cannot be reconciled
+    across source states such as different purge/dryness/temperature segments.
+    """
+
+    records: list[tuple[float, str, int, str, Path]] = []
+    for directory in artifacts.get("co2_source_state_gate", ()):
+        summary = directory / "co2_s13_source_state_run_summary.csv"
+        if not summary.exists():
+            continue
+        for row in _read_csv(summary):
+            status = _status_text(row.get("write_gate_status") or row.get("status"))
+            blocker_count_value = _float_or_none(row.get("write_gate_blocker_count"))
+            blocker_count = int(blocker_count_value or 0)
+            topics = str(row.get("write_gate_blocker_topics") or "").strip()
+            records.append((summary.stat().st_mtime, status, blocker_count, topics, summary))
+
+    if not records:
+        return "not_attempted", "optional_stage_not_attempted", None
+
+    _, status, blocker_count, topics, path = max(records, key=lambda item: item[0])
+    blocked = status.startswith("blocked") or blocker_count > 0
+    if blocked:
+        reason = f"co2_source_state_blocked:{status or 'blocked'}"
+        if topics:
+            reason = f"{reason}:{topics}"
+        return "blocked", reason, path
+
+    return "ready", f"co2_source_state_gate_{status or 'present'}", path
+
+
+def _co2_source_state_gate_stage(artifacts: Mapping[str, Sequence[Path]]) -> ExecutorStage:
+    status, reason, _ = _co2_source_state_gate_status(artifacts)
+    return ExecutorStage(
+        stage_id="co2_source_state_write_gate",
+        title="CO2 source-state write gate",
+        status=status,
+        reason=reason,
+        required_roles=("co2_source_state_gate",),
+        artifact_count=_role_count(artifacts, ("co2_source_state_gate",)),
+        physical_meaning=(
+            "CO2 writes are blocked when equal gas-point evidence cannot be explained "
+            "by one stable open-flow source-state contract."
+        ),
+        next_action=(
+            "repair_source_state_discontinuity_before_co2_write_package"
+            if status == "blocked"
+            else "export_v1_5_co2_s13_source_state_discontinuity_audit_if_co2_residuals_disagree_with_reverification"
+        ),
+    )
+
+
 def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) -> tuple[DeviceClosure, ...]:
     plan = _load_json(artifacts.get("plan_snapshot", [None])[0] if artifacts.get("plan_snapshot") else None)
     ids = _device_ids_from_plan(plan)
@@ -872,6 +945,7 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
     pressure_status_by_device = _pressure_completion_status_by_device(artifacts)
     device_quality_by_device = _device_quality_status_by_device(artifacts)
     dry_anchor_bridge_by_device = _h2o_dry_anchor_bridge_status_by_device(artifacts)
+    co2_source_state_status, co2_source_state_reason, _ = _co2_source_state_gate_status(artifacts)
     has_temp = _role_ready(artifacts, "temperature_review")
     candidate_dirs = artifacts.get("candidate_dirs", ())
     model_dirs = artifacts.get("model_selection_dirs", ())
@@ -896,7 +970,10 @@ def _classify_devices(run_dir: Path, artifacts: Mapping[str, Sequence[Path]]) ->
             blockers.append(device_quality_status)
         co2_status = _component_status_for_device(device_id, candidate_dirs, model_dirs, "co2")
         h2o_status = _component_status_for_device(device_id, candidate_dirs, model_dirs, "h2o")
-        if not co2_status.startswith("candidate_ready"):
+        if co2_source_state_status == "blocked":
+            co2_status = f"co2_blocked:{co2_source_state_reason}"
+            blockers.append(co2_source_state_reason)
+        elif not co2_status.startswith("candidate_ready"):
             blockers.append(co2_status)
         if not h2o_status.startswith("candidate_ready"):
             blockers.append(h2o_status)
@@ -1086,6 +1163,13 @@ def _execution_commands() -> list[dict[str, Any]]:
             "tool": "python -m gas_calibrator.tools.export_v1_5_candidate_coefficients --component co2 --fit-all-eligible-samples",
             "writes_senco": False,
             "physical_gate": "open-flow CO2 fit uses eligible stable samples and freezes pressure terms under current-atmosphere contract",
+        },
+        {
+            "order": 45,
+            "action": "co2_source_state_write_gate",
+            "tool": "python -m gas_calibrator.tools.export_v1_5_co2_s13_source_state_discontinuity_audit",
+            "writes_senco": False,
+            "physical_gate": "CO2 write review is blocked when same gas-point source states cannot be reconciled.",
         },
         {
             "order": 50,
@@ -1377,6 +1461,7 @@ def build_post_run_coefficient_executor_model(
     main_precheck_meta_json: str | Path | None = None,
     post_write_reverification_json: str | Path | None = None,
     archive_closure_json: str | Path | None = None,
+    co2_source_state_gate: str | Path | None = None,
 ) -> dict[str, Any]:
     root = Path(run_dir).resolve()
     explicit = {
@@ -1392,6 +1477,7 @@ def build_post_run_coefficient_executor_model(
         "main_precheck_meta_json": main_precheck_meta_json,
         "post_write_reverification_json": post_write_reverification_json,
         "archive_closure_json": archive_closure_json,
+        "co2_source_state_gate": co2_source_state_gate,
     }
     artifacts = _discover_artifacts(root, explicit)
     stages = (
@@ -1427,6 +1513,7 @@ def build_post_run_coefficient_executor_model(
             physical_meaning="Open-flow stable component data are converted into S1/S3 and S2/S4 candidates.",
             next_action="export_candidate_coefficients_and_model_selection",
         ),
+        _co2_source_state_gate_stage(artifacts),
         _stage_status(
             artifacts,
             stage_id="h2o_dry_anchor_bridge_review",
@@ -1528,6 +1615,7 @@ def build_post_run_coefficient_executor_model(
             "temperature_before_components": True,
             "fit_all_eligible_stable_points": True,
             "fit_verification_labels_do_not_exclude_samples_by_default": True,
+            "co2_source_state_gate_blocks_writes": True,
             "co2_zero_anchor_distinct_from_h2o_dry_anchor": True,
             "h2o_dry_anchor_requires_dewpoint_pressure_temperature_bridge": True,
             "current_atmosphere_component_fit_freezes_pressure_terms": True,

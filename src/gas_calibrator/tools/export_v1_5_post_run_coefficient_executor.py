@@ -45,6 +45,14 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--post-write-reverification-json", default="", help="Optional post-write reverification JSON.")
     parser.add_argument("--archive-closure-json", default="", help="Optional formal archive closure index JSON.")
     parser.add_argument(
+        "--co2-source-state-gate",
+        default="",
+        help=(
+            "Optional CO2 source-state write-gate directory or "
+            "co2_s13_source_state_run_summary.csv/root-cause CSV."
+        ),
+    )
+    parser.add_argument(
         "--fail-on-blocked",
         action="store_true",
         help="Return exit code 2 if the generated executor plan is blocked.",
@@ -69,6 +77,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             main_precheck_meta_json=args.main_precheck_meta_json or None,
             post_write_reverification_json=args.post_write_reverification_json or None,
             archive_closure_json=args.archive_closure_json or None,
+            co2_source_state_gate=args.co2_source_state_gate or None,
         )
         output_paths = write_post_run_coefficient_executor_outputs(model, Path(args.output_dir))
         result = {

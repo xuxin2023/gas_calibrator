@@ -234,6 +234,44 @@ def test_post_run_executor_cli_exports_no_write_manifest(tmp_path, capsys):
     assert "逐台设备状态" in summary
 
 
+def test_post_run_executor_cli_accepts_explicit_co2_source_state_gate(tmp_path, capsys):
+    run_dir = tmp_path / "cli_run_external_gate"
+    output_dir = tmp_path / "cli_out_external_gate"
+    gate_dir = tmp_path / "external_co2_source_state_gate"
+    _seed_complete_post_run_evidence(run_dir, devices=("084",))
+    _write_csv(
+        gate_dir / "co2_s13_source_state_run_summary.csv",
+        [
+            {
+                "write_gate_status": "blocked_source_state_discontinuity",
+                "write_gate_blocker_count": "1",
+                "write_gate_blocker_topics": "external_source_state_gate",
+                "candidate_write_allowed": "False",
+                "writes_coefficients": "False",
+            }
+        ],
+    )
+
+    rc = export_executor_main(
+        [
+            "--run-dir",
+            str(run_dir),
+            "--output-dir",
+            str(output_dir),
+            "--co2-source-state-gate",
+            str(gate_dir),
+        ]
+    )
+    cli_payload = json.loads(capsys.readouterr().out)
+    manifest = json.loads((output_dir / "executor_manifest.json").read_text(encoding="utf-8"))
+    stages = {row["stage_id"]: row for row in manifest["stages"]}
+
+    assert rc == 0
+    assert cli_payload["status"] == "blocked"
+    assert stages["co2_source_state_write_gate"]["status"] == "blocked"
+    assert str(gate_dir.resolve()) in manifest["artifact_paths"]["co2_source_state_gate"]
+
+
 def test_post_run_executor_markdown_keeps_fit_and_verification_contract_visible(tmp_path):
     run_dir = tmp_path / "render_run"
     _seed_complete_post_run_evidence(run_dir, devices=("091",))
@@ -411,6 +449,105 @@ def test_post_run_executor_blocks_device_when_h2o_dry_anchor_bridge_requires_new
         in devices["022"]["blockers"]
     )
     assert any("h2o_dry_anchor_bridge_blocked" in row["reason"] for row in model["closure_gaps"])
+
+
+def test_post_run_executor_blocks_co2_write_when_source_state_gate_blocks(tmp_path):
+    run_dir = tmp_path / "co2_source_state_blocked"
+    _seed_complete_post_run_evidence(run_dir, devices=("077", "084"))
+    gate_dir = run_dir / "co2_s13_source_state_discontinuity_audit_20260621"
+    _write_csv(
+        gate_dir / "co2_s13_source_state_run_summary.csv",
+        [
+            {
+                "write_gate_status": "blocked_source_state_discontinuity",
+                "write_gate_blocker_count": "2",
+                "write_gate_blocker_topics": "mixed_source_temperature_group;non_affine_sawtooth_bias",
+                "candidate_write_allowed": "False",
+                "writes_coefficients": "False",
+            }
+        ],
+    )
+
+    model = build_post_run_coefficient_executor_model(run_dir=run_dir)
+    stages = {row["stage_id"]: row for row in model["stages"]}
+    devices = {row["device_id"]: row for row in model["devices"]}
+    co2_write_rows = [
+        row
+        for row in model["controlled_write_package"]
+        if row["component"] == "co2_senco1_senco3"
+    ]
+
+    assert model["overall_status"] == "blocked"
+    assert stages["co2_source_state_write_gate"]["status"] == "blocked"
+    assert "mixed_source_temperature_group" in stages["co2_source_state_write_gate"]["reason"]
+    assert devices["077"]["overall_status"] == "blocked_or_partial"
+    assert devices["077"]["co2_status"].startswith("co2_blocked:")
+    assert any("co2_source_state_blocked" in blocker for blocker in devices["084"]["blockers"])
+    assert co2_write_rows == []
+    assert all(row["phase"] == "blocked" for row in model["controlled_write_package"])
+
+
+def test_post_run_executor_blocks_co2_write_with_external_source_state_gate_file(tmp_path):
+    run_dir = tmp_path / "co2_source_state_external_blocked"
+    gate_dir = tmp_path / "external_co2_gate_file"
+    _seed_complete_post_run_evidence(run_dir, devices=("077",))
+    gate_file = _write_csv(
+        gate_dir / "co2_s13_source_state_run_summary.csv",
+        [
+            {
+                "write_gate_status": "blocked_source_state_discontinuity",
+                "write_gate_blocker_count": "1",
+                "write_gate_blocker_topics": "external_gate_file",
+                "candidate_write_allowed": "False",
+                "writes_coefficients": "False",
+            }
+        ],
+    )
+
+    model = build_post_run_coefficient_executor_model(
+        run_dir=run_dir,
+        co2_source_state_gate=gate_file,
+    )
+    stages = {row["stage_id"]: row for row in model["stages"]}
+
+    assert model["overall_status"] == "blocked"
+    assert stages["co2_source_state_write_gate"]["status"] == "blocked"
+    assert model["artifact_paths"]["co2_source_state_gate"] == [str(gate_dir.resolve())]
+    assert not [
+        row
+        for row in model["controlled_write_package"]
+        if row["component"] == "co2_senco1_senco3"
+    ]
+
+
+def test_post_run_executor_allows_review_required_source_state_gate_without_blockers(tmp_path):
+    run_dir = tmp_path / "co2_source_state_review_ready"
+    _seed_complete_post_run_evidence(run_dir, devices=("077",))
+    gate_dir = run_dir / "co2_s13_source_state_discontinuity_audit_20260621"
+    _write_csv(
+        gate_dir / "co2_s13_source_state_run_summary.csv",
+        [
+            {
+                "write_gate_status": "review_required",
+                "write_gate_blocker_count": "0",
+                "write_gate_blocker_topics": "",
+                "candidate_write_allowed": "True",
+                "writes_coefficients": "False",
+            }
+        ],
+    )
+
+    model = build_post_run_coefficient_executor_model(run_dir=run_dir)
+    stages = {row["stage_id"]: row for row in model["stages"]}
+    device = model["devices"][0]
+
+    assert stages["co2_source_state_write_gate"]["status"] == "ready"
+    assert device["co2_status"] == "candidate_ready_co2"
+    assert device["overall_status"] == "ready_for_controlled_write_review"
+    assert any(
+        row["device_id"] == "077" and row["component"] == "co2_senco1_senco3"
+        for row in model["controlled_write_package"]
+    )
 
 
 def test_post_run_executor_uses_latest_candidate_review_instead_of_stale_blocker(tmp_path):
