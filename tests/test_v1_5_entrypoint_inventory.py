@@ -13,6 +13,7 @@ from gas_calibrator.validation.v1_5_entrypoint_inventory import (
     guardrailed_entrypoint_rows,
     summarize_entrypoints,
     validate_v1_5_active_surface_policy,
+    validate_v1_5_canonical_formal_path_contract,
 )
 
 
@@ -266,7 +267,9 @@ def test_export_entrypoint_inventory_writes_review_artifacts(tmp_path: Path) -> 
     payload = (out / "v1_5_entrypoint_inventory.json").read_text(encoding="utf-8")
     assert "active_surface_boundaries" in payload
     assert "active_surface_policy" in payload
+    assert "canonical_formal_path_policy" in payload
     assert "isolation_reference_audit" in payload
+    assert '"canonical_formal_path_policy": {\n    "status": "blocked"' in payload
     assert "canonical_entrypoint_missing" in payload
     active_surface = (out / "v1_5_active_surface_report.md").read_text(encoding="utf-8-sig")
     assert "V1.5 活跃工作面与隔离清单" in active_surface
@@ -331,6 +334,56 @@ def test_active_surface_policy_has_no_repository_blockers() -> None:
     issues = validate_v1_5_active_surface_policy(repo_root)
 
     assert [issue.to_json() for issue in issues if issue.severity == "blocker"] == []
+
+
+def test_canonical_formal_path_contract_has_no_repository_blockers() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    issues = validate_v1_5_canonical_formal_path_contract(repo_root)
+
+    assert [issue.to_json() for issue in issues if issue.severity == "blocker"] == []
+
+
+def test_canonical_formal_path_contract_blocks_stage_order_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutated_path = tuple(reversed(CANONICAL_FORMAL_PATH))
+    monkeypatch.setattr(inventory_validation, "CANONICAL_FORMAL_PATH", mutated_path)
+
+    issues = inventory_validation.validate_v1_5_canonical_formal_path_contract(tmp_path, entries=[])
+    blocker_rules = {issue.rule for issue in issues if issue.severity == "blocker"}
+
+    assert "canonical_stage_order_changed" in blocker_rules
+
+
+def test_canonical_formal_path_contract_blocks_support_tool_as_stage_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    support = tmp_path / "src/gas_calibrator/tools/run_v1_5_analyzer_runtime_setup.py"
+    support.parent.mkdir(parents=True, exist_ok=True)
+    support.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        inventory_validation,
+        "CANONICAL_FORMAL_PATH",
+        (
+            {
+                "stage": "01_formal_initialization",
+                "entrypoint": "src/gas_calibrator/tools/run_v1_5_analyzer_runtime_setup.py",
+                "category": "identity_and_serial_binding",
+                "status": "bad",
+                "physical_meaning": "bad",
+                "safety_boundary": "bad",
+            },
+        ),
+    )
+
+    issues = inventory_validation.validate_v1_5_canonical_formal_path_contract(
+        tmp_path,
+        entries=discover_v1_5_entrypoints(tmp_path),
+    )
+    blocker_rules = {issue.rule for issue in issues if issue.severity == "blocker"}
+
+    assert "canonical_stage_order_changed" in blocker_rules
+    assert "canonical_uses_support_tool_as_stage_owner" in blocker_rules
 
 
 def test_isolation_reference_audit_blocks_formal_runtime_reference_to_diagnostic(tmp_path: Path) -> None:
@@ -511,3 +564,17 @@ def test_guardrailed_entrypoints_collect_pressure_runner_and_legacy_v1(tmp_path:
 
     assert by_path["src/gas_calibrator/tools/validate_pressure_only.py"]["guardrail"] == "pressure_no_write_only"
     assert by_path["src/gas_calibrator/tools/run_v1_corrected_autodelivery.py"]["guardrail"] == "legacy_v1_reference_only"
+
+
+def test_final_structure_doc_records_canonical_entrypoint_boundaries() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    doc = repo_root / "docs/v1_5_flow_contract/V1_5_FINAL_STRUCTURE_AND_FLOW.md"
+    text = doc.read_text(encoding="utf-8")
+
+    assert "run_v1_5_formal_initialization_runner.py" in text
+    assert "run_v1_5_formal_co2_open_flow_queue.py" in text
+    assert "run_v1_5_formal_h2o_open_flow_queue.py" in text
+    assert "COM 端口只作为 transport" in text
+    assert "CO2 zero gas" in text
+    assert "H2O dry-gas" in text
+    assert "A=-ln(R/R0(T))/(P_kPa/100)" in text

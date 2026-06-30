@@ -150,6 +150,26 @@ CANONICAL_FORMAL_PATH: tuple[dict[str, str], ...] = (
     },
 )
 
+CANONICAL_FORMAL_STAGE_ORDER: tuple[str, ...] = (
+    "00_full_flow_guard",
+    "01_formal_initialization",
+    "02_pressure_channel",
+    "03_temperature_channel",
+    "04_co2_open_flow_sampling",
+    "05_h2o_open_flow_sampling",
+    "06_candidate_coefficients",
+    "07_write_review_gate",
+    "08_controlled_write",
+    "09_post_write_reverify",
+    "10_archive_report_database",
+)
+
+CANONICAL_FORMAL_SUPPORT_TOOL_NAMES = (
+    *CANONICAL_FORMAL_WORKER_TOOL_NAMES,
+    *FORMAL_INITIALIZATION_SUPPORT_TOOL_NAMES,
+    *FORMAL_PREFLIGHT_SUPPORT_TOOL_NAMES,
+)
+
 
 NON_START_HERE_GUARDRAILS: dict[str, dict[str, str]] = {
     "controlled_write": {
@@ -573,6 +593,123 @@ def guardrailed_entrypoint_rows(entries: Iterable[V15Entrypoint]) -> list[dict[s
             }
         )
     return sorted(rows, key=lambda item: (item["guardrail"], item["stage"], item["path"]))
+
+
+def validate_v1_5_canonical_formal_path_contract(
+    root: Path,
+    *,
+    entries: Iterable[V15Entrypoint] | None = None,
+) -> list[V15ActiveSurfacePolicyIssue]:
+    """Validate the fixed V1.5 formal-stage contract.
+
+    This catches a different class of mistake from the active-surface policy:
+    the canonical path itself must stay ordered, unique, and limited to formal
+    stage owners. Support tools such as SN identity, runtime setup, readiness
+    probes, and per-point workers remain callable by their owning stages, but
+    must not drift into the top-level stage list.
+    """
+
+    entry_list = list(entries) if entries is not None else discover_v1_5_entrypoints(root)
+    by_path = {entry.path: entry for entry in entry_list}
+    issues: list[V15ActiveSurfacePolicyIssue] = []
+    stages = [str(item.get("stage") or "") for item in CANONICAL_FORMAL_PATH]
+    paths = [str(item.get("entrypoint") or "").replace("\\", "/") for item in CANONICAL_FORMAL_PATH]
+
+    if tuple(stages) != CANONICAL_FORMAL_STAGE_ORDER:
+        issues.append(
+            V15ActiveSurfacePolicyIssue(
+                severity="blocker",
+                rule="canonical_stage_order_changed",
+                path="CANONICAL_FORMAL_PATH",
+                message="Canonical V1.5 stages must keep the documented 00-10 order unless the formal flow contract is deliberately revised.",
+            )
+        )
+    if len(set(stages)) != len(stages):
+        issues.append(
+            V15ActiveSurfacePolicyIssue(
+                severity="blocker",
+                rule="canonical_stage_duplicate",
+                path="CANONICAL_FORMAL_PATH",
+                message="Canonical V1.5 stages must be unique.",
+            )
+        )
+    if len(set(paths)) != len(paths):
+        issues.append(
+            V15ActiveSurfacePolicyIssue(
+                severity="blocker",
+                rule="canonical_entrypoint_duplicate",
+                path="CANONICAL_FORMAL_PATH",
+                message="Canonical V1.5 entrypoints must be unique so one tool cannot silently own two physical stages.",
+            )
+        )
+
+    support_names = set(CANONICAL_FORMAL_SUPPORT_TOOL_NAMES)
+    route_stages = {"04_co2_open_flow_sampling", "05_h2o_open_flow_sampling"}
+    for item in CANONICAL_FORMAL_PATH:
+        stage = str(item.get("stage") or "")
+        canonical_path = str(item.get("entrypoint") or "").replace("\\", "/")
+        name = Path(canonical_path).stem
+        required = {"stage", "entrypoint", "category", "status", "physical_meaning", "safety_boundary"}
+        missing_keys = sorted(required.difference(item))
+        if missing_keys:
+            issues.append(
+                V15ActiveSurfacePolicyIssue(
+                    severity="blocker",
+                    rule="canonical_stage_missing_metadata",
+                    path=canonical_path or "CANONICAL_FORMAL_PATH",
+                    message=f"Canonical stage {stage!r} is missing required metadata: {', '.join(missing_keys)}.",
+                )
+            )
+        if name in support_names:
+            issues.append(
+                V15ActiveSurfacePolicyIssue(
+                    severity="blocker",
+                    rule="canonical_uses_support_tool_as_stage_owner",
+                    path=canonical_path,
+                    message="SN/runtime/readiness probes and sampling workers must stay subordinate to their formal owner, not become top-level canonical stages.",
+                )
+            )
+
+        entry = by_path.get(canonical_path)
+        if entry is None:
+            issues.append(
+                V15ActiveSurfacePolicyIssue(
+                    severity="blocker",
+                    rule="canonical_entrypoint_missing",
+                    path=canonical_path,
+                    message="Canonical V1.5 entrypoint is missing from the discovered inventory.",
+                )
+            )
+            continue
+        if entry.controls_routes and stage not in route_stages:
+            issues.append(
+                V15ActiveSurfacePolicyIssue(
+                    severity="blocker",
+                    rule="canonical_route_control_outside_route_stage",
+                    path=canonical_path,
+                    message="Only the formal CO2/H2O queue stages may control gas/water routes in the canonical path.",
+                )
+            )
+        if entry.writes_coefficients and stage != "08_controlled_write":
+            issues.append(
+                V15ActiveSurfacePolicyIssue(
+                    severity="blocker",
+                    rule="canonical_write_outside_controlled_write_stage",
+                    path=canonical_path,
+                    message="Coefficient-writing entrypoints must appear only at the controlled-write stage.",
+                )
+            )
+        if stage == "08_controlled_write" and str(item.get("status") or "") != "manual_authorized_only":
+            issues.append(
+                V15ActiveSurfacePolicyIssue(
+                    severity="blocker",
+                    rule="controlled_write_stage_not_manual_authorized",
+                    path=canonical_path,
+                    message="The controlled-write canonical stage must remain manual_authorized_only.",
+                )
+            )
+
+    return issues
 
 
 def validate_v1_5_active_surface_policy(
