@@ -596,6 +596,78 @@ def test_queue_dry_run_writes_manifest_without_real_com(tmp_path):
     assert (tmp_path / "out" / "queue_dry" / "queue_failure_audit" / "queue_failure_audit_zh.md").exists()
 
 
+def test_queue_writes_failure_audit_when_temperature_settle_fails_before_points(tmp_path, monkeypatch):
+    queue_path = tmp_path / "co2_runner_queue.csv"
+    _write_queue(queue_path)
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "paths": {"output_dir": str(tmp_path / "logs")},
+                "devices": {"temperature_chamber": {"enabled": True, "port": "COM19", "baud": 9600, "addr": 1}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(co2_queue_module, "_settle_temperature_group", lambda *_args, **_kwargs: False)
+
+    rc = main(
+        [
+            "--config",
+            str(config_path),
+            "--queue-csv",
+            str(queue_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--run-id",
+            "queue_temp_fail",
+            "--no-prompt",
+        ]
+    )
+
+    assert rc == 1
+    run_dir = tmp_path / "out" / "queue_temp_fail"
+    manifest = run_dir / "queue_manifest.csv"
+    summary = run_dir / "queue_summary.json"
+    audit_json = run_dir / "queue_failure_audit" / "queue_failure_audit.json"
+    audit_md = run_dir / "queue_failure_audit" / "queue_failure_audit_zh.md"
+    assert manifest.exists()
+    assert audit_json.exists()
+    assert audit_md.exists()
+
+    with manifest.open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows == [
+        {
+            "point_run_id": "T40_temp_settle",
+            "temp_c": "40.0",
+            "source_nominal_ppm": "",
+            "co2_group": "temperature_settle",
+            "sample_role": "temperature_settle",
+            "started_at": "",
+            "ended_at": rows[0]["ended_at"],
+            "returncode": "",
+            "status": "failed",
+            "point_log": "",
+            "command": "",
+            "failure_category": "temperature_settle_failed",
+            "failure_reason": "Temperature group 40C failed before 1 CO2 point(s).",
+            "temperature_settle_run_id": "T40_temp_settle",
+            "temperature_settle_output_dir": rows[0]["temperature_settle_output_dir"],
+        }
+    ]
+    assert rows[0]["temperature_settle_output_dir"].endswith("T40_temp_settle")
+
+    payload = json.loads(summary.read_text(encoding="utf-8"))
+    assert payload["hard_failure"] is True
+    assert payload["failure_audit"]["status"] == "ok"
+    assert payload["failure_audit"]["status_counts"] == {"failed": 1}
+    assert payload["failure_audit"]["failure_category_counts"] == {"temperature_settle_failed": 1}
+    audit_payload = json.loads(audit_json.read_text(encoding="utf-8"))
+    assert audit_payload["rows"][0]["failure_category"] == "temperature_settle_failed"
+
+
 def test_queue_applies_n2_prepurge_once_per_temperature_group_zero_anchor(tmp_path):
     queue_path = tmp_path / "co2_runner_queue.csv"
     _write_queue_with_zero_anchor(queue_path)

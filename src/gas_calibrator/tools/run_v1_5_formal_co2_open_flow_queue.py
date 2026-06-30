@@ -812,6 +812,32 @@ def _temperature_settle_run_id(temp_c: float) -> str:
     return f"T{temp_token}_temp_settle"
 
 
+def _temperature_settle_failure_manifest_row(
+    *,
+    temp_c: float,
+    settle_run_id: str,
+    output_dir: Path,
+    row_count: int,
+) -> Dict[str, Any]:
+    return {
+        "point_run_id": settle_run_id,
+        "temp_c": float(temp_c),
+        "source_nominal_ppm": "",
+        "co2_group": "temperature_settle",
+        "sample_role": "temperature_settle",
+        "started_at": "",
+        "ended_at": datetime.now().isoformat(timespec="seconds"),
+        "returncode": "",
+        "status": "failed",
+        "point_log": "",
+        "command": "",
+        "failure_category": "temperature_settle_failed",
+        "failure_reason": f"Temperature group {temp_c:g}C failed before {int(row_count)} CO2 point(s).",
+        "temperature_settle_run_id": settle_run_id,
+        "temperature_settle_output_dir": str(Path(output_dir) / settle_run_id),
+    }
+
+
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
     args.gas_route_dewpoint_gate_max_total_wait_s = _formal_open_flow_dewpoint_gate_max_wait_s(
@@ -917,6 +943,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     args=args,
                 )
             if not temp_ok:
+                manifest_rows.append(
+                    _temperature_settle_failure_manifest_row(
+                        temp_c=float(temp_c),
+                        settle_run_id=settle_run_id,
+                        output_dir=output_dir,
+                        row_count=len(rows),
+                    )
+                )
+                _write_manifest_csv(queue_dir / "queue_manifest.csv", manifest_rows)
                 hard_failure = True
                 _log(f"Temperature group {temp_c:g}C failed; stop queue.")
                 break
