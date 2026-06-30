@@ -73,12 +73,20 @@ def test_formal_initialization_plan_freezes_getco_and_keeps_planner_safe(tmp_pat
     assert plan.safety_contract["planner_controls_gas_route"] is False
     assert plan.safety_contract["planner_controls_water_route"] is False
     assert plan.safety_contract["does_not_write_device_id"] is True
+    assert plan.safety_contract["production_database_backend"] == "postgresql"
+    assert plan.safety_contract["production_database_required_major"] == 18
     assert plan.tool_ownership["formal_initialization_runner"]["role"] == "single_formal_initialization_entrypoint"
     assert plan.tool_ownership["getco_snapshot_probe"]["role"] == (
         "subordinate_read_only_identity_and_getco_snapshot"
     )
     assert plan.tool_ownership["sn_identity_initialization"]["role"] == (
         "subordinate_first_discovery_sn_device_code_planner"
+    )
+    assert plan.tool_ownership["initialization_db_preflight"]["role"] == (
+        "subordinate_postgresql18_identity_and_evidence_preflight"
+    )
+    assert plan.tool_ownership["analyzer_check_monitor"]["role"] == (
+        "downstream_read_only_chamber_stable_monitor_record"
     )
     assert plan.tool_ownership["controlled_writers"]["role"] == "subordinate_authorized_write_tools"
     assert plan.tool_ownership["formal_route_readiness_probe"]["role"] == (
@@ -162,12 +170,20 @@ def test_formal_initialization_records_s7_s8_and_s9_physical_policies(tmp_path):
         plan.physical_contract["temperature_before_components"]
         == "SENCO7/SENCO8_neutralized; use analyzer runtime chamber/cell temperature directly"
     )
+    assert plan.physical_contract["runtime_acquisition"] == "MODE2_1Hz_active_upload_with_AVERAGE1_2_filter_before_sampling"
+    assert "PostgreSQL 18" in plan.physical_contract["database_identity_lookup"]
+    assert "--require-postgresql-18" in plan.physical_contract["database_preflight_before_routes"]
+    assert "CHECK,YGAS,FFF" in plan.physical_contract["check_monitor_after_chamber_temp_stable"]
     assert "must_be_neutralized" in plan.physical_contract["s7_s8_old_coefficient_handling"]
     assert "neutralization" in plan.physical_contract["s7_s8_subzero_failure_guard"]
 
     temperature_gate = next(step for step in plan.steps if step.step_id == "senco78_neutralization_gate")
     pressure_gate = next(step for step in plan.steps if step.step_id == "senco9_pressure_policy_gate")
     pressure_preflight = next(step for step in plan.steps if step.step_id == "pressure_senco9_no_write_preflight")
+    db_preflight = next(step for step in plan.steps if step.step_id == "initialization_db_preflight_postgresql18_gate")
+    check_monitor = next(
+        step for step in plan.steps if step.step_id == "analyzer_check_monitor_after_chamber_temp_stable_contract"
+    )
     route_gate = next(step for step in plan.steps if step.step_id == "formal_route_readiness_probe")
     assert "no longer performs temperature calibration" in temperature_gate.physical_meaning
     assert temperature_gate.writes_coefficients is True
@@ -184,6 +200,17 @@ def test_formal_initialization_records_s7_s8_and_s9_physical_policies(tmp_path):
     assert "export_v1_5_pressure_senco9_no_write_preflight" in " ".join(pressure_preflight.command or ())
     assert "--pressure-reference-json" in pressure_preflight.command
     assert "FRGsz25038057" in " ".join(pressure_preflight.command or ())
+    assert db_preflight.command == ()
+    assert db_preflight.opens_com_ports is False
+    assert db_preflight.writes_coefficients is False
+    assert "PostgreSQL 18" in db_preflight.physical_meaning
+    assert "--require-postgresql-18" in " ".join(db_preflight.safety_notes)
+    assert check_monitor.command == ()
+    assert check_monitor.opens_com_ports is True
+    assert check_monitor.writes_coefficients is False
+    assert check_monitor.gate == "required_before_point_sampling_after_chamber_temperature_stable"
+    assert "CHECK,YGAS,FFF" in check_monitor.physical_meaning
+    assert "analyzer_check_monitor.csv" in check_monitor.expected_outputs
     assert "chamber soak" in route_gate.physical_meaning
     assert route_gate.opens_com_ports is True
     assert route_gate.controls_gas_route is False
@@ -223,8 +250,12 @@ def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
         "pressure_senco9_no_write_preflight",
         "pressure_channel_completion_audit",
         "mode2_1hz_filter_startup_contract",
+        "initialization_db_preflight_postgresql18_gate",
         "formal_route_readiness_probe",
         "initialization_readiness_audit",
+    ]
+    assert contract["required_before_point_sampling_after_chamber_temperature_stable"] == [
+        "analyzer_check_monitor_after_chamber_temp_stable_contract",
     ]
 
     ps1 = outputs["powershell"].read_text(encoding="utf-8")
@@ -232,6 +263,8 @@ def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
     assert "## Tool ownership" in md
     assert "single_formal_initialization_entrypoint" in md
     assert "subordinate_first_discovery_sn_device_code_planner" in md
+    assert "PostgreSQL 18" in md
+    assert "CHECK,YGAS,FFF" in md
     assert "run_v1_5_sn_identity_initialization" in ps1
     assert "--execute" not in ps1
     assert "I_AUTHORIZE_V1_5_SN_IDENTITY_WRITE" not in ps1
@@ -246,6 +279,9 @@ def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
     assert "export_v1_5_pressure_senco9_no_write_preflight" in ps1
     assert "--pressure-reference-json" in ps1
     assert "pressure_channel_completion_audit" in ps1
+    assert "initialization_db_preflight_postgresql18_gate" in ps1
+    assert "analyzer_check_monitor_after_chamber_temp_stable_contract" in ps1
+    assert "run_v1_5_initialization_db_preflight" not in ps1
     assert "--readback-retry-delay-s 1.2" in ps1
     assert "--coefficient-read-delay-s 1.2" in ps1
 
@@ -260,6 +296,19 @@ def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
     assert any(
         row["check_name"] == "formal_initialization_planner_no_real_com" and row["status"] == "pass"
         for row in bundle["tables"]["evidence_integrity_checks"]
+    )
+    integrity_by_name = {row["check_name"]: row for row in bundle["tables"]["evidence_integrity_checks"]}
+    assert integrity_by_name["postgresql18_initialization_db_preflight_required"]["status"] == "pass"
+    assert integrity_by_name["postgresql18_initialization_db_preflight_required"]["details"][
+        "production_database_required_major"
+    ] == 18
+    assert integrity_by_name["sn_device_code_primary_identity_contract"]["status"] == "pass"
+    assert integrity_by_name["runtime_mode2_1hz_filter_contract"]["status"] == "pass"
+    assert integrity_by_name["senco78_temperature_calibration_disabled"]["status"] == "pass"
+    assert integrity_by_name["check_monitor_after_chamber_temp_stable_contract"]["status"] == "pass"
+    assert (
+        integrity_by_name["check_monitor_after_chamber_temp_stable_contract"]["details"]["artifact"]
+        == "analyzer_check_monitor.csv"
     )
 
 
