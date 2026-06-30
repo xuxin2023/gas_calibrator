@@ -887,9 +887,23 @@ def export_temperature_channel_review(
     observations: List[Dict[str, Any]] = []
     if h2o_points_parent is not None:
         point_dirs = sorted(path for path in Path(h2o_points_parent).glob("p*_h2o") if path.is_dir())
+        sample_point_dirs = [
+            path for path in point_dirs if (path / "samples_machine_readable.csv").exists()
+        ]
+        summary_only_point_dirs = [
+            path for path in point_dirs if not (path / "samples_machine_readable.csv").exists()
+        ]
+        observations.extend(
+            build_temperature_observations_from_open_flow_point_dirs(
+                sample_point_dirs,
+                target_device_ids=target_device_ids,
+                excluded_device_ids=excluded_device_ids,
+                ref_temp_source="digital_thermometer_from_h2o_full_temp",
+            )
+        )
         observations.extend(
             build_temperature_observations_from_point_dirs(
-                point_dirs,
+                summary_only_point_dirs,
                 target_device_ids=target_device_ids,
                 excluded_device_ids=excluded_device_ids,
             )

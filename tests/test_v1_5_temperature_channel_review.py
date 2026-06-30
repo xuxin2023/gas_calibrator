@@ -125,6 +125,7 @@ def _write_open_flow_point(
     ref_temp_c: float,
     stale_ref: bool = False,
     bad_device_id: str = "023",
+    route: str = "co2",
 ) -> None:
     path.mkdir(parents=True)
     headers = [
@@ -153,9 +154,9 @@ def _write_open_flow_point(
         rows.append(
             {
                 "sample_ts": f"2026-06-08T00:00:0{index}",
-                "point_title": "synthetic co2 point",
-                "point_tag": "open_flow_400ppm",
-                "route": "co2",
+                "point_title": f"synthetic {route} point",
+                "point_tag": f"{route}_open_flow",
+                "route": route,
                 "temp_set_c": temp_setpoint_c,
                 "thermometer_temp_c": ref_temp_c + index * 0.01,
                 "thermometer_cache_age_ms": 9000 if stale_ref else 20,
@@ -264,6 +265,38 @@ def test_temperature_command_export_blocks_devices_with_bad_temperature_segments
     commands_text = (output_dir / "temperature_compensation_commands.txt").read_text(encoding="utf-8")
     assert "SENCO7,YGAS,FFF" in commands_text
     assert rows_by_device_channel[("002", "SENCO7")]["command_string"] == ""
+
+
+def test_h2o_temperature_review_prefers_machine_readable_samples(tmp_path: Path) -> None:
+    parent = tmp_path / "h2o_points"
+    for temp in (0.0, 20.0, 40.0):
+        _write_open_flow_point(
+            parent / f"p001_T{temp:g}_HG20C_50RH_h2o",
+            temp_setpoint_c=temp,
+            ref_temp_c=temp + 0.2,
+            route="h2o",
+        )
+
+    output_dir = tmp_path / "h2o_review"
+    payload = export_temperature_channel_review(
+        output_dir,
+        h2o_points_parent=parent,
+        target_device_ids=("022",),
+        excluded_device_ids=(),
+    )
+
+    observations = payload["observations"]
+    assert observations
+    assert all(row["route_type"] == "h2o_open_flow_full_temperature" for row in observations)
+    assert all(
+        row["ref_temp_source"] == "digital_thermometer_from_h2o_full_temp"
+        for row in observations
+    )
+    summary = payload["summary_rows"]
+    row_022 = next(row for row in summary if row["analyzer_id"] == "022")
+    assert row_022["cell_valid_points"] == 3
+    assert row_022["shell_valid_points"] == 3
+    assert "SENCO7,YGAS,FFF" in (output_dir / "temperature_compensation_commands.txt").read_text(encoding="utf-8")
 
 
 def test_open_flow_temperature_observations_block_stale_reference(tmp_path: Path) -> None:

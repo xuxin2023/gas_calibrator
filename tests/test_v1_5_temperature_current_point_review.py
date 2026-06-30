@@ -117,6 +117,19 @@ class _WarmNeutralFakeGasAnalyzer(_NeutralFakeGasAnalyzer):
         self.raw_case = 24.5
 
 
+class _CompactNoCaseTempFakeGasAnalyzer(_NeutralFakeGasAnalyzer):
+    def parse_line(self, _line):
+        return {
+            "id": self.device_id,
+            "mode": 2,
+            "mode2_schema_version": "factory_mode2_15_no_case_temp_v1",
+            "mode2_omitted_fields_json": "[\"case_temp_c\"]",
+            "chamber_temp_c": self.raw_chamber,
+            "case_temp_c": None,
+            "raw": "YGAS,002,compact-frame",
+        }
+
+
 def test_current_temperature_review_blocks_subzero_sixty_projection(monkeypatch, tmp_path):
     monkeypatch.setattr(tool, "GasAnalyzer", _FakeGasAnalyzer)
     monkeypatch.setattr(tool, "Thermometer", _FakeThermometer)
@@ -247,6 +260,46 @@ def test_current_temperature_common_offset_requires_reference_equivalence_not_re
         "temperature_reference_not_equivalent_to_analyzer_thermal_state" in row["reason"]
         for row in review
     )
+
+
+def test_current_temperature_review_treats_compact_missing_case_temp_as_not_applicable(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(tool, "GasAnalyzer", _CompactNoCaseTempFakeGasAnalyzer)
+    monkeypatch.setattr(tool, "Thermometer", _FakeThermometer)
+    monkeypatch.setattr(tool.time, "sleep", lambda _seconds: None)
+    _FakeGasAnalyzer.instances.clear()
+    cfg_path = tmp_path / "cfg.json"
+    out_dir = tmp_path / "out"
+    _write_json(cfg_path, _config(tmp_path))
+
+    rc = tool.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--output-dir",
+            str(out_dir),
+            "--device-id",
+            "002",
+            "--sample-count",
+            "1",
+            "--sample-interval-s",
+            "0",
+            "--frame-drain-s",
+            "0",
+        ]
+    )
+
+    assert rc == 1
+    review = _rows(out_dir / "temperature_current_point_review.csv")
+    group7 = next(row for row in review if row["senco_group"] == "SENCO7")
+    group8 = next(row for row in review if row["senco_group"] == "SENCO8")
+    assert group7["status"] == "pass"
+    assert group8["status"] == "not_applicable_missing_case_temperature"
+    assert "case_temperature_not_reported_by_mode2_schema" in group8["reason"]
+    assert "use_chamber_temperature_for_new_algorithm_frame" in group8["reason"]
+    samples = _rows(out_dir / "temperature_current_point_analyzer_samples.csv")
+    assert samples[0]["mode2_schema_version"] == "factory_mode2_15_no_case_temp_v1"
 
 
 def test_current_temperature_repair_neutralizes_before_single_point_offset(monkeypatch, tmp_path):

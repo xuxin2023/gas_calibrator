@@ -220,6 +220,8 @@ def _read_analyzer_temperature(
                         "sample_index": index + 1,
                         "status": "pass" if cell is not None or shell is not None else "missing_temperature",
                         "frame_id": _device_id(parsed.get("id")),
+                        "mode2_schema_version": parsed.get("mode2_schema_version", ""),
+                        "mode2_omitted_fields_json": parsed.get("mode2_omitted_fields_json", ""),
                         "chamber_temp_c": "" if cell is None else cell,
                         "case_temp_c": "" if shell is None else shell,
                         "raw": parsed.get("raw") or line,
@@ -452,6 +454,16 @@ def main(argv: Iterable[str] | None = None) -> int:
                     current_delta is not None
                     and abs(float(current_delta)) > float(args.max_current_delta_c)
                 )
+                case_temperature_not_reported = (
+                    group == 8
+                    and current_temp is None
+                    and shape_ok
+                    and any(
+                        _safe_float(row.get("chamber_temp_c")) is not None
+                        and _safe_float(row.get("case_temp_c")) is None
+                        for row in rows
+                    )
+                )
                 current_ok = (
                     ref_temp_c is not None
                     and current_temp is not None
@@ -463,7 +475,11 @@ def main(argv: Iterable[str] | None = None) -> int:
                 if ref_temp_c is None:
                     reason_parts.append("missing_digital_thermometer_reference")
                 if current_temp is None:
-                    reason_parts.append("missing_current_analyzer_temperature")
+                    reason_parts.append(
+                        "case_temperature_not_reported_by_mode2_schema"
+                        if case_temperature_not_reported
+                        else "missing_current_analyzer_temperature"
+                    )
                 if current_temp_hard_bad:
                     reason_parts.append("current_temperature_hard_bad_value")
                 if current_delta_too_large:
@@ -480,10 +496,13 @@ def main(argv: Iterable[str] | None = None) -> int:
                 needs_repair = (
                     not shape_ok
                     or current_temp_hard_bad
-                    or current_temp is None
+                    or (current_temp is None and not case_temperature_not_reported)
                 )
                 if current_ok and shape_ok:
                     status = "pass"
+                elif case_temperature_not_reported:
+                    status = "not_applicable_missing_case_temperature"
+                    reason_parts.append("use_chamber_temperature_for_new_algorithm_frame")
                 elif reference_equivalence_required:
                     status = "reference_equivalence_required"
                     reason_parts.append("temperature_reference_not_equivalent_to_analyzer_thermal_state")
