@@ -133,6 +133,70 @@ def _write_review_artifacts(review_dir):
     )
 
 
+def _write_new_absorption_review_artifacts(
+    review_dir,
+    *,
+    include_contract=True,
+    s4_values=None,
+):
+    s4_values = (
+        [0.007731677978824871, -0.0001529135248583926, 1.3858142511341637e-06, -4.346735800928211e-09, 0.0, 0.0]
+        if s4_values is None
+        else list(s4_values)
+    )
+    contract = "new_algo_h2o_absorption_virtual_R0_poly_b4_k3" if include_contract else ""
+    _write_csv(
+        review_dir / "h2o_senco24_payload_preview.csv",
+        [
+            {
+                "component": "h2o",
+                "analyzer_prefix": "ga051",
+                "analyzer_device_id": "051",
+                "primary_senco": "SENCO2",
+                "secondary_senco": "SENCO4",
+                "senco2_payload_values_json": json.dumps(
+                    [
+                        -0.24030383435468217,
+                        -0.0025883049211054185,
+                        0.00031347462068234433,
+                        -1.2527603671430974e-05,
+                        1.4509637538096689e-07,
+                        0.0,
+                    ]
+                ),
+                "senco4_payload_values_json": json.dumps(s4_values),
+                "auto_write_allowed": "False",
+                "senco24_main_chain_contract": contract,
+                "coefficient_order": "ascending_constant_first",
+            }
+        ],
+    )
+    _write_csv(
+        review_dir / "h2o_senco24_device_policy.csv",
+        [
+            {
+                "component": "h2o",
+                "analyzer_prefix": "ga051",
+                "analyzer_device_id": "051",
+                "candidate_status": "candidate_fit_ready_new_algo_absorption_reviewed_no_write",
+                "blocked_reasons": "",
+                "candidate_contract": contract,
+            }
+        ],
+    )
+    _write_csv(
+        review_dir / "h2o_senco24_output_diagnostics.csv",
+        [
+            {
+                "component": "h2o",
+                "analyzer_device_id": "051",
+                "diagnosis": "new_algorithm_absorption_candidate_ready_for_controlled_write_preview",
+                "GETCO6_neutral": "True",
+            }
+        ],
+    )
+
+
 def _write_snapshot(path, *, getco6=None):
     _write_json(
         path,
@@ -663,3 +727,116 @@ def test_h2o_senco24_writer_refuses_nonzero_secondary_pressure_target_slots(tmp_
     )
 
     assert rc == 2
+
+
+def test_h2o_senco24_supported_rows_accept_new_absorption_s4_k3_only_with_new_algorithm(tmp_path):
+    review_dir = tmp_path / "review"
+    snapshot_path = tmp_path / "snapshot.json"
+    review_dir.mkdir()
+    _write_new_absorption_review_artifacts(review_dir)
+    _write_snapshot(snapshot_path)
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    old_rows = writer._supported_rows(review_dir=review_dir, old_snapshot=snapshot)
+    assert old_rows == []
+
+    new_rows = writer._supported_rows(
+        review_dir=review_dir,
+        old_snapshot=snapshot,
+        h2o_senco24_algorithm=writer.H2O_SENCO24_ALGORITHM_NEW_ABSORPTION,
+    )
+    assert len(new_rows) == 1
+    assert new_rows[0]["_secondary_target_values"][3] != 0.0
+    assert new_rows[0]["_secondary_target_values"][4:] == [0.0, 0.0]
+
+
+def test_h2o_senco24_new_absorption_requires_explicit_contract(tmp_path):
+    review_dir = tmp_path / "review"
+    snapshot_path = tmp_path / "snapshot.json"
+    review_dir.mkdir()
+    _write_new_absorption_review_artifacts(review_dir, include_contract=False)
+    _write_snapshot(snapshot_path)
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    rows = writer._supported_rows(
+        review_dir=review_dir,
+        old_snapshot=snapshot,
+        h2o_senco24_algorithm=writer.H2O_SENCO24_ALGORITHM_NEW_ABSORPTION,
+    )
+
+    assert rows == []
+
+
+def test_h2o_senco24_new_absorption_still_rejects_reserved_s4_tail(tmp_path):
+    review_dir = tmp_path / "review"
+    snapshot_path = tmp_path / "snapshot.json"
+    review_dir.mkdir()
+    _write_new_absorption_review_artifacts(
+        review_dir,
+        s4_values=[0.0077, -0.00015, 1.3e-06, -4.3e-09, 0.01, 0.0],
+    )
+    _write_snapshot(snapshot_path)
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    rows = writer._supported_rows(
+        review_dir=review_dir,
+        old_snapshot=snapshot,
+        h2o_senco24_algorithm=writer.H2O_SENCO24_ALGORITHM_NEW_ABSORPTION,
+    )
+
+    assert rows == []
+
+
+def test_h2o_senco24_new_absorption_writer_uses_controlled_flow(monkeypatch, tmp_path):
+    _FakeGasAnalyzer.instances = {}
+    monkeypatch.setattr(writer, "GasAnalyzer", _FakeGasAnalyzer)
+    cfg_path = tmp_path / "cfg.json"
+    review_dir = tmp_path / "review"
+    snapshot_path = tmp_path / "snapshot.json"
+    out_dir = tmp_path / "out"
+    review_dir.mkdir()
+    _write_json(cfg_path, _config(tmp_path))
+    _write_new_absorption_review_artifacts(review_dir)
+    _write_snapshot(snapshot_path)
+
+    rc = writer.main(
+        [
+            "--config",
+            str(cfg_path),
+            "--review-dir",
+            str(review_dir),
+            "--old-component-snapshot-json",
+            str(snapshot_path),
+            "--output-dir",
+            str(out_dir),
+            "--device-id",
+            "051",
+            "--h2o-senco24-algorithm",
+            writer.H2O_SENCO24_ALGORITHM_NEW_ABSORPTION,
+            "--enable-senco24-write",
+            "--operator-confirmation",
+            writer.CONFIRMATION_TEXT,
+            "--reviewer",
+            "reviewer-a",
+            "--approver",
+            "approver-b",
+            "--pre-device-cooldown-s",
+            "0",
+            "--inter-device-delay-s",
+            "0",
+            "--restore-command-gap-s",
+            "1",
+            "--post-write-settle-s",
+            "1",
+        ]
+    )
+
+    assert rc == 0
+    rows = _read_csv(out_dir / "h2o_senco24_pair_write_summary.csv")
+    assert rows[0]["status"] == "written_readback_verified"
+    assert rows[0]["h2o_senco24_algorithm"] == writer.H2O_SENCO24_ALGORITHM_NEW_ABSORPTION
+    ga = _FakeGasAnalyzer.instances["COM42"]
+    assert ga.coeff4[3] == -4.34674e-09
+    sidecar = json.loads((out_dir / "h2o_senco24_pair_write_database_sidecar.json").read_text(encoding="utf-8"))
+    assert sidecar["h2o_senco24_algorithm"] == writer.H2O_SENCO24_ALGORITHM_NEW_ABSORPTION
+    assert "new absorption contract" in sidecar["suggested_rows"][0]["command_summary"]

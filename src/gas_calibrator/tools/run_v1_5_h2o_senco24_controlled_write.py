@@ -26,6 +26,67 @@ from .v1_5_serial_safety import require_fragile_serial_timing
 
 CONFIRMATION_TEXT = "WRITE_SENCO2_SENCO4_V1_5_H2O_PAIR"
 PAIR_WRITE_PAYLOAD_WIDTH = 6
+H2O_SENCO24_ALGORITHM_OLD_RATIO_TEMPERATURE = "old_ratio_temperature"
+H2O_SENCO24_ALGORITHM_NEW_ABSORPTION = "new_absorption"
+H2O_SENCO24_ALGORITHMS = (
+    H2O_SENCO24_ALGORITHM_OLD_RATIO_TEMPERATURE,
+    H2O_SENCO24_ALGORITHM_NEW_ABSORPTION,
+)
+NEW_ABSORPTION_CONTRACT_MARKERS = ("new", "absorption")
+
+
+def _zero_tail(values: Sequence[float], start: int, *, atol: float = pair_base.SECONDARY_PRESSURE_SLOT_ZERO_ATOL) -> bool:
+    try:
+        return all(abs(float(value)) <= float(atol) for value in values[int(start) :])
+    except Exception:
+        return False
+
+
+def _contract_text(*rows: Mapping[str, Any]) -> str:
+    fields = (
+        "senco24_main_chain_contract",
+        "candidate_contract",
+        "model_formula",
+        "coefficient_order",
+        "fit_strategy",
+        "diagnosis",
+    )
+    chunks: List[str] = []
+    for row in rows:
+        for field in fields:
+            value = row.get(field)
+            if value is not None:
+                chunks.append(str(value))
+    return " ".join(chunks).strip().lower()
+
+
+def _new_absorption_contract_reviewed(
+    row: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    diag: Mapping[str, Any],
+) -> bool:
+    del diag
+    text = _contract_text(row, policy)
+    if not all(marker in text for marker in NEW_ABSORPTION_CONTRACT_MARKERS):
+        return False
+    order = str(row.get("coefficient_order") or policy.get("coefficient_order") or "").strip().lower()
+    return order in {"", "ascending_constant_first", "constant_first"}
+
+
+def _payload_slots_supported(
+    *,
+    primary_target: Sequence[float],
+    secondary_target: Sequence[float],
+    h2o_senco24_algorithm: str,
+) -> bool:
+    if len(primary_target) != PAIR_WRITE_PAYLOAD_WIDTH or len(secondary_target) != PAIR_WRITE_PAYLOAD_WIDTH:
+        return False
+    if h2o_senco24_algorithm == H2O_SENCO24_ALGORITHM_NEW_ABSORPTION:
+        # New algorithm H2O absorption contract:
+        #   SENCO2 = lnR0 b0..b4, reserved zero tail
+        #   SENCO4 = k b0..b3, reserved zero tail
+        return _zero_tail(primary_target, 5) and _zero_tail(secondary_target, 4)
+    return pair_base._secondary_pressure_target_slots_zero(secondary_target)
 
 
 def _sha256_file(path: Path) -> str:
@@ -69,6 +130,7 @@ def _supported_rows(
     old_snapshot: Mapping[str, Any],
     allow_review_required: bool = False,
     allow_separate_senco6_layer_review: bool = False,
+    h2o_senco24_algorithm: str = H2O_SENCO24_ALGORITHM_OLD_RATIO_TEMPERATURE,
 ) -> List[Dict[str, Any]]:
     payload_rows = base._read_csv(review_dir / "h2o_senco24_payload_preview.csv")
     policy_by_device = _csv_by_device(review_dir / "h2o_senco24_device_policy.csv")
@@ -105,9 +167,15 @@ def _supported_rows(
         old_primary = base._parse_values(json.dumps(snapshot.get("GETCO2_before") or []))
         old_secondary = base._parse_values(json.dumps(snapshot.get("GETCO4_before") or []))
         old_senco6 = base._parse_values(json.dumps(snapshot.get("GETCO6_before") or []))
-        if len(primary_target) != PAIR_WRITE_PAYLOAD_WIDTH or len(secondary_target) != PAIR_WRITE_PAYLOAD_WIDTH:
+        if h2o_senco24_algorithm == H2O_SENCO24_ALGORITHM_NEW_ABSORPTION and not _new_absorption_contract_reviewed(
+            row, policy, diag
+        ):
             continue
-        if not pair_base._secondary_pressure_target_slots_zero(secondary_target):
+        if not _payload_slots_supported(
+            primary_target=primary_target,
+            secondary_target=secondary_target,
+            h2o_senco24_algorithm=h2o_senco24_algorithm,
+        ):
             continue
         # Some firmware revisions omit trailing zero coefficient slots when
         # reading old GETCO4 values.  The live snapshot matcher below already
@@ -326,6 +394,16 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--device-id", action="append", default=[], help="Analyzer MODE2 device ID to write.")
     parser.add_argument("--write-all-ready", action="store_true", help="Write every ready H2O SENCO2/SENCO4 candidate.")
     parser.add_argument(
+        "--h2o-senco24-algorithm",
+        choices=H2O_SENCO24_ALGORITHMS,
+        default=H2O_SENCO24_ALGORITHM_OLD_RATIO_TEMPERATURE,
+        help=(
+            "Select the SENCO2/SENCO4 slot contract. old_ratio_temperature keeps the mature V1.5 "
+            "pressure-slot-zero gate. new_absorption allows SENCO4 slot 4 to carry k3 only when "
+            "the review artifacts explicitly declare a new absorption contract."
+        ),
+    )
+    parser.add_argument(
         "--allow-review-required-candidates",
         action="store_true",
         help=(
@@ -372,6 +450,7 @@ def _write_database_sidecar(
     snapshot_path: Path,
     summary_rows: Sequence[Mapping[str, Any]],
     conclusion_rows: Sequence[Mapping[str, Any]],
+    h2o_senco24_algorithm: str,
 ) -> Path:
     artifacts: List[Dict[str, Any]] = []
     artifact_paths: Dict[str, Path] = {key: Path(value) for key, value in outputs.items()}
@@ -391,6 +470,16 @@ def _write_database_sidecar(
     suggested_rows: List[Dict[str, Any]] = []
     for row in summary_rows:
         device_id = base._device_id(row.get("analyzer_device_id"))
+        if h2o_senco24_algorithm == H2O_SENCO24_ALGORITHM_NEW_ABSORPTION:
+            command_summary = (
+                "SENCO2 and SENCO4 paired H2O coefficient write using the new absorption contract; "
+                "SENCO2 carries lnR0(T1), SENCO4 carries k(T1), no route control, no device-ID write, no CLEARSENCO."
+            )
+        else:
+            command_summary = (
+                "SENCO2 and SENCO4 paired H2O coefficient write; pressure target slots remain frozen at zero; "
+                "no route control, no device-ID write, no CLEARSENCO."
+            )
         suggested_rows.append(
             {
                 "db_table": "coefficient_write_events",
@@ -401,10 +490,7 @@ def _write_database_sidecar(
                 "status": str(row.get("status") or "unknown"),
                 "approved_by": row.get("approver"),
                 "old_coefficients_hash": old_coefficients_hash,
-                "command_summary": (
-                    "SENCO2 and SENCO4 paired H2O coefficient write; pressure target slots remain frozen at zero; "
-                    "no route control, no device-ID write, no CLEARSENCO."
-                ),
+                "command_summary": command_summary,
                 "readback_json": json.dumps(
                     {
                         "senco2": base._parse_values(row.get("senco2_readback")),
@@ -426,6 +512,7 @@ def _write_database_sidecar(
         "writes_device_id": False,
         "writes_senco2": True,
         "writes_senco4": True,
+        "h2o_senco24_algorithm": h2o_senco24_algorithm,
         "clears_senco": False,
         "database_target_tables": ["sample_files", "coefficient_write_events", "audit_events"],
         "artifacts": artifacts,
@@ -462,6 +549,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         old_snapshot=old_snapshot,
         allow_review_required=bool(args.allow_review_required_candidates),
         allow_separate_senco6_layer_review=bool(args.allow_separate_senco6_layer_review),
+        h2o_senco24_algorithm=str(args.h2o_senco24_algorithm),
     )
     targets = _select_targets(supported, selected_device_ids=args.device_id, write_all_ready=bool(args.write_all_ready))
     if not targets:
@@ -622,6 +710,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "GETCO6_before_live": old_senco6_live,
             "candidate_senco2_values": primary_target,
             "candidate_senco4_values": secondary_target,
+            "h2o_senco24_algorithm": str(args.h2o_senco24_algorithm),
             "senco2_readback": list(write_result.get("final_senco2_readback") or []),
             "senco4_readback": list(write_result.get("final_senco4_readback") or []),
         }
@@ -632,6 +721,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "port": analyzer_cfg.get("port", ""),
                 "candidate_senco2_values": json.dumps(primary_target, ensure_ascii=False),
                 "candidate_senco4_values": json.dumps(secondary_target, ensure_ascii=False),
+                "h2o_senco24_algorithm": str(args.h2o_senco24_algorithm),
                 "senco2_readback": json.dumps(write_result.get("final_senco2_readback") or [], ensure_ascii=False),
                 "senco4_readback": json.dumps(write_result.get("final_senco4_readback") or [], ensure_ascii=False),
                 "GETCO6_before_live": json.dumps(old_senco6_live, ensure_ascii=False),
@@ -671,6 +761,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "old_senco6_live_json": json.dumps(old_senco6_live, ensure_ascii=False),
                 "candidate_senco2_json": json.dumps(primary_target, ensure_ascii=False),
                 "candidate_senco4_json": json.dumps(secondary_target, ensure_ascii=False),
+                "h2o_senco24_algorithm": str(args.h2o_senco24_algorithm),
                 "write_result_json": json.dumps(write_result, ensure_ascii=False, default=str),
                 "runtime_restore_json": json.dumps(restore, ensure_ascii=False, default=str),
                 "candidate_source_row_json": json.dumps(
@@ -696,6 +787,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "processed_count": len(summary_rows),
             "success_count": sum(1 for row in summary_rows if row.get("status") == "written_readback_verified"),
             "stop_on_failure": bool(args.stop_on_failure),
+            "h2o_senco24_algorithm": str(args.h2o_senco24_algorithm),
             "controls_water_or_gas_routes": False,
             "writes_device_id": False,
             "writes_senco2": True,
@@ -716,6 +808,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             "device_ids": [base._device_id(item) for item in args.device_id],
             "reviewer": str(args.reviewer),
             "approver": str(args.approver),
+            "h2o_senco24_algorithm": str(args.h2o_senco24_algorithm),
             "controls_water_or_gas_routes": False,
             "writes_device_id": False,
             "writes_senco2": True,
@@ -738,7 +831,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         },
         notes=[
             "Controlled real-device H2O SENCO2 + SENCO4 paired coefficient write.",
-            "SENCO2 carries H2O ratio polynomial terms; SENCO4 carries T/T2/RT terms while pressure slots stay frozen at zero.",
+            (
+                "New absorption contract: SENCO2 carries lnR0(T1) terms and SENCO4 carries k(T1) terms."
+                if str(args.h2o_senco24_algorithm) == H2O_SENCO24_ALGORITHM_NEW_ABSORPTION
+                else "Mature V1.5 contract: SENCO2 carries H2O ratio polynomial terms; SENCO4 carries T/T2/RT terms while pressure slots stay frozen at zero."
+            ),
             "GETCO6 must be neutral unless SENCO6 has been explicitly reviewed as a separate final affine layer; this tool never writes or clears SENCO6.",
             "When the separate SENCO6 layer is enabled, the reviewed SENCO6 write must happen after the SENCO2/SENCO4 main-chain write.",
             "No PACE, valve, water route, gas route, humidity generator, device-ID writes, or CLEARSENCO commands are performed.",
@@ -783,6 +880,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         snapshot_path=snapshot_out_path,
         summary_rows=summary_rows,
         conclusion_rows=conclusion_rows,
+        h2o_senco24_algorithm=str(args.h2o_senco24_algorithm),
     )
     base._log(f"Controlled H2O SENCO2/SENCO4 pair write report saved: {outputs['workbook']}")
     base._log(f"Old GETCO2/GETCO4/GETCO6 snapshot saved: {snapshot_out_path}")
