@@ -1554,60 +1554,6 @@ def build_formal_initialization_plan(
             gate="required_before_open_flow_sampling",
         ),
         InitializationStep(
-            step_id="initialization_db_preflight_postgresql18_gate",
-            title="Verify PostgreSQL 18 SN/device_code and initialization evidence readiness",
-            phase="database_preflight",
-            execution_mode="external_database_preflight_required_before_open_flow",
-            required_inputs=(
-                "PostgreSQL 18 DSN",
-                "expected 1-6 analyzer SN/device_code identities",
-                _artifact(root, "v1_5_formal_initialization_db_bundle.json"),
-                _artifact(getco_dir, "old_component_coefficients_snapshot.json"),
-                "runtime setup event with MODE2, 1 Hz active upload, and AVERAGE1/2 evidence",
-            ),
-            expected_outputs=(
-                _artifact(initialization_db_preflight_dir, "v1_5_initialization_db_preflight.json"),
-                _artifact(initialization_db_preflight_dir, "v1_5_initialization_db_preflight.md"),
-            ),
-            physical_meaning=(
-                "Before formal CO2/H2O open-flow sampling, the production evidence registry must be able "
-                f"to query the 1-6 analyzer batch by 8-digit SN/device_code and protocol device ID in PostgreSQL "
-                f"{POSTGRESQL_PRODUCTION_MAJOR}. This preserves future traceability without using the old "
-                "three-digit ID as the only unique identity."
-            ),
-            safety_notes=(
-                "Run gas_calibrator.tools.run_v1_5_initialization_db_preflight with --require-postgresql-18.",
-                "This planner does not connect to PostgreSQL or mutate database state.",
-                "The preflight does not open COM, write SN/device_code, write SENCO, or control routes.",
-            ),
-            gate="required_before_open_flow_sampling",
-        ),
-        InitializationStep(
-            step_id="analyzer_check_monitor_after_chamber_temp_stable_contract",
-            title="Record CHECK monitor after all active analyzer chamber temperatures are stable",
-            phase="temperature_stability_evidence",
-            execution_mode="performed_by_formal_runner_after_all_active_chamber_temperature_stable",
-            opens_com_ports=True,
-            required_inputs=(
-                "all active analyzer chamber-temperature stable event",
-                "MODE2 active 1 Hz stream",
-                "new-algorithm or CHECK-capable analyzer protocol",
-            ),
-            expected_outputs=(CHECK_MONITOR_ARTIFACT,),
-            physical_meaning=(
-                "New-algorithm analyzers expose thermostat monitor voltages through CHECK,YGAS,FFF. "
-                "The formal runner records the two voltage readings only after all active analyzer chamber "
-                "temperatures pass stability, so the record belongs to the point-level sampling evidence rather "
-                "than to early route setup."
-            ),
-            safety_notes=(
-                f"Adjacent analyzer CHECK commands must keep >= {gap:.1f}s spacing.",
-                "CHECK is read-only and must never be used as a coefficient or identity write path.",
-                "Legacy analyzers that do not support CHECK remain covered by the normal chamber-temperature stability gate.",
-            ),
-            gate="required_before_point_sampling_after_chamber_temperature_stable",
-        ),
-        InitializationStep(
             step_id="senco9_pressure_policy_gate",
             title="Use direct pressure calibration instead of pressure quick-check acceptance",
             phase="input_quantity_control",
@@ -1690,6 +1636,35 @@ def build_formal_initialization_plan(
             gate="required_before_open_flow_sampling_when_pressure_channel_was_repaired",
         ),
         InitializationStep(
+            step_id="initialization_db_preflight_postgresql18_gate",
+            title="Verify PostgreSQL 18 SN/device_code and initialization evidence readiness",
+            phase="database_preflight",
+            execution_mode="external_database_preflight_required_before_open_flow",
+            required_inputs=(
+                "PostgreSQL 18 DSN",
+                "expected 1-6 analyzer SN/device_code identities",
+                _artifact(root, "v1_5_formal_initialization_db_bundle.json"),
+                _artifact(getco_dir, "old_component_coefficients_snapshot.json"),
+                "runtime setup event with MODE2, 1 Hz active upload, and AVERAGE1/2 evidence",
+            ),
+            expected_outputs=(
+                _artifact(initialization_db_preflight_dir, "v1_5_initialization_db_preflight.json"),
+                _artifact(initialization_db_preflight_dir, "v1_5_initialization_db_preflight.md"),
+            ),
+            physical_meaning=(
+                "Before formal CO2/H2O open-flow sampling, the production evidence registry must be able "
+                f"to query the 1-6 analyzer batch by 8-digit SN/device_code and protocol device ID in PostgreSQL "
+                f"{POSTGRESQL_PRODUCTION_MAJOR}. This preserves future traceability without using the old "
+                "three-digit ID as the only unique identity."
+            ),
+            safety_notes=(
+                "Run gas_calibrator.tools.run_v1_5_initialization_db_preflight with --require-postgresql-18.",
+                "This planner does not connect to PostgreSQL or mutate database state.",
+                "The preflight does not open COM, write SN/device_code, write SENCO, or control routes.",
+            ),
+            gate="required_before_open_flow_sampling",
+        ),
+        InitializationStep(
             step_id="formal_route_readiness_probe",
             title="Verify formal N2/CO2/H2O route readiness before chamber soak",
             phase="route_precheck",
@@ -1711,6 +1686,31 @@ def build_formal_initialization_plan(
                 "Only the N2 source valve is toggled, and only when N2 prepurge is enabled.",
             ),
             gate="required_before_open_flow_sampling",
+        ),
+        InitializationStep(
+            step_id="analyzer_check_monitor_after_chamber_temp_stable_contract",
+            title="Record CHECK monitor after all active analyzer chamber temperatures are stable",
+            phase="temperature_stability_evidence",
+            execution_mode="performed_by_formal_runner_after_all_active_chamber_temperature_stable",
+            opens_com_ports=True,
+            required_inputs=(
+                "all active analyzer chamber-temperature stable event",
+                "MODE2 active 1 Hz stream",
+                "new-algorithm or CHECK-capable analyzer protocol",
+            ),
+            expected_outputs=(CHECK_MONITOR_ARTIFACT,),
+            physical_meaning=(
+                "New-algorithm analyzers expose thermostat monitor voltages through CHECK,YGAS,FFF. "
+                "The formal runner records the two voltage readings only after all active analyzer chamber "
+                "temperatures pass stability, so the record belongs to the point-level sampling evidence rather "
+                "than to early route setup."
+            ),
+            safety_notes=(
+                f"Adjacent analyzer CHECK commands must keep >= {gap:.1f}s spacing.",
+                "CHECK is read-only and must never be used as a coefficient or identity write path.",
+                "Legacy analyzers that do not support CHECK remain covered by the normal chamber-temperature stability gate.",
+            ),
+            gate="required_before_point_sampling_after_chamber_temperature_stable",
         ),
         InitializationStep(
             step_id="initialization_readiness_audit",

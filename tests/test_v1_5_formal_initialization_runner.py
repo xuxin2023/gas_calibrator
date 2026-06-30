@@ -218,6 +218,11 @@ def test_formal_initialization_records_s7_s8_and_s9_physical_policies(tmp_path):
     assert "run_v1_5_formal_route_readiness_probe" in " ".join(route_gate.command or ())
     assert "temperature_current_point_review_gate" not in {step.step_id for step in plan.steps}
     assert "temperature_current_point_single_point_repair_gate" not in {step.step_id for step in plan.steps}
+    step_order = {step.step_id: index for index, step in enumerate(plan.steps)}
+    assert step_order["pressure_channel_completion_audit"] < step_order["initialization_db_preflight_postgresql18_gate"]
+    assert step_order["initialization_db_preflight_postgresql18_gate"] < step_order["formal_route_readiness_probe"]
+    assert step_order["formal_route_readiness_probe"] < step_order["analyzer_check_monitor_after_chamber_temp_stable_contract"]
+    assert step_order["analyzer_check_monitor_after_chamber_temp_stable_contract"] < step_order["initialization_readiness_audit"]
 
 
 def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
@@ -426,6 +431,46 @@ def test_formal_initialization_executor_runs_only_offline_without_unlocks(tmp_pa
     assert by_step["initialization_readiness_audit"].status == "passed"
     assert execution_outputs["execution_json"].exists()
     assert execution_outputs["execution_csv"].exists()
+
+
+def test_formal_initialization_db_and_check_contracts_do_not_execute_hardware_or_database(tmp_path):
+    config = _write_config(tmp_path / "runtime.json")
+    out = tmp_path / "exec_contracts"
+    plan = build_formal_initialization_plan(config_path=config, output_dir=out, run_id="demo")
+    outputs = write_formal_initialization_plan(plan)
+    calls = []
+
+    def fake_runner(command, **_kwargs):
+        calls.append(tuple(command))
+        raise AssertionError("contract-only initialization gates must not spawn subprocesses")
+
+    report, _execution_outputs = execute_formal_initialization_plan(
+        plan,
+        outputs=outputs,
+        selected_steps=(
+            "initialization_db_preflight_postgresql18_gate",
+            "analyzer_check_monitor_after_chamber_temp_stable_contract",
+        ),
+        command_runner=fake_runner,
+        stop_on_failure=False,
+    )
+
+    assert report.status == "passed"
+    assert calls == []
+    by_step = {row.step_id: row for row in report.step_results}
+    db_gate = by_step["initialization_db_preflight_postgresql18_gate"]
+    check_gate = by_step["analyzer_check_monitor_after_chamber_temp_stable_contract"]
+    assert db_gate.status == "not_applicable"
+    assert db_gate.reason == "no_standalone_command"
+    assert db_gate.opens_com_ports is False
+    assert db_gate.writes_coefficients is False
+    assert check_gate.status == "not_applicable"
+    assert check_gate.reason == "no_standalone_command"
+    assert check_gate.opens_com_ports is True
+    assert check_gate.writes_coefficients is False
+    check_step = next(step for step in plan.steps if step.step_id == check_gate.step_id)
+    assert "Legacy analyzers that do not support CHECK" in " ".join(check_step.safety_notes)
+    assert "new-algorithm or CHECK-capable analyzer protocol" in check_step.required_inputs
 
 
 def test_formal_initialization_executor_exports_pressure_completion_before_readiness_when_paths_are_supplied(tmp_path):
