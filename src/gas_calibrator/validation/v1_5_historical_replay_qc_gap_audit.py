@@ -198,17 +198,6 @@ def _missing_qc_points(model: Mapping[str, Any]) -> list[QcGapPoint]:
     return points
 
 
-def _ancestor_dirs(path: Path, stop_after: int = 3) -> list[Path]:
-    dirs: list[Path] = []
-    current = path
-    for _ in range(stop_after):
-        current = current.parent
-        if current in dirs:
-            break
-        dirs.append(current)
-    return dirs
-
-
 def _candidate_from_manifest_row(point: QcGapPoint, manifest: Path, row: Mapping[str, str]) -> QcGapCandidate:
     can_fit = _boolish(row.get("sample_can_enter_calibration_fit"))
     can_diag = _boolish(row.get("sample_can_enter_diagnostic_model"))
@@ -309,19 +298,37 @@ def _quality_candidate_from_dir(point: QcGapPoint, candidate_dir: Path, *, same_
 def _find_same_run_manifest_candidates(point: QcGapPoint) -> list[QcGapCandidate]:
     point_dir = Path(point.point_path)
     candidates: list[QcGapCandidate] = []
-    seen_manifests: set[Path] = set()
-    for ancestor in _ancestor_dirs(point_dir):
-        if not ancestor.exists():
-            continue
-        manifests = list(ancestor.glob("**/queue_manifest_with_quality.csv"))
-        for manifest in manifests:
-            if manifest in seen_manifests:
-                continue
-            seen_manifests.add(manifest)
-            for row in _read_csv_rows(manifest):
-                if str(row.get("point_run_id") or "") == point.point_id:
-                    candidates.append(_candidate_from_manifest_row(point, manifest, row))
+    for manifest in _same_run_manifest_paths(point_dir):
+        for row in _read_csv_rows(manifest):
+            if str(row.get("point_run_id") or "") == point.point_id:
+                candidates.append(_candidate_from_manifest_row(point, manifest, row))
     return candidates
+
+
+def _same_run_manifest_paths(point_dir: Path) -> list[Path]:
+    """Return bounded same-run queue-manifest candidates near one point.
+
+    Historical runs store quality backfills either beside the route root or one
+    run-folder level below it. Keep this explicit so a single missing-QC point
+    never recursively scans a whole handoff tree.
+    """
+
+    bases = [point_dir.parent, point_dir.parent.parent]
+    patterns = (
+        "queue_manifest_with_quality.csv",
+        "quality_backfill*/queue_manifest_with_quality.csv",
+        "*/queue_manifest_with_quality.csv",
+        "*/quality_backfill*/queue_manifest_with_quality.csv",
+    )
+    found: dict[str, Path] = {}
+    for base in bases:
+        if not base.exists():
+            continue
+        for pattern in patterns:
+            for manifest in base.glob(pattern):
+                if manifest.is_file():
+                    found[str(manifest.resolve())] = manifest
+    return [found[key] for key in sorted(found)]
 
 
 def _find_local_raw_evidence(point: QcGapPoint) -> list[QcGapCandidate]:

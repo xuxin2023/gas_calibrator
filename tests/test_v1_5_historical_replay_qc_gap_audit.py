@@ -104,6 +104,62 @@ def _summary_by_point(model: dict) -> dict[str, dict]:
     return {row["point_id"]: row for row in model["missing_points"]}
 
 
+def test_qc_gap_audit_keeps_same_run_manifest_search_bounded(tmp_path: Path) -> None:
+    same_run = tmp_path / "same_run"
+    point = same_run / "p050_T20_500ppm_fit"
+    point.mkdir(parents=True, exist_ok=True)
+    (point / "io_20260701.csv").write_text("timestamp,value\n1,ok\n", encoding="utf-8")
+    far_manifest = same_run / "large_unrelated_tree" / "nested" / "quality_backfill_20260701" / "queue_manifest_with_quality.csv"
+    _write_csv(
+        far_manifest,
+        [
+            {
+                "point_run_id": "p050_T20_500ppm_fit",
+                "status": "failed",
+                "failure_category": "far_nested_should_not_bind",
+                "failure_reason": "bounded_search_guard",
+                "quality_grade": "C_reject",
+                "sample_can_enter_calibration_fit": "False",
+                "sample_can_enter_diagnostic_model": "False",
+                "quality_reason": "bounded_search_guard",
+            }
+        ],
+    )
+    replay = tmp_path / "v1_5_historical_replay_evidence.json"
+    replay.write_text(
+        json.dumps(
+            {
+                "manifest": {"schema": "fixture"},
+                "points": [
+                    {
+                        "family_id": "mature_0620_legacy_ratio",
+                        "route_kind": "co2",
+                        "point_id": "p050_T20_500ppm_fit",
+                        "temp_c": 20.0,
+                        "co2_ppm": 500.0,
+                        "hgen_c": None,
+                        "rh_pct": None,
+                        "point_path": str(point),
+                        "quality_source": "",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    model = build_v1_5_historical_replay_qc_gap_audit(replay_evidence_path=replay)
+    summary = _summary_by_point(model)["p050_T20_500ppm_fit"]
+
+    assert summary["recommendation"] == "raw_only_generate_qc_or_rerun_targeted_point"
+    assert not any(
+        row["candidate_type"] == "same_run_queue_manifest_with_quality"
+        for row in model["candidate_evidence"]
+    )
+
+
 def test_qc_gap_audit_finds_reject_only_cross_run_and_raw_only(tmp_path: Path) -> None:
     replay = _write_replay_evidence(tmp_path)
 

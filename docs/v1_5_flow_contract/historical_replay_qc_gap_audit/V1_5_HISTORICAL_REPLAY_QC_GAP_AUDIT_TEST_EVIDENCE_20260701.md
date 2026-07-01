@@ -18,8 +18,8 @@ python -m pytest tests\test_v1_5_historical_replay_evidence.py tests\test_v1_5_h
 ## Stdout
 
 ```text
-................................................                         [100%]
-48 passed in 10.25s
+.................................................                        [100%]
+49 passed in 11.29s
 ```
 
 ## Live QC Gap Audit Output
