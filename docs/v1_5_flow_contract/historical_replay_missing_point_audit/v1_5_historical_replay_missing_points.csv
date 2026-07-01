@@ -1,0 +1,10 @@
+﻿family_id,route_kind,algorithm_profile_id,point_key,temp_c,co2_ppm,hgen_c,rh_pct,is_new_algorithm_supplemental,source_summary_status,candidate_count,candidate_decisions,recommendation
+new_algorithm_shadow_run,co2,absorption_ratio_shadow,-20/0,-20.0,0.0,,,False,review_required,2,"[""cross_family_reference_not_direct_bind"", ""segmented_quality_candidate_review_bind""]",review_bind_segmented_quality_candidate
+new_algorithm_shadow_run,co2,absorption_ratio_shadow,-20/400,-20.0,400.0,,,False,review_required,2,"[""cross_family_reference_not_direct_bind"", ""segmented_quality_candidate_review_bind""]",review_bind_segmented_quality_candidate
+new_algorithm_shadow_run,co2,absorption_ratio_shadow,-20/600,-20.0,600.0,,,True,review_required,0,[],targeted_supplemental_resampling_candidate
+new_algorithm_shadow_run,co2,absorption_ratio_shadow,-20/1000,-20.0,1000.0,,,False,review_required,3,"[""cross_family_reference_not_direct_bind"", ""segmented_quality_candidate_review_bind"", ""segmented_raw_only_qc_derivation_required""]",review_bind_segmented_quality_candidate
+new_algorithm_shadow_run,co2,absorption_ratio_shadow,-10/0,-10.0,0.0,,,False,review_required,2,"[""cross_family_reference_not_direct_bind"", ""segmented_quality_candidate_review_bind""]",review_bind_segmented_quality_candidate
+new_algorithm_shadow_run,co2,absorption_ratio_shadow,-10/400,-10.0,400.0,,,False,review_required,2,"[""cross_family_reference_not_direct_bind"", ""segmented_quality_candidate_review_bind""]",review_bind_segmented_quality_candidate
+new_algorithm_shadow_run,co2,absorption_ratio_shadow,-10/600,-10.0,600.0,,,True,review_required,0,[],targeted_supplemental_resampling_candidate
+new_algorithm_shadow_run,co2,absorption_ratio_shadow,-10/1000,-10.0,1000.0,,,False,review_required,2,"[""cross_family_reference_not_direct_bind"", ""segmented_quality_candidate_review_bind""]",review_bind_segmented_quality_candidate
+new_algorithm_shadow_run,h2o,absorption_ratio_shadow,40/30/30,40.0,,30.0,30.0,True,review_required,0,[],targeted_supplemental_resampling_candidate

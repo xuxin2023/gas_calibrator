@@ -1,4 +1,4 @@
-# V1.5 Historical Replay Evidence Test Evidence
+# V1.5 Historical Replay Missing Point Audit Test Evidence
 
 - date: `2026-07-01`
 - cwd: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean`
@@ -22,16 +22,19 @@ python -m pytest tests\test_v1_5_historical_replay_evidence.py tests\test_v1_5_h
 51 passed in 12.98s
 ```
 
-## Live Evidence Binding Output
+## Live Missing-Point Audit Output
 
-The generated live binding under `docs\v1_5_flow_contract\historical_replay_evidence\` is intentionally conservative:
+The generated live audit under `docs\v1_5_flow_contract\historical_replay_missing_point_audit\` is intentionally conservative:
 
-- `status=blocked`
-- `blocker_count=1`
-- `review_required_count=1`
-- Mature 0620 legacy CO2 evidence matched `45/45` points, while preserving rejected analyzer rows.
-- New-algorithm CO2 evidence matched `39/47` points. The missing list now includes the required supplemental gas points `-20C/600ppm` and `-10C/600ppm`, so the missing segment remains review-required.
-- New-algorithm H2O evidence matched `13/14` wet points. The missing list includes the required supplemental wet point `40C/HGEN30C/30RH`.
-- Missing point-level QC evidence remains a blocker for fit-input promotion.
+- `status=review_required`
+- `blocker_count=0`
+- `review_required_count=2`
+- `missing_point_count=9`
+- `segmented_quality_candidate_count=6`
+- `supplemental_unresolved_count=3`
+- `unresolved_point_count=3`
+- New-algorithm base CO2 low-temperature points `-20C/{0,400,1000}` and `-10C/{0,400,1000}` have segmented quality candidates under the new-algorithm run area and require review before binding.
+- Cross-family legacy same-physical-point evidence is preserved as reference-only and is not direct binding evidence for the new-algorithm run.
+- New-algorithm supplemental points `-20C/600ppm`, `-10C/600ppm`, and `40C/HGEN30C/30RH` have no candidate evidence and remain targeted supplemental resampling candidates.
 
 This is program-level replay evidence only. It is not real acceptance, archive release, or PostgreSQL 18 database-import evidence.

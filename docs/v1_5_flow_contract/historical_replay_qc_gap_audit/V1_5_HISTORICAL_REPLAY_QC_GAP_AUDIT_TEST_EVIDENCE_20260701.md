@@ -2,7 +2,7 @@
 
 - date: `2026-07-01`
 - cwd: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean`
-- scope: `historical replay evidence binder + QC gap audit + replay contract + mature route contract + entrypoint inventory`
+- scope: `historical replay evidence binder + missing-point audit + QC gap audit + replay contract + mature route contract + entrypoint inventory`
 - opens_com_ports: `false`
 - connects_postgresql: `false`
 - controls_water_or_gas_routes: `false`
@@ -12,14 +12,14 @@
 ## Command
 
 ```powershell
-python -m pytest tests\test_v1_5_historical_replay_evidence.py tests\test_v1_5_historical_replay_qc_gap_audit.py tests\test_v1_5_historical_replay_contract.py tests\test_v1_5_mature_route_contract.py tests\test_v1_5_entrypoint_inventory.py -q
+python -m pytest tests\test_v1_5_historical_replay_evidence.py tests\test_v1_5_historical_replay_missing_point_audit.py tests\test_v1_5_historical_replay_qc_gap_audit.py tests\test_v1_5_historical_replay_contract.py tests\test_v1_5_mature_route_contract.py tests\test_v1_5_entrypoint_inventory.py -q
 ```
 
 ## Stdout
 
 ```text
-.................................................                        [100%]
-49 passed in 11.29s
+...................................................                      [100%]
+51 passed in 12.98s
 ```
 
 ## Live QC Gap Audit Output
