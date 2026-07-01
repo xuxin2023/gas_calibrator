@@ -330,6 +330,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline identity/GETCO readiness sidecar; consumes read-only GETCO artifacts and does not open COM")
     elif lower == "export_v1_5_formal_run_status":
         notes.append("offline formal run status rollup; reads readiness/archive sidecars and does not open COM")
+    elif lower == "export_v1_5_formal_database_dry_run":
+        notes.append("offline PostgreSQL 18 database dry-run contract; previews schema and insert roles without connecting or importing data")
     elif lower == "export_v1_5_historical_replay_contract":
         notes.append("offline historical replay contract; validates replay interpretation without opening COM or releasing archive/database evidence")
     elif lower == "export_v1_5_historical_replay_evidence":

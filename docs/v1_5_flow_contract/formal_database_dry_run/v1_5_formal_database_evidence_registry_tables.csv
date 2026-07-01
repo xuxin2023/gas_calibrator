@@ -1,0 +1,15 @@
+﻿database_schema,table_name,present,columns,unique_constraints,indexes,physical_role
+v1_5_evidence,runs,True,id;run_id;run_dir;plan_id;plan_version;analyzer_id;operator_name;config_hash;package_status;package_blockers;evidence_status;metadata,run_id,migration_001_v1_5_evidence_registry,evidence package/run root and release status
+v1_5_evidence,devices,True,id;device_type;device_role;display_name;serial_number;metadata,id,migration_001_v1_5_evidence_registry,"reference devices, gas analyzers, standards, and transport devices in the evidence bundle"
+v1_5_evidence,run_devices,True,id;run_db_id;device_id;role;metadata,"run_db_id,device_id,role",migration_001_v1_5_evidence_registry,run-to-device participation and role mapping
+v1_5_evidence,standard_gases,True,id;run_db_id;component;cylinder_id;certificate_value;certificate_uncertainty;valid_until;supplier;certificate_hash;metadata,id,migration_001_v1_5_evidence_registry,standard gas certificates and cylinder traceability
+v1_5_evidence,reference_certificates,True,id;run_db_id;device_id;reference_role;certificate_id;certificate_hash;valid_until;uncertainty;unit;metadata,id,migration_001_v1_5_evidence_registry,pressure/dewpoint/reference device certificates
+v1_5_evidence,calibration_points,True,id;run_db_id;component;point_key;point_tag;pressure_mode;target_value;sample_count;a_grade_count;b_grade_count;rejected_count;metadata,id,migration_001_v1_5_evidence_registry,formal point-level summary and quality counts
+v1_5_evidence,sample_files,True,id;run_db_id;artifact_role;path;sha256;size_bytes;modified_at;required;metadata,"run_db_id,path",migration_001_v1_5_evidence_registry,raw CSV/JSON/MD/PDF artifact hash index
+v1_5_evidence,qc_results,True,id;run_db_id;scope;subject_id;rule_name;status;severity;reasons;metrics;source_artifact_id;metadata,id,migration_001_v1_5_evidence_registry,formal evidence QC checks and blocker reasons
+v1_5_evidence,coefficient_snapshots,True,id;run_db_id;analyzer_id;snapshot_type;coefficients;coefficients_hash;source_artifact_id;metadata,id,migration_001_v1_5_evidence_registry,old GETCO/SENCO/R0 snapshots before any write
+v1_5_evidence,coefficient_candidates,True,id;run_db_id;component;candidate_status;allowed_for_review;auto_write_allowed;blockers;coefficients;source_artifact_id;metadata,id,migration_001_v1_5_evidence_registry,no-write candidate coefficient review payloads
+v1_5_evidence,coefficient_write_events,True,id;run_db_id;analyzer_id;event_type;status;approved_by;command_summary;old_coefficients_hash;candidate_id;readback;metadata,id,migration_001_v1_5_evidence_registry,controlled write/readback/rollback evidence
+v1_5_evidence,reports,True,id;run_db_id;report_type;path;sha256;status;generated_at;metadata,id,migration_001_v1_5_evidence_registry,formal reports and certificates
+v1_5_evidence,audit_events,True,id;run_db_id;event_type;actor;event_at;payload,id,migration_001_v1_5_evidence_registry,operator/reviewer/approver events
+v1_5_evidence,evidence_integrity_checks,True,id;run_db_id;check_name;status;severity;details,id,migration_001_v1_5_evidence_registry,"hash, identity, archive, and database-release checks"
