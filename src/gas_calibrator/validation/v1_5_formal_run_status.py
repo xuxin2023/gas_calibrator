@@ -1,0 +1,602 @@
+"""Build an offline V1.5 formal run status rollup.
+
+This module reads existing readiness, evidence, closure, and archive sidecars
+and turns them into a small reviewer-facing status dashboard. It is deliberately
+read-only: it does not open COM ports, connect to PostgreSQL, control routes or
+pressure, or write analyzer coefficients.
+"""
+
+from __future__ import annotations
+
+import csv
+import json
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Iterable, Mapping
+
+
+SCHEMA = "v1_5_formal_run_status_v1"
+
+READY = "ready"
+READY_WITH_PENDING_LIVE_GATE = "ready_with_pending_live_gate"
+REVIEW_REQUIRED = "review_required"
+MISSING = "missing"
+NOT_ATTEMPTED = "not_attempted"
+BLOCKED = "blocked"
+
+NON_READY_STATUSES = {REVIEW_REQUIRED, MISSING, NOT_ATTEMPTED, BLOCKED}
+
+
+@dataclass(frozen=True)
+class FormalRunGate:
+    gate_id: str
+    title: str
+    status: str
+    source_path: str
+    source_status: str
+    reason: str
+    next_action: str
+    physical_meaning: str
+    release_gate: bool
+    blocks_release: bool
+    blocks_physical_flow: bool
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _now() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _load_json(path: str | Path | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    source = Path(path)
+    if not source.exists() or not source.is_file():
+        return {}
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def _safe_rglob(root: Path, pattern: str) -> list[Path]:
+    if not root.exists():
+        return []
+    return [path for path in root.rglob(pattern) if path.is_file()]
+
+
+def _latest(root: Path, *patterns: str) -> Path | None:
+    matches: list[Path] = []
+    for pattern in patterns:
+        matches.extend(_safe_rglob(root, pattern))
+    if not matches:
+        return None
+    return max(matches, key=lambda item: item.stat().st_mtime)
+
+
+def _explicit_or_latest(root: Path, explicit: str | Path | None, *patterns: str) -> Path | None:
+    if explicit:
+        return Path(explicit).resolve()
+    latest = _latest(root, *patterns)
+    return latest.resolve() if latest else None
+
+
+def _source_status(payload: Mapping[str, Any]) -> str:
+    for key in ("overall_status", "readiness_status", "release_status", "package_status", "status"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _stage_status(payload: Mapping[str, Any], stage_id: str) -> str:
+    for row in payload.get("stage_statuses") or []:
+        if not isinstance(row, Mapping):
+            continue
+        if str(row.get("stage_id") or "") == stage_id:
+            return str(row.get("status") or "")
+    return ""
+
+
+def _first_gap(payload: Mapping[str, Any]) -> str:
+    gaps = payload.get("gaps")
+    if not isinstance(gaps, list) or not gaps:
+        return ""
+    first = gaps[0]
+    if isinstance(first, Mapping):
+        return str(first.get("reason") or first.get("item") or first.get("gate_id") or "")
+    return str(first)
+
+
+def _gate(
+    *,
+    gate_id: str,
+    title: str,
+    status: str,
+    source_path: Path | None,
+    source_status: str,
+    reason: str,
+    next_action: str,
+    physical_meaning: str,
+    release_gate: bool = True,
+    blocks_release: bool | None = None,
+    blocks_physical_flow: bool = False,
+) -> FormalRunGate:
+    if blocks_release is None:
+        blocks_release = release_gate and status in NON_READY_STATUSES
+    return FormalRunGate(
+        gate_id=gate_id,
+        title=title,
+        status=status,
+        source_path=str(source_path) if source_path else "",
+        source_status=source_status,
+        reason=reason,
+        next_action=next_action,
+        physical_meaning=physical_meaning,
+        release_gate=release_gate,
+        blocks_release=blocks_release,
+        blocks_physical_flow=blocks_physical_flow,
+    )
+
+
+def _initialization_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    if not payload:
+        status = MISSING
+        reason = "initialization readiness sidecar missing"
+    elif "blocked" in source_status:
+        status = BLOCKED
+        reason = f"source_status={source_status}"
+    elif source_status.startswith("ready") or "ready_for" in source_status:
+        status = READY
+        reason = f"source_status={source_status}"
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="initialization_readiness",
+        title="Initialization readiness",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Generate or refresh initialization readiness before any open-flow step.",
+        physical_meaning=(
+            "Confirms SN/device_code identity contract, MODE2 runtime, 1Hz upload, "
+            "neutral temperature coefficients, PostgreSQL 18 preflight, and initialization evidence."
+        ),
+        blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
+def _getco_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    traceability_review = bool(payload.get("traceability_review_required"))
+    if not payload:
+        status = MISSING
+        reason = "identity/GETCO readiness sidecar missing"
+        blocks_physical = True
+    elif source_status == "identity_getco_ready_for_auxiliary_neutralization" and not traceability_review:
+        status = READY
+        reason = "GETCO epoch-0 and SN/device_code traceability are ready"
+        blocks_physical = False
+    elif source_status == "identity_getco_ready_for_auxiliary_neutralization" and traceability_review:
+        status = REVIEW_REQUIRED
+        reason = "GETCO epoch-0 is usable, but SN/device_code traceability needs release review"
+        blocks_physical = False
+    elif "blocked" in source_status:
+        status = BLOCKED
+        reason = f"source_status={source_status}"
+        blocks_physical = True
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"source_status={source_status or 'unknown'}"
+        blocks_physical = True
+    return _gate(
+        gate_id="identity_getco_sn_traceability",
+        title="Identity, GETCO epoch-0, and SN traceability",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Refresh read-only GETCO/SN identity evidence or resolve traceability review before release.",
+        physical_meaning=(
+            "Binds transport COM/GA labels to protocol ID, SN/device_code, and GETCO1-9 "
+            "epoch-0 coefficients so later writes and reports remain traceable."
+        ),
+        blocks_physical_flow=blocks_physical,
+    )
+
+
+def _pre_gas_gate(path: Path | None, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    if not payload:
+        status = MISSING
+        reason = "pre-gas readiness sidecar missing"
+    elif "blocked" in source_status:
+        status = BLOCKED
+        reason = f"source_status={source_status}"
+    elif source_status in {
+        "ready_for_open_flow_from_sidecar_evidence",
+        "ready_for_identity_gate_with_later_live_gates",
+    }:
+        status = READY_WITH_PENDING_LIVE_GATE if "later_live_gates" in source_status else READY
+        reason = f"source_status={source_status}"
+    elif source_status.startswith("review_required"):
+        status = REVIEW_REQUIRED
+        reason = f"source_status={source_status}"
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"source_status={source_status or 'unknown'}"
+    return _gate(
+        gate_id="pre_gas_readiness",
+        title="Pre-gas readiness",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Close pre-gas gaps before starting mature CO2/H2O open-flow queues.",
+        physical_meaning=(
+            "Collects the gap list from initialization to gas-flow entry: pressure S9, route readiness, "
+            "GETCO baseline, S7/S8 neutral state, CHECK timing, and database preflight."
+        ),
+        blocks_physical_flow=status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
+def _run_stage_gate(
+    *,
+    gate_id: str,
+    title: str,
+    run_path: Path | None,
+    run_status: Mapping[str, Any],
+    stage_id: str,
+    missing_reason: str,
+    next_action: str,
+    physical_meaning: str,
+    physical_flow_gate: bool = False,
+) -> FormalRunGate:
+    stage_status = _stage_status(run_status, stage_id)
+    if not run_status:
+        status = MISSING
+        reason = "run evidence status sidecar missing"
+    elif stage_status == "pass":
+        status = READY
+        reason = f"{stage_id}=pass"
+    elif stage_status in {"not_attempted", ""}:
+        status = NOT_ATTEMPTED
+        reason = missing_reason
+    elif stage_status == "blocked":
+        status = BLOCKED
+        reason = f"{stage_id}=blocked"
+    elif stage_status in {"missing", "partial"}:
+        status = REVIEW_REQUIRED
+        reason = f"{stage_id}={stage_status}"
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"{stage_id}={stage_status}"
+    return _gate(
+        gate_id=gate_id,
+        title=title,
+        status=status,
+        source_path=run_path,
+        source_status=stage_status,
+        reason=reason,
+        next_action=next_action,
+        physical_meaning=physical_meaning,
+        blocks_physical_flow=physical_flow_gate and status in {MISSING, REVIEW_REQUIRED, BLOCKED},
+    )
+
+
+def _archive_gate(
+    *,
+    closure_path: Path | None,
+    closure: Mapping[str, Any],
+    archive_path: Path | None,
+    archive: Mapping[str, Any],
+) -> FormalRunGate:
+    closure_status = str(closure.get("release_status") or closure.get("overall_status") or "")
+    archive_status = str(archive.get("package_status") or archive.get("overall_status") or "")
+    traceability = archive.get("identity_getco_traceability")
+    traceability_ready = False
+    traceability_review = False
+    if isinstance(traceability, Mapping):
+        traceability_ready = bool(traceability.get("ready_for_archive_release"))
+        traceability_review = bool(traceability.get("traceability_review_required"))
+
+    if not closure and not archive:
+        status = MISSING
+        reason = "closure readiness and formal archive closure sidecars missing"
+    elif "blocked" in closure_status or "blocked" in archive_status:
+        status = BLOCKED
+        reason = f"closure_status={closure_status or 'missing'} archive_status={archive_status or 'missing'}"
+    elif closure_status == "ready_for_formal_release" and (not archive or traceability_ready and not traceability_review):
+        status = READY
+        reason = "closure release and archive traceability gates are ready"
+    elif closure_status == "ready_for_formal_release" and traceability_review:
+        status = REVIEW_REQUIRED
+        reason = "closure is ready, but archive SN/GETCO traceability still requires review"
+    else:
+        status = REVIEW_REQUIRED
+        gap = _first_gap(closure) or _first_gap(archive)
+        reason = gap or f"closure_status={closure_status or 'missing'} archive_status={archive_status or 'missing'}"
+
+    source_path = archive_path or closure_path
+    source_status = f"closure={closure_status or 'missing'}; archive={archive_status or 'missing'}"
+    return _gate(
+        gate_id="formal_archive_database_release",
+        title="Formal archive, database, and release gate",
+        status=status,
+        source_path=source_path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Close archive/database/report traceability gaps before formal release or database import.",
+        physical_meaning=(
+            "Final release binds raw evidence, coefficient epochs, reverification, reports, database "
+            "indexing, and SN/device_code traceability without changing analyzer state."
+        ),
+        blocks_physical_flow=False,
+    )
+
+
+def _gap_rows(gates: Iterable[FormalRunGate]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for gate in gates:
+        if gate.status in {READY, READY_WITH_PENDING_LIVE_GATE}:
+            continue
+        rows.append(
+            {
+                "gate_id": gate.gate_id,
+                "status": gate.status,
+                "reason": gate.reason,
+                "next_action": gate.next_action,
+                "blocks_release": gate.blocks_release,
+                "blocks_physical_flow": gate.blocks_physical_flow,
+            }
+        )
+    return rows
+
+
+def build_v1_5_formal_run_status(
+    *,
+    run_dir: str | Path,
+    initialization_readiness_json: str | Path | None = None,
+    pre_gas_readiness_json: str | Path | None = None,
+    getco_readiness_json: str | Path | None = None,
+    run_evidence_status_json: str | Path | None = None,
+    full_flow_closure_readiness_json: str | Path | None = None,
+    archive_closure_json: str | Path | None = None,
+) -> dict[str, Any]:
+    """Return a top-level formal V1.5 status rollup from existing sidecars."""
+
+    root = Path(run_dir).resolve()
+    init_path = _explicit_or_latest(root, initialization_readiness_json, "v1_5_initialization_readiness.json")
+    pre_gas_path = _explicit_or_latest(root, pre_gas_readiness_json, "v1_5_pre_gas_readiness.json")
+    getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
+    run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
+    closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
+    archive_path = _explicit_or_latest(root, archive_closure_json, "v1_5_formal_archive_closure_index.json")
+
+    init_payload = _load_json(init_path)
+    pre_gas_payload = _load_json(pre_gas_path)
+    getco_payload = _load_json(getco_path)
+    run_payload = _load_json(run_status_path)
+    closure_payload = _load_json(closure_path)
+    archive_payload = _load_json(archive_path)
+
+    gates = [
+        _initialization_gate(init_path, init_payload),
+        _getco_gate(getco_path, getco_payload),
+        _pre_gas_gate(pre_gas_path, pre_gas_payload),
+        _run_stage_gate(
+            gate_id="pressure_senco9_pre_open_flow",
+            title="Pressure/SENCO9 pre-open-flow check",
+            run_path=run_status_path,
+            run_status=run_payload,
+            stage_id="pressure_quick_check",
+            missing_reason="pressure/S9 evidence has not reached pass state",
+            next_action="Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.",
+            physical_meaning="Pressure P must be traceable before CO2/H2O fitting so gas coefficients do not absorb pressure bias.",
+            physical_flow_gate=True,
+        ),
+        _run_stage_gate(
+            gate_id="co2_open_flow_mature_queue",
+            title="CO2 mature open-flow queue",
+            run_path=run_status_path,
+            run_status=run_payload,
+            stage_id="co2_open_flow",
+            missing_reason="CO2 mature open-flow queue evidence has not passed",
+            next_action="Run or register the mature V1.5 CO2 open-flow queue evidence.",
+            physical_meaning="CO2 calibration points must come from mature open-flow samples, not diagnostic sealed/pressure rows.",
+        ),
+        _run_stage_gate(
+            gate_id="h2o_open_flow_mature_queue",
+            title="H2O mature open-flow queue",
+            run_path=run_status_path,
+            run_status=run_payload,
+            stage_id="h2o_open_flow",
+            missing_reason="H2O mature open-flow queue evidence has not passed",
+            next_action="Run or register the mature V1.5 H2O open-flow queue evidence.",
+            physical_meaning="H2O fitting must preserve dewpoint-backed wet points and dry-gas low-water anchors separately.",
+        ),
+        _run_stage_gate(
+            gate_id="candidate_fit_review",
+            title="Candidate fit/QC review",
+            run_path=run_status_path,
+            run_status=run_payload,
+            stage_id="candidate_review",
+            missing_reason="candidate fit review has not passed",
+            next_action="Run no-write candidate fitting/QC review before any controlled write package.",
+            physical_meaning="Only eligible A-grade and explicitly reviewed samples should enter SENCO candidate fitting.",
+        ),
+        _run_stage_gate(
+            gate_id="post_run_write_package",
+            title="Post-run controlled-write package",
+            run_path=run_status_path,
+            run_status=run_payload,
+            stage_id="post_run_coefficient_executor",
+            missing_reason="post-run coefficient executor package has not passed",
+            next_action="Generate the post-run executor package with eligibility, write plan, and reverify plan.",
+            physical_meaning="The write package separates no-write review from manual authorized controlled SENCO writes.",
+        ),
+        _run_stage_gate(
+            gate_id="controlled_write_and_reverification",
+            title="Controlled write and post-write reverification",
+            run_path=run_status_path,
+            run_status=run_payload,
+            stage_id="post_write_reverification",
+            missing_reason="post-write reverification has not passed or has not been attempted",
+            next_action="After authorized writes, run independent post-write reverification evidence.",
+            physical_meaning="A coefficient write is not a formal release until independent open-flow reverification is present.",
+        ),
+        _archive_gate(
+            closure_path=closure_path,
+            closure=closure_payload,
+            archive_path=archive_path,
+            archive=archive_payload,
+        ),
+    ]
+
+    release_blockers = [gate for gate in gates if gate.blocks_release]
+    physical_blockers = [gate for gate in gates if gate.blocks_physical_flow]
+    current_gate = next((gate for gate in gates if gate.status in NON_READY_STATUSES), None)
+    archive_gate = gates[-1]
+    formal_release_allowed = not release_blockers and archive_gate.status == READY
+    database_import_allowed = formal_release_allowed
+    if any(gate.status == BLOCKED for gate in gates):
+        overall_status = "blocked"
+    elif formal_release_allowed:
+        overall_status = "formal_release_ready"
+    elif any(gate.status == REVIEW_REQUIRED for gate in gates):
+        overall_status = "review_required"
+    elif current_gate:
+        overall_status = "in_progress"
+    else:
+        overall_status = "ready_for_next_action"
+
+    return {
+        "schema": SCHEMA,
+        "generated_at": _now(),
+        "run_dir": str(root),
+        "overall_status": overall_status,
+        "current_stage": current_gate.gate_id if current_gate else "complete",
+        "next_action": current_gate.next_action if current_gate else "Formal release is ready for reviewer sign-off.",
+        "formal_release_allowed": formal_release_allowed,
+        "database_import_allowed": database_import_allowed,
+        "can_continue_physical_flow": not physical_blockers,
+        "physical_boundaries": {
+            "offline_status_only": True,
+            "opens_com_ports": False,
+            "connects_postgresql": False,
+            "controls_pressure": False,
+            "controls_water_or_gas_routes": False,
+            "writes_coefficients": False,
+            "writes_device_id": False,
+            "not_real_acceptance_evidence": True,
+        },
+        "linked_inputs": {
+            "initialization_readiness_json": str(init_path) if init_path else "",
+            "pre_gas_readiness_json": str(pre_gas_path) if pre_gas_path else "",
+            "getco_readiness_json": str(getco_path) if getco_path else "",
+            "run_evidence_status_json": str(run_status_path) if run_status_path else "",
+            "full_flow_closure_readiness_json": str(closure_path) if closure_path else "",
+            "archive_closure_json": str(archive_path) if archive_path else "",
+        },
+        "gates": [gate.to_json() for gate in gates],
+        "gaps": _gap_rows(gates),
+    }
+
+
+def render_v1_5_formal_run_status_markdown(model: Mapping[str, Any]) -> str:
+    lines = [
+        "# V1.5 Formal Run Status",
+        "",
+        f"- schema: `{model.get('schema')}`",
+        f"- overall_status: `{model.get('overall_status')}`",
+        f"- current_stage: `{model.get('current_stage')}`",
+        f"- formal_release_allowed: `{model.get('formal_release_allowed')}`",
+        f"- database_import_allowed: `{model.get('database_import_allowed')}`",
+        f"- can_continue_physical_flow: `{model.get('can_continue_physical_flow')}`",
+        f"- next_action: {model.get('next_action')}",
+        "",
+        "## Physical Boundaries",
+        "",
+    ]
+    for key, value in (model.get("physical_boundaries") or {}).items():
+        lines.append(f"- {key}: `{value}`")
+    lines.extend(["", "## Gates", ""])
+    for gate in model.get("gates") or []:
+        lines.extend(
+            [
+                f"### {gate.get('gate_id')}",
+                "",
+                f"- title: {gate.get('title')}",
+                f"- status: `{gate.get('status')}`",
+                f"- source_status: `{gate.get('source_status')}`",
+                f"- source_path: `{gate.get('source_path')}`",
+                f"- reason: {gate.get('reason')}",
+                f"- next_action: {gate.get('next_action')}",
+                f"- blocks_release: `{gate.get('blocks_release')}`",
+                f"- blocks_physical_flow: `{gate.get('blocks_physical_flow')}`",
+                f"- physical_meaning: {gate.get('physical_meaning')}",
+                "",
+            ]
+        )
+    gaps = model.get("gaps") or []
+    lines.extend(["## Gaps", ""])
+    if not gaps:
+        lines.append("- none")
+    else:
+        for gap in gaps:
+            lines.append(
+                f"- `{gap.get('gate_id')}`: {gap.get('status')} - {gap.get('reason')} "
+                f"(next: {gap.get('next_action')})"
+            )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_v1_5_formal_run_status_outputs(model: Mapping[str, Any], output_dir: str | Path) -> dict[str, str]:
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    json_path = target / "v1_5_formal_run_status.json"
+    md_path = target / "v1_5_formal_run_status.md"
+    gates_path = target / "v1_5_formal_run_status_gates.csv"
+    gaps_path = target / "v1_5_formal_run_status_gaps.csv"
+
+    json_path.write_text(json.dumps(model, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    md_path.write_text(render_v1_5_formal_run_status_markdown(model), encoding="utf-8")
+
+    gate_fields = [
+        "gate_id",
+        "title",
+        "status",
+        "source_path",
+        "source_status",
+        "reason",
+        "next_action",
+        "physical_meaning",
+        "release_gate",
+        "blocks_release",
+        "blocks_physical_flow",
+    ]
+    with gates_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=gate_fields)
+        writer.writeheader()
+        for row in model.get("gates") or []:
+            writer.writerow({key: row.get(key, "") for key in gate_fields})
+
+    gap_fields = ["gate_id", "status", "reason", "next_action", "blocks_release", "blocks_physical_flow"]
+    with gaps_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=gap_fields)
+        writer.writeheader()
+        for row in model.get("gaps") or []:
+            writer.writerow({key: row.get(key, "") for key in gap_fields})
+
+    return {
+        "json_path": str(json_path.resolve()),
+        "markdown_path": str(md_path.resolve()),
+        "gates_csv_path": str(gates_path.resolve()),
+        "gaps_csv_path": str(gaps_path.resolve()),
+    }

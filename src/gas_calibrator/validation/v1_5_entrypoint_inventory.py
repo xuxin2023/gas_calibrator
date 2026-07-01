@@ -319,6 +319,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline pre-gas readiness sidecar; summarizes identity, DB, GETCO, S7/S8, S9, route, and CHECK gates before live identity")
     elif lower == "export_v1_5_getco_identity_readiness":
         notes.append("offline identity/GETCO readiness sidecar; consumes read-only GETCO artifacts and does not open COM")
+    elif lower == "export_v1_5_formal_run_status":
+        notes.append("offline formal run status rollup; reads readiness/archive sidecars and does not open COM")
     elif "formal_evidence_sidecar" in lower or "formal_offline_review_chain" in lower:
         notes.append("offline review/evidence sidecar; no COM or route control")
     elif "diagnostic" in lower or "probe" in lower or "tune" in lower:
