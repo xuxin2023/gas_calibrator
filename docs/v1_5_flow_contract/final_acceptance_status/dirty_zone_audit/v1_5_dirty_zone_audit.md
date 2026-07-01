@@ -1,0 +1,293 @@
+# V1.5 Dirty Zone Audit
+
+- schema: `v1_5_dirty_zone_audit_v1`
+- status: `review_required`
+- clean_worktree: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean`
+- root_workspace: `D:\gas_calibrator`
+
+## Policy
+
+- `root_workspace_policy`: `isolated_draft_pollution_zone_not_formal_source`
+- `clean_worktree_policy`: `only_small_reviewed_packages_may_be_staged_or_committed`
+- `handoff_policy`: `retain_as_traceability_evidence_but_do_not_stage_into_code_packages`
+- `destructive_actions_allowed`: `False`
+- `opens_com_ports`: `False`
+- `writes_files_outside_output_dir`: `False`
+
+## Summary
+
+- entries: `265`
+- blockers: `0`
+- warnings: `142`
+- reviews: `3`
+- info: `120`
+
+## Entries
+
+| Workspace | Severity | Category | Status | Path | Action |
+|---|---|---|---|---|---|
+| `clean_worktree` | `review` | `clean_tracked_change_review_required` | ` M` | `docs/v1_5_flow_contract/V1_5_FINAL_STRUCTURE_AND_FLOW.md` | review_scope_before_stage_or_commit |
+| `clean_worktree` | `review` | `clean_tracked_change_review_required` | ` M` | `tests/test_v1_5_entrypoint_inventory.py` | review_scope_before_stage_or_commit |
+| `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/V1_5_CO2_QUEUE_FORMAL_ROUTE_READINESS_GATE_REVIEW_20260627.md` | keep_untracked_do_not_stage_into_code_package |
+| `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/V1_5_INITIALIZATION_DUAL_ALGORITHM_SOP_20260627.md` | keep_untracked_do_not_stage_into_code_package |
+| `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/V1_5_SENCO78_NEUTRAL_INITIALIZATION_POLICY_20260627.md` | keep_untracked_do_not_stage_into_code_package |
+| `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/new_algo_001_init_20260627/` | keep_untracked_do_not_stage_into_code_package |
+| `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/new_algorithm_device_preflight/` | keep_untracked_do_not_stage_into_code_package |
+| `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/p001_init_ready_after_pressure_r1/` | keep_untracked_do_not_stage_into_code_package |
+| `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/p001_pressure_completion_r1/` | keep_untracked_do_not_stage_into_code_package |
+| `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/readonly_com41_052_coeff_check_20260629/` | keep_untracked_do_not_stage_into_code_package |
+| `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/v1_5_program_cleanup_20260628/` | keep_untracked_do_not_stage_into_code_package |
+| `clean_worktree` | `review` | `clean_untracked_review_required` | `??` | `docs/v1_5_flow_contract/final_acceptance_status/` | classify_before_stage_or_leave_untracked |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `.gitignore` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `_handoff/a4_single_temperature_no_write/A4_P8_H2O_TO_CO2_TRANSITION_CONTRACT.md` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `configs/default_config.json` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/coefficients/__init__.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/config.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/devices/gas_analyzer.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/devices/humidity_generator.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/devices/pace5000.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/devices/paroscientific.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/export/temperature_compensation_export.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/tools/safe_stop.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/tools/validate_pressure_only.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/v2/configs/validation/a4_single_temp_h2o_co2_no_write_20c_real_machine_EXECUTE_P17.json` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/v2/core/runners/co2_route_runner.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/v2/storage/__init__.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/v2/storage/models.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/v2/storage/queries.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/validation/dewpoint_flush_gate.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/workflow/runner.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `src/gas_calibrator/workflow/tuning.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_config_runtime_defaults.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_gas_analyzer_mode2.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_humidity_generator_driver.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_paroscientific_driver.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_collect_only.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_h2o_sequence.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_multi_analyzers.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_point_quality_summary.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_pressure_capture_then_hold.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_pressure_control_order.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_seal_pressure_verification.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_source_stage_guard.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_temperature_soak.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_runner_v1_writeback_safety.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_safe_stop_tool.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_v1_fasttrace_guards.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `tests/test_v1_writeback_fault_injection.py` | do_not_use_root_as_formal_v1_5_source |
+| `root_workspace` | `info` | `root_tool_state_ignore` | `??` | `.codex/` | ignore_for_v1_5_flow |
+| `root_workspace` | `info` | `root_tool_state_ignore` | `??` | `.playwright-mcp/` | ignore_for_v1_5_flow |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/COM22_PRESSURE_GAUGE_NO_RESPONSE_AUDIT_20260523.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/D_DRIVE_GAS_CALIBRATOR_DIR_AUDIT_20260523.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/TEST_TEMP_FILE_CLEANUP_AUDIT_20260523.csv` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/TEST_TEMP_FILE_CLEANUP_AUDIT_20260523.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_ABSORPTION_ALGORITHM_TRANSITION_SUMMARY_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_ANALYZER_RUNTIME_SETUP_ENTRYPOINT_AUDIT_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_AUTOMATION_SEQUENCE_INIT_ROUTE_WATER_FIRST_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CLEANUP_FREEZE_PACKAGE_20260622.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CO2_R10_DIAGNOSTIC_FIT_EFFECT_20260625.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CO2_R10_FIT_H2O_BRIDGE_AND_POINT_REVIEW_20260625.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CO2_ROUTE_NOWRITE_PREFLIGHT_AFTER_R5_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT4_INITIALIZATION_PARITY_AND_DB_UPDATE_20260627.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_FULL_AUTO_PREFLIGHT_REGRESSION_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_H2O_FIT_ROOT_CAUSE_VS_HISTORY_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_H2O_POSTWRITE_REVERIFY_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_H2O_POSTWRITE_S78_NO_WRITE_REVIEW_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_H2O_RATIO_REFERENCE_ALIGNMENT_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_H2O_SENCO24_CONTROLLED_WRITE_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_H2O_SENCO24_PREWRITE_DECISION_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_H2O_SENCO6_NO_WRITE_REVIEW_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_H2O_SIGNAL_CHAIN_AND_REFIT_NO_WRITE_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_INITIALIZATION_TO_PRE_GAS_FLOW_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_INITIALIZATION_TO_ROUTE_READINESS_CLOSEOUT_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_NOT_MATURE_PATH_CORRECTION_20260627.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_TEMPERATURE_SENCO78_CONTROLLED_WRITE_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT6_WRITE_PATH_VS_HISTORY_20260626.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_CURRENT_PRODUCTION_ENTRY_RECLASSIFICATION_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_DEVICE_CODE_IDENTITY_AND_INITIALIZATION_PLAN_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_ENTRYPOINT_TOOL_DEDUP_DECISION_TABLE_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_FINAL_PRODUCTION_CHAIN_LOCK_20260627.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_FIRST_DISCOVERY_INITIALIZATION_AUTOMATION_SPEC_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_FORMAL_DB_CURRENT6_COMPLETION_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_FORMAL_INITIALIZATION_AUTOMATION_STATUS_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_FORMAL_INITIALIZATION_FLOW_WITH_SN_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_FORMAL_QUEUE_MIGRATION_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_GAS_ROUTE_R3_BASELINE_RESTORE_AUDIT_20260523.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_IDENTITY_LAYER_REHOME_20260627.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_INITIALIZATION_CONFIG_ADAPTER_AND_DB_PREVIEW_20260627.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_INITIALIZATION_CURRENT_FLOW_UTF8_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_INITIALIZATION_DETAILED_FLOW_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_INITIALIZATION_ID_DISCOVERY_AND_DB_FLOW_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_INITIALIZATION_ISSUE_CLOSURE_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_INITIALIZATION_MATURE_PATH_PARITY_CURRENT4_20260627.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_MATURE_CO2_ROUTE_MODIFIED_STATE_AUDIT_20260627.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_MATURE_WORKTREE_IDENTITY_REHOME_20260627.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_NEUTRAL_RESTORE_HELPER_REUSE_AND_SERIAL_PACING_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_ORIGINAL_ROUTE_FLOW_AUDIT_20260523.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRESSURE_ONLY_CURRENT6_RESULT_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRESSURE_ONLY_POST_SENCO9_RETEST_CURRENT6_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRESSURE_SENCO9_CONTROLLED_WRITE_RESTORED_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRESSURE_TEMPERATURE_ENTRYPOINT_AUDIT_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRESSURE_TEMPERATURE_EXTERNAL_EVIDENCE_SCHEMA_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRESSURE_TEMPERATURE_READINESS_CONTRACT_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRESSURE_TEMPERATURE_READONLY_PROBE_STATUS_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRESSURE_TEMPERATURE_RUNNER_ARCHITECTURE_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRE_REAL_ROUTE_HISTORICAL_SEQUENCE_AUDIT_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_PRE_REAL_ROUTE_POINT_INTERNAL_SEQUENCE_AUDIT_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_RECENT_6CH_SEGMENTED_EVIDENCE_MAP_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_ROUTE_READINESS_FULL_CANONICAL_QUEUE_FIX_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_ROUTE_RUNTIME_BINDING_AUDIT_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_RUNTIME_SETUP_1HZ_RATE_GATE_CURRENT4_20260627.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_SENCO9_CONTROLLED_WRITE_CURRENT6_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_SENCO9_PREWRITE_REVIEW_CURRENT6_20260624.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/V1_5_SN_READ_ONLY_REAL_PROBE_20260623.md` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/archive_approval_table_20260622/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/archive_execution_logs_20260622/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/archive_execution_preplan_20260622/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/archive_manifest_20260622/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/build_v1_5_recent_6ch_segment_ledger_20260623.py` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/co2_500_single_recheck_001_COM36_20260629/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/co2rv_0626_s13t1_r1/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/co2rv_old_0626_s13t1_r1/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/co2rv_old_0626_s13t1_r2/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/co2rv_s5_0626_r1/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/co2rv_s5_0627_after_s5_3dp/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/d_drive_gas_calibrator_audit_20260523/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/live_runs/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/real_sn_read_probe_20260623/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/runtime_configs/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/sn_allocation_dry_run_20260623/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/sn_write_controlled_20260623/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_analyzer_runtime_setup/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_d29_vs_current_diff_20260523.patch` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_device_code_identity_contract_20260623.json` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_first_discovery_initialization_contract_20260623.json` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_formal_db_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_formal_db_upsert_dry_run_20260623/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_formal_initialization_automation/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_formal_queue_migration_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_formal_queue_preflight_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_formal_route_preflight_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_formal_route_preflight_20260625/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_formal_route_real_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_formal_route_real_20260625/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_getco_component_snapshot/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_initialization_dry_run_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_mature_init_dry_run_20260627/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_minimal_vs_worktree_key_function_diff_20260523.patch` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_neutral_restore_execute/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_neutral_restore_plan/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_pre_gas_pressure_calibration/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_pressure_only_current6_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_pressure_temperature_readiness_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_pressure_temperature_readonly_probe_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_recent_6ch_segment_ledger_example_20260623.json` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_recent_6ch_segment_manifest_20260623.json` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_route_readiness_20260624/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_segment_ledger_contract_20260623.json` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `info` | `root_handoff_evidence_retained` | `??` | `_handoff/v1_5_senco6_neutral_old_writer/` | keep_as_historical_evidence_do_not_promote |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `candidate_b_replay_report_check.png` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `docs/metrology/` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `docs/patents/` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/analyze_v15_co2_senco13_root_cause.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/export_current_co2_formal_certificates.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/export_current_co2_s13_s5_report.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/export_current_h2o_senco24_candidate_review.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/generate_v15_6ch_integrated_calibration_report.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/review_current_h2o_fit_root_cause_vs_v15_history.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/review_current_h2o_postwrite_ratio_reference_alignment.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/review_current_h2o_postwrite_s78_effect.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/review_current_h2o_senco6_no_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/review_current_h2o_signal_chain_and_refit_no_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `scripts/review_current_h2o_write_path_vs_v15_history.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/coefficients/beer_lambert_shadow.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/storage/` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/_analyzer_serial_pacing.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/backfill_v1_5_post_initialization_readiness_gates.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/build_v1_5_formal_queue_preflight_checklist.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/build_v1_5_identity_bound_route_runtime_config.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/build_v1_5_pressure_temperature_readiness_plan.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/build_v1_5_route_readiness_plan.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/execute_v1_5_neutral_restore.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_absorption_holdout_validation.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_absorption_multi_round_replay.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_beer_lambert_shadow_report.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_co2_queue_failure_audit.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_fitting_switch_review.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_h2o_dry_anchor_supplement_plan.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_h2o_historical_gas_route_anchors.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_h2o_queue_failure_audit.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_pressure_channel_validation.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_pressure_senco9_evaluation.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_pressure_senco9_write_review.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/export_v1_5_temperature_channel_review.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/plan_v1_5_neutral_restore.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/probe_v1_5_getco_component_snapshot.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_analyzer_runtime_setup.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_co2_senco1_controlled_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_sampling.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_formal_initialization_automation.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_h2o_senco24_controlled_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_pressure_senco9_controlled_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_pressure_temperature_readiness_readonly_probe.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_sn_identity_initialization.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/run_v1_5_temperature_senco78_candidate_controlled_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/v1_5_serial_safety.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/tools/validate_v1_5_h2o_dry_anchor_supplement.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/v1_5/` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/v2/storage/import_v1_5_initialization.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/v2/storage/import_v1_5_readiness_events.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/v2/storage/migrations/003_sensor_sn_device_code_identity.sql` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/v2/storage/migrations/004_sensor_identity_aliases.sql` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/v2/storage/v1_5_initialization.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/artifact_rows.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/formal_calibration_package.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/formal_open_flow.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/formal_open_flow_artifacts.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/pressure_channel.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/pressure_senco9_write_review.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/v1_5_calibratable_point_policy.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/v1_5_co2_queue_failure_audit.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/v1_5_formal_route_readiness.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/v1_5_h2o_queue_failure_audit.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/v1_5_open_flow_purge_contract.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/v1_5_open_flow_quality.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `src/gas_calibrator/validation/v1_5_temperature_channel_review.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `standalone_pressure_controller/` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_beer_lambert_shadow.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_standalone_pressure_controller.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_analyzer_runtime_setup.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_co2_queue_failure_audit.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_formal_co2_open_flow_queue.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_formal_h2o_open_flow_queue.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_formal_initialization_automation.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_formal_open_flow_sampling_runtime.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_formal_queue_preflight_checklist.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_formal_route_readiness.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_getco_component_snapshot.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_h2o_analyzer_gate_policy.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_h2o_queue_failure_audit.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_h2o_senco24_controlled_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_identity_bound_route_runtime_config.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_identity_layer_ownership.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_neutral_restore_execute.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_neutral_restore_plan.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_open_flow_quality.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_post_initialization_readiness_backfill.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_pressure_channel_validation.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_pressure_senco9_controlled_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_pressure_senco9_write_review.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_pressure_temperature_readiness_plan.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_pressure_temperature_readonly_probe.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_route_readiness_plan.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_sn_identity_initialization.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_temperature_channel_review.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/test_v1_5_temperature_senco78_candidate_controlled_write.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/v2/test_v1_5_initialization_import.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/v2/test_v1_5_readiness_event_import.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |
+| `root_workspace` | `warning` | `root_untracked_draft_isolated` | `??` | `tests/v2/test_v1_5_runtime_setup_import.py` | leave_isolated_until_reviewed_for_clean_worktree_migration |

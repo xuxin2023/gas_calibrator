@@ -1,7 +1,7 @@
 # V1.5 最终结构与流程总说明
 
-- 状态：V1.5 结构整理索引，文档层收口。
-- 日期：2026-06-30。
+- 状态：V1.5 结构整理收尾验收说明。
+- 日期：2026-07-01。
 - 适用区域：`D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean`。
 - 边界：本文档不打开 COM、不控制气路/水路/压力/温箱、不写 SN、不写 SENCO、不产生 real acceptance 结论。
 
@@ -21,7 +21,7 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 10. 写后复验。
 11. 归档、报告、数据库闭环。
 
-后面不应再从 V1、V2、根目录草稿、单个诊断脚本或 `_handoff` 历史证据里临时挑入口。V1.5 正式流程应以本 worktree 中的正式入口、配置合同和受控写入工具为准。
+后面不应再从 V1、V2、根目录草稿、单个诊断脚本或 `_handoff` 历史证据里临时挑入口。V1.5 正式流程应以本 worktree 中的正式入口、配置合同和受控写入工具为准。最终状态判断统一看 `export_v1_5_formal_run_status.py` 生成的只读 `formal_run_status` rollup。
 
 ## 2. 工作区边界
 
@@ -53,6 +53,7 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 | 受控写入 | 明确授权、旧值快照、清除/写入、读回、回滚 | `run_v1_5_*_controlled_write.py` | 每类 SENCO 独立工具，不能被报告或队列隐式调用。 |
 | 写后复验 | 不控温箱的成熟复验口径、独立样本验证 | `src/gas_calibrator/tools/export_v1_5_post_write_reverification.py` | 写入成功和复验合格要分开报告。 |
 | 归档报告 | evidence sidecar、hash、中文报告、数据库索引 | `src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py` | 归档不改变设备状态，不能隐藏失败点。 |
+| 正式状态汇总 | 汇总当前阶段、下一步、物理流程可继续性、正式放行和数据库导入状态 | `src/gas_calibrator/tools/export_v1_5_formal_run_status.py` | 只读 rollup，不打开 COM、不连接 PostgreSQL、不控制路由、不写系数。 |
 
 ## 4. 初始化层的正式过程
 
@@ -103,11 +104,11 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 | 主拟合输入 | 比值 `R` | 吸收率 `A=-ln(R/R0(T))/(P_kPa/100)` |
 | 压力顺序 | SENCO9 first | SENCO9 first，不能跳过 |
 | 温度系数 | 默认中性，除非有腔体温度证据证明需要写 | 默认中性，不能用温箱外部温度替代腔体真值 |
-| CO2/H2O 跑点 | 旧算法成熟 45/13 默认队列 | 不改旧默认队列；额外点由 algorithm profile 生成 |
+| CO2/H2O 跑点 | 旧算法成熟 45/13 默认队列，保持 0620 成熟修复效果 | 不改旧默认队列；额外点由 algorithm profile 生成 |
 | R0(T) | 不依赖 SENCOA/SENCOB | 依赖 R0_CO2(T)/R0_H2O(T)，对应 SENCOA/SENCOB 合同、预检、写入和读回 |
 | 代码落点 | 成熟 queue/worker | profile、离线评审、写入合同、补点计划 |
 
-关键原则：新算法差异应该放在拟合输入、R0(T) 合同、额外点 profile 和写入合同里，不应重写成熟 CO2/H2O runner 的物理动作。
+关键原则：新算法差异应该放在拟合输入、R0(T) 合同、额外点 profile 和写入合同里，不应重写成熟 CO2/H2O runner 的物理动作。`run_v1_5_formal_co2_open_flow_queue.py`、`run_v1_5_formal_h2o_open_flow_queue.py`、`run_v1_5_formal_open_flow_sampling.py`、`src/gas_calibrator/workflow/runner.py`、`src/gas_calibrator/devices/gas_analyzer.py`、`configs/default_config.json` 是最终边界核查重点。
 
 ## 7. 锚点政策
 
@@ -148,11 +149,24 @@ CO2 和 H2O 的低端锚点不能混成一个概念：
 - V1.5 的正式主干、入口分层、新旧算法边界已经清楚。
 - 近期已经把 SN/数据库、CHECK/15 字段协议、串口 1 秒节拍、新旧算法 profile、R0(T) 设计评审等拆成独立小包。
 - 成熟 CO2/H2O runner 没有被新算法 profile 包污染。
+- 0620 成熟气路/水路的点序、物理动作、判稳/QC 口径只能由正式 runner 小包单独评审，不应被 profile、报告或归档包顺手改动。
 - 根目录仍是草稿/污染区，不应直接用于正式生产。
 - `_handoff` 仍有大量历史证据，不应整体合入。
 - 自动化仍需按正式 runner 和受控授权一步步执行；不能因为有 planner 就跳过真实设备 readiness、压力、温度、采样 QC、写入评审和复验。
 
-## 11. 下一次正式运行前检查
+## 11. 收尾验收包要求
+
+V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
+
+1. 最终结构说明：本文件作为人工导航入口，必须明确正式入口、禁止入口、新旧算法边界、0620 成熟路径保护和污染区策略。
+2. focused pytest stdout：至少覆盖 canonical entrypoint、initialization readiness、dirty zone audit、formal run status、archive/report/console。
+3. 成熟路径边界核查：确认本次收尾包不改 `run_v1_5_formal_co2_open_flow_queue.py`、`run_v1_5_formal_h2o_open_flow_queue.py`、`run_v1_5_formal_open_flow_sampling.py`、`src/gas_calibrator/workflow/runner.py`、`src/gas_calibrator/devices/gas_analyzer.py`、`configs/default_config.json`。
+4. 污染区策略：`_handoff` 是证据和草稿区，不进入正式小包；根目录 `D:\gas_calibrator` 冻结为污染区，正式 V1.5 只认 clean worktree。
+5. 只读 full-flow status rollup：生成 `docs/v1_5_flow_contract/final_acceptance_status/`，用现有 JSON/CSV 证据判断能否继续物理流程、能否归档、能否入库、还缺什么证据。
+
+这个验收包仍然不是 real acceptance：它不开 COM、不控气路/水路、不连 PostgreSQL、不写 SN/SENCO。
+
+## 12. 下一次正式运行前检查
 
 1. 只在 clean V1.5 worktree 选择入口。
 2. 确认 active 设备数量为 1 至 6 台，不默认必须 6 台。
