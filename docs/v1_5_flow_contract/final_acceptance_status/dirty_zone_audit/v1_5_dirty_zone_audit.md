@@ -16,18 +16,16 @@
 
 ## Summary
 
-- entries: `265`
+- entries: `262`
 - blockers: `0`
 - warnings: `142`
-- reviews: `3`
+- reviews: `0`
 - info: `120`
 
 ## Entries
 
 | Workspace | Severity | Category | Status | Path | Action |
 |---|---|---|---|---|---|
-| `clean_worktree` | `review` | `clean_tracked_change_review_required` | ` M` | `docs/v1_5_flow_contract/V1_5_FINAL_STRUCTURE_AND_FLOW.md` | review_scope_before_stage_or_commit |
-| `clean_worktree` | `review` | `clean_tracked_change_review_required` | ` M` | `tests/test_v1_5_entrypoint_inventory.py` | review_scope_before_stage_or_commit |
 | `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/V1_5_CO2_QUEUE_FORMAL_ROUTE_READINESS_GATE_REVIEW_20260627.md` | keep_untracked_do_not_stage_into_code_package |
 | `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/V1_5_INITIALIZATION_DUAL_ALGORITHM_SOP_20260627.md` | keep_untracked_do_not_stage_into_code_package |
 | `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/V1_5_SENCO78_NEUTRAL_INITIALIZATION_POLICY_20260627.md` | keep_untracked_do_not_stage_into_code_package |
@@ -37,7 +35,6 @@
 | `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/p001_pressure_completion_r1/` | keep_untracked_do_not_stage_into_code_package |
 | `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/readonly_com41_052_coeff_check_20260629/` | keep_untracked_do_not_stage_into_code_package |
 | `clean_worktree` | `info` | `clean_handoff_evidence_retained` | `??` | `_handoff/v1_5_program_cleanup_20260628/` | keep_untracked_do_not_stage_into_code_package |
-| `clean_worktree` | `review` | `clean_untracked_review_required` | `??` | `docs/v1_5_flow_contract/final_acceptance_status/` | classify_before_stage_or_leave_untracked |
 | `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `.gitignore` | do_not_use_root_as_formal_v1_5_source |
 | `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `_handoff/a4_single_temperature_no_write/A4_P8_H2O_TO_CO2_TRANSITION_CONTRACT.md` | do_not_use_root_as_formal_v1_5_source |
 | `root_workspace` | `warning` | `root_tracked_dirty_isolated` | ` M` | `configs/default_config.json` | do_not_use_root_as_formal_v1_5_source |

@@ -1,15 +1,13 @@
 {
   "schema": "v1_5_dirty_zone_audit_v1",
-  "created_at": "2026-07-01T15:21:49",
+  "created_at": "2026-07-01T15:31:03",
   "status": "review_required",
   "clean_worktree": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean",
   "root_workspace": "D:\\gas_calibrator",
   "summary": {
-    "entry_count": 265,
+    "entry_count": 262,
     "by_category": {
       "clean_handoff_evidence_retained": 9,
-      "clean_tracked_change_review_required": 2,
-      "clean_untracked_review_required": 1,
       "root_handoff_evidence_retained": 109,
       "root_tool_state_ignore": 2,
       "root_tracked_dirty_isolated": 38,
@@ -17,16 +15,15 @@
     },
     "by_severity": {
       "info": 120,
-      "review": 3,
       "warning": 142
     },
     "by_workspace": {
-      "clean_worktree": 12,
+      "clean_worktree": 9,
       "root_workspace": 253
     },
     "blocker_count": 0,
     "warning_count": 142,
-    "review_count": 3,
+    "review_count": 0,
     "info_count": 120
   },
   "policy": {
@@ -38,32 +35,6 @@
     "writes_files_outside_output_dir": false
   },
   "entries": [
-    {
-      "workspace": "clean_worktree",
-      "status_code": " M",
-      "path": "docs/v1_5_flow_contract/V1_5_FINAL_STRUCTURE_AND_FLOW.md",
-      "staged": false,
-      "unstaged": true,
-      "untracked": false,
-      "category": "clean_tracked_change_review_required",
-      "severity": "review",
-      "action": "review_scope_before_stage_or_commit",
-      "allowed_in_v1_5_package": true,
-      "reason": "Tracked clean-worktree changes may be a work-in-progress package and need scoped review."
-    },
-    {
-      "workspace": "clean_worktree",
-      "status_code": " M",
-      "path": "tests/test_v1_5_entrypoint_inventory.py",
-      "staged": false,
-      "unstaged": true,
-      "untracked": false,
-      "category": "clean_tracked_change_review_required",
-      "severity": "review",
-      "action": "review_scope_before_stage_or_commit",
-      "allowed_in_v1_5_package": true,
-      "reason": "Tracked clean-worktree changes may be a work-in-progress package and need scoped review."
-    },
     {
       "workspace": "clean_worktree",
       "status_code": "??",
@@ -180,19 +151,6 @@
       "action": "keep_untracked_do_not_stage_into_code_package",
       "allowed_in_v1_5_package": false,
       "reason": "Historical V1.5 evidence is retained for traceability but must not be bundled with code changes."
-    },
-    {
-      "workspace": "clean_worktree",
-      "status_code": "??",
-      "path": "docs/v1_5_flow_contract/final_acceptance_status/",
-      "staged": false,
-      "unstaged": false,
-      "untracked": true,
-      "category": "clean_untracked_review_required",
-      "severity": "review",
-      "action": "classify_before_stage_or_leave_untracked",
-      "allowed_in_v1_5_package": false,
-      "reason": "Untracked clean-worktree files need explicit classification before they can enter V1.5."
     },
     {
       "workspace": "root_workspace",
