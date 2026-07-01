@@ -170,9 +170,9 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 5. historical replay missing point audit：生成 `docs/v1_5_flow_contract/historical_replay_missing_point_audit/`，只读审计缺点是否存在分段/补跑证据，并明确新算法 supplemental 缺点不能被成熟 45/13 replay 掩盖。
 6. historical replay QC gap audit：生成 `docs/v1_5_flow_contract/historical_replay_qc_gap_audit/`，只读审计缺 QC 点是否存在同轮 reject-only 质量证据、retry/同点证据、跨轮参考或 raw-only 缺口。
 7. focused pytest stdout：至少覆盖 canonical entrypoint、mature route contract、historical replay contract/evidence/missing-point audit/QC gap audit、initialization readiness、dirty zone audit、formal run status、archive/report/console。
-6. 成熟路径边界核查：确认本次收尾包不改 `run_v1_5_formal_co2_open_flow_queue.py`、`run_v1_5_formal_h2o_open_flow_queue.py`、`run_v1_5_formal_open_flow_sampling.py`、`src/gas_calibrator/workflow/runner.py`、`src/gas_calibrator/devices/gas_analyzer.py`、`configs/default_config.json`。
-7. 污染区策略：`_handoff` 是证据和草稿区，不进入正式小包；根目录 `D:\gas_calibrator` 冻结为污染区，正式 V1.5 只认 clean worktree。
-8. 只读 full-flow status rollup：生成 `docs/v1_5_flow_contract/final_acceptance_status/`，用现有 JSON/CSV 证据判断能否继续物理流程、能否归档、能否入库、还缺什么证据。
+8. 成熟路径边界核查：确认本次收尾包不改 `run_v1_5_formal_co2_open_flow_queue.py`、`run_v1_5_formal_h2o_open_flow_queue.py`、`run_v1_5_formal_open_flow_sampling.py`、`src/gas_calibrator/workflow/runner.py`、`src/gas_calibrator/devices/gas_analyzer.py`、`configs/default_config.json`。
+9. 污染区策略：`_handoff` 是证据和草稿区，不进入正式小包；根目录 `D:\gas_calibrator` 冻结为污染区，正式 V1.5 只认 clean worktree。
+10. 只读 full-flow status rollup：生成 `docs/v1_5_flow_contract/final_acceptance_status/`，用现有 JSON/CSV 证据判断能否继续物理流程、能否归档、能否入库、还缺什么证据。
 
 这个验收包仍然不是 real acceptance：它不开 COM、不控气路/水路、不连 PostgreSQL、不写 SN/SENCO。
 
