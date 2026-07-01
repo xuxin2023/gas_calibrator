@@ -206,6 +206,23 @@ def test_entrypoint_classifier_marks_route_readiness_as_formal_preflight_support
     ] == []
 
 
+def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_path: Path) -> None:
+    root = tmp_path
+    pre_gas = root / "src/gas_calibrator/tools/export_v1_5_pre_gas_readiness.py"
+    pre_gas.parent.mkdir(parents=True, exist_ok=True)
+    pre_gas.write_text("", encoding="utf-8")
+
+    entry = classify_v1_5_entrypoint(pre_gas, root=root)
+
+    assert entry.category == "formal_review_evidence"
+    assert entry.formal_status == "formal_support"
+    assert entry.risk_level == "offline"
+    assert entry.opens_com_ports is False
+    assert entry.controls_routes is False
+    assert entry.writes_coefficients is False
+    assert "offline pre-gas readiness sidecar" in entry.notes[0]
+
+
 def test_entrypoint_discovery_finds_v1_5_tools_libraries_and_tests(tmp_path: Path) -> None:
     paths = [
         "src/gas_calibrator/tools/export_v1_5_formal_readiness.py",
