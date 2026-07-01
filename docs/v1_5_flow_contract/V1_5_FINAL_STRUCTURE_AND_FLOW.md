@@ -151,6 +151,7 @@ CO2 和 H2O 的低端锚点不能混成一个概念：
 - 成熟 CO2/H2O runner 没有被新算法 profile 包污染。
 - 0620 成熟气路/水路的点序、物理动作、判稳/QC 口径只能由正式 runner 小包单独评审，不应被 profile、报告或归档包顺手改动。
 - `export_v1_5_mature_route_contract.py` 是当前成熟路径合同 guard；它把 legacy CO2 45 点、legacy H2O 13 湿点、0620 route_behavior、新旧算法 runner 共用、补点只在 profile 层、SENCOA/SENCOB blocker、worker 不能顶层启动这些规则变成可测试证据。
+- `export_v1_5_historical_replay_contract.py` 是历史数据 replay 合同 guard；它只做离线程序级回放解释检查，确认 0620/后续 legacy 数据仍按 R、45/13、QC/拟合/复验/归档角色解释，新算法数据只按 `A=-ln(R/R0(T))/(P_kPa/100)` 和 R0 证据做 shadow 评审，且 replay 通过不能释放归档或 PostgreSQL 18 入库。
 - 根目录仍是草稿/污染区，不应直接用于正式生产。
 - `_handoff` 仍有大量历史证据，不应整体合入。
 - 自动化仍需按正式 runner 和受控授权一步步执行；不能因为有 planner 就跳过真实设备 readiness、压力、温度、采样 QC、写入评审和复验。
@@ -161,10 +162,11 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 
 1. 最终结构说明：本文件作为人工导航入口，必须明确正式入口、禁止入口、新旧算法边界、0620 成熟路径保护和污染区策略。
 2. mature route contract：生成 `docs/v1_5_flow_contract/mature_route_contract/`，确保 0620 成熟 CO2/H2O 路径 `pass` 且 `blocker_count=0`。
-3. focused pytest stdout：至少覆盖 canonical entrypoint、mature route contract、initialization readiness、dirty zone audit、formal run status、archive/report/console。
-4. 成熟路径边界核查：确认本次收尾包不改 `run_v1_5_formal_co2_open_flow_queue.py`、`run_v1_5_formal_h2o_open_flow_queue.py`、`run_v1_5_formal_open_flow_sampling.py`、`src/gas_calibrator/workflow/runner.py`、`src/gas_calibrator/devices/gas_analyzer.py`、`configs/default_config.json`。
-5. 污染区策略：`_handoff` 是证据和草稿区，不进入正式小包；根目录 `D:\gas_calibrator` 冻结为污染区，正式 V1.5 只认 clean worktree。
-6. 只读 full-flow status rollup：生成 `docs/v1_5_flow_contract/final_acceptance_status/`，用现有 JSON/CSV 证据判断能否继续物理流程、能否归档、能否入库、还缺什么证据。
+3. historical replay contract：生成 `docs/v1_5_flow_contract/historical_replay_contract/`，确保历史 replay 只作为程序级 regression evidence，不改变成熟点序、不洗掉 QC reject、不授权归档/入库。
+4. focused pytest stdout：至少覆盖 canonical entrypoint、mature route contract、historical replay contract、initialization readiness、dirty zone audit、formal run status、archive/report/console。
+5. 成熟路径边界核查：确认本次收尾包不改 `run_v1_5_formal_co2_open_flow_queue.py`、`run_v1_5_formal_h2o_open_flow_queue.py`、`run_v1_5_formal_open_flow_sampling.py`、`src/gas_calibrator/workflow/runner.py`、`src/gas_calibrator/devices/gas_analyzer.py`、`configs/default_config.json`。
+6. 污染区策略：`_handoff` 是证据和草稿区，不进入正式小包；根目录 `D:\gas_calibrator` 冻结为污染区，正式 V1.5 只认 clean worktree。
+7. 只读 full-flow status rollup：生成 `docs/v1_5_flow_contract/final_acceptance_status/`，用现有 JSON/CSV 证据判断能否继续物理流程、能否归档、能否入库、还缺什么证据。
 
 这个验收包仍然不是 real acceptance：它不开 COM、不控气路/水路、不连 PostgreSQL、不写 SN/SENCO。
 
