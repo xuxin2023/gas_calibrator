@@ -22,6 +22,66 @@ def test_clean_handoff_entries_are_retained_but_not_package_inputs():
     assert entry.action == "keep_untracked_do_not_stage_into_code_package"
 
 
+def test_clean_staged_handoff_entries_are_blockers():
+    entries = parse_git_status_short(
+        "A  _handoff/V1_5_INITIALIZATION_DUAL_ALGORITHM_SOP_20260627.md\n",
+        workspace="clean_worktree",
+    )
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.category == "clean_staged_handoff_blocker"
+    assert entry.severity == "blocker"
+    assert entry.allowed_in_v1_5_package is False
+    assert entry.action == "unstage_keep_as_traceability_evidence"
+
+
+def test_clean_staged_forbidden_entrypoints_are_blockers(tmp_path):
+    audit = build_dirty_zone_audit(
+        clean_worktree=tmp_path / "clean",
+        root_workspace=tmp_path / "root",
+        clean_status_text=(
+            "M  src/gas_calibrator/tools/run_v1_corrected_autodelivery.py\n"
+            "M  src/gas_calibrator/v2/runner.py\n"
+            "M  src/gas_calibrator/tools/run_v1_5_open_flow_dynamic_pressure_diagnostic.py\n"
+            "M  src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py\n"
+            "M  src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py\n"
+        ),
+        root_status_text="",
+    )
+    by_path = {entry.path: entry for entry in audit.entries}
+
+    assert audit.status == "blocked"
+    assert audit.summary["blocker_count"] == 5
+    assert by_path["src/gas_calibrator/tools/run_v1_corrected_autodelivery.py"].category == (
+        "clean_staged_legacy_v1_entrypoint_blocker"
+    )
+    assert by_path["src/gas_calibrator/v2/runner.py"].category == "clean_staged_v2_surface_blocker"
+    for path in (
+        "src/gas_calibrator/tools/run_v1_5_open_flow_dynamic_pressure_diagnostic.py",
+        "src/gas_calibrator/tools/run_v1_5_formal_open_flow_sampling.py",
+        "src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py",
+    ):
+        assert by_path[path].category == "clean_staged_noncanonical_entrypoint_blocker"
+        assert by_path[path].allowed_in_v1_5_package is False
+
+
+def test_clean_staged_canonical_queue_entrypoint_remains_review_candidate(tmp_path):
+    audit = build_dirty_zone_audit(
+        clean_worktree=tmp_path / "clean",
+        root_workspace=tmp_path / "root",
+        clean_status_text="M  src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py\n",
+        root_status_text="",
+    )
+    entry = audit.entries[0]
+
+    assert audit.status == "review_required"
+    assert audit.summary["blocker_count"] == 0
+    assert entry.category == "clean_staged_candidate_package"
+    assert entry.severity == "review"
+    assert entry.allowed_in_v1_5_package is True
+
+
 def test_root_staged_entries_block_and_root_dirty_entries_stay_isolated(tmp_path):
     audit = build_dirty_zone_audit(
         clean_worktree=tmp_path / "clean",
