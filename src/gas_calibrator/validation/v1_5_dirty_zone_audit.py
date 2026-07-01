@@ -16,8 +16,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from .v1_5_entrypoint_inventory import classify_v1_5_entrypoint
+
 
 SCHEMA = "v1_5_dirty_zone_audit_v1"
+
+FORBIDDEN_CLEAN_STAGED_ENTRYPOINT_CATEGORIES = {
+    "controlled_write",
+    "diagnostic_only",
+    "formal_sampling_worker",
+    "housekeeping_archive",
+    "legacy_v1_reference",
+    "unclassified_v1_5_tool",
+}
 
 
 @dataclass(frozen=True)
@@ -79,6 +90,63 @@ def _status_flags(status_code: str) -> tuple[bool, bool, bool]:
     return left not in {" ", "?"}, right not in {" ", "?"}, False
 
 
+def _looks_like_v2_surface(path: str) -> bool:
+    lower = path.lower()
+    name = Path(path).stem.lower()
+    return (
+        lower.startswith("src/gas_calibrator/v2/")
+        or lower.startswith("tests/v2/")
+        or name.startswith("run_v2_")
+        or name.startswith("export_v2_")
+        or name.startswith("import_v2_")
+    )
+
+
+def _looks_like_legacy_v1_surface(path: str) -> bool:
+    name = Path(path).stem.lower()
+    return path.lower().startswith("src/gas_calibrator/tools/") and name.startswith("run_v1_") and not name.startswith(
+        "run_v1_5_"
+    )
+
+
+def _looks_like_tool_entrypoint(path: str) -> bool:
+    return path.lower().startswith("src/gas_calibrator/tools/")
+
+
+def _clean_staged_blocker(path: str) -> tuple[str, str, str] | None:
+    normalized = _norm_path(path)
+    if normalized.startswith("_handoff/"):
+        return (
+            "clean_staged_handoff_blocker",
+            "unstage_keep_as_traceability_evidence",
+            "Handoff evidence must stay out of formal code packages even when it was accidentally staged.",
+        )
+    if _looks_like_v2_surface(normalized):
+        return (
+            "clean_staged_v2_surface_blocker",
+            "unstage_or_move_to_v2_review_package",
+            "V2 surfaces are not part of the V1.5 formal package and must not be mixed into this clean-worktree commit.",
+        )
+    if _looks_like_legacy_v1_surface(normalized):
+        return (
+            "clean_staged_legacy_v1_entrypoint_blocker",
+            "unstage_keep_as_historical_reference",
+            "Legacy V1 entrypoints are reference-only and must not start or alter the V1.5 formal flow.",
+        )
+
+    entry = classify_v1_5_entrypoint(Path(normalized), root=Path.cwd()) if _looks_like_tool_entrypoint(normalized) else None
+    if entry is not None and entry.category in FORBIDDEN_CLEAN_STAGED_ENTRYPOINT_CATEGORIES:
+        return (
+            "clean_staged_noncanonical_entrypoint_blocker",
+            "unstage_or_split_into_explicit_review_package",
+            (
+                f"Staged entrypoint category {entry.category!r} is not allowed in a formal V1.5 package; "
+                "use the canonical owner or a separately authorized review path."
+            ),
+        )
+    return None
+
+
 def classify_dirty_zone_entry(
     *,
     workspace: str,
@@ -90,7 +158,12 @@ def classify_dirty_zone_entry(
     workspace_key = str(workspace or "").strip().lower()
 
     if workspace_key == "clean_worktree":
-        if untracked and normalized.startswith("_handoff/"):
+        clean_blocker = _clean_staged_blocker(normalized) if staged else None
+        if clean_blocker is not None:
+            category, action, reason = clean_blocker
+            severity = "blocker"
+            allowed = False
+        elif untracked and normalized.startswith("_handoff/"):
             category = "clean_handoff_evidence_retained"
             severity = "info"
             action = "keep_untracked_do_not_stage_into_code_package"
