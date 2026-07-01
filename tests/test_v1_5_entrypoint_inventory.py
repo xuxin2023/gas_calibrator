@@ -211,6 +211,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     pre_gas = root / "src/gas_calibrator/tools/export_v1_5_pre_gas_readiness.py"
     getco_readiness = root / "src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py"
     formal_status = root / "src/gas_calibrator/tools/export_v1_5_formal_run_status.py"
+    formal_database_dry_run = root / "src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py"
     historical_replay = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_contract.py"
     historical_replay_evidence = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_evidence.py"
     historical_replay_missing_point = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_missing_point_audit.py"
@@ -225,6 +226,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
         pre_gas,
         getco_readiness,
         formal_status,
+        formal_database_dry_run,
         historical_replay,
         historical_replay_evidence,
         historical_replay_missing_point,
@@ -242,6 +244,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     entry = classify_v1_5_entrypoint(pre_gas, root=root)
     getco_entry = classify_v1_5_entrypoint(getco_readiness, root=root)
     formal_status_entry = classify_v1_5_entrypoint(formal_status, root=root)
+    formal_database_dry_run_entry = classify_v1_5_entrypoint(formal_database_dry_run, root=root)
     historical_replay_entry = classify_v1_5_entrypoint(historical_replay, root=root)
     historical_replay_evidence_entry = classify_v1_5_entrypoint(historical_replay_evidence, root=root)
     historical_replay_missing_point_entry = classify_v1_5_entrypoint(historical_replay_missing_point, root=root)
@@ -274,6 +277,13 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert formal_status_entry.controls_routes is False
     assert formal_status_entry.writes_coefficients is False
     assert "offline formal run status rollup" in formal_status_entry.notes[0]
+    assert formal_database_dry_run_entry.category == "formal_review_evidence"
+    assert formal_database_dry_run_entry.formal_status == "formal_support"
+    assert formal_database_dry_run_entry.risk_level == "offline"
+    assert formal_database_dry_run_entry.opens_com_ports is False
+    assert formal_database_dry_run_entry.controls_routes is False
+    assert formal_database_dry_run_entry.writes_coefficients is False
+    assert "offline PostgreSQL 18 database dry-run contract" in formal_database_dry_run_entry.notes[0]
     assert historical_replay_entry.category == "formal_review_evidence"
     assert historical_replay_entry.formal_status == "formal_support"
     assert historical_replay_entry.risk_level == "offline"

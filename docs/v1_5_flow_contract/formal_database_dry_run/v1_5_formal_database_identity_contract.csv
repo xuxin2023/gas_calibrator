@@ -1,0 +1,6 @@
+﻿field,required,format,table,constraint,role
+sn_code,True,8 numeric digits; not 00000000,core_storage.sensors,uq_sensors_sn_code,production primary identity
+device_code,True,8 numeric digits; normally equals sn_code in V1.5 production,core_storage.sensors,uq_sensors_device_code,production lookup identity and future QR-code payload
+protocol_device_id,True,3 numeric digits,core_storage.sensor_identity_aliases,ix_sensor_identity_alias_lookup,compatibility query alias and command identity only; never primary identity
+slot_or_ga_label,True,GA01..GA06,run_devices.metadata,run-scoped metadata,run-local analyzer slot label only
+com_port,False,COMn transport endpoint,run_devices.metadata,run-scoped metadata,transport mapping only; not a device identity
