@@ -573,12 +573,14 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     )
     operation_console = json.loads(operation_console_json.read_text(encoding="utf-8"))
     assert operation_console["source_evidence"]["has_full_flow_stage_manifest"] is True
+    assert operation_console["source_evidence"]["has_formal_run_status"] is True
     assert operation_console["opens_com_ports"] is False
     assert operation_console["controls_water_or_gas_routes"] is False
     assert operation_console["writes_coefficients"] is False
     assert operation_console["cannot_write_senco"] is True
     assert operation_console["stage_manifest_panel"]["status"] != "not_found"
     assert operation_console["stage_manifest_panel"]["one_button_live_runner_ready"] is False
+    assert operation_console["formal_run_status_panel"]["current_stage"] == formal_status["current_stage"]
     assert (out / "v1_5_full_flow_state.json").exists()
     assert (out / "v1_5_full_flow_state.md").exists()
 
