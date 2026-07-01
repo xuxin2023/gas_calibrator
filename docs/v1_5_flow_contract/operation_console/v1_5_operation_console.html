@@ -1,0 +1,78 @@
+﻿<!doctype html>
+<html lang='zh-CN'>
+<head>
+  <meta charset='utf-8'>
+  <title>V1.5 正式校准操作台</title>
+  <style>
+    body { font-family: "Microsoft YaHei", "Segoe UI", sans-serif; margin: 0; background: #f5f7fb; color: #1f2937; }
+    header { background: #102033; color: #fff; padding: 22px 32px; }
+    main { padding: 24px 32px; }
+    h1, h2, h3 { margin-top: 0; }
+    .boundary { background: #fff7ed; border-left: 5px solid #f97316; padding: 12px 16px; margin: 16px 0; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 18px 0; }
+    .card, .panel { background: #fff; border: 1px solid #dbe3ee; border-radius: 8px; padding: 14px 16px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06); }
+    .status { font-weight: 700; }
+    .good .status, tr.good td:nth-child(2) { color: #047857; }
+    .warn .status, tr.warn td:nth-child(2) { color: #b45309; }
+    .bad .status, tr.bad td:nth-child(2) { color: #b91c1c; }
+    .info .status, tr.info td:nth-child(2) { color: #1d4ed8; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #eef2f7; }
+    code { background: #eef2f7; padding: 2px 4px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>V1.5 正式校准操作台</h1>
+    <p>run_id=unknown；角色=operator；生成时间=2026-07-01T04:42:30.532920+00:00</p>
+  </header>
+  <main>
+    <section class='boundary'><strong>安全边界：</strong>本操作台仅展示证据状态；不打开串口、不控制水路/气路、不控制阀或 PACE、不写 SENCO、不清除系数、不修改分析仪 ID。</section>
+    <p><strong>证据来源：</strong>has_workbench_model=False；has_run_evidence_status=True；has_calibration_capability=False；has_archive_index=False；has_full_flow_stage_manifest=True</p>
+    <section class='cards'><section class='card warn'><h3>方法主干</h3><p class='status'>待补齐</p><p>开放流通 CO2/H2O 主校准 + 压力独立验证 + 后置复验。</p></section>
+<section class='card warn'><h3>写后复验</h3><p class='status'>待补齐</p><p>未发现复验证据</p></section>
+<section class='card warn'><h3>正式放行</h3><p class='status'>待补齐</p><p>正式签发仍要求报告、数据库、审计和证据包闭环。</p></section>
+<section class='card warn'><h3>数据库归档</h3><p class='status'>待补齐</p><p>数据库用于索引证据链；原始帧仍以文件证据包保留。</p></section>
+<section class='card info'><h3>全流程阶段清单</h3><p class='status'>受控计划</p><p>current=load_plan_and_traceability; one_button_live_runner_ready=False</p></section></section>
+
+<section class='panel'>
+  <h2>全流程阶段清单</h2>
+  <p>状态：<strong>受控计划</strong>；当前阶段：load_plan_and_traceability；one_button_live_runner_ready=False</p>
+  <p>状态计数：authorization_required=5, blocked_controlled_gate=2, pass=1, waiting_for_artifacts=18</p>
+  <table>
+    <thead><tr><th>序号</th><th>阶段</th><th>环节</th><th>状态</th><th>原因</th></tr></thead>
+    <tbody><tr><td>1</td><td>load_plan_and_traceability</td><td>LOAD_PLAN</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>
+<tr><td>2</td><td>formal_initialization_contract_plan</td><td>INITIALIZATION_CONTRACT</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>
+<tr><td>3</td><td>initialization_readiness_snapshot</td><td>INITIALIZATION_READINESS</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>
+<tr><td>4</td><td>pre_gas_readiness_snapshot</td><td>PRE_GAS_READINESS</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>
+<tr><td>5</td><td>device_identity_and_getco_snapshot</td><td>PRECHECK</td><td>需授权</td><td>live_stage_requires_explicit_authorization_and_external_execution</td></tr>
+<tr><td>6</td><td>identity_getco_readiness_snapshot</td><td>IDENTITY_GETCO_READINESS</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>
+<tr><td>7</td><td>auxiliary_senco56789_neutralization_gate</td><td>AUXILIARY_COEFFICIENT_NEUTRALIZATION</td><td>受控门禁</td><td>controlled_write_or_device_id_gate_requires_explicit_review</td></tr>
+<tr><td>8</td><td>pressure_quick_check</td><td>PRESSURE_CHANNEL_QUICK_CHECK</td><td>需授权</td><td>live_stage_requires_explicit_authorization_and_external_execution</td></tr>
+<tr><td>9</td><td>pressure_senco9_no_write_acquisition</td><td>PRESSURE_CHANNEL_SENCO9_ACQUISITION</td><td>需授权</td><td>live_stage_requires_explicit_authorization_and_external_execution</td></tr>
+<tr><td>10</td><td>pressure_senco9_no_write_review</td><td>PRESSURE_CHANNEL_SENCO9_REVIEW</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>
+<tr><td>11</td><td>pressure_channel_completion_audit</td><td>PRESSURE_CHANNEL_COMPLETION</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>
+<tr><td>12</td><td>temperature_channel_fast_review</td><td>TEMPERATURE_CHANNEL_REVIEW</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr></tbody>
+  </table>
+</section>
+
+
+<section class='panel'>
+  <h2>页面与门禁</h2>
+  <table>
+    <thead><tr><th>页面</th><th>状态</th><th>物理意义</th><th>阻塞 / 说明</th></tr></thead>
+    <tbody><tr class='warn'><td>首页 / 运行总览</td><td>待补齐</td><td>显示 run_id、阶段状态、正式范围和当前阻塞原因。</td><td>无阻塞；等待对应证据刷新。</td></tr>
+<tr class='warn'><td>校准计划选择</td><td>待补齐</td><td>展示校准计划、标准气证书、采样窗口和配置版本。</td><td>无阻塞；等待对应证据刷新。</td></tr>
+<tr class='warn'><td>设备预检</td><td>待补齐</td><td>展示分析仪、参考设备、GETCO 备份和状态寄存器证据。</td><td>无阻塞；等待对应证据刷新。</td></tr>
+<tr class='bad'><td>压力通道验证</td><td>缺失</td><td>展示分析仪内部压力 P 与 COM22/PACE 的独立比对证据。</td><td>Pressure channel quick check or completion: 缺失 - pressure quick-check or pressure-channel completion evidence missing</td></tr>
+<tr class='bad'><td>开放流通采样</td><td>缺失</td><td>展示 CO2/H2O、露点、压力、ratio/signal 和稳定门禁证据。</td><td>CO2 open-flow evidence: 缺失 - CO2 open-flow sample evidence missing；H2O open-flow evidence: 缺失 - H2O open-flow sample evidence missing</td></tr>
+<tr class='warn'><td>QC 与点位评审</td><td>待补齐</td><td>解释每个点为何进入拟合、降级或拒绝。</td><td>无阻塞；等待对应证据刷新。</td></tr>
+<tr class='warn'><td>候选系数与报告</td><td>未执行</td><td>展示候选系数、误差、复验、报告和未闭环项。</td><td>Post-run coefficient closure executor: 未执行 - post-run coefficient executor not generated；Run, technical, and formal calibration reports: 未执行 - one or more formal report artifacts missing</td></tr>
+<tr class='warn'><td>审核与归档</td><td>未执行</td><td>展示审计、数据库归档、证书和受控写入门禁。</td><td>Evidence database import: 未执行 - database import not attempted or summary not found</td></tr></tbody>
+  </table>
+</section>
+
+  </main>
+</body>
+</html>

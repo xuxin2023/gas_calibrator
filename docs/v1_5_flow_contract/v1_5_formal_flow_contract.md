@@ -15,8 +15,14 @@
 ## Physical Flow
 
 - LOAD_PLAN: freeze plan, certificates, config hash, and run identity
+- INITIALIZATION_CONTRACT: generate the formal initialization plan, PostgreSQL 18 sidecar, and readiness snapshot without COM or writes
+- PRE_GAS_READINESS: summarize SN/device_code, PostgreSQL 18, MODE2/1Hz, GETCO, S7/S8, S9, route, and CHECK gates before live identity
 - PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9
+- IDENTITY_GETCO_READINESS: verify epoch-0 GETCO artifacts, no-write conclusion, and runtime identity-bound config before auxiliary coefficient changes
+- AUX_NEUTRALIZE: after immutable GETCO backup, neutralize SENCO5/6/7/8/9 through controlled tools
 - PRESSURE: verify analyzer P against COM22 before component calibration
+- PRESSURE_SENCO9: if needed, use the full V1.5 no-write sealed-pressure runner and transition trace
+- PRESSURE_COMPLETION: after SENCO9 write and reverification, freeze traceable pressure-channel completion evidence
 - TEMPERATURE: review chamber/case temperature evidence before final approval
 - CO2_OPEN_FLOW: sample clean dry gas under continuous open flow
 - H2O_OPEN_FLOW: sample water route under dewpoint/reference evidence
@@ -25,27 +31,41 @@
 - CONTROLLED_WRITE: write only through explicit controlled tools and readback
 - POST_WRITE_REVERIFY: verify updated output before archive and report
 - ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports
+- FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars
 
 ## Step Sequence
 
 1. `LOAD_PLAN` / `load_plan_and_traceability`
-2. `PRECHECK` / `device_identity_and_getco_snapshot`
-3. `PRESSURE_CHANNEL_QUICK_CHECK` / `pressure_quick_check`
-4. `PRESSURE_CHANNEL_SENCO9_REVIEW` / `pressure_senco9_no_write_review`
-5. `TEMPERATURE_CHANNEL_REVIEW` / `temperature_channel_fast_review`
-6. `CO2_OPEN_FLOW` / `co2_open_flow_sampling`
-7. `H2O_OPEN_FLOW` / `h2o_open_flow_sampling`
-8. `QC_AND_FIT_INPUT_REVIEW` / `fit_input_quality_review`
-9. `CO2_CANDIDATE_REVIEW` / `co2_candidate_write_review`
-10. `CONTROLLED_WRITE` / `controlled_component_write_placeholder`
-11. `POST_WRITE_REVERIFY` / `post_write_reverification_placeholder`
-12. `EVIDENCE_BUNDLE` / `formal_evidence_sidecar`
-13. `DATABASE_IMPORT` / `database_import`
-14. `REPORTS` / `zh_calibration_reports`
+2. `INITIALIZATION_CONTRACT` / `formal_initialization_contract_plan`
+3. `INITIALIZATION_READINESS` / `initialization_readiness_snapshot`
+4. `PRE_GAS_READINESS` / `pre_gas_readiness_snapshot`
+5. `PRECHECK` / `device_identity_and_getco_snapshot`
+6. `IDENTITY_GETCO_READINESS` / `identity_getco_readiness_snapshot`
+7. `AUXILIARY_COEFFICIENT_NEUTRALIZATION` / `auxiliary_senco56789_neutralization_gate`
+8. `PRESSURE_CHANNEL_QUICK_CHECK` / `pressure_quick_check`
+9. `PRESSURE_CHANNEL_SENCO9_ACQUISITION` / `pressure_senco9_no_write_acquisition`
+10. `PRESSURE_CHANNEL_SENCO9_REVIEW` / `pressure_senco9_no_write_review`
+11. `PRESSURE_CHANNEL_COMPLETION` / `pressure_channel_completion_audit`
+12. `TEMPERATURE_CHANNEL_REVIEW` / `temperature_channel_fast_review`
+13. `CO2_OPEN_FLOW` / `co2_open_flow_sampling`
+14. `H2O_OPEN_FLOW` / `h2o_open_flow_sampling`
+15. `FACTORY_SIGNAL_HEALTH_REVIEW` / `factory_signal_health_review`
+16. `QC_AND_FIT_INPUT_REVIEW` / `fit_input_quality_review`
+17. `POST_RUN_COEFFICIENT_EXECUTOR` / `post_run_coefficient_executor`
+18. `FULL_FLOW_CLOSURE_READINESS` / `full_flow_closure_readiness`
+19. `CO2_CANDIDATE_REVIEW` / `co2_candidate_write_review`
+20. `CONTROLLED_WRITE` / `controlled_component_write_placeholder`
+21. `POST_WRITE_REVERIFY` / `post_write_reverification_placeholder`
+22. `EVIDENCE_BUNDLE` / `formal_evidence_sidecar`
+23. `DATABASE_IMPORT` / `database_import`
+24. `REPORTS` / `zh_calibration_reports`
+25. `FINAL_EVIDENCE_STATUS` / `final_evidence_status_refresh`
+26. `FORMAL_RUN_STATUS` / `formal_run_status_snapshot`
 
 ## Formal Route Runners
 
-- none
+- `co2_open_flow_sampling`
+- `h2o_open_flow_sampling`
 
 ## Issues
 
@@ -53,15 +73,4 @@
 
 ## Warnings
 
-- `warning` `entrypoint_not_in_inventory` (load_plan_and_traceability): gas_calibrator.tools.prepare_v1_5_formal_run_package is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (device_identity_and_getco_snapshot): gas_calibrator.tools.probe_v1_5_getco_component_snapshot is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (pressure_senco9_no_write_review): gas_calibrator.tools.export_v1_5_pressure_senco9_no_write_preflight is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (temperature_channel_fast_review): gas_calibrator.tools.export_v1_5_temperature_channel_review is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (co2_open_flow_sampling): gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (h2o_open_flow_sampling): gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (fit_input_quality_review): gas_calibrator.tools.export_v1_5_fit_input_quality is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (co2_candidate_write_review): gas_calibrator.tools.export_v1_5_co2_senco_pair_model_scope is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (post_write_reverification_placeholder): gas_calibrator.tools.export_v1_5_post_write_reverification is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (formal_evidence_sidecar): gas_calibrator.tools.run_v1_5_formal_evidence_sidecar is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (database_import): gas_calibrator.tools.import_v1_5_evidence_package is not present in the supplied V1.5 inventory
-- `warning` `entrypoint_not_in_inventory` (zh_calibration_reports): gas_calibrator.tools.export_v1_5_calibration_reports is not present in the supplied V1.5 inventory
+- none

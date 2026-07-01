@@ -88,6 +88,14 @@ def _inventory_for_plan():
                 "path": "src/gas_calibrator/tools/export_v1_5_calibration_reports.py",
                 "category": "formal_review_evidence",
             },
+            {
+                "path": "src/gas_calibrator/tools/export_v1_5_run_evidence_status.py",
+                "category": "formal_review_evidence",
+            },
+            {
+                "path": "src/gas_calibrator/tools/export_v1_5_formal_run_status.py",
+                "category": "formal_review_evidence",
+            },
         ]
     }
 
@@ -134,6 +142,10 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert report.step_sequence.index("post_write_reverification_placeholder") < report.step_sequence.index(
         "formal_evidence_sidecar"
     )
+    assert report.step_sequence.index("final_evidence_status_refresh") < report.step_sequence.index(
+        "formal_run_status_snapshot"
+    )
+    assert "FORMAL_RUN_STATUS" in "\n".join(report.physical_flow)
 
 
 def test_formal_flow_contract_blocks_component_sampling_before_pressure(tmp_path):
@@ -316,6 +328,28 @@ def test_formal_flow_contract_requires_post_write_reverification(tmp_path):
 
     assert report.status == "blocked"
     assert any(issue.code == "missing_required_step" for issue in report.issues)
+
+
+def test_formal_flow_contract_blocks_formal_status_that_is_not_offline(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("formal_run_status_snapshot")
+    broken = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        execution_mode="real_route_runner_when_authorized",
+        opens_com_ports=True,
+        controls_gas_route=True,
+    )
+    steps[index] = broken
+
+    report = validate_v1_5_formal_flow_contract(replace(plan, steps=tuple(steps)), inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "formal_run_status_wrong_tool" in codes
+    assert "formal_run_status_must_be_offline_no_write" in codes
+    assert "formal_run_status_must_be_offline" in codes
 
 
 def test_export_formal_flow_contract_writes_json_and_markdown(tmp_path):

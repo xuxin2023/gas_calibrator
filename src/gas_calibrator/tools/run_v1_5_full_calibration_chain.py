@@ -32,6 +32,10 @@ from ..validation.v1_5_full_flow_closure_readiness import (
     build_v1_5_full_flow_closure_readiness,
     write_v1_5_full_flow_closure_readiness_outputs,
 )
+from ..validation.v1_5_formal_run_status import (
+    build_v1_5_formal_run_status,
+    write_v1_5_formal_run_status_outputs,
+)
 from ..validation.v1_5_post_run_coefficient_executor import (
     build_post_run_coefficient_executor_model,
     write_post_run_coefficient_executor_outputs,
@@ -81,6 +85,38 @@ def _write_operation_console(
         role="operator",
     )
     return outputs["model"], outputs["html"]
+
+
+def _write_formal_run_status(
+    *,
+    output_dir: str | Path,
+    run_evidence_status_json: str | Path,
+    full_flow_closure_readiness_json: str | Path | None = None,
+    archive_closure_json: str | Path | None = None,
+) -> tuple[dict, dict[str, Path]]:
+    """Write the top-level offline status dashboard for the current V1.5 flow."""
+
+    root = Path(output_dir).resolve()
+    model = build_v1_5_formal_run_status(
+        run_dir=root,
+        initialization_readiness_json=root / "formal_initialization" / "v1_5_initialization_readiness.json",
+        pre_gas_readiness_json=root / "pre_gas_readiness" / "v1_5_pre_gas_readiness.json",
+        getco_readiness_json=root / "identity_getco_readiness" / "v1_5_getco_identity_readiness.json",
+        run_evidence_status_json=run_evidence_status_json,
+        full_flow_closure_readiness_json=full_flow_closure_readiness_json
+        or root / "full_flow_closure_readiness" / "v1_5_full_flow_closure_readiness.json",
+        archive_closure_json=archive_closure_json
+        or root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
+    )
+    raw_paths = write_v1_5_formal_run_status_outputs(model, root / "formal_run_status")
+    return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
+
+
+def _record_formal_run_status_outputs(outputs: dict, paths: dict[str, Path]) -> None:
+    outputs["formal_run_status_json"] = paths["json_path"]
+    outputs["formal_run_status_markdown"] = paths["markdown_path"]
+    outputs["formal_run_status_gates"] = paths["gates_csv_path"]
+    outputs["formal_run_status_gaps"] = paths["gaps_csv_path"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -304,6 +340,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     )
     outputs["operation_console_json"] = console_json
     outputs["operation_console_html"] = console_html
+    formal_status_model, formal_status_paths = _write_formal_run_status(
+        output_dir=args.output_dir,
+        run_evidence_status_json=status_json,
+    )
+    _record_formal_run_status_outputs(outputs, formal_status_paths)
     latest_evidence_bundle_json = args.evidence_bundle_json
     archive_closure_requested = bool(args.archive_closure)
     post_acquisition_closure_requested = bool(args.post_acquisition_closure)
@@ -443,6 +484,14 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
         outputs["operation_console_json"] = console_json
         outputs["operation_console_html"] = console_html
+        formal_status_model, formal_status_paths = _write_formal_run_status(
+            output_dir=args.output_dir,
+            run_evidence_status_json=status_json,
+            full_flow_closure_readiness_json=outputs.get("full_flow_closure_readiness_json"),
+            archive_closure_json=outputs.get("archive_closure_index_json"),
+        )
+        _record_formal_run_status_outputs(outputs, formal_status_paths)
+        outputs["formal_run_status_refreshed_after_closure"] = formal_status_paths["json_path"]
     print(json.dumps({key: str(Path(value).resolve()) for key, value in outputs.items()}, ensure_ascii=False, indent=2))
     if args.fail_on_contract_blocked and contract_status == "blocked":
         return 2

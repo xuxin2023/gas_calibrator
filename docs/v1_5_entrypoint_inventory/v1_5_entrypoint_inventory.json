@@ -1,7 +1,7 @@
 {
   "schema": "v1_5_entrypoint_inventory_v1",
   "repo_root": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean",
-  "entrypoint_count": 216,
+  "entrypoint_count": 334,
   "canonical_formal_path": [
     {
       "stage": "00_full_flow_guard",
@@ -16,7 +16,7 @@
       "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py",
       "category": "full_flow_orchestration",
       "status": "offline_initialization_planner_and_gate",
-      "physical_meaning": "Owns the formal initialization contract: device-ID binding, GETCO1-9 epoch-0 snapshot, S5/S6/S7/S8/S9 gates, startup acquisition settings, readiness, and database evidence indexing.",
+      "physical_meaning": "Owns the formal initialization contract: device-ID binding, GETCO1-9 epoch-0 snapshot, S5/S6/S7/S8/S9 gates, startup acquisition settings, readiness, pre-gas gap list, and database evidence indexing.",
       "safety_boundary": "This is the single formal initialization entrypoint. It plans and gates; subordinate probe/writer/readiness tools do the authorized read-only or controlled-write work and historical logs remain traceability evidence only."
     },
     {
@@ -90,8 +90,20 @@
       "status": "implemented_offline_archive",
       "physical_meaning": "Closes the run evidence chain with artifact hashes, reports, database index inputs, and traceability status.",
       "safety_boundary": "Archive closure does not change device state and must not hide rejected frames or points."
+    },
+    {
+      "stage": "11_formal_run_status_dashboard",
+      "entrypoint": "src/gas_calibrator/tools/export_v1_5_formal_run_status.py",
+      "category": "formal_review_evidence",
+      "status": "implemented_offline_status_rollup",
+      "physical_meaning": "Summarizes current stage, next action, physical-flow continuation, and formal archive/database release readiness from existing sidecars.",
+      "safety_boundary": "Formal run status is read-only evidence; it must not open COM, connect PostgreSQL, control routes, or write analyzer state."
     }
   ],
+  "canonical_formal_path_policy": {
+    "status": "ready",
+    "issues": []
+  },
   "do_not_start_here": [
     {
       "path": "src/gas_calibrator/tools/archive_v1_5_current_stage.py",
@@ -148,6 +160,15 @@
       "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_sencoa_sencob_controlled_writer_preflight.py",
+      "name": "export_v1_5_sencoa_sencob_controlled_writer_preflight",
+      "category": "controlled_write",
+      "stage": "general",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
       "path": "src/gas_calibrator/tools/run_v1_5_h2o_senco24_controlled_write.py",
       "name": "run_v1_5_h2o_senco24_controlled_write",
       "category": "controlled_write",
@@ -193,6 +214,24 @@
       "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_temperature_current_point_review.py",
+      "name": "run_v1_5_temperature_current_point_review",
+      "category": "controlled_write",
+      "stage": "temperature_channel",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_temperature_senco78_candidate_controlled_write.py",
+      "name": "run_v1_5_temperature_senco78_candidate_controlled_write",
+      "category": "controlled_write",
+      "stage": "temperature_channel",
+      "risk_level": "writes_device_coefficients",
+      "guardrail": "authorized_write_only",
+      "allowed_use": "Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan."
+    },
+    {
       "path": "src/gas_calibrator/tools/run_v1_5_temperature_senco78_neutral_controlled_write.py",
       "name": "run_v1_5_temperature_senco78_neutral_controlled_write",
       "category": "controlled_write",
@@ -222,6 +261,24 @@
     {
       "path": "src/gas_calibrator/tools/export_v1_5_co2_post_h2o_diagnostic.py",
       "name": "export_v1_5_co2_post_h2o_diagnostic",
+      "category": "diagnostic_only",
+      "stage": "h2o_component",
+      "risk_level": "offline",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_h2o_special_diagnostic_queue.py",
+      "name": "export_v1_5_h2o_special_diagnostic_queue",
+      "category": "diagnostic_only",
+      "stage": "h2o_component",
+      "risk_level": "offline",
+      "guardrail": "diagnostic_not_acceptance",
+      "allowed_use": "Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default."
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_h2o_state_transfer_diagnostic.py",
+      "name": "export_v1_5_h2o_state_transfer_diagnostic",
       "category": "diagnostic_only",
       "stage": "h2o_component",
       "risk_level": "offline",
@@ -352,7 +409,7 @@
       "path": "src/gas_calibrator/v2",
       "status": "legacy_reference_only",
       "action": "exclude_from_v1_5_active_surface",
-      "file_count": 332,
+      "file_count": 337,
       "examples": [
         "src/gas_calibrator/v2/__init__.py",
         "src/gas_calibrator/v2/adapters/__init__.py",
@@ -370,7 +427,7 @@
       "path": "tests/v2",
       "status": "legacy_reference_only",
       "action": "exclude_from_v1_5_active_surface",
-      "file_count": 237,
+      "file_count": 240,
       "examples": [
         "tests/v2/fixtures/replay/co2_only_skip0_success_single_temp.json",
         "tests/v2/fixtures/replay/co2_route_entered_but_sample_count_mismatch.json",
@@ -414,16 +471,16 @@
       "path": "src/gas_calibrator/tools/*diagnostic*",
       "status": "diagnostic_only",
       "action": "guarded_engineering_use_only",
-      "file_count": 9,
+      "file_count": 11,
       "examples": [
         "src/gas_calibrator/tools/export_single_gas_pressure_curve.py",
         "src/gas_calibrator/tools/export_v1_5_co2_post_h2o_diagnostic.py",
+        "src/gas_calibrator/tools/export_v1_5_h2o_special_diagnostic_queue.py",
+        "src/gas_calibrator/tools/export_v1_5_h2o_state_transfer_diagnostic.py",
         "src/gas_calibrator/tools/probe_v1_5_getco9_protocol.py",
         "src/gas_calibrator/tools/run_room_temp_co2_pressure_diagnostic.py",
         "src/gas_calibrator/tools/run_v1_5_dewpoint_gate_extended_hold_after_gate.py",
-        "src/gas_calibrator/tools/run_v1_5_no_outp_preseal_probe.py",
-        "src/gas_calibrator/tools/run_v1_5_open_flow_dynamic_pressure_diagnostic.py",
-        "src/gas_calibrator/tools/run_v1_5_pace_mode_ingress_diagnostic.py"
+        "src/gas_calibrator/tools/run_v1_5_no_outp_preseal_probe.py"
       ],
       "reason": "Diagnostics are useful for root cause work but cannot enter formal acceptance or CO2/H2O fitting by default."
     },
@@ -432,16 +489,16 @@
       "path": "configs/site_v1_5_*current* / *observed* / *generated*",
       "status": "review_before_use",
       "action": "do_not_use_as_default_config",
-      "file_count": 17,
+      "file_count": 11,
       "examples": [
         "configs/default_config_corrected_autodelivery.json",
         "configs/default_config_corrected_autodelivery_real_smoke_no500_20260407.json",
         "configs/points_v1_5_co2_20c_100ppm_limited_ambient_2sealed_nowait.xlsx",
-        "configs/site_v1_5_formal_h2o_open_flow_current_5ch_no_write_active.json",
-        "configs/site_v1_5_formal_open_flow_current_4ch_no_write_active_generated_20260531.json",
-        "configs/site_v1_5_formal_open_flow_current_5of6_no_write_active.json",
-        "configs/site_v1_5_formal_open_flow_current_6ch_no_write_active.json",
-        "configs/site_v1_5_formal_open_flow_current_observed_6ch_no_write_active_20260602.json"
+        "configs/site_v1_5_no_write_current_hardware_co2_20c.json",
+        "configs/site_v1_5_no_write_current_hardware_co2_20c_1000ppm_full_pressure_controlled_outp_skip_tempwait.json",
+        "configs/site_v1_5_no_write_current_hardware_co2_20c_1000ppm_full_pressure_no_outp_skip_tempwait.json",
+        "configs/site_v1_5_no_write_current_hardware_co2_20c_1000ppm_full_pressure_no_tempwait.json",
+        "configs/site_v1_5_no_write_current_hardware_co2_20c_1000ppm_full_pressure_no_tempwait_no_outp.json"
       ],
       "reason": "Observed/generated/current configs may reflect a bench snapshot; formal runs should use an explicit reviewed site config."
     },
@@ -519,21 +576,21 @@
   },
   "category_summary": {
     "advanced_qc": 10,
-    "controlled_write": 11,
-    "diagnostic_only": 9,
+    "controlled_write": 14,
+    "diagnostic_only": 11,
     "evidence_database": 5,
     "formal_pressure_no_write_runner": 1,
-    "formal_review_evidence": 64,
+    "formal_review_evidence": 109,
     "formal_runner": 2,
     "formal_sampling_worker": 2,
     "full_flow_orchestration": 5,
     "housekeeping_archive": 1,
-    "identity_and_serial_binding": 1,
+    "identity_and_serial_binding": 4,
     "legacy_v1_reference": 4,
     "parameter_governance": 2,
-    "test_gate": 95,
+    "test_gate": 156,
     "ui_review": 3,
-    "v1_5_library": 1
+    "v1_5_library": 5
   },
   "entries": [
     {
@@ -669,6 +726,19 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_algorithm_write_contract_review.py",
+      "name": "export_v1_5_algorithm_write_contract_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_calibration_capability.py",
       "name": "export_v1_5_calibration_capability",
       "artifact_type": "tool",
@@ -708,6 +778,19 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_candidate_model_selection_review.py",
+      "name": "export_v1_5_candidate_model_selection_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "coefficient_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_candidate_write_review.py",
       "name": "export_v1_5_candidate_write_review",
       "artifact_type": "tool",
@@ -734,11 +817,37 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_common_mode_point_audit.py",
+      "name": "export_v1_5_co2_common_mode_point_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_co2_fit_algorithm_matrix.py",
       "name": "export_v1_5_co2_fit_algorithm_matrix",
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_h2o_cross_effect_review.py",
+      "name": "export_v1_5_co2_h2o_cross_effect_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "h2o_component",
       "formal_status": "formal_support",
       "risk_level": "offline",
       "opens_com_ports": false,
@@ -799,6 +908,331 @@
       "notes": [
         "diagnostic evidence only; not formal acceptance by default"
       ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_queue_failure_audit.py",
+      "name": "export_v1_5_co2_queue_failure_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_relative_s13_objective_review.py",
+      "name": "export_v1_5_co2_relative_s13_objective_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_blocker_closure_action_review.py",
+      "name": "export_v1_5_co2_s13_blocker_closure_action_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_bridge_correction_strategy_review.py",
+      "name": "export_v1_5_co2_s13_bridge_correction_strategy_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_enhanced_model_capacity_review.py",
+      "name": "export_v1_5_co2_s13_enhanced_model_capacity_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_error_root_cause_resolution_review.py",
+      "name": "export_v1_5_co2_s13_error_root_cause_resolution_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_fast_error_closure_candidate.py",
+      "name": "export_v1_5_co2_s13_fast_error_closure_candidate",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_low_end_anchor_target_audit.py",
+      "name": "export_v1_5_co2_s13_low_end_anchor_target_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_low_end_correction_strategy_review.py",
+      "name": "export_v1_5_co2_s13_low_end_correction_strategy_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_low_end_model_correction_review.py",
+      "name": "export_v1_5_co2_s13_low_end_model_correction_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_low_end_temperature_boundary_decision.py",
+      "name": "export_v1_5_co2_s13_low_end_temperature_boundary_decision",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "temperature_channel",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_minimal_bridge_plan.py",
+      "name": "export_v1_5_co2_s13_minimal_bridge_plan",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_minimal_resampling_runlist.py",
+      "name": "export_v1_5_co2_s13_minimal_resampling_runlist",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_model_structure_review.py",
+      "name": "export_v1_5_co2_s13_model_structure_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_multistrategy_fit_review.py",
+      "name": "export_v1_5_co2_s13_multistrategy_fit_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_ratio_target_mapping_audit.py",
+      "name": "export_v1_5_co2_s13_ratio_target_mapping_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_residual_root_cause_review.py",
+      "name": "export_v1_5_co2_s13_residual_root_cause_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_root_cause_closure_review.py",
+      "name": "export_v1_5_co2_s13_root_cause_closure_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_source_state_discontinuity_audit.py",
+      "name": "export_v1_5_co2_s13_source_state_discontinuity_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_source_state_repair_fit_review.py",
+      "name": "export_v1_5_co2_s13_source_state_repair_fit_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_state_bridge_closure.py",
+      "name": "export_v1_5_co2_s13_state_bridge_closure",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_target_state_bridge_review.py",
+      "name": "export_v1_5_co2_s13_target_state_bridge_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_target_state_common_bias_audit.py",
+      "name": "export_v1_5_co2_s13_target_state_common_bias_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_s13_zero_anchor_contract_review.py",
+      "name": "export_v1_5_co2_s13_zero_anchor_contract_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_senco13_fit_point_treatment_plan.py",
+      "name": "export_v1_5_co2_senco13_fit_point_treatment_plan",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
     },
     {
       "path": "src/gas_calibrator/tools/export_v1_5_co2_senco13_repair_plan.py",
@@ -918,8 +1352,60 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_co2_zero_s5_sensitivity_review.py",
+      "name": "export_v1_5_co2_zero_s5_sensitivity_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "co2_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_component_snapshot_after_events.py",
+      "name": "export_v1_5_component_snapshot_after_events",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_dirty_zone_audit.py",
+      "name": "export_v1_5_dirty_zone_audit",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_entrypoint_inventory.py",
       "name": "export_v1_5_entrypoint_inventory",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_factory_signal_health_review.py",
+      "name": "export_v1_5_factory_signal_health_review",
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "general",
@@ -1022,6 +1508,21 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_formal_run_status.py",
+      "name": "export_v1_5_formal_run_status",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline formal run status rollup; reads readiness/archive sidecars and does not open COM"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_formal_workbench.py",
       "name": "export_v1_5_formal_workbench",
       "artifact_type": "tool",
@@ -1033,6 +1534,34 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_full_flow_closure_readiness.py",
+      "name": "export_v1_5_full_flow_closure_readiness",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "full_flow_orchestration",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py",
+      "name": "export_v1_5_getco_identity_readiness",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline identity/GETCO readiness sidecar; consumes read-only GETCO artifacts and does not open COM"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/export_v1_5_h2o_dry_anchor_bridge_review.py",
@@ -1050,6 +1579,32 @@
     {
       "path": "src/gas_calibrator/tools/export_v1_5_h2o_formal_closure_review.py",
       "name": "export_v1_5_h2o_formal_closure_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "h2o_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_h2o_low_anchor_from_co2_zero.py",
+      "name": "export_v1_5_h2o_low_anchor_from_co2_zero",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "h2o_component",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_h2o_queue_failure_audit.py",
+      "name": "export_v1_5_h2o_queue_failure_audit",
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "h2o_component",
@@ -1100,8 +1655,64 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_h2o_special_diagnostic_queue.py",
+      "name": "export_v1_5_h2o_special_diagnostic_queue",
+      "artifact_type": "tool",
+      "category": "diagnostic_only",
+      "stage": "h2o_component",
+      "formal_status": "diagnostic_only",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "diagnostic evidence only; not formal acceptance by default"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_h2o_state_transfer_diagnostic.py",
+      "name": "export_v1_5_h2o_state_transfer_diagnostic",
+      "artifact_type": "tool",
+      "category": "diagnostic_only",
+      "stage": "h2o_component",
+      "formal_status": "diagnostic_only",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "diagnostic evidence only; not formal acceptance by default"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_initialization_readiness.py",
       "name": "export_v1_5_initialization_readiness",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_main_senco_write_precheck_pack.py",
+      "name": "export_v1_5_main_senco_write_precheck_pack",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_new_algorithm_test_point_plan.py",
+      "name": "export_v1_5_new_algorithm_test_point_plan",
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "general",
@@ -1139,6 +1750,19 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_post_run_coefficient_executor.py",
+      "name": "export_v1_5_post_run_coefficient_executor",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "coefficient_review",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_post_write_reverification.py",
       "name": "export_v1_5_post_write_reverification",
       "artifact_type": "tool",
@@ -1150,6 +1774,21 @@
       "controls_routes": false,
       "writes_coefficients": false,
       "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_pre_gas_readiness.py",
+      "name": "export_v1_5_pre_gas_readiness",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "offline pre-gas readiness sidecar; summarizes identity, DB, GETCO, S7/S8, S9, route, and CHECK gates before live identity"
+      ]
     },
     {
       "path": "src/gas_calibrator/tools/export_v1_5_pressure_channel_completion.py",
@@ -1217,6 +1856,19 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/tools/export_v1_5_recommendation_closure.py",
+      "name": "export_v1_5_recommendation_closure",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/tools/export_v1_5_review_surface.py",
       "name": "export_v1_5_review_surface",
       "artifact_type": "tool",
@@ -1245,6 +1897,34 @@
     {
       "path": "src/gas_calibrator/tools/export_v1_5_sample_reuse_review.py",
       "name": "export_v1_5_sample_reuse_review",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_sencoa_sencob_controlled_writer_preflight.py",
+      "name": "export_v1_5_sencoa_sencob_controlled_writer_preflight",
+      "artifact_type": "tool",
+      "category": "controlled_write",
+      "stage": "general",
+      "formal_status": "formal_but_manual_authorized",
+      "risk_level": "writes_device_coefficients",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": true,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_sencoa_sencob_writer_design_review.py",
+      "name": "export_v1_5_sencoa_sencob_writer_design_review",
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "general",
@@ -1459,6 +2139,21 @@
       ]
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_analyzer_runtime_setup.py",
+      "name": "run_v1_5_analyzer_runtime_setup",
+      "artifact_type": "tool",
+      "category": "identity_and_serial_binding",
+      "stage": "general",
+      "formal_status": "formal_initialization_support",
+      "risk_level": "real_com_or_database_risk",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "formal initialization support; use only through the initialization owner or explicit preflight"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_rollback.py",
       "name": "run_v1_5_co2_senco13_controlled_rollback",
       "artifact_type": "tool",
@@ -1667,6 +2362,21 @@
       ]
     },
     {
+      "path": "src/gas_calibrator/tools/run_v1_5_formal_route_readiness_probe.py",
+      "name": "run_v1_5_formal_route_readiness_probe",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_preflight_support",
+      "risk_level": "real_com_or_route_risk",
+      "opens_com_ports": true,
+      "controls_routes": true,
+      "writes_coefficients": false,
+      "notes": [
+        "formal route-readiness preflight support; records readiness evidence before mature route runners"
+      ]
+    },
+    {
       "path": "src/gas_calibrator/tools/run_v1_5_full_calibration_chain.py",
       "name": "run_v1_5_full_calibration_chain",
       "artifact_type": "tool",
@@ -1722,6 +2432,21 @@
       "writes_coefficients": true,
       "notes": [
         "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_initialization_db_preflight.py",
+      "name": "run_v1_5_initialization_db_preflight",
+      "artifact_type": "tool",
+      "category": "identity_and_serial_binding",
+      "stage": "evidence_database",
+      "formal_status": "formal_initialization_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "formal initialization support; use only through the initialization owner or explicit preflight"
       ]
     },
     {
@@ -1815,6 +2540,49 @@
       "notes": [
         "diagnostic evidence only; not formal acceptance by default",
         "pressure/route engineering probe; keep outside formal CO2/H2O fit"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_sn_identity_initialization.py",
+      "name": "run_v1_5_sn_identity_initialization",
+      "artifact_type": "tool",
+      "category": "identity_and_serial_binding",
+      "stage": "general",
+      "formal_status": "formal_initialization_support",
+      "risk_level": "real_com_or_database_risk",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "formal initialization support; use only through the initialization owner or explicit preflight"
+      ]
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_temperature_current_point_review.py",
+      "name": "run_v1_5_temperature_current_point_review",
+      "artifact_type": "tool",
+      "category": "controlled_write",
+      "stage": "temperature_channel",
+      "formal_status": "formal_but_manual_authorized",
+      "risk_level": "writes_device_coefficients",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": true,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/run_v1_5_temperature_senco78_candidate_controlled_write.py",
+      "name": "run_v1_5_temperature_senco78_candidate_controlled_write",
+      "artifact_type": "tool",
+      "category": "controlled_write",
+      "stage": "temperature_channel",
+      "formal_status": "formal_but_manual_authorized",
+      "risk_level": "writes_device_coefficients",
+      "opens_com_ports": true,
+      "controls_routes": false,
+      "writes_coefficients": true,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
       ]
     },
     {
@@ -1939,6 +2707,45 @@
       "artifact_type": "library",
       "category": "v1_5_library",
       "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/import_initialization_database.py",
+      "name": "import_initialization_database",
+      "artifact_type": "library",
+      "category": "v1_5_library",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/initialization_database.py",
+      "name": "initialization_database",
+      "artifact_type": "library",
+      "category": "v1_5_library",
+      "stage": "evidence_database",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/v1_5/initialization_db_preflight.py",
+      "name": "initialization_db_preflight",
+      "artifact_type": "library",
+      "category": "v1_5_library",
+      "stage": "evidence_database",
       "formal_status": "formal_support",
       "risk_level": "offline",
       "opens_com_ports": false,
@@ -2159,6 +2966,19 @@
       "notes": []
     },
     {
+      "path": "src/gas_calibrator/v1_5/sn_identity_initialization.py",
+      "name": "sn_identity_initialization",
+      "artifact_type": "library",
+      "category": "v1_5_library",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "src/gas_calibrator/v1_5/ui/__init__.py",
       "name": "__init__",
       "artifact_type": "library",
@@ -2190,6 +3010,45 @@
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "qc_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_algorithm_route_profiles.py",
+      "name": "test_v1_5_algorithm_route_profiles",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_algorithm_write_contract_review.py",
+      "name": "test_v1_5_algorithm_write_contract_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_analyzer_runtime_setup.py",
+      "name": "test_v1_5_analyzer_runtime_setup",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -2250,6 +3109,19 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_candidate_model_selection_review.py",
+      "name": "test_v1_5_candidate_model_selection_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "coefficient_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_candidate_write_review.py",
       "name": "test_v1_5_candidate_write_review",
       "artifact_type": "test",
@@ -2289,6 +3161,19 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_co2_common_mode_point_audit.py",
+      "name": "test_v1_5_co2_common_mode_point_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_co2_firmware_contract.py",
       "name": "test_v1_5_co2_firmware_contract",
       "artifact_type": "test",
@@ -2307,6 +3192,19 @@
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_h2o_cross_effect_review.py",
+      "name": "test_v1_5_co2_h2o_cross_effect_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "h2o_component",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -2369,6 +3267,318 @@
       ]
     },
     {
+      "path": "tests/test_v1_5_co2_queue_failure_audit.py",
+      "name": "test_v1_5_co2_queue_failure_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_relative_s13_objective_review.py",
+      "name": "test_v1_5_co2_relative_s13_objective_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_blocker_closure_action_review.py",
+      "name": "test_v1_5_co2_s13_blocker_closure_action_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_bridge_correction_strategy_review.py",
+      "name": "test_v1_5_co2_s13_bridge_correction_strategy_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_enhanced_model_capacity_review.py",
+      "name": "test_v1_5_co2_s13_enhanced_model_capacity_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_error_root_cause_resolution_review.py",
+      "name": "test_v1_5_co2_s13_error_root_cause_resolution_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_fast_error_closure_candidate.py",
+      "name": "test_v1_5_co2_s13_fast_error_closure_candidate",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_low_end_anchor_target_audit.py",
+      "name": "test_v1_5_co2_s13_low_end_anchor_target_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_low_end_correction_strategy_review.py",
+      "name": "test_v1_5_co2_s13_low_end_correction_strategy_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_low_end_model_correction_review.py",
+      "name": "test_v1_5_co2_s13_low_end_model_correction_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_low_end_temperature_boundary_decision.py",
+      "name": "test_v1_5_co2_s13_low_end_temperature_boundary_decision",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "temperature_channel",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_minimal_bridge_plan.py",
+      "name": "test_v1_5_co2_s13_minimal_bridge_plan",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_minimal_resampling_runlist.py",
+      "name": "test_v1_5_co2_s13_minimal_resampling_runlist",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_model_structure_review.py",
+      "name": "test_v1_5_co2_s13_model_structure_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_multistrategy_fit_review.py",
+      "name": "test_v1_5_co2_s13_multistrategy_fit_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_ratio_target_mapping_audit.py",
+      "name": "test_v1_5_co2_s13_ratio_target_mapping_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_residual_root_cause_review.py",
+      "name": "test_v1_5_co2_s13_residual_root_cause_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_root_cause_closure_review.py",
+      "name": "test_v1_5_co2_s13_root_cause_closure_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_source_state_discontinuity_audit.py",
+      "name": "test_v1_5_co2_s13_source_state_discontinuity_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_source_state_repair_fit_review.py",
+      "name": "test_v1_5_co2_s13_source_state_repair_fit_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_state_bridge_closure.py",
+      "name": "test_v1_5_co2_s13_state_bridge_closure",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_target_state_bridge_review.py",
+      "name": "test_v1_5_co2_s13_target_state_bridge_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_target_state_common_bias_audit.py",
+      "name": "test_v1_5_co2_s13_target_state_common_bias_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_co2_s13_zero_anchor_contract_review.py",
+      "name": "test_v1_5_co2_s13_zero_anchor_contract_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_co2_senco13_controlled_write.py",
       "name": "test_v1_5_co2_senco13_controlled_write",
       "artifact_type": "test",
@@ -2382,6 +3592,19 @@
       "notes": [
         "requires explicit coefficient-write authorization and readback evidence"
       ]
+    },
+    {
+      "path": "tests/test_v1_5_co2_senco13_fit_point_treatment_plan.py",
+      "name": "test_v1_5_co2_senco13_fit_point_treatment_plan",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
     },
     {
       "path": "tests/test_v1_5_co2_senco13_repair_plan.py",
@@ -2546,6 +3769,32 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_co2_zero_s5_sensitivity_review.py",
+      "name": "test_v1_5_co2_zero_s5_sensitivity_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "co2_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_component_snapshot_after_events.py",
+      "name": "test_v1_5_component_snapshot_after_events",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_controlled_outp_seal_transition.py",
       "name": "test_v1_5_controlled_outp_seal_transition",
       "artifact_type": "test",
@@ -2572,6 +3821,19 @@
       "notes": [
         "diagnostic evidence only; not formal acceptance by default"
       ]
+    },
+    {
+      "path": "tests/test_v1_5_dirty_zone_audit.py",
+      "name": "test_v1_5_dirty_zone_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
     },
     {
       "path": "tests/test_v1_5_entrypoint_guards.py",
@@ -2605,6 +3867,19 @@
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_factory_signal_health_review.py",
+      "name": "test_v1_5_factory_signal_health_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -2825,6 +4100,19 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_formal_route_readiness.py",
+      "name": "test_v1_5_formal_route_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_formal_run_package.py",
       "name": "test_v1_5_formal_run_package",
       "artifact_type": "test",
@@ -2838,11 +4126,37 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_formal_run_status.py",
+      "name": "test_v1_5_formal_run_status",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_formal_workbench.py",
       "name": "test_v1_5_formal_workbench",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "ui_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_full_flow_closure_readiness.py",
+      "name": "test_v1_5_full_flow_closure_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "full_flow_orchestration",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -2892,6 +4206,32 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_getco_identity_readiness.py",
+      "name": "test_v1_5_getco_identity_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_h2o_archive_inputs.py",
+      "name": "test_v1_5_h2o_archive_inputs",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "h2o_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_h2o_dry_anchor_bridge_review.py",
       "name": "test_v1_5_h2o_dry_anchor_bridge_review",
       "artifact_type": "test",
@@ -2907,6 +4247,32 @@
     {
       "path": "tests/test_v1_5_h2o_formal_closure_review.py",
       "name": "test_v1_5_h2o_formal_closure_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "h2o_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_h2o_low_anchor_from_co2_zero.py",
+      "name": "test_v1_5_h2o_low_anchor_from_co2_zero",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "h2o_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_h2o_queue_failure_audit.py",
+      "name": "test_v1_5_h2o_queue_failure_audit",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "h2o_component",
@@ -3002,8 +4368,77 @@
       ]
     },
     {
+      "path": "tests/test_v1_5_h2o_special_diagnostic_queue.py",
+      "name": "test_v1_5_h2o_special_diagnostic_queue",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "h2o_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "diagnostic evidence only; not formal acceptance by default"
+      ]
+    },
+    {
+      "path": "tests/test_v1_5_h2o_state_transfer_diagnostic.py",
+      "name": "test_v1_5_h2o_state_transfer_diagnostic",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "h2o_component",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "diagnostic evidence only; not formal acceptance by default"
+      ]
+    },
+    {
+      "path": "tests/test_v1_5_identity_layer_ownership.py",
+      "name": "test_v1_5_identity_layer_ownership",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_initialization_db_preflight.py",
+      "name": "test_v1_5_initialization_db_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "evidence_database",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_initialization_readiness.py",
       "name": "test_v1_5_initialization_readiness",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_main_senco_write_precheck_pack.py",
+      "name": "test_v1_5_main_senco_write_precheck_pack",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -3020,6 +4455,19 @@
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "coefficient_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_new_algorithm_test_point_plan.py",
+      "name": "test_v1_5_new_algorithm_test_point_plan",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
       "formal_status": "verification_only",
       "risk_level": "none",
       "opens_com_ports": false,
@@ -3226,8 +4674,34 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_post_run_coefficient_executor.py",
+      "name": "test_v1_5_post_run_coefficient_executor",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "coefficient_review",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_post_write_reverification.py",
       "name": "test_v1_5_post_write_reverification",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_pre_gas_readiness.py",
+      "name": "test_v1_5_pre_gas_readiness",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -3360,6 +4834,19 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_recommendation_closure.py",
+      "name": "test_v1_5_recommendation_closure",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_review_surface.py",
       "name": "test_v1_5_review_surface",
       "artifact_type": "test",
@@ -3414,8 +4901,75 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_sencoa_sencob_controlled_writer_preflight.py",
+      "name": "test_v1_5_sencoa_sencob_controlled_writer_preflight",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
+      "path": "tests/test_v1_5_sencoa_sencob_writer_design_review.py",
+      "name": "test_v1_5_sencoa_sencob_writer_design_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_serial_safety.py",
+      "name": "test_v1_5_serial_safety",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_sn_identity_initialization.py",
+      "name": "test_v1_5_sn_identity_initialization",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
       "path": "tests/test_v1_5_stage_detail_route_optimization_doc.py",
       "name": "test_v1_5_stage_detail_route_optimization_doc",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_status_register.py",
+      "name": "test_v1_5_status_register",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",
@@ -3440,6 +4994,34 @@
       "notes": []
     },
     {
+      "path": "tests/test_v1_5_temperature_current_point_review.py",
+      "name": "test_v1_5_temperature_current_point_review",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "temperature_channel",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_temperature_senco78_candidate_controlled_write.py",
+      "name": "test_v1_5_temperature_senco78_candidate_controlled_write",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "temperature_channel",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": [
+        "requires explicit coefficient-write authorization and readback evidence"
+      ]
+    },
+    {
       "path": "tests/test_v1_5_temperature_senco78_neutral_controlled_write.py",
       "name": "test_v1_5_temperature_senco78_neutral_controlled_write",
       "artifact_type": "test",
@@ -3457,6 +5039,45 @@
     {
       "path": "tests/test_v1_5_v1_ratio_poly_algorithm_audit.py",
       "name": "test_v1_5_v1_ratio_poly_algorithm_audit",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/v2/test_v1_5_initialization_import.py",
+      "name": "test_v1_5_initialization_import",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/v2/test_v1_5_readiness_event_import.py",
+      "name": "test_v1_5_readiness_event_import",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/v2/test_v1_5_runtime_setup_import.py",
+      "name": "test_v1_5_runtime_setup_import",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",

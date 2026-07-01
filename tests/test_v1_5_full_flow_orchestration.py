@@ -77,6 +77,7 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     )
     assert step_ids.index("post_write_reverification_placeholder") < step_ids.index("formal_evidence_sidecar")
     assert step_ids.index("zh_calibration_reports") < step_ids.index("final_evidence_status_refresh")
+    assert step_ids.index("final_evidence_status_refresh") < step_ids.index("formal_run_status_snapshot")
     assert plan.coefficient_epoch_contract["do_not_clear_existing_coefficients_on_startup"] is False
     assert (
         plan.coefficient_epoch_contract["clear_or_neutralize_auxiliary_groups_after_epoch0_snapshot"]
@@ -531,6 +532,9 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert (out / "v1_5_formal_flow_contract.md").exists()
     assert (out / "v1_5_run_evidence_status.json").exists()
     assert (out / "v1_5_run_evidence_status.md").exists()
+    assert (out / "formal_run_status" / "v1_5_formal_run_status.json").exists()
+    assert (out / "formal_run_status" / "v1_5_formal_run_status.md").exists()
+    assert (out / "formal_run_status" / "v1_5_formal_run_status_gates.csv").exists()
     operation_console_json = out / "operation_console" / "v1_5_operation_console.json"
     operation_console_html = out / "operation_console" / "v1_5_operation_console.html"
     assert operation_console_json.exists()
@@ -561,6 +565,12 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert evidence_status["contract_status"] == "pass"
     assert evidence_status["full_flow_live_runner_readiness"]["status"] == "present"
     assert evidence_status["full_flow_live_runner_readiness"]["one_button_live_runner_ready"] is False
+    formal_status = json.loads((out / "formal_run_status" / "v1_5_formal_run_status.json").read_text(encoding="utf-8"))
+    assert formal_status["physical_boundaries"]["opens_com_ports"] is False
+    assert formal_status["physical_boundaries"]["writes_coefficients"] is False
+    assert formal_status["linked_inputs"]["run_evidence_status_json"] == str(
+        (out / "v1_5_run_evidence_status.json").resolve()
+    )
     operation_console = json.loads(operation_console_json.read_text(encoding="utf-8"))
     assert operation_console["source_evidence"]["has_full_flow_stage_manifest"] is True
     assert operation_console["opens_com_ports"] is False
@@ -612,6 +622,14 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     refresh_step = next(step for step in plan.steps if step.step_id == "final_evidence_status_refresh")
     assert refresh_step.tool_module == "gas_calibrator.tools.export_v1_5_run_evidence_status"
     assert str(refresh_step.command[refresh_step.command.index("--run-dir") + 1]).endswith("plan")
+    status_step = next(step for step in plan.steps if step.step_id == "formal_run_status_snapshot")
+    status_command = list(status_step.command)
+    assert status_step.tool_module == "gas_calibrator.tools.export_v1_5_formal_run_status"
+    assert status_step.execution_mode == "offline_sidecar"
+    assert status_step.opens_com_ports is False
+    assert status_step.writes_coefficients is False
+    assert _flag_value(status_command, "--run-evidence-status-json").endswith("v1_5_run_evidence_status.json")
+    assert "v1_5_formal_run_status_gates.csv" in " ".join(status_step.expected_outputs)
 
 
 def test_initial_state_only_allows_first_offline_stage(tmp_path):
@@ -1230,10 +1248,14 @@ def test_full_flow_cli_post_acquisition_closure_generates_offline_closure_chain(
     assert cli_result["post_run_coefficient_executor_manifest"] == str(executor_manifest.resolve())
     assert cli_result["full_flow_closure_readiness_json"] == str(readiness_json.resolve())
     assert cli_result["run_evidence_status_final_json"] == str(status_json.resolve())
+    formal_status_json = out / "formal_run_status" / "v1_5_formal_run_status.json"
+    assert cli_result["formal_run_status_json"] == str(formal_status_json.resolve())
+    assert cli_result["formal_run_status_refreshed_after_closure"] == str(formal_status_json.resolve())
 
     executor = json.loads(executor_manifest.read_text(encoding="utf-8"))
     readiness = json.loads(readiness_json.read_text(encoding="utf-8"))
     evidence_status = json.loads(status_json.read_text(encoding="utf-8"))
+    formal_status = json.loads(formal_status_json.read_text(encoding="utf-8"))
     assert executor["physical_boundaries"]["opens_com_ports"] is False
     assert executor["physical_boundaries"]["writes_coefficients"] is False
     assert readiness["linked_inputs"]["post_run_executor_json"] == str(executor_manifest.resolve())
@@ -1244,3 +1266,5 @@ def test_full_flow_cli_post_acquisition_closure_generates_offline_closure_chain(
     assert "post_run_controlled_write_package" in roles
     assert "post_run_reverification_plan" in roles
     assert "full_flow_closure_readiness" in roles
+    assert formal_status["linked_inputs"]["full_flow_closure_readiness_json"] == str(readiness_json.resolve())
+    assert formal_status["physical_boundaries"]["controls_water_or_gas_routes"] is False

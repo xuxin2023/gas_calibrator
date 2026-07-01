@@ -511,7 +511,12 @@ def _stage_evidence_contract(step: FullFlowStep) -> dict[str, Any]:
             "controlled_component_write_placeholder",
         },
         "post_write_reverify_required": step.step_id == "controlled_component_write_placeholder",
-        "database_or_report_only": step.phase in {"DATABASE_IMPORT", "REPORTS", "FINAL_EVIDENCE_STATUS"},
+        "database_or_report_only": step.phase in {
+            "DATABASE_IMPORT",
+            "REPORTS",
+            "FINAL_EVIDENCE_STATUS",
+            "FORMAL_RUN_STATUS",
+        },
     }
 
 
@@ -617,6 +622,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_evidence_sidecar",
                 "database_import",
                 "final_evidence_status_refresh",
+                "formal_run_status_snapshot",
             ),
             physical_risk="none during generation; artifacts remain review evidence, not real acceptance",
             next_action="keep these stages as offline prerequisites before any controlled live step",
@@ -964,6 +970,7 @@ def build_full_flow_plan(
     closure_readiness_dir = root / "full_flow_closure_readiness"
     post_write_verify_dir = root / "post_write_reverification"
     reports_dir = root / "reports"
+    formal_status_dir = root / "formal_run_status"
     runtime_bound_cfg = getco_dir / "runtime_identity_bound_config.json"
 
     pressure_ref = _resolve_optional(pressure_reference_json)
@@ -1925,6 +1932,58 @@ def build_full_flow_plan(
         )
     )
 
+    steps.append(
+        FullFlowStep(
+            step_id="formal_run_status_snapshot",
+            title="Export top-level formal run status dashboard",
+            phase="FORMAL_RUN_STATUS",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_run_status",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_run_status",
+                "--run-dir",
+                root,
+                "--output-dir",
+                formal_status_dir,
+                "--initialization-readiness-json",
+                formal_initialization_dir / "v1_5_initialization_readiness.json",
+                "--pre-gas-readiness-json",
+                pre_gas_readiness_dir / "v1_5_pre_gas_readiness.json",
+                "--getco-readiness-json",
+                getco_readiness_dir / "v1_5_getco_identity_readiness.json",
+                "--run-evidence-status-json",
+                root / "v1_5_run_evidence_status.json",
+                "--full-flow-closure-readiness-json",
+                closure_readiness_dir / "v1_5_full_flow_closure_readiness.json",
+                "--archive-closure-json",
+                root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
+            ),
+            required_inputs=(
+                "initialization readiness sidecar",
+                "identity/GETCO readiness sidecar",
+                "pre-gas readiness sidecar",
+                "v1_5_run_evidence_status.json",
+                "full-flow closure readiness or archive sidecar when available",
+            ),
+            expected_outputs=(
+                "formal_run_status/v1_5_formal_run_status.json",
+                "formal_run_status/v1_5_formal_run_status.md",
+                "formal_run_status/v1_5_formal_run_status_gates.csv",
+                "formal_run_status/v1_5_formal_run_status_gaps.csv",
+            ),
+            physical_meaning=(
+                "After evidence status and closure sidecars are refreshed, this dashboard answers the production "
+                "question directly: current stage, next action, whether physical flow can continue, and whether "
+                "formal archive/database release is allowed."
+            ),
+            execution_mode="offline_sidecar",
+            gate="final_reviewer_status_overview",
+            notes=(
+                "This exporter reads sidecars only; it does not open COM, connect PostgreSQL, control routes, or write coefficients.",
+                "A release-ready status is still reviewer evidence, not an implicit real-device action.",
+            ),
+        )
+    )
+
     _validate_steps(steps)
     warnings = tuple(
         item
@@ -1984,6 +2043,7 @@ def build_full_flow_plan(
             "controlled_write_only_after_approval",
             "post_write_reverification",
             "evidence_bundle_database_report",
+            "formal_run_status_dashboard",
         ),
         steps=tuple(steps),
         warnings=warnings,

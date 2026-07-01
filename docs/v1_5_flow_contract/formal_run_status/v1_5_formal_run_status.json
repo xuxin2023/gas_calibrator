@@ -1,0 +1,243 @@
+{
+  "schema": "v1_5_formal_run_status_v1",
+  "generated_at": "2026-07-01T12:42:30",
+  "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
+  "overall_status": "review_required",
+  "current_stage": "initialization_readiness",
+  "next_action": "Generate or refresh initialization readiness before any open-flow step.",
+  "formal_release_allowed": false,
+  "database_import_allowed": false,
+  "can_continue_physical_flow": false,
+  "physical_boundaries": {
+    "offline_status_only": true,
+    "opens_com_ports": false,
+    "connects_postgresql": false,
+    "controls_pressure": false,
+    "controls_water_or_gas_routes": false,
+    "writes_coefficients": false,
+    "writes_device_id": false,
+    "not_real_acceptance_evidence": true
+  },
+  "linked_inputs": {
+    "initialization_readiness_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_initialization\\v1_5_initialization_readiness.json",
+    "pre_gas_readiness_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\pre_gas_readiness\\v1_5_pre_gas_readiness.json",
+    "getco_readiness_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\identity_getco_readiness\\v1_5_getco_identity_readiness.json",
+    "run_evidence_status_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_run_evidence_status.json",
+    "full_flow_closure_readiness_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\full_flow_closure_readiness\\v1_5_full_flow_closure_readiness.json",
+    "archive_closure_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json"
+  },
+  "gates": [
+    {
+      "gate_id": "initialization_readiness",
+      "title": "Initialization readiness",
+      "status": "missing",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_initialization\\v1_5_initialization_readiness.json",
+      "source_status": "",
+      "reason": "initialization readiness sidecar missing",
+      "next_action": "Generate or refresh initialization readiness before any open-flow step.",
+      "physical_meaning": "Confirms SN/device_code identity contract, MODE2 runtime, 1Hz upload, neutral temperature coefficients, PostgreSQL 18 preflight, and initialization evidence.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "identity_getco_sn_traceability",
+      "title": "Identity, GETCO epoch-0, and SN traceability",
+      "status": "missing",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\identity_getco_readiness\\v1_5_getco_identity_readiness.json",
+      "source_status": "",
+      "reason": "identity/GETCO readiness sidecar missing",
+      "next_action": "Refresh read-only GETCO/SN identity evidence or resolve traceability review before release.",
+      "physical_meaning": "Binds transport COM/GA labels to protocol ID, SN/device_code, and GETCO1-9 epoch-0 coefficients so later writes and reports remain traceable.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "pre_gas_readiness",
+      "title": "Pre-gas readiness",
+      "status": "missing",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\pre_gas_readiness\\v1_5_pre_gas_readiness.json",
+      "source_status": "",
+      "reason": "pre-gas readiness sidecar missing",
+      "next_action": "Close pre-gas gaps before starting mature CO2/H2O open-flow queues.",
+      "physical_meaning": "Collects the gap list from initialization to gas-flow entry: pressure S9, route readiness, GETCO baseline, S7/S8 neutral state, CHECK timing, and database preflight.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "pressure_senco9_pre_open_flow",
+      "title": "Pressure/SENCO9 pre-open-flow check",
+      "status": "review_required",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_run_evidence_status.json",
+      "source_status": "missing",
+      "reason": "pressure_quick_check=missing",
+      "next_action": "Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.",
+      "physical_meaning": "Pressure P must be traceable before CO2/H2O fitting so gas coefficients do not absorb pressure bias.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "co2_open_flow_mature_queue",
+      "title": "CO2 mature open-flow queue",
+      "status": "review_required",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_run_evidence_status.json",
+      "source_status": "missing",
+      "reason": "co2_open_flow=missing",
+      "next_action": "Run or register the mature V1.5 CO2 open-flow queue evidence.",
+      "physical_meaning": "CO2 calibration points must come from mature open-flow samples, not diagnostic sealed/pressure rows.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "h2o_open_flow_mature_queue",
+      "title": "H2O mature open-flow queue",
+      "status": "review_required",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_run_evidence_status.json",
+      "source_status": "missing",
+      "reason": "h2o_open_flow=missing",
+      "next_action": "Run or register the mature V1.5 H2O open-flow queue evidence.",
+      "physical_meaning": "H2O fitting must preserve dewpoint-backed wet points and dry-gas low-water anchors separately.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "candidate_fit_review",
+      "title": "Candidate fit/QC review",
+      "status": "not_attempted",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_run_evidence_status.json",
+      "source_status": "not_attempted",
+      "reason": "candidate fit review has not passed",
+      "next_action": "Run no-write candidate fitting/QC review before any controlled write package.",
+      "physical_meaning": "Only eligible A-grade and explicitly reviewed samples should enter SENCO candidate fitting.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "post_run_write_package",
+      "title": "Post-run controlled-write package",
+      "status": "not_attempted",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_run_evidence_status.json",
+      "source_status": "not_attempted",
+      "reason": "post-run coefficient executor package has not passed",
+      "next_action": "Generate the post-run executor package with eligibility, write plan, and reverify plan.",
+      "physical_meaning": "The write package separates no-write review from manual authorized controlled SENCO writes.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "controlled_write_and_reverification",
+      "title": "Controlled write and post-write reverification",
+      "status": "not_attempted",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_run_evidence_status.json",
+      "source_status": "not_attempted",
+      "reason": "post-write reverification has not passed or has not been attempted",
+      "next_action": "After authorized writes, run independent post-write reverification evidence.",
+      "physical_meaning": "A coefficient write is not a formal release until independent open-flow reverification is present.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "formal_archive_database_release",
+      "title": "Formal archive, database, and release gate",
+      "status": "missing",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+      "source_status": "closure=missing; archive=missing",
+      "reason": "closure readiness and formal archive closure sidecars missing",
+      "next_action": "Close archive/database/report traceability gaps before formal release or database import.",
+      "physical_meaning": "Final release binds raw evidence, coefficient epochs, reverification, reports, database indexing, and SN/device_code traceability without changing analyzer state.",
+      "release_gate": true,
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    }
+  ],
+  "gaps": [
+    {
+      "gate_id": "initialization_readiness",
+      "status": "missing",
+      "reason": "initialization readiness sidecar missing",
+      "next_action": "Generate or refresh initialization readiness before any open-flow step.",
+      "blocks_release": true,
+      "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "identity_getco_sn_traceability",
+      "status": "missing",
+      "reason": "identity/GETCO readiness sidecar missing",
+      "next_action": "Refresh read-only GETCO/SN identity evidence or resolve traceability review before release.",
+      "blocks_release": true,
+      "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "pre_gas_readiness",
+      "status": "missing",
+      "reason": "pre-gas readiness sidecar missing",
+      "next_action": "Close pre-gas gaps before starting mature CO2/H2O open-flow queues.",
+      "blocks_release": true,
+      "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "pressure_senco9_pre_open_flow",
+      "status": "review_required",
+      "reason": "pressure_quick_check=missing",
+      "next_action": "Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.",
+      "blocks_release": true,
+      "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "co2_open_flow_mature_queue",
+      "status": "review_required",
+      "reason": "co2_open_flow=missing",
+      "next_action": "Run or register the mature V1.5 CO2 open-flow queue evidence.",
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "h2o_open_flow_mature_queue",
+      "status": "review_required",
+      "reason": "h2o_open_flow=missing",
+      "next_action": "Run or register the mature V1.5 H2O open-flow queue evidence.",
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "candidate_fit_review",
+      "status": "not_attempted",
+      "reason": "candidate fit review has not passed",
+      "next_action": "Run no-write candidate fitting/QC review before any controlled write package.",
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "post_run_write_package",
+      "status": "not_attempted",
+      "reason": "post-run coefficient executor package has not passed",
+      "next_action": "Generate the post-run executor package with eligibility, write plan, and reverify plan.",
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "controlled_write_and_reverification",
+      "status": "not_attempted",
+      "reason": "post-write reverification has not passed or has not been attempted",
+      "next_action": "After authorized writes, run independent post-write reverification evidence.",
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "formal_archive_database_release",
+      "status": "missing",
+      "reason": "closure readiness and formal archive closure sidecars missing",
+      "next_action": "Close archive/database/report traceability gaps before formal release or database import.",
+      "blocks_release": true,
+      "blocks_physical_flow": false
+    }
+  ]
+}

@@ -1,0 +1,474 @@
+{
+  "schema": "v1_5_operation_console_v1",
+  "schema_version": "v1_5_operation_console_v1",
+  "generated_at": "2026-07-01T04:42:30.532920+00:00",
+  "run_id": "unknown",
+  "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
+  "role": "operator",
+  "role_permissions": {
+    "view": true,
+    "select_plan": false,
+    "change_plan": false,
+    "run_sampling": false,
+    "view_qc": true,
+    "edit_qc_thresholds": false,
+    "generate_candidate_coefficients": false,
+    "approve_writes": false,
+    "write_senco": false,
+    "edit_high_risk_parameters": false,
+    "approve_release": false
+  },
+  "sidecar_only": true,
+  "read_only_first_release": true,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "controls_valves_or_pace": false,
+  "writes_coefficients": false,
+  "cannot_write_senco": true,
+  "cannot_clear_senco": true,
+  "cannot_modify_analyzer_id": true,
+  "not_real_device_control": true,
+  "calibration_capability_status": "pending",
+  "calibration_capability_label": "待补齐",
+  "physical_boundary_statement": "本操作台仅展示证据状态；不打开串口、不控制水路/气路、不控制阀或 PACE、不写 SENCO、不清除系数、不修改分析仪 ID。",
+  "source_evidence": {
+    "has_workbench_model": false,
+    "has_run_evidence_status": true,
+    "has_calibration_capability": false,
+    "has_archive_index": false,
+    "has_full_flow_stage_manifest": true
+  },
+  "summary_cards": [
+    {
+      "key": "method_backbone",
+      "title": "方法主干",
+      "status": "pending",
+      "label": "待补齐",
+      "status_label": "待补齐",
+      "tone": "warn",
+      "detail": "开放流通 CO2/H2O 主校准 + 压力独立验证 + 后置复验。"
+    },
+    {
+      "key": "verification",
+      "title": "写后复验",
+      "status": "pending",
+      "label": "待补齐",
+      "status_label": "待补齐",
+      "tone": "warn",
+      "detail": "未发现复验证据"
+    },
+    {
+      "key": "formal_release",
+      "title": "正式放行",
+      "status": "pending",
+      "label": "待补齐",
+      "status_label": "待补齐",
+      "tone": "warn",
+      "detail": "正式签发仍要求报告、数据库、审计和证据包闭环。"
+    },
+    {
+      "key": "database",
+      "title": "数据库归档",
+      "status": "pending",
+      "label": "待补齐",
+      "status_label": "待补齐",
+      "tone": "warn",
+      "detail": "数据库用于索引证据链；原始帧仍以文件证据包保留。"
+    },
+    {
+      "key": "full_flow_stage_manifest",
+      "title": "全流程阶段清单",
+      "status": "planned_controlled_gates",
+      "label": "受控计划",
+      "status_label": "受控计划",
+      "tone": "info",
+      "detail": "current=load_plan_and_traceability; one_button_live_runner_ready=False"
+    }
+  ],
+  "stage_manifest_panel": {
+    "key": "full_flow_stage_manifest",
+    "available": true,
+    "status": "planned_controlled_gates",
+    "label": "受控计划",
+    "status_label": "受控计划",
+    "tone": "info",
+    "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.json",
+    "schema": "v1_5_full_flow_stage_manifest_v1",
+    "stage_count": 26,
+    "current_manifest_stage": "load_plan_and_traceability",
+    "one_button_live_runner_ready": false,
+    "status_counts": {
+      "authorization_required": 5,
+      "blocked_controlled_gate": 2,
+      "pass": 1,
+      "waiting_for_artifacts": 18
+    },
+    "detail": "current=load_plan_and_traceability; one_button_live_runner_ready=False",
+    "attention_rows": [
+      {
+        "order": 1,
+        "step_id": "load_plan_and_traceability",
+        "title": "Prepare V1.5 formal plan and certificate snapshots",
+        "phase": "LOAD_PLAN",
+        "status": "waiting_for_artifacts",
+        "status_label": "等待证据",
+        "reason": "manifest_expected_outputs_missing"
+      },
+      {
+        "order": 2,
+        "step_id": "formal_initialization_contract_plan",
+        "title": "Generate formal initialization contract and DB bundle",
+        "phase": "INITIALIZATION_CONTRACT",
+        "status": "waiting_for_artifacts",
+        "status_label": "等待证据",
+        "reason": "manifest_expected_outputs_missing"
+      },
+      {
+        "order": 3,
+        "step_id": "initialization_readiness_snapshot",
+        "title": "Export initialization readiness sidecar before live gates",
+        "phase": "INITIALIZATION_READINESS",
+        "status": "waiting_for_artifacts",
+        "status_label": "等待证据",
+        "reason": "manifest_expected_outputs_missing"
+      },
+      {
+        "order": 4,
+        "step_id": "pre_gas_readiness_snapshot",
+        "title": "Summarize pre-gas readiness gates before live identity",
+        "phase": "PRE_GAS_READINESS",
+        "status": "waiting_for_artifacts",
+        "status_label": "等待证据",
+        "reason": "manifest_expected_outputs_missing"
+      },
+      {
+        "order": 5,
+        "step_id": "device_identity_and_getco_snapshot",
+        "title": "Read device IDs and GETCO1-9 before calibration",
+        "phase": "PRECHECK",
+        "status": "authorization_required",
+        "status_label": "需授权",
+        "reason": "live_stage_requires_explicit_authorization_and_external_execution"
+      },
+      {
+        "order": 6,
+        "step_id": "identity_getco_readiness_snapshot",
+        "title": "Validate identity-bound GETCO epoch-0 evidence",
+        "phase": "IDENTITY_GETCO_READINESS",
+        "status": "waiting_for_artifacts",
+        "status_label": "等待证据",
+        "reason": "manifest_expected_outputs_missing"
+      },
+      {
+        "order": 7,
+        "step_id": "auxiliary_senco56789_neutralization_gate",
+        "title": "Neutralize auxiliary SENCO5-9 after epoch-0 GETCO backup",
+        "phase": "AUXILIARY_COEFFICIENT_NEUTRALIZATION",
+        "status": "blocked_controlled_gate",
+        "status_label": "受控门禁",
+        "reason": "controlled_write_or_device_id_gate_requires_explicit_review"
+      },
+      {
+        "order": 8,
+        "step_id": "pressure_quick_check",
+        "title": "Verify analyzer pressure input against COM22 at atmosphere",
+        "phase": "PRESSURE_CHANNEL_QUICK_CHECK",
+        "status": "authorization_required",
+        "status_label": "需授权",
+        "reason": "live_stage_requires_explicit_authorization_and_external_execution"
+      },
+      {
+        "order": 9,
+        "step_id": "pressure_senco9_no_write_acquisition",
+        "title": "If pressure fails, collect SENCO9 no-write multi-pressure evidence",
+        "phase": "PRESSURE_CHANNEL_SENCO9_ACQUISITION",
+        "status": "authorization_required",
+        "status_label": "需授权",
+        "reason": "live_stage_requires_explicit_authorization_and_external_execution"
+      },
+      {
+        "order": 10,
+        "step_id": "pressure_senco9_no_write_review",
+        "title": "If pressure acquisition ran, evaluate SENCO9 no-write candidates",
+        "phase": "PRESSURE_CHANNEL_SENCO9_REVIEW",
+        "status": "waiting_for_artifacts",
+        "status_label": "等待证据",
+        "reason": "manifest_expected_outputs_missing"
+      },
+      {
+        "order": 11,
+        "step_id": "pressure_channel_completion_audit",
+        "title": "Export pressure-channel completion package after SENCO9 write and post-write verification",
+        "phase": "PRESSURE_CHANNEL_COMPLETION",
+        "status": "waiting_for_artifacts",
+        "status_label": "等待证据",
+        "reason": "manifest_expected_outputs_missing"
+      },
+      {
+        "order": 12,
+        "step_id": "temperature_channel_fast_review",
+        "title": "Review SENCO7/SENCO8 temperature input evidence",
+        "phase": "TEMPERATURE_CHANNEL_REVIEW",
+        "status": "waiting_for_artifacts",
+        "status_label": "等待证据",
+        "reason": "manifest_expected_outputs_missing"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "key": "dashboard",
+      "title": "首页 / 运行总览",
+      "purpose": "显示 run_id、阶段状态、正式范围和当前阻塞原因。",
+      "physical_signals": [
+        "run_id",
+        "current_stage",
+        "method_backbone_ready",
+        "formal_release_ready"
+      ],
+      "calibration_gates": [
+        "traceability_bound",
+        "no_write_boundary_visible"
+      ],
+      "status": "pending",
+      "status_label": "待补齐",
+      "tone": "warn",
+      "read_only": true,
+      "device_control_enabled": false,
+      "blockers": [
+        "无阻塞；等待对应证据刷新。"
+      ],
+      "evidence_refs": [
+        {
+          "kind": "stage",
+          "key": "full_flow_contract_gate",
+          "status": "pass",
+          "title": "Full-flow contract audit gate",
+          "artifact_count": 1
+        }
+      ]
+    },
+    {
+      "key": "plan_select",
+      "title": "校准计划选择",
+      "purpose": "展示校准计划、标准气证书、采样窗口和配置版本。",
+      "physical_signals": [
+        "standard_gas_certificate",
+        "sampling_window",
+        "stability_thresholds"
+      ],
+      "calibration_gates": [
+        "plan_snapshot_required",
+        "standard_gas_valid"
+      ],
+      "status": "pending",
+      "status_label": "待补齐",
+      "tone": "warn",
+      "read_only": true,
+      "device_control_enabled": false,
+      "blockers": [
+        "无阻塞；等待对应证据刷新。"
+      ],
+      "evidence_refs": []
+    },
+    {
+      "key": "precheck",
+      "title": "设备预检",
+      "purpose": "展示分析仪、参考设备、GETCO 备份和状态寄存器证据。",
+      "physical_signals": [
+        "device_id",
+        "GETCO1-9",
+        "status_register",
+        "reference_devices"
+      ],
+      "calibration_gates": [
+        "device_identity_required",
+        "GETCO_backup_required"
+      ],
+      "status": "pending",
+      "status_label": "待补齐",
+      "tone": "warn",
+      "read_only": true,
+      "device_control_enabled": false,
+      "blockers": [
+        "无阻塞；等待对应证据刷新。"
+      ],
+      "evidence_refs": []
+    },
+    {
+      "key": "pressure_channel_verify",
+      "title": "压力通道验证",
+      "purpose": "展示分析仪内部压力 P 与 COM22/PACE 的独立比对证据。",
+      "physical_signals": [
+        "COM22_pressure",
+        "PACE_pressure",
+        "analyzer_pressure_kpa",
+        "delta_hpa"
+      ],
+      "calibration_gates": [
+        "pressure_channel_pass_required_before_component_calibration"
+      ],
+      "status": "missing",
+      "status_label": "缺失",
+      "tone": "bad",
+      "read_only": true,
+      "device_control_enabled": false,
+      "blockers": [
+        "Pressure channel quick check or completion: 缺失 - pressure quick-check or pressure-channel completion evidence missing"
+      ],
+      "evidence_refs": [
+        {
+          "kind": "stage",
+          "key": "pressure_quick_check",
+          "status": "missing",
+          "title": "Pressure channel quick check or completion",
+          "artifact_count": 0
+        }
+      ]
+    },
+    {
+      "key": "open_flow_sampling",
+      "title": "开放流通采样",
+      "purpose": "展示 CO2/H2O、露点、压力、ratio/signal 和稳定门禁证据。",
+      "physical_signals": [
+        "CO2",
+        "H2O",
+        "dewpoint",
+        "H2O_dry_ppmv",
+        "COM22_pressure",
+        "analyzer_pressure",
+        "CO2_ratio",
+        "H2O_ratio",
+        "ref_signal",
+        "chamber_temp",
+        "case_temp"
+      ],
+      "calibration_gates": [
+        "minimum_purge_elapsed",
+        "ratio_stable",
+        "dewpoint_state_interpretable"
+      ],
+      "status": "missing",
+      "status_label": "缺失",
+      "tone": "bad",
+      "read_only": true,
+      "device_control_enabled": false,
+      "blockers": [
+        "CO2 open-flow evidence: 缺失 - CO2 open-flow sample evidence missing",
+        "H2O open-flow evidence: 缺失 - H2O open-flow sample evidence missing"
+      ],
+      "evidence_refs": [
+        {
+          "kind": "stage",
+          "key": "co2_open_flow",
+          "status": "missing",
+          "title": "CO2 open-flow evidence",
+          "artifact_count": 0
+        },
+        {
+          "kind": "stage",
+          "key": "h2o_open_flow",
+          "status": "missing",
+          "title": "H2O open-flow evidence",
+          "artifact_count": 0
+        }
+      ]
+    },
+    {
+      "key": "qc_review",
+      "title": "QC 与点位评审",
+      "purpose": "解释每个点为何进入拟合、降级或拒绝。",
+      "physical_signals": [
+        "FrameQC",
+        "PressureChannelQC",
+        "DewpointHumidityQC",
+        "FactorySignalQC"
+      ],
+      "calibration_gates": [
+        "a_grade_only_enters_formal_fit",
+        "reject_reason_required"
+      ],
+      "status": "pending",
+      "status_label": "待补齐",
+      "tone": "warn",
+      "read_only": true,
+      "device_control_enabled": false,
+      "blockers": [
+        "无阻塞；等待对应证据刷新。"
+      ],
+      "evidence_refs": []
+    },
+    {
+      "key": "report_review",
+      "title": "候选系数与报告",
+      "purpose": "展示候选系数、误差、复验、报告和未闭环项。",
+      "physical_signals": [
+        "old_GETCO",
+        "candidate_coefficients",
+        "reverification_error",
+        "uncertainty_budget"
+      ],
+      "calibration_gates": [
+        "candidate_review_required",
+        "post_write_reverification_required"
+      ],
+      "status": "not_attempted",
+      "status_label": "未执行",
+      "tone": "warn",
+      "read_only": true,
+      "device_control_enabled": false,
+      "blockers": [
+        "Post-run coefficient closure executor: 未执行 - post-run coefficient executor not generated",
+        "Run, technical, and formal calibration reports: 未执行 - one or more formal report artifacts missing"
+      ],
+      "evidence_refs": [
+        {
+          "kind": "stage",
+          "key": "post_run_coefficient_executor",
+          "status": "not_attempted",
+          "title": "Post-run coefficient closure executor",
+          "artifact_count": 0
+        },
+        {
+          "kind": "stage",
+          "key": "reports",
+          "status": "not_attempted",
+          "title": "Run, technical, and formal calibration reports",
+          "artifact_count": 0
+        }
+      ]
+    },
+    {
+      "key": "approval",
+      "title": "审核与归档",
+      "purpose": "展示审计、数据库归档、证书和受控写入门禁。",
+      "physical_signals": [
+        "report_hash",
+        "coefficient_hash",
+        "audit_events",
+        "archive_status"
+      ],
+      "calibration_gates": [
+        "operator_cannot_self_approve",
+        "database_import_or_dry_run_visible"
+      ],
+      "status": "not_attempted",
+      "status_label": "未执行",
+      "tone": "warn",
+      "read_only": true,
+      "device_control_enabled": false,
+      "blockers": [
+        "Evidence database import: 未执行 - database import not attempted or summary not found"
+      ],
+      "evidence_refs": [
+        {
+          "kind": "stage",
+          "key": "database_import",
+          "status": "not_attempted",
+          "title": "Evidence database import",
+          "artifact_count": 0
+        }
+      ]
+    }
+  ]
+}

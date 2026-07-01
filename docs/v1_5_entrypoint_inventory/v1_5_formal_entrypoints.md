@@ -17,7 +17,7 @@ Use this section as the first navigation layer when the repository feels noisy. 
 | Stage | Canonical entrypoint | Status | Physical meaning | Safety boundary |
 |---|---|---|---|---|
 | `00_full_flow_guard` | `src/gas_calibrator/tools/run_v1_5_full_calibration_chain.py` | `offline_plan_and_gate_only` | Orders pressure, temperature, open-flow CO2, open-flow H2O, QC, review, write gate, reverify, and archive without opening COM by default. | Do not use it as a hidden real-device runner; it is the formal sequence contract and supervised planner. |
-| `01_formal_initialization` | `src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py` | `offline_initialization_planner_and_gate` | Owns the formal initialization contract: device-ID binding, GETCO1-9 epoch-0 snapshot, S5/S6/S7/S8/S9 gates, startup acquisition settings, readiness, and database evidence indexing. | This is the single formal initialization entrypoint. It plans and gates; subordinate probe/writer/readiness tools do the authorized read-only or controlled-write work and historical logs remain traceability evidence only. |
+| `01_formal_initialization` | `src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py` | `offline_initialization_planner_and_gate` | Owns the formal initialization contract: device-ID binding, GETCO1-9 epoch-0 snapshot, S5/S6/S7/S8/S9 gates, startup acquisition settings, readiness, pre-gas gap list, and database evidence indexing. | This is the single formal initialization entrypoint. It plans and gates; subordinate probe/writer/readiness tools do the authorized read-only or controlled-write work and historical logs remain traceability evidence only. |
 | `02_pressure_channel` | `src/gas_calibrator/tools/export_v1_5_pressure_channel_validation.py` | `implemented_offline_report_from_evidence` | Verifies analyzer pressure P against COM22/PACE before CO2/H2O fitting so pressure error is not absorbed into gas coefficients. | Pressure fitting and SENCO9 handling are separate from CO2/H2O concentration fitting. |
 | `03_temperature_channel` | `src/gas_calibrator/tools/export_v1_5_temperature_channel_review.py` | `implemented_review_from_evidence` | Reviews chamber/case temperature behavior against temperature evidence before interpreting multi-temperature gas response. | Temperature review is not an automatic temperature coefficient write. |
 | `04_co2_open_flow_sampling` | `src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py` | `real_route_runner_when_authorized` | Collects clean open-flow CO2 data while standard gas continuously refreshes the analyzer cavity and downstream line. | Do not include sealed-pressure, VENT-hold, or dynamic-pressure diagnostic rows in the formal CO2 fit. |
@@ -27,6 +27,7 @@ Use this section as the first navigation layer when the repository feels noisy. 
 | `08_controlled_write` | `src/gas_calibrator/tools/run_v1_5_co2_senco13_controlled_write.py` | `manual_authorized_only` | Writes CO2 main-chain coefficients only after identity, old-coefficient snapshot, candidate review, and readback plan are available. | Never run as a background evidence or report step; H2O, pressure, and linear-trim writes use their own controlled tools. |
 | `09_post_write_reverify` | `src/gas_calibrator/tools/export_v1_5_post_write_reverification.py` | `implemented_offline_report_from_evidence` | Confirms written coefficients against independent reverify samples before release. | A coefficient write without post-write reverify remains incomplete for formal release. |
 | `10_archive_report_database` | `src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py` | `implemented_offline_archive` | Closes the run evidence chain with artifact hashes, reports, database index inputs, and traceability status. | Archive closure does not change device state and must not hide rejected frames or points. |
+| `11_formal_run_status_dashboard` | `src/gas_calibrator/tools/export_v1_5_formal_run_status.py` | `implemented_offline_status_rollup` | Summarizes current stage, next action, physical-flow continuation, and formal archive/database release readiness from existing sidecars. | Formal run status is read-only evidence; it must not open COM, connect PostgreSQL, control routes, or write analyzer state. |
 
 ## Completion Matrix
 
@@ -49,21 +50,21 @@ Use this section as the first navigation layer when the repository feels noisy. 
 | Category | Count |
 |---|---:|
 | `advanced_qc` | 10 |
-| `controlled_write` | 11 |
-| `diagnostic_only` | 9 |
+| `controlled_write` | 14 |
+| `diagnostic_only` | 11 |
 | `evidence_database` | 5 |
 | `formal_pressure_no_write_runner` | 1 |
-| `formal_review_evidence` | 64 |
+| `formal_review_evidence` | 109 |
 | `formal_runner` | 2 |
 | `formal_sampling_worker` | 2 |
 | `full_flow_orchestration` | 5 |
 | `housekeeping_archive` | 1 |
-| `identity_and_serial_binding` | 1 |
+| `identity_and_serial_binding` | 4 |
 | `legacy_v1_reference` | 4 |
 | `parameter_governance` | 2 |
-| `test_gate` | 95 |
+| `test_gate` | 156 |
 | `ui_review` | 3 |
-| `v1_5_library` | 1 |
+| `v1_5_library` | 5 |
 
 ## Formal-Use Categories
 
@@ -86,15 +87,20 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_co2_senco1_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_co2_senco5_linear_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_co2_senco5_neutral_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
+| `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/export_v1_5_sencoa_sencob_controlled_writer_preflight.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_h2o_senco24_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_h2o_senco6_linear_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_h2o_senco6_neutral_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_pressure_senco9_clear_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_pressure_senco9_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
+| `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_temperature_current_point_review.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
+| `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_temperature_senco78_candidate_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `authorized_write_only` | `controlled_write` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_temperature_senco78_neutral_controlled_write.py` | Use only after candidate review, old-coefficient snapshot, explicit write authorization, and readback/reverify plan. |
 | `diagnostic_not_acceptance` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/probe_v1_5_getco9_protocol.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
 | `diagnostic_not_acceptance` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_no_outp_preseal_probe.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
 | `diagnostic_not_acceptance` | `diagnostic_only` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_post_h2o_diagnostic.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
+| `diagnostic_not_acceptance` | `diagnostic_only` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_special_diagnostic_queue.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
+| `diagnostic_not_acceptance` | `diagnostic_only` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_state_transfer_diagnostic.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
 | `diagnostic_not_acceptance` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_dewpoint_gate_extended_hold_after_gate.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
 | `diagnostic_not_acceptance` | `diagnostic_only` | `offline` | `src/gas_calibrator/tools/export_single_gas_pressure_curve.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
 | `diagnostic_not_acceptance` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_room_temp_co2_pressure_diagnostic.py` | Use for engineering investigation or replay evidence; exclude from formal CO2/H2O fitting by default. |
@@ -128,15 +134,20 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `controlled_write` | `co2_component` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_co2_senco1_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `co2_component` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_co2_senco5_linear_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `co2_component` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_co2_senco5_neutral_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
+| `controlled_write` | `general` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/export_v1_5_sencoa_sencob_controlled_writer_preflight.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `h2o_component` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_h2o_senco24_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `h2o_component` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_h2o_senco6_linear_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `h2o_component` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_h2o_senco6_neutral_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `pressure_channel` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_pressure_senco9_clear_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `pressure_channel` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_pressure_senco9_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
+| `controlled_write` | `temperature_channel` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_temperature_current_point_review.py` |  |
+| `controlled_write` | `temperature_channel` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_temperature_senco78_candidate_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `controlled_write` | `temperature_channel` | `formal_but_manual_authorized` | `writes_device_coefficients` | `src/gas_calibrator/tools/run_v1_5_temperature_senco78_neutral_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `diagnostic_only` | `general` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/probe_v1_5_getco9_protocol.py` | diagnostic evidence only; not formal acceptance by default |
 | `diagnostic_only` | `general` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_no_outp_preseal_probe.py` | diagnostic evidence only; not formal acceptance by default; pressure/route engineering probe; keep outside formal CO2/H2O fit |
 | `diagnostic_only` | `h2o_component` | `diagnostic_only` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_post_h2o_diagnostic.py` | diagnostic evidence only; not formal acceptance by default |
+| `diagnostic_only` | `h2o_component` | `diagnostic_only` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_special_diagnostic_queue.py` | diagnostic evidence only; not formal acceptance by default |
+| `diagnostic_only` | `h2o_component` | `diagnostic_only` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_state_transfer_diagnostic.py` | diagnostic evidence only; not formal acceptance by default |
 | `diagnostic_only` | `h2o_component` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_dewpoint_gate_extended_hold_after_gate.py` |  |
 | `diagnostic_only` | `pressure_channel` | `diagnostic_only` | `offline` | `src/gas_calibrator/tools/export_single_gas_pressure_curve.py` |  |
 | `diagnostic_only` | `pressure_channel` | `diagnostic_only` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_room_temp_co2_pressure_diagnostic.py` | diagnostic evidence only; not formal acceptance by default |
@@ -150,10 +161,35 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `evidence_database` | `pressure_channel` | `formal_support` | `offline` | `src/gas_calibrator/storage/v1_5_evidence/pressure_completion_bundle.py` |  |
 | `formal_pressure_no_write_runner` | `pressure_channel` | `formal_pressure_no_write_when_authorized` | `real_com_or_route_risk` | `src/gas_calibrator/tools/validate_pressure_only.py` | pressure-channel no-write validation/calibration runner; separate from CO2/H2O fitting |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_anchor_ratio_repair.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_common_mode_point_audit.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_fit_algorithm_matrix.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_integrated_senco_recalc.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_intercept_root_cause.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_low_point_stability.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_queue_failure_audit.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_relative_s13_objective_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_blocker_closure_action_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_bridge_correction_strategy_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_enhanced_model_capacity_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_error_root_cause_resolution_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_fast_error_closure_candidate.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_low_end_anchor_target_audit.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_low_end_correction_strategy_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_low_end_model_correction_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_minimal_bridge_plan.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_minimal_resampling_runlist.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_model_structure_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_multistrategy_fit_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_ratio_target_mapping_audit.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_residual_root_cause_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_root_cause_closure_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_source_state_discontinuity_audit.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_source_state_repair_fit_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_state_bridge_closure.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_target_state_bridge_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_target_state_common_bias_audit.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_zero_anchor_contract_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_senco13_fit_point_treatment_plan.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_senco13_repair_plan.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_senco13_scope_candidate_review.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_senco5_linear_trim_review.py` |  |
@@ -163,8 +199,11 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_state_bridge.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_three_point_state_bridge.py` |  |
 | `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_training_scope_review.py` |  |
+| `formal_review_evidence` | `co2_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_zero_s5_sensitivity_review.py` |  |
 | `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_candidate_coefficients.py` |  |
+| `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_candidate_model_selection_review.py` |  |
 | `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_candidate_write_review.py` |  |
+| `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_post_run_coefficient_executor.py` |  |
 | `formal_review_evidence` | `coefficient_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/prepare_v1_5_multipoint_candidate_run.py` |  |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_run_evidence_status.py` |  |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/import_v1_5_evidence_package.py` |  |
@@ -174,23 +213,39 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/query_v1_5_evidence_run.py` |  |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_evidence_sidecar.py` | offline review/evidence sidecar; no COM or route control |
 | `formal_review_evidence` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/tools/verify_v1_5_evidence_bundle.py` |  |
+| `formal_review_evidence` | `full_flow_orchestration` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_full_flow_closure_readiness.py` |  |
 | `formal_review_evidence` | `full_flow_orchestration` | `formal_support` | `offline` | `src/gas_calibrator/tools/prepare_v1_5_formal_run_package.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_algorithm_write_contract_review.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_calibration_capability.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_component_snapshot_after_events.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_dirty_zone_audit.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_entrypoint_inventory.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_factory_signal_health_review.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_flow_contract.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_preflight.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_readiness.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_run_status.py` | offline formal run status rollup; reads readiness/archive sidecars and does not open COM |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py` | offline identity/GETCO readiness sidecar; consumes read-only GETCO artifacts and does not open COM |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_initialization_readiness.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_main_senco_write_precheck_pack.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_new_algorithm_test_point_plan.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_open_flow_canonical_points.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_post_write_reverification.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_pre_gas_readiness.py` | offline pre-gas readiness sidecar; summarizes identity, DB, GETCO, S7/S8, S9, route, and CHECK gates before live identity |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_recommendation_closure.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_sample_reuse_review.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_sencoa_sencob_writer_design_review.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_v1_ratio_poly_algorithm_audit.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `real_com_or_route_risk` | `src/gas_calibrator/tools/probe_v1_5_getco_component_snapshot.py` | subordinate initialization evidence tool; read-only GETCO1-9 and device-ID snapshot |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py` | offline archive closure; does not open COM ports or control routes |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_formal_offline_review_chain.py` | offline review/evidence sidecar; no COM or route control |
+| `formal_review_evidence` | `general` | `formal_preflight_support` | `real_com_or_route_risk` | `src/gas_calibrator/tools/run_v1_5_formal_route_readiness_probe.py` | formal route-readiness preflight support; records readiness evidence before mature route runners |
 | `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/build_v1_5_h2o_archive_inputs.py` |  |
+| `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_h2o_cross_effect_review.py` |  |
 | `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_dry_anchor_bridge_review.py` |  |
 | `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_formal_closure_review.py` |  |
+| `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_low_anchor_from_co2_zero.py` |  |
+| `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_queue_failure_audit.py` |  |
 | `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_senco24_candidate_review.py` |  |
 | `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_senco24_repair_plan.py` |  |
 | `formal_review_evidence` | `h2o_component` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_h2o_senco6_linear_trim_review.py` |  |
@@ -209,6 +264,7 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `formal_review_evidence` | `reporting` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_coefficient_report_zh.py` |  |
 | `formal_review_evidence` | `reporting` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_open_flow_report.py` |  |
 | `formal_review_evidence` | `reporting` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_single_device_coefficient_report_zh.py` |  |
+| `formal_review_evidence` | `temperature_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_co2_s13_low_end_temperature_boundary_decision.py` |  |
 | `formal_review_evidence` | `temperature_channel` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_temperature_channel_review.py` |  |
 | `formal_review_evidence` | `ui_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_formal_workbench.py` |  |
 | `formal_review_evidence` | `ui_review` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_operation_console.py` |  |
@@ -223,6 +279,9 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `full_flow_orchestration` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/orchestration/__init__.py` |  |
 | `full_flow_orchestration` | `identity_and_serial_binding` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/orchestration/serial_port_binding.py` | COM port is transport only; analyzer identity remains MODE2 device ID |
 | `housekeeping_archive` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/archive_v1_5_current_stage.py` |  |
+| `identity_and_serial_binding` | `evidence_database` | `formal_initialization_support` | `offline` | `src/gas_calibrator/tools/run_v1_5_initialization_db_preflight.py` | formal initialization support; use only through the initialization owner or explicit preflight |
+| `identity_and_serial_binding` | `general` | `formal_initialization_support` | `real_com_or_database_risk` | `src/gas_calibrator/tools/run_v1_5_analyzer_runtime_setup.py` | formal initialization support; use only through the initialization owner or explicit preflight |
+| `identity_and_serial_binding` | `general` | `formal_initialization_support` | `real_com_or_database_risk` | `src/gas_calibrator/tools/run_v1_5_sn_identity_initialization.py` | formal initialization support; use only through the initialization owner or explicit preflight |
 | `identity_and_serial_binding` | `identity_and_serial_binding` | `formal_support` | `offline` | `src/gas_calibrator/tools/collect_v1_5_serial_port_inventory.py` | COM port is transport only; analyzer identity remains MODE2 device ID |
 | `legacy_v1_reference` | `general` | `legacy_v1_reference_only` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py` | legacy V1 reference only; do not use as a V1.5 formal entrypoint |
 | `legacy_v1_reference` | `general` | `legacy_v1_reference_only` | `legacy_write_or_acceptance_risk` | `src/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py` | legacy V1 reference only; do not use as a V1.5 formal entrypoint |
@@ -231,12 +290,37 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `parameter_governance` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/parameters/__init__.py` |  |
 | `parameter_governance` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/parameters/governance.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_anchor_ratio_repair.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_common_mode_point_audit.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_firmware_contract.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_fit_algorithm_matrix.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_integrated_senco_recalc.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_intercept_root_cause.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_low_point_stability.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_queue_failure_audit.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_relative_s13_objective_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_blocker_closure_action_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_bridge_correction_strategy_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_enhanced_model_capacity_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_error_root_cause_resolution_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_fast_error_closure_candidate.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_low_end_anchor_target_audit.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_low_end_correction_strategy_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_low_end_model_correction_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_minimal_bridge_plan.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_minimal_resampling_runlist.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_model_structure_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_multistrategy_fit_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_ratio_target_mapping_audit.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_residual_root_cause_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_root_cause_closure_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_source_state_discontinuity_audit.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_source_state_repair_fit_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_state_bridge_closure.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_target_state_bridge_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_target_state_common_bias_audit.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_zero_anchor_contract_review.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_senco13_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_senco13_fit_point_treatment_plan.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_senco13_repair_plan.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_senco13_scope_candidate_review.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_senco1_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
@@ -249,21 +333,32 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_state_bridge.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_three_point_state_bridge.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_training_scope_review.py` |  |
+| `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_co2_zero_s5_sensitivity_review.py` |  |
 | `test_gate` | `co2_component` | `verification_only` | `none` | `tests/test_v1_5_formal_co2_open_flow_queue.py` |  |
 | `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_candidate_coefficients.py` |  |
+| `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_candidate_model_selection_review.py` |  |
 | `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_candidate_write_review.py` |  |
 | `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_multipoint_candidate_run.py` |  |
+| `test_gate` | `coefficient_review` | `verification_only` | `none` | `tests/test_v1_5_post_run_coefficient_executor.py` |  |
 | `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_canonical_evidence_package.py` |  |
 | `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_evidence_registry.py` |  |
 | `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_formal_evidence_run.py` |  |
+| `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_initialization_db_preflight.py` |  |
 | `test_gate` | `evidence_database` | `verification_only` | `none` | `tests/test_v1_5_run_evidence_status.py` |  |
 | `test_gate` | `full_flow_orchestration` | `verification_only` | `none` | `tests/test_v1_5_formal_run_package.py` |  |
+| `test_gate` | `full_flow_orchestration` | `verification_only` | `none` | `tests/test_v1_5_full_flow_closure_readiness.py` |  |
 | `test_gate` | `full_flow_orchestration` | `verification_only` | `none` | `tests/test_v1_5_full_flow_orchestration.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_route_profiles.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_algorithm_write_contract_review.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_analyzer_runtime_setup.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_calibratable_point_policy.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_calibration_capability.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_component_snapshot_after_events.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_controlled_outp_seal_transition.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_dirty_zone_audit.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_entrypoint_guards.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_entrypoint_inventory.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_factory_signal_health_review.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_900ppm_config.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_archive_closure.py` | offline archive closure; does not open COM ports or control routes |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_contracts_preflight.py` |  |
@@ -274,9 +369,15 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_open_flow_artifacts.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_open_flow_sampling_runner.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_route_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_formal_run_status.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_getco9_protocol_probe.py` | diagnostic evidence only; not formal acceptance by default |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_getco_component_snapshot.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_getco_identity_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_identity_layer_ownership.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_initialization_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_main_senco_write_precheck_pack.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_new_algorithm_test_point_plan.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_outp_engineering_config.py` | pressure/route engineering probe; keep outside formal CO2/H2O fit |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_outp_plus_sealed_sweep.py` | pressure/route engineering probe; keep outside formal CO2/H2O fit |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_outp_preseal_probe.py` | diagnostic evidence only; not formal acceptance by default; pressure/route engineering probe; keep outside formal CO2/H2O fit |
@@ -285,21 +386,37 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_open_flow_canonical_points.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_parameter_governance.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_post_write_reverification.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_pre_gas_readiness.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_recommendation_closure.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_sample_reuse_review.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_sencoa_sencob_controlled_writer_preflight.py` | requires explicit coefficient-write authorization and readback evidence |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_sencoa_sencob_writer_design_review.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_serial_safety.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_sn_identity_initialization.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_stage_detail_route_optimization_doc.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_status_register.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_v1_ratio_poly_algorithm_audit.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/v2/test_v1_5_initialization_import.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/v2/test_v1_5_readiness_event_import.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/v2/test_v1_5_runtime_setup_import.py` |  |
+| `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_co2_h2o_cross_effect_review.py` |  |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_co2_post_h2o_diagnostic.py` | diagnostic evidence only; not formal acceptance by default |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_dewpoint_gate_extended_hold_diagnostic.py` | diagnostic evidence only; not formal acceptance by default |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_formal_h2o_open_flow_queue.py` |  |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_formal_h2o_open_flow_sampling_runner.py` |  |
+| `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_archive_inputs.py` |  |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_dry_anchor_bridge_review.py` |  |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_formal_closure_review.py` |  |
+| `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_low_anchor_from_co2_zero.py` |  |
+| `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_queue_failure_audit.py` |  |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_senco24_candidate_review.py` |  |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_senco24_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_senco24_repair_plan.py` |  |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_senco6_linear_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_senco6_linear_trim_review.py` |  |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_senco6_neutral_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
+| `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_special_diagnostic_queue.py` | diagnostic evidence only; not formal acceptance by default |
+| `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_h2o_state_transfer_diagnostic.py` | diagnostic evidence only; not formal acceptance by default |
 | `test_gate` | `h2o_component` | `verification_only` | `none` | `tests/test_v1_5_post_h2o_co2_verify_summary.py` |  |
 | `test_gate` | `identity_and_serial_binding` | `verification_only` | `none` | `tests/test_v1_5_runtime_serial_port_binding.py` | COM port is transport only; analyzer identity remains MODE2 device ID |
 | `test_gate` | `pressure_channel` | `verification_only` | `none` | `tests/test_v1_5_open_flow_dynamic_pressure_diagnostic.py` | diagnostic evidence only; not formal acceptance by default; pressure/route engineering probe; keep outside formal CO2/H2O fit |
@@ -319,8 +436,11 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `test_gate` | `qc_review` | `verification_only` | `none` | `tests/test_v1_5_qc_advanced.py` |  |
 | `test_gate` | `reporting` | `verification_only` | `none` | `tests/test_v1_5_calibration_reports.py` |  |
 | `test_gate` | `reporting` | `verification_only` | `none` | `tests/test_v1_5_formal_calibration_package.py` |  |
+| `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_co2_s13_low_end_temperature_boundary_decision.py` |  |
 | `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_no_outp_skip_tempwait_engineering_config.py` | pressure/route engineering probe; keep outside formal CO2/H2O fit |
 | `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_temperature_channel_review.py` |  |
+| `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_temperature_current_point_review.py` |  |
+| `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_temperature_senco78_candidate_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `test_gate` | `temperature_channel` | `verification_only` | `none` | `tests/test_v1_5_temperature_senco78_neutral_controlled_write.py` | requires explicit coefficient-write authorization and readback evidence |
 | `test_gate` | `ui_review` | `verification_only` | `none` | `tests/test_v1_5_formal_workbench.py` |  |
 | `test_gate` | `ui_review` | `verification_only` | `none` | `tests/test_v1_5_operation_console.py` |  |
@@ -328,4 +448,8 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `ui_review` | `general` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/__init__.py` |  |
 | `ui_review` | `ui_review` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/review_surface.py` |  |
 | `ui_review` | `ui_review` | `prototype_or_review_surface` | `offline` | `src/gas_calibrator/v1_5/ui/operation_console.py` |  |
+| `v1_5_library` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/import_initialization_database.py` |  |
+| `v1_5_library` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/initialization_database.py` |  |
+| `v1_5_library` | `evidence_database` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/initialization_db_preflight.py` |  |
 | `v1_5_library` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/__init__.py` |  |
+| `v1_5_library` | `general` | `formal_support` | `offline` | `src/gas_calibrator/v1_5/sn_identity_initialization.py` |  |
