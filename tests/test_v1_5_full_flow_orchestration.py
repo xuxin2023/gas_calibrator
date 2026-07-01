@@ -49,6 +49,9 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     assert step_ids.index("initialization_readiness_snapshot") < step_ids.index("pre_gas_readiness_snapshot")
     assert step_ids.index("pre_gas_readiness_snapshot") < step_ids.index("device_identity_and_getco_snapshot")
     assert step_ids.index("device_identity_and_getco_snapshot") < step_ids.index(
+        "identity_getco_readiness_snapshot"
+    )
+    assert step_ids.index("identity_getco_readiness_snapshot") < step_ids.index(
         "auxiliary_senco56789_neutralization_gate"
     )
     assert step_ids.index("auxiliary_senco56789_neutralization_gate") < step_ids.index("pressure_quick_check")
@@ -212,6 +215,11 @@ def test_full_flow_stage_manifest_makes_automation_boundaries_explicit(tmp_path)
     assert identity.automation_state == "read_only_real_com_requires_authorization"
     assert identity.authorization_required["real_com"] is True
     assert identity.evidence_contract["readback_required"] is True
+    getco_readiness = by_step["identity_getco_readiness_snapshot"]
+    assert getco_readiness.automation_state == "offline_review_auto_candidate"
+    assert getco_readiness.authorization_required["real_com"] is False
+    assert getco_readiness.authorization_required["coefficient_write"] is False
+    assert "v1_5_getco_identity_readiness.json" in " ".join(getco_readiness.expected_outputs)
 
     co2 = by_step["co2_open_flow_sampling"]
     h2o = by_step["h2o_open_flow_sampling"]
@@ -274,7 +282,12 @@ def test_full_flow_live_runner_readiness_lists_controlled_live_gates(tmp_path):
         "initialization_readiness_snapshot",
         "pre_gas_readiness_snapshot",
     )
+    assert domains["identity_and_epoch0"].stage_ids == (
+        "device_identity_and_getco_snapshot",
+        "identity_getco_readiness_snapshot",
+    )
     assert "PostgreSQL 18" in domains["initialization_contract"].reason
+    assert "verify the no-write epoch-0 evidence offline" in domains["identity_and_epoch0"].next_action
     assert domains["pressure_channel"].status == "requires_pressure_authorization"
     assert domains["pressure_channel"].required_authorizations == ("real_com", "pressure_control")
     assert "pressure P" in domains["pressure_channel"].reason
@@ -312,6 +325,18 @@ def test_full_flow_plan_freezes_getco_1_to_9_before_sampling(tmp_path):
     assert "--allow-quiet-setcomway" not in command
     assert getco.coefficient_epoch_event == "start_epoch_0"
     assert "runtime_identity_bound_config.json" in getco.expected_outputs
+    getco_readiness = next(step for step in plan.steps if step.step_id == "identity_getco_readiness_snapshot")
+    readiness_command = list(getco_readiness.command)
+    assert getco_readiness.execution_mode == "offline_sidecar"
+    assert getco_readiness.opens_com_ports is False
+    assert getco_readiness.writes_coefficients is False
+    assert readiness_command[readiness_command.index("--getco-dir") + 1] == str(
+        (tmp_path / "plan" / "coefficient_epoch_0_getco_snapshot").resolve()
+    )
+    assert readiness_command[readiness_command.index("--output-dir") + 1] == str(
+        (tmp_path / "plan" / "identity_getco_readiness").resolve()
+    )
+    assert "--fail-on-not-ready" in readiness_command
     aux = next(step for step in plan.steps if step.step_id == "auxiliary_senco56789_neutralization_gate")
     assert aux.opens_com_ports is True
     assert aux.writes_coefficients is True
@@ -647,6 +672,7 @@ def test_route_stage_remains_blocked_without_route_authorization(tmp_path):
         completed_steps=[
             *_pre_identity_offline_steps(),
             "device_identity_and_getco_snapshot",
+            "identity_getco_readiness_snapshot",
             "auxiliary_senco56789_neutralization_gate",
             "pressure_quick_check",
             "pressure_senco9_no_write_acquisition",
@@ -800,7 +826,11 @@ def test_supervised_run_refuses_hazard_stage_even_when_state_authorized(tmp_path
 
     result = run_supervised_full_flow(
         plan,
-        completed_steps=[*_pre_identity_offline_steps(), "device_identity_and_getco_snapshot"],
+        completed_steps=[
+            *_pre_identity_offline_steps(),
+            "device_identity_and_getco_snapshot",
+            "identity_getco_readiness_snapshot",
+        ],
         failed_steps=[],
         allow_real_com=True,
         allow_pressure_control=True,
@@ -815,6 +845,7 @@ def test_supervised_run_refuses_hazard_stage_even_when_state_authorized(tmp_path
     assert result.final_state.completed_step_ids == (
         *_pre_identity_offline_steps(),
         "device_identity_and_getco_snapshot",
+        "identity_getco_readiness_snapshot",
     )
 
 
@@ -845,8 +876,8 @@ def test_supervised_run_can_execute_read_only_com_stage_when_allowed(tmp_path):
 
     assert result.events[0].step_id == "device_identity_and_getco_snapshot"
     assert result.events[0].status == "completed"
-    assert result.final_state.current_step_id == "auxiliary_senco56789_neutralization_gate"
-    assert result.final_state.current_status == "blocked_write_authorization"
+    assert result.final_state.current_step_id == "identity_getco_readiness_snapshot"
+    assert result.final_state.current_status == "ready"
     assert result.final_state.completed_step_ids == (
         *_pre_identity_offline_steps(),
         "device_identity_and_getco_snapshot",

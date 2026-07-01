@@ -22,6 +22,7 @@ REQUIRED_STEP_IDS = (
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
+    "identity_getco_readiness_snapshot",
     "auxiliary_senco56789_neutralization_gate",
     "pressure_quick_check",
     "pressure_senco9_no_write_acquisition",
@@ -45,6 +46,7 @@ REQUIRED_ORDER = (
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
+    "identity_getco_readiness_snapshot",
     "auxiliary_senco56789_neutralization_gate",
     "pressure_quick_check",
     "pressure_senco9_no_write_acquisition",
@@ -90,6 +92,7 @@ FORMAL_PHYSICAL_FLOW = (
     "INITIALIZATION_CONTRACT: generate the formal initialization plan, PostgreSQL 18 sidecar, and readiness snapshot without COM or writes",
     "PRE_GAS_READINESS: summarize SN/device_code, PostgreSQL 18, MODE2/1Hz, GETCO, S7/S8, S9, route, and CHECK gates before live identity",
     "PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9",
+    "IDENTITY_GETCO_READINESS: verify epoch-0 GETCO artifacts, no-write conclusion, and runtime identity-bound config before auxiliary coefficient changes",
     "AUX_NEUTRALIZE: after immutable GETCO backup, neutralize SENCO5/6/7/8/9 through controlled tools",
     "PRESSURE: verify analyzer P against COM22 before component calibration",
     "PRESSURE_SENCO9: if needed, use the full V1.5 no-write sealed-pressure runner and transition trace",
@@ -403,7 +406,8 @@ def validate_v1_5_formal_flow_contract(
 
     for before, after in zip(REQUIRED_ORDER, REQUIRED_ORDER[1:]):
         _require_before(step_ids, before, after, issues)
-    _require_before(step_ids, "device_identity_and_getco_snapshot", "auxiliary_senco56789_neutralization_gate", issues)
+    _require_before(step_ids, "device_identity_and_getco_snapshot", "identity_getco_readiness_snapshot", issues)
+    _require_before(step_ids, "identity_getco_readiness_snapshot", "auxiliary_senco56789_neutralization_gate", issues)
     _require_before(step_ids, "auxiliary_senco56789_neutralization_gate", "pressure_quick_check", issues)
     _require_before(step_ids, "pressure_quick_check", "co2_open_flow_sampling", issues)
     _require_before(step_ids, "pressure_quick_check", "h2o_open_flow_sampling", issues)
@@ -443,6 +447,54 @@ def validate_v1_5_formal_flow_contract(
                             "pressure and open-flow stages must use runtime_identity_bound_config.json "
                             "from the GETCO/device-ID snapshot, not the original COM alias config"
                         ),
+                        step_id,
+                    )
+                )
+
+        if step_id == "identity_getco_readiness_snapshot":
+            if module != "gas_calibrator.tools.export_v1_5_getco_identity_readiness":
+                issues.append(
+                    _issue(
+                        "error",
+                        "identity_getco_readiness_wrong_tool",
+                        "Identity/GETCO readiness must use the offline export_v1_5_getco_identity_readiness sidecar",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "identity_getco_readiness_must_be_offline_no_write",
+                        "Identity/GETCO readiness must only consume GETCO artifacts and must not open COM, control routes, or write coefficients",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "identity_getco_readiness_must_be_offline",
+                        "Identity/GETCO readiness execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            getco_dir = _command_value_after(command, "--getco-dir").replace("\\", "/")
+            if not getco_dir.endswith("coefficient_epoch_0_getco_snapshot"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "identity_getco_readiness_getco_dir_violation",
+                        "Identity/GETCO readiness must read the coefficient_epoch_0_getco_snapshot artifacts",
+                        step_id,
+                    )
+                )
+            if not _command_has_flag(command, "--fail-on-not-ready"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "identity_getco_readiness_must_fail_when_not_ready",
+                        "Identity/GETCO readiness command must fail on incomplete evidence",
                         step_id,
                     )
                 )

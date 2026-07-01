@@ -638,11 +638,11 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
             plan,
             domain="identity_and_epoch0",
             status="requires_real_com_authorization",
-            reason="formal calibration must bind every COM transport to analyzer device ID and GETCO1-9 before sampling",
-            stage_ids=("device_identity_and_getco_snapshot",),
+            reason="formal calibration must bind every COM transport to analyzer device ID, freeze GETCO1-9, and pass the offline identity/GETCO readiness sidecar before sampling",
+            stage_ids=("device_identity_and_getco_snapshot", "identity_getco_readiness_snapshot"),
             required_authorizations=("real_com",),
             physical_risk="wrong ID/COM binding corrupts traceability and may write coefficients to the wrong analyzer",
-            next_action="run the validated identity/GETCO snapshot with 1s or longer command spacing and device-ID binding",
+            next_action="run the validated identity/GETCO snapshot with 1s or longer command spacing, then verify the no-write epoch-0 evidence offline",
         ),
         _readiness_domain(
             plan,
@@ -952,6 +952,7 @@ def build_full_flow_plan(
     formal_initialization_dir = root / "formal_initialization"
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
+    getco_readiness_dir = root / "identity_getco_readiness"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
     pressure_dir = root / "pressure_channel"
     co2_dir = root / "co2_open_flow"
@@ -1180,6 +1181,45 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="identity_getco_readiness_snapshot",
+            title="Validate identity-bound GETCO epoch-0 evidence",
+            phase="IDENTITY_GETCO_READINESS",
+            tool_module="gas_calibrator.tools.export_v1_5_getco_identity_readiness",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_getco_identity_readiness",
+                "--getco-dir",
+                getco_dir,
+                "--output-dir",
+                getco_readiness_dir,
+                "--fail-on-not-ready",
+            ),
+            required_inputs=(
+                "old_component_coefficients_snapshot.json",
+                "getco_component_snapshot_identity.csv",
+                "getco_component_snapshot_conclusion.csv",
+                "runtime_identity_bound_config.json",
+            ),
+            expected_outputs=(
+                "identity_getco_readiness/v1_5_getco_identity_readiness.json",
+                "identity_getco_readiness/v1_5_getco_identity_readiness.md",
+                "identity_getco_readiness/v1_5_getco_identity_readiness_checks.csv",
+            ),
+            physical_meaning=(
+                "After the authorized read-only GETCO probe, verify that every active analyzer has a bound "
+                "runtime device ID, complete GETCO1-9 epoch-0 backup, no-write conclusion, and frozen "
+                "runtime_identity_bound_config before auxiliary SENCO5/6/7/8/9 neutralization."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_after_epoch0_getco_before_auxiliary_neutralization",
+            notes=(
+                "This sidecar only reads artifacts; it does not open COM, write device IDs, write SENCO, or control routes.",
+                "Missing GETCO artifacts remain a live identity gate, not automatic release evidence.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="auxiliary_senco56789_neutralization_gate",
             title="Neutralize auxiliary SENCO5-9 after epoch-0 GETCO backup",
             phase="AUXILIARY_COEFFICIENT_NEUTRALIZATION",
@@ -1187,6 +1227,7 @@ def build_full_flow_plan(
             required_inputs=(
                 "old GETCO1-9 epoch-0 snapshot",
                 "runtime_identity_bound_config.json",
+                "identity_getco_readiness/v1_5_getco_identity_readiness.json",
                 "reviewer",
                 "approver",
             ),
@@ -1930,6 +1971,7 @@ def build_full_flow_plan(
         physical_order=(
             "formal_initialization_contract_readiness_and_pre_gas_sidecar",
             "device_identity_and_GETCO_snapshot",
+            "identity_GETCO_readiness_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",
             "pressure_quick_check_then_SENCO9_no_write_acquisition_if_needed",
             "pressure_channel_completion_evidence_after_SENCO9_write_and_reverify",
