@@ -41,6 +41,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Optional explicit PostgreSQL 18 formal database dry-run contract JSON.",
     )
     parser.add_argument(
+        "--formal-database-import-preflight-json",
+        default="",
+        help="Optional explicit PostgreSQL 18 formal database import preflight JSON.",
+    )
+    parser.add_argument(
         "--fail-on-blocked",
         action="store_true",
         help="Return exit code 2 when the rollup is blocked.",
@@ -66,6 +71,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             archive_closure_json=args.archive_closure_json or None,
             algorithm_profile_runner_dry_run_json=args.algorithm_profile_runner_dry_run_json or None,
             formal_database_dry_run_json=args.formal_database_dry_run_json or None,
+            formal_database_import_preflight_json=args.formal_database_import_preflight_json or None,
         )
         outputs = write_v1_5_formal_run_status_outputs(model, Path(args.output_dir))
         result = {

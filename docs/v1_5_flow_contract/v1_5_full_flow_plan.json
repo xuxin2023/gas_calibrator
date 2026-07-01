@@ -2,7 +2,7 @@
   "schema": "v1_5_full_calibration_flow_plan_v0",
   "contract": "pressure_first_temperature_review_then_open_flow_components",
   "run_id": "v1_5_contract_reference",
-  "created_at": "2026-07-02T06:12:02",
+  "created_at": "2026-07-02T07:29:46",
   "config_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\configs\\default_config.json",
   "output_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "dry_run_only": true,
@@ -45,6 +45,7 @@
     "controlled_write_only_after_approval",
     "post_write_reverification",
     "formal_database_dry_run_before_database_import",
+    "formal_database_import_preflight_before_database_import",
     "evidence_bundle_database_report",
     "formal_run_status_dashboard"
   ],
@@ -61,7 +62,7 @@
         "--output-dir",
         "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_run_package",
         "--operator",
-        "<operator>",
+        "V1.5-contract-refresh",
         "--analyzer-id",
         "multi_device",
         "--run-id",
@@ -109,7 +110,7 @@
         "--run-id",
         "v1_5_contract_reference_initialization",
         "--operator",
-        "<operator>"
+        "V1.5-contract-refresh"
       ],
       "required_inputs": [
         "runtime config",
@@ -1128,6 +1129,51 @@
       ]
     },
     {
+      "step_id": "formal_database_import_preflight_snapshot",
+      "title": "Review PostgreSQL 18 import preflight without connecting",
+      "phase": "FORMAL_DATABASE_IMPORT_PREFLIGHT",
+      "tool_module": "gas_calibrator.tools.export_v1_5_formal_database_import_preflight",
+      "command": [
+        "python",
+        "-m",
+        "gas_calibrator.tools.export_v1_5_formal_database_import_preflight",
+        "--formal-database-dry-run-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json",
+        "--dsn-env",
+        "V1_5_POSTGRES_DSN",
+        "--output-dir",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight",
+        "--fail-on-blocker"
+      ],
+      "required_inputs": [
+        "formal PostgreSQL 18 database dry-run contract",
+        "DSN configuration presence or reviewed missing-DSN gap",
+        "explicit database-import authorization policy"
+      ],
+      "expected_outputs": [
+        "formal_database_import_preflight/v1_5_formal_database_import_preflight.json",
+        "formal_database_import_preflight/V1_5_FORMAL_DATABASE_IMPORT_PREFLIGHT.md",
+        "formal_database_import_preflight/v1_5_formal_database_import_preflight_checks.csv",
+        "formal_database_import_preflight/v1_5_formal_database_import_preflight_summary.csv"
+      ],
+      "physical_meaning": "Before a real production import, confirm the dry-run contract, DSN presence/fingerprint, migration lock, and explicit authorization boundary without opening a database connection.",
+      "execution_mode": "offline_sidecar",
+      "gate": "required_before_database_import_execution",
+      "uses_validated_v1_5_entry": true,
+      "may_reuse_v1_shared_core": false,
+      "opens_com_ports": false,
+      "controls_pressure": false,
+      "controls_gas_route": false,
+      "controls_water_route": false,
+      "writes_coefficients": false,
+      "writes_device_id": false,
+      "coefficient_epoch_event": "none",
+      "notes": [
+        "This preflight never connects PostgreSQL, applies migrations, or imports rows.",
+        "A passing import preflight is still not database import authorization; archive release and operator authorization remain separate."
+      ]
+    },
+    {
       "step_id": "database_import",
       "title": "Import evidence bundle into V1.5 PostgreSQL registry",
       "phase": "DATABASE_IMPORT",
@@ -1316,7 +1362,9 @@
         "--algorithm-profile-runner-dry-run-json",
         "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json",
         "--formal-database-dry-run-json",
-        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json"
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json",
+        "--formal-database-import-preflight-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json"
       ],
       "required_inputs": [
         "initialization readiness sidecar",
@@ -1325,7 +1373,8 @@
         "v1_5_run_evidence_status.json",
         "full-flow closure readiness or archive sidecar when available",
         "optional new-algorithm profile runner dry-run bundle",
-        "formal PostgreSQL 18 database dry-run contract"
+        "formal PostgreSQL 18 database dry-run contract",
+        "formal database import preflight sidecar"
       ],
       "expected_outputs": [
         "formal_run_status/v1_5_formal_run_status.json",
@@ -1358,7 +1407,7 @@
     "Standard-gas certificate JSON is not specified; formal run package will use templates."
   ],
   "metadata": {
-    "operator": "<operator>",
+    "operator": "V1.5-contract-refresh",
     "analyzer_id": "multi_device",
     "standard_gases_json": "",
     "pressure_reference_json": "",

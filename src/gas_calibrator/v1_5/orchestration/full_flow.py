@@ -621,6 +621,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "full_flow_closure_readiness",
                 "formal_evidence_sidecar",
                 "formal_database_dry_run_snapshot",
+                "formal_database_import_preflight_snapshot",
                 "database_import",
                 "final_evidence_status_refresh",
                 "algorithm_profile_runner_dry_run_snapshot",
@@ -976,6 +977,7 @@ def build_full_flow_plan(
     formal_status_dir = root / "formal_run_status"
     algorithm_profile_runner_dir = root / "algorithm_profile_runner_dry_run"
     formal_database_dry_run_dir = root / "formal_database_dry_run"
+    formal_database_import_preflight_dir = root / "formal_database_import_preflight"
     algorithm_profile_path = repo_root / "configs" / "v1_5_algorithm_route_profiles.json"
     runtime_bound_cfg = getco_dir / "runtime_identity_bound_config.json"
 
@@ -1891,6 +1893,46 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="formal_database_import_preflight_snapshot",
+            title="Review PostgreSQL 18 import preflight without connecting",
+            phase="FORMAL_DATABASE_IMPORT_PREFLIGHT",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_database_import_preflight",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_database_import_preflight",
+                "--formal-database-dry-run-json",
+                formal_database_dry_run_dir / "v1_5_formal_database_dry_run.json",
+                "--dsn-env",
+                "V1_5_POSTGRES_DSN",
+                "--output-dir",
+                formal_database_import_preflight_dir,
+                "--fail-on-blocker",
+            ),
+            required_inputs=(
+                "formal PostgreSQL 18 database dry-run contract",
+                "DSN configuration presence or reviewed missing-DSN gap",
+                "explicit database-import authorization policy",
+            ),
+            expected_outputs=(
+                "formal_database_import_preflight/v1_5_formal_database_import_preflight.json",
+                "formal_database_import_preflight/V1_5_FORMAL_DATABASE_IMPORT_PREFLIGHT.md",
+                "formal_database_import_preflight/v1_5_formal_database_import_preflight_checks.csv",
+                "formal_database_import_preflight/v1_5_formal_database_import_preflight_summary.csv",
+            ),
+            physical_meaning=(
+                "Before a real production import, confirm the dry-run contract, DSN presence/fingerprint, "
+                "migration lock, and explicit authorization boundary without opening a database connection."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_database_import_execution",
+            notes=(
+                "This preflight never connects PostgreSQL, applies migrations, or imports rows.",
+                "A passing import preflight is still not database import authorization; archive release and operator authorization remain separate.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="database_import",
             title="Import evidence bundle into V1.5 PostgreSQL registry",
             phase="DATABASE_IMPORT",
@@ -2039,6 +2081,8 @@ def build_full_flow_plan(
                 algorithm_profile_runner_dir / "v1_5_algorithm_profile_runner_dry_run.json",
                 "--formal-database-dry-run-json",
                 formal_database_dry_run_dir / "v1_5_formal_database_dry_run.json",
+                "--formal-database-import-preflight-json",
+                formal_database_import_preflight_dir / "v1_5_formal_database_import_preflight.json",
             ),
             required_inputs=(
                 "initialization readiness sidecar",
@@ -2048,6 +2092,7 @@ def build_full_flow_plan(
                 "full-flow closure readiness or archive sidecar when available",
                 "optional new-algorithm profile runner dry-run bundle",
                 "formal PostgreSQL 18 database dry-run contract",
+                "formal database import preflight sidecar",
             ),
             expected_outputs=(
                 "formal_run_status/v1_5_formal_run_status.json",
@@ -2128,6 +2173,7 @@ def build_full_flow_plan(
             "controlled_write_only_after_approval",
             "post_write_reverification",
             "formal_database_dry_run_before_database_import",
+            "formal_database_import_preflight_before_database_import",
             "evidence_bundle_database_report",
             "formal_run_status_dashboard",
         ),

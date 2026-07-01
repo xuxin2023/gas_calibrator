@@ -77,7 +77,10 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     )
     assert step_ids.index("post_write_reverification_placeholder") < step_ids.index("formal_evidence_sidecar")
     assert step_ids.index("formal_evidence_sidecar") < step_ids.index("formal_database_dry_run_snapshot")
-    assert step_ids.index("formal_database_dry_run_snapshot") < step_ids.index("database_import")
+    assert step_ids.index("formal_database_dry_run_snapshot") < step_ids.index(
+        "formal_database_import_preflight_snapshot"
+    )
+    assert step_ids.index("formal_database_import_preflight_snapshot") < step_ids.index("database_import")
     assert step_ids.index("zh_calibration_reports") < step_ids.index("final_evidence_status_refresh")
     assert step_ids.index("final_evidence_status_refresh") < step_ids.index(
         "algorithm_profile_runner_dry_run_snapshot"
@@ -546,6 +549,12 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert (out / "algorithm_profile_runner_dry_run" / "V1_5_ALGORITHM_PROFILE_RUNNER_DRY_RUN.md").exists()
     assert (out / "formal_database_dry_run" / "v1_5_formal_database_dry_run.json").exists()
     assert (out / "formal_database_dry_run" / "V1_5_FORMAL_DATABASE_DRY_RUN.md").exists()
+    assert (
+        out / "formal_database_import_preflight" / "v1_5_formal_database_import_preflight.json"
+    ).exists()
+    assert (
+        out / "formal_database_import_preflight" / "V1_5_FORMAL_DATABASE_IMPORT_PREFLIGHT.md"
+    ).exists()
     operation_console_json = out / "operation_console" / "v1_5_operation_console.json"
     operation_console_html = out / "operation_console" / "v1_5_operation_console.html"
     assert operation_console_json.exists()
@@ -585,11 +594,19 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert formal_status["linked_inputs"]["formal_database_dry_run_json"] == str(
         (out / "formal_database_dry_run" / "v1_5_formal_database_dry_run.json").resolve()
     )
+    assert formal_status["linked_inputs"]["formal_database_import_preflight_json"] == str(
+        (
+            out / "formal_database_import_preflight" / "v1_5_formal_database_import_preflight.json"
+        ).resolve()
+    )
     formal_gates = {row["gate_id"]: row for row in formal_status["gates"]}
     assert formal_gates["algorithm_profile_runner_dry_run"]["status"] == "ready"
     assert formal_gates["algorithm_profile_runner_dry_run"]["blocks_release"] is False
     assert formal_gates["formal_database_dry_run"]["status"] == "ready"
     assert formal_gates["formal_database_dry_run"]["blocks_release"] is False
+    assert formal_gates["formal_database_import_preflight"]["status"] == "review_required"
+    assert formal_gates["formal_database_import_preflight"]["blocks_release"] is False
+    assert formal_gates["formal_database_import_preflight"]["blocks_physical_flow"] is False
     database_dry_run = json.loads(
         (out / "formal_database_dry_run" / "v1_5_formal_database_dry_run.json").read_text(encoding="utf-8-sig")
     )
@@ -597,6 +614,15 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert database_dry_run["production_postgresql_major"] == 18
     assert database_dry_run["database_import_allowed"] is False
     assert database_dry_run["connects_postgresql"] is False
+    database_import_preflight = json.loads(
+        (
+            out / "formal_database_import_preflight" / "v1_5_formal_database_import_preflight.json"
+        ).read_text(encoding="utf-8-sig")
+    )
+    assert database_import_preflight["overall_status"] == "review_required"
+    assert database_import_preflight["dsn_configured"] is False
+    assert database_import_preflight["connects_postgresql"] is False
+    assert database_import_preflight["database_import_allowed"] is False
     assert formal_status["linked_inputs"]["run_evidence_status_json"] == str(
         (out / "v1_5_run_evidence_status.json").resolve()
     )
@@ -674,6 +700,26 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     assert database_step.writes_device_id is False
     assert _flag_value(database_command, "--output-dir").endswith("formal_database_dry_run")
     assert "--fail-on-blocker" in database_command
+    import_preflight_step = next(
+        step for step in plan.steps if step.step_id == "formal_database_import_preflight_snapshot"
+    )
+    import_preflight_command = list(import_preflight_step.command)
+    assert (
+        import_preflight_step.tool_module
+        == "gas_calibrator.tools.export_v1_5_formal_database_import_preflight"
+    )
+    assert import_preflight_step.execution_mode == "offline_sidecar"
+    assert import_preflight_step.opens_com_ports is False
+    assert import_preflight_step.controls_gas_route is False
+    assert import_preflight_step.controls_water_route is False
+    assert import_preflight_step.writes_coefficients is False
+    assert import_preflight_step.writes_device_id is False
+    assert _flag_value(import_preflight_command, "--formal-database-dry-run-json").endswith(
+        "formal_database_dry_run\\v1_5_formal_database_dry_run.json"
+    )
+    assert _flag_value(import_preflight_command, "--dsn-env") == "V1_5_POSTGRES_DSN"
+    assert _flag_value(import_preflight_command, "--output-dir").endswith("formal_database_import_preflight")
+    assert "--fail-on-blocker" in import_preflight_command
     status_step = next(step for step in plan.steps if step.step_id == "formal_run_status_snapshot")
     status_command = list(status_step.command)
     assert status_step.tool_module == "gas_calibrator.tools.export_v1_5_formal_run_status"
@@ -686,6 +732,9 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     )
     assert _flag_value(status_command, "--formal-database-dry-run-json").endswith(
         "formal_database_dry_run\\v1_5_formal_database_dry_run.json"
+    )
+    assert _flag_value(status_command, "--formal-database-import-preflight-json").endswith(
+        "formal_database_import_preflight\\v1_5_formal_database_import_preflight.json"
     )
     assert "v1_5_formal_run_status_gates.csv" in " ".join(status_step.expected_outputs)
 

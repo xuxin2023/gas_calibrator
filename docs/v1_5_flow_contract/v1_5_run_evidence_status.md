@@ -26,7 +26,7 @@ Stage status counts:
 - `authorization_required`: `5`
 - `blocked_controlled_gate`: `2`
 - `pass`: `3`
-- `waiting_for_artifacts`: `18`
+- `waiting_for_artifacts`: `19`
 
 Manifest stages:
 - `load_plan_and_traceability`: `waiting_for_artifacts` - manifest_expected_outputs_missing
@@ -52,6 +52,7 @@ Manifest stages:
 - `post_write_reverification_placeholder`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `formal_evidence_sidecar`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `formal_database_dry_run_snapshot`: `pass` - all_manifest_expected_outputs_present
+- `formal_database_import_preflight_snapshot`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `database_import`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `zh_calibration_reports`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `final_evidence_status_refresh`: `waiting_for_artifacts` - manifest_expected_outputs_missing
