@@ -1,0 +1,107 @@
+﻿{
+  "schema": "v1_5_algorithm_runlist_readiness_v1",
+  "generated_at": "2026-07-01T21:29:12",
+  "overall_status": "ready_for_new_algorithm_runner_integration_review",
+  "blocker_count": 0,
+  "review_required_count": 0,
+  "profile_id": "absorption_ratio_shadow",
+  "not_real_acceptance_evidence": true,
+  "no_write": true,
+  "opens_com_ports": false,
+  "connects_postgresql": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_device_id": false,
+  "runner_integration_status": "preview_only_not_runner_wired",
+  "legacy_co2_formal_point_count": 45,
+  "legacy_h2o_formal_point_count": 13,
+  "co2_runlist_count": 47,
+  "h2o_runlist_count": 14,
+  "required_before_new_algorithm_physical_run": [
+    "new_algorithm_co2_runlist_47_point_gate",
+    "new_algorithm_h2o_runlist_14_point_gate",
+    "formal_supplemental_point_semantics_gate"
+  ],
+  "next_action": "Review this readiness sidecar before wiring any profile-driven runner. Passing this gate does not authorize COM, route control, coefficient writes, archive release, or database import.",
+  "checks": [
+    {
+      "check": "runlist_preview_manifest_contract",
+      "status": "ready",
+      "evidence_role": "algorithm_formal_runlist_preview_manifest",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
+      "reasons": [],
+      "physical_meaning": "The preflight consumes an offline preview only; it must not become a hidden live runner.",
+      "next_action": "Regenerate the runlist preview from the profile before considering runner integration.",
+      "details": {
+        "profile_id": "absorption_ratio_shadow",
+        "runner_integration_status": "preview_only_not_runner_wired",
+        "legacy_co2_formal_point_count": 45,
+        "legacy_h2o_formal_point_count": 13
+      }
+    },
+    {
+      "check": "new_algorithm_co2_runlist_47_point_gate",
+      "status": "ready",
+      "evidence_role": "new_algorithm_co2_runlist_preview",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+      "reasons": [],
+      "physical_meaning": "New-algorithm CO2 must run 47 formal points; the low-temperature 600ppm points are normal scheduled gas points.",
+      "next_action": "Regenerate the new-algorithm CO2 runlist preview; do not run the legacy 45-point queue as the new-algorithm flow.",
+      "details": {
+        "row_count": 47,
+        "segments": {
+          "-20C": [
+            0,
+            400,
+            600,
+            1000
+          ],
+          "-10C": [
+            0,
+            400,
+            600,
+            1000
+          ]
+        }
+      }
+    },
+    {
+      "check": "new_algorithm_h2o_runlist_14_point_gate",
+      "status": "ready",
+      "evidence_role": "new_algorithm_h2o_runlist_preview",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "reasons": [],
+      "physical_meaning": "New-algorithm H2O must run 14 wet points; 40C/HGEN30C/30RH is a formal water point and its reference bridge remains explicit.",
+      "next_action": "Regenerate the new-algorithm H2O runlist preview and close the humidity reference bridge before fit/release.",
+      "details": {
+        "row_count": 14,
+        "40C_HGEN30C_RH": [
+          30,
+          50,
+          70
+        ]
+      }
+    },
+    {
+      "check": "formal_supplemental_point_semantics_gate",
+      "status": "ready",
+      "evidence_role": "new_algorithm_supplemental_point_semantics",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv;D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "reasons": [],
+      "physical_meaning": "Supplemental points are formal required points in the future runlist, not historical targeted-resampling labels.",
+      "next_action": "Repair point roles/semantics before allowing a new-algorithm runlist to feed any runner.",
+      "details": {
+        "observed": [
+          "-10/600",
+          "-20/600",
+          "40/30/30"
+        ],
+        "expected": [
+          "-10/600",
+          "-20/600",
+          "40/30/30"
+        ]
+      }
+    }
+  ]
+}
