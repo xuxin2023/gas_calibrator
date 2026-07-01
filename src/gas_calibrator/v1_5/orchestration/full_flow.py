@@ -622,6 +622,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_evidence_sidecar",
                 "database_import",
                 "final_evidence_status_refresh",
+                "algorithm_profile_runner_dry_run_snapshot",
                 "formal_run_status_snapshot",
             ),
             physical_risk="none during generation; artifacts remain review evidence, not real acceptance",
@@ -953,6 +954,7 @@ def build_full_flow_plan(
 
     cfg = Path(config_path).resolve()
     root = Path(output_dir).resolve()
+    repo_root = Path(__file__).resolve().parents[4]
     rid = run_id or f"v1_5_full_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     formal_pkg = root / "formal_run_package"
     formal_initialization_dir = root / "formal_initialization"
@@ -971,6 +973,8 @@ def build_full_flow_plan(
     post_write_verify_dir = root / "post_write_reverification"
     reports_dir = root / "reports"
     formal_status_dir = root / "formal_run_status"
+    algorithm_profile_runner_dir = root / "algorithm_profile_runner_dry_run"
+    algorithm_profile_path = repo_root / "configs" / "v1_5_algorithm_route_profiles.json"
     runtime_bound_cfg = getco_dir / "runtime_identity_bound_config.json"
 
     pressure_ref = _resolve_optional(pressure_reference_json)
@@ -1934,6 +1938,42 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="algorithm_profile_runner_dry_run_snapshot",
+            title="Generate new-algorithm profile runner dry-run bundle",
+            phase="ALGORITHM_PROFILE_RUNNER_DRY_RUN",
+            tool_module="gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run",
+                "--profile-path",
+                algorithm_profile_path,
+                "--output-dir",
+                algorithm_profile_runner_dir,
+                "--fail-on-blocker",
+            ),
+            required_inputs=("configs/v1_5_algorithm_route_profiles.json",),
+            expected_outputs=(
+                "algorithm_profile_runner_dry_run/v1_5_algorithm_profile_runner_dry_run.json",
+                "algorithm_profile_runner_dry_run/v1_5_algorithm_profile_runner_dry_run_checks.csv",
+                "algorithm_profile_runner_dry_run/algorithm_formal_runlist_preview/v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+                "algorithm_profile_runner_dry_run/algorithm_formal_runlist_preview/v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+                "algorithm_profile_runner_dry_run/algorithm_runlist_readiness/v1_5_algorithm_runlist_readiness.json",
+                "algorithm_profile_runner_dry_run/algorithm_runner_integration_dry_run/v1_5_algorithm_runner_integration_dry_run.json",
+            ),
+            physical_meaning=(
+                "For the new absorption algorithm, generate the profile-driven CO2 47 / H2O 14 runlist preview, "
+                "readiness gate, and dry-run mature-queue handoff evidence without executing the queues."
+            ),
+            execution_mode="offline_sidecar",
+            gate="optional_new_algorithm_runner_preflight_before_status_rollup",
+            notes=(
+                "This bundle does not open COM, connect PostgreSQL, control gas/water routes, write SN/device IDs, write coefficients, or modify mature runners.",
+                "A passing dry-run bundle does not authorize live runner wiring or real acceptance.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="formal_run_status_snapshot",
             title="Export top-level formal run status dashboard",
             phase="FORMAL_RUN_STATUS",
@@ -1956,6 +1996,8 @@ def build_full_flow_plan(
                 closure_readiness_dir / "v1_5_full_flow_closure_readiness.json",
                 "--archive-closure-json",
                 root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
+                "--algorithm-profile-runner-dry-run-json",
+                algorithm_profile_runner_dir / "v1_5_algorithm_profile_runner_dry_run.json",
             ),
             required_inputs=(
                 "initialization readiness sidecar",
@@ -1963,6 +2005,7 @@ def build_full_flow_plan(
                 "pre-gas readiness sidecar",
                 "v1_5_run_evidence_status.json",
                 "full-flow closure readiness or archive sidecar when available",
+                "optional new-algorithm profile runner dry-run bundle",
             ),
             expected_outputs=(
                 "formal_run_status/v1_5_formal_run_status.json",

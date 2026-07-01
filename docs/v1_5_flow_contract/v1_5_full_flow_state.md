@@ -37,6 +37,7 @@
 | `database_import` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `zh_calibration_reports` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `final_evidence_status_refresh` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
+| `algorithm_profile_runner_dry_run_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `formal_run_status_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 
 ## Safety Notes

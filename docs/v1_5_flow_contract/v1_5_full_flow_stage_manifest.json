@@ -2,7 +2,7 @@
   "schema": "v1_5_full_flow_stage_manifest_v1",
   "run_id": "v1_5_contract_reference",
   "contract": "pressure_first_temperature_review_then_open_flow_components",
-  "created_at": "2026-07-01T12:42:30",
+  "created_at": "2026-07-01T23:27:10",
   "current_automation_level": "supervised_tool_chain_with_controlled_live_gates",
   "one_button_live_runner_ready": false,
   "safety_summary": {
@@ -21,7 +21,7 @@
     "dedicated_pressure_runner_requires_authorization": 2,
     "offline_database_requires_dsn": 1,
     "offline_review_auto_candidate": 8,
-    "offline_review_waiting_for_run_artifacts": 10,
+    "offline_review_waiting_for_run_artifacts": 11,
     "read_only_real_com_requires_authorization": 1
   },
   "stages": [
@@ -103,7 +103,7 @@
       "title": "Generate formal initialization contract and DB bundle",
       "phase": "INITIALIZATION_CONTRACT",
       "tool_module": "gas_calibrator.tools.run_v1_5_formal_initialization_runner",
-      "automation_state": "offline_review_auto_candidate",
+      "automation_state": "offline_review_waiting_for_run_artifacts",
       "execution_mode": "offline_sidecar",
       "gate": "required_before_identity_getco_snapshot",
       "required_inputs": [
@@ -126,7 +126,9 @@
         "--output-dir",
         "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_initialization",
         "--run-id",
-        "v1_5_contract_reference_initialization"
+        "v1_5_contract_reference_initialization",
+        "--operator",
+        "<operator>"
       ],
       "safety_boundaries": {
         "opens_com_ports": false,
@@ -1874,6 +1876,78 @@
     },
     {
       "order": 26,
+      "step_id": "algorithm_profile_runner_dry_run_snapshot",
+      "title": "Generate new-algorithm profile runner dry-run bundle",
+      "phase": "ALGORITHM_PROFILE_RUNNER_DRY_RUN",
+      "tool_module": "gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run",
+      "automation_state": "offline_review_auto_candidate",
+      "execution_mode": "offline_sidecar",
+      "gate": "optional_new_algorithm_runner_preflight_before_status_rollup",
+      "required_inputs": [
+        "configs/v1_5_algorithm_route_profiles.json"
+      ],
+      "expected_outputs": [
+        "algorithm_profile_runner_dry_run/v1_5_algorithm_profile_runner_dry_run.json",
+        "algorithm_profile_runner_dry_run/v1_5_algorithm_profile_runner_dry_run_checks.csv",
+        "algorithm_profile_runner_dry_run/algorithm_formal_runlist_preview/v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+        "algorithm_profile_runner_dry_run/algorithm_formal_runlist_preview/v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+        "algorithm_profile_runner_dry_run/algorithm_runlist_readiness/v1_5_algorithm_runlist_readiness.json",
+        "algorithm_profile_runner_dry_run/algorithm_runner_integration_dry_run/v1_5_algorithm_runner_integration_dry_run.json"
+      ],
+      "physical_meaning": "For the new absorption algorithm, generate the profile-driven CO2 47 / H2O 14 runlist preview, readiness gate, and dry-run mature-queue handoff evidence without executing the queues.",
+      "command": [
+        "python",
+        "-m",
+        "gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run",
+        "--profile-path",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\configs\\v1_5_algorithm_route_profiles.json",
+        "--output-dir",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run",
+        "--fail-on-blocker"
+      ],
+      "safety_boundaries": {
+        "opens_com_ports": false,
+        "controls_pressure": false,
+        "controls_gas_route": false,
+        "controls_water_route": false,
+        "writes_coefficients": false,
+        "writes_device_id": false,
+        "may_reuse_v1_shared_core": false,
+        "uses_validated_v1_5_entry": true
+      },
+      "authorization_required": {
+        "real_com": false,
+        "pressure_control": false,
+        "route_control": false,
+        "coefficient_write": false,
+        "device_id_write": false
+      },
+      "evidence_contract": {
+        "required_inputs": [
+          "configs/v1_5_algorithm_route_profiles.json"
+        ],
+        "expected_outputs": [
+          "algorithm_profile_runner_dry_run/v1_5_algorithm_profile_runner_dry_run.json",
+          "algorithm_profile_runner_dry_run/v1_5_algorithm_profile_runner_dry_run_checks.csv",
+          "algorithm_profile_runner_dry_run/algorithm_formal_runlist_preview/v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+          "algorithm_profile_runner_dry_run/algorithm_formal_runlist_preview/v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+          "algorithm_profile_runner_dry_run/algorithm_runlist_readiness/v1_5_algorithm_runlist_readiness.json",
+          "algorithm_profile_runner_dry_run/algorithm_runner_integration_dry_run/v1_5_algorithm_runner_integration_dry_run.json"
+        ],
+        "raw_frames_preserved": false,
+        "reject_reasons_required": false,
+        "readback_required": false,
+        "post_write_reverify_required": false,
+        "database_or_report_only": false
+      },
+      "coefficient_epoch_event": "none",
+      "notes": [
+        "This bundle does not open COM, connect PostgreSQL, control gas/water routes, write SN/device IDs, write coefficients, or modify mature runners.",
+        "A passing dry-run bundle does not authorize live runner wiring or real acceptance."
+      ]
+    },
+    {
+      "order": 27,
       "step_id": "formal_run_status_snapshot",
       "title": "Export top-level formal run status dashboard",
       "phase": "FORMAL_RUN_STATUS",
@@ -1886,7 +1960,8 @@
         "identity/GETCO readiness sidecar",
         "pre-gas readiness sidecar",
         "v1_5_run_evidence_status.json",
-        "full-flow closure readiness or archive sidecar when available"
+        "full-flow closure readiness or archive sidecar when available",
+        "optional new-algorithm profile runner dry-run bundle"
       ],
       "expected_outputs": [
         "formal_run_status/v1_5_formal_run_status.json",
@@ -1914,7 +1989,9 @@
         "--full-flow-closure-readiness-json",
         "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\full_flow_closure_readiness\\v1_5_full_flow_closure_readiness.json",
         "--archive-closure-json",
-        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json"
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+        "--algorithm-profile-runner-dry-run-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json"
       ],
       "safety_boundaries": {
         "opens_com_ports": false,
@@ -1939,7 +2016,8 @@
           "identity/GETCO readiness sidecar",
           "pre-gas readiness sidecar",
           "v1_5_run_evidence_status.json",
-          "full-flow closure readiness or archive sidecar when available"
+          "full-flow closure readiness or archive sidecar when available",
+          "optional new-algorithm profile runner dry-run bundle"
         ],
         "expected_outputs": [
           "formal_run_status/v1_5_formal_run_status.json",

@@ -26,7 +26,7 @@
 | `dedicated_pressure_runner_requires_authorization` | 2 |
 | `offline_database_requires_dsn` | 1 |
 | `offline_review_auto_candidate` | 8 |
-| `offline_review_waiting_for_run_artifacts` | 10 |
+| `offline_review_waiting_for_run_artifacts` | 11 |
 | `read_only_real_com_requires_authorization` | 1 |
 
 ## Stage Contract
@@ -34,7 +34,7 @@
 | Order | Phase | Step | Automation | Gate | Tool |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | `LOAD_PLAN` | `load_plan_and_traceability` | `offline_review_waiting_for_run_artifacts` | `required_before_sampling` | `gas_calibrator.tools.prepare_v1_5_formal_run_package` |
-| 2 | `INITIALIZATION_CONTRACT` | `formal_initialization_contract_plan` | `offline_review_auto_candidate` | `required_before_identity_getco_snapshot` | `gas_calibrator.tools.run_v1_5_formal_initialization_runner` |
+| 2 | `INITIALIZATION_CONTRACT` | `formal_initialization_contract_plan` | `offline_review_waiting_for_run_artifacts` | `required_before_identity_getco_snapshot` | `gas_calibrator.tools.run_v1_5_formal_initialization_runner` |
 | 3 | `INITIALIZATION_READINESS` | `initialization_readiness_snapshot` | `offline_review_auto_candidate` | `required_before_identity_getco_snapshot` | `gas_calibrator.tools.export_v1_5_initialization_readiness` |
 | 4 | `PRE_GAS_READINESS` | `pre_gas_readiness_snapshot` | `offline_review_auto_candidate` | `required_before_identity_getco_snapshot` | `gas_calibrator.tools.export_v1_5_pre_gas_readiness` |
 | 5 | `PRECHECK` | `device_identity_and_getco_snapshot` | `read_only_real_com_requires_authorization` | `required_before_any_write` | `gas_calibrator.tools.probe_v1_5_getco_component_snapshot` |
@@ -58,7 +58,8 @@
 | 23 | `DATABASE_IMPORT` | `database_import` | `offline_database_requires_dsn` | `required_for_formal_archive` | `gas_calibrator.tools.import_v1_5_evidence_package` |
 | 24 | `REPORTS` | `zh_calibration_reports` | `offline_review_waiting_for_run_artifacts` | `final_deliverable` | `gas_calibrator.tools.export_v1_5_calibration_reports` |
 | 25 | `FINAL_EVIDENCE_STATUS` | `final_evidence_status_refresh` | `offline_review_waiting_for_run_artifacts` | `required_after_reports_for_archive_closure` | `gas_calibrator.tools.export_v1_5_run_evidence_status` |
-| 26 | `FORMAL_RUN_STATUS` | `formal_run_status_snapshot` | `offline_review_auto_candidate` | `final_reviewer_status_overview` | `gas_calibrator.tools.export_v1_5_formal_run_status` |
+| 26 | `ALGORITHM_PROFILE_RUNNER_DRY_RUN` | `algorithm_profile_runner_dry_run_snapshot` | `offline_review_auto_candidate` | `optional_new_algorithm_runner_preflight_before_status_rollup` | `gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run` |
+| 27 | `FORMAL_RUN_STATUS` | `formal_run_status_snapshot` | `offline_review_auto_candidate` | `final_reviewer_status_overview` | `gas_calibrator.tools.export_v1_5_formal_run_status` |
 
 ## Live And Write Gates
 
@@ -369,7 +370,20 @@ Expected outputs:
 - v1_5_run_evidence_status.json
 - v1_5_run_evidence_status.md
 
-### 26. `formal_run_status_snapshot`
+### 26. `algorithm_profile_runner_dry_run_snapshot`
+
+Required inputs:
+- configs/v1_5_algorithm_route_profiles.json
+
+Expected outputs:
+- algorithm_profile_runner_dry_run/v1_5_algorithm_profile_runner_dry_run.json
+- algorithm_profile_runner_dry_run/v1_5_algorithm_profile_runner_dry_run_checks.csv
+- algorithm_profile_runner_dry_run/algorithm_formal_runlist_preview/v1_5_new_algorithm_formal_co2_runlist_preview.csv
+- algorithm_profile_runner_dry_run/algorithm_formal_runlist_preview/v1_5_new_algorithm_formal_h2o_runlist_preview.csv
+- algorithm_profile_runner_dry_run/algorithm_runlist_readiness/v1_5_algorithm_runlist_readiness.json
+- algorithm_profile_runner_dry_run/algorithm_runner_integration_dry_run/v1_5_algorithm_runner_integration_dry_run.json
+
+### 27. `formal_run_status_snapshot`
 
 Required inputs:
 - initialization readiness sidecar
@@ -377,6 +391,7 @@ Required inputs:
 - pre-gas readiness sidecar
 - v1_5_run_evidence_status.json
 - full-flow closure readiness or archive sidecar when available
+- optional new-algorithm profile runner dry-run bundle
 
 Expected outputs:
 - formal_run_status/v1_5_formal_run_status.json
