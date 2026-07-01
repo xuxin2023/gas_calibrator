@@ -4,6 +4,7 @@
 - status: `pass`
 - blocker_count: `0`
 - profile_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\configs\v1_5_algorithm_route_profiles.json`
+- focused_pytest_evidence: `V1_5_MATURE_ROUTE_CONTRACT_TEST_EVIDENCE_20260701.md`
 
 ## Physical Boundaries
 
