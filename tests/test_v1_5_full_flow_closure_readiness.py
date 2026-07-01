@@ -99,10 +99,27 @@ def _seed_ready_closure(root, *, devices=("077", "084")):
     _write_csv(executor_dir / "post_write_reverification_plan.csv", reverify_plan)
     _write_csv(executor_dir / "archive_gap_list.csv", [], fieldnames=["scope", "item", "status"])
     _write_json(
+        root / "coefficient_epoch_0_getco_snapshot" / "v1_5_getco_identity_readiness.json",
+        {
+            "schema": "v1_5_getco_identity_readiness_v1",
+            "overall_status": "identity_getco_ready_for_auxiliary_neutralization",
+            "traceability_review_required": False,
+        },
+    )
+    _write_json(
         root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
         {
             "overall_status": "ready",
             "database": {"mode": "import", "database_imported": True},
+            "identity_getco_traceability": {
+                "status": "ready",
+                "ready_for_archive_release": True,
+                "traceability_review_required": False,
+                "evidence_path": str(root / "coefficient_epoch_0_getco_snapshot" / "v1_5_getco_identity_readiness.json"),
+                "overall_status": "identity_getco_ready_for_auxiliary_neutralization",
+                "reasons": [],
+                "next_action": "carry_forward",
+            },
             "reports": {
                 "run_report_markdown": str(root / "reports" / "run_report.md"),
                 "technical_report_markdown": str(root / "reports" / "technical_report.md"),
@@ -133,6 +150,7 @@ def test_full_flow_closure_readiness_ready_without_touching_devices(tmp_path):
     assert {row["domain_id"]: row["status"] for row in model["closure_domains"]} == {
         "formal_archive": "ready",
         "database_index": "ready",
+        "identity_getco_traceability": "ready",
         "formal_reports": "ready",
         "per_device_certificates": "ready",
     }
@@ -164,6 +182,35 @@ def test_full_flow_closure_readiness_uses_archive_package_status(tmp_path):
     assert stages["formal_archive_closure"]["status"] == "blocked"
     assert stages["formal_archive_closure"]["reason"] == "source_status=blocked"
     assert stages["formal_archive_closure"]["reason"] != "source_status=missing"
+
+
+def test_full_flow_closure_readiness_requires_sn_traceability_before_release(tmp_path):
+    run_dir = tmp_path / "sn_review"
+    _seed_ready_closure(run_dir)
+    archive_path = run_dir / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json"
+    archive = json.loads(archive_path.read_text(encoding="utf-8"))
+    archive["identity_getco_traceability"] = {
+        "status": "review_required",
+        "ready_for_archive_release": False,
+        "traceability_review_required": True,
+        "evidence_path": str(run_dir / "coefficient_epoch_0_getco_snapshot" / "v1_5_getco_identity_readiness.json"),
+        "overall_status": "identity_getco_ready_for_auxiliary_neutralization",
+        "reasons": ["COM35_runtime_sn_code_missing"],
+        "next_action": "resolve SN/device_code traceability review before database import or formal archive release",
+    }
+    _write_json(archive_path, archive)
+
+    model = build_v1_5_full_flow_closure_readiness(run_dir=run_dir)
+    domains = {row["domain_id"]: row for row in model["closure_domains"]}
+
+    assert model["overall_status"] == "partial"
+    assert model["release_status"] == "partial"
+    assert domains["identity_getco_traceability"]["status"] == "partial"
+    assert "COM35_runtime_sn_code_missing" in domains["identity_getco_traceability"]["reason"]
+    assert any(
+        row["scope"] == "release_domain" and row["item"] == "identity_getco_traceability"
+        for row in model["gaps"]
+    )
 
 
 def test_full_flow_closure_readiness_blocks_missing_executor(tmp_path):

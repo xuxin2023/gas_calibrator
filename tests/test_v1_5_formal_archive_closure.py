@@ -24,6 +24,27 @@ def _write_contract(path):
     return path
 
 
+def _write_identity_getco_readiness(run_dir, *, review_required=False):
+    path = run_dir / "coefficient_epoch_0_getco_snapshot" / "v1_5_getco_identity_readiness.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": "v1_5_getco_identity_readiness_v1",
+        "overall_status": "identity_getco_ready_for_auxiliary_neutralization",
+        "active_analyzer_count": 1,
+        "analyzer_device_ids": ["001"],
+        "traceability_review_required": review_required,
+        "checks": [
+            {
+                "check": "sn_device_code_traceability_preserved",
+                "status": "review_required" if review_required else "ready",
+                "reasons": ["COM35_runtime_sn_code_missing"] if review_required else [],
+            }
+        ],
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
 def _reviewed_standard_gases():
     return {
         "standard_gases": [
@@ -59,6 +80,7 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
     run_dir = canonical["root"] / "run"
     closure_dir = run_dir / "formal_archive_closure"
     contract_path = _write_contract(run_dir / "v1_5_formal_flow_contract.json")
+    identity_getco_path = _write_identity_getco_readiness(run_dir)
 
     result = build_v1_5_formal_archive_closure(
         run_dir=run_dir,
@@ -89,6 +111,9 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
     assert index["traceability_checks"]["has_raw_samples"] is True
     assert index["traceability_checks"]["has_run_evidence_status"] is True
     assert index["traceability_checks"]["has_water_route_traceability"] is True
+    assert index["traceability_checks"]["identity_getco_sn_device_code_traceability_ready"] is True
+    assert index["identity_getco_traceability"]["status"] == "ready"
+    assert index["identity_getco_traceability"]["evidence_path"] == str(identity_getco_path.resolve())
 
     final_bundle = json.loads(paths["evidence_bundle"].read_text(encoding="utf-8"))
     report_types = {row["report_type"] for row in final_bundle["tables"]["reports"]}
@@ -120,6 +145,57 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
     assert "V1.5 正式归档闭环索引" in index_text
     assert "控制气路/水路" not in index_text
     assert "controls_water_or_gas_routes" in index_text
+
+
+def test_formal_archive_closure_marks_sn_traceability_review_before_release(tmp_path):
+    canonical = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical_sn_review",
+        include_reports=False,
+    )
+    run_dir = canonical["root"] / "run"
+    closure_dir = run_dir / "formal_archive_closure_sn_review"
+    contract_path = _write_contract(run_dir / "v1_5_formal_flow_contract.json")
+    _write_identity_getco_readiness(run_dir, review_required=True)
+
+    result = build_v1_5_formal_archive_closure(
+        run_dir=run_dir,
+        plan_json=canonical["plan"],
+        pressure_reference_json=canonical["pressure_reference"],
+        contract_json=contract_path,
+        output_dir=closure_dir,
+        today="2026-05-24",
+        report_no="RPT-CLOSURE-SN-REVIEW",
+        db_mode="dry_run",
+    )
+
+    index = result["index"]
+    assert index["identity_getco_traceability"]["status"] == "review_required"
+    assert index["identity_getco_traceability"]["traceability_review_required"] is True
+    assert index["traceability_checks"]["identity_getco_sn_device_code_traceability_ready"] is False
+    assert "COM35_runtime_sn_code_missing" in index["identity_getco_traceability"]["reasons"]
+
+
+def test_formal_archive_closure_refuses_database_import_when_sn_traceability_needs_review(tmp_path):
+    canonical = write_canonical_v1_5_evidence_package(
+        tmp_path / "canonical_sn_review_import",
+        include_reports=False,
+    )
+    run_dir = canonical["root"] / "run"
+    contract_path = _write_contract(run_dir / "v1_5_formal_flow_contract.json")
+    _write_identity_getco_readiness(run_dir, review_required=True)
+
+    with pytest.raises(ValueError, match="SN/device_code traceability"):
+        build_v1_5_formal_archive_closure(
+            run_dir=run_dir,
+            plan_json=canonical["plan"],
+            pressure_reference_json=canonical["pressure_reference"],
+            contract_json=contract_path,
+            output_dir=run_dir / "formal_archive_closure_sn_import_blocked",
+            today="2026-05-24",
+            report_no="RPT-CLOSURE-SN-IMPORT",
+            db_mode="import",
+            dsn="postgresql://user:password@localhost:5432/gas_calibrator",
+        )
 
 
 def test_formal_archive_closure_can_bind_reviewed_standard_gas_snapshot(tmp_path):

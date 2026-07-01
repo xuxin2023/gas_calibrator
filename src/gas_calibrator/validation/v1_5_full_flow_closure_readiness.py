@@ -385,6 +385,49 @@ def _report_family_present(reports: Mapping[str, Any], family: str) -> bool:
     return any(str(key).startswith(prefix) or str(key) == family for key in reports)
 
 
+def _identity_getco_traceability_domain(
+    *,
+    archive_closure: Mapping[str, Any],
+    archive_path: Path | None,
+) -> ClosureDomain:
+    traceability = archive_closure.get("identity_getco_traceability")
+    if not isinstance(traceability, Mapping):
+        return _closure_domain(
+            domain_id="identity_getco_traceability",
+            title="SN/device_code identity traceability",
+            status="partial",
+            reason="identity_getco_traceability_summary_missing",
+            evidence_path=archive_path,
+            physical_meaning=(
+                "SN/device_code is the production identity for archive and database lookup; the three-digit "
+                "protocol device ID remains a command and compatibility identity."
+            ),
+            next_action="generate identity/GETCO readiness and rerun formal archive closure",
+        )
+    status = str(traceability.get("status") or "")
+    if traceability.get("ready_for_archive_release") is True and status == "ready":
+        domain_status = "ready"
+        reason = "SN/device_code traceability is ready for archive release"
+        next_action = "carry_forward"
+    else:
+        domain_status = "partial"
+        reasons = traceability.get("reasons") or []
+        reason = ";".join(str(item) for item in reasons if str(item)) or f"identity_getco_traceability_status={status or 'unknown'}"
+        next_action = str(traceability.get("next_action") or "resolve SN/device_code traceability review")
+    return _closure_domain(
+        domain_id="identity_getco_traceability",
+        title="SN/device_code identity traceability",
+        status=domain_status,
+        reason=reason,
+        evidence_path=Path(str(traceability.get("evidence_path"))) if traceability.get("evidence_path") else archive_path,
+        physical_meaning=(
+            "Archive release and PostgreSQL indexing must preserve SN/device_code as the primary production "
+            "identity while keeping the protocol device ID available for compatibility queries."
+        ),
+        next_action=next_action,
+    )
+
+
 def _build_closure_domains(
     *,
     stages: Sequence[ClosureStage],
@@ -457,6 +500,11 @@ def _build_closure_domains(
         certificates_reason = "certificate package cannot be released until report evidence is complete"
         certificates_next = "finish reports, then regenerate per-device certificate package"
 
+    identity_domain = _identity_getco_traceability_domain(
+        archive_closure=archive_closure,
+        archive_path=archive_path,
+    ).to_json()
+
     return [
         _closure_domain(
             domain_id="formal_archive",
@@ -482,6 +530,7 @@ def _build_closure_domains(
             ),
             next_action=database_next,
         ).to_json(),
+        identity_domain,
         _closure_domain(
             domain_id="formal_reports",
             title="Run, technical, and formal reports",
@@ -530,6 +579,21 @@ def _gap_from_stage(stage: ClosureStage) -> ClosureGap | None:
         physical_meaning=stage.physical_meaning,
         reason_zh=_reason_to_zh(stage.reason or stage.stage_id),
         next_action_zh=_next_action_to_zh(stage.next_action, stage.reason),
+    )
+
+
+def _gap_from_domain(domain: Mapping[str, Any]) -> ClosureGap | None:
+    if str(domain.get("status") or "") == "ready":
+        return None
+    return ClosureGap(
+        scope="release_domain",
+        item=str(domain.get("domain_id") or ""),
+        status=str(domain.get("status") or "unknown"),
+        reason=str(domain.get("reason") or ""),
+        next_action=str(domain.get("next_action") or "review release domain"),
+        physical_meaning=str(domain.get("physical_meaning") or ""),
+        reason_zh=_reason_to_zh(domain.get("reason") or domain.get("domain_id")),
+        next_action_zh=_next_action_to_zh(domain.get("next_action"), domain.get("reason")),
     )
 
 
@@ -672,20 +736,30 @@ def build_v1_5_full_flow_closure_readiness(
                 ).to_json()
             )
 
-    hard_blocked = any(stage.status == "blocked" for stage in stages[:4])
-    partial = any(stage.status == "partial" for stage in stages)
-    if hard_blocked:
-        overall_status = "blocked"
-    elif partial or gaps:
-        overall_status = "partial"
-    else:
-        overall_status = "ready_for_controlled_write_review"
     closure_domains = _build_closure_domains(
         stages=stages,
         evidence_status=evidence_status,
         archive_closure=archive_closure,
         archive_path=archive_path,
     )
+    gaps.extend(
+        gap.to_json()
+        for gap in (_gap_from_domain(domain) for domain in closure_domains)
+        if gap is not None
+    )
+
+    hard_blocked = any(stage.status == "blocked" for stage in stages[:4]) or any(
+        str(domain.get("status") or "") == "blocked" for domain in closure_domains
+    )
+    partial = any(stage.status == "partial" for stage in stages) or any(
+        str(domain.get("status") or "") == "partial" for domain in closure_domains
+    )
+    if hard_blocked:
+        overall_status = "blocked"
+    elif partial or gaps:
+        overall_status = "partial"
+    else:
+        overall_status = "ready_for_controlled_write_review"
 
     return {
         "schema": SCHEMA,

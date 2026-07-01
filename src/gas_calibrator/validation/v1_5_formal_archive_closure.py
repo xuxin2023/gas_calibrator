@@ -75,6 +75,20 @@ _ARCHIVE_MARKERS = (
 )
 
 
+def _latest_named_artifact(root: Path, name: str, *, exclude_dirs: Sequence[Path] = ()) -> Path | None:
+    matches: list[Path] = []
+    resolved_excludes = tuple(path.resolve() for path in exclude_dirs)
+    for path in root.rglob(name):
+        if not path.is_file():
+            continue
+        if any(_is_relative_to(path, excluded) for excluded in resolved_excludes):
+            continue
+        matches.append(path.resolve())
+    if not matches:
+        return None
+    return max(matches, key=lambda item: item.stat().st_mtime)
+
+
 def _is_archive_closure_dir(path: Path) -> bool:
     return path.is_dir() and any((path / marker).exists() for marker in _ARCHIVE_MARKERS)
 
@@ -130,6 +144,64 @@ def _load_reviewed_standard_gases(path: str | Path) -> list[Dict[str, Any]]:
     if not rows:
         raise ValueError("standard_gases_json does not contain any standard gas rows")
     return rows
+
+
+def _identity_getco_traceability_summary(root: Path, *, closure_dir: Path) -> Dict[str, Any]:
+    source = _latest_named_artifact(
+        root,
+        "v1_5_getco_identity_readiness.json",
+        exclude_dirs=tuple(_archive_dirs_to_exclude(root, keep=closure_dir)) + (closure_dir,),
+    )
+    if not source:
+        return {
+            "status": "missing",
+            "ready_for_archive_release": False,
+            "traceability_review_required": True,
+            "evidence_path": "",
+            "overall_status": "missing",
+            "reasons": ["v1_5_getco_identity_readiness_json_missing"],
+            "next_action": "generate identity/GETCO readiness with SN/device_code traceability before archive release",
+        }
+    payload = json.loads(source.read_text(encoding="utf-8-sig"))
+    if not isinstance(payload, Mapping):
+        return {
+            "status": "invalid",
+            "ready_for_archive_release": False,
+            "traceability_review_required": True,
+            "evidence_path": str(source),
+            "overall_status": "invalid",
+            "reasons": ["v1_5_getco_identity_readiness_json_not_object"],
+            "next_action": "regenerate identity/GETCO readiness sidecar",
+        }
+    checks = [row for row in payload.get("checks") or [] if isinstance(row, Mapping)]
+    review_reasons: list[str] = []
+    for row in checks:
+        if str(row.get("status") or "") == "review_required":
+            review_reasons.extend(str(reason) for reason in row.get("reasons") or [] if str(reason))
+    traceability_review_required = bool(payload.get("traceability_review_required")) or bool(review_reasons)
+    overall_status = str(payload.get("overall_status") or "")
+    if overall_status != "identity_getco_ready_for_auxiliary_neutralization":
+        status = "not_ready"
+        review_reasons.append(f"identity_getco_overall_status={overall_status or 'missing'}")
+    elif traceability_review_required:
+        status = "review_required"
+    else:
+        status = "ready"
+    return {
+        "status": status,
+        "ready_for_archive_release": status == "ready",
+        "traceability_review_required": traceability_review_required,
+        "evidence_path": str(source),
+        "overall_status": overall_status,
+        "active_analyzer_count": payload.get("active_analyzer_count"),
+        "analyzer_device_ids": payload.get("analyzer_device_ids") or [],
+        "reasons": review_reasons,
+        "next_action": (
+            "carry_forward"
+            if status == "ready"
+            else "resolve SN/device_code traceability review before database import or formal archive release"
+        ),
+    }
 
 
 def _plan_with_reviewed_standard_gases(
@@ -357,6 +429,11 @@ def build_v1_5_formal_archive_closure(
     final_bundle_json = write_bundle_json(final_bundle, closure_dir / "evidence_bundle.json")
     summary = bundle_summary(final_bundle)
     traceability = bundle_traceability_summary(final_bundle)
+    identity_getco_traceability = _identity_getco_traceability_summary(root, closure_dir=closure_dir)
+    traceability_checks = dict(traceability.get("traceability_checks") or {})
+    traceability_checks["identity_getco_sn_device_code_traceability_ready"] = bool(
+        identity_getco_traceability.get("ready_for_archive_release")
+    )
     traceability_json = _write_json(closure_dir / "traceability_summary.json", traceability)
 
     db_mode_normalized = normalize_archive_db_mode(db_mode)
@@ -370,6 +447,11 @@ def build_v1_5_formal_archive_closure(
         "import_result": {},
     }
     if db_mode_normalized == "import":
+        if identity_getco_traceability.get("ready_for_archive_release") is not True:
+            raise ValueError(
+                "db_mode=import requires identity GETCO SN/device_code traceability to be ready; "
+                f"status={identity_getco_traceability.get('status')}"
+            )
         resolved_dsn = dsn or os.environ.get("GAS_CAL_DB_DSN", "")
         if not resolved_dsn:
             raise ValueError("db_mode=import requires --dsn or GAS_CAL_DB_DSN")
@@ -394,6 +476,9 @@ def build_v1_5_formal_archive_closure(
         "calibration_capability_json": capability_json,
         "calibration_capability_markdown": capability_md,
     }
+    identity_getco_path = identity_getco_traceability.get("evidence_path")
+    if identity_getco_path:
+        output_paths["identity_getco_readiness"] = Path(str(identity_getco_path)).resolve()
     output_paths.update(traceability_snapshot_paths)
     output_paths.update({f"report_{key}": value for key, value in reports.items()})
 
@@ -420,6 +505,7 @@ def build_v1_5_formal_archive_closure(
             "not_real_acceptance_evidence": True,
         },
         "database": database,
+        "identity_getco_traceability": identity_getco_traceability,
         "calibration_capability": {
             "json_path": str(capability_json),
             "markdown_path": str(capability_md),
@@ -429,7 +515,7 @@ def build_v1_5_formal_archive_closure(
             "formal_release_blockers": capability.get("formal_release_blockers"),
         },
         "table_counts": summary.get("table_counts") or {},
-        "traceability_checks": traceability.get("traceability_checks") or {},
+        "traceability_checks": traceability_checks,
         "reports": {key: str(Path(value).resolve()) for key, value in reports.items()},
         "workflow_steps": _archive_workflow_steps(database, db_mode_normalized),
         "artifacts": _artifact_records(output_paths),
