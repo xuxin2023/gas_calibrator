@@ -147,6 +147,9 @@ STATUS_LABELS: dict[str, str] = {
     "ready": "就绪",
     "ready_for_reviewer": "可评审",
     "formal_release_ready": "可正式签发",
+    "in_progress": "进行中",
+    "review_required": "需复核",
+    "ready_for_next_action": "可执行下一步",
     "demonstrated_calibratable_for_verified_scope": "已证明可校准范围",
     "conditionally_calibratable_needs_release_closure": "有条件可校准",
     "not_calibratable_until_p0_resolved": "P0 阻断",
@@ -441,11 +444,61 @@ def _full_flow_stage_manifest_panel(run_evidence_status: Mapping[str, Any]) -> d
     }
 
 
+def _formal_run_status_panel(formal_run_status: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(formal_run_status, Mapping) or not formal_run_status:
+        return {
+            "key": "formal_run_status",
+            "available": False,
+            "status": "not_found",
+            "label": _status_label("not_found"),
+            "status_label": _status_label("not_found"),
+            "tone": _tone("not_found"),
+            "overall_status": "not_found",
+            "current_stage": "",
+            "next_action": "formal_run_status_missing",
+            "formal_release_allowed": False,
+            "database_import_allowed": False,
+            "can_continue_physical_flow": False,
+            "detail": "formal_run_status_missing",
+        }
+
+    overall_status = str(formal_run_status.get("overall_status") or "pending")
+    current_stage = str(formal_run_status.get("current_stage") or "")
+    next_action = str(formal_run_status.get("next_action") or "")
+    formal_release_allowed = bool(formal_run_status.get("formal_release_allowed"))
+    database_import_allowed = bool(formal_run_status.get("database_import_allowed"))
+    can_continue_physical_flow = bool(formal_run_status.get("can_continue_physical_flow"))
+    detail = (
+        f"当前阶段={current_stage or 'unknown'}; "
+        f"下一步={next_action or 'none'}; "
+        f"可继续物理流程={can_continue_physical_flow}; "
+        f"正式放行={formal_release_allowed}; "
+        f"数据库导入={database_import_allowed}"
+    )
+    return {
+        "key": "formal_run_status",
+        "available": True,
+        "status": overall_status,
+        "label": _status_label(overall_status),
+        "status_label": _status_label(overall_status),
+        "tone": _tone(overall_status),
+        "overall_status": overall_status,
+        "current_stage": current_stage,
+        "next_action": next_action,
+        "formal_release_allowed": formal_release_allowed,
+        "database_import_allowed": database_import_allowed,
+        "can_continue_physical_flow": can_continue_physical_flow,
+        "detail": detail,
+        "physical_boundaries": dict(formal_run_status.get("physical_boundaries") or {}),
+    }
+
+
 def _summary_cards(
     workbench_model: Mapping[str, Any],
     run_evidence_status: Mapping[str, Any],
     calibration_capability: Mapping[str, Any],
     archive_index: Mapping[str, Any],
+    formal_run_status: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     cards = _cards_by_key(workbench_model)
     capability_status = str(
@@ -472,20 +525,38 @@ def _summary_cards(
     else:
         verification_detail = "未发现复验证据"
 
-    formal_release_status = (
-        "formal_release_ready"
-        if calibration_capability.get("formal_release_ready") is True
-        else capability_status
-    )
+    formal_status_panel = _formal_run_status_panel(formal_run_status)
+    if formal_status_panel["available"]:
+        formal_release_status = (
+            "formal_release_ready"
+            if formal_status_panel["formal_release_allowed"]
+            else str(formal_status_panel["overall_status"] or "pending")
+        )
+    else:
+        formal_release_status = (
+            "formal_release_ready"
+            if calibration_capability.get("formal_release_ready") is True
+            else capability_status
+        )
     archive_database = archive_index.get("database") if isinstance(archive_index.get("database"), Mapping) else {}
     database_status = str(
-        archive_database.get("mode")
+        ("ready" if formal_status_panel["available"] and formal_status_panel["database_import_allowed"] else "")
+        or archive_database.get("mode")
         or run_evidence_status.get("database_mode")
         or cards.get("database_import", {}).get("status")
         or "pending"
     )
     manifest_panel = _full_flow_stage_manifest_panel(run_evidence_status)
     result = [
+        {
+            "key": "formal_run_status",
+            "title": "正式运行状态",
+            "status": formal_status_panel["status"],
+            "label": formal_status_panel["status_label"],
+            "status_label": formal_status_panel["status_label"],
+            "tone": formal_status_panel["tone"],
+            "detail": formal_status_panel["detail"],
+        },
         {
             "key": "method_backbone",
             "title": "方法主干",
@@ -541,6 +612,7 @@ def build_operation_console_model(
     run_evidence_status: Mapping[str, Any] | None = None,
     calibration_capability: Mapping[str, Any] | None = None,
     archive_index: Mapping[str, Any] | None = None,
+    formal_run_status: Mapping[str, Any] | None = None,
     role: str = "operator",
 ) -> dict[str, Any]:
     """Build a serializable read-only operation-console model."""
@@ -549,13 +621,16 @@ def build_operation_console_model(
     run_evidence_status = run_evidence_status or {}
     calibration_capability = calibration_capability or {}
     archive_index = archive_index or {}
+    formal_run_status = formal_run_status or {}
     role_permissions = ROLE_PERMISSIONS.get(role, ROLE_PERMISSIONS["operator"]).copy()
     stage_manifest_panel = _full_flow_stage_manifest_panel(run_evidence_status)
+    formal_status_panel = _formal_run_status_panel(formal_run_status)
     summary_cards = _summary_cards(
         workbench_model,
         run_evidence_status,
         calibration_capability,
         archive_index,
+        formal_run_status,
     )
     pages: list[dict[str, Any]] = []
     for definition in PAGE_DEFINITIONS:
@@ -639,12 +714,14 @@ def build_operation_console_model(
         "source_evidence": {
             "has_workbench_model": bool(workbench_model),
             "has_run_evidence_status": bool(run_evidence_status),
+            "has_formal_run_status": bool(formal_run_status),
             "has_calibration_capability": bool(calibration_capability),
             "has_archive_index": bool(archive_index),
             "has_full_flow_stage_manifest": stage_manifest_panel["available"],
         },
         "summary_cards": summary_cards,
         "stage_manifest_panel": stage_manifest_panel,
+        "formal_run_status_panel": formal_status_panel,
         "pages": pages,
     }
     return model
@@ -789,6 +866,7 @@ def write_operation_console(
     run_evidence_status: Mapping[str, Any] | None = None,
     calibration_capability: Mapping[str, Any] | None = None,
     archive_index: Mapping[str, Any] | None = None,
+    formal_run_status: Mapping[str, Any] | None = None,
     role: str = "operator",
 ) -> dict[str, Path]:
     """Write JSON and HTML operation-console artifacts."""
@@ -800,6 +878,7 @@ def write_operation_console(
         run_evidence_status=run_evidence_status,
         calibration_capability=calibration_capability,
         archive_index=archive_index,
+        formal_run_status=formal_run_status,
         role=role,
     )
     model_path = output / "v1_5_operation_console.json"

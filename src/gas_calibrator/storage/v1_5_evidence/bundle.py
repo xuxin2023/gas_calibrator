@@ -250,6 +250,14 @@ def _artifact_role(path: Path, *, plan_path: Optional[Path], pressure_reference_
         return "run_evidence_status"
     if name == "v1_5_run_evidence_status.md":
         return "run_evidence_status_report"
+    if name == "v1_5_formal_run_status.json":
+        return "formal_run_status"
+    if name == "v1_5_formal_run_status.md":
+        return "formal_run_status_report"
+    if name == "v1_5_formal_run_status_gates.csv":
+        return "formal_run_status_gates"
+    if name == "v1_5_formal_run_status_gaps.csv":
+        return "formal_run_status_gaps"
     if name == "v1_5_calibration_capability.json":
         return "calibration_capability"
     if name == "v1_5_calibration_capability.md":
@@ -1664,6 +1672,11 @@ def bundle_summary(bundle: Mapping[str, Any]) -> Dict[str, Any]:
         for row in _table_rows(tables, "reports")
         if str(row.get("report_type") or "").startswith("run_evidence_status")
     ]
+    formal_status_artifacts = [
+        row
+        for row in sample_files
+        if str(row.get("artifact_role") or "").startswith("formal_run_status")
+    ]
     return {
         "schema": bundle.get("schema"),
         "schema_version": bundle.get("schema_version"),
@@ -1681,6 +1694,13 @@ def bundle_summary(bundle: Mapping[str, Any]) -> Dict[str, Any]:
             "report_row_count": len(status_reports),
             "roles": sorted({str(row.get("artifact_role") or "") for row in status_artifacts}),
             "all_hashed": bool(status_artifacts) and all(str(row.get("sha256") or "") for row in status_artifacts),
+        },
+        "formal_run_status": {
+            "present": bool(formal_status_artifacts),
+            "artifact_count": len(formal_status_artifacts),
+            "roles": sorted({str(row.get("artifact_role") or "") for row in formal_status_artifacts}),
+            "all_hashed": bool(formal_status_artifacts)
+            and all(str(row.get("sha256") or "") for row in formal_status_artifacts),
         },
     }
 
@@ -1868,6 +1888,11 @@ def build_traceability_summary_from_tables(
         row
         for row in artifacts
         if str(row.get("artifact_role") or "").startswith("run_evidence_status")
+    ]
+    formal_run_status_artifacts = [
+        row
+        for row in artifacts
+        if str(row.get("artifact_role") or "").startswith("formal_run_status")
     ]
     missing_required_hashes = [
         str(row.get("artifact_role") or row.get("path") or "")
@@ -2062,6 +2087,15 @@ def build_traceability_summary_from_tables(
             }
             for row in run_evidence_status_artifacts
         ],
+        "formal_run_status_artifacts": [
+            {
+                "artifact_role": row.get("artifact_role"),
+                "path": row.get("path"),
+                "sha256": row.get("sha256"),
+                "required": row.get("required"),
+            }
+            for row in formal_run_status_artifacts
+        ],
         "post_write_reverification_evidence": {
             "status": (
                 "present"
@@ -2113,6 +2147,7 @@ def build_traceability_summary_from_tables(
             "has_controlled_write_traceability": write_policy["status"] == "controlled_write_traceable",
             "coefficient_write_policy_satisfied": bool(write_policy["policy_satisfied"]),
             "has_run_evidence_status": bool(run_evidence_status_artifacts),
+            "has_formal_run_status": bool(formal_run_status_artifacts),
         },
     }
 

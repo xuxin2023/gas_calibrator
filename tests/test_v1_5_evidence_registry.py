@@ -468,6 +468,48 @@ def test_evidence_bundle_indexes_traceable_artifacts_and_blocks_auto_write(tmp_p
     assert any(row["check_name"] == "old_coefficients_snapshot_present" for row in tables["evidence_integrity_checks"])
 
 
+def test_evidence_bundle_indexes_formal_run_status_artifacts(tmp_path):
+    run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
+    status_dir = run_dir / "formal_run_status"
+    status_dir.mkdir()
+    (status_dir / "v1_5_formal_run_status.json").write_text(
+        json.dumps({"overall_status": "in_progress"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (status_dir / "v1_5_formal_run_status.md").write_text("# status\n", encoding="utf-8")
+    (status_dir / "v1_5_formal_run_status_gates.csv").write_text("gate_id,status\n", encoding="utf-8")
+    (status_dir / "v1_5_formal_run_status_gaps.csv").write_text("gate_id,status\n", encoding="utf-8")
+
+    bundle = build_evidence_bundle(
+        run_dir=run_dir,
+        plan_path=plan_path,
+        pressure_reference_path=pressure_reference_path,
+        today="2026-05-24",
+    )
+    summary = bundle_summary(bundle)
+    traceability = bundle_traceability_summary(bundle)
+    roles = {row["artifact_role"] for row in bundle["tables"]["sample_files"]}
+
+    assert {
+        "formal_run_status",
+        "formal_run_status_report",
+        "formal_run_status_gates",
+        "formal_run_status_gaps",
+    }.issubset(roles)
+    assert summary["formal_run_status"]["present"] is True
+    assert summary["formal_run_status"]["all_hashed"] is True
+    assert traceability["traceability_checks"]["has_formal_run_status"] is True
+    assert {
+        row["artifact_role"]
+        for row in traceability["formal_run_status_artifacts"]
+    } == {
+        "formal_run_status",
+        "formal_run_status_report",
+        "formal_run_status_gates",
+        "formal_run_status_gaps",
+    }
+
+
 def test_evidence_bundle_indexes_post_write_reverification_artifacts(tmp_path):
     run_dir, plan_path, pressure_reference_path = _make_run(tmp_path)
     _write_post_write_reverification_artifacts(run_dir)

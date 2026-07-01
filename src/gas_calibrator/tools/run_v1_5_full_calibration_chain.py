@@ -75,6 +75,7 @@ def _write_operation_console(
     *,
     output_dir: str | Path,
     run_evidence_status: dict,
+    formal_run_status: dict | None = None,
 ) -> tuple[Path, Path]:
     """Write the offline operator/reviewer console from the current evidence index."""
 
@@ -82,6 +83,7 @@ def _write_operation_console(
     outputs = write_operation_console(
         output_dir=console_dir,
         run_evidence_status=run_evidence_status,
+        formal_run_status=formal_run_status,
         role="operator",
     )
     return outputs["model"], outputs["html"]
@@ -334,17 +336,18 @@ def main(argv: Iterable[str] | None = None) -> int:
     )
     outputs["run_evidence_status_json"] = status_json
     outputs["run_evidence_status_markdown"] = status_md
-    console_json, console_html = _write_operation_console(
-        output_dir=args.output_dir,
-        run_evidence_status=evidence_status,
-    )
-    outputs["operation_console_json"] = console_json
-    outputs["operation_console_html"] = console_html
     formal_status_model, formal_status_paths = _write_formal_run_status(
         output_dir=args.output_dir,
         run_evidence_status_json=status_json,
     )
     _record_formal_run_status_outputs(outputs, formal_status_paths)
+    console_json, console_html = _write_operation_console(
+        output_dir=args.output_dir,
+        run_evidence_status=evidence_status,
+        formal_run_status=formal_status_model,
+    )
+    outputs["operation_console_json"] = console_json
+    outputs["operation_console_html"] = console_html
     latest_evidence_bundle_json = args.evidence_bundle_json
     archive_closure_requested = bool(args.archive_closure)
     post_acquisition_closure_requested = bool(args.post_acquisition_closure)
@@ -478,12 +481,6 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
         outputs["run_evidence_status_final_json"] = status_json
         outputs["run_evidence_status_final_markdown"] = status_md
-        console_json, console_html = _write_operation_console(
-            output_dir=args.output_dir,
-            run_evidence_status=evidence_status,
-        )
-        outputs["operation_console_json"] = console_json
-        outputs["operation_console_html"] = console_html
         formal_status_model, formal_status_paths = _write_formal_run_status(
             output_dir=args.output_dir,
             run_evidence_status_json=status_json,
@@ -492,6 +489,13 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
         _record_formal_run_status_outputs(outputs, formal_status_paths)
         outputs["formal_run_status_refreshed_after_closure"] = formal_status_paths["json_path"]
+        console_json, console_html = _write_operation_console(
+            output_dir=args.output_dir,
+            run_evidence_status=evidence_status,
+            formal_run_status=formal_status_model,
+        )
+        outputs["operation_console_json"] = console_json
+        outputs["operation_console_html"] = console_html
     print(json.dumps({key: str(Path(value).resolve()) for key, value in outputs.items()}, ensure_ascii=False, indent=2))
     if args.fail_on_contract_blocked and contract_status == "blocked":
         return 2

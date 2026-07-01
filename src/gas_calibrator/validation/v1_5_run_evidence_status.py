@@ -182,6 +182,14 @@ def _classify_artifact(path: Path) -> str:
         return "per_device_certificate_artifact_hashes"
     if name == "v1_5_full_flow_release_domains.csv":
         return "full_flow_release_domains"
+    if name == "v1_5_formal_run_status.json":
+        return "formal_run_status"
+    if name == "v1_5_formal_run_status.md":
+        return "formal_run_status_report"
+    if name == "v1_5_formal_run_status_gates.csv":
+        return "formal_run_status_gates"
+    if name == "v1_5_formal_run_status_gaps.csv":
+        return "formal_run_status_gaps"
     if name.startswith("run_report."):
         return "run_report"
     if name.startswith("technical_report."):
@@ -742,6 +750,26 @@ def build_v1_5_run_evidence_status(
             ),
             missing_reason="full-flow closure readiness not generated",
             pass_reason="full-flow closure readiness, device closure, gap, and release-domain artifacts are present",
+            optional=True,
+        )
+    )
+    stages.append(
+        _stage(
+            stage_id="formal_run_status",
+            title="Formal run status rollup",
+            roles=(
+                "formal_run_status",
+                "formal_run_status_report",
+                "formal_run_status_gates",
+                "formal_run_status_gaps",
+            ),
+            artifacts=artifacts_tuple,
+            physical_meaning=(
+                "The top-level run status separates physical-flow continuation from formal "
+                "archive, database import, and release readiness without touching analyzer state."
+            ),
+            missing_reason="formal run status rollup not generated",
+            pass_reason="formal run status JSON, markdown, gate table, and gap table are indexed",
             optional=True,
         )
     )

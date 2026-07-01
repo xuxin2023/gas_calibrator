@@ -174,6 +174,26 @@ def _archive_index():
     }
 
 
+def _formal_run_status():
+    return {
+        "schema": "v1_5_formal_run_status_v1",
+        "overall_status": "in_progress",
+        "current_stage": "co2_open_flow_mature_queue",
+        "next_action": "Run or register the mature V1.5 CO2 open-flow queue evidence.",
+        "formal_release_allowed": False,
+        "database_import_allowed": False,
+        "can_continue_physical_flow": True,
+        "physical_boundaries": {
+            "offline_status_only": True,
+            "opens_com_ports": False,
+            "controls_water_or_gas_routes": False,
+            "controls_valves_or_pace": False,
+            "writes_coefficients": False,
+            "connects_postgresql": False,
+        },
+    }
+
+
 def test_operation_console_has_eight_read_only_pages_and_no_device_controls():
     model = build_operation_console_model(
         workbench_model=_workbench_model(),
@@ -208,6 +228,7 @@ def test_operation_console_has_eight_read_only_pages_and_no_device_controls():
     assert model["source_evidence"] == {
         "has_workbench_model": True,
         "has_run_evidence_status": True,
+        "has_formal_run_status": False,
         "has_calibration_capability": True,
         "has_archive_index": True,
         "has_full_flow_stage_manifest": True,
@@ -257,6 +278,34 @@ def test_operation_console_surfaces_full_flow_stage_manifest_panel():
     assert summary["full_flow_stage_manifest"]["status"] == "planned_controlled_gates"
 
 
+def test_operation_console_surfaces_formal_run_status_without_device_controls():
+    model = build_operation_console_model(
+        workbench_model=_workbench_model(),
+        run_evidence_status=_run_evidence_status(),
+        formal_run_status=_formal_run_status(),
+        calibration_capability=_calibration_capability(),
+        archive_index=_archive_index(),
+        role="reviewer",
+    )
+
+    panel = model["formal_run_status_panel"]
+    assert panel["available"] is True
+    assert panel["overall_status"] == "in_progress"
+    assert panel["current_stage"] == "co2_open_flow_mature_queue"
+    assert panel["can_continue_physical_flow"] is True
+    assert panel["formal_release_allowed"] is False
+    assert panel["database_import_allowed"] is False
+    assert model["source_evidence"]["has_formal_run_status"] is True
+    assert model["opens_com_ports"] is False
+    assert model["controls_water_or_gas_routes"] is False
+    assert model["writes_coefficients"] is False
+
+    summary = {row["key"]: row for row in model["summary_cards"]}
+    assert summary["formal_run_status"]["status"] == "in_progress"
+    assert summary["formal_release"]["status"] == "in_progress"
+    assert "可继续物理流程=True" in summary["formal_run_status"]["detail"]
+
+
 def test_operation_console_writer_and_cli(tmp_path):
     outputs = write_operation_console(
         output_dir=tmp_path / "console",
@@ -281,10 +330,12 @@ def test_operation_console_writer_and_cli(tmp_path):
     status_path = tmp_path / "run_status.json"
     capability_path = tmp_path / "capability.json"
     archive_path = tmp_path / "archive.json"
+    formal_status_path = tmp_path / "formal_status.json"
     workbench_path.write_text(json.dumps(_workbench_model(), ensure_ascii=False), encoding="utf-8")
     status_path.write_text(json.dumps(_run_evidence_status(), ensure_ascii=False), encoding="utf-8")
     capability_path.write_text(json.dumps(_calibration_capability(), ensure_ascii=False), encoding="utf-8")
     archive_path.write_text(json.dumps(_archive_index(), ensure_ascii=False), encoding="utf-8")
+    formal_status_path.write_text(json.dumps(_formal_run_status(), ensure_ascii=False), encoding="utf-8")
     rc = console_main(
         [
             "--output-dir",
@@ -293,6 +344,8 @@ def test_operation_console_writer_and_cli(tmp_path):
             str(workbench_path),
             "--run-evidence-status-json",
             str(status_path),
+            "--formal-run-status-json",
+            str(formal_status_path),
             "--calibration-capability-json",
             str(capability_path),
             "--archive-index-json",
@@ -304,4 +357,7 @@ def test_operation_console_writer_and_cli(tmp_path):
     assert rc == 0
     cli_html = tmp_path / "cli_console" / "v1_5_operation_console.html"
     assert cli_html.exists()
-    assert "设备预检" in cli_html.read_text(encoding="utf-8-sig")
+    cli_text = cli_html.read_text(encoding="utf-8-sig")
+    assert "设备预检" in cli_text
+    assert "正式运行状态" in cli_text
+    assert "可继续物理流程=True" in cli_text

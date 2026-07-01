@@ -23,6 +23,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Optional v1_5_run_evidence_status.json input.",
     )
     parser.add_argument(
+        "--formal-run-status-json",
+        default=None,
+        help="Optional v1_5_formal_run_status.json input.",
+    )
+    parser.add_argument(
         "--calibration-capability-json",
         default=None,
         help="Optional v1_5_calibration_capability.json input.",
@@ -55,6 +60,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             output_dir=args.output_dir,
             workbench_model=_load_json(args.workbench_json, label="workbench"),
             run_evidence_status=_load_json(args.run_evidence_status_json, label="run-evidence-status"),
+            formal_run_status=_load_json(args.formal_run_status_json, label="formal-run-status"),
             calibration_capability=_load_json(args.calibration_capability_json, label="calibration-capability"),
             archive_index=_load_json(args.archive_index_json, label="archive-index"),
             role=args.role,

@@ -356,6 +356,42 @@ def test_run_evidence_status_indexes_full_flow_closure_readiness(tmp_path):
     assert "controlled SENCO writes" in stages["full_flow_closure_readiness"]["physical_meaning"]
 
 
+def test_run_evidence_status_indexes_formal_run_status_rollup(tmp_path):
+    run_dir = tmp_path / "formal_status_run"
+    status_dir = run_dir / "formal_run_status"
+    status_dir.mkdir(parents=True)
+    (status_dir / "v1_5_formal_run_status.json").write_text(
+        json.dumps(
+            {
+                "schema": "v1_5_formal_run_status_v1",
+                "overall_status": "in_progress",
+                "current_stage": "co2_open_flow_mature_queue",
+                "formal_release_allowed": False,
+                "database_import_allowed": False,
+                "can_continue_physical_flow": True,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (status_dir / "v1_5_formal_run_status.md").write_text("# status\n", encoding="utf-8")
+    (status_dir / "v1_5_formal_run_status_gates.csv").write_text("gate_id,status\n", encoding="utf-8")
+    (status_dir / "v1_5_formal_run_status_gaps.csv").write_text("gate_id,status\n", encoding="utf-8")
+
+    status = build_v1_5_run_evidence_status(run_dir=run_dir)
+    stages = _stages(status)
+    roles = {row["role"] for row in status["artifacts"]}
+
+    assert {
+        "formal_run_status",
+        "formal_run_status_report",
+        "formal_run_status_gates",
+        "formal_run_status_gaps",
+    }.issubset(roles)
+    assert stages["formal_run_status"]["status"] == "pass"
+    assert "separates physical-flow continuation" in stages["formal_run_status"]["physical_meaning"]
+
+
 def test_run_evidence_status_indexes_post_run_coefficient_executor(tmp_path):
     run_dir = tmp_path / "executor_ready_run"
     executor_dir = run_dir / "post_run_coefficient_executor"
