@@ -31,6 +31,10 @@ from .v1_5_run_evidence_status import (
     build_v1_5_run_evidence_status,
     render_v1_5_run_evidence_status_markdown,
 )
+from .v1_5_formal_run_status import (
+    build_v1_5_formal_run_status,
+    write_v1_5_formal_run_status_outputs,
+)
 
 
 SCHEMA = "v1_5_formal_archive_closure_v1"
@@ -268,6 +272,15 @@ def _render_markdown_zh(index: Mapping[str, Any]) -> str:
     lines.extend(["", "## \u6d41\u7a0b\u6b65\u9aa4", ""])
     for step in index.get("workflow_steps") or []:
         lines.append(f"- `{step.get('step')}`: `{step.get('status')}` - {step.get('meaning')}")
+    formal_status = index.get("formal_run_status") if isinstance(index.get("formal_run_status"), Mapping) else {}
+    if formal_status:
+        lines.extend(["", "## 正式运行状态", ""])
+        lines.append(f"- overall_status: `{formal_status.get('overall_status')}`")
+        lines.append(f"- current_stage: `{formal_status.get('current_stage')}`")
+        lines.append(f"- can_continue_physical_flow: `{formal_status.get('can_continue_physical_flow')}`")
+        lines.append(f"- formal_release_allowed: `{formal_status.get('formal_release_allowed')}`")
+        lines.append(f"- database_import_allowed: `{formal_status.get('database_import_allowed')}`")
+        lines.append(f"- next_action: {formal_status.get('next_action')}")
     lines.extend(["", "## \u53ef\u8ffd\u6eaf\u68c0\u67e5", ""])
     for key, value in (index.get("traceability_checks") or {}).items():
         lines.append(f"- `{key}`: `{value}`")
@@ -306,6 +319,23 @@ def _archive_workflow_steps(database: Mapping[str, Any], db_mode: str) -> list[D
             "meaning": "\u6570\u636e\u5e93\u5bfc\u5165\u662f\u8bc1\u636e\u94fe\u7d22\u5f15\u52a8\u4f5c\uff1b\u4e0d\u4ee3\u8868\u8bbe\u5907\u63a7\u5236\u6216 real acceptance\u3002",
         },
     ]
+
+
+def _formal_run_status_archive_summary(model: Mapping[str, Any], paths: Mapping[str, Path]) -> Dict[str, Any]:
+    return {
+        "json_path": str(paths.get("json_path") or ""),
+        "markdown_path": str(paths.get("markdown_path") or ""),
+        "gates_csv_path": str(paths.get("gates_csv_path") or ""),
+        "gaps_csv_path": str(paths.get("gaps_csv_path") or ""),
+        "overall_status": model.get("overall_status"),
+        "current_stage": model.get("current_stage"),
+        "next_action": model.get("next_action"),
+        "formal_release_allowed": bool(model.get("formal_release_allowed")),
+        "database_import_allowed": bool(model.get("database_import_allowed")),
+        "can_continue_physical_flow": bool(model.get("can_continue_physical_flow")),
+        "gap_count": len(model.get("gaps") or []),
+        "physical_boundaries": dict(model.get("physical_boundaries") or {}),
+    }
 
 
 def build_v1_5_formal_archive_closure(
@@ -521,8 +551,87 @@ def build_v1_5_formal_archive_closure(
         "artifacts": _artifact_records(output_paths),
     }
     index_json = _write_json(closure_dir / "v1_5_formal_archive_closure_index.json", index_without_self)
+    formal_status_model = build_v1_5_formal_run_status(
+        run_dir=root,
+        run_evidence_status_json=run_status_json,
+        archive_closure_json=index_json,
+    )
+    formal_status_raw_paths = write_v1_5_formal_run_status_outputs(
+        formal_status_model,
+        closure_dir / "formal_run_status",
+    )
+    formal_status_paths = {key: Path(value).resolve() for key, value in formal_status_raw_paths.items()}
+    output_paths.update(
+        {
+            "formal_run_status_json": formal_status_paths["json_path"],
+            "formal_run_status_markdown": formal_status_paths["markdown_path"],
+            "formal_run_status_gates": formal_status_paths["gates_csv_path"],
+            "formal_run_status_gaps": formal_status_paths["gaps_csv_path"],
+        }
+    )
+    final_bundle = build_evidence_bundle(
+        run_dir=root,
+        plan_path=working_plan_path,
+        pressure_reference_path=pressure_reference_path,
+        component=component,
+        analyzer_prefix=analyzer_prefix,
+        require_quick_check_artifact=not bool(allow_pressure_fallback),
+        pressure_check_path=pressure_check_path,
+        today=today,
+        artifact_exclude_dirs=_archive_dirs_to_exclude(root, keep=closure_dir),
+    )
+    final_bundle_json = write_bundle_json(final_bundle, closure_dir / "evidence_bundle.json")
+    summary = bundle_summary(final_bundle)
+    traceability = bundle_traceability_summary(final_bundle)
+    traceability_checks = dict(traceability.get("traceability_checks") or {})
+    traceability_checks["identity_getco_sn_device_code_traceability_ready"] = bool(
+        identity_getco_traceability.get("ready_for_archive_release")
+    )
+    traceability_json = _write_json(closure_dir / "traceability_summary.json", traceability)
+    output_paths["evidence_bundle"] = final_bundle_json
+    output_paths["traceability_summary"] = traceability_json
+    reports = write_v1_5_calibration_reports(
+        evidence_bundle_path=final_bundle_json,
+        output_dir=closure_dir / "reports",
+        report_no=report_no,
+        reviewer=reviewer,
+        approver=approver,
+        location=location,
+        calibration_date=calibration_date,
+        analyzer_prefix=analyzer_prefix,
+        uncertainty_json=uncertainty_json,
+    )
+    output_paths.update({f"report_{key}": value for key, value in reports.items()})
+    final_bundle = build_evidence_bundle(
+        run_dir=root,
+        plan_path=working_plan_path,
+        pressure_reference_path=pressure_reference_path,
+        component=component,
+        analyzer_prefix=analyzer_prefix,
+        require_quick_check_artifact=not bool(allow_pressure_fallback),
+        pressure_check_path=pressure_check_path,
+        today=today,
+        artifact_exclude_dirs=_archive_dirs_to_exclude(root, keep=closure_dir),
+    )
+    final_bundle_json = write_bundle_json(final_bundle, closure_dir / "evidence_bundle.json")
+    summary = bundle_summary(final_bundle)
+    traceability = bundle_traceability_summary(final_bundle)
+    traceability_checks = dict(traceability.get("traceability_checks") or {})
+    traceability_checks["identity_getco_sn_device_code_traceability_ready"] = bool(
+        identity_getco_traceability.get("ready_for_archive_release")
+    )
+    traceability_json = _write_json(closure_dir / "traceability_summary.json", traceability)
+    output_paths["evidence_bundle"] = final_bundle_json
+    output_paths["traceability_summary"] = traceability_json
     index_md = closure_dir / "v1_5_formal_archive_closure_index.md"
-    final_index = dict(index_without_self)
+    final_index = {
+        **index_without_self,
+        "evidence_status": summary.get("evidence_status"),
+        "package_status": summary.get("package_status"),
+        "table_counts": summary.get("table_counts") or {},
+        "traceability_checks": traceability_checks,
+        "formal_run_status": _formal_run_status_archive_summary(formal_status_model, formal_status_paths),
+    }
     final_output_paths = dict(output_paths)
     final_output_paths["archive_index_json"] = index_json
     index_md.write_text(_render_markdown_zh(final_index), encoding="utf-8-sig")

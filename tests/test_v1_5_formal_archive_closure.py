@@ -110,10 +110,15 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
     assert index["calibration_capability"]["formal_release_ready"] is False
     assert index["traceability_checks"]["has_raw_samples"] is True
     assert index["traceability_checks"]["has_run_evidence_status"] is True
+    assert index["traceability_checks"]["has_formal_run_status"] is True
     assert index["traceability_checks"]["has_water_route_traceability"] is True
     assert index["traceability_checks"]["identity_getco_sn_device_code_traceability_ready"] is True
     assert index["identity_getco_traceability"]["status"] == "ready"
     assert index["identity_getco_traceability"]["evidence_path"] == str(identity_getco_path.resolve())
+    assert index["formal_run_status"]["overall_status"] in {"in_progress", "review_required", "formal_release_ready"}
+    assert isinstance(index["formal_run_status"]["can_continue_physical_flow"], bool)
+    assert index["formal_run_status"]["formal_release_allowed"] is False
+    assert index["formal_run_status"]["database_import_allowed"] is False
 
     final_bundle = json.loads(paths["evidence_bundle"].read_text(encoding="utf-8"))
     report_types = {row["report_type"] for row in final_bundle["tables"]["reports"]}
@@ -125,24 +130,37 @@ def test_formal_archive_closure_generates_reports_bundle_traceability_and_dry_ru
         for row in final_bundle["tables"]["sample_files"]
         if str(row.get("path") or "").endswith((".md", ".docx", ".pdf", ".json"))
     }
+    all_artifact_roles = {row["artifact_role"] for row in final_bundle["tables"]["sample_files"]}
     assert {"run_report", "technical_report", "formal_calibration_report", "report_model"}.issubset(
         report_roles
     )
     assert {"run_evidence_status", "calibration_capability", "calibration_capability_report"}.issubset(
         report_roles
     )
+    assert {"formal_run_status", "formal_run_status_report"}.issubset(report_roles)
+    assert {"formal_run_status_gates", "formal_run_status_gaps"}.issubset(all_artifact_roles)
 
     traceability = json.loads(paths["traceability_summary"].read_text(encoding="utf-8"))
     assert traceability["traceability_checks"]["all_required_artifacts_have_sha256"] is True
+    assert traceability["traceability_checks"]["has_formal_run_status"] is True
     assert any(row["report_type"] == "formal_calibration_report" for row in traceability["reports"])
     assert paths["archive_index_json"].exists()
     assert paths["archive_index_markdown"].exists()
     assert paths["calibration_capability_json"].exists()
     assert paths["calibration_capability_markdown"].exists()
+    assert paths["formal_run_status_json"].exists()
+    assert paths["formal_run_status_markdown"].exists()
+    assert paths["formal_run_status_gates"].exists()
+    assert paths["formal_run_status_gaps"].exists()
     capability = json.loads(paths["calibration_capability_json"].read_text(encoding="utf-8"))
     assert capability["physical_boundaries"]["opens_com_ports"] is False
     index_text = paths["archive_index_markdown"].read_text(encoding="utf-8")
+    formal_report_text = paths["report_formal_calibration_report_markdown"].read_text(encoding="utf-8")
     assert "V1.5 正式归档闭环索引" in index_text
+    assert "正式运行状态" in index_text
+    assert "formal_release_allowed" in index_text
+    assert "正式运行状态" in formal_report_text
+    assert "允许正式放行：否" in formal_report_text
     assert "控制气路/水路" not in index_text
     assert "controls_water_or_gas_routes" in index_text
 
