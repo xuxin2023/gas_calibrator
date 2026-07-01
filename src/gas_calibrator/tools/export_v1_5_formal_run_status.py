@@ -31,6 +31,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--archive-closure-json", default="", help="Optional explicit formal archive closure JSON.")
     parser.add_argument(
+        "--algorithm-profile-runner-dry-run-json",
+        default="",
+        help="Optional explicit new-algorithm profile runner dry-run bundle JSON.",
+    )
+    parser.add_argument(
         "--fail-on-blocked",
         action="store_true",
         help="Return exit code 2 when the rollup is blocked.",
@@ -54,6 +59,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             run_evidence_status_json=args.run_evidence_status_json or None,
             full_flow_closure_readiness_json=args.full_flow_closure_readiness_json or None,
             archive_closure_json=args.archive_closure_json or None,
+            algorithm_profile_runner_dry_run_json=args.algorithm_profile_runner_dry_run_json or None,
         )
         outputs = write_v1_5_formal_run_status_outputs(model, Path(args.output_dir))
         result = {

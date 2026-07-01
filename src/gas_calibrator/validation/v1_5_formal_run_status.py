@@ -56,7 +56,7 @@ def _load_json(path: str | Path | None) -> dict[str, Any]:
     source = Path(path)
     if not source.exists() or not source.is_file():
         return {}
-    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload = json.loads(source.read_text(encoding="utf-8-sig"))
     return payload if isinstance(payload, dict) else {}
 
 
@@ -343,6 +343,59 @@ def _archive_gate(
     )
 
 
+def _algorithm_profile_runner_dry_run_gate(path: Path, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    blocker_count = int(payload.get("blocker_count") or 0)
+    co2_count = payload.get("co2_runlist_count")
+    h2o_count = payload.get("h2o_runlist_count")
+    boundary_ok = (
+        payload.get("opens_com_ports") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("does_not_execute_commands") is True
+        and payload.get("does_not_modify_runners") is True
+    )
+    counts_ok = co2_count == 47 and h2o_count == 14
+    if (
+        source_status == "ready_for_profile_driven_runner_dry_run_review"
+        and blocker_count == 0
+        and counts_ok
+        and boundary_ok
+    ):
+        status = READY
+        reason = "profile-driven new-algorithm dry-run bundle is ready: CO2/H2O=47/14 and offline boundaries hold"
+    else:
+        status = REVIEW_REQUIRED
+        reasons: list[str] = []
+        if source_status != "ready_for_profile_driven_runner_dry_run_review":
+            reasons.append(f"source_status={source_status or 'missing'}")
+        if blocker_count:
+            reasons.append(f"blocker_count={blocker_count}")
+        if not counts_ok:
+            reasons.append(f"co2_h2o_counts={co2_count}/{h2o_count}")
+        if not boundary_ok:
+            reasons.append("offline_boundary_not_clean")
+        reason = "; ".join(reasons) or "profile-driven new-algorithm dry-run bundle requires review"
+    return _gate(
+        gate_id="algorithm_profile_runner_dry_run",
+        title="New-algorithm profile runner dry-run bundle",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action="Review the profile-generated 47/14 runlist, readiness gate, and dry-run queue handoff before any future runner wiring.",
+        physical_meaning=(
+            "Records that the new-algorithm profile can generate CO2 47 / H2O 14 runlist evidence "
+            "and dry-run mature-queue handoff plans without executing queues or modifying mature runners."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
 def _gap_rows(gates: Iterable[FormalRunGate]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for gate in gates:
@@ -370,6 +423,7 @@ def build_v1_5_formal_run_status(
     run_evidence_status_json: str | Path | None = None,
     full_flow_closure_readiness_json: str | Path | None = None,
     archive_closure_json: str | Path | None = None,
+    algorithm_profile_runner_dry_run_json: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return a top-level formal V1.5 status rollup from existing sidecars."""
 
@@ -380,6 +434,11 @@ def build_v1_5_formal_run_status(
     run_status_path = _explicit_or_latest(root, run_evidence_status_json, "v1_5_run_evidence_status.json")
     closure_path = _explicit_or_latest(root, full_flow_closure_readiness_json, "v1_5_full_flow_closure_readiness.json")
     archive_path = _explicit_or_latest(root, archive_closure_json, "v1_5_formal_archive_closure_index.json")
+    algorithm_profile_runner_path = _explicit_or_latest(
+        root,
+        algorithm_profile_runner_dry_run_json,
+        "v1_5_algorithm_profile_runner_dry_run.json",
+    )
 
     init_payload = _load_json(init_path)
     pre_gas_payload = _load_json(pre_gas_path)
@@ -387,6 +446,7 @@ def build_v1_5_formal_run_status(
     run_payload = _load_json(run_status_path)
     closure_payload = _load_json(closure_path)
     archive_payload = _load_json(archive_path)
+    algorithm_profile_runner_payload = _load_json(algorithm_profile_runner_path)
 
     gates = [
         _initialization_gate(init_path, init_payload),
@@ -403,63 +463,74 @@ def build_v1_5_formal_run_status(
             physical_meaning="Pressure P must be traceable before CO2/H2O fitting so gas coefficients do not absorb pressure bias.",
             physical_flow_gate=True,
         ),
-        _run_stage_gate(
-            gate_id="co2_open_flow_mature_queue",
-            title="CO2 mature open-flow queue",
-            run_path=run_status_path,
-            run_status=run_payload,
-            stage_id="co2_open_flow",
-            missing_reason="CO2 mature open-flow queue evidence has not passed",
-            next_action="Run or register the mature V1.5 CO2 open-flow queue evidence.",
-            physical_meaning="CO2 calibration points must come from mature open-flow samples, not diagnostic sealed/pressure rows.",
-        ),
-        _run_stage_gate(
-            gate_id="h2o_open_flow_mature_queue",
-            title="H2O mature open-flow queue",
-            run_path=run_status_path,
-            run_status=run_payload,
-            stage_id="h2o_open_flow",
-            missing_reason="H2O mature open-flow queue evidence has not passed",
-            next_action="Run or register the mature V1.5 H2O open-flow queue evidence.",
-            physical_meaning="H2O fitting must preserve dewpoint-backed wet points and dry-gas low-water anchors separately.",
-        ),
-        _run_stage_gate(
-            gate_id="candidate_fit_review",
-            title="Candidate fit/QC review",
-            run_path=run_status_path,
-            run_status=run_payload,
-            stage_id="candidate_review",
-            missing_reason="candidate fit review has not passed",
-            next_action="Run no-write candidate fitting/QC review before any controlled write package.",
-            physical_meaning="Only eligible A-grade and explicitly reviewed samples should enter SENCO candidate fitting.",
-        ),
-        _run_stage_gate(
-            gate_id="post_run_write_package",
-            title="Post-run controlled-write package",
-            run_path=run_status_path,
-            run_status=run_payload,
-            stage_id="post_run_coefficient_executor",
-            missing_reason="post-run coefficient executor package has not passed",
-            next_action="Generate the post-run executor package with eligibility, write plan, and reverify plan.",
-            physical_meaning="The write package separates no-write review from manual authorized controlled SENCO writes.",
-        ),
-        _run_stage_gate(
-            gate_id="controlled_write_and_reverification",
-            title="Controlled write and post-write reverification",
-            run_path=run_status_path,
-            run_status=run_payload,
-            stage_id="post_write_reverification",
-            missing_reason="post-write reverification has not passed or has not been attempted",
-            next_action="After authorized writes, run independent post-write reverification evidence.",
-            physical_meaning="A coefficient write is not a formal release until independent open-flow reverification is present.",
-        ),
-        _archive_gate(
-            closure_path=closure_path,
-            closure=closure_payload,
-            archive_path=archive_path,
-            archive=archive_payload,
-        ),
     ]
+    if algorithm_profile_runner_path and algorithm_profile_runner_payload:
+        gates.append(
+            _algorithm_profile_runner_dry_run_gate(
+                algorithm_profile_runner_path,
+                algorithm_profile_runner_payload,
+            )
+        )
+    gates.extend(
+        [
+            _run_stage_gate(
+                gate_id="co2_open_flow_mature_queue",
+                title="CO2 mature open-flow queue",
+                run_path=run_status_path,
+                run_status=run_payload,
+                stage_id="co2_open_flow",
+                missing_reason="CO2 mature open-flow queue evidence has not passed",
+                next_action="Run or register the mature V1.5 CO2 open-flow queue evidence.",
+                physical_meaning="CO2 calibration points must come from mature open-flow samples, not diagnostic sealed/pressure rows.",
+            ),
+            _run_stage_gate(
+                gate_id="h2o_open_flow_mature_queue",
+                title="H2O mature open-flow queue",
+                run_path=run_status_path,
+                run_status=run_payload,
+                stage_id="h2o_open_flow",
+                missing_reason="H2O mature open-flow queue evidence has not passed",
+                next_action="Run or register the mature V1.5 H2O open-flow queue evidence.",
+                physical_meaning="H2O fitting must preserve dewpoint-backed wet points and dry-gas low-water anchors separately.",
+            ),
+            _run_stage_gate(
+                gate_id="candidate_fit_review",
+                title="Candidate fit/QC review",
+                run_path=run_status_path,
+                run_status=run_payload,
+                stage_id="candidate_review",
+                missing_reason="candidate fit review has not passed",
+                next_action="Run no-write candidate fitting/QC review before any controlled write package.",
+                physical_meaning="Only eligible A-grade and explicitly reviewed samples should enter SENCO candidate fitting.",
+            ),
+            _run_stage_gate(
+                gate_id="post_run_write_package",
+                title="Post-run controlled-write package",
+                run_path=run_status_path,
+                run_status=run_payload,
+                stage_id="post_run_coefficient_executor",
+                missing_reason="post-run coefficient executor package has not passed",
+                next_action="Generate the post-run executor package with eligibility, write plan, and reverify plan.",
+                physical_meaning="The write package separates no-write review from manual authorized controlled SENCO writes.",
+            ),
+            _run_stage_gate(
+                gate_id="controlled_write_and_reverification",
+                title="Controlled write and post-write reverification",
+                run_path=run_status_path,
+                run_status=run_payload,
+                stage_id="post_write_reverification",
+                missing_reason="post-write reverification has not passed or has not been attempted",
+                next_action="After authorized writes, run independent post-write reverification evidence.",
+                physical_meaning="A coefficient write is not a formal release until independent open-flow reverification is present.",
+            ),
+            _archive_gate(
+                closure_path=closure_path,
+                closure=closure_payload,
+                archive_path=archive_path,
+                archive=archive_payload,
+            ),
+        ]
+    )
 
     release_blockers = [gate for gate in gates if gate.blocks_release]
     physical_blockers = [gate for gate in gates if gate.blocks_physical_flow]
@@ -469,10 +540,10 @@ def build_v1_5_formal_run_status(
     database_import_allowed = formal_release_allowed
     if any(gate.status == BLOCKED for gate in gates):
         overall_status = "blocked"
-    elif formal_release_allowed:
-        overall_status = "formal_release_ready"
     elif any(gate.status == REVIEW_REQUIRED for gate in gates):
         overall_status = "review_required"
+    elif formal_release_allowed:
+        overall_status = "formal_release_ready"
     elif current_gate:
         overall_status = "in_progress"
     else:
@@ -505,6 +576,9 @@ def build_v1_5_formal_run_status(
             "run_evidence_status_json": str(run_status_path) if run_status_path else "",
             "full_flow_closure_readiness_json": str(closure_path) if closure_path else "",
             "archive_closure_json": str(archive_path) if archive_path else "",
+            "algorithm_profile_runner_dry_run_json": str(algorithm_profile_runner_path)
+            if algorithm_profile_runner_path
+            else "",
         },
         "gates": [gate.to_json() for gate in gates],
         "gaps": _gap_rows(gates),
