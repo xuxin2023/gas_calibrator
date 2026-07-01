@@ -148,6 +148,14 @@ CANONICAL_FORMAL_PATH: tuple[dict[str, str], ...] = (
         "physical_meaning": "Closes the run evidence chain with artifact hashes, reports, database index inputs, and traceability status.",
         "safety_boundary": "Archive closure does not change device state and must not hide rejected frames or points.",
     },
+    {
+        "stage": "11_formal_run_status_dashboard",
+        "entrypoint": "src/gas_calibrator/tools/export_v1_5_formal_run_status.py",
+        "category": "formal_review_evidence",
+        "status": "implemented_offline_status_rollup",
+        "physical_meaning": "Summarizes current stage, next action, physical-flow continuation, and formal archive/database release readiness from existing sidecars.",
+        "safety_boundary": "Formal run status is read-only evidence; it must not open COM, connect PostgreSQL, control routes, or write analyzer state.",
+    },
 )
 
 CANONICAL_FORMAL_STAGE_ORDER: tuple[str, ...] = (
@@ -162,6 +170,7 @@ CANONICAL_FORMAL_STAGE_ORDER: tuple[str, ...] = (
     "08_controlled_write",
     "09_post_write_reverify",
     "10_archive_report_database",
+    "11_formal_run_status_dashboard",
 )
 
 CANONICAL_FORMAL_SUPPORT_TOOL_NAMES = (

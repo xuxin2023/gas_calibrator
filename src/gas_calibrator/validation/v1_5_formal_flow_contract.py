@@ -38,6 +38,8 @@ REQUIRED_STEP_IDS = (
     "formal_evidence_sidecar",
     "database_import",
     "zh_calibration_reports",
+    "final_evidence_status_refresh",
+    "formal_run_status_snapshot",
 )
 
 REQUIRED_ORDER = (
@@ -60,6 +62,10 @@ REQUIRED_ORDER = (
     "controlled_component_write_placeholder",
     "post_write_reverification_placeholder",
     "formal_evidence_sidecar",
+    "database_import",
+    "zh_calibration_reports",
+    "final_evidence_status_refresh",
+    "formal_run_status_snapshot",
 )
 
 ALLOWED_SHARED_TOOL_MODULES = {
@@ -105,6 +111,7 @@ FORMAL_PHYSICAL_FLOW = (
     "CONTROLLED_WRITE: write only through explicit controlled tools and readback",
     "POST_WRITE_REVERIFY: verify updated output before archive and report",
     "ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports",
+    "FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars",
 )
 
 
@@ -419,6 +426,8 @@ def validate_v1_5_formal_flow_contract(
     _require_before(step_ids, "post_write_reverification_placeholder", "formal_evidence_sidecar", issues)
     _require_before(step_ids, "formal_evidence_sidecar", "database_import", issues)
     _require_before(step_ids, "formal_evidence_sidecar", "zh_calibration_reports", issues)
+    _require_before(step_ids, "zh_calibration_reports", "final_evidence_status_refresh", issues)
+    _require_before(step_ids, "final_evidence_status_refresh", "formal_run_status_snapshot", issues)
 
     by_module = _inventory_by_module(inventory_entries)
     formal_runner_steps: list[str] = []
@@ -497,6 +506,49 @@ def validate_v1_5_formal_flow_contract(
                         "Identity/GETCO readiness command must fail on incomplete evidence",
                         step_id,
                     )
+                )
+
+        if step_id == "formal_run_status_snapshot":
+            if module != "gas_calibrator.tools.export_v1_5_formal_run_status":
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_run_status_wrong_tool",
+                        "Formal run status must use the offline export_v1_5_formal_run_status rollup",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_run_status_must_be_offline_no_write",
+                        "Formal run status must only consume sidecars and must not open COM, control routes/pressure, or write coefficients",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_run_status_must_be_offline",
+                        "Formal run status execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--initialization-readiness-json",
+                "--pre-gas-readiness-json",
+                "--getco-readiness-json",
+                "--run-evidence-status-json",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="formal_run_status_missing_sidecar_input",
+                    message=f"Formal run status command must include {flag}",
                 )
 
         if step_id == "pressure_senco9_no_write_acquisition":

@@ -1,0 +1,199 @@
+{
+  "schema": "v1_5_full_flow_live_runner_readiness_v1",
+  "run_id": "v1_5_contract_reference",
+  "created_at": "2026-07-01T12:42:30",
+  "one_button_live_runner_ready": false,
+  "current_automation_level": "supervised_tool_chain_with_controlled_live_gates",
+  "summary": "V1.5 can generate an auditable supervised plan and offline review chain, but it is not yet a one-button unattended live runner because identity, pressure, CO2/H2O route control, and SENCO writes remain explicit controlled gates.",
+  "ready_domains": [
+    "offline_planning",
+    "initialization_contract"
+  ],
+  "blocked_domains": [
+    "identity_and_epoch0",
+    "auxiliary_coefficients",
+    "pressure_channel",
+    "temperature_channel",
+    "co2_open_flow",
+    "h2o_open_flow",
+    "candidate_fit_and_qc",
+    "controlled_write_and_reverify",
+    "archive_and_release"
+  ],
+  "required_authorizations": [
+    "real_com",
+    "pressure_control",
+    "route_control",
+    "coefficient_write"
+  ],
+  "not_ready_reasons": [
+    "identity_and_epoch0: formal calibration must bind every COM transport to analyzer device ID, freeze GETCO1-9, and pass the offline identity/GETCO readiness sidecar before sampling",
+    "auxiliary_coefficients: S5/S6 display trims and S7/S8/S9 input channels must be backed up, neutralized, repaired, or explicitly modeled",
+    "pressure_channel: analyzer pressure P is an input to CO2/H2O firmware calculations and must be verified or calibrated first",
+    "temperature_channel: temperature evidence can be reviewed offline, but abnormal S7/S8 must be repaired before component acceptance",
+    "co2_open_flow: CO2 sampling controls gas valves and must prove clean open-flow gas, dewpoint condition, ratio stability, and per-device sample eligibility",
+    "h2o_open_flow: H2O sampling controls water route/HGEN and must prove dewpoint, H2O ratio, dry/wet ppmv, and reference evidence stability",
+    "candidate_fit_and_qc: candidate fitting is offline-ready after raw open-flow samples, factory-signal health, and fit-input QC exist",
+    "controlled_write_and_reverify: SENCO writes change the analyzer measurement model and require per-device review, readback, rollback plan, and independent reverification",
+    "archive_and_release: database import, evidence status refresh, and reports are offline-ready once final run artifacts exist"
+  ],
+  "domains": [
+    {
+      "domain": "offline_planning",
+      "status": "ready_offline_supervised",
+      "reason": "plan, state, stage manifest, contract audit, operation console, and offline status can be generated without hardware",
+      "stage_ids": [
+        "load_plan_and_traceability",
+        "post_run_coefficient_executor",
+        "full_flow_closure_readiness",
+        "formal_evidence_sidecar",
+        "database_import",
+        "final_evidence_status_refresh",
+        "formal_run_status_snapshot"
+      ],
+      "required_authorizations": [],
+      "physical_risk": "none during generation; artifacts remain review evidence, not real acceptance",
+      "next_action": "keep these stages as offline prerequisites before any controlled live step"
+    },
+    {
+      "domain": "initialization_contract",
+      "status": "ready_offline_supervised",
+      "reason": "formal initialization contract, PostgreSQL 18 sidecar, readiness snapshot, and pre-gas gap list can be generated offline before live identity gates",
+      "stage_ids": [
+        "formal_initialization_contract_plan",
+        "initialization_readiness_snapshot",
+        "pre_gas_readiness_snapshot"
+      ],
+      "required_authorizations": [],
+      "physical_risk": "none during generation; missing live GETCO/SENCO/CHECK evidence remains a gate rather than being repaired automatically",
+      "next_action": "review the generated initialization plan, then run only the dedicated V1.5 identity/SN/auxiliary tools that have explicit authorization"
+    },
+    {
+      "domain": "identity_and_epoch0",
+      "status": "requires_real_com_authorization",
+      "reason": "formal calibration must bind every COM transport to analyzer device ID, freeze GETCO1-9, and pass the offline identity/GETCO readiness sidecar before sampling",
+      "stage_ids": [
+        "device_identity_and_getco_snapshot",
+        "identity_getco_readiness_snapshot"
+      ],
+      "required_authorizations": [
+        "real_com"
+      ],
+      "physical_risk": "wrong ID/COM binding corrupts traceability and may write coefficients to the wrong analyzer",
+      "next_action": "run the validated identity/GETCO snapshot with 1s or longer command spacing, then verify the no-write epoch-0 evidence offline"
+    },
+    {
+      "domain": "auxiliary_coefficients",
+      "status": "blocked_controlled_write",
+      "reason": "S5/S6 display trims and S7/S8/S9 input channels must be backed up, neutralized, repaired, or explicitly modeled",
+      "stage_ids": [
+        "auxiliary_senco56789_neutralization_gate"
+      ],
+      "required_authorizations": [
+        "real_com",
+        "coefficient_write"
+      ],
+      "physical_risk": "old output trims or bad T/P input coefficients can be silently absorbed into CO2/H2O candidate fits",
+      "next_action": "backup old coefficients; neutralize S5/S6 when appropriate; review S7/S8/S9 before component fitting"
+    },
+    {
+      "domain": "pressure_channel",
+      "status": "requires_pressure_authorization",
+      "reason": "analyzer pressure P is an input to CO2/H2O firmware calculations and must be verified or calibrated first",
+      "stage_ids": [
+        "pressure_quick_check",
+        "pressure_senco9_no_write_acquisition",
+        "pressure_senco9_no_write_review"
+      ],
+      "required_authorizations": [
+        "real_com",
+        "pressure_control"
+      ],
+      "physical_risk": "bad internal pressure contaminates component outputs and makes pressure compensation impossible to interpret",
+      "next_action": "run pressure SENCO9 acquisition/review with the restored closed-volume PACE control contract before component sampling"
+    },
+    {
+      "domain": "temperature_channel",
+      "status": "offline_review_waiting_for_temperature_evidence",
+      "reason": "temperature evidence can be reviewed offline, but abnormal S7/S8 must be repaired before component acceptance",
+      "stage_ids": [
+        "temperature_channel_fast_review"
+      ],
+      "required_authorizations": [
+        "real_com"
+      ],
+      "physical_risk": "bad chamber/case temperature input can be absorbed into CO2/H2O coefficients across temperature groups",
+      "next_action": "use digital thermometer evidence to review S7/S8; do single-point repair only as documented recovery, not final full-range proof"
+    },
+    {
+      "domain": "co2_open_flow",
+      "status": "requires_route_authorization",
+      "reason": "CO2 sampling controls gas valves and must prove clean open-flow gas, dewpoint condition, ratio stability, and per-device sample eligibility",
+      "stage_ids": [
+        "co2_open_flow_sampling"
+      ],
+      "required_authorizations": [
+        "real_com",
+        "route_control"
+      ],
+      "physical_risk": "sampling after valve closure, dirty/damp line state, or unstable ratio creates non-representative CO2 fit data",
+      "next_action": "run validated CO2 open-flow runner; sample only while the gas route remains open and preserve per-device reject reasons"
+    },
+    {
+      "domain": "h2o_open_flow",
+      "status": "requires_route_authorization",
+      "reason": "H2O sampling controls water route/HGEN and must prove dewpoint, H2O ratio, dry/wet ppmv, and reference evidence stability",
+      "stage_ids": [
+        "h2o_open_flow_sampling"
+      ],
+      "required_authorizations": [
+        "real_com",
+        "route_control"
+      ],
+      "physical_risk": "HGEN cycling, wet line memory, or unstable dewpoint can produce water evidence that is not a stable humidity state",
+      "next_action": "run validated H2O open-flow runner with continuous HGEN strategy during the water route and per-device grading"
+    },
+    {
+      "domain": "candidate_fit_and_qc",
+      "status": "offline_review_waiting_for_run_artifacts",
+      "reason": "candidate fitting is offline-ready after raw open-flow samples, factory-signal health, and fit-input QC exist",
+      "stage_ids": [
+        "factory_signal_health_review",
+        "fit_input_quality_review",
+        "co2_candidate_write_review"
+      ],
+      "required_authorizations": [],
+      "physical_risk": "optical saturation, invalid frames, wrong low-end anchors, or unmodeled trims can make offline residuals disagree with real output",
+      "next_action": "use all traceable stable fit-eligible points while keeping CO2 zero gas and H2O dry-gas anchors conceptually separate"
+    },
+    {
+      "domain": "controlled_write_and_reverify",
+      "status": "blocked_controlled_write",
+      "reason": "SENCO writes change the analyzer measurement model and require per-device review, readback, rollback plan, and independent reverification",
+      "stage_ids": [
+        "controlled_component_write_placeholder",
+        "post_write_reverification_placeholder"
+      ],
+      "required_authorizations": [
+        "real_com",
+        "coefficient_write",
+        "route_control"
+      ],
+      "physical_risk": "wrong coefficient epoch or missing post-write proof can create a calibrated-looking but invalid analyzer",
+      "next_action": "write only reviewed per-device candidates, then run independent open-flow reverification before release"
+    },
+    {
+      "domain": "archive_and_release",
+      "status": "offline_review_waiting_for_run_artifacts",
+      "reason": "database import, evidence status refresh, and reports are offline-ready once final run artifacts exist",
+      "stage_ids": [
+        "database_import",
+        "zh_calibration_reports",
+        "final_evidence_status_refresh"
+      ],
+      "required_authorizations": [],
+      "physical_risk": "if evidence status is stale, the operator may believe a run is complete while audit artifacts remain incomplete",
+      "next_action": "refresh evidence status after acquisition/write/report steps; generate per-device certificates from the evidence package"
+    }
+  ]
+}
