@@ -78,6 +78,8 @@ stdout：
 
 ## 3. dirty-zone audit stdout
 
+提交后已重新刷新 dirty-zone audit，下面是刷新后的当前状态证据。
+
 命令：
 
 ```powershell
@@ -100,7 +102,7 @@ stdout：
 结论：
 
 - `blocker_count=0`，没有误 staged 的根目录污染区或 `_handoff` 证据。
-- clean worktree 里 `_handoff` 仍是未跟踪历史证据区，不进入正式代码小包。
+- 提交后 clean worktree 的 review 项已经归零；clean worktree 只剩 `_handoff` 未跟踪历史证据区，不进入正式代码小包。
 - 根目录 `D:\gas_calibrator` 仍有 dirty 内容，继续作为污染/草稿区隔离，不作为正式 V1.5 来源。
 
 ## 4. 成熟路径边界核查
