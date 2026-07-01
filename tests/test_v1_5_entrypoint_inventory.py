@@ -614,3 +614,8 @@ def test_final_structure_doc_records_canonical_entrypoint_boundaries() -> None:
     assert "CO2 zero gas" in text
     assert "H2O dry-gas" in text
     assert "A=-ln(R/R0(T))/(P_kPa/100)" in text
+    assert "formal_run_status" in text
+    assert "0620 成熟" in text
+    assert "configs/default_config.json" in text
+    assert "根目录 `D:\\gas_calibrator` 冻结为污染区" in text
+    assert "final_acceptance_status" in text
