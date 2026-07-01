@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
@@ -51,6 +52,278 @@ def load_v1_5_algorithm_route_profiles(profile_path: str | Path) -> Dict[str, An
 def _point_key(*, component: str, temperature_c: Any, value: Any, suffix: str) -> str:
     temp = str(temperature_c).replace("-", "m").replace(".", "p")
     return f"{component}_T{temp}_{value}_{suffix}"
+
+
+def _co2_formal_points_for_profile(profile: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    route = profile.get("co2_route", {})
+    plan = route.get("temperature_plan", {})
+    rows: List[Dict[str, Any]] = []
+    supplemental_by_temp: Dict[float, set[float]] = {}
+    policy = route.get("supplement_policy", {})
+    for item in policy.get("required_new_algorithm_supplemental_gas_points", []):
+        temp = float(item.get("temperature_c"))
+        supplemental_by_temp.setdefault(temp, set()).add(float(item.get("co2_ppm")))
+
+    sequence = 1
+    for temp_key, values in plan.items():
+        temp = float(temp_key)
+        ppm_values = {float(value) for value in values or []}
+        ppm_values.update(supplemental_by_temp.get(temp, set()))
+        for segment_index, ppm in enumerate(sorted(ppm_values), start=1):
+            is_supplement = ppm in supplemental_by_temp.get(temp, set()) and ppm not in {
+                float(value) for value in values or []
+            }
+            rows.append(
+                {
+                    "profile_id": profile.get("profile_id"),
+                    "algorithm_mode": profile.get("algorithm_mode"),
+                    "route_kind": "co2",
+                    "sequence_index": sequence,
+                    "temperature_c": int(temp) if temp.is_integer() else temp,
+                    "temperature_segment": f"{temp:g}C",
+                    "segment_order_index": segment_index,
+                    "co2_ppm": int(ppm) if ppm.is_integer() else ppm,
+                    "hgen_temp": "",
+                    "hgen_rh_pct": "",
+                    "point_key": f"{temp:g}/{ppm:g}",
+                    "point_role": (
+                        "new_algorithm_required_supplemental_formal_point"
+                        if is_supplement
+                        else "profile_base_formal_point"
+                    ),
+                    "included_in_legacy_default_queue": bool(profile.get("production_default")),
+                    "included_in_new_algorithm_formal_candidate": profile.get("profile_id") == "absorption_ratio_shadow",
+                    "historical_missing_point_semantics": (
+                        "formal_required_point_not_historical_resampling"
+                        if is_supplement
+                        else "base_profile_formal_point"
+                    ),
+                    "source_runner": route.get("runner"),
+                    "do_not_modify_mature_runner": True,
+                }
+            )
+            sequence += 1
+    return rows
+
+
+def _parse_hgen_token(token: str) -> tuple[float, float] | None:
+    match = re.match(r"HGEN(?P<hgen>m?\d+)C_(?P<rh>\d+)RH", str(token), re.IGNORECASE)
+    if not match:
+        return None
+    hgen_token = match.group("hgen")
+    hgen = float(-int(hgen_token[1:]) if hgen_token.lower().startswith("m") else int(hgen_token))
+    return hgen, float(match.group("rh"))
+
+
+def _h2o_formal_points_for_profile(profile: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    route = profile.get("h2o_route", {})
+    plan = route.get("temperature_plan") or route.get("wet_temperature_plan") or {}
+    supplemental_by_temp: Dict[float, set[tuple[float, float]]] = {}
+    for item in route.get("required_new_algorithm_supplemental_wet_points", []):
+        hgen_text = str(item.get("humidity_generator") or "")
+        hgen_match = re.match(r"HGEN(?P<hgen>m?\d+)C", hgen_text, re.IGNORECASE)
+        if not hgen_match:
+            continue
+        hgen_token = hgen_match.group("hgen")
+        hgen = float(-int(hgen_token[1:]) if hgen_token.lower().startswith("m") else int(hgen_token))
+        temp = float(item.get("temperature_c"))
+        supplemental_by_temp.setdefault(temp, set()).add((hgen, float(item.get("relative_humidity_pct"))))
+
+    rows: List[Dict[str, Any]] = []
+    sequence = 1
+    for temp_key, values in plan.items():
+        temp = float(temp_key)
+        base_points = {parsed for token in values or [] if (parsed := _parse_hgen_token(str(token))) is not None}
+        all_points = set(base_points)
+        all_points.update(supplemental_by_temp.get(temp, set()))
+        for segment_index, (hgen, rh_pct) in enumerate(sorted(all_points), start=1):
+            is_supplement = (hgen, rh_pct) in supplemental_by_temp.get(temp, set()) and (hgen, rh_pct) not in base_points
+            rows.append(
+                {
+                    "profile_id": profile.get("profile_id"),
+                    "algorithm_mode": profile.get("algorithm_mode"),
+                    "route_kind": "h2o",
+                    "sequence_index": sequence,
+                    "temperature_c": int(temp) if temp.is_integer() else temp,
+                    "temperature_segment": f"{temp:g}C",
+                    "segment_order_index": segment_index,
+                    "co2_ppm": "",
+                    "hgen_temp": f"HGEN{hgen:g}C",
+                    "hgen_rh_pct": int(rh_pct) if rh_pct.is_integer() else rh_pct,
+                    "point_key": f"{temp:g}/{hgen:g}/{rh_pct:g}",
+                    "point_role": (
+                        "new_algorithm_required_supplemental_formal_point"
+                        if is_supplement
+                        else "profile_base_formal_point"
+                    ),
+                    "included_in_legacy_default_queue": bool(profile.get("production_default")),
+                    "included_in_new_algorithm_formal_candidate": profile.get("profile_id") == "absorption_ratio_shadow",
+                    "historical_missing_point_semantics": (
+                        "formal_required_point_not_historical_resampling"
+                        if is_supplement
+                        else "base_profile_formal_point"
+                    ),
+                    "source_runner": route.get("runner"),
+                    "do_not_modify_mature_runner": True,
+                }
+            )
+            sequence += 1
+    return rows
+
+
+def _status_check(
+    *,
+    check_id: str,
+    status: str,
+    expected: Any,
+    observed: Any,
+    reason: str,
+    physical_meaning: str,
+) -> Dict[str, Any]:
+    return {
+        "check_id": check_id,
+        "status": status,
+        "expected": json.dumps(expected, ensure_ascii=False, sort_keys=True)
+        if isinstance(expected, (dict, list, tuple))
+        else expected,
+        "observed": json.dumps(observed, ensure_ascii=False, sort_keys=True)
+        if isinstance(observed, (dict, list, tuple))
+        else observed,
+        "reason": reason,
+        "physical_meaning": physical_meaning,
+        "blocks_formal_point_plan": status == "blocker",
+    }
+
+
+def build_v1_5_algorithm_formal_point_plan_guard(profile_path: str | Path) -> Dict[str, Any]:
+    """Build an offline guard for legacy and new-algorithm formal point plans."""
+
+    config = load_v1_5_algorithm_route_profiles(profile_path)
+    legacy = _profile_by_id(config, str(config.get("default_profile_id") or "legacy_ratio_production"))
+    new_algorithm = _profile_by_id(config, "absorption_ratio_shadow")
+
+    legacy_co2 = _co2_formal_points_for_profile(legacy)
+    legacy_h2o = _h2o_formal_points_for_profile(legacy)
+    new_co2 = _co2_formal_points_for_profile(new_algorithm)
+    new_h2o = _h2o_formal_points_for_profile(new_algorithm)
+    all_rows = [*legacy_co2, *legacy_h2o, *new_co2, *new_h2o]
+
+    co2_by_temp: Dict[float, List[float]] = {}
+    for row in new_co2:
+        co2_by_temp.setdefault(float(row["temperature_c"]), []).append(float(row["co2_ppm"]))
+    h2o_40 = [
+        int(row["hgen_rh_pct"])
+        for row in new_h2o
+        if float(row["temperature_c"]) == 40.0 and row["hgen_temp"] == "HGEN30C"
+    ]
+    new_supplements = [
+        row
+        for row in all_rows
+        if row["profile_id"] == "absorption_ratio_shadow"
+        and row["point_role"] == "new_algorithm_required_supplemental_formal_point"
+    ]
+    checks = [
+        _status_check(
+            check_id="legacy_default_counts_locked",
+            status="pass" if len(legacy_co2) == 45 and len(legacy_h2o) == 13 else "blocker",
+            expected={"co2": 45, "h2o": 13},
+            observed={"co2": len(legacy_co2), "h2o": len(legacy_h2o)},
+            reason="legacy production remains the mature V1.5 45/13 route",
+            physical_meaning="New-algorithm candidate points must not pollute the legacy default queue.",
+        ),
+        _status_check(
+            check_id="new_algorithm_candidate_counts_include_required_points",
+            status="pass" if len(new_co2) == 47 and len(new_h2o) == 14 else "blocker",
+            expected={"co2": 47, "h2o": 14},
+            observed={"co2": len(new_co2), "h2o": len(new_h2o)},
+            reason="new algorithm formal candidate plan includes required supplemental points",
+            physical_meaning="Future new-algorithm production runs must not silently fall back to mature 45/13 coverage.",
+        ),
+        _status_check(
+            check_id="new_algorithm_co2_low_temperature_segments_include_600ppm",
+            status=(
+                "pass"
+                if co2_by_temp.get(-20.0) == [0.0, 400.0, 600.0, 1000.0]
+                and co2_by_temp.get(-10.0) == [0.0, 400.0, 600.0, 1000.0]
+                else "blocker"
+            ),
+            expected={"-20C": [0, 400, 600, 1000], "-10C": [0, 400, 600, 1000]},
+            observed={"-20C": co2_by_temp.get(-20.0), "-10C": co2_by_temp.get(-10.0)},
+            reason="supplemental 600ppm gas points are inserted into their temperature segments",
+            physical_meaning="The 600ppm points are normal gas points for the new-algorithm flow, not after-the-fact historical resampling labels.",
+        ),
+        _status_check(
+            check_id="new_algorithm_h2o_40c_hgen30_segment_includes_30rh",
+            status="pass" if h2o_40 == [30, 50, 70] else "blocker",
+            expected={"40C/HGEN30C": [30, 50, 70]},
+            observed={"40C/HGEN30C": h2o_40},
+            reason="supplemental 30RH water point is inserted into the 40C/HGEN30C segment",
+            physical_meaning="The 40C/HGEN30C/30RH point is a normal new-algorithm water point, not a historical replay resampling label.",
+        ),
+        _status_check(
+            check_id="supplemental_points_are_formal_required_not_resampling",
+            status=(
+                "pass"
+                if len(new_supplements) == 3
+                and {row["historical_missing_point_semantics"] for row in new_supplements}
+                == {"formal_required_point_not_historical_resampling"}
+                else "blocker"
+            ),
+            expected="3 formal-required supplemental points, not resampling semantics",
+            observed=[
+                {
+                    "route_kind": row["route_kind"],
+                    "point_key": row["point_key"],
+                    "semantics": row["historical_missing_point_semantics"],
+                }
+                for row in new_supplements
+            ],
+            reason="formal new-algorithm point plan separates future required points from historical missing-point audit language",
+            physical_meaning="Historical data may need targeted resampling, but a future formal new-algorithm run should schedule these as normal points.",
+        ),
+        _status_check(
+            check_id="formal_point_plan_guard_is_offline",
+            status="pass",
+            expected={
+                "opens_com_ports": False,
+                "controls_water_or_gas_routes": False,
+                "writes_coefficients": False,
+            },
+            observed={
+                "opens_com_ports": False,
+                "controls_water_or_gas_routes": False,
+                "writes_coefficients": False,
+            },
+            reason="this guard writes only JSON/CSV/Markdown artifacts",
+            physical_meaning="Point-plan validation must not become hidden route control.",
+        ),
+    ]
+    status = "blocked" if any(row["status"] == "blocker" for row in checks) else (
+        "review_required" if any(row["status"] == "review_required" for row in checks) else "pass"
+    )
+    manifest = {
+        "schema_version": 1,
+        "generated_at": _now(),
+        "status": status,
+        "blocker_count": sum(1 for row in checks if row["status"] == "blocker"),
+        "review_required_count": sum(1 for row in checks if row["status"] == "review_required"),
+        "no_write": True,
+        "opens_com_ports": False,
+        "connects_postgresql": False,
+        "controls_water_or_gas_routes": False,
+        "writes_coefficients": False,
+        "writes_device_id": False,
+        "legacy_co2_formal_point_count": len(legacy_co2),
+        "legacy_h2o_formal_point_count": len(legacy_h2o),
+        "new_algorithm_co2_formal_candidate_point_count": len(new_co2),
+        "new_algorithm_h2o_formal_candidate_point_count": len(new_h2o),
+        "formal_point_plan_contract": "legacy=45/13;new_algorithm=47/14;new algorithm supplemental points are required formal points inside temperature segments",
+    }
+    return {
+        "manifest": manifest,
+        "formal_point_plan": all_rows,
+        "checks": checks,
+    }
 
 
 def build_v1_5_new_algorithm_test_point_plan(
@@ -457,6 +730,39 @@ def write_v1_5_algorithm_write_contract_review(
         "- SENCO6 is a separate final affine layer and must not be folded into SENCO2/SENCO4.",
         "- SENCO6 neutralization requires `CLEARSENCO6,YGAS,FFF`.",
         "- New algorithm R0(T) depends on SENCOA/SENCOB, but controlled writer/readback contracts are still blockers.",
+    ]
+    outputs["summary"].write_text("\n".join(summary) + "\n", encoding="utf-8")
+    return {key: str(path) for key, path in outputs.items()}
+
+
+def write_v1_5_algorithm_formal_point_plan_guard(
+    profile_path: str | Path,
+    output_dir: str | Path,
+) -> Dict[str, str]:
+    tables = build_v1_5_algorithm_formal_point_plan_guard(profile_path)
+    out = Path(output_dir)
+    outputs = {
+        "manifest": out / "v1_5_algorithm_formal_point_plan_guard_manifest.json",
+        "formal_point_plan": out / "v1_5_algorithm_formal_point_plan.csv",
+        "checks": out / "v1_5_algorithm_formal_point_plan_guard_checks.csv",
+        "summary": out / "V1_5_ALGORITHM_FORMAL_POINT_PLAN_GUARD.md",
+    }
+    _write_json(outputs["manifest"], tables["manifest"])
+    _write_csv(outputs["formal_point_plan"], tables["formal_point_plan"])
+    _write_csv(outputs["checks"], tables["checks"])
+    summary = [
+        "# V1.5 algorithm formal point plan guard",
+        "",
+        "This is an offline no-write guard generated from the V1.5 algorithm route profile.",
+        "",
+        f"- status: `{tables['manifest']['status']}`",
+        f"- blocker_count: `{tables['manifest']['blocker_count']}`",
+        f"- legacy CO2/H2O counts: `{tables['manifest']['legacy_co2_formal_point_count']}` / `{tables['manifest']['legacy_h2o_formal_point_count']}`",
+        f"- new-algorithm CO2/H2O counts: `{tables['manifest']['new_algorithm_co2_formal_candidate_point_count']}` / `{tables['manifest']['new_algorithm_h2o_formal_candidate_point_count']}`",
+        "- New-algorithm `-20C` and `-10C` CO2 segments include `0/400/600/1000ppm`.",
+        "- New-algorithm `40C/HGEN30C` H2O segment includes `30/50/70RH`.",
+        "- Supplemental points are required formal new-algorithm points, not historical resampling labels.",
+        "- Mature V1.5 CO2/H2O runners are not modified by this guard.",
     ]
     outputs["summary"].write_text("\n".join(summary) + "\n", encoding="utf-8")
     return {key: str(path) for key, path in outputs.items()}
