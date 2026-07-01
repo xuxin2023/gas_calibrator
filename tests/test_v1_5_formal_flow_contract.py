@@ -41,6 +41,10 @@ def _inventory_for_plan():
                 "category": "formal_review_evidence",
             },
             {
+                "path": "src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py",
+                "category": "formal_review_evidence",
+            },
+            {
                 "path": "src/gas_calibrator/tools/export_v1_5_pressure_senco9_evaluation.py",
                 "category": "formal_review_evidence",
             },
@@ -107,7 +111,14 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert report.step_sequence.index("pre_gas_readiness_snapshot") < report.step_sequence.index(
         "device_identity_and_getco_snapshot"
     )
+    assert report.step_sequence.index("device_identity_and_getco_snapshot") < report.step_sequence.index(
+        "identity_getco_readiness_snapshot"
+    )
+    assert report.step_sequence.index("identity_getco_readiness_snapshot") < report.step_sequence.index(
+        "auxiliary_senco56789_neutralization_gate"
+    )
     assert "PRE_GAS_READINESS" in "\n".join(report.physical_flow)
+    assert "IDENTITY_GETCO_READINESS" in "\n".join(report.physical_flow)
     assert report.step_sequence.index("pressure_senco9_no_write_acquisition") < report.step_sequence.index(
         "pressure_senco9_no_write_review"
     )
@@ -151,6 +162,28 @@ def test_formal_flow_contract_blocks_physical_stage_without_runtime_identity_bou
 
     assert report.status == "blocked"
     assert any(issue.code == "physical_stage_not_runtime_identity_bound" for issue in report.issues)
+
+
+def test_formal_flow_contract_blocks_identity_getco_readiness_that_is_not_offline(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("identity_getco_readiness_snapshot")
+    command = tuple(part for part in steps[index].command if part != "--fail-on-not-ready")
+    steps[index] = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.probe_v1_5_getco_component_snapshot",
+        command=command,
+        opens_com_ports=True,
+        writes_coefficients=True,
+    )
+
+    report = validate_v1_5_formal_flow_contract(replace(plan, steps=tuple(steps)), inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "identity_getco_readiness_wrong_tool" in codes
+    assert "identity_getco_readiness_must_be_offline_no_write" in codes
+    assert "identity_getco_readiness_must_fail_when_not_ready" in codes
 
 
 def test_formal_flow_contract_blocks_senco9_acquisition_without_transition_contract(tmp_path):
