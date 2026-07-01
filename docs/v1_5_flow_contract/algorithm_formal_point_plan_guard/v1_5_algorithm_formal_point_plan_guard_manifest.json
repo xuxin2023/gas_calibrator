@@ -1,0 +1,18 @@
+﻿{
+  "schema_version": 1,
+  "generated_at": "2026-07-01T18:44:01",
+  "status": "pass",
+  "blocker_count": 0,
+  "review_required_count": 0,
+  "no_write": true,
+  "opens_com_ports": false,
+  "connects_postgresql": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_device_id": false,
+  "legacy_co2_formal_point_count": 45,
+  "legacy_h2o_formal_point_count": 13,
+  "new_algorithm_co2_formal_candidate_point_count": 47,
+  "new_algorithm_h2o_formal_candidate_point_count": 14,
+  "formal_point_plan_contract": "legacy=45/13;new_algorithm=47/14;new algorithm supplemental points are required formal points inside temperature segments"
+}

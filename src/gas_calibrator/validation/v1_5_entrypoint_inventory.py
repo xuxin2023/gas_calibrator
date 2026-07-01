@@ -338,6 +338,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline historical replay missing-point audit; searches segmented/retry evidence without opening COM or changing fit eligibility")
     elif lower == "export_v1_5_historical_replay_qc_gap_audit":
         notes.append("offline historical replay QC gap audit; searches substitute QC/retry evidence without opening COM or changing fit eligibility")
+    elif lower == "export_v1_5_algorithm_formal_point_plan_guard":
+        notes.append("offline algorithm formal point-plan guard; validates legacy 45/13 and new algorithm 47/14 without opening COM or changing runners")
     elif "formal_evidence_sidecar" in lower or "formal_offline_review_chain" in lower:
         notes.append("offline review/evidence sidecar; no COM or route control")
     elif "diagnostic" in lower or "probe" in lower or "tune" in lower:
