@@ -1,4 +1,4 @@
-# V1.5 Historical Replay Evidence Test Evidence
+# V1.5 Historical Replay QC Gap Audit Test Evidence
 
 - date: `2026-07-01`
 - cwd: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean`
@@ -22,16 +22,18 @@ python -m pytest tests\test_v1_5_historical_replay_evidence.py tests\test_v1_5_h
 48 passed in 10.25s
 ```
 
-## Live Evidence Binding Output
+## Live QC Gap Audit Output
 
-The generated live binding under `docs\v1_5_flow_contract\historical_replay_evidence\` is intentionally conservative:
+The generated live audit under `docs\v1_5_flow_contract\historical_replay_qc_gap_audit\` is intentionally conservative:
 
-- `status=blocked`
-- `blocker_count=1`
+- `status=review_required`
+- `blocker_count=0`
 - `review_required_count=1`
-- Mature 0620 legacy CO2 evidence matched `45/45` points, while preserving rejected analyzer rows.
-- New-algorithm CO2 evidence matched `39/47` points. The missing list now includes the required supplemental gas points `-20C/600ppm` and `-10C/600ppm`, so the missing segment remains review-required.
-- New-algorithm H2O evidence matched `13/14` wet points. The missing list includes the required supplemental wet point `40C/HGEN30C/30RH`.
-- Missing point-level QC evidence remains a blocker for fit-input promotion.
+- `missing_qc_point_count=3`
+- `direct_bindable_point_count=2`
+- `unresolved_point_count=1`
+- `p040_Tm10_0ppm_fit`: same-run `queue_manifest_with_quality.csv` has `C_reject`; bind as traceability/reject-only evidence, not fit evidence.
+- `p041_Tm10_400ppm_fit`: same-run `queue_manifest_with_quality.csv` has `C_reject`; bind as traceability/reject-only evidence, not fit evidence.
+- `p017_T20_200ppm_fit`: only raw IO plus cross-run same-point quality reference was found; keep review-required until same-run QC derivation, retry evidence, or targeted rerun exists.
 
 This is program-level replay evidence only. It is not real acceptance, archive release, or PostgreSQL 18 database-import evidence.

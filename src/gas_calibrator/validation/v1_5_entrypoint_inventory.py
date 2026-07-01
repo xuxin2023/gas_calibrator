@@ -334,6 +334,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline historical replay contract; validates replay interpretation without opening COM or releasing archive/database evidence")
     elif lower == "export_v1_5_historical_replay_evidence":
         notes.append("offline historical replay evidence binder; reads historical CSV/JSON point evidence without opening COM or changing release state")
+    elif lower == "export_v1_5_historical_replay_qc_gap_audit":
+        notes.append("offline historical replay QC gap audit; searches substitute QC/retry evidence without opening COM or changing fit eligibility")
     elif "formal_evidence_sidecar" in lower or "formal_offline_review_chain" in lower:
         notes.append("offline review/evidence sidecar; no COM or route control")
     elif "diagnostic" in lower or "probe" in lower or "tune" in lower:

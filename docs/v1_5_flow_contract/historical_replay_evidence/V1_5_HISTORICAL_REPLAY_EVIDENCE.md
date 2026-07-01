@@ -5,7 +5,6 @@
 - blocker_count: `1`
 - review_required_count: `1`
 - profile_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\configs\v1_5_algorithm_route_profiles.json`
-- focused_pytest_evidence: `V1_5_HISTORICAL_REPLAY_EVIDENCE_TEST_EVIDENCE_20260701.md`
 
 ## Physical Boundaries
 
@@ -24,8 +23,8 @@
 | Family | Route | Status | Observed | Expected | Matched | Missing | Unexpected | Rejected rows |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | `mature_0620_legacy_ratio` | `co2` | `review_required` | 45 | 45 | 45 | 0 | 0 | 164 |
-| `new_algorithm_shadow_run` | `co2` | `review_required` | 39 | 45 | 39 | 6 | 0 | 0 |
-| `new_algorithm_shadow_run` | `h2o` | `pass` | 13 | 13 | 13 | 0 | 0 | 0 |
+| `new_algorithm_shadow_run` | `co2` | `review_required` | 39 | 47 | 39 | 8 | 0 | 0 |
+| `new_algorithm_shadow_run` | `h2o` | `review_required` | 13 | 14 | 13 | 1 | 0 | 0 |
 
 ## Checks
 

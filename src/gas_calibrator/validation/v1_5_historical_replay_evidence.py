@@ -310,6 +310,19 @@ def _co2_expected_points(profile: Mapping[str, Any], profile_id: str) -> set[tup
     for temp, values in plan.items():
         for ppm in values or []:
             expected.add((float(temp), float(ppm)))
+    supplement_policy = route.get("supplement_policy", {}) if isinstance(route, Mapping) else {}
+    supplemental_points = (
+        supplement_policy.get("required_new_algorithm_supplemental_gas_points", [])
+        if isinstance(supplement_policy, Mapping)
+        else []
+    )
+    for item in supplemental_points or []:
+        if not isinstance(item, Mapping):
+            continue
+        try:
+            expected.add((float(item["temperature_c"]), float(item["co2_ppm"])))
+        except (KeyError, TypeError, ValueError):
+            continue
     return expected
 
 
@@ -322,6 +335,31 @@ def _h2o_expected_points(profile: Mapping[str, Any], profile_id: str) -> set[tup
             match = re.match(r"HGEN(?P<hgen>m?\d+)C_(?P<rh>\d+)RH", str(token), re.IGNORECASE)
             if match:
                 expected.add((float(temp), _parse_temp(match.group("hgen")), float(match.group("rh"))))
+    supplemental_points = (
+        route.get("required_new_algorithm_supplemental_wet_points", [])
+        if isinstance(route, Mapping)
+        else []
+    )
+    for item in supplemental_points or []:
+        if not isinstance(item, Mapping):
+            continue
+        hgen_match = re.match(
+            r"HGEN(?P<hgen>m?\d+)C",
+            str(item.get("humidity_generator") or ""),
+            re.IGNORECASE,
+        )
+        if not hgen_match:
+            continue
+        try:
+            expected.add(
+                (
+                    float(item["temperature_c"]),
+                    _parse_temp(hgen_match.group("hgen")),
+                    float(item["relative_humidity_pct"]),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
     return expected
 
 

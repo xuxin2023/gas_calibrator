@@ -1,7 +1,7 @@
 {
   "manifest": {
     "schema": "v1_5_historical_replay_evidence_v1",
-    "created_at": "2026-07-01T17:04:36",
+    "created_at": "2026-07-01T17:37:32",
     "profile_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\configs\\v1_5_algorithm_route_profiles.json",
     "status": "blocked",
     "blocker_count": 1,
@@ -75,14 +75,16 @@
       "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2",
       "root_exists": true,
       "observed_point_count": 39,
-      "expected_point_count": 45,
+      "expected_point_count": 47,
       "matched_expected_point_count": 39,
       "missing_expected_points": [
         "-20/0",
         "-20/400",
+        "-20/600",
         "-20/1000",
         "-10/0",
         "-10/400",
+        "-10/600",
         "-10/1000"
       ],
       "unexpected_points": [],
@@ -101,14 +103,16 @@
       "root_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\h2o_open_flow_0620_mature_20260628_live1",
       "root_exists": true,
       "observed_point_count": 13,
-      "expected_point_count": 13,
+      "expected_point_count": 14,
       "matched_expected_point_count": 13,
-      "missing_expected_points": [],
+      "missing_expected_points": [
+        "40/30/30"
+      ],
       "unexpected_points": [],
       "quality_missing_point_ids": [],
       "fit_eligible_rows": 0,
       "rejected_rows": 0,
-      "status": "pass"
+      "status": "review_required"
     }
   ],
   "points": [
@@ -2539,7 +2543,7 @@
       "status": "review_required",
       "reason": "missing or unexpected points are preserved as review gaps instead of being silently filled",
       "expected": "all expected profile points matched and no unexpected points",
-      "observed": "{\"mature_0620_legacy_ratio_co2\": {\"expected\": 45, \"missing\": [], \"observed\": 45, \"status\": \"review_required\", \"unexpected\": []}, \"new_algorithm_shadow_run_co2\": {\"expected\": 45, \"missing\": [\"-20/0\", \"-20/400\", \"-20/1000\", \"-10/0\", \"-10/400\", \"-10/1000\"], \"observed\": 39, \"status\": \"review_required\", \"unexpected\": []}, \"new_algorithm_shadow_run_h2o\": {\"expected\": 13, \"missing\": [], \"observed\": 13, \"status\": \"pass\", \"unexpected\": []}}",
+      "observed": "{\"mature_0620_legacy_ratio_co2\": {\"expected\": 45, \"missing\": [], \"observed\": 45, \"status\": \"review_required\", \"unexpected\": []}, \"new_algorithm_shadow_run_co2\": {\"expected\": 47, \"missing\": [\"-20/0\", \"-20/400\", \"-20/600\", \"-20/1000\", \"-10/0\", \"-10/400\", \"-10/600\", \"-10/1000\"], \"observed\": 39, \"status\": \"review_required\", \"unexpected\": []}, \"new_algorithm_shadow_run_h2o\": {\"expected\": 14, \"missing\": [\"40/30/30\"], \"observed\": 13, \"status\": \"review_required\", \"unexpected\": []}}",
       "physical_meaning": "This is where split runs and retry segments are surfaced for human review before fitting.",
       "blocks_replay_binding": false
     },
