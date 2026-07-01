@@ -84,6 +84,7 @@ src/gas_calibrator/tools/export_v1_5_h2o_special_diagnostic_queue.py,export_v1_5
 src/gas_calibrator/tools/export_v1_5_h2o_state_transfer_diagnostic.py,export_v1_5_h2o_state_transfer_diagnostic,tool,diagnostic_only,h2o_component,diagnostic_only,offline,False,False,False,"('diagnostic evidence only; not formal acceptance by default',)"
 src/gas_calibrator/tools/export_v1_5_initialization_readiness.py,export_v1_5_initialization_readiness,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_main_senco_write_precheck_pack.py,export_v1_5_main_senco_write_precheck_pack,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
+src/gas_calibrator/tools/export_v1_5_mature_route_contract.py,export_v1_5_mature_route_contract,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_new_algorithm_test_point_plan.py,export_v1_5_new_algorithm_test_point_plan,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_open_flow_canonical_points.py,export_v1_5_open_flow_canonical_points,tool,formal_review_evidence,general,formal_support,offline,False,False,False,()
 src/gas_calibrator/tools/export_v1_5_operation_console.py,export_v1_5_operation_console,tool,formal_review_evidence,ui_review,formal_support,offline,False,False,False,()
@@ -286,6 +287,7 @@ tests/test_v1_5_identity_layer_ownership.py,test_v1_5_identity_layer_ownership,t
 tests/test_v1_5_initialization_db_preflight.py,test_v1_5_initialization_db_preflight,test,test_gate,evidence_database,verification_only,none,False,False,False,()
 tests/test_v1_5_initialization_readiness.py,test_v1_5_initialization_readiness,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_main_senco_write_precheck_pack.py,test_v1_5_main_senco_write_precheck_pack,test,test_gate,general,verification_only,none,False,False,False,()
+tests/test_v1_5_mature_route_contract.py,test_v1_5_mature_route_contract,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_multipoint_candidate_run.py,test_v1_5_multipoint_candidate_run,test,test_gate,coefficient_review,verification_only,none,False,False,False,()
 tests/test_v1_5_new_algorithm_test_point_plan.py,test_v1_5_new_algorithm_test_point_plan,test,test_gate,general,verification_only,none,False,False,False,()
 tests/test_v1_5_no_outp_engineering_config.py,test_v1_5_no_outp_engineering_config,test,test_gate,general,verification_only,none,False,False,False,"('pressure/route engineering probe; keep outside formal CO2/H2O fit',)"

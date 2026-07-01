@@ -619,3 +619,6 @@ def test_final_structure_doc_records_canonical_entrypoint_boundaries() -> None:
     assert "configs/default_config.json" in text
     assert "根目录 `D:\\gas_calibrator` 冻结为污染区" in text
     assert "final_acceptance_status" in text
+    assert "export_v1_5_mature_route_contract.py" in text
+    assert "legacy CO2 45 点" in text
+    assert "legacy H2O 13 湿点" in text
