@@ -768,6 +768,312 @@ def write_v1_5_algorithm_formal_point_plan_guard(
     return {key: str(path) for key, path in outputs.items()}
 
 
+def _format_num(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except Exception:
+        return str(value or "")
+    if numeric.is_integer():
+        return str(int(numeric))
+    return f"{numeric:g}"
+
+
+def _co2_group_for_preview(temp_c: Any, ppm: Any) -> str:
+    temp = float(temp_c)
+    concentration = float(ppm)
+    # Mirror the mature 0620 queue source binding: sparse low/high-temperature
+    # segments use group A, while dense 10/20/30C segments alternate by 100 ppm
+    # step with odd hundreds on group B.
+    if temp in (10.0, 20.0, 30.0) and int(concentration) % 200 == 100:
+        return "B"
+    return "A"
+
+
+def _legacy_pressure_exclusions_for_co2_preview(temp_c: Any) -> str:
+    temp = float(temp_c)
+    if temp in (-20.0, -10.0):
+        return "1100,800,550"
+    if temp == 0.0:
+        return "1100,800,500"
+    if temp in (10.0, 20.0, 30.0):
+        return "1100,1000,900,800,700,600,550"
+    if temp == 40.0:
+        return "1100,900,550"
+    return ""
+
+
+def _legacy_pressure_exclusions_for_h2o_preview(rh_pct: Any) -> str:
+    rh = float(rh_pct)
+    if rh <= 30.0:
+        return "1100"
+    if rh <= 50.0:
+        return "800"
+    return "500"
+
+
+def _co2_formal_runlist_row(row: Mapping[str, Any], *, route_index: int) -> Dict[str, Any]:
+    temp = _format_num(row["temperature_c"])
+    ppm = _format_num(row["co2_ppm"])
+    co2_group = _co2_group_for_preview(row["temperature_c"], row["co2_ppm"])
+    runner_args = (
+        f"--temp {temp} --co2-source-ppm {ppm} --co2-group {co2_group} "
+        "--purge-s 360 --sample-count 10 --analyzer-acquisition active_stream_1hz"
+    )
+    return {
+        "point_id": f"co2_T{temp}_{ppm}ppm_ambient",
+        "component": "co2",
+        "temp_c": float(row["temperature_c"]),
+        "source_nominal_ppm": float(row["co2_ppm"]),
+        "co2_group": co2_group,
+        "sample_role": "fit",
+        "fit_eligible": True,
+        "verification_eligible": False,
+        "zero_gas_required": abs(float(row["co2_ppm"])) <= 1e-9,
+        "standard_role": "zero_air" if abs(float(row["co2_ppm"])) <= 1e-9 else "co2_standard_gas",
+        "certificate_required": True,
+        "pressure_mode": "ambient_open",
+        "target_pressure_hpa": "",
+        "pressure_reference_required": True,
+        "pressure_channel_precheck_required": True,
+        "legacy_pressure_targets_excluded_hpa": _legacy_pressure_exclusions_for_co2_preview(
+            row["temperature_c"]
+        ),
+        "purge_s": 360.0,
+        "sample_count": 10,
+        "analyzer_acquisition": "active_stream_1hz",
+        "runner": "run_v1_5_formal_open_flow_sampling",
+        "runner_args": runner_args,
+        "physical_meaning": (
+            "Open-flow CO2 formal runlist preview: standard gas continuously refreshes "
+            "the analyzer cells; pressure is evidence after independent pressure-channel "
+            "verification, not a sealed pressure fitting target."
+        ),
+        "profile_id": row["profile_id"],
+        "algorithm_mode": row["algorithm_mode"],
+        "route_index": route_index,
+        "temperature_segment": row["temperature_segment"],
+        "segment_order_index": row["segment_order_index"],
+        "point_role": row["point_role"],
+        "historical_missing_point_semantics": row["historical_missing_point_semantics"],
+        "source_point_key": row["point_key"],
+        "do_not_modify_mature_runner": True,
+        "runner_integration_status": "preview_only_not_runner_wired",
+    }
+
+
+def _hgen_temp_number(hgen_temp: Any) -> float:
+    match = re.match(r"HGEN(?P<hgen>m?\d+(?:\.\d+)?)C", str(hgen_temp or ""), re.IGNORECASE)
+    if not match:
+        raise ValueError(f"Invalid HGEN temperature: {hgen_temp}")
+    hgen_token = match.group("hgen")
+    if hgen_token.lower().startswith("m"):
+        return -float(hgen_token[1:])
+    return float(hgen_token)
+
+
+def _h2o_formal_runlist_row(row: Mapping[str, Any], *, route_index: int) -> Dict[str, Any]:
+    temp = _format_num(row["temperature_c"])
+    hgen = _format_num(_hgen_temp_number(row["hgen_temp"]))
+    rh = _format_num(row["hgen_rh_pct"])
+    runner_args = (
+        f"--temp {temp} --hgen-temp {hgen} --hgen-rh {rh} "
+        "--purge-s 720 --sample-count 10 --analyzer-acquisition active_stream_1hz "
+        "--h2o-pressure-presample-policy skip"
+    )
+    return {
+        "point_id": f"h2o_T{temp}_HGEN{hgen}C_{rh}RH_ambient",
+        "component": "h2o",
+        "temp_c": float(row["temperature_c"]),
+        "hgen_temp_c": float(hgen),
+        "hgen_rh_pct": float(row["hgen_rh_pct"]),
+        "reference_dewpoint_c": "",
+        "reference_h2o_mmol": "",
+        "reference_bridge_status": "requires_humidity_reference_bridge_before_fit_or_release",
+        "sample_role": "fit",
+        "fit_eligible": True,
+        "verification_eligible": False,
+        "standard_role": "humidity_generator_dewpoint_reference",
+        "certificate_required": True,
+        "pressure_mode": "ambient_open",
+        "target_pressure_hpa": "",
+        "pressure_reference_required": True,
+        "pressure_channel_precheck_required": True,
+        "legacy_pressure_targets_excluded_hpa": _legacy_pressure_exclusions_for_h2o_preview(
+            row["hgen_rh_pct"]
+        ),
+        "purge_s": 720.0,
+        "sample_count": 10,
+        "analyzer_acquisition": "active_stream_1hz",
+        "runner": "run_v1_5_formal_h2o_open_flow_sampling",
+        "runner_args": runner_args,
+        "physical_meaning": (
+            "Open-flow H2O formal runlist preview: humidified gas continuously "
+            "refreshes the chain and dewpoint/reference water is the fit quantity; "
+            "pressure is evidence for compensation, not a sealed target."
+        ),
+        "profile_id": row["profile_id"],
+        "algorithm_mode": row["algorithm_mode"],
+        "route_index": route_index,
+        "temperature_segment": row["temperature_segment"],
+        "segment_order_index": row["segment_order_index"],
+        "point_role": row["point_role"],
+        "historical_missing_point_semantics": row["historical_missing_point_semantics"],
+        "source_point_key": row["point_key"],
+        "do_not_modify_mature_runner": True,
+        "runner_integration_status": "preview_only_not_runner_wired",
+    }
+
+
+def build_v1_5_algorithm_formal_runlist_preview(
+    profile_path: str | Path,
+    *,
+    profile_id: str = "absorption_ratio_shadow",
+) -> Dict[str, Any]:
+    """Build offline queue-compatible runlist previews for a profile.
+
+    The output is deliberately not wired to the live queue runners. It proves
+    the formal point order and CSV shape before any future runner integration.
+    """
+
+    tables = build_v1_5_algorithm_formal_point_plan_guard(profile_path)
+    point_plan = [
+        row for row in tables["formal_point_plan"] if str(row.get("profile_id") or "") == profile_id
+    ]
+    co2_source = [row for row in point_plan if row["route_kind"] == "co2"]
+    h2o_source = [row for row in point_plan if row["route_kind"] == "h2o"]
+    co2_runlist = [
+        _co2_formal_runlist_row(row, route_index=index)
+        for index, row in enumerate(co2_source, start=1)
+    ]
+    h2o_runlist = [
+        _h2o_formal_runlist_row(row, route_index=index)
+        for index, row in enumerate(h2o_source, start=1)
+    ]
+    supplemental_keys = {
+        row["source_point_key"]
+        for row in [*co2_runlist, *h2o_runlist]
+        if row["point_role"] == "new_algorithm_required_supplemental_formal_point"
+    }
+    legacy_co2_count = tables["manifest"]["legacy_co2_formal_point_count"]
+    legacy_h2o_count = tables["manifest"]["legacy_h2o_formal_point_count"]
+    checks = [
+        _status_check(
+            check_id="legacy_default_remains_45_13",
+            status="pass" if legacy_co2_count == 45 and legacy_h2o_count == 13 else "blocker",
+            expected={"co2": 45, "h2o": 13},
+            observed={"co2": legacy_co2_count, "h2o": legacy_h2o_count},
+            reason="runlist preview must not change legacy production coverage",
+            physical_meaning="Legacy production remains the mature ratio route.",
+        ),
+        _status_check(
+            check_id="new_algorithm_runlist_counts_are_47_14",
+            status="pass" if len(co2_runlist) == 47 and len(h2o_runlist) == 14 else "blocker",
+            expected={"co2": 47, "h2o": 14},
+            observed={"co2": len(co2_runlist), "h2o": len(h2o_runlist)},
+            reason="new algorithm runlist preview includes formal supplemental points",
+            physical_meaning="Future new-algorithm physical flow must schedule the 600ppm and 30RH points with their temperature segments.",
+        ),
+        _status_check(
+            check_id="supplemental_points_remain_formal_required",
+            status=(
+                "pass"
+                if supplemental_keys == {"-20/600", "-10/600", "40/30/30"}
+                else "blocker"
+            ),
+            expected=["-20/600", "-10/600", "40/30/30"],
+            observed=sorted(supplemental_keys),
+            reason="formal runlist preview keeps supplemental points as normal scheduled points",
+            physical_meaning="These are not historical missing-point audit or targeted-resampling labels.",
+        ),
+        _status_check(
+            check_id="runlist_preview_is_offline",
+            status="pass",
+            expected={
+                "opens_com_ports": False,
+                "controls_water_or_gas_routes": False,
+                "writes_coefficients": False,
+                "runner_wired": False,
+            },
+            observed={
+                "opens_com_ports": False,
+                "controls_water_or_gas_routes": False,
+                "writes_coefficients": False,
+                "runner_wired": False,
+            },
+            reason="this preview writes only review artifacts",
+            physical_meaning="Runlist generation must not become hidden route execution.",
+        ),
+    ]
+    status = "blocked" if any(row["status"] == "blocker" for row in checks) else (
+        "review_required" if any(row["status"] == "review_required" for row in checks) else "pass"
+    )
+    manifest = {
+        "schema_version": 1,
+        "generated_at": _now(),
+        "profile_id": profile_id,
+        "status": status,
+        "blocker_count": sum(1 for row in checks if row["status"] == "blocker"),
+        "review_required_count": sum(1 for row in checks if row["status"] == "review_required"),
+        "no_write": True,
+        "opens_com_ports": False,
+        "connects_postgresql": False,
+        "controls_water_or_gas_routes": False,
+        "writes_coefficients": False,
+        "writes_device_id": False,
+        "runner_integration_status": "preview_only_not_runner_wired",
+        "queue_csv_schema": "v1_5_formal_queue_compatible_preview",
+        "legacy_co2_formal_point_count": legacy_co2_count,
+        "legacy_h2o_formal_point_count": legacy_h2o_count,
+        "co2_runlist_count": len(co2_runlist),
+        "h2o_runlist_count": len(h2o_runlist),
+        "formal_runlist_contract": "legacy=45/13;new_algorithm_runlist_preview=47/14;runner_not_modified",
+    }
+    return {
+        "manifest": manifest,
+        "co2_runlist": co2_runlist,
+        "h2o_runlist": h2o_runlist,
+        "checks": checks,
+    }
+
+
+def write_v1_5_algorithm_formal_runlist_preview(
+    profile_path: str | Path,
+    output_dir: str | Path,
+    *,
+    profile_id: str = "absorption_ratio_shadow",
+) -> Dict[str, str]:
+    tables = build_v1_5_algorithm_formal_runlist_preview(profile_path, profile_id=profile_id)
+    out = Path(output_dir)
+    outputs = {
+        "manifest": out / "v1_5_algorithm_formal_runlist_preview_manifest.json",
+        "co2_runlist": out / "v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+        "h2o_runlist": out / "v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+        "checks": out / "v1_5_algorithm_formal_runlist_preview_checks.csv",
+        "summary": out / "V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW.md",
+    }
+    _write_json(outputs["manifest"], tables["manifest"])
+    _write_csv(outputs["co2_runlist"], tables["co2_runlist"])
+    _write_csv(outputs["h2o_runlist"], tables["h2o_runlist"])
+    _write_csv(outputs["checks"], tables["checks"])
+    summary = [
+        "# V1.5 algorithm formal runlist preview",
+        "",
+        "This is an offline no-write preview generated from the V1.5 algorithm route profile.",
+        "",
+        f"- status: `{tables['manifest']['status']}`",
+        f"- blocker_count: `{tables['manifest']['blocker_count']}`",
+        f"- profile: `{profile_id}`",
+        f"- legacy CO2/H2O counts remain: `{tables['manifest']['legacy_co2_formal_point_count']}` / `{tables['manifest']['legacy_h2o_formal_point_count']}`",
+        f"- new-algorithm CO2/H2O runlist counts: `{tables['manifest']['co2_runlist_count']}` / `{tables['manifest']['h2o_runlist_count']}`",
+        "- CO2 runlist includes `-20C/600ppm` and `-10C/600ppm` inside their temperature segments.",
+        "- H2O runlist includes `40C/HGEN30C/30RH` inside the 40C water segment.",
+        "- The CSVs use mature formal queue-compatible columns but are preview artifacts only.",
+        "- Mature V1.5 CO2/H2O runners are not modified by this preview.",
+    ]
+    outputs["summary"].write_text("\n".join(summary) + "\n", encoding="utf-8")
+    return {key: str(path) for key, path in outputs.items()}
+
+
 def write_v1_5_new_algorithm_test_point_plan(
     profile_path: str | Path,
     output_dir: str | Path,
