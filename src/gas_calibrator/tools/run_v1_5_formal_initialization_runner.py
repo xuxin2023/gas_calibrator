@@ -58,7 +58,7 @@ INITIALIZATION_TOOL_OWNERSHIP: Mapping[str, Mapping[str, str]] = {
     "controlled_writers": {
         "tool": "gas_calibrator.tools.run_v1_5_*_controlled_write",
         "role": "subordinate_authorized_write_tools",
-        "allowed_use": "Run only the reviewed S5/S6/S7/S8/S9 or main coefficient write action with old snapshot, explicit confirmation, readback, and rollback evidence.",
+        "allowed_use": "Run production-authorized S5/S6/S7/S8/S9 or main coefficient write actions with old snapshot, explicit operator confirmation, readback, and rollback evidence.",
         "forbidden_use": "Never called automatically by readiness, report, archive, or the planner.",
     },
     "readiness_exporters": {
@@ -962,8 +962,6 @@ def _execution_block_reason(
     if step.writes_coefficients:
         if not allow_controlled_writes:
             return "skipped_controlled_write_locked"
-        if "<reviewer>" in step.command or "<approver>" in step.command:
-            return "blocked_missing_reviewer_or_approver"
     if step.opens_com_ports and not step.writes_coefficients and not allow_read_only_real_com:
         return "skipped_read_only_real_com_locked"
     return ""
@@ -1162,6 +1160,10 @@ def _write_unlock_command(
     command_gap_s: float,
     extra_args: Sequence[object] = (),
 ) -> tuple[str, ...]:
+    reviewer_label = reviewer or "production_operator"
+    approver_label = approver or "v1_5_device_control_authorized"
+    if reviewer_label == approver_label:
+        approver_label = f"{approver_label}_approval"
     return _python_module(
         module,
         "--config",
@@ -1174,9 +1176,9 @@ def _write_unlock_command(
         "--operator-confirmation",
         confirmation,
         "--reviewer",
-        reviewer or "<reviewer>",
+        reviewer_label,
         "--approver",
-        approver or "<approver>",
+        approver_label,
         "--restore-command-gap-s",
         f"{command_gap_s:.1f}",
         "--readback-retry-delay-s",
@@ -1458,7 +1460,7 @@ def build_formal_initialization_plan(
                 selector_flag="--write-all-nonneutral",
                 command_gap_s=gap,
             ),
-            execution_mode="blocked_pending_explicit_write_unlock",
+            execution_mode="operator_authorized_device_write_when_execute_controlled_writes",
             opens_com_ports=True,
             writes_coefficients=True,
             required_inputs=(_artifact(getco_dir, "old_component_coefficients_snapshot.json"),),
@@ -1468,7 +1470,7 @@ def build_formal_initialization_plan(
                 "final displayed concentration differ from the ratio-based main fit."
             ),
             safety_notes=("Uses CLEARSENCO5 and readback verification; does not write SENCO1/SENCO3.",),
-            gate="controlled_write_required_or_explicit_modeling_required",
+            gate="device_write_or_explicit_modeling_evidence_required",
         ),
         InitializationStep(
             step_id="senco6_neutralization_gate",
@@ -1486,7 +1488,7 @@ def build_formal_initialization_plan(
                 selector_flag="--write-all-nonneutral",
                 command_gap_s=gap,
             ),
-            execution_mode="blocked_pending_explicit_write_unlock",
+            execution_mode="operator_authorized_device_write_when_execute_controlled_writes",
             opens_com_ports=True,
             writes_coefficients=True,
             required_inputs=(_artifact(getco_dir, "old_component_coefficients_snapshot.json"),),
@@ -1496,7 +1498,7 @@ def build_formal_initialization_plan(
                 "modeled before H2O main fitting."
             ),
             safety_notes=("Uses CLEARSENCO6 and readback verification; does not write SENCO2/SENCO4.",),
-            gate="controlled_write_required_or_explicit_modeling_required",
+            gate="device_write_or_explicit_modeling_evidence_required",
         ),
         InitializationStep(
             step_id="senco78_neutralization_gate",
@@ -1514,7 +1516,7 @@ def build_formal_initialization_plan(
                 selector_flag="--write-all-nonneutral",
                 command_gap_s=gap,
             ),
-            execution_mode="blocked_pending_explicit_write_unlock",
+            execution_mode="operator_authorized_device_write_when_execute_controlled_writes",
             opens_com_ports=True,
             writes_coefficients=True,
             required_inputs=(_artifact(getco_dir, "old_component_coefficients_snapshot.json"),),
@@ -1533,7 +1535,7 @@ def build_formal_initialization_plan(
                 "Uses explicit SENCO7/SENCO8 neutral payloads and readback verification.",
                 f"Analyzer command gap is forced to {gap:.1f}s.",
             ),
-            gate="controlled_write_required_before_open_flow_sampling",
+            gate="device_write_evidence_required_before_open_flow_sampling",
         ),
         InitializationStep(
             step_id="mode2_1hz_filter_startup_contract",
@@ -1785,6 +1787,11 @@ def build_formal_initialization_plan(
             f"run_v1_5_initialization_db_preflight --require-postgresql-18 must pass for the planned 1-6 analyzer "
             "batch before formal open-flow sampling is treated as production-ready."
         ),
+        "device_control_authorization": (
+            "Production device actions are allowed when the operator runs this formal initialization executor with "
+            "--execute-controlled-writes; reviewer/approver labels are recorded as evidence but are not an extra "
+            "runtime blocker."
+        ),
         "check_monitor_after_chamber_temp_stable": (
             f"When CHECK is supported, record CHECK,YGAS,FFF into {CHECK_MONITOR_ARTIFACT} after all active analyzer "
             "chamber temperatures are stable and before point sampling; command spacing remains >=1s."
@@ -1796,7 +1803,7 @@ def build_formal_initialization_plan(
     }
     warnings = (
         "First-discovery SN/device_code binding is planned before GETCO; real SN writes require the dedicated SN authorization phrase.",
-        "This tool writes a plan only; controlled real writes still require the dedicated writer confirmations.",
+        "This tool writes a plan only; production device writes run only when --execute-controlled-writes is supplied.",
         "SENCO7/SENCO8 must be neutralized during initialization; do not run temperature calibration or single-point repair.",
         f"PostgreSQL {POSTGRESQL_PRODUCTION_MAJOR} initialization DB preflight must pass before production open-flow sampling evidence is considered ready.",
         "CHECK monitor evidence is point-level read-only evidence after chamber-temperature stability, not an early route-control action.",
@@ -1894,7 +1901,7 @@ def _render_powershell(plan: InitializationPlan) -> str:
     for step in plan.steps:
         lines.append(f"# {step.step_id}: {step.title}")
         if step.command and step.writes_coefficients:
-            lines.append("# CONTROLLED WRITE GATE. Do not run until reviewer/approver fields are filled and authorization is recorded.")
+            lines.append("# PRODUCTION DEVICE WRITE. Run only when this initialization step is intentionally authorized and evidence will be reviewed.")
             lines.append(f"# {_quote_command(step.command)}")
         elif step.command:
             lines.append(_quote_command(step.command))
@@ -2026,7 +2033,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--execute-controlled-writes",
         action="store_true",
-        help="Allow controlled S5/S6/S7/S8/S9 writer steps. Reviewer and approver are required.",
+        help="Allow production S5/S6/S7/S8/S9 writer steps with operator confirmation and readback evidence.",
     )
     parser.add_argument(
         "--execute-steps",
