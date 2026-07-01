@@ -218,6 +218,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     algorithm_formal_point_plan = root / "src/gas_calibrator/tools/export_v1_5_algorithm_formal_point_plan_guard.py"
     algorithm_formal_runlist = root / "src/gas_calibrator/tools/export_v1_5_algorithm_formal_runlist_preview.py"
     algorithm_runlist_readiness = root / "src/gas_calibrator/tools/export_v1_5_algorithm_runlist_readiness.py"
+    algorithm_runner_dry_run = root / "src/gas_calibrator/tools/export_v1_5_algorithm_runner_integration_dry_run.py"
     for path in (
         pre_gas,
         getco_readiness,
@@ -229,6 +230,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
         algorithm_formal_point_plan,
         algorithm_formal_runlist,
         algorithm_runlist_readiness,
+        algorithm_runner_dry_run,
     ):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("", encoding="utf-8")
@@ -243,6 +245,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     algorithm_formal_point_plan_entry = classify_v1_5_entrypoint(algorithm_formal_point_plan, root=root)
     algorithm_formal_runlist_entry = classify_v1_5_entrypoint(algorithm_formal_runlist, root=root)
     algorithm_runlist_readiness_entry = classify_v1_5_entrypoint(algorithm_runlist_readiness, root=root)
+    algorithm_runner_dry_run_entry = classify_v1_5_entrypoint(algorithm_runner_dry_run, root=root)
 
     assert entry.category == "formal_review_evidence"
     assert entry.formal_status == "formal_support"
@@ -314,6 +317,13 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert algorithm_runlist_readiness_entry.controls_routes is False
     assert algorithm_runlist_readiness_entry.writes_coefficients is False
     assert "offline algorithm runlist readiness gate" in algorithm_runlist_readiness_entry.notes[0]
+    assert algorithm_runner_dry_run_entry.category == "formal_review_evidence"
+    assert algorithm_runner_dry_run_entry.formal_status == "formal_support"
+    assert algorithm_runner_dry_run_entry.risk_level == "offline"
+    assert algorithm_runner_dry_run_entry.opens_com_ports is False
+    assert algorithm_runner_dry_run_entry.controls_routes is False
+    assert algorithm_runner_dry_run_entry.writes_coefficients is False
+    assert "offline algorithm runner integration dry-run" in algorithm_runner_dry_run_entry.notes[0]
 
 
 def test_entrypoint_discovery_finds_v1_5_tools_libraries_and_tests(tmp_path: Path) -> None:
@@ -701,5 +711,6 @@ def test_final_structure_doc_records_canonical_entrypoint_boundaries() -> None:
     assert "export_v1_5_algorithm_formal_point_plan_guard.py" in text
     assert "export_v1_5_algorithm_formal_runlist_preview.py" in text
     assert "export_v1_5_algorithm_runlist_readiness.py" in text
+    assert "export_v1_5_algorithm_runner_integration_dry_run.py" in text
     assert "legacy CO2 45 点" in text
     assert "legacy H2O 13 湿点" in text
