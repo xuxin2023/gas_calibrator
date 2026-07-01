@@ -69,6 +69,18 @@
 - blocks_physical_flow: `True`
 - physical_meaning: Pressure P must be traceable before CO2/H2O fitting so gas coefficients do not absorb pressure bias.
 
+### algorithm_profile_runner_dry_run
+
+- title: New-algorithm profile runner dry-run bundle
+- status: `ready`
+- source_status: `ready_for_profile_driven_runner_dry_run_review`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\algorithm_profile_runner_dry_run\v1_5_algorithm_profile_runner_dry_run.json`
+- reason: profile-driven new-algorithm dry-run bundle is ready: CO2/H2O=47/14 and offline boundaries hold
+- next_action: Review the profile-generated 47/14 runlist, readiness gate, and dry-run queue handoff before any future runner wiring.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Records that the new-algorithm profile can generate CO2 47 / H2O 14 runlist evidence and dry-run mature-queue handoff plans without executing queues or modifying mature runners.
+
 ### co2_open_flow_mature_queue
 
 - title: CO2 mature open-flow queue

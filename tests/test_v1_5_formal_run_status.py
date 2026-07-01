@@ -79,6 +79,29 @@ def _seed_ready_run(root: Path) -> None:
     )
 
 
+def _seed_algorithm_profile_runner_dry_run(root: Path, *, blocker_count: int = 0) -> Path:
+    status = "ready_for_profile_driven_runner_dry_run_review" if blocker_count == 0 else "blocked"
+    return _write_json(
+        root / "algorithm_profile_runner_dry_run" / "v1_5_algorithm_profile_runner_dry_run.json",
+        {
+            "schema": "v1_5_algorithm_profile_runner_dry_run_v1",
+            "overall_status": status,
+            "blocker_count": blocker_count,
+            "profile_id": "absorption_ratio_shadow",
+            "co2_runlist_count": 47,
+            "h2o_runlist_count": 14,
+            "opens_com_ports": False,
+            "connects_postgresql": False,
+            "controls_water_or_gas_routes": False,
+            "writes_coefficients": False,
+            "writes_device_id": False,
+            "does_not_execute_commands": True,
+            "does_not_modify_runners": True,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+
 def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run"
     _seed_ready_run(run_dir)
@@ -96,6 +119,7 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
     assert gate_statuses["pressure_senco9_pre_open_flow"] == "ready"
     assert gate_statuses["co2_open_flow_mature_queue"] == "ready"
     assert gate_statuses["h2o_open_flow_mature_queue"] == "ready"
+    assert "algorithm_profile_runner_dry_run" not in gate_statuses
     assert model["physical_boundaries"] == {
         "offline_status_only": True,
         "opens_com_ports": False,
@@ -106,6 +130,48 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
         "writes_device_id": False,
         "not_real_acceptance_evidence": True,
     }
+
+
+def test_formal_run_status_surfaces_optional_algorithm_profile_runner_bundle(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_algorithm_profile"
+    _seed_ready_run(run_dir)
+    bundle_path = _seed_algorithm_profile_runner_dry_run(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["algorithm_profile_runner_dry_run"]
+
+    assert model["overall_status"] == "formal_release_ready"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is True
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["algorithm_profile_runner_dry_run_json"] == str(bundle_path.resolve())
+    assert gate["status"] == "ready"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "CO2/H2O=47/14" in gate["reason"]
+    assert "without executing queues" in gate["physical_meaning"]
+
+
+def test_formal_run_status_marks_algorithm_profile_runner_bundle_review_only(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_blocked_algorithm_profile"
+    _seed_ready_run(run_dir)
+    _seed_algorithm_profile_runner_dry_run(run_dir, blocker_count=1)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["algorithm_profile_runner_dry_run"]
+
+    assert model["overall_status"] == "review_required"
+    assert model["current_stage"] == "algorithm_profile_runner_dry_run"
+    assert model["formal_release_allowed"] is True
+    assert model["can_continue_physical_flow"] is True
+    assert gate["status"] == "review_required"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "blocker_count=1" in gate["reason"]
 
 
 def test_formal_run_status_sn_review_blocks_release_not_physical_flow(tmp_path: Path) -> None:
@@ -195,8 +261,18 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     run_dir = tmp_path / "ready_cli"
     output_dir = tmp_path / "cli_out"
     _seed_ready_run(run_dir)
+    bundle_path = _seed_algorithm_profile_runner_dry_run(run_dir)
 
-    rc = export_status_main(["--run-dir", str(run_dir), "--output-dir", str(output_dir)])
+    rc = export_status_main(
+        [
+            "--run-dir",
+            str(run_dir),
+            "--output-dir",
+            str(output_dir),
+            "--algorithm-profile-runner-dry-run-json",
+            str(bundle_path),
+        ]
+    )
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
 
@@ -205,3 +281,6 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     assert payload["physical_boundaries"]["opens_com_ports"] is False
     assert (output_dir / "v1_5_formal_run_status.json").exists()
     assert (output_dir / "v1_5_formal_run_status_gates.csv").exists()
+    exported = json.loads((output_dir / "v1_5_formal_run_status.json").read_text(encoding="utf-8"))
+    gates = {row["gate_id"]: row for row in exported["gates"]}
+    assert gates["algorithm_profile_runner_dry_run"]["status"] == "ready"

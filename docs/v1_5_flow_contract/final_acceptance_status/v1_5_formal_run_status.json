@@ -1,6 +1,6 @@
 {
   "schema": "v1_5_formal_run_status_v1",
-  "generated_at": "2026-07-01T15:18:41",
+  "generated_at": "2026-07-01T22:43:04",
   "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "overall_status": "review_required",
   "current_stage": "initialization_readiness",
@@ -24,7 +24,8 @@
     "getco_readiness_json": "",
     "run_evidence_status_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_run_evidence_status.json",
     "full_flow_closure_readiness_json": "",
-    "archive_closure_json": ""
+    "archive_closure_json": "",
+    "algorithm_profile_runner_dry_run_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json"
   },
   "gates": [
     {
@@ -78,6 +79,19 @@
       "release_gate": true,
       "blocks_release": true,
       "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "algorithm_profile_runner_dry_run",
+      "title": "New-algorithm profile runner dry-run bundle",
+      "status": "ready",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json",
+      "source_status": "ready_for_profile_driven_runner_dry_run_review",
+      "reason": "profile-driven new-algorithm dry-run bundle is ready: CO2/H2O=47/14 and offline boundaries hold",
+      "next_action": "Review the profile-generated 47/14 runlist, readiness gate, and dry-run queue handoff before any future runner wiring.",
+      "physical_meaning": "Records that the new-algorithm profile can generate CO2 47 / H2O 14 runlist evidence and dry-run mature-queue handoff plans without executing queues or modifying mature runners.",
+      "release_gate": false,
+      "blocks_release": false,
+      "blocks_physical_flow": false
     },
     {
       "gate_id": "co2_open_flow_mature_queue",
