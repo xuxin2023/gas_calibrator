@@ -73,7 +73,7 @@ CANONICAL_FORMAL_PATH: tuple[dict[str, str], ...] = (
         "entrypoint": "src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py",
         "category": "full_flow_orchestration",
         "status": "offline_initialization_planner_and_gate",
-        "physical_meaning": "Owns the formal initialization contract: device-ID binding, GETCO1-9 epoch-0 snapshot, S5/S6/S7/S8/S9 gates, startup acquisition settings, readiness, and database evidence indexing.",
+        "physical_meaning": "Owns the formal initialization contract: device-ID binding, GETCO1-9 epoch-0 snapshot, S5/S6/S7/S8/S9 gates, startup acquisition settings, readiness, pre-gas gap list, and database evidence indexing.",
         "safety_boundary": "This is the single formal initialization entrypoint. It plans and gates; subordinate probe/writer/readiness tools do the authorized read-only or controlled-write work and historical logs remain traceability evidence only.",
     },
     {
@@ -315,6 +315,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("canonical initialization owner; offline planner, evidence indexer, and readiness gate")
     elif "formal_archive_closure" in lower:
         notes.append("offline archive closure; does not open COM ports or control routes")
+    elif lower == "export_v1_5_pre_gas_readiness":
+        notes.append("offline pre-gas readiness sidecar; summarizes identity, DB, GETCO, S7/S8, S9, route, and CHECK gates before live identity")
     elif "formal_evidence_sidecar" in lower or "formal_offline_review_chain" in lower:
         notes.append("offline review/evidence sidecar; no COM or route control")
     elif "diagnostic" in lower or "probe" in lower or "tune" in lower:
