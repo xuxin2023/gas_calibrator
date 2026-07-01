@@ -220,6 +220,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     algorithm_runlist_readiness = root / "src/gas_calibrator/tools/export_v1_5_algorithm_runlist_readiness.py"
     algorithm_runner_dry_run = root / "src/gas_calibrator/tools/export_v1_5_algorithm_runner_integration_dry_run.py"
     algorithm_profile_runner_dry_run = root / "src/gas_calibrator/tools/export_v1_5_algorithm_profile_runner_dry_run.py"
+    algorithm_queue_handoff_preflight = root / "src/gas_calibrator/tools/export_v1_5_algorithm_queue_handoff_preflight.py"
     for path in (
         pre_gas,
         getco_readiness,
@@ -233,6 +234,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
         algorithm_runlist_readiness,
         algorithm_runner_dry_run,
         algorithm_profile_runner_dry_run,
+        algorithm_queue_handoff_preflight,
     ):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("", encoding="utf-8")
@@ -249,6 +251,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     algorithm_runlist_readiness_entry = classify_v1_5_entrypoint(algorithm_runlist_readiness, root=root)
     algorithm_runner_dry_run_entry = classify_v1_5_entrypoint(algorithm_runner_dry_run, root=root)
     algorithm_profile_runner_dry_run_entry = classify_v1_5_entrypoint(algorithm_profile_runner_dry_run, root=root)
+    algorithm_queue_handoff_preflight_entry = classify_v1_5_entrypoint(algorithm_queue_handoff_preflight, root=root)
 
     assert entry.category == "formal_review_evidence"
     assert entry.formal_status == "formal_support"
@@ -334,6 +337,13 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert algorithm_profile_runner_dry_run_entry.controls_routes is False
     assert algorithm_profile_runner_dry_run_entry.writes_coefficients is False
     assert "offline algorithm profile runner dry-run" in algorithm_profile_runner_dry_run_entry.notes[0]
+    assert algorithm_queue_handoff_preflight_entry.category == "formal_review_evidence"
+    assert algorithm_queue_handoff_preflight_entry.formal_status == "formal_support"
+    assert algorithm_queue_handoff_preflight_entry.risk_level == "offline"
+    assert algorithm_queue_handoff_preflight_entry.opens_com_ports is False
+    assert algorithm_queue_handoff_preflight_entry.controls_routes is False
+    assert algorithm_queue_handoff_preflight_entry.writes_coefficients is False
+    assert "offline algorithm queue handoff preflight" in algorithm_queue_handoff_preflight_entry.notes[0]
 
 
 def test_entrypoint_discovery_finds_v1_5_tools_libraries_and_tests(tmp_path: Path) -> None:

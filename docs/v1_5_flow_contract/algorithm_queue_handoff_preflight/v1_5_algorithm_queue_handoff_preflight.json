@@ -1,0 +1,140 @@
+﻿{
+  "schema": "v1_5_algorithm_queue_handoff_preflight_v1",
+  "generated_at": "2026-07-01T23:47:02",
+  "overall_status": "ready_for_dry_run_queue_handoff_review",
+  "blocker_count": 0,
+  "review_required_count": 0,
+  "profile_id": "absorption_ratio_shadow",
+  "not_real_acceptance_evidence": true,
+  "no_write": true,
+  "opens_com_ports": false,
+  "connects_postgresql": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_device_id": false,
+  "does_not_execute_commands": true,
+  "does_not_modify_runners": true,
+  "dry_run_handoff_review_allowed": true,
+  "live_queue_execution_allowed": false,
+  "database_import_allowed": false,
+  "formal_release_allowed": false,
+  "co2_runlist_count": 47,
+  "h2o_runlist_count": 14,
+  "required_cli_flags": [
+    "--dry-run",
+    "--no-prompt"
+  ],
+  "forbidden_live_flags": [
+    "--execute-controlled-writes",
+    "--execute-real-run",
+    "--write-coefficients",
+    "--write-senco",
+    "--live"
+  ],
+  "next_action": "Review the dry-run/no-prompt queue handoff evidence. Passing this gate does not authorize live mature queue execution, real COM, route control, coefficient writes, archive release, or database import.",
+  "source_paths": {
+    "profile_runner_dry_run_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json",
+    "runner_integration_dry_run_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json"
+  },
+  "checks": [
+    {
+      "check": "profile_runner_dry_run_bundle_gate",
+      "status": "ready",
+      "evidence_role": "algorithm_profile_runner_dry_run",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json",
+      "reasons": [],
+      "physical_meaning": "The queue handoff preflight starts from the offline profile dry-run bundle, not live queue execution.",
+      "next_action": "Regenerate the profile runner dry-run bundle before any queue handoff review.",
+      "details": {
+        "overall_status": "ready_for_profile_driven_runner_dry_run_review",
+        "co2_runlist_count": 47,
+        "h2o_runlist_count": 14,
+        "runner_integration_status": "profile_driven_dry_run_bundle_only_not_runner_wired"
+      }
+    },
+    {
+      "check": "runner_integration_dry_run_gate",
+      "status": "ready",
+      "evidence_role": "algorithm_runner_integration_dry_run",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
+      "reasons": [],
+      "physical_meaning": "The mature CO2/H2O queues may only be considered through a dry-run/no-prompt preview at this stage.",
+      "next_action": "Do not wire or run mature queues until the dry-run gate is reviewed and separately authorized.",
+      "details": {
+        "overall_status": "ready_for_runner_integration_dry_run_review",
+        "blocker_count": 0,
+        "planned_route_order": [
+          "co2",
+          "h2o"
+        ]
+      }
+    },
+    {
+      "check": "co2_dry_run_no_prompt_handoff_gate",
+      "status": "ready",
+      "evidence_role": "co2_queue_handoff_preflight",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+      "reasons": [],
+      "physical_meaning": "The new-algorithm CO2 profile runlist may be handed to the mature queue only as a dry-run/no-prompt review artifact in this phase.",
+      "next_action": "Keep CO2 profile queue handoff in dry-run review until a separate operator-authorized live package exists.",
+      "details": {
+        "stage_order": 1,
+        "route_kind": "co2",
+        "runner_module": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        "queue_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+        "expected_point_count": 47,
+        "observed_point_count": 47,
+        "required_cli_flags": "--dry-run;--no-prompt",
+        "forbidden_cli_flags": "--execute-controlled-writes;--execute-real-run;--write-coefficients",
+        "command_preview": "python -m gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue --config <runtime-config-json> --queue-csv D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv --output-dir <future-output-dir>\\co2_queue_dry_run --dry-run --no-prompt",
+        "runner_integration_status": "dry_run_preview_only_not_runner_wired",
+        "opens_com_ports": false,
+        "controls_water_or_gas_routes": false,
+        "writes_coefficients": false,
+        "physical_meaning": "Use the mature V1.5 queue entrypoint with the profile-generated runlist CSV under dry-run/no-prompt conditions before any live runner wiring."
+      }
+    },
+    {
+      "check": "h2o_dry_run_no_prompt_handoff_gate",
+      "status": "ready",
+      "evidence_role": "h2o_queue_handoff_preflight",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "reasons": [],
+      "physical_meaning": "The new-algorithm H2O profile runlist may be handed to the mature queue only as a dry-run/no-prompt review artifact in this phase.",
+      "next_action": "Keep H2O profile queue handoff in dry-run review until a separate operator-authorized live package exists.",
+      "details": {
+        "stage_order": 2,
+        "route_kind": "h2o",
+        "runner_module": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
+        "queue_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+        "expected_point_count": 14,
+        "observed_point_count": 14,
+        "required_cli_flags": "--dry-run;--no-prompt",
+        "forbidden_cli_flags": "--execute-controlled-writes;--execute-real-run;--write-coefficients",
+        "command_preview": "python -m gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue --config <runtime-config-json> --queue-csv D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv --output-dir <future-output-dir>\\h2o_queue_dry_run --dry-run --no-prompt",
+        "runner_integration_status": "dry_run_preview_only_not_runner_wired",
+        "opens_com_ports": false,
+        "controls_water_or_gas_routes": false,
+        "writes_coefficients": false,
+        "physical_meaning": "Use the mature V1.5 queue entrypoint with the profile-generated runlist CSV under dry-run/no-prompt conditions before any live runner wiring."
+      }
+    },
+    {
+      "check": "live_queue_execution_lock",
+      "status": "ready",
+      "evidence_role": "queue_handoff_live_lock",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
+      "reasons": [],
+      "physical_meaning": "Passing this preflight permits only dry-run handoff review; it does not permit live CO2/H2O queue execution.",
+      "next_action": "Create a separate reviewed live-run package before any real COM, route, gas, water, or queue execution.",
+      "details": {
+        "live_queue_execution_allowed": false,
+        "dry_run_handoff_review_allowed": true,
+        "required_cli_flags_before_live_review": [
+          "--dry-run",
+          "--no-prompt"
+        ]
+      }
+    }
+  ]
+}

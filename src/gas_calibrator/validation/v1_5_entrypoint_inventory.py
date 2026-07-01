@@ -348,6 +348,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline algorithm runner integration dry-run; plans queue invocations without executing formal runners")
     elif lower == "export_v1_5_algorithm_profile_runner_dry_run":
         notes.append("offline algorithm profile runner dry-run; bundles runlist, readiness, and runner dry-run evidence without executing formal runners")
+    elif lower == "export_v1_5_algorithm_queue_handoff_preflight":
+        notes.append("offline algorithm queue handoff preflight; requires dry-run/no-prompt evidence before any future live queue wiring")
     elif "formal_evidence_sidecar" in lower or "formal_offline_review_chain" in lower:
         notes.append("offline review/evidence sidecar; no COM or route control")
     elif "diagnostic" in lower or "probe" in lower or "tune" in lower:
