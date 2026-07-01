@@ -127,6 +127,15 @@ def _device_id(row: Mapping[str, Any]) -> str:
     return str(row.get("analyzer_device_id") or row.get("runtime_device_id") or "").strip()
 
 
+def _text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _sn_like(value: Any) -> str:
+    text = _text(value)
+    return text if text.isdigit() and len(text) == 8 else ""
+
+
 def _required_groups_present(groups: Sequence[int]) -> bool:
     return set(REQUIRED_GETCO_GROUPS).issubset(set(groups))
 
@@ -314,6 +323,68 @@ def _check_runtime_config(config: Mapping[str, Any], identity_rows: Sequence[Map
     )
 
 
+def _check_sn_device_code_traceability(config: Mapping[str, Any], identity_rows: Sequence[Mapping[str, Any]]) -> GetcoIdentityReadinessCheck:
+    reasons: list[str] = []
+    traces: list[dict[str, str]] = []
+    entries = _analyzer_entries(config)
+    rows_by_port = {
+        _text(row.get("port")): row
+        for row in identity_rows
+        if _text(row.get("port"))
+    }
+    entries_by_port = {
+        _text(entry.get("port")): entry
+        for entry in entries
+        if _text(entry.get("port"))
+    }
+    for port, row in rows_by_port.items():
+        entry = entries_by_port.get(port)
+        if not isinstance(entry, Mapping):
+            reasons.append(f"{port}_missing_runtime_bound_analyzer_for_sn_traceability")
+            continue
+        runtime_sn = _text(entry.get("sn_code"))
+        runtime_device_code = _text(entry.get("device_code"))
+        identity_sn = _text(row.get("sn_code"))
+        identity_device_code = _text(row.get("device_code"))
+        trace = {
+            "port": port,
+            "analyzer_device_id": _device_id(row),
+            "runtime_device_id": _text(entry.get("runtime_device_id") or entry.get("device_id")),
+            "sn_code": runtime_sn,
+            "device_code": runtime_device_code,
+        }
+        traces.append(trace)
+        if not runtime_sn:
+            reasons.append(f"{port}_runtime_sn_code_missing")
+        elif not _sn_like(runtime_sn):
+            reasons.append(f"{port}_runtime_sn_code_must_be_8_digit_numeric")
+        if not runtime_device_code:
+            reasons.append(f"{port}_runtime_device_code_missing")
+        elif not _sn_like(runtime_device_code):
+            reasons.append(f"{port}_runtime_device_code_must_be_8_digit_numeric")
+        if runtime_sn and runtime_device_code and runtime_sn != runtime_device_code:
+            reasons.append(f"{port}_runtime_sn_code_device_code_mismatch")
+        if identity_sn and runtime_sn and identity_sn != runtime_sn:
+            reasons.append(f"{port}_sn_code_not_preserved_from_identity_snapshot")
+        if identity_device_code and runtime_device_code and identity_device_code != runtime_device_code:
+            reasons.append(f"{port}_device_code_not_preserved_from_identity_snapshot")
+    if not identity_rows:
+        reasons.append("identity_csv_empty_for_sn_traceability")
+    return GetcoIdentityReadinessCheck(
+        check="sn_device_code_traceability_preserved",
+        status="ready" if not reasons else "review_required",
+        evidence_role="runtime_identity_bound_config",
+        evidence_path="runtime_identity_bound_config.json",
+        reasons=tuple(reasons),
+        physical_meaning=(
+            "SN/device_code is the production traceability identity; the three-digit protocol device ID remains "
+            "a command and compatibility lookup identity."
+        ),
+        next_action="Refresh the runtime-bound config from SN-aware initialization evidence before final archive release.",
+        details={"traceability_review_required": bool(reasons), "runtime_identity_traces": traces},
+    )
+
+
 def build_getco_identity_readiness_model(
     *,
     getco_dir: str | Path,
@@ -347,6 +418,7 @@ def build_getco_identity_readiness_model(
             _check_conclusion(conclusion_rows, identity_rows),
             _check_snapshot(snapshot, identity_rows),
             _check_runtime_config(runtime_config, identity_rows),
+            _check_sn_device_code_traceability(runtime_config, identity_rows),
         ]
     statuses = {check.status for check in checks}
     if "blocked" in statuses:
@@ -357,6 +429,7 @@ def build_getco_identity_readiness_model(
         overall = "identity_getco_ready_for_auxiliary_neutralization"
 
     analyzer_ids = tuple(_device_id(row) for row in identity_rows if _device_id(row))
+    traceability_review_required = any(check.status == "review_required" for check in checks)
     return {
         "schema": SCHEMA,
         "created_at": _now(),
@@ -372,6 +445,7 @@ def build_getco_identity_readiness_model(
         "writes_coefficients": False,
         "writes_device_id": False,
         "not_real_acceptance_evidence": True,
+        "traceability_review_required": traceability_review_required,
         "required_before_auxiliary_neutralization": [
             "required_artifacts_present",
             "identity_rows_bound_and_verified",
