@@ -172,7 +172,60 @@ def _write_post_write_reverification_artifacts(run_dir):
     )
 
 
-def _make_evidence_bundle(tmp_path, *, quick_check=True, post_write=False):
+def _write_formal_run_status_artifacts(run_dir):
+    status_dir = run_dir / "formal_run_status"
+    status_dir.mkdir()
+    (status_dir / "v1_5_formal_run_status.json").write_text(
+        json.dumps(
+            {
+                "schema": "v1_5_formal_run_status_v1",
+                "overall_status": "in_progress",
+                "current_stage": "co2_open_flow_mature_queue",
+                "next_action": "Run or register the mature V1.5 CO2 open-flow queue evidence.",
+                "formal_release_allowed": False,
+                "database_import_allowed": False,
+                "can_continue_physical_flow": True,
+                "physical_boundaries": {
+                    "offline_status_only": True,
+                    "opens_com_ports": False,
+                    "connects_postgresql": False,
+                    "controls_pressure": False,
+                    "controls_water_or_gas_routes": False,
+                    "writes_coefficients": False,
+                    "writes_device_id": False,
+                    "not_real_acceptance_evidence": True,
+                },
+                "gates": [
+                    {
+                        "gate_id": "co2_open_flow_mature_queue",
+                        "title": "CO2 mature open-flow queue",
+                        "status": "missing",
+                        "reason": "CO2 mature open-flow queue evidence has not passed",
+                        "next_action": "Run or register the mature V1.5 CO2 open-flow queue evidence.",
+                        "blocks_release": True,
+                        "blocks_physical_flow": False,
+                        "physical_meaning": "CO2 calibration points must come from mature open-flow samples.",
+                    }
+                ],
+                "gaps": [
+                    {
+                        "gate_id": "co2_open_flow_mature_queue",
+                        "status": "missing",
+                        "reason": "CO2 mature open-flow queue evidence has not passed",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (status_dir / "v1_5_formal_run_status.md").write_text("# Formal status\n", encoding="utf-8")
+    (status_dir / "v1_5_formal_run_status_gates.csv").write_text("gate_id,status\n", encoding="utf-8")
+    (status_dir / "v1_5_formal_run_status_gaps.csv").write_text("gate_id,status\n", encoding="utf-8")
+
+
+def _make_evidence_bundle(tmp_path, *, quick_check=True, post_write=False, formal_status=False):
     config_path = tmp_path / "runtime_config.json"
     config_path.write_text(json.dumps(_safe_config(), ensure_ascii=False), encoding="utf-8")
     gases_path = tmp_path / "standard_gases.json"
@@ -197,6 +250,8 @@ def _make_evidence_bundle(tmp_path, *, quick_check=True, post_write=False):
         write_pressure_quick_check_csv(run_dir, rows[:10], run_id="20260524")
     if post_write:
         _write_post_write_reverification_artifacts(run_dir)
+    if formal_status:
+        _write_formal_run_status_artifacts(run_dir)
     run_formal_evidence_sidecar(
         run_dir=run_dir,
         plan_path=prepared["plan"],
@@ -335,6 +390,27 @@ def test_report_model_preserves_scope_boundaries_and_no_write(tmp_path):
     assert model["result_rows"]
     assert {row["component"] for row in model["result_rows"]} == {"CO2", "H2O"}
     assert any(row["source"] == "pressure_channel_bias" for row in model["uncertainty_budget"])
+
+
+def test_reports_include_formal_run_status_summary(tmp_path):
+    bundle_path = _make_evidence_bundle(tmp_path, quick_check=True, formal_status=True)
+    model = build_report_model_from_bundle(json.loads(bundle_path.read_text(encoding="utf-8")))
+    run_markdown = render_markdown(build_run_report(model))
+    technical_markdown = render_markdown(build_technical_report(model))
+    formal_markdown = render_markdown(build_formal_calibration_report(model))
+
+    assert model["formal_run_status"]["available"] is True
+    assert model["formal_run_status"]["overall_status"] == "in_progress"
+    assert model["formal_run_status"]["current_stage"] == "co2_open_flow_mature_queue"
+    assert model["formal_run_status"]["can_continue_physical_flow"] is True
+    assert any(row["role"] == "formal_run_status" for row in model["artifact_manifest"])
+    assert "正式运行状态" in run_markdown
+    assert "正式运行状态" in technical_markdown
+    assert "正式运行状态" in formal_markdown
+    assert "可继续物理流程：是" in run_markdown
+    assert "允许正式放行：否" in formal_markdown
+    assert "控制气路/水路" in technical_markdown
+    assert "CO2 mature open-flow queue" in formal_markdown
 
 
 def test_report_model_prefers_current_validation_tables_over_stale_artifacts(tmp_path):

@@ -219,6 +219,24 @@ def _run_evidence_status_model(bundle: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _formal_run_status_model(bundle: Mapping[str, Any]) -> Dict[str, Any]:
+    status = _artifact_json(bundle, "v1_5_formal_run_status.json")
+    source_artifacts = _artifact_manifest_paths(bundle, "formal_run_status")
+    return {
+        "available": bool(status),
+        "overall_status": status.get("overall_status"),
+        "current_stage": status.get("current_stage"),
+        "next_action": status.get("next_action"),
+        "formal_release_allowed": bool(status.get("formal_release_allowed")),
+        "database_import_allowed": bool(status.get("database_import_allowed")),
+        "can_continue_physical_flow": bool(status.get("can_continue_physical_flow")),
+        "physical_boundaries": dict(status.get("physical_boundaries") or {}),
+        "gates": list(status.get("gates") or []),
+        "gaps": list(status.get("gaps") or []),
+        "source_artifacts": source_artifacts,
+    }
+
+
 def _table_rows(bundle: Mapping[str, Any], name: str) -> List[Dict[str, Any]]:
     tables = bundle.get("tables") if isinstance(bundle.get("tables"), Mapping) else {}
     rows = tables.get(name) if isinstance(tables, Mapping) else []
@@ -1186,6 +1204,7 @@ def _build_report_model_from_bundle_base(
     open_flow_summary = _apply_h2o_queue_exclusions(open_flow_summary, h2o_queue_exclusions)
     post_write_reverification = _post_write_reverification_model(bundle)
     run_evidence_status = _run_evidence_status_model(bundle)
+    formal_run_status = _formal_run_status_model(bundle)
     results = _group_component_results(a_grade_rows, standard_gases, analyzer_prefix=analyzer_prefix)
     decision = _decision(bundle)
     candidate_review_rollup = _candidate_review_rollup_rows(candidates)
@@ -1252,6 +1271,7 @@ def _build_report_model_from_bundle_base(
         "h2o_queue_exclusions": h2o_queue_exclusions,
         "post_write_reverification": post_write_reverification,
         "run_evidence_status": run_evidence_status,
+        "formal_run_status": formal_run_status,
         "qc_results": qc_results,
         "coefficient_snapshots": coefficient_snapshots,
         "coefficient_snapshot_rows": coefficient_snapshot_rows,
@@ -1544,6 +1564,65 @@ def _run_evidence_boundary_rows(status: Mapping[str, Any]) -> List[Dict[str, Any
     return [{"边界": label, "值": _bool_label(boundaries.get(key))} for key, label in labels]
 
 
+def _formal_run_status_paragraphs(status: Mapping[str, Any]) -> List[str]:
+    if not status.get("available"):
+        return [
+            "正式运行状态文件未进入当前证据包；正式放行、数据库导入和物理流程继续状态仍以归档索引/人工审核为准。"
+        ]
+    source_names = [
+        Path(str(path)).name
+        for path in status.get("source_artifacts") or []
+        if str(path)
+    ]
+    source_text = "；".join(source_names) if source_names else "not_available"
+    return [
+        f"正式运行总状态：{status.get('overall_status') or 'not_available'}",
+        f"当前阶段：{status.get('current_stage') or 'not_available'}",
+        f"下一步：{status.get('next_action') or 'not_available'}",
+        f"可继续物理流程：{_bool_label(status.get('can_continue_physical_flow'))}",
+        f"允许正式放行：{_bool_label(status.get('formal_release_allowed'))}",
+        f"允许数据库导入：{_bool_label(status.get('database_import_allowed'))}",
+        f"来源状态文件：{source_text}",
+    ]
+
+
+def _formal_run_status_gate_rows(status: Mapping[str, Any], limit: int = 20) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for gate in list(status.get("gates") or [])[:limit]:
+        if not isinstance(gate, Mapping):
+            continue
+        rows.append(
+            {
+                "门禁ID": gate.get("gate_id", ""),
+                "名称": gate.get("title", ""),
+                "状态": gate.get("status", ""),
+                "原因": gate.get("reason", ""),
+                "下一步": gate.get("next_action", ""),
+                "阻断正式放行": gate.get("blocks_release", ""),
+                "阻断物理流程": gate.get("blocks_physical_flow", ""),
+                "物理意义": gate.get("physical_meaning", ""),
+            }
+        )
+    return rows
+
+
+def _formal_run_status_boundary_rows(status: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    boundaries = status.get("physical_boundaries")
+    if not isinstance(boundaries, Mapping):
+        boundaries = {}
+    labels = [
+        ("offline_status_only", "仅离线状态"),
+        ("opens_com_ports", "打开 COM"),
+        ("connects_postgresql", "连接 PostgreSQL"),
+        ("controls_pressure", "控制压力"),
+        ("controls_water_or_gas_routes", "控制气路/水路"),
+        ("writes_coefficients", "写入系数"),
+        ("writes_device_id", "写入设备 ID"),
+        ("not_real_acceptance_evidence", "非 real acceptance 证据"),
+    ]
+    return [{"边界": label, "值": _bool_label(boundaries.get(key))} for key, label in labels]
+
+
 def _scope_statement() -> str:
     return (
         "本次 CO2/H2O 主校准基于开放流通、当前大气压附近条件。"
@@ -1642,6 +1721,7 @@ def build_run_report(model: Mapping[str, Any]) -> ReportDocument:
     release = model.get("report_release_decision") or {}
     post_write = model.get("post_write_reverification") or {}
     run_evidence_status = model.get("run_evidence_status") or {}
+    formal_run_status = model.get("formal_run_status") or {}
     return ReportDocument(
         title="V1.5 气体分析仪校准运行报告",
         sections=[
@@ -1664,6 +1744,16 @@ def build_run_report(model: Mapping[str, Any]) -> ReportDocument:
                     ReportTable(
                         "阶段状态",
                         _run_evidence_stage_rows(run_evidence_status, limit=12),
+                    )
+                ],
+            ),
+            ReportSection(
+                "正式运行状态",
+                _formal_run_status_paragraphs(formal_run_status),
+                [
+                    ReportTable(
+                        "正式状态门禁",
+                        _formal_run_status_gate_rows(formal_run_status, limit=12),
                     )
                 ],
             ),
@@ -1800,6 +1890,7 @@ def build_technical_report(model: Mapping[str, Any]) -> ReportDocument:
     release = model.get("report_release_decision") or {}
     post_write = model.get("post_write_reverification") or {}
     run_evidence_status = model.get("run_evidence_status") or {}
+    formal_run_status = model.get("formal_run_status") or {}
     return ReportDocument(
         title="V1.5 气体分析仪校准技术报告",
         sections=[
@@ -1821,6 +1912,17 @@ def build_technical_report(model: Mapping[str, Any]) -> ReportDocument:
                     ReportTable(
                         "阶段状态",
                         _run_evidence_stage_rows(run_evidence_status, limit=30),
+                    ),
+                ],
+            ),
+            ReportSection(
+                "正式运行状态",
+                _formal_run_status_paragraphs(formal_run_status),
+                [
+                    ReportTable("正式状态物理边界", _formal_run_status_boundary_rows(formal_run_status)),
+                    ReportTable(
+                        "正式状态门禁",
+                        _formal_run_status_gate_rows(formal_run_status, limit=30),
                     ),
                 ],
             ),
@@ -2055,6 +2157,7 @@ def build_formal_calibration_report(model: Mapping[str, Any]) -> ReportDocument:
     release = model.get("report_release_decision") or {}
     post_write = model.get("post_write_reverification") or {}
     run_evidence_status = model.get("run_evidence_status") or {}
+    formal_run_status = model.get("formal_run_status") or {}
     cover = [
         f"报告发布判定：{release.get('release_status')}",
         str(release.get("issue_mark") or ""),
@@ -2090,6 +2193,16 @@ def build_formal_calibration_report(model: Mapping[str, Any]) -> ReportDocument:
                     ReportTable(
                         "关键阶段状态",
                         _run_evidence_stage_rows(run_evidence_status, limit=20),
+                    )
+                ],
+            ),
+            ReportSection(
+                "正式运行状态",
+                _formal_run_status_paragraphs(formal_run_status),
+                [
+                    ReportTable(
+                        "正式状态关键门禁",
+                        _formal_run_status_gate_rows(formal_run_status, limit=20),
                     )
                 ],
             ),
