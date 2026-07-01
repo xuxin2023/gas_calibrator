@@ -127,6 +127,46 @@ def _seed_formal_database_dry_run(root: Path, *, blocker_count: int = 0) -> Path
     )
 
 
+def _seed_formal_database_import_preflight(
+    root: Path,
+    *,
+    blocker_count: int = 0,
+    review_required_count: int = 0,
+    dsn_configured: bool = True,
+) -> Path:
+    if blocker_count:
+        status = "blocked"
+    elif review_required_count:
+        status = "review_required"
+    else:
+        status = "ready_for_authorized_postgresql18_import_review"
+    return _write_json(
+        root / "formal_database_import_preflight" / "v1_5_formal_database_import_preflight.json",
+        {
+            "schema": "v1_5_formal_database_import_preflight_v1",
+            "overall_status": status,
+            "blocker_count": blocker_count,
+            "review_required_count": review_required_count,
+            "production_backend": "postgresql",
+            "production_postgresql_major": 18,
+            "dry_run_contract_ready": blocker_count == 0,
+            "dsn_configured": dsn_configured,
+            "connects_postgresql": False,
+            "opens_com_ports": False,
+            "controls_water_or_gas_routes": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "applies_migrations": False,
+            "database_import_attempted": False,
+            "database_written": False,
+            "database_import_allowed": False,
+            "formal_release_allowed": False,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+
 def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run"
     _seed_ready_run(run_dir)
@@ -146,6 +186,7 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
     assert gate_statuses["h2o_open_flow_mature_queue"] == "ready"
     assert "algorithm_profile_runner_dry_run" not in gate_statuses
     assert "formal_database_dry_run" not in gate_statuses
+    assert "formal_database_import_preflight" not in gate_statuses
     assert model["physical_boundaries"] == {
         "offline_status_only": True,
         "opens_com_ports": False,
@@ -200,6 +241,56 @@ def test_formal_run_status_surfaces_database_dry_run_without_authorizing_import(
     assert gate["blocks_physical_flow"] is False
     assert "PostgreSQL 18" in gate["reason"]
     assert "without connecting" in gate["physical_meaning"]
+
+
+def test_formal_run_status_requires_database_import_preflight_for_import_allowed(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_database_import_preflight"
+    _seed_ready_run(run_dir)
+    database_path = _seed_formal_database_dry_run(run_dir)
+    import_preflight_path = _seed_formal_database_import_preflight(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_database_import_preflight"]
+
+    assert model["overall_status"] == "formal_release_ready"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is True
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["formal_database_dry_run_json"] == str(database_path.resolve())
+    assert model["linked_inputs"]["formal_database_import_preflight_json"] == str(import_preflight_path.resolve())
+    assert gate["status"] == "ready"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "real import remains separately unauthorized" in gate["reason"]
+    assert "without opening PostgreSQL" in gate["physical_meaning"]
+
+
+def test_formal_run_status_marks_database_import_preflight_review_only(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_database_import_preflight_review"
+    _seed_ready_run(run_dir)
+    _seed_formal_database_dry_run(run_dir)
+    _seed_formal_database_import_preflight(
+        run_dir,
+        review_required_count=1,
+        dsn_configured=False,
+    )
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_database_import_preflight"]
+
+    assert model["overall_status"] == "review_required"
+    assert model["current_stage"] == "formal_database_import_preflight"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert gate["status"] == "review_required"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "dsn_configured=False" in gate["reason"]
 
 
 def test_formal_run_status_marks_database_dry_run_review_only(tmp_path: Path) -> None:
@@ -332,6 +423,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     _seed_ready_run(run_dir)
     bundle_path = _seed_algorithm_profile_runner_dry_run(run_dir)
     database_path = _seed_formal_database_dry_run(run_dir)
+    import_preflight_path = _seed_formal_database_import_preflight(run_dir)
 
     rc = export_status_main(
         [
@@ -343,6 +435,8 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
             str(bundle_path),
             "--formal-database-dry-run-json",
             str(database_path),
+            "--formal-database-import-preflight-json",
+            str(import_preflight_path),
         ]
     )
     captured = capsys.readouterr()
@@ -357,3 +451,4 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     gates = {row["gate_id"]: row for row in exported["gates"]}
     assert gates["algorithm_profile_runner_dry_run"]["status"] == "ready"
     assert gates["formal_database_dry_run"]["status"] == "ready"
+    assert gates["formal_database_import_preflight"]["status"] == "ready"

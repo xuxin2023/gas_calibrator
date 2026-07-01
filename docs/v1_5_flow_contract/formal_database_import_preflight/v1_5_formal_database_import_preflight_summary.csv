@@ -1,0 +1,2 @@
+﻿overall_status,blocker_count,review_required_count,production_backend,production_postgresql_major,dsn_configured,connects_postgresql,applies_migrations,database_import_attempted,database_import_allowed
+review_required,0,1,postgresql,18,False,False,False,False,False

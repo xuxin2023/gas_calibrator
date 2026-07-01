@@ -31,6 +31,7 @@
 - CONTROLLED_WRITE: write only through explicit controlled tools and readback
 - POST_WRITE_REVERIFY: verify updated output before archive and report
 - FORMAL_DATABASE_DRY_RUN: preview PostgreSQL 18 schema, SN/device_code identity, and insert contracts without connecting or importing
+- FORMAL_DATABASE_IMPORT_PREFLIGHT: review DSN, migration lock, archive-release dependency, and import authorization without connecting
 - ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports
 - FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars
 
@@ -59,11 +60,12 @@
 21. `POST_WRITE_REVERIFY` / `post_write_reverification_placeholder`
 22. `EVIDENCE_BUNDLE` / `formal_evidence_sidecar`
 23. `FORMAL_DATABASE_DRY_RUN` / `formal_database_dry_run_snapshot`
-24. `DATABASE_IMPORT` / `database_import`
-25. `REPORTS` / `zh_calibration_reports`
-26. `FINAL_EVIDENCE_STATUS` / `final_evidence_status_refresh`
-27. `ALGORITHM_PROFILE_RUNNER_DRY_RUN` / `algorithm_profile_runner_dry_run_snapshot`
-28. `FORMAL_RUN_STATUS` / `formal_run_status_snapshot`
+24. `FORMAL_DATABASE_IMPORT_PREFLIGHT` / `formal_database_import_preflight_snapshot`
+25. `DATABASE_IMPORT` / `database_import`
+26. `REPORTS` / `zh_calibration_reports`
+27. `FINAL_EVIDENCE_STATUS` / `final_evidence_status_refresh`
+28. `ALGORITHM_PROFILE_RUNNER_DRY_RUN` / `algorithm_profile_runner_dry_run_snapshot`
+29. `FORMAL_RUN_STATUS` / `formal_run_status_snapshot`
 
 ## Formal Route Runners
 
@@ -94,6 +96,7 @@
 - `warning` `entrypoint_not_in_inventory` (post_write_reverification_placeholder): gas_calibrator.tools.export_v1_5_post_write_reverification is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (formal_evidence_sidecar): gas_calibrator.tools.run_v1_5_formal_evidence_sidecar is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (formal_database_dry_run_snapshot): gas_calibrator.tools.export_v1_5_formal_database_dry_run is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (formal_database_import_preflight_snapshot): gas_calibrator.tools.export_v1_5_formal_database_import_preflight is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (database_import): gas_calibrator.tools.import_v1_5_evidence_package is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (zh_calibration_reports): gas_calibrator.tools.export_v1_5_calibration_reports is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (final_evidence_status_refresh): gas_calibrator.tools.export_v1_5_run_evidence_status is not present in the supplied V1.5 inventory

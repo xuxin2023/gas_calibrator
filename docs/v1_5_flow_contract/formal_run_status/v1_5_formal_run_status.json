@@ -1,6 +1,6 @@
 {
   "schema": "v1_5_formal_run_status_v1",
-  "generated_at": "2026-07-02T06:12:03",
+  "generated_at": "2026-07-02T07:29:47",
   "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "overall_status": "review_required",
   "current_stage": "initialization_readiness",
@@ -26,7 +26,8 @@
     "full_flow_closure_readiness_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\full_flow_closure_readiness\\v1_5_full_flow_closure_readiness.json",
     "archive_closure_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
     "algorithm_profile_runner_dry_run_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json",
-    "formal_database_dry_run_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json"
+    "formal_database_dry_run_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json",
+    "formal_database_import_preflight_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json"
   },
   "gates": [
     {
@@ -103,6 +104,19 @@
       "reason": "PostgreSQL 18 schema/insert dry-run is ready while real import remains unauthorized",
       "next_action": "Review the PostgreSQL 18 schema, SN/device_code identity, insert-preview, and dry-run boundaries before enabling any separate database import step.",
       "physical_meaning": "Checks database schema and insert-preview semantics without connecting to PostgreSQL or importing data; this keeps database readiness separate from formal archive release.",
+      "release_gate": false,
+      "blocks_release": false,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "formal_database_import_preflight",
+      "title": "PostgreSQL 18 formal database import preflight",
+      "status": "review_required",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+      "source_status": "review_required",
+      "reason": "source_status=review_required; review_required_count=1; dsn_configured=False",
+      "next_action": "Review DSN configuration, migration lock, archive-release dependency, and explicit import authorization before running any separate production database import.",
+      "physical_meaning": "Checks that a production database import could be reviewed without opening PostgreSQL, applying migrations, or importing rows; this separates preflight evidence from real import execution.",
       "release_gate": false,
       "blocks_release": false,
       "blocks_physical_flow": false
@@ -218,6 +232,14 @@
       "next_action": "Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.",
       "blocks_release": true,
       "blocks_physical_flow": true
+    },
+    {
+      "gate_id": "formal_database_import_preflight",
+      "status": "review_required",
+      "reason": "source_status=review_required; review_required_count=1; dsn_configured=False",
+      "next_action": "Review DSN configuration, migration lock, archive-release dependency, and explicit import authorization before running any separate production database import.",
+      "blocks_release": false,
+      "blocks_physical_flow": false
     },
     {
       "gate_id": "co2_open_flow_mature_queue",

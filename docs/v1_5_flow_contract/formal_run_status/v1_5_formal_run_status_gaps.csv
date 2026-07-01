@@ -3,6 +3,7 @@ initialization_readiness,missing,initialization readiness sidecar missing,Genera
 identity_getco_sn_traceability,missing,identity/GETCO readiness sidecar missing,Refresh read-only GETCO/SN identity evidence or resolve traceability review before release.,True,True
 pre_gas_readiness,missing,pre-gas readiness sidecar missing,Close pre-gas gaps before starting mature CO2/H2O open-flow queues.,True,True
 pressure_senco9_pre_open_flow,review_required,pressure_quick_check=missing,Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.,True,True
+formal_database_import_preflight,review_required,source_status=review_required; review_required_count=1; dsn_configured=False,"Review DSN configuration, migration lock, archive-release dependency, and explicit import authorization before running any separate production database import.",False,False
 co2_open_flow_mature_queue,review_required,co2_open_flow=missing,Run or register the mature V1.5 CO2 open-flow queue evidence.,True,False
 h2o_open_flow_mature_queue,review_required,h2o_open_flow=missing,Run or register the mature V1.5 H2O open-flow queue evidence.,True,False
 candidate_fit_review,review_required,candidate_review=partial,Run no-write candidate fitting/QC review before any controlled write package.,True,False

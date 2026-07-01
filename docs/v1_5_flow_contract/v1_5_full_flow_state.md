@@ -2,7 +2,7 @@
 
 - run_id: `v1_5_contract_reference`
 - current_step_id: `load_plan_and_traceability`
-- current_status: `waiting_for_inputs`
+- current_status: `ready`
 - allow_real_com: `False`
 - allow_pressure_control: `False`
 - allow_route_control: `False`
@@ -12,7 +12,7 @@
 
 | Step | Status | Can execute | Reason |
 | --- | --- | --- | --- |
-| `load_plan_and_traceability` | `waiting_for_inputs` | `False` | command_contains_review_placeholder_inputs |
+| `load_plan_and_traceability` | `ready` | `True` | ready_for_manual_or_supervised_execution |
 | `formal_initialization_contract_plan` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `initialization_readiness_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `pre_gas_readiness_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
@@ -35,6 +35,7 @@
 | `post_write_reverification_placeholder` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `formal_evidence_sidecar` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `formal_database_dry_run_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
+| `formal_database_import_preflight_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `database_import` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `zh_calibration_reports` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `final_evidence_status_refresh` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |

@@ -1,7 +1,7 @@
 {
   "schema": "v1_5_operation_console_v1",
   "schema_version": "v1_5_operation_console_v1",
-  "generated_at": "2026-07-01T22:12:03.561984+00:00",
+  "generated_at": "2026-07-01T23:29:47.335081+00:00",
   "run_id": "unknown",
   "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "role": "operator",
@@ -104,14 +104,14 @@
     "tone": "info",
     "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.json",
     "schema": "v1_5_full_flow_stage_manifest_v1",
-    "stage_count": 28,
+    "stage_count": 29,
     "current_manifest_stage": "load_plan_and_traceability",
     "one_button_live_runner_ready": false,
     "status_counts": {
       "authorization_required": 5,
       "blocked_controlled_gate": 2,
       "pass": 3,
-      "waiting_for_artifacts": 18
+      "waiting_for_artifacts": 19
     },
     "detail": "current=load_plan_and_traceability; one_button_live_runner_ready=False",
     "attention_rows": [

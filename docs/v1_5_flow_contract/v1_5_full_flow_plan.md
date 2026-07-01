@@ -45,7 +45,7 @@
 - physical_meaning: Freeze traceability inputs before any physical sampling.
 
 ```powershell
-python -m gas_calibrator.tools.prepare_v1_5_formal_run_package --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_run_package --operator "<operator>" --analyzer-id multi_device --run-id v1_5_contract_reference --config D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\configs\default_config.json
+python -m gas_calibrator.tools.prepare_v1_5_formal_run_package --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_run_package --operator V1.5-contract-refresh --analyzer-id multi_device --run-id v1_5_contract_reference --config D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\configs\default_config.json
 ```
 
 ### 2. Generate formal initialization contract and DB bundle
@@ -62,7 +62,7 @@ python -m gas_calibrator.tools.prepare_v1_5_formal_run_package --output-dir D:\g
 - physical_meaning: Before any real analyzer contact, freeze the V1.5 initialization contract: SN/device_code identity, PostgreSQL 18 DB preflight, MODE2/1Hz/filter setup, S7/S8 neutral policy, CHECK monitor timing, and route-readiness gates. This planner command does not execute SN writes, COM reads, SENCO writes, pressure control, or open-flow routes.
 
 ```powershell
-python -m gas_calibrator.tools.run_v1_5_formal_initialization_runner --config D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\configs\default_config.json --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_initialization --run-id v1_5_contract_reference_initialization --operator "<operator>"
+python -m gas_calibrator.tools.run_v1_5_formal_initialization_runner --config D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\configs\default_config.json --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_initialization --run-id v1_5_contract_reference_initialization --operator V1.5-contract-refresh
 ```
 
 - note: Do not pass --execute from the full-flow supervised planner.
@@ -465,7 +465,27 @@ python -m gas_calibrator.tools.export_v1_5_formal_database_dry_run --output-dir 
 - note: This dry-run never connects PostgreSQL and never imports production data.
 - note: A passing database dry-run is schema/insert-preview evidence only; archive release and database import remain separate gates.
 
-### 24. Import evidence bundle into V1.5 PostgreSQL registry
+### 24. Review PostgreSQL 18 import preflight without connecting
+
+- step_id: `formal_database_import_preflight_snapshot`
+- phase: `FORMAL_DATABASE_IMPORT_PREFLIGHT`
+- execution_mode: `offline_sidecar`
+- gate: `required_before_database_import_execution`
+- opens_com_ports: `False`
+- controls_gas_route: `False`
+- controls_water_route: `False`
+- writes_coefficients: `False`
+- coefficient_epoch_event: `none`
+- physical_meaning: Before a real production import, confirm the dry-run contract, DSN presence/fingerprint, migration lock, and explicit authorization boundary without opening a database connection.
+
+```powershell
+python -m gas_calibrator.tools.export_v1_5_formal_database_import_preflight --formal-database-dry-run-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_dry_run\v1_5_formal_database_dry_run.json --dsn-env V1_5_POSTGRES_DSN --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_preflight --fail-on-blocker
+```
+
+- note: This preflight never connects PostgreSQL, applies migrations, or imports rows.
+- note: A passing import preflight is still not database import authorization; archive release and operator authorization remain separate.
+
+### 25. Import evidence bundle into V1.5 PostgreSQL registry
 
 - step_id: `database_import`
 - phase: `DATABASE_IMPORT`
@@ -482,7 +502,7 @@ python -m gas_calibrator.tools.export_v1_5_formal_database_dry_run --output-dir 
 python -m gas_calibrator.tools.import_v1_5_evidence_package --run-dir "<completed_v1_5_run_dir>"
 ```
 
-### 25. Generate Chinese V1.5 calibration reports
+### 26. Generate Chinese V1.5 calibration reports
 
 - step_id: `zh_calibration_reports`
 - phase: `REPORTS`
@@ -502,7 +522,7 @@ python -m gas_calibrator.tools.export_v1_5_calibration_reports --evidence-bundle
 - note: H2O queue abort/exclusion evidence remains diagnostic-only and blocks affected rows from formal fit/acceptance.
 - note: This report exporter does not open COM ports, control routes, or write coefficients.
 
-### 26. Refresh final V1.5 evidence status after reports and per-device certificates
+### 27. Refresh final V1.5 evidence status after reports and per-device certificates
 
 - step_id: `final_evidence_status_refresh`
 - phase: `FINAL_EVIDENCE_STATUS`
@@ -519,7 +539,7 @@ python -m gas_calibrator.tools.export_v1_5_calibration_reports --evidence-bundle
 python -m gas_calibrator.tools.export_v1_5_run_evidence_status --run-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract --full-flow-plan-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\v1_5_full_flow_plan.json --contract-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\v1_5_formal_flow_contract.json --evidence-bundle-json "<completed_v1_5_run_dir>\formal_evidence_sidecar\evidence_bundle.json"
 ```
 
-### 27. Generate new-algorithm profile runner dry-run bundle
+### 28. Generate new-algorithm profile runner dry-run bundle
 
 - step_id: `algorithm_profile_runner_dry_run_snapshot`
 - phase: `ALGORITHM_PROFILE_RUNNER_DRY_RUN`
@@ -539,7 +559,7 @@ python -m gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run --pr
 - note: This bundle does not open COM, connect PostgreSQL, control gas/water routes, write SN/device IDs, write coefficients, or modify mature runners.
 - note: A passing dry-run bundle does not authorize live runner wiring or real acceptance.
 
-### 28. Export top-level formal run status dashboard
+### 29. Export top-level formal run status dashboard
 
 - step_id: `formal_run_status_snapshot`
 - phase: `FORMAL_RUN_STATUS`
@@ -553,7 +573,7 @@ python -m gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run --pr
 - physical_meaning: After evidence status and closure sidecars are refreshed, this dashboard answers the production question directly: current stage, next action, whether physical flow can continue, and whether formal archive/database release is allowed.
 
 ```powershell
-python -m gas_calibrator.tools.export_v1_5_formal_run_status --run-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_run_status --initialization-readiness-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_initialization\v1_5_initialization_readiness.json --pre-gas-readiness-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\pre_gas_readiness\v1_5_pre_gas_readiness.json --getco-readiness-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\identity_getco_readiness\v1_5_getco_identity_readiness.json --run-evidence-status-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\v1_5_run_evidence_status.json --full-flow-closure-readiness-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\full_flow_closure_readiness\v1_5_full_flow_closure_readiness.json --archive-closure-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_archive_closure_from_full_chain\v1_5_formal_archive_closure_index.json --algorithm-profile-runner-dry-run-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\algorithm_profile_runner_dry_run\v1_5_algorithm_profile_runner_dry_run.json --formal-database-dry-run-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_dry_run\v1_5_formal_database_dry_run.json
+python -m gas_calibrator.tools.export_v1_5_formal_run_status --run-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract --output-dir D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_run_status --initialization-readiness-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_initialization\v1_5_initialization_readiness.json --pre-gas-readiness-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\pre_gas_readiness\v1_5_pre_gas_readiness.json --getco-readiness-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\identity_getco_readiness\v1_5_getco_identity_readiness.json --run-evidence-status-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\v1_5_run_evidence_status.json --full-flow-closure-readiness-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\full_flow_closure_readiness\v1_5_full_flow_closure_readiness.json --archive-closure-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_archive_closure_from_full_chain\v1_5_formal_archive_closure_index.json --algorithm-profile-runner-dry-run-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\algorithm_profile_runner_dry_run\v1_5_algorithm_profile_runner_dry_run.json --formal-database-dry-run-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_dry_run\v1_5_formal_database_dry_run.json --formal-database-import-preflight-json D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_preflight\v1_5_formal_database_import_preflight.json
 ```
 
 - note: This exporter reads sidecars only; it does not open COM, connect PostgreSQL, control routes, or write coefficients.
