@@ -625,8 +625,12 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
             plan,
             domain="initialization_contract",
             status="ready_offline_supervised",
-            reason="formal initialization contract, PostgreSQL 18 sidecar, and readiness snapshot can be generated offline before live identity gates",
-            stage_ids=("formal_initialization_contract_plan", "initialization_readiness_snapshot"),
+            reason="formal initialization contract, PostgreSQL 18 sidecar, readiness snapshot, and pre-gas gap list can be generated offline before live identity gates",
+            stage_ids=(
+                "formal_initialization_contract_plan",
+                "initialization_readiness_snapshot",
+                "pre_gas_readiness_snapshot",
+            ),
             physical_risk="none during generation; missing live GETCO/SENCO/CHECK evidence remains a gate rather than being repaired automatically",
             next_action="review the generated initialization plan, then run only the dedicated V1.5 identity/SN/auxiliary tools that have explicit authorization",
         ),
@@ -946,6 +950,7 @@ def build_full_flow_plan(
     rid = run_id or f"v1_5_full_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     formal_pkg = root / "formal_run_package"
     formal_initialization_dir = root / "formal_initialization"
+    pre_gas_readiness_dir = root / "pre_gas_readiness"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     aux_neutral_dir = root / "auxiliary_senco56789_neutralization"
     pressure_dir = root / "pressure_channel"
@@ -1073,6 +1078,52 @@ def build_full_flow_plan(
             notes=(
                 "This readiness exporter reads files only; it does not open COM or connect to PostgreSQL.",
                 "PostgreSQL 18 and SN/device_code identity remain pre-open-flow requirements, not implicit repairs.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="pre_gas_readiness_snapshot",
+            title="Summarize pre-gas readiness gates before live identity",
+            phase="PRE_GAS_READINESS",
+            tool_module="gas_calibrator.tools.export_v1_5_pre_gas_readiness",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_pre_gas_readiness",
+                "--run-dir",
+                root,
+                "--initialization-dir",
+                formal_initialization_dir,
+                "--config",
+                cfg,
+                "--initialization-readiness-json",
+                formal_initialization_dir / "v1_5_initialization_readiness.json",
+                "--database-sidecar-json",
+                formal_initialization_dir / "v1_5_initialization_database_sidecar.json",
+                "--output-dir",
+                pre_gas_readiness_dir,
+            ),
+            required_inputs=(
+                "formal initialization contract plan",
+                "initialization readiness sidecar",
+                "PostgreSQL 18/SN/device_code/CHECK/S7-S8/S9 contracts",
+            ),
+            expected_outputs=(
+                "pre_gas_readiness/v1_5_pre_gas_readiness.json",
+                "pre_gas_readiness/v1_5_pre_gas_readiness.md",
+                "pre_gas_readiness/v1_5_pre_gas_readiness_checks.csv",
+            ),
+            physical_meaning=(
+                "Before any live identity or open-flow action, collapse initialization readiness into a single "
+                "pre-gas gap list: SN/device_code, PostgreSQL 18, MODE2/1Hz, GETCO epoch 0, S7/S8 neutral, "
+                "SENCO9 pressure completion, route readiness, and CHECK timing. This is only a sidecar; "
+                "pending live gates are not treated as release evidence."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_identity_getco_snapshot",
+            notes=(
+                "This sidecar does not open COM, connect PostgreSQL, control PACE/valves, or write coefficients.",
+                "CO2/H2O route control remains only in the mature V1.5 queue runners.",
             ),
         )
     )
@@ -1877,7 +1928,7 @@ def build_full_flow_plan(
             "identity_key": "analyzer_device_id_not_com_port_or_ga_alias",
         },
         physical_order=(
-            "formal_initialization_contract_and_readiness_sidecar",
+            "formal_initialization_contract_readiness_and_pre_gas_sidecar",
             "device_identity_and_GETCO_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",
             "pressure_quick_check_then_SENCO9_no_write_acquisition_if_needed",
