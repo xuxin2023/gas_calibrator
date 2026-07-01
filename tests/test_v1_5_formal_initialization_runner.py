@@ -174,6 +174,7 @@ def test_formal_initialization_records_s7_s8_and_s9_physical_policies(tmp_path):
     assert "PostgreSQL 18" in plan.physical_contract["database_identity_lookup"]
     assert "--require-postgresql-18" in plan.physical_contract["database_preflight_before_routes"]
     assert "CHECK,YGAS,FFF" in plan.physical_contract["check_monitor_after_chamber_temp_stable"]
+    assert "--execute-controlled-writes" in plan.physical_contract["device_control_authorization"]
     assert "must_be_neutralized" in plan.physical_contract["s7_s8_old_coefficient_handling"]
     assert "neutralization" in plan.physical_contract["s7_s8_subzero_failure_guard"]
 
@@ -274,8 +275,10 @@ def test_formal_initialization_writer_outputs_reviewable_artifacts(tmp_path):
     assert "--execute" not in ps1
     assert "I_AUTHORIZE_V1_5_SN_IDENTITY_WRITE" not in ps1
     assert "probe_v1_5_getco_component_snapshot" in ps1
-    assert "# CONTROLLED WRITE GATE" in ps1
+    assert "# PRODUCTION DEVICE WRITE" in ps1
     assert "# python -m gas_calibrator.tools.run_v1_5_co2_senco5_neutral_controlled_write" in ps1
+    assert "production_operator" in ps1
+    assert "v1_5_device_control_authorized" in ps1
     assert "run_v1_5_temperature_senco78_neutral_controlled_write" in ps1
     assert "WRITE_SENCO78_NEUTRAL_V1_5_TEMPERATURE_INPUTS" in ps1
     assert "run_v1_5_temperature_current_point_review" not in ps1
@@ -557,9 +560,9 @@ def test_formal_initialization_executor_read_only_unlock_does_not_run_writers(tm
     assert by_step["senco78_neutralization_gate"].reason == "skipped_controlled_write_locked"
 
 
-def test_formal_initialization_executor_blocks_writes_without_reviewer_approver(tmp_path):
+def test_formal_initialization_executor_runs_device_writes_with_operator_authorization_labels(tmp_path):
     config = _write_config(tmp_path / "runtime.json")
-    out = tmp_path / "exec_blocked"
+    out = tmp_path / "exec_authorized_labels"
     plan = build_formal_initialization_plan(config_path=config, output_dir=out, run_id="demo")
     outputs = write_formal_initialization_plan(plan)
     calls = []
@@ -576,16 +579,19 @@ def test_formal_initialization_executor_blocks_writes_without_reviewer_approver(
         command_runner=fake_runner,
     )
 
-    assert report.status == "blocked"
-    assert len(calls) == 2
+    assert report.status == "passed"
+    assert len(calls) == 9
     joined = [" ".join(command) for command in calls]
     assert "run_v1_5_sn_identity_initialization" in joined[0]
     assert "probe_v1_5_getco_component_snapshot" in joined[1]
+    assert any("run_v1_5_co2_senco5_neutral_controlled_write" in command for command in joined)
+    assert any("--reviewer production_operator" in command for command in joined)
+    assert any("--approver v1_5_device_control_authorized" in command for command in joined)
     by_step = {row.step_id: row for row in report.step_results}
     assert by_step["sn_identity_initialization_plan"].status == "passed"
     assert by_step["identity_and_getco_epoch0_snapshot"].status == "passed"
-    assert by_step["senco5_neutralization_gate"].status == "blocked"
-    assert by_step["senco5_neutralization_gate"].reason == "blocked_missing_reviewer_or_approver"
+    assert by_step["senco5_neutralization_gate"].status == "passed"
+    assert by_step["senco78_neutralization_gate"].status == "passed"
 
 
 def test_formal_initialization_executor_runs_controlled_writes_when_approved(tmp_path):
