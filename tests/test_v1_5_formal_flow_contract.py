@@ -33,6 +33,10 @@ def _inventory_for_plan():
                 "category": "formal_review_evidence",
             },
             {
+                "path": "src/gas_calibrator/tools/export_v1_5_pre_gas_readiness.py",
+                "category": "formal_review_evidence",
+            },
+            {
                 "path": "src/gas_calibrator/tools/probe_v1_5_getco_component_snapshot.py",
                 "category": "formal_review_evidence",
             },
@@ -98,8 +102,12 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
         "initialization_readiness_snapshot"
     )
     assert report.step_sequence.index("initialization_readiness_snapshot") < report.step_sequence.index(
+        "pre_gas_readiness_snapshot"
+    )
+    assert report.step_sequence.index("pre_gas_readiness_snapshot") < report.step_sequence.index(
         "device_identity_and_getco_snapshot"
     )
+    assert "PRE_GAS_READINESS" in "\n".join(report.physical_flow)
     assert report.step_sequence.index("pressure_senco9_no_write_acquisition") < report.step_sequence.index(
         "pressure_senco9_no_write_review"
     )

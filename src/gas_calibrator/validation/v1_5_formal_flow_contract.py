@@ -20,6 +20,7 @@ REQUIRED_STEP_IDS = (
     "load_plan_and_traceability",
     "formal_initialization_contract_plan",
     "initialization_readiness_snapshot",
+    "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
     "auxiliary_senco56789_neutralization_gate",
     "pressure_quick_check",
@@ -42,6 +43,7 @@ REQUIRED_ORDER = (
     "load_plan_and_traceability",
     "formal_initialization_contract_plan",
     "initialization_readiness_snapshot",
+    "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
     "auxiliary_senco56789_neutralization_gate",
     "pressure_quick_check",
@@ -86,6 +88,7 @@ FORMAL_H2O_FORBIDDEN_FLAGS = {
 FORMAL_PHYSICAL_FLOW = (
     "LOAD_PLAN: freeze plan, certificates, config hash, and run identity",
     "INITIALIZATION_CONTRACT: generate the formal initialization plan, PostgreSQL 18 sidecar, and readiness snapshot without COM or writes",
+    "PRE_GAS_READINESS: summarize SN/device_code, PostgreSQL 18, MODE2/1Hz, GETCO, S7/S8, S9, route, and CHECK gates before live identity",
     "PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9",
     "AUX_NEUTRALIZE: after immutable GETCO backup, neutralize SENCO5/6/7/8/9 through controlled tools",
     "PRESSURE: verify analyzer P against COM22 before component calibration",
