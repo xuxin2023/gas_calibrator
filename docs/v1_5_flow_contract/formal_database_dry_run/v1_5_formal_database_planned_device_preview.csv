@@ -1,3 +1,1 @@
 ﻿slot,sn_code,device_code,protocol_device_id,port,status,reasons,identity_query_paths,transport_identity_role
-GA01,01260601,01260601,047,,ready,,sn_code;device_code;protocol_device_id_alias,port_is_transport_only
-GA02,01260602,01260602,054,,ready,,sn_code;device_code;protocol_device_id_alias,port_is_transport_only

@@ -130,3 +130,15 @@ def test_formal_database_dry_run_writer_and_cli(tmp_path: Path) -> None:
     )
     assert rc == 0
     assert (cli_out / "v1_5_formal_database_dry_run.json").exists()
+
+
+def test_formal_database_dry_run_empty_planned_device_csv_keeps_headers(tmp_path: Path) -> None:
+    model = build_v1_5_formal_database_dry_run_contract()
+    outputs = write_v1_5_formal_database_dry_run_outputs(model, tmp_path / "db_dry_run")
+
+    planned_text = outputs["planned_device_preview_csv"].read_text(encoding="utf-8-sig")
+
+    assert model["planned_device_preview"] == []
+    assert planned_text.splitlines() == [
+        "slot,sn_code,device_code,protocol_device_id,port,status,reasons,identity_query_paths,transport_identity_role"
+    ]

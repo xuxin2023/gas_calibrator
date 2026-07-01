@@ -396,6 +396,71 @@ def _algorithm_profile_runner_dry_run_gate(path: Path, payload: Mapping[str, Any
     )
 
 
+def _formal_database_dry_run_gate(path: Path, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    blocker_count = int(payload.get("blocker_count") or 0)
+    backend_ok = (
+        payload.get("production_backend") == "postgresql"
+        and payload.get("production_postgresql_major") == 18
+    )
+    identity_ok = payload.get("primary_identity") == "sn_code/device_code"
+    boundary_ok = (
+        payload.get("opens_com_ports") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("database_written") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("formal_release_allowed") is False
+    )
+    if (
+        source_status == "ready_for_postgresql18_schema_dry_run_review"
+        and blocker_count == 0
+        and backend_ok
+        and identity_ok
+        and boundary_ok
+    ):
+        status = READY
+        reason = "PostgreSQL 18 schema/insert dry-run is ready while real import remains unauthorized"
+    else:
+        status = REVIEW_REQUIRED
+        reasons: list[str] = []
+        if source_status != "ready_for_postgresql18_schema_dry_run_review":
+            reasons.append(f"source_status={source_status or 'missing'}")
+        if blocker_count:
+            reasons.append(f"blocker_count={blocker_count}")
+        if not backend_ok:
+            reasons.append(
+                f"backend={payload.get('production_backend')}/{payload.get('production_postgresql_major')}"
+            )
+        if not identity_ok:
+            reasons.append(f"primary_identity={payload.get('primary_identity') or 'missing'}")
+        if not boundary_ok:
+            reasons.append("dry_run_boundary_not_clean")
+        reason = "; ".join(reasons) or "PostgreSQL 18 database dry-run contract requires review"
+    return _gate(
+        gate_id="formal_database_dry_run",
+        title="PostgreSQL 18 formal database dry-run contract",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Review the PostgreSQL 18 schema, SN/device_code identity, insert-preview, and dry-run boundaries "
+            "before enabling any separate database import step."
+        ),
+        physical_meaning=(
+            "Checks database schema and insert-preview semantics without connecting to PostgreSQL or importing data; "
+            "this keeps database readiness separate from formal archive release."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
 def _gap_rows(gates: Iterable[FormalRunGate]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for gate in gates:
@@ -424,6 +489,7 @@ def build_v1_5_formal_run_status(
     full_flow_closure_readiness_json: str | Path | None = None,
     archive_closure_json: str | Path | None = None,
     algorithm_profile_runner_dry_run_json: str | Path | None = None,
+    formal_database_dry_run_json: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return a top-level formal V1.5 status rollup from existing sidecars."""
 
@@ -439,6 +505,11 @@ def build_v1_5_formal_run_status(
         algorithm_profile_runner_dry_run_json,
         "v1_5_algorithm_profile_runner_dry_run.json",
     )
+    formal_database_dry_run_path = _explicit_or_latest(
+        root,
+        formal_database_dry_run_json,
+        "v1_5_formal_database_dry_run.json",
+    )
 
     init_payload = _load_json(init_path)
     pre_gas_payload = _load_json(pre_gas_path)
@@ -447,6 +518,7 @@ def build_v1_5_formal_run_status(
     closure_payload = _load_json(closure_path)
     archive_payload = _load_json(archive_path)
     algorithm_profile_runner_payload = _load_json(algorithm_profile_runner_path)
+    formal_database_dry_run_payload = _load_json(formal_database_dry_run_path)
 
     gates = [
         _initialization_gate(init_path, init_payload),
@@ -469,6 +541,13 @@ def build_v1_5_formal_run_status(
             _algorithm_profile_runner_dry_run_gate(
                 algorithm_profile_runner_path,
                 algorithm_profile_runner_payload,
+            )
+        )
+    if formal_database_dry_run_path and formal_database_dry_run_payload:
+        gates.append(
+            _formal_database_dry_run_gate(
+                formal_database_dry_run_path,
+                formal_database_dry_run_payload,
             )
         )
     gates.extend(
@@ -537,7 +616,9 @@ def build_v1_5_formal_run_status(
     current_gate = next((gate for gate in gates if gate.status in NON_READY_STATUSES), None)
     archive_gate = gates[-1]
     formal_release_allowed = not release_blockers and archive_gate.status == READY
-    database_import_allowed = formal_release_allowed
+    database_gate = next((gate for gate in gates if gate.gate_id == "formal_database_dry_run"), None)
+    database_dry_run_ready = database_gate is None or database_gate.status == READY
+    database_import_allowed = formal_release_allowed and database_dry_run_ready
     if any(gate.status == BLOCKED for gate in gates):
         overall_status = "blocked"
     elif any(gate.status == REVIEW_REQUIRED for gate in gates):
@@ -578,6 +659,9 @@ def build_v1_5_formal_run_status(
             "archive_closure_json": str(archive_path) if archive_path else "",
             "algorithm_profile_runner_dry_run_json": str(algorithm_profile_runner_path)
             if algorithm_profile_runner_path
+            else "",
+            "formal_database_dry_run_json": str(formal_database_dry_run_path)
+            if formal_database_dry_run_path
             else "",
         },
         "gates": [gate.to_json() for gate in gates],

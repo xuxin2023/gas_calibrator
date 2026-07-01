@@ -1,6 +1,6 @@
 ﻿{
   "schema": "v1_5_formal_database_dry_run_contract_v1",
-  "generated_at": "2026-07-02T00:21:05",
+  "generated_at": "2026-07-02T06:12:03",
   "overall_status": "ready_for_postgresql18_schema_dry_run_review",
   "blocker_count": 0,
   "review_required_count": 0,
@@ -290,30 +290,7 @@
       "role": "transport mapping only; not a device identity"
     }
   ],
-  "planned_device_preview": [
-    {
-      "slot": "GA01",
-      "sn_code": "01260601",
-      "device_code": "01260601",
-      "protocol_device_id": "047",
-      "port": "",
-      "status": "ready",
-      "reasons": "",
-      "identity_query_paths": "sn_code;device_code;protocol_device_id_alias",
-      "transport_identity_role": "port_is_transport_only"
-    },
-    {
-      "slot": "GA02",
-      "sn_code": "01260602",
-      "device_code": "01260602",
-      "protocol_device_id": "054",
-      "port": "",
-      "status": "ready",
-      "reasons": "",
-      "identity_query_paths": "sn_code;device_code;protocol_device_id_alias",
-      "transport_identity_role": "port_is_transport_only"
-    }
-  ],
+  "planned_device_preview": [],
   "insert_preview": [
     {
       "stage": "initialization_identity",
@@ -432,7 +409,7 @@
       "next_action": "Do not import production evidence until identity uniqueness and alias lookup are explicit.",
       "details": {
         "identity_contract_rows": 5,
-        "planned_device_count": 2
+        "planned_device_count": 0
       }
     },
     {
@@ -443,7 +420,7 @@
       "physical_meaning": "Optional 1-6 analyzer preview catches duplicate or malformed SN/device_code/protocol ID before import.",
       "next_action": "Fix planned device identity rows before generating a production DB insert preview.",
       "details": {
-        "planned_device_count": 2,
+        "planned_device_count": 0,
         "supports_active_device_count": "1_to_6"
       }
     },

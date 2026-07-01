@@ -81,6 +81,18 @@
 - blocks_physical_flow: `False`
 - physical_meaning: Records that the new-algorithm profile can generate CO2 47 / H2O 14 runlist evidence and dry-run mature-queue handoff plans without executing queues or modifying mature runners.
 
+### formal_database_dry_run
+
+- title: PostgreSQL 18 formal database dry-run contract
+- status: `ready`
+- source_status: `ready_for_postgresql18_schema_dry_run_review`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_dry_run\v1_5_formal_database_dry_run.json`
+- reason: PostgreSQL 18 schema/insert dry-run is ready while real import remains unauthorized
+- next_action: Review the PostgreSQL 18 schema, SN/device_code identity, insert-preview, and dry-run boundaries before enabling any separate database import step.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Checks database schema and insert-preview semantics without connecting to PostgreSQL or importing data; this keeps database readiness separate from formal archive release.
+
 ### co2_open_flow_mature_queue
 
 - title: CO2 mature open-flow queue

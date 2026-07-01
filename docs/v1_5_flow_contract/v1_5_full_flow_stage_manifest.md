@@ -25,7 +25,7 @@
 | `dedicated_open_flow_runner_requires_authorization` | 2 |
 | `dedicated_pressure_runner_requires_authorization` | 2 |
 | `offline_database_requires_dsn` | 1 |
-| `offline_review_auto_candidate` | 8 |
+| `offline_review_auto_candidate` | 9 |
 | `offline_review_waiting_for_run_artifacts` | 11 |
 | `read_only_real_com_requires_authorization` | 1 |
 
@@ -55,11 +55,12 @@
 | 20 | `CONTROLLED_WRITE` | `controlled_component_write_placeholder` | `blocked_controlled_write` | `never_auto_execute_from_full_flow_planner` | `manual/placeholder` |
 | 21 | `POST_WRITE_REVERIFY` | `post_write_reverification_placeholder` | `offline_review_waiting_for_run_artifacts` | `required_after_controlled_write_before_final_archive` | `gas_calibrator.tools.export_v1_5_post_write_reverification` |
 | 22 | `EVIDENCE_BUNDLE` | `formal_evidence_sidecar` | `offline_review_waiting_for_run_artifacts` | `required_before_report_and_database_import` | `gas_calibrator.tools.run_v1_5_formal_evidence_sidecar` |
-| 23 | `DATABASE_IMPORT` | `database_import` | `offline_database_requires_dsn` | `required_for_formal_archive` | `gas_calibrator.tools.import_v1_5_evidence_package` |
-| 24 | `REPORTS` | `zh_calibration_reports` | `offline_review_waiting_for_run_artifacts` | `final_deliverable` | `gas_calibrator.tools.export_v1_5_calibration_reports` |
-| 25 | `FINAL_EVIDENCE_STATUS` | `final_evidence_status_refresh` | `offline_review_waiting_for_run_artifacts` | `required_after_reports_for_archive_closure` | `gas_calibrator.tools.export_v1_5_run_evidence_status` |
-| 26 | `ALGORITHM_PROFILE_RUNNER_DRY_RUN` | `algorithm_profile_runner_dry_run_snapshot` | `offline_review_auto_candidate` | `optional_new_algorithm_runner_preflight_before_status_rollup` | `gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run` |
-| 27 | `FORMAL_RUN_STATUS` | `formal_run_status_snapshot` | `offline_review_auto_candidate` | `final_reviewer_status_overview` | `gas_calibrator.tools.export_v1_5_formal_run_status` |
+| 23 | `FORMAL_DATABASE_DRY_RUN` | `formal_database_dry_run_snapshot` | `offline_review_auto_candidate` | `required_before_database_import_authorization` | `gas_calibrator.tools.export_v1_5_formal_database_dry_run` |
+| 24 | `DATABASE_IMPORT` | `database_import` | `offline_database_requires_dsn` | `required_for_formal_archive` | `gas_calibrator.tools.import_v1_5_evidence_package` |
+| 25 | `REPORTS` | `zh_calibration_reports` | `offline_review_waiting_for_run_artifacts` | `final_deliverable` | `gas_calibrator.tools.export_v1_5_calibration_reports` |
+| 26 | `FINAL_EVIDENCE_STATUS` | `final_evidence_status_refresh` | `offline_review_waiting_for_run_artifacts` | `required_after_reports_for_archive_closure` | `gas_calibrator.tools.export_v1_5_run_evidence_status` |
+| 27 | `ALGORITHM_PROFILE_RUNNER_DRY_RUN` | `algorithm_profile_runner_dry_run_snapshot` | `offline_review_auto_candidate` | `optional_new_algorithm_runner_preflight_before_status_rollup` | `gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run` |
+| 28 | `FORMAL_RUN_STATUS` | `formal_run_status_snapshot` | `offline_review_auto_candidate` | `final_reviewer_status_overview` | `gas_calibrator.tools.export_v1_5_formal_run_status` |
 
 ## Live And Write Gates
 
@@ -337,7 +338,21 @@ Required inputs:
 Expected outputs:
 - formal_evidence_sidecar/evidence_bundle.json
 
-### 23. `database_import`
+### 23. `formal_database_dry_run_snapshot`
+
+Required inputs:
+- V1.5 core storage schema
+- V1.5 evidence registry schema
+- SN/device_code identity contract
+- formal evidence sidecar or reviewed insert-preview inputs
+
+Expected outputs:
+- formal_database_dry_run/v1_5_formal_database_dry_run.json
+- formal_database_dry_run/V1_5_FORMAL_DATABASE_DRY_RUN.md
+- formal_database_dry_run/v1_5_formal_database_dry_run_checks.csv
+- formal_database_dry_run/v1_5_formal_database_insert_preview.csv
+
+### 24. `database_import`
 
 Required inputs:
 - V1.5 evidence DSN
@@ -346,7 +361,7 @@ Required inputs:
 Expected outputs:
 - database_imported=true summary
 
-### 24. `zh_calibration_reports`
+### 25. `zh_calibration_reports`
 
 Required inputs:
 - evidence_bundle.json
@@ -359,7 +374,7 @@ Expected outputs:
 - per_device_certificate_manifest.json
 - per_device_certificate_artifact_hashes.csv
 
-### 25. `final_evidence_status_refresh`
+### 26. `final_evidence_status_refresh`
 
 Required inputs:
 - evidence_bundle.json
@@ -370,7 +385,7 @@ Expected outputs:
 - v1_5_run_evidence_status.json
 - v1_5_run_evidence_status.md
 
-### 26. `algorithm_profile_runner_dry_run_snapshot`
+### 27. `algorithm_profile_runner_dry_run_snapshot`
 
 Required inputs:
 - configs/v1_5_algorithm_route_profiles.json
@@ -383,7 +398,7 @@ Expected outputs:
 - algorithm_profile_runner_dry_run/algorithm_runlist_readiness/v1_5_algorithm_runlist_readiness.json
 - algorithm_profile_runner_dry_run/algorithm_runner_integration_dry_run/v1_5_algorithm_runner_integration_dry_run.json
 
-### 27. `formal_run_status_snapshot`
+### 28. `formal_run_status_snapshot`
 
 Required inputs:
 - initialization readiness sidecar
@@ -392,6 +407,7 @@ Required inputs:
 - v1_5_run_evidence_status.json
 - full-flow closure readiness or archive sidecar when available
 - optional new-algorithm profile runner dry-run bundle
+- formal PostgreSQL 18 database dry-run contract
 
 Expected outputs:
 - formal_run_status/v1_5_formal_run_status.json

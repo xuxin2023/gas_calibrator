@@ -45,6 +45,30 @@ Stdout:
 64 passed in 51.01s
 ```
 
+## Full-Flow Integration Check
+
+This additional check verifies that the PostgreSQL 18 dry-run contract is wired into the V1.5 full-flow planner and formal run-status rollup without becoming a real database import.
+
+```powershell
+python -m pytest tests\test_v1_5_full_flow_orchestration.py tests\test_v1_5_formal_flow_contract.py tests\test_v1_5_formal_run_status.py tests\test_v1_5_formal_database_dry_run.py tests\test_v1_5_entrypoint_inventory.py -q
+```
+
+Stdout:
+
+```text
+........................................................................ [ 81%]
+................                                                         [100%]
+88 passed in 22.50s
+```
+
+Coverage:
+
+- `formal_database_dry_run_snapshot` is generated after `formal_evidence_sidecar` and before `database_import`.
+- `formal_run_status_snapshot` consumes `v1_5_formal_database_dry_run.json`.
+- The formal database dry-run gate is `ready` when PostgreSQL 18, `sn_code/device_code`, and dry-run boundaries hold.
+- `connects_postgresql=false`, `database_written=false`, and `database_import_allowed=false` remain true inside the dry-run artifact.
+- The dry-run gate does not open COM, control routes, write SN/device IDs, write coefficients, or modify mature CO2/H2O runners.
+
 ## Result
 
-The V1.5 production database contract now has an offline PostgreSQL 18 schema and insert-preview guard. Passing this guard confirms schema shape and identity semantics only; it does not authorize production database import, archive release, device writes, coefficient writes, or real acceptance.
+The V1.5 production database contract now has an offline PostgreSQL 18 schema and insert-preview guard, and the full-flow planner consumes it before the separate database import stage. Passing this guard confirms schema shape and identity semantics only; it does not authorize production database import, archive release, device writes, coefficient writes, or real acceptance.
