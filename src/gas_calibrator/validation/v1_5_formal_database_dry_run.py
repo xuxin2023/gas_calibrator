@@ -102,8 +102,8 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8-sig")
 
 
-def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
-    fields: list[str] = []
+def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], *, fallback_fields: Sequence[str] = ()) -> None:
+    fields: list[str] = [str(field) for field in fallback_fields]
     for row in rows:
         for key in row:
             if key not in fields:
@@ -619,7 +619,21 @@ def write_v1_5_formal_database_dry_run_outputs(
     _write_csv(paths["registry_tables_csv"], model.get("evidence_registry_tables", []))
     _write_csv(paths["identity_contract_csv"], model.get("identity_contract", []))
     _write_csv(paths["insert_preview_csv"], model.get("insert_preview", []))
-    _write_csv(paths["planned_device_preview_csv"], model.get("planned_device_preview", []))
+    _write_csv(
+        paths["planned_device_preview_csv"],
+        model.get("planned_device_preview", []),
+        fallback_fields=(
+            "slot",
+            "sn_code",
+            "device_code",
+            "protocol_device_id",
+            "port",
+            "status",
+            "reasons",
+            "identity_query_paths",
+            "transport_identity_role",
+        ),
+    )
     lines = [
         "# V1.5 formal database dry-run contract",
         "",

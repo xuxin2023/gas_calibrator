@@ -34,6 +34,7 @@
 | `controlled_component_write_placeholder` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `post_write_reverification_placeholder` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `formal_evidence_sidecar` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
+| `formal_database_dry_run_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `database_import` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `zh_calibration_reports` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `final_evidence_status_refresh` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |

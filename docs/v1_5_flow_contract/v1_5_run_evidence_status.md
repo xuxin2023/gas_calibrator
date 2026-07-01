@@ -25,7 +25,7 @@
 Stage status counts:
 - `authorization_required`: `5`
 - `blocked_controlled_gate`: `2`
-- `pass`: `2`
+- `pass`: `3`
 - `waiting_for_artifacts`: `18`
 
 Manifest stages:
@@ -51,6 +51,7 @@ Manifest stages:
 - `controlled_component_write_placeholder`: `blocked_controlled_gate` - controlled_write_or_device_id_gate_requires_explicit_review
 - `post_write_reverification_placeholder`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `formal_evidence_sidecar`: `waiting_for_artifacts` - manifest_expected_outputs_missing
+- `formal_database_dry_run_snapshot`: `pass` - all_manifest_expected_outputs_present
 - `database_import`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `zh_calibration_reports`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `final_evidence_status_refresh`: `waiting_for_artifacts` - manifest_expected_outputs_missing
@@ -118,8 +119,8 @@ Manifest stages:
 ## Artifact Roles
 
 - `candidate_review`: `2`
-- `csv_evidence`: `25`
-- `evidence_file`: `37`
+- `csv_evidence`: `32`
+- `evidence_file`: `42`
 - `formal_run_status`: `2`
 - `formal_run_status_gaps`: `2`
 - `formal_run_status_gates`: `2`
@@ -130,4 +131,4 @@ Manifest stages:
 - `full_flow_plan`: `1`
 - `full_flow_stage_manifest`: `1`
 - `full_flow_stage_manifest_markdown`: `1`
-- `json_evidence`: `16`
+- `json_evidence`: `18`

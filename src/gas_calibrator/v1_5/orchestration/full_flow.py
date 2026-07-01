@@ -620,6 +620,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "post_run_coefficient_executor",
                 "full_flow_closure_readiness",
                 "formal_evidence_sidecar",
+                "formal_database_dry_run_snapshot",
                 "database_import",
                 "final_evidence_status_refresh",
                 "algorithm_profile_runner_dry_run_snapshot",
@@ -974,6 +975,7 @@ def build_full_flow_plan(
     reports_dir = root / "reports"
     formal_status_dir = root / "formal_run_status"
     algorithm_profile_runner_dir = root / "algorithm_profile_runner_dry_run"
+    formal_database_dry_run_dir = root / "formal_database_dry_run"
     algorithm_profile_path = repo_root / "configs" / "v1_5_algorithm_route_profiles.json"
     runtime_bound_cfg = getco_dir / "runtime_identity_bound_config.json"
 
@@ -1852,6 +1854,43 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="formal_database_dry_run_snapshot",
+            title="Preview V1.5 PostgreSQL 18 schema and insert contract",
+            phase="FORMAL_DATABASE_DRY_RUN",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_database_dry_run",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_database_dry_run",
+                "--output-dir",
+                formal_database_dry_run_dir,
+                "--fail-on-blocker",
+            ),
+            required_inputs=(
+                "V1.5 core storage schema",
+                "V1.5 evidence registry schema",
+                "SN/device_code identity contract",
+                "formal evidence sidecar or reviewed insert-preview inputs",
+            ),
+            expected_outputs=(
+                "formal_database_dry_run/v1_5_formal_database_dry_run.json",
+                "formal_database_dry_run/V1_5_FORMAL_DATABASE_DRY_RUN.md",
+                "formal_database_dry_run/v1_5_formal_database_dry_run_checks.csv",
+                "formal_database_dry_run/v1_5_formal_database_insert_preview.csv",
+            ),
+            physical_meaning=(
+                "Before any production database import, verify the PostgreSQL 18 schema, SN/device_code "
+                "primary identity, protocol ID alias, and stage-by-stage insert contract as a dry-run preview only."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_database_import_authorization",
+            notes=(
+                "This dry-run never connects PostgreSQL and never imports production data.",
+                "A passing database dry-run is schema/insert-preview evidence only; archive release and database import remain separate gates.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="database_import",
             title="Import evidence bundle into V1.5 PostgreSQL registry",
             phase="DATABASE_IMPORT",
@@ -1998,6 +2037,8 @@ def build_full_flow_plan(
                 root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
                 "--algorithm-profile-runner-dry-run-json",
                 algorithm_profile_runner_dir / "v1_5_algorithm_profile_runner_dry_run.json",
+                "--formal-database-dry-run-json",
+                formal_database_dry_run_dir / "v1_5_formal_database_dry_run.json",
             ),
             required_inputs=(
                 "initialization readiness sidecar",
@@ -2006,6 +2047,7 @@ def build_full_flow_plan(
                 "v1_5_run_evidence_status.json",
                 "full-flow closure readiness or archive sidecar when available",
                 "optional new-algorithm profile runner dry-run bundle",
+                "formal PostgreSQL 18 database dry-run contract",
             ),
             expected_outputs=(
                 "formal_run_status/v1_5_formal_run_status.json",
@@ -2085,6 +2127,7 @@ def build_full_flow_plan(
             "CO2_H2O_candidate_review",
             "controlled_write_only_after_approval",
             "post_write_reverification",
+            "formal_database_dry_run_before_database_import",
             "evidence_bundle_database_report",
             "formal_run_status_dashboard",
         ),

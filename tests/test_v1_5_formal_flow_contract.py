@@ -81,6 +81,10 @@ def _inventory_for_plan():
                 "category": "formal_review_evidence",
             },
             {
+                "path": "src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py",
+                "category": "formal_review_evidence",
+            },
+            {
                 "path": "src/gas_calibrator/tools/import_v1_5_evidence_package.py",
                 "category": "formal_review_evidence",
             },
@@ -142,9 +146,16 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert report.step_sequence.index("post_write_reverification_placeholder") < report.step_sequence.index(
         "formal_evidence_sidecar"
     )
+    assert report.step_sequence.index("formal_evidence_sidecar") < report.step_sequence.index(
+        "formal_database_dry_run_snapshot"
+    )
+    assert report.step_sequence.index("formal_database_dry_run_snapshot") < report.step_sequence.index(
+        "database_import"
+    )
     assert report.step_sequence.index("final_evidence_status_refresh") < report.step_sequence.index(
         "formal_run_status_snapshot"
     )
+    assert "FORMAL_DATABASE_DRY_RUN" in "\n".join(report.physical_flow)
     assert "FORMAL_RUN_STATUS" in "\n".join(report.physical_flow)
 
 
@@ -350,6 +361,29 @@ def test_formal_flow_contract_blocks_formal_status_that_is_not_offline(tmp_path)
     assert "formal_run_status_wrong_tool" in codes
     assert "formal_run_status_must_be_offline_no_write" in codes
     assert "formal_run_status_must_be_offline" in codes
+
+
+def test_formal_flow_contract_blocks_database_dry_run_that_is_not_offline(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("formal_database_dry_run_snapshot")
+    broken = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.import_v1_5_evidence_package",
+        execution_mode="offline_database_requires_configured_dsn",
+        opens_com_ports=True,
+        writes_coefficients=True,
+        command=tuple(part for part in steps[index].command if part != "--fail-on-blocker"),
+    )
+    steps[index] = broken
+
+    report = validate_v1_5_formal_flow_contract(replace(plan, steps=tuple(steps)), inventory_entries=_inventory_for_plan())
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "formal_database_dry_run_wrong_tool" in codes
+    assert "formal_database_dry_run_must_be_offline_no_write" in codes
+    assert "formal_database_dry_run_must_fail_on_blocker" in codes
 
 
 def test_export_formal_flow_contract_writes_json_and_markdown(tmp_path):

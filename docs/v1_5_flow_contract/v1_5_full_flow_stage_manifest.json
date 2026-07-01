@@ -2,7 +2,7 @@
   "schema": "v1_5_full_flow_stage_manifest_v1",
   "run_id": "v1_5_contract_reference",
   "contract": "pressure_first_temperature_review_then_open_flow_components",
-  "created_at": "2026-07-01T23:27:10",
+  "created_at": "2026-07-02T06:12:02",
   "current_automation_level": "supervised_tool_chain_with_controlled_live_gates",
   "one_button_live_runner_ready": false,
   "safety_summary": {
@@ -20,7 +20,7 @@
     "dedicated_open_flow_runner_requires_authorization": 2,
     "dedicated_pressure_runner_requires_authorization": 2,
     "offline_database_requires_dsn": 1,
-    "offline_review_auto_candidate": 8,
+    "offline_review_auto_candidate": 9,
     "offline_review_waiting_for_run_artifacts": 11,
     "read_only_real_com_requires_authorization": 1
   },
@@ -1677,6 +1677,78 @@
     },
     {
       "order": 23,
+      "step_id": "formal_database_dry_run_snapshot",
+      "title": "Preview V1.5 PostgreSQL 18 schema and insert contract",
+      "phase": "FORMAL_DATABASE_DRY_RUN",
+      "tool_module": "gas_calibrator.tools.export_v1_5_formal_database_dry_run",
+      "automation_state": "offline_review_auto_candidate",
+      "execution_mode": "offline_sidecar",
+      "gate": "required_before_database_import_authorization",
+      "required_inputs": [
+        "V1.5 core storage schema",
+        "V1.5 evidence registry schema",
+        "SN/device_code identity contract",
+        "formal evidence sidecar or reviewed insert-preview inputs"
+      ],
+      "expected_outputs": [
+        "formal_database_dry_run/v1_5_formal_database_dry_run.json",
+        "formal_database_dry_run/V1_5_FORMAL_DATABASE_DRY_RUN.md",
+        "formal_database_dry_run/v1_5_formal_database_dry_run_checks.csv",
+        "formal_database_dry_run/v1_5_formal_database_insert_preview.csv"
+      ],
+      "physical_meaning": "Before any production database import, verify the PostgreSQL 18 schema, SN/device_code primary identity, protocol ID alias, and stage-by-stage insert contract as a dry-run preview only.",
+      "command": [
+        "python",
+        "-m",
+        "gas_calibrator.tools.export_v1_5_formal_database_dry_run",
+        "--output-dir",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run",
+        "--fail-on-blocker"
+      ],
+      "safety_boundaries": {
+        "opens_com_ports": false,
+        "controls_pressure": false,
+        "controls_gas_route": false,
+        "controls_water_route": false,
+        "writes_coefficients": false,
+        "writes_device_id": false,
+        "may_reuse_v1_shared_core": false,
+        "uses_validated_v1_5_entry": true
+      },
+      "authorization_required": {
+        "real_com": false,
+        "pressure_control": false,
+        "route_control": false,
+        "coefficient_write": false,
+        "device_id_write": false
+      },
+      "evidence_contract": {
+        "required_inputs": [
+          "V1.5 core storage schema",
+          "V1.5 evidence registry schema",
+          "SN/device_code identity contract",
+          "formal evidence sidecar or reviewed insert-preview inputs"
+        ],
+        "expected_outputs": [
+          "formal_database_dry_run/v1_5_formal_database_dry_run.json",
+          "formal_database_dry_run/V1_5_FORMAL_DATABASE_DRY_RUN.md",
+          "formal_database_dry_run/v1_5_formal_database_dry_run_checks.csv",
+          "formal_database_dry_run/v1_5_formal_database_insert_preview.csv"
+        ],
+        "raw_frames_preserved": false,
+        "reject_reasons_required": false,
+        "readback_required": false,
+        "post_write_reverify_required": false,
+        "database_or_report_only": false
+      },
+      "coefficient_epoch_event": "none",
+      "notes": [
+        "This dry-run never connects PostgreSQL and never imports production data.",
+        "A passing database dry-run is schema/insert-preview evidence only; archive release and database import remain separate gates."
+      ]
+    },
+    {
+      "order": 24,
       "step_id": "database_import",
       "title": "Import evidence bundle into V1.5 PostgreSQL registry",
       "phase": "DATABASE_IMPORT",
@@ -1734,7 +1806,7 @@
       "notes": []
     },
     {
-      "order": 24,
+      "order": 25,
       "step_id": "zh_calibration_reports",
       "title": "Generate Chinese V1.5 calibration reports",
       "phase": "REPORTS",
@@ -1805,7 +1877,7 @@
       ]
     },
     {
-      "order": 25,
+      "order": 26,
       "step_id": "final_evidence_status_refresh",
       "title": "Refresh final V1.5 evidence status after reports and per-device certificates",
       "phase": "FINAL_EVIDENCE_STATUS",
@@ -1875,7 +1947,7 @@
       "notes": []
     },
     {
-      "order": 26,
+      "order": 27,
       "step_id": "algorithm_profile_runner_dry_run_snapshot",
       "title": "Generate new-algorithm profile runner dry-run bundle",
       "phase": "ALGORITHM_PROFILE_RUNNER_DRY_RUN",
@@ -1947,7 +2019,7 @@
       ]
     },
     {
-      "order": 27,
+      "order": 28,
       "step_id": "formal_run_status_snapshot",
       "title": "Export top-level formal run status dashboard",
       "phase": "FORMAL_RUN_STATUS",
@@ -1961,7 +2033,8 @@
         "pre-gas readiness sidecar",
         "v1_5_run_evidence_status.json",
         "full-flow closure readiness or archive sidecar when available",
-        "optional new-algorithm profile runner dry-run bundle"
+        "optional new-algorithm profile runner dry-run bundle",
+        "formal PostgreSQL 18 database dry-run contract"
       ],
       "expected_outputs": [
         "formal_run_status/v1_5_formal_run_status.json",
@@ -1991,7 +2064,9 @@
         "--archive-closure-json",
         "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
         "--algorithm-profile-runner-dry-run-json",
-        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json"
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json",
+        "--formal-database-dry-run-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json"
       ],
       "safety_boundaries": {
         "opens_com_ports": false,
@@ -2017,7 +2092,8 @@
           "pre-gas readiness sidecar",
           "v1_5_run_evidence_status.json",
           "full-flow closure readiness or archive sidecar when available",
-          "optional new-algorithm profile runner dry-run bundle"
+          "optional new-algorithm profile runner dry-run bundle",
+          "formal PostgreSQL 18 database dry-run contract"
         ],
         "expected_outputs": [
           "formal_run_status/v1_5_formal_run_status.json",

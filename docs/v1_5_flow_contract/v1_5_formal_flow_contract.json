@@ -33,6 +33,7 @@
     "CONTROLLED_WRITE",
     "POST_WRITE_REVERIFY",
     "EVIDENCE_BUNDLE",
+    "FORMAL_DATABASE_DRY_RUN",
     "DATABASE_IMPORT",
     "REPORTS",
     "FINAL_EVIDENCE_STATUS",
@@ -62,6 +63,7 @@
     "controlled_component_write_placeholder",
     "post_write_reverification_placeholder",
     "formal_evidence_sidecar",
+    "formal_database_dry_run_snapshot",
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
@@ -86,6 +88,7 @@
     "CANDIDATE_REVIEW: derive coefficients only from role-eligible evidence",
     "CONTROLLED_WRITE: write only through explicit controlled tools and readback",
     "POST_WRITE_REVERIFY: verify updated output before archive and report",
+    "FORMAL_DATABASE_DRY_RUN: preview PostgreSQL 18 schema, SN/device_code identity, and insert contracts without connecting or importing",
     "ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports",
     "FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars"
   ],
@@ -198,6 +201,12 @@
       "code": "entrypoint_not_in_inventory",
       "message": "gas_calibrator.tools.run_v1_5_formal_evidence_sidecar is not present in the supplied V1.5 inventory",
       "step_id": "formal_evidence_sidecar"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_formal_database_dry_run is not present in the supplied V1.5 inventory",
+      "step_id": "formal_database_dry_run_snapshot"
     },
     {
       "severity": "warning",

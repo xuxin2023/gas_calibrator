@@ -76,6 +76,8 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
         "post_write_reverification_placeholder"
     )
     assert step_ids.index("post_write_reverification_placeholder") < step_ids.index("formal_evidence_sidecar")
+    assert step_ids.index("formal_evidence_sidecar") < step_ids.index("formal_database_dry_run_snapshot")
+    assert step_ids.index("formal_database_dry_run_snapshot") < step_ids.index("database_import")
     assert step_ids.index("zh_calibration_reports") < step_ids.index("final_evidence_status_refresh")
     assert step_ids.index("final_evidence_status_refresh") < step_ids.index(
         "algorithm_profile_runner_dry_run_snapshot"
@@ -542,6 +544,8 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert (out / "formal_run_status" / "v1_5_formal_run_status_gates.csv").exists()
     assert (out / "algorithm_profile_runner_dry_run" / "v1_5_algorithm_profile_runner_dry_run.json").exists()
     assert (out / "algorithm_profile_runner_dry_run" / "V1_5_ALGORITHM_PROFILE_RUNNER_DRY_RUN.md").exists()
+    assert (out / "formal_database_dry_run" / "v1_5_formal_database_dry_run.json").exists()
+    assert (out / "formal_database_dry_run" / "V1_5_FORMAL_DATABASE_DRY_RUN.md").exists()
     operation_console_json = out / "operation_console" / "v1_5_operation_console.json"
     operation_console_html = out / "operation_console" / "v1_5_operation_console.html"
     assert operation_console_json.exists()
@@ -578,9 +582,21 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert formal_status["linked_inputs"]["algorithm_profile_runner_dry_run_json"] == str(
         (out / "algorithm_profile_runner_dry_run" / "v1_5_algorithm_profile_runner_dry_run.json").resolve()
     )
+    assert formal_status["linked_inputs"]["formal_database_dry_run_json"] == str(
+        (out / "formal_database_dry_run" / "v1_5_formal_database_dry_run.json").resolve()
+    )
     formal_gates = {row["gate_id"]: row for row in formal_status["gates"]}
     assert formal_gates["algorithm_profile_runner_dry_run"]["status"] == "ready"
     assert formal_gates["algorithm_profile_runner_dry_run"]["blocks_release"] is False
+    assert formal_gates["formal_database_dry_run"]["status"] == "ready"
+    assert formal_gates["formal_database_dry_run"]["blocks_release"] is False
+    database_dry_run = json.loads(
+        (out / "formal_database_dry_run" / "v1_5_formal_database_dry_run.json").read_text(encoding="utf-8-sig")
+    )
+    assert database_dry_run["production_backend"] == "postgresql"
+    assert database_dry_run["production_postgresql_major"] == 18
+    assert database_dry_run["database_import_allowed"] is False
+    assert database_dry_run["connects_postgresql"] is False
     assert formal_status["linked_inputs"]["run_evidence_status_json"] == str(
         (out / "v1_5_run_evidence_status.json").resolve()
     )
@@ -647,6 +663,17 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     assert algorithm_step.writes_coefficients is False
     assert _flag_value(algorithm_command, "--output-dir").endswith("algorithm_profile_runner_dry_run")
     assert _flag_value(algorithm_command, "--profile-path").endswith("configs\\v1_5_algorithm_route_profiles.json")
+    database_step = next(step for step in plan.steps if step.step_id == "formal_database_dry_run_snapshot")
+    database_command = list(database_step.command)
+    assert database_step.tool_module == "gas_calibrator.tools.export_v1_5_formal_database_dry_run"
+    assert database_step.execution_mode == "offline_sidecar"
+    assert database_step.opens_com_ports is False
+    assert database_step.controls_gas_route is False
+    assert database_step.controls_water_route is False
+    assert database_step.writes_coefficients is False
+    assert database_step.writes_device_id is False
+    assert _flag_value(database_command, "--output-dir").endswith("formal_database_dry_run")
+    assert "--fail-on-blocker" in database_command
     status_step = next(step for step in plan.steps if step.step_id == "formal_run_status_snapshot")
     status_command = list(status_step.command)
     assert status_step.tool_module == "gas_calibrator.tools.export_v1_5_formal_run_status"
@@ -656,6 +683,9 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     assert _flag_value(status_command, "--run-evidence-status-json").endswith("v1_5_run_evidence_status.json")
     assert _flag_value(status_command, "--algorithm-profile-runner-dry-run-json").endswith(
         "algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json"
+    )
+    assert _flag_value(status_command, "--formal-database-dry-run-json").endswith(
+        "formal_database_dry_run\\v1_5_formal_database_dry_run.json"
     )
     assert "v1_5_formal_run_status_gates.csv" in " ".join(status_step.expected_outputs)
 
