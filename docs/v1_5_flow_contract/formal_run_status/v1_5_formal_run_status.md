@@ -69,6 +69,18 @@
 - blocks_physical_flow: `True`
 - physical_meaning: Pressure P must be traceable before CO2/H2O fitting so gas coefficients do not absorb pressure bias.
 
+### algorithm_profile_runner_dry_run
+
+- title: New-algorithm profile runner dry-run bundle
+- status: `ready`
+- source_status: `ready_for_profile_driven_runner_dry_run_review`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\algorithm_profile_runner_dry_run\v1_5_algorithm_profile_runner_dry_run.json`
+- reason: profile-driven new-algorithm dry-run bundle is ready: CO2/H2O=47/14 and offline boundaries hold
+- next_action: Review the profile-generated 47/14 runlist, readiness gate, and dry-run queue handoff before any future runner wiring.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Records that the new-algorithm profile can generate CO2 47 / H2O 14 runlist evidence and dry-run mature-queue handoff plans without executing queues or modifying mature runners.
+
 ### co2_open_flow_mature_queue
 
 - title: CO2 mature open-flow queue
@@ -96,10 +108,10 @@
 ### candidate_fit_review
 
 - title: Candidate fit/QC review
-- status: `not_attempted`
-- source_status: `not_attempted`
+- status: `review_required`
+- source_status: `partial`
 - source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\v1_5_run_evidence_status.json`
-- reason: candidate fit review has not passed
+- reason: candidate_review=partial
 - next_action: Run no-write candidate fitting/QC review before any controlled write package.
 - blocks_release: `True`
 - blocks_physical_flow: `False`
@@ -149,7 +161,7 @@
 - `pressure_senco9_pre_open_flow`: review_required - pressure_quick_check=missing (next: Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.)
 - `co2_open_flow_mature_queue`: review_required - co2_open_flow=missing (next: Run or register the mature V1.5 CO2 open-flow queue evidence.)
 - `h2o_open_flow_mature_queue`: review_required - h2o_open_flow=missing (next: Run or register the mature V1.5 H2O open-flow queue evidence.)
-- `candidate_fit_review`: not_attempted - candidate fit review has not passed (next: Run no-write candidate fitting/QC review before any controlled write package.)
+- `candidate_fit_review`: review_required - candidate_review=partial (next: Run no-write candidate fitting/QC review before any controlled write package.)
 - `post_run_write_package`: not_attempted - post-run coefficient executor package has not passed (next: Generate the post-run executor package with eligibility, write plan, and reverify plan.)
 - `controlled_write_and_reverification`: not_attempted - post-write reverification has not passed or has not been attempted (next: After authorized writes, run independent post-write reverification evidence.)
 - `formal_archive_database_release`: missing - closure readiness and formal archive closure sidecars missing (next: Close archive/database/report traceability gaps before formal release or database import.)

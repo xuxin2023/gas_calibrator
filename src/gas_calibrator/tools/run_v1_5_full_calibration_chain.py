@@ -36,6 +36,10 @@ from ..validation.v1_5_formal_run_status import (
     build_v1_5_formal_run_status,
     write_v1_5_formal_run_status_outputs,
 )
+from ..validation.v1_5_algorithm_profile_runner_dry_run import (
+    build_v1_5_algorithm_profile_runner_dry_run,
+    write_v1_5_algorithm_profile_runner_dry_run_outputs,
+)
 from ..validation.v1_5_post_run_coefficient_executor import (
     build_post_run_coefficient_executor_model,
     write_post_run_coefficient_executor_outputs,
@@ -95,6 +99,7 @@ def _write_formal_run_status(
     run_evidence_status_json: str | Path,
     full_flow_closure_readiness_json: str | Path | None = None,
     archive_closure_json: str | Path | None = None,
+    algorithm_profile_runner_dry_run_json: str | Path | None = None,
 ) -> tuple[dict, dict[str, Path]]:
     """Write the top-level offline status dashboard for the current V1.5 flow."""
 
@@ -109,8 +114,26 @@ def _write_formal_run_status(
         or root / "full_flow_closure_readiness" / "v1_5_full_flow_closure_readiness.json",
         archive_closure_json=archive_closure_json
         or root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
+        algorithm_profile_runner_dry_run_json=algorithm_profile_runner_dry_run_json
+        or root / "algorithm_profile_runner_dry_run" / "v1_5_algorithm_profile_runner_dry_run.json",
     )
     raw_paths = write_v1_5_formal_run_status_outputs(model, root / "formal_run_status")
+    return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
+
+
+def _write_algorithm_profile_runner_dry_run(*, output_dir: str | Path) -> tuple[dict, dict[str, Path]]:
+    """Write the offline new-algorithm profile runner dry-run bundle."""
+
+    root = Path(output_dir).resolve()
+    profile_path = Path(__file__).resolve().parents[3] / "configs" / "v1_5_algorithm_route_profiles.json"
+    model = build_v1_5_algorithm_profile_runner_dry_run(
+        profile_path=profile_path,
+        output_dir=root / "algorithm_profile_runner_dry_run",
+    )
+    raw_paths = write_v1_5_algorithm_profile_runner_dry_run_outputs(
+        model,
+        root / "algorithm_profile_runner_dry_run",
+    )
     return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
 
 
@@ -119,6 +142,12 @@ def _record_formal_run_status_outputs(outputs: dict, paths: dict[str, Path]) -> 
     outputs["formal_run_status_markdown"] = paths["markdown_path"]
     outputs["formal_run_status_gates"] = paths["gates_csv_path"]
     outputs["formal_run_status_gaps"] = paths["gaps_csv_path"]
+
+
+def _record_algorithm_profile_runner_outputs(outputs: dict, paths: dict[str, Path]) -> None:
+    outputs["algorithm_profile_runner_dry_run_json"] = paths["json"]
+    outputs["algorithm_profile_runner_dry_run_markdown"] = paths["markdown"]
+    outputs["algorithm_profile_runner_dry_run_checks"] = paths["checks_csv"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -336,9 +365,14 @@ def main(argv: Iterable[str] | None = None) -> int:
     )
     outputs["run_evidence_status_json"] = status_json
     outputs["run_evidence_status_markdown"] = status_md
+    _algorithm_profile_model, algorithm_profile_paths = _write_algorithm_profile_runner_dry_run(
+        output_dir=args.output_dir,
+    )
+    _record_algorithm_profile_runner_outputs(outputs, algorithm_profile_paths)
     formal_status_model, formal_status_paths = _write_formal_run_status(
         output_dir=args.output_dir,
         run_evidence_status_json=status_json,
+        algorithm_profile_runner_dry_run_json=algorithm_profile_paths["json"],
     )
     _record_formal_run_status_outputs(outputs, formal_status_paths)
     console_json, console_html = _write_operation_console(
@@ -486,6 +520,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             run_evidence_status_json=status_json,
             full_flow_closure_readiness_json=outputs.get("full_flow_closure_readiness_json"),
             archive_closure_json=outputs.get("archive_closure_index_json"),
+            algorithm_profile_runner_dry_run_json=algorithm_profile_paths["json"],
         )
         _record_formal_run_status_outputs(outputs, formal_status_paths)
         outputs["formal_run_status_refreshed_after_closure"] = formal_status_paths["json_path"]

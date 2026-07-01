@@ -36,6 +36,7 @@
     "DATABASE_IMPORT",
     "REPORTS",
     "FINAL_EVIDENCE_STATUS",
+    "ALGORITHM_PROFILE_RUNNER_DRY_RUN",
     "FORMAL_RUN_STATUS"
   ],
   "step_sequence": [
@@ -64,12 +65,10 @@
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
+    "algorithm_profile_runner_dry_run_snapshot",
     "formal_run_status_snapshot"
   ],
-  "formal_runner_steps": [
-    "co2_open_flow_sampling",
-    "h2o_open_flow_sampling"
-  ],
+  "formal_runner_steps": [],
   "physical_flow": [
     "LOAD_PLAN: freeze plan, certificates, config hash, and run identity",
     "INITIALIZATION_CONTRACT: generate the formal initialization plan, PostgreSQL 18 sidecar, and readiness snapshot without COM or writes",
@@ -91,5 +90,144 @@
     "FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars"
   ],
   "issues": [],
-  "warnings": []
+  "warnings": [
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.prepare_v1_5_formal_run_package is not present in the supplied V1.5 inventory",
+      "step_id": "load_plan_and_traceability"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.run_v1_5_formal_initialization_runner is not present in the supplied V1.5 inventory",
+      "step_id": "formal_initialization_contract_plan"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_initialization_readiness is not present in the supplied V1.5 inventory",
+      "step_id": "initialization_readiness_snapshot"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_pre_gas_readiness is not present in the supplied V1.5 inventory",
+      "step_id": "pre_gas_readiness_snapshot"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.probe_v1_5_getco_component_snapshot is not present in the supplied V1.5 inventory",
+      "step_id": "device_identity_and_getco_snapshot"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_getco_identity_readiness is not present in the supplied V1.5 inventory",
+      "step_id": "identity_getco_readiness_snapshot"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_pressure_senco9_evaluation is not present in the supplied V1.5 inventory",
+      "step_id": "pressure_senco9_no_write_review"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_pressure_channel_completion is not present in the supplied V1.5 inventory",
+      "step_id": "pressure_channel_completion_audit"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_temperature_channel_review is not present in the supplied V1.5 inventory",
+      "step_id": "temperature_channel_fast_review"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue is not present in the supplied V1.5 inventory",
+      "step_id": "co2_open_flow_sampling"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue is not present in the supplied V1.5 inventory",
+      "step_id": "h2o_open_flow_sampling"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_factory_signal_health_review is not present in the supplied V1.5 inventory",
+      "step_id": "factory_signal_health_review"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_fit_input_quality is not present in the supplied V1.5 inventory",
+      "step_id": "fit_input_quality_review"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_post_run_coefficient_executor is not present in the supplied V1.5 inventory",
+      "step_id": "post_run_coefficient_executor"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_full_flow_closure_readiness is not present in the supplied V1.5 inventory",
+      "step_id": "full_flow_closure_readiness"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_co2_senco_pair_model_scope is not present in the supplied V1.5 inventory",
+      "step_id": "co2_candidate_write_review"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_post_write_reverification is not present in the supplied V1.5 inventory",
+      "step_id": "post_write_reverification_placeholder"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.run_v1_5_formal_evidence_sidecar is not present in the supplied V1.5 inventory",
+      "step_id": "formal_evidence_sidecar"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.import_v1_5_evidence_package is not present in the supplied V1.5 inventory",
+      "step_id": "database_import"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_calibration_reports is not present in the supplied V1.5 inventory",
+      "step_id": "zh_calibration_reports"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_run_evidence_status is not present in the supplied V1.5 inventory",
+      "step_id": "final_evidence_status_refresh"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run is not present in the supplied V1.5 inventory",
+      "step_id": "algorithm_profile_runner_dry_run_snapshot"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_formal_run_status is not present in the supplied V1.5 inventory",
+      "step_id": "formal_run_status_snapshot"
+    }
+  ]
 }

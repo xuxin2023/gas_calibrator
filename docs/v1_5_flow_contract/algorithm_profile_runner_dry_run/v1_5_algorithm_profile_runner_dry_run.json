@@ -1,6 +1,6 @@
 ﻿{
   "schema": "v1_5_algorithm_profile_runner_dry_run_v1",
-  "generated_at": "2026-07-01T21:29:12",
+  "generated_at": "2026-07-01T23:27:10",
   "overall_status": "ready_for_profile_driven_runner_dry_run_review",
   "blocker_count": 0,
   "review_required_count": 0,
@@ -29,22 +29,22 @@
   },
   "outputs": {
     "runlist_preview": {
-      "manifest": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
-      "co2_runlist": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
-      "h2o_runlist": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
-      "checks": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_checks.csv",
-      "summary": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW.md"
+      "manifest": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
+      "co2_runlist": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+      "h2o_runlist": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "checks": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_checks.csv",
+      "summary": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW.md"
     },
     "runlist_readiness": {
-      "json": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
-      "checks_csv": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness_checks.csv",
-      "markdown": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\V1_5_ALGORITHM_RUNLIST_READINESS.md"
+      "json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
+      "checks_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness_checks.csv",
+      "markdown": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\V1_5_ALGORITHM_RUNLIST_READINESS.md"
     },
     "runner_integration_dry_run": {
-      "json": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
-      "plan_csv": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_plan.csv",
-      "checks_csv": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_checks.csv",
-      "markdown": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\V1_5_ALGORITHM_RUNNER_INTEGRATION_DRY_RUN.md"
+      "json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
+      "plan_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_plan.csv",
+      "checks_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_checks.csv",
+      "markdown": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\V1_5_ALGORITHM_RUNNER_INTEGRATION_DRY_RUN.md"
     }
   },
   "checks": [
@@ -58,11 +58,11 @@
       "next_action": "Regenerate the profile runlist preview before any readiness or runner dry-run review.",
       "details": {
         "outputs": {
-          "manifest": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
-          "co2_runlist": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
-          "h2o_runlist": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
-          "checks": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_checks.csv",
-          "summary": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW.md"
+          "manifest": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
+          "co2_runlist": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+          "h2o_runlist": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+          "checks": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_checks.csv",
+          "summary": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW.md"
         }
       }
     },
@@ -78,9 +78,9 @@
         "overall_status": "ready_for_new_algorithm_runner_integration_review",
         "blocker_count": 0,
         "outputs": {
-          "json": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
-          "checks_csv": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness_checks.csv",
-          "markdown": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\V1_5_ALGORITHM_RUNLIST_READINESS.md"
+          "json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
+          "checks_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness_checks.csv",
+          "markdown": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\V1_5_ALGORITHM_RUNLIST_READINESS.md"
         }
       }
     },
@@ -100,10 +100,10 @@
           "h2o"
         ],
         "outputs": {
-          "json": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
-          "plan_csv": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_plan.csv",
-          "checks_csv": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_checks.csv",
-          "markdown": "docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\V1_5_ALGORITHM_RUNNER_INTEGRATION_DRY_RUN.md"
+          "json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
+          "plan_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_plan.csv",
+          "checks_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_checks.csv",
+          "markdown": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\V1_5_ALGORITHM_RUNNER_INTEGRATION_DRY_RUN.md"
         }
       }
     },

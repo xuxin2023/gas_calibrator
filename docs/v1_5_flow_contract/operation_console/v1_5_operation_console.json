@@ -1,7 +1,7 @@
 {
   "schema": "v1_5_operation_console_v1",
   "schema_version": "v1_5_operation_console_v1",
-  "generated_at": "2026-07-01T04:42:30.532920+00:00",
+  "generated_at": "2026-07-01T15:27:10.623696+00:00",
   "run_id": "unknown",
   "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "role": "operator",
@@ -34,11 +34,21 @@
   "source_evidence": {
     "has_workbench_model": false,
     "has_run_evidence_status": true,
+    "has_formal_run_status": true,
     "has_calibration_capability": false,
     "has_archive_index": false,
     "has_full_flow_stage_manifest": true
   },
   "summary_cards": [
+    {
+      "key": "formal_run_status",
+      "title": "正式运行状态",
+      "status": "review_required",
+      "label": "需复核",
+      "status_label": "需复核",
+      "tone": "warn",
+      "detail": "当前阶段=initialization_readiness; 下一步=Generate or refresh initialization readiness before any open-flow step.; 可继续物理流程=False; 正式放行=False; 数据库导入=False"
+    },
     {
       "key": "method_backbone",
       "title": "方法主干",
@@ -60,9 +70,9 @@
     {
       "key": "formal_release",
       "title": "正式放行",
-      "status": "pending",
-      "label": "待补齐",
-      "status_label": "待补齐",
+      "status": "review_required",
+      "label": "需复核",
+      "status_label": "需复核",
       "tone": "warn",
       "detail": "正式签发仍要求报告、数据库、审计和证据包闭环。"
     },
@@ -94,13 +104,13 @@
     "tone": "info",
     "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.json",
     "schema": "v1_5_full_flow_stage_manifest_v1",
-    "stage_count": 26,
+    "stage_count": 27,
     "current_manifest_stage": "load_plan_and_traceability",
     "one_button_live_runner_ready": false,
     "status_counts": {
       "authorization_required": 5,
       "blocked_controlled_gate": 2,
-      "pass": 1,
+      "pass": 2,
       "waiting_for_artifacts": 18
     },
     "detail": "current=load_plan_and_traceability; one_button_live_runner_ready=False",
@@ -214,6 +224,31 @@
         "reason": "manifest_expected_outputs_missing"
       }
     ]
+  },
+  "formal_run_status_panel": {
+    "key": "formal_run_status",
+    "available": true,
+    "status": "review_required",
+    "label": "需复核",
+    "status_label": "需复核",
+    "tone": "warn",
+    "overall_status": "review_required",
+    "current_stage": "initialization_readiness",
+    "next_action": "Generate or refresh initialization readiness before any open-flow step.",
+    "formal_release_allowed": false,
+    "database_import_allowed": false,
+    "can_continue_physical_flow": false,
+    "detail": "当前阶段=initialization_readiness; 下一步=Generate or refresh initialization readiness before any open-flow step.; 可继续物理流程=False; 正式放行=False; 数据库导入=False",
+    "physical_boundaries": {
+      "offline_status_only": true,
+      "opens_com_ports": false,
+      "connects_postgresql": false,
+      "controls_pressure": false,
+      "controls_water_or_gas_routes": false,
+      "writes_coefficients": false,
+      "writes_device_id": false,
+      "not_real_acceptance_evidence": true
+    }
   },
   "pages": [
     {

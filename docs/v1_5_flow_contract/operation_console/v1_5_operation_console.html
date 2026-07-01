@@ -25,21 +25,22 @@
 <body>
   <header>
     <h1>V1.5 正式校准操作台</h1>
-    <p>run_id=unknown；角色=operator；生成时间=2026-07-01T04:42:30.532920+00:00</p>
+    <p>run_id=unknown；角色=operator；生成时间=2026-07-01T15:27:10.623696+00:00</p>
   </header>
   <main>
     <section class='boundary'><strong>安全边界：</strong>本操作台仅展示证据状态；不打开串口、不控制水路/气路、不控制阀或 PACE、不写 SENCO、不清除系数、不修改分析仪 ID。</section>
-    <p><strong>证据来源：</strong>has_workbench_model=False；has_run_evidence_status=True；has_calibration_capability=False；has_archive_index=False；has_full_flow_stage_manifest=True</p>
-    <section class='cards'><section class='card warn'><h3>方法主干</h3><p class='status'>待补齐</p><p>开放流通 CO2/H2O 主校准 + 压力独立验证 + 后置复验。</p></section>
+    <p><strong>证据来源：</strong>has_workbench_model=False；has_run_evidence_status=True；has_formal_run_status=True；has_calibration_capability=False；has_archive_index=False；has_full_flow_stage_manifest=True</p>
+    <section class='cards'><section class='card warn'><h3>正式运行状态</h3><p class='status'>需复核</p><p>当前阶段=initialization_readiness; 下一步=Generate or refresh initialization readiness before any open-flow step.; 可继续物理流程=False; 正式放行=False; 数据库导入=False</p></section>
+<section class='card warn'><h3>方法主干</h3><p class='status'>待补齐</p><p>开放流通 CO2/H2O 主校准 + 压力独立验证 + 后置复验。</p></section>
 <section class='card warn'><h3>写后复验</h3><p class='status'>待补齐</p><p>未发现复验证据</p></section>
-<section class='card warn'><h3>正式放行</h3><p class='status'>待补齐</p><p>正式签发仍要求报告、数据库、审计和证据包闭环。</p></section>
+<section class='card warn'><h3>正式放行</h3><p class='status'>需复核</p><p>正式签发仍要求报告、数据库、审计和证据包闭环。</p></section>
 <section class='card warn'><h3>数据库归档</h3><p class='status'>待补齐</p><p>数据库用于索引证据链；原始帧仍以文件证据包保留。</p></section>
 <section class='card info'><h3>全流程阶段清单</h3><p class='status'>受控计划</p><p>current=load_plan_and_traceability; one_button_live_runner_ready=False</p></section></section>
 
 <section class='panel'>
   <h2>全流程阶段清单</h2>
   <p>状态：<strong>受控计划</strong>；当前阶段：load_plan_and_traceability；one_button_live_runner_ready=False</p>
-  <p>状态计数：authorization_required=5, blocked_controlled_gate=2, pass=1, waiting_for_artifacts=18</p>
+  <p>状态计数：authorization_required=5, blocked_controlled_gate=2, pass=2, waiting_for_artifacts=18</p>
   <table>
     <thead><tr><th>序号</th><th>阶段</th><th>环节</th><th>状态</th><th>原因</th></tr></thead>
     <tbody><tr><td>1</td><td>load_plan_and_traceability</td><td>LOAD_PLAN</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>

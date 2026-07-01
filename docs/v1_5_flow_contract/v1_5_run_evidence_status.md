@@ -25,7 +25,7 @@
 Stage status counts:
 - `authorization_required`: `5`
 - `blocked_controlled_gate`: `2`
-- `pass`: `1`
+- `pass`: `2`
 - `waiting_for_artifacts`: `18`
 
 Manifest stages:
@@ -54,6 +54,7 @@ Manifest stages:
 - `database_import`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `zh_calibration_reports`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `final_evidence_status_refresh`: `waiting_for_artifacts` - manifest_expected_outputs_missing
+- `algorithm_profile_runner_dry_run_snapshot`: `pass` - all_manifest_expected_outputs_present
 - `formal_run_status_snapshot`: `pass` - all_manifest_expected_outputs_present
 
 ## Full-Flow Live Runner Readiness
@@ -89,12 +90,14 @@ Manifest stages:
   - physical_meaning: A finished H2O queue must preserve why any point failed: humidity generator state, dewpoint/reference instability, H2O ratio or signal instability, route readiness, or diagnostic pressure causes. Failed or downgraded H2O points remain evidence, but must not silently enter formal H2O fitting.
 - `h2o_queue_exclusion` H2O queue abort/exclusion evidence: `not_attempted` - no H2O queue abort/exclusion artifact found
   - physical_meaning: Aborted H2O queue rows are retained as diagnostic evidence and must not enter formal fit, acceptance, or SENCO review.
-- `candidate_review` Candidate coefficient review: `not_attempted` - candidate review not attempted
+- `candidate_review` Candidate coefficient review: `partial` - present_roles=candidate_review
   - physical_meaning: Only stable, role-eligible samples should enter SENCO candidate fitting and reviewer approval.
 - `post_run_coefficient_executor` Post-run coefficient closure executor: `not_attempted` - post-run coefficient executor not generated
   - physical_meaning: After CO2/H2O acquisition and fit-input review, this offline executor binds per-device eligibility, controlled write package, post-write reverification plan, and archive gap list before any SENCO write is allowed.
 - `full_flow_closure_readiness` Full-flow closure readiness before controlled write: `not_attempted` - full-flow closure readiness not generated
   - physical_meaning: Before controlled SENCO writes, the run must show one auditable chain from plan, raw open-flow evidence, QC decisions, candidate write package, reverification plan, archive gaps, and formal release domains. This gate is offline and does not touch COM ports or routes.
+- `formal_run_status` Formal run status rollup: `pass` - formal run status JSON, markdown, gate table, and gap table are indexed
+  - physical_meaning: The top-level run status separates physical-flow continuation from formal archive, database import, and release readiness without touching analyzer state.
 - `controlled_write_events` Controlled coefficient write events: `not_attempted` - no controlled write artifact found
   - physical_meaning: Any SENCO write starts a new coefficient epoch and must have command, readback, approval, and rollback evidence.
 - `post_write_reverification` Post-write reverification: `not_attempted` - post-write verification not attempted
@@ -114,12 +117,17 @@ Manifest stages:
 
 ## Artifact Roles
 
-- `csv_evidence`: `2`
-- `evidence_file`: `12`
+- `candidate_review`: `2`
+- `csv_evidence`: `25`
+- `evidence_file`: `37`
+- `formal_run_status`: `2`
+- `formal_run_status_gaps`: `2`
+- `formal_run_status_gates`: `2`
+- `formal_run_status_report`: `2`
 - `full_flow_contract`: `1`
 - `full_flow_live_runner_readiness`: `1`
 - `full_flow_live_runner_readiness_markdown`: `1`
 - `full_flow_plan`: `1`
 - `full_flow_stage_manifest`: `1`
 - `full_flow_stage_manifest_markdown`: `1`
-- `json_evidence`: `3`
+- `json_evidence`: `16`
