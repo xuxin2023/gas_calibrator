@@ -311,7 +311,10 @@ def _archive_gate(
     elif "blocked" in closure_status or "blocked" in archive_status:
         status = BLOCKED
         reason = f"closure_status={closure_status or 'missing'} archive_status={archive_status or 'missing'}"
-    elif closure_status == "ready_for_formal_release" and (not archive or traceability_ready and not traceability_review):
+    elif closure_status == "ready_for_formal_release" and not archive:
+        status = MISSING
+        reason = "closure is ready, but formal archive closure index is missing"
+    elif closure_status == "ready_for_formal_release" and traceability_ready and not traceability_review:
         status = READY
         reason = "closure release and archive traceability gates are ready"
     elif closure_status == "ready_for_formal_release" and traceability_review:

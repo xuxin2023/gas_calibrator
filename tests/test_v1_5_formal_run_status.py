@@ -132,6 +132,26 @@ def test_formal_run_status_sn_review_blocks_release_not_physical_flow(tmp_path: 
     assert gates["identity_getco_sn_traceability"]["blocks_physical_flow"] is False
 
 
+def test_formal_run_status_requires_archive_index_even_when_closure_ready(tmp_path: Path) -> None:
+    run_dir = tmp_path / "closure_ready_archive_missing"
+    _seed_ready_run(run_dir)
+    (run_dir / "archive" / "v1_5_formal_archive_closure_index.json").unlink()
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    release_gate = gates["formal_archive_database_release"]
+
+    assert model["overall_status"] == "in_progress"
+    assert model["current_stage"] == "formal_archive_database_release"
+    assert model["formal_release_allowed"] is False
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert release_gate["status"] == "missing"
+    assert release_gate["blocks_release"] is True
+    assert release_gate["blocks_physical_flow"] is False
+    assert "archive closure index is missing" in release_gate["reason"]
+
+
 def test_formal_run_status_empty_run_dir_is_offline_todo_only(tmp_path: Path) -> None:
     run_dir = tmp_path / "empty"
     run_dir.mkdir()
