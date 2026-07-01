@@ -1,7 +1,7 @@
 {
   "schema": "v1_5_entrypoint_inventory_v1",
   "repo_root": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean",
-  "entrypoint_count": 334,
+  "entrypoint_count": 336,
   "canonical_formal_path": [
     {
       "stage": "00_full_flow_guard",
@@ -580,7 +580,7 @@
     "diagnostic_only": 11,
     "evidence_database": 5,
     "formal_pressure_no_write_runner": 1,
-    "formal_review_evidence": 109,
+    "formal_review_evidence": 110,
     "formal_runner": 2,
     "formal_sampling_worker": 2,
     "full_flow_orchestration": 5,
@@ -588,7 +588,7 @@
     "identity_and_serial_binding": 4,
     "legacy_v1_reference": 4,
     "parameter_governance": 2,
-    "test_gate": 156,
+    "test_gate": 157,
     "ui_review": 3,
     "v1_5_library": 5
   },
@@ -1700,6 +1700,19 @@
     {
       "path": "src/gas_calibrator/tools/export_v1_5_main_senco_write_precheck_pack.py",
       "name": "export_v1_5_main_senco_write_precheck_pack",
+      "artifact_type": "tool",
+      "category": "formal_review_evidence",
+      "stage": "general",
+      "formal_status": "formal_support",
+      "risk_level": "offline",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "src/gas_calibrator/tools/export_v1_5_mature_route_contract.py",
+      "name": "export_v1_5_mature_route_contract",
       "artifact_type": "tool",
       "category": "formal_review_evidence",
       "stage": "general",
@@ -4439,6 +4452,19 @@
     {
       "path": "tests/test_v1_5_main_senco_write_precheck_pack.py",
       "name": "test_v1_5_main_senco_write_precheck_pack",
+      "artifact_type": "test",
+      "category": "test_gate",
+      "stage": "general",
+      "formal_status": "verification_only",
+      "risk_level": "none",
+      "opens_com_ports": false,
+      "controls_routes": false,
+      "writes_coefficients": false,
+      "notes": []
+    },
+    {
+      "path": "tests/test_v1_5_mature_route_contract.py",
+      "name": "test_v1_5_mature_route_contract",
       "artifact_type": "test",
       "category": "test_gate",
       "stage": "general",

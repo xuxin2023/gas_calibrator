@@ -54,7 +54,7 @@ Use this section as the first navigation layer when the repository feels noisy. 
 | `diagnostic_only` | 11 |
 | `evidence_database` | 5 |
 | `formal_pressure_no_write_runner` | 1 |
-| `formal_review_evidence` | 109 |
+| `formal_review_evidence` | 110 |
 | `formal_runner` | 2 |
 | `formal_sampling_worker` | 2 |
 | `full_flow_orchestration` | 5 |
@@ -62,7 +62,7 @@ Use this section as the first navigation layer when the repository feels noisy. 
 | `identity_and_serial_binding` | 4 |
 | `legacy_v1_reference` | 4 |
 | `parameter_governance` | 2 |
-| `test_gate` | 156 |
+| `test_gate` | 157 |
 | `ui_review` | 3 |
 | `v1_5_library` | 5 |
 
@@ -228,6 +228,7 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py` | offline identity/GETCO readiness sidecar; consumes read-only GETCO artifacts and does not open COM |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_initialization_readiness.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_main_senco_write_precheck_pack.py` |  |
+| `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_mature_route_contract.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_new_algorithm_test_point_plan.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_open_flow_canonical_points.py` |  |
 | `formal_review_evidence` | `general` | `formal_support` | `offline` | `src/gas_calibrator/tools/export_v1_5_post_write_reverification.py` |  |
@@ -377,6 +378,7 @@ These entrypoints are useful, but they are not the first step for a formal run. 
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_identity_layer_ownership.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_initialization_readiness.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_main_senco_write_precheck_pack.py` |  |
+| `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_mature_route_contract.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_new_algorithm_test_point_plan.py` |  |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_outp_engineering_config.py` | pressure/route engineering probe; keep outside formal CO2/H2O fit |
 | `test_gate` | `general` | `verification_only` | `none` | `tests/test_v1_5_no_outp_plus_sealed_sweep.py` | pressure/route engineering probe; keep outside formal CO2/H2O fit |
