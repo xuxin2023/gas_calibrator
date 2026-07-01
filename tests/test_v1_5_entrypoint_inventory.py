@@ -213,7 +213,15 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     formal_status = root / "src/gas_calibrator/tools/export_v1_5_formal_run_status.py"
     historical_replay = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_contract.py"
     historical_replay_evidence = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_evidence.py"
-    for path in (pre_gas, getco_readiness, formal_status, historical_replay, historical_replay_evidence):
+    historical_replay_qc_gap = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_qc_gap_audit.py"
+    for path in (
+        pre_gas,
+        getco_readiness,
+        formal_status,
+        historical_replay,
+        historical_replay_evidence,
+        historical_replay_qc_gap,
+    ):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("", encoding="utf-8")
 
@@ -222,6 +230,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     formal_status_entry = classify_v1_5_entrypoint(formal_status, root=root)
     historical_replay_entry = classify_v1_5_entrypoint(historical_replay, root=root)
     historical_replay_evidence_entry = classify_v1_5_entrypoint(historical_replay_evidence, root=root)
+    historical_replay_qc_gap_entry = classify_v1_5_entrypoint(historical_replay_qc_gap, root=root)
 
     assert entry.category == "formal_review_evidence"
     assert entry.formal_status == "formal_support"
@@ -258,6 +267,13 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert historical_replay_evidence_entry.controls_routes is False
     assert historical_replay_evidence_entry.writes_coefficients is False
     assert "offline historical replay evidence binder" in historical_replay_evidence_entry.notes[0]
+    assert historical_replay_qc_gap_entry.category == "formal_review_evidence"
+    assert historical_replay_qc_gap_entry.formal_status == "formal_support"
+    assert historical_replay_qc_gap_entry.risk_level == "offline"
+    assert historical_replay_qc_gap_entry.opens_com_ports is False
+    assert historical_replay_qc_gap_entry.controls_routes is False
+    assert historical_replay_qc_gap_entry.writes_coefficients is False
+    assert "offline historical replay QC gap audit" in historical_replay_qc_gap_entry.notes[0]
 
 
 def test_entrypoint_discovery_finds_v1_5_tools_libraries_and_tests(tmp_path: Path) -> None:
@@ -640,5 +656,6 @@ def test_final_structure_doc_records_canonical_entrypoint_boundaries() -> None:
     assert "export_v1_5_mature_route_contract.py" in text
     assert "export_v1_5_historical_replay_contract.py" in text
     assert "export_v1_5_historical_replay_evidence.py" in text
+    assert "export_v1_5_historical_replay_qc_gap_audit.py" in text
     assert "legacy CO2 45 点" in text
     assert "legacy H2O 13 湿点" in text

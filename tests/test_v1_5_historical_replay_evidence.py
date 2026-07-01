@@ -92,6 +92,7 @@ def _create_route_fixture(
     skip_last: bool = False,
     missing_quality_for_first: bool = False,
     frame_quality_only: bool = False,
+    include_supplements: bool = True,
 ) -> Path:
     profile = _profile(profile_id)
     if route_kind == "co2":
@@ -108,6 +109,18 @@ def _create_route_fixture(
             else:
                 token = str(value).replace("HGEN", "HG")
                 point_names.append(f"p{point_no:03d}_{_temp_token(temp)}_{token}_h2o")
+            point_no += 1
+    if include_supplements and route_kind == "co2":
+        supplement_policy = profile["co2_route"].get("supplement_policy", {})
+        for item in supplement_policy.get("required_new_algorithm_supplemental_gas_points", []):
+            point_names.append(
+                f"p{point_no:03d}_{_temp_token(item['temperature_c'])}_{int(item['co2_ppm'])}ppm_fit"
+            )
+            point_no += 1
+    if include_supplements and route_kind == "h2o":
+        for item in profile["h2o_route"].get("required_new_algorithm_supplemental_wet_points", []):
+            token = f"{item['humidity_generator']}_{int(item['relative_humidity_pct'])}RH".replace("HGEN", "HG")
+            point_names.append(f"p{point_no:03d}_{_temp_token(item['temperature_c'])}_{token}_h2o")
             point_no += 1
     if skip_last:
         point_names = point_names[:-1]
@@ -208,6 +221,7 @@ def test_historical_replay_evidence_accepts_frame_quality_only_points(tmp_path: 
 
 def test_historical_replay_evidence_binds_new_algorithm_absorption_profile(tmp_path: Path) -> None:
     co2 = _create_route_fixture(tmp_path / "co2_new", profile_id="absorption_ratio_shadow", route_kind="co2")
+    h2o = _create_route_fixture(tmp_path / "h2o_new", profile_id="absorption_ratio_shadow", route_kind="h2o")
     roots = [
         {
             "family_id": "new_algorithm_shadow_run",
@@ -215,15 +229,70 @@ def test_historical_replay_evidence_binds_new_algorithm_absorption_profile(tmp_p
             "root_path": str(co2),
             "algorithm_profile_id": "absorption_ratio_shadow",
             "label": "new_algorithm_co2_fixture",
+        },
+        {
+            "family_id": "new_algorithm_shadow_run",
+            "route_kind": "h2o",
+            "root_path": str(h2o),
+            "algorithm_profile_id": "absorption_ratio_shadow",
+            "label": "new_algorithm_h2o_fixture",
         }
     ]
 
     model = build_v1_5_historical_replay_evidence(profile_path=PROFILE_PATH, evidence_roots=roots)
     fit_check = _check_by_id(model)["fit_input_profile_bound"]
+    summaries = {row["route_kind"]: row for row in model["route_summaries"]}
 
     assert model["manifest"]["status"] == "pass"
     assert "A=-ln(R/R0(T))/(P_kPa/100)" in fit_check["observed"]
-    assert model["route_summaries"][0]["observed_point_count"] == 45
+    assert summaries["co2"]["observed_point_count"] == 47
+    assert summaries["co2"]["expected_point_count"] == 47
+    assert summaries["h2o"]["observed_point_count"] == 14
+    assert summaries["h2o"]["expected_point_count"] == 14
+
+
+def test_historical_replay_evidence_requires_new_algorithm_supplemental_points(tmp_path: Path) -> None:
+    co2 = _create_route_fixture(
+        tmp_path / "co2_new_missing_supplements",
+        profile_id="absorption_ratio_shadow",
+        route_kind="co2",
+        include_supplements=False,
+    )
+    h2o = _create_route_fixture(
+        tmp_path / "h2o_new_missing_supplements",
+        profile_id="absorption_ratio_shadow",
+        route_kind="h2o",
+        include_supplements=False,
+    )
+    roots = [
+        {
+            "family_id": "new_algorithm_shadow_run",
+            "route_kind": "co2",
+            "root_path": str(co2),
+            "algorithm_profile_id": "absorption_ratio_shadow",
+            "label": "new_algorithm_co2_missing_supplements",
+        },
+        {
+            "family_id": "new_algorithm_shadow_run",
+            "route_kind": "h2o",
+            "root_path": str(h2o),
+            "algorithm_profile_id": "absorption_ratio_shadow",
+            "label": "new_algorithm_h2o_missing_supplements",
+        },
+    ]
+
+    model = build_v1_5_historical_replay_evidence(profile_path=PROFILE_PATH, evidence_roots=roots)
+    checks = _check_by_id(model)
+    summaries = {row["route_kind"]: row for row in model["route_summaries"]}
+
+    assert model["manifest"]["status"] == "review_required"
+    assert checks["point_sequence_matches_profile_or_requires_review"]["status"] == "review_required"
+    assert summaries["co2"]["observed_point_count"] == 45
+    assert summaries["co2"]["expected_point_count"] == 47
+    assert summaries["co2"]["missing_expected_points"] == ["-20/600", "-10/600"]
+    assert summaries["h2o"]["observed_point_count"] == 13
+    assert summaries["h2o"]["expected_point_count"] == 14
+    assert summaries["h2o"]["missing_expected_points"] == ["40/30/30"]
 
 
 def test_historical_replay_evidence_writer_and_cli(tmp_path: Path) -> None:

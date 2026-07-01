@@ -152,7 +152,8 @@ CO2 和 H2O 的低端锚点不能混成一个概念：
 - 0620 成熟气路/水路的点序、物理动作、判稳/QC 口径只能由正式 runner 小包单独评审，不应被 profile、报告或归档包顺手改动。
 - `export_v1_5_mature_route_contract.py` 是当前成熟路径合同 guard；它把 legacy CO2 45 点、legacy H2O 13 湿点、0620 route_behavior、新旧算法 runner 共用、补点只在 profile 层、SENCOA/SENCOB blocker、worker 不能顶层启动这些规则变成可测试证据。
 - `export_v1_5_historical_replay_contract.py` 是历史数据 replay 合同 guard；它只做离线程序级回放解释检查，确认 0620/后续 legacy 数据仍按 R、45/13、QC/拟合/复验/归档角色解释，新算法数据只按 `A=-ln(R/R0(T))/(P_kPa/100)` 和 R0 证据做 shadow 评审，且 replay 通过不能释放归档或 PostgreSQL 18 入库。
-- `export_v1_5_historical_replay_evidence.py` 是历史证据读取/回放绑定器；它只读历史 CSV/JSON 点级证据，识别 CO2/H2O 点序、QC 等级、fit eligibility、reject reason、fit input profile 和 replay 状态，不修改成熟 runner，也不能授权 release 或入库。
+- `export_v1_5_historical_replay_evidence.py` 是历史证据读取/回放绑定器；它只读历史 CSV/JSON 点级证据，识别 CO2/H2O 点序、QC 等级、fit eligibility、reject reason、fit input profile 和 replay 状态。旧算法仍按成熟 45/13 点检查；新算法候选必须按 profile 中的 47 CO2 点 / 14 H2O 点检查，缺 `-20C 600ppm`、`-10C 600ppm` 或 `40C HGEN30C 30RH` 时只能进入 review_required，不修改成熟 runner，也不能授权 release 或入库。
+- `export_v1_5_historical_replay_qc_gap_audit.py` 是历史 replay 缺 QC 点审计器；它只读 replay evidence、同轮 queue manifest、raw IO 和跨轮参考质量文件，区分同轮 `C_reject` 可补追溯证据、跨轮质量只能参考、raw-only 仍需 QC 派生或定点补跑，不会把缺 QC 点提升为拟合合格点。
 - 根目录仍是草稿/污染区，不应直接用于正式生产。
 - `_handoff` 仍有大量历史证据，不应整体合入。
 - 自动化仍需按正式 runner 和受控授权一步步执行；不能因为有 planner 就跳过真实设备 readiness、压力、温度、采样 QC、写入评审和复验。
@@ -165,7 +166,8 @@ V1.5 结构整理基本完成前，必须保留一个只读收尾验收包：
 2. mature route contract：生成 `docs/v1_5_flow_contract/mature_route_contract/`，确保 0620 成熟 CO2/H2O 路径 `pass` 且 `blocker_count=0`。
 3. historical replay contract：生成 `docs/v1_5_flow_contract/historical_replay_contract/`，确保历史 replay 只作为程序级 regression evidence，不改变成熟点序、不洗掉 QC reject、不授权归档/入库。
 4. historical replay evidence：生成 `docs/v1_5_flow_contract/historical_replay_evidence/`，只读绑定 0620/后续历史 CSV/JSON，识别点序、QC、fit eligibility、reject reason 和 replay 状态。
-5. focused pytest stdout：至少覆盖 canonical entrypoint、mature route contract、historical replay contract/evidence、initialization readiness、dirty zone audit、formal run status、archive/report/console。
+5. historical replay QC gap audit：生成 `docs/v1_5_flow_contract/historical_replay_qc_gap_audit/`，只读审计缺 QC 点是否存在同轮 reject-only 质量证据、retry/同点证据、跨轮参考或 raw-only 缺口。
+6. focused pytest stdout：至少覆盖 canonical entrypoint、mature route contract、historical replay contract/evidence/QC gap audit、initialization readiness、dirty zone audit、formal run status、archive/report/console。
 6. 成熟路径边界核查：确认本次收尾包不改 `run_v1_5_formal_co2_open_flow_queue.py`、`run_v1_5_formal_h2o_open_flow_queue.py`、`run_v1_5_formal_open_flow_sampling.py`、`src/gas_calibrator/workflow/runner.py`、`src/gas_calibrator/devices/gas_analyzer.py`、`configs/default_config.json`。
 7. 污染区策略：`_handoff` 是证据和草稿区，不进入正式小包；根目录 `D:\gas_calibrator` 冻结为污染区，正式 V1.5 只认 clean worktree。
 8. 只读 full-flow status rollup：生成 `docs/v1_5_flow_contract/final_acceptance_status/`，用现有 JSON/CSV 证据判断能否继续物理流程、能否归档、能否入库、还缺什么证据。
