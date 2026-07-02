@@ -1,5 +1,0 @@
-﻿step,required,artifact,contents,purpose
-identity_binding,True,runtime_identity_bound_config.json,port;label;device_id;sn_code;algorithm_profile,bind commands to the intended analyzer before any coefficient read or write
-old_r0_snapshot,True,old_getcoa_getcob_snapshot.json,GETCOA_before;GETCOB_before;raw_lines;timestamps;sha256,rollback source of truth for R0(T) coefficient groups
-old_main_chain_snapshot,True,old_main_chain_snapshot.json,GETCO1;GETCO3;GETCO2;GETCO4;GETCO5;GETCO6,prove R0 writes are not mixed with concentration-chain changes
-payload_review_snapshot,True,sencoa_sencob_payload_review.csv,reviewed SENCOA/SENCOB target rows and source model hashes,make the future writer consume reviewed payloads only

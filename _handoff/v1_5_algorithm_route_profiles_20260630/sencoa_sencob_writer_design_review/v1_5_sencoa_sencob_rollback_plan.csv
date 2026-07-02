@@ -1,4 +1,0 @@
-﻿trigger,action,order,verification,continue_policy
-write_ack_missing_or_readback_mismatch,restore changed coefficient groups from old_getcoa_getcob_snapshot.json,reverse_changed_order,read GETCOA/GETCOB until old values match within reviewed tolerance,stop_after_rollback_attempt_and_mark_device_failed
-SENCOA_success_then_SENCOB_failure,restore SENCOA then verify GETCOA; preserve old GETCOB if unchanged,rollback_changed_group_only,GETCOA readback equals pre-write snapshot,do_not_attempt_partial_production_acceptance
-post_write_independent_reverification_failure,do not auto-rollback inside preflight; require reviewer decision using readback and route evidence,reviewer_controlled,separate no-write CO2/H2O reverification package,separate write success from validation-environment failure
