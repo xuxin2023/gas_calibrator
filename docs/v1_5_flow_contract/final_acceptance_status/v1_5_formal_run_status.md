@@ -13,6 +13,8 @@
 - offline_status_only: `True`
 - opens_com_ports: `False`
 - connects_postgresql: `False`
+- real_import_execution_allowed: `False`
+- database_written: `False`
 - controls_pressure: `False`
 - controls_water_or_gas_routes: `False`
 - writes_coefficients: `False`
@@ -26,7 +28,7 @@
 - title: Initialization readiness
 - status: `missing`
 - source_status: ``
-- source_path: ``
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_initialization\v1_5_initialization_readiness.json`
 - reason: initialization readiness sidecar missing
 - next_action: Generate or refresh initialization readiness before any open-flow step.
 - blocks_release: `True`
@@ -38,7 +40,7 @@
 - title: Identity, GETCO epoch-0, and SN traceability
 - status: `missing`
 - source_status: ``
-- source_path: ``
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\identity_getco_readiness\v1_5_getco_identity_readiness.json`
 - reason: identity/GETCO readiness sidecar missing
 - next_action: Refresh read-only GETCO/SN identity evidence or resolve traceability review before release.
 - blocks_release: `True`
@@ -50,7 +52,7 @@
 - title: Pre-gas readiness
 - status: `missing`
 - source_status: ``
-- source_path: ``
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\pre_gas_readiness\v1_5_pre_gas_readiness.json`
 - reason: pre-gas readiness sidecar missing
 - next_action: Close pre-gas gaps before starting mature CO2/H2O open-flow queues.
 - blocks_release: `True`
@@ -81,6 +83,78 @@
 - blocks_physical_flow: `False`
 - physical_meaning: Records that the new-algorithm profile can generate CO2 47 / H2O 14 runlist evidence and dry-run mature-queue handoff plans without executing queues or modifying mature runners.
 
+### formal_database_dry_run
+
+- title: PostgreSQL 18 formal database dry-run contract
+- status: `ready`
+- source_status: `ready_for_postgresql18_schema_dry_run_review`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_dry_run\v1_5_formal_database_dry_run.json`
+- reason: PostgreSQL 18 schema/insert dry-run is ready while real import remains unauthorized
+- next_action: Review the PostgreSQL 18 schema, SN/device_code identity, insert-preview, and dry-run boundaries before enabling any separate database import step.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Checks database schema and insert-preview semantics without connecting to PostgreSQL or importing data; this keeps database readiness separate from formal archive release.
+
+### formal_database_import_preflight
+
+- title: PostgreSQL 18 formal database import preflight
+- status: `review_required`
+- source_status: `review_required`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_preflight\v1_5_formal_database_import_preflight.json`
+- reason: source_status=review_required; review_required_count=1; dsn_configured=False
+- next_action: Review DSN configuration, migration lock, archive-release dependency, and explicit import authorization before running any separate production database import.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Checks that a production database import could be reviewed without opening PostgreSQL, applying migrations, or importing rows; this separates preflight evidence from real import execution.
+
+### formal_database_import_authorization
+
+- title: PostgreSQL 18 formal database import authorization
+- status: `review_required`
+- source_status: `review_required`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_authorization\v1_5_formal_database_import_authorization.json`
+- reason: source_status=review_required; review_required_count=3; preflight_ready=False; archive_release_ready=False; manual_authorization_ready=False; database_import_allowed=False
+- next_action: Complete archive release and manual import authorization, then run a separate controlled database import command that consumes this authorization artifact.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Separates manual database-import authorization from both preflight review and actual PostgreSQL writes; the status artifact itself remains no-connect/no-import.
+
+### formal_database_import_command_contract
+
+- title: PostgreSQL 18 formal database import command contract
+- status: `review_required`
+- source_status: `review_required`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_command_contract\v1_5_formal_database_import_command_contract.json`
+- reason: source_status=review_required; review_required_count=4; authorization_ready=False; preflight_ready=False; archive_release_ready=False; evidence_bundle_ready=False; command_contract_ready=False
+- next_action: Review the no-connect import command contract. A separate controlled command must consume the contract, authorization, preflight, archive, evidence bundle, and DSN env before any production import.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Separates manual import authorization from executable command inputs and keeps migration/import execution locked off until a future controlled command re-checks the full evidence chain.
+
+### formal_database_import_blocked_executor
+
+- title: PostgreSQL 18 formal database import blocked executor
+- status: `review_required`
+- source_status: `review_required`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_blocked_executor\v1_5_formal_database_import_blocked_executor.json`
+- reason: blocked executor input review_required_count=3; regenerate command contract/input references before executor review
+- next_action: Keep database import locked. Build a separate controlled executor with double authorization before any PostgreSQL connection, migration, or row import is allowed.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Proves the future import command currently consumes reviewed inputs but remains a no-connect, no-migration, no-write stub rather than a production import.
+
+### formal_database_import_controlled_executor_design
+
+- title: PostgreSQL 18 controlled import executor design
+- status: `ready`
+- source_status: `ready_for_controlled_import_executor_design_review`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_controlled_executor_design\v1_5_formal_database_import_controlled_executor_design.json`
+- reason: controlled PostgreSQL 18 import executor design is ready; execution remains blocked
+- next_action: Use this design only as future implementation guidance. Do not connect PostgreSQL until a separate controlled executor adds explicit execute authorization, transaction, readback, rollback, and import evidence.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Defines the future real-import safety contract while preserving the current no-connect, no-migration, no-write V1.5 boundary.
+
 ### co2_open_flow_mature_queue
 
 - title: CO2 mature open-flow queue
@@ -108,10 +182,10 @@
 ### candidate_fit_review
 
 - title: Candidate fit/QC review
-- status: `not_attempted`
-- source_status: `not_attempted`
+- status: `review_required`
+- source_status: `partial`
 - source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\v1_5_run_evidence_status.json`
-- reason: candidate fit review has not passed
+- reason: candidate_review=partial
 - next_action: Run no-write candidate fitting/QC review before any controlled write package.
 - blocks_release: `True`
 - blocks_physical_flow: `False`
@@ -146,7 +220,7 @@
 - title: Formal archive, database, and release gate
 - status: `missing`
 - source_status: `closure=missing; archive=missing`
-- source_path: ``
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_archive_closure_from_full_chain\v1_5_formal_archive_closure_index.json`
 - reason: closure readiness and formal archive closure sidecars missing
 - next_action: Close archive/database/report traceability gaps before formal release or database import.
 - blocks_release: `True`
@@ -159,9 +233,13 @@
 - `identity_getco_sn_traceability`: missing - identity/GETCO readiness sidecar missing (next: Refresh read-only GETCO/SN identity evidence or resolve traceability review before release.)
 - `pre_gas_readiness`: missing - pre-gas readiness sidecar missing (next: Close pre-gas gaps before starting mature CO2/H2O open-flow queues.)
 - `pressure_senco9_pre_open_flow`: review_required - pressure_quick_check=missing (next: Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.)
+- `formal_database_import_preflight`: review_required - source_status=review_required; review_required_count=1; dsn_configured=False (next: Review DSN configuration, migration lock, archive-release dependency, and explicit import authorization before running any separate production database import.)
+- `formal_database_import_authorization`: review_required - source_status=review_required; review_required_count=3; preflight_ready=False; archive_release_ready=False; manual_authorization_ready=False; database_import_allowed=False (next: Complete archive release and manual import authorization, then run a separate controlled database import command that consumes this authorization artifact.)
+- `formal_database_import_command_contract`: review_required - source_status=review_required; review_required_count=4; authorization_ready=False; preflight_ready=False; archive_release_ready=False; evidence_bundle_ready=False; command_contract_ready=False (next: Review the no-connect import command contract. A separate controlled command must consume the contract, authorization, preflight, archive, evidence bundle, and DSN env before any production import.)
+- `formal_database_import_blocked_executor`: review_required - blocked executor input review_required_count=3; regenerate command contract/input references before executor review (next: Keep database import locked. Build a separate controlled executor with double authorization before any PostgreSQL connection, migration, or row import is allowed.)
 - `co2_open_flow_mature_queue`: review_required - co2_open_flow=missing (next: Run or register the mature V1.5 CO2 open-flow queue evidence.)
 - `h2o_open_flow_mature_queue`: review_required - h2o_open_flow=missing (next: Run or register the mature V1.5 H2O open-flow queue evidence.)
-- `candidate_fit_review`: not_attempted - candidate fit review has not passed (next: Run no-write candidate fitting/QC review before any controlled write package.)
+- `candidate_fit_review`: review_required - candidate_review=partial (next: Run no-write candidate fitting/QC review before any controlled write package.)
 - `post_run_write_package`: not_attempted - post-run coefficient executor package has not passed (next: Generate the post-run executor package with eligibility, write plan, and reverify plan.)
 - `controlled_write_and_reverification`: not_attempted - post-write reverification has not passed or has not been attempted (next: After authorized writes, run independent post-write reverification evidence.)
 - `formal_archive_database_release`: missing - closure readiness and formal archive closure sidecars missing (next: Close archive/database/report traceability gaps before formal release or database import.)
