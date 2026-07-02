@@ -1,6 +1,6 @@
 ﻿{
   "schema": "v1_5_formal_database_dry_run_contract_v1",
-  "generated_at": "2026-07-02T17:42:51",
+  "generated_at": "2026-07-02T18:02:48",
   "overall_status": "ready_for_postgresql18_schema_dry_run_review",
   "blocker_count": 0,
   "review_required_count": 0,

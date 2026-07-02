@@ -1,0 +1,6 @@
+﻿step,order,required,action,failure_policy
+pre_transaction_input_validation,1,True,"validate schemas, hashes, SN/device_code uniqueness, archive release, DSN env presence, and authorization",abort_before_connect_or_before_transaction
+begin_transaction,2,True,open one PostgreSQL 18 transaction after all offline gates pass,rollback_and_write_failed_import_attempt_summary_outside_repo_only
+insert_registry_rows,3,True,"insert run, device, artifact, sample, coefficient, report, and traceability rows with idempotency keys",rollback_transaction_no_partial_acceptance
+post_insert_readback_before_commit,4,True,query expected row counts and artifact hashes before commit,rollback_transaction_no_partial_acceptance
+commit,5,True,commit only after readback and hash checks match the frozen evidence bundle,database_import_status_failed_review_required

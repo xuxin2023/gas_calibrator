@@ -625,6 +625,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_database_import_authorization_snapshot",
                 "formal_database_import_command_contract_snapshot",
                 "formal_database_import_blocked_executor_snapshot",
+                "formal_database_import_controlled_executor_design_snapshot",
                 "database_import",
                 "final_evidence_status_refresh",
                 "algorithm_profile_runner_dry_run_snapshot",
@@ -984,6 +985,9 @@ def build_full_flow_plan(
     formal_database_import_authorization_dir = root / "formal_database_import_authorization"
     formal_database_import_command_contract_dir = root / "formal_database_import_command_contract"
     formal_database_import_blocked_executor_dir = root / "formal_database_import_blocked_executor"
+    formal_database_import_controlled_executor_design_dir = (
+        root / "formal_database_import_controlled_executor_design"
+    )
     algorithm_profile_path = repo_root / "configs" / "v1_5_algorithm_route_profiles.json"
     runtime_bound_cfg = getco_dir / "runtime_identity_bound_config.json"
 
@@ -2087,6 +2091,48 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="formal_database_import_controlled_executor_design_snapshot",
+            title="Review controlled PostgreSQL 18 import executor design without connecting",
+            phase="FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_database_import_controlled_executor_design",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_database_import_controlled_executor_design",
+                "--formal-database-import-blocked-executor-json",
+                formal_database_import_blocked_executor_dir / "v1_5_formal_database_import_blocked_executor.json",
+                "--dsn-env",
+                "V1_5_POSTGRES_DSN",
+                "--output-dir",
+                formal_database_import_controlled_executor_design_dir,
+            ),
+            required_inputs=(
+                "blocked database import executor sidecar",
+                "PostgreSQL DSN environment variable contract",
+            ),
+            expected_outputs=(
+                "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_design.json",
+                "formal_database_import_controlled_executor_design/V1_5_FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN.md",
+                "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_authorization_contract.csv",
+                "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_transaction_contract.csv",
+                "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_readback_contract.csv",
+                "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_rollback_contract.csv",
+                "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_boundary_gates.csv",
+            ),
+            physical_meaning=(
+                "Before any real PostgreSQL import executor is implemented, freeze the future execution contract: "
+                "double authorization, DSN secret handling, transaction/rollback behavior, pre-commit readback, "
+                "post-commit hold policy, and no-current-execution boundary."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_database_import_execution",
+            notes=(
+                "This design review does not add a real --execute path and does not connect PostgreSQL.",
+                "It exists to prevent a future database importer from bypassing authorization, transaction, readback, or rollback evidence.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="database_import",
             title="Import evidence bundle into V1.5 PostgreSQL registry",
             phase="DATABASE_IMPORT",
@@ -2243,6 +2289,9 @@ def build_full_flow_plan(
                 formal_database_import_command_contract_dir / "v1_5_formal_database_import_command_contract.json",
                 "--formal-database-import-blocked-executor-json",
                 formal_database_import_blocked_executor_dir / "v1_5_formal_database_import_blocked_executor.json",
+                "--formal-database-import-controlled-executor-design-json",
+                formal_database_import_controlled_executor_design_dir
+                / "v1_5_formal_database_import_controlled_executor_design.json",
             ),
             required_inputs=(
                 "initialization readiness sidecar",
@@ -2256,6 +2305,7 @@ def build_full_flow_plan(
                 "formal database import authorization sidecar",
                 "formal database import command contract sidecar",
                 "blocked database import executor sidecar",
+                "controlled database import executor design sidecar",
             ),
             expected_outputs=(
                 "formal_run_status/v1_5_formal_run_status.json",
@@ -2340,6 +2390,7 @@ def build_full_flow_plan(
             "formal_database_import_authorization_before_database_import",
             "formal_database_import_command_contract_before_database_import",
             "formal_database_import_blocked_executor_before_database_import",
+            "formal_database_import_controlled_executor_design_before_database_import",
             "evidence_bundle_database_report",
             "formal_run_status_dashboard",
         ),

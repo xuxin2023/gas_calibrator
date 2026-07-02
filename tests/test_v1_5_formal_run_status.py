@@ -304,6 +304,47 @@ def _seed_formal_database_import_blocked_executor(
     )
 
 
+def _seed_formal_database_import_controlled_executor_design(
+    root: Path,
+    *,
+    review_required_count: int = 0,
+    side_effect_lock_clean: bool = True,
+) -> Path:
+    status = (
+        "ready_for_controlled_import_executor_design_review"
+        if review_required_count == 0
+        else "review_required"
+    )
+    database_written = not side_effect_lock_clean
+    return _write_json(
+        root
+        / "formal_database_import_controlled_executor_design"
+        / "v1_5_formal_database_import_controlled_executor_design.json",
+        {
+            "schema": "v1_5_formal_database_import_controlled_executor_design_v1",
+            "overall_status": status,
+            "blocker_count": 0,
+            "review_required_count": review_required_count,
+            "production_state": "blocked_design_only",
+            "execution_supported": False,
+            "real_import_execution_allowed": False,
+            "production_backend": "postgresql",
+            "production_postgresql_major": 18,
+            "connects_postgresql": False,
+            "opens_com_ports": False,
+            "controls_water_or_gas_routes": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "applies_migrations": False,
+            "database_import_attempted": False,
+            "database_written": database_written,
+            "database_import_allowed": False,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+
 def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run"
     _seed_ready_run(run_dir)
@@ -508,6 +549,34 @@ def test_formal_run_status_keeps_import_locked_when_blocked_executor_exists(tmp_
     assert gate["blocks_release"] is False
     assert gate["blocks_physical_flow"] is False
     assert "correctly refused real import" in gate["reason"]
+
+
+def test_formal_run_status_accepts_controlled_executor_design_without_unlocking_import(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_controlled_import_design"
+    _seed_ready_run(run_dir)
+    _seed_formal_database_dry_run(run_dir)
+    _seed_formal_database_import_preflight(run_dir)
+    _seed_formal_database_import_authorization(run_dir)
+    _seed_formal_database_import_command_contract(run_dir)
+    _seed_formal_database_import_blocked_executor(run_dir)
+    design_path = _seed_formal_database_import_controlled_executor_design(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_database_import_controlled_executor_design"]
+
+    assert model["overall_status"] == "review_required"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["formal_database_import_controlled_executor_design_json"] == str(
+        design_path.resolve()
+    )
+    assert gate["status"] == "ready"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "execution remains blocked" in gate["reason"]
 
 
 def test_formal_run_status_blocks_dirty_import_executor_side_effects(tmp_path: Path) -> None:
@@ -722,6 +791,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     import_authorization_path = _seed_formal_database_import_authorization(run_dir)
     import_command_contract_path = _seed_formal_database_import_command_contract(run_dir)
     import_blocked_executor_path = _seed_formal_database_import_blocked_executor(run_dir)
+    import_controlled_executor_design_path = _seed_formal_database_import_controlled_executor_design(run_dir)
 
     rc = export_status_main(
         [
@@ -741,6 +811,8 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
             str(import_command_contract_path),
             "--formal-database-import-blocked-executor-json",
             str(import_blocked_executor_path),
+            "--formal-database-import-controlled-executor-design-json",
+            str(import_controlled_executor_design_path),
         ]
     )
     captured = capsys.readouterr()
@@ -759,4 +831,5 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     assert gates["formal_database_import_authorization"]["status"] == "ready"
     assert gates["formal_database_import_command_contract"]["status"] == "ready"
     assert gates["formal_database_import_blocked_executor"]["status"] == "review_required"
+    assert gates["formal_database_import_controlled_executor_design"]["status"] == "ready"
     assert exported["database_import_allowed"] is False

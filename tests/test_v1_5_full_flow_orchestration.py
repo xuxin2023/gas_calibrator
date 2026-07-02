@@ -875,6 +875,27 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
         "formal_database_import_blocked_executor"
     )
     assert "--fail-on-blocked" in blocked_executor_command
+    design_step = next(
+        step for step in plan.steps if step.step_id == "formal_database_import_controlled_executor_design_snapshot"
+    )
+    design_command = list(design_step.command)
+    assert (
+        design_step.tool_module
+        == "gas_calibrator.tools.export_v1_5_formal_database_import_controlled_executor_design"
+    )
+    assert design_step.execution_mode == "offline_sidecar"
+    assert design_step.opens_com_ports is False
+    assert design_step.controls_gas_route is False
+    assert design_step.controls_water_route is False
+    assert design_step.writes_coefficients is False
+    assert design_step.writes_device_id is False
+    assert _flag_value(design_command, "--formal-database-import-blocked-executor-json").endswith(
+        "formal_database_import_blocked_executor\\v1_5_formal_database_import_blocked_executor.json"
+    )
+    assert _flag_value(design_command, "--dsn-env") == "V1_5_POSTGRES_DSN"
+    assert _flag_value(design_command, "--output-dir").endswith(
+        "formal_database_import_controlled_executor_design"
+    )
     status_step = next(step for step in plan.steps if step.step_id == "formal_run_status_snapshot")
     status_command = list(status_step.command)
     assert status_step.tool_module == "gas_calibrator.tools.export_v1_5_formal_run_status"
@@ -899,6 +920,9 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     )
     assert _flag_value(status_command, "--formal-database-import-blocked-executor-json").endswith(
         "formal_database_import_blocked_executor\\v1_5_formal_database_import_blocked_executor.json"
+    )
+    assert _flag_value(status_command, "--formal-database-import-controlled-executor-design-json").endswith(
+        "formal_database_import_controlled_executor_design\\v1_5_formal_database_import_controlled_executor_design.json"
     )
     assert "v1_5_formal_run_status_gates.csv" in " ".join(status_step.expected_outputs)
 

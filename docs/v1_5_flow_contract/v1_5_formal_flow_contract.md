@@ -35,6 +35,7 @@
 - FORMAL_DATABASE_IMPORT_AUTHORIZATION: review archive release and manual import authorization without connecting
 - FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT: review the future import command inputs and execution lock without connecting or importing
 - FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR: run the no-connect import command stub and prove PostgreSQL writes remain refused
+- FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN: freeze future double-authorization, transaction, readback, and rollback requirements without connecting
 - ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports
 - FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars
 
@@ -67,11 +68,12 @@
 25. `FORMAL_DATABASE_IMPORT_AUTHORIZATION` / `formal_database_import_authorization_snapshot`
 26. `FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT` / `formal_database_import_command_contract_snapshot`
 27. `FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR` / `formal_database_import_blocked_executor_snapshot`
-28. `DATABASE_IMPORT` / `database_import`
-29. `REPORTS` / `zh_calibration_reports`
-30. `FINAL_EVIDENCE_STATUS` / `final_evidence_status_refresh`
-31. `ALGORITHM_PROFILE_RUNNER_DRY_RUN` / `algorithm_profile_runner_dry_run_snapshot`
-32. `FORMAL_RUN_STATUS` / `formal_run_status_snapshot`
+28. `FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN` / `formal_database_import_controlled_executor_design_snapshot`
+29. `DATABASE_IMPORT` / `database_import`
+30. `REPORTS` / `zh_calibration_reports`
+31. `FINAL_EVIDENCE_STATUS` / `final_evidence_status_refresh`
+32. `ALGORITHM_PROFILE_RUNNER_DRY_RUN` / `algorithm_profile_runner_dry_run_snapshot`
+33. `FORMAL_RUN_STATUS` / `formal_run_status_snapshot`
 
 ## Formal Route Runners
 
@@ -106,6 +108,7 @@
 - `warning` `entrypoint_not_in_inventory` (formal_database_import_authorization_snapshot): gas_calibrator.tools.export_v1_5_formal_database_import_authorization is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (formal_database_import_command_contract_snapshot): gas_calibrator.tools.export_v1_5_formal_database_import_command_contract is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (formal_database_import_blocked_executor_snapshot): gas_calibrator.tools.import_v1_5_evidence_package is not present in the supplied V1.5 inventory
+- `warning` `entrypoint_not_in_inventory` (formal_database_import_controlled_executor_design_snapshot): gas_calibrator.tools.export_v1_5_formal_database_import_controlled_executor_design is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (database_import): gas_calibrator.tools.import_v1_5_evidence_package is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (zh_calibration_reports): gas_calibrator.tools.export_v1_5_calibration_reports is not present in the supplied V1.5 inventory
 - `warning` `entrypoint_not_in_inventory` (final_evidence_status_refresh): gas_calibrator.tools.export_v1_5_run_evidence_status is not present in the supplied V1.5 inventory
