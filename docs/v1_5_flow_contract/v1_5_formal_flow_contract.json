@@ -37,6 +37,7 @@
     "FORMAL_DATABASE_IMPORT_PREFLIGHT",
     "FORMAL_DATABASE_IMPORT_AUTHORIZATION",
     "FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT",
+    "FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR",
     "DATABASE_IMPORT",
     "REPORTS",
     "FINAL_EVIDENCE_STATUS",
@@ -70,6 +71,7 @@
     "formal_database_import_preflight_snapshot",
     "formal_database_import_authorization_snapshot",
     "formal_database_import_command_contract_snapshot",
+    "formal_database_import_blocked_executor_snapshot",
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
@@ -98,6 +100,7 @@
     "FORMAL_DATABASE_IMPORT_PREFLIGHT: review DSN, migration lock, archive-release dependency, and import authorization without connecting",
     "FORMAL_DATABASE_IMPORT_AUTHORIZATION: review archive release and manual import authorization without connecting",
     "FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT: review the future import command inputs and execution lock without connecting or importing",
+    "FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR: run the no-connect import command stub and prove PostgreSQL writes remain refused",
     "ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports",
     "FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars"
   ],
@@ -234,6 +237,12 @@
       "code": "entrypoint_not_in_inventory",
       "message": "gas_calibrator.tools.export_v1_5_formal_database_import_command_contract is not present in the supplied V1.5 inventory",
       "step_id": "formal_database_import_command_contract_snapshot"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.import_v1_5_evidence_package is not present in the supplied V1.5 inventory",
+      "step_id": "formal_database_import_blocked_executor_snapshot"
     },
     {
       "severity": "warning",

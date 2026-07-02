@@ -2,7 +2,7 @@
   "schema": "v1_5_full_flow_stage_manifest_v1",
   "run_id": "v1_5_contract_reference",
   "contract": "pressure_first_temperature_review_then_open_flow_components",
-  "created_at": "2026-07-02T17:12:43",
+  "created_at": "2026-07-02T17:42:50",
   "current_automation_level": "supervised_tool_chain_with_controlled_live_gates",
   "one_button_live_runner_ready": false,
   "safety_summary": {
@@ -20,7 +20,7 @@
     "dedicated_open_flow_runner_requires_authorization": 2,
     "dedicated_pressure_runner_requires_authorization": 2,
     "offline_database_requires_dsn": 1,
-    "offline_review_auto_candidate": 13,
+    "offline_review_auto_candidate": 14,
     "offline_review_waiting_for_run_artifacts": 10,
     "read_only_real_com_requires_authorization": 1
   },
@@ -1989,6 +1989,94 @@
     },
     {
       "order": 27,
+      "step_id": "formal_database_import_blocked_executor_snapshot",
+      "title": "Run blocked PostgreSQL 18 import executor stub without connecting",
+      "phase": "FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR",
+      "tool_module": "gas_calibrator.tools.import_v1_5_evidence_package",
+      "automation_state": "offline_review_auto_candidate",
+      "execution_mode": "offline_sidecar",
+      "gate": "required_before_database_import_execution",
+      "required_inputs": [
+        "formal database import command contract sidecar",
+        "formal database import authorization sidecar",
+        "formal database import preflight sidecar",
+        "formal archive closure index",
+        "formal evidence bundle",
+        "PostgreSQL DSN environment variable contract"
+      ],
+      "expected_outputs": [
+        "formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor.json",
+        "formal_database_import_blocked_executor/V1_5_FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR.md",
+        "formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor_checks.csv",
+        "formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor_summary.csv"
+      ],
+      "physical_meaning": "After the command contract exists, invoke the future import command only in its blocked-stub mode. This proves the command consumes the reviewed inputs and still refuses PostgreSQL connection, migration, row import, COM access, route control, and analyzer writes.",
+      "command": [
+        "python",
+        "-m",
+        "gas_calibrator.tools.import_v1_5_evidence_package",
+        "--formal-database-import-command-contract-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json",
+        "--formal-database-import-authorization-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+        "--formal-database-import-preflight-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+        "--archive-closure-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+        "--evidence-bundle-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\evidence_bundle.json",
+        "--dsn-env",
+        "V1_5_POSTGRES_DSN",
+        "--output-dir",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_blocked_executor",
+        "--fail-on-blocked"
+      ],
+      "safety_boundaries": {
+        "opens_com_ports": false,
+        "controls_pressure": false,
+        "controls_gas_route": false,
+        "controls_water_route": false,
+        "writes_coefficients": false,
+        "writes_device_id": false,
+        "may_reuse_v1_shared_core": false,
+        "uses_validated_v1_5_entry": true
+      },
+      "authorization_required": {
+        "real_com": false,
+        "pressure_control": false,
+        "route_control": false,
+        "coefficient_write": false,
+        "device_id_write": false
+      },
+      "evidence_contract": {
+        "required_inputs": [
+          "formal database import command contract sidecar",
+          "formal database import authorization sidecar",
+          "formal database import preflight sidecar",
+          "formal archive closure index",
+          "formal evidence bundle",
+          "PostgreSQL DSN environment variable contract"
+        ],
+        "expected_outputs": [
+          "formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor.json",
+          "formal_database_import_blocked_executor/V1_5_FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR.md",
+          "formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor_checks.csv",
+          "formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor_summary.csv"
+        ],
+        "raw_frames_preserved": false,
+        "reject_reasons_required": false,
+        "readback_required": false,
+        "post_write_reverify_required": false,
+        "database_or_report_only": false
+      },
+      "coefficient_epoch_event": "none",
+      "notes": [
+        "This stub intentionally returns non-zero when --fail-on-blocked is used, proving production import remains locked.",
+        "A future real import executor must be a separate controlled package with explicit double authorization and readback/import evidence."
+      ]
+    },
+    {
+      "order": 28,
       "step_id": "database_import",
       "title": "Import evidence bundle into V1.5 PostgreSQL registry",
       "phase": "DATABASE_IMPORT",
@@ -2046,7 +2134,7 @@
       "notes": []
     },
     {
-      "order": 28,
+      "order": 29,
       "step_id": "zh_calibration_reports",
       "title": "Generate Chinese V1.5 calibration reports",
       "phase": "REPORTS",
@@ -2117,7 +2205,7 @@
       ]
     },
     {
-      "order": 29,
+      "order": 30,
       "step_id": "final_evidence_status_refresh",
       "title": "Refresh final V1.5 evidence status after reports and per-device certificates",
       "phase": "FINAL_EVIDENCE_STATUS",
@@ -2187,7 +2275,7 @@
       "notes": []
     },
     {
-      "order": 30,
+      "order": 31,
       "step_id": "algorithm_profile_runner_dry_run_snapshot",
       "title": "Generate new-algorithm profile runner dry-run bundle",
       "phase": "ALGORITHM_PROFILE_RUNNER_DRY_RUN",
@@ -2259,7 +2347,7 @@
       ]
     },
     {
-      "order": 31,
+      "order": 32,
       "step_id": "formal_run_status_snapshot",
       "title": "Export top-level formal run status dashboard",
       "phase": "FORMAL_RUN_STATUS",
@@ -2277,7 +2365,8 @@
         "formal PostgreSQL 18 database dry-run contract",
         "formal database import preflight sidecar",
         "formal database import authorization sidecar",
-        "formal database import command contract sidecar"
+        "formal database import command contract sidecar",
+        "blocked database import executor sidecar"
       ],
       "expected_outputs": [
         "formal_run_status/v1_5_formal_run_status.json",
@@ -2315,7 +2404,9 @@
         "--formal-database-import-authorization-json",
         "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
         "--formal-database-import-command-contract-json",
-        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json"
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json",
+        "--formal-database-import-blocked-executor-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_blocked_executor\\v1_5_formal_database_import_blocked_executor.json"
       ],
       "safety_boundaries": {
         "opens_com_ports": false,
@@ -2345,7 +2436,8 @@
           "formal PostgreSQL 18 database dry-run contract",
           "formal database import preflight sidecar",
           "formal database import authorization sidecar",
-          "formal database import command contract sidecar"
+          "formal database import command contract sidecar",
+          "blocked database import executor sidecar"
         ],
         "expected_outputs": [
           "formal_run_status/v1_5_formal_run_status.json",

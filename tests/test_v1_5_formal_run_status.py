@@ -264,6 +264,46 @@ def _seed_formal_database_import_command_contract(
     )
 
 
+def _seed_formal_database_import_blocked_executor(
+    root: Path,
+    *,
+    review_required_count: int = 0,
+    blocked_executor_ready: bool = True,
+    side_effect_lock_clean: bool = True,
+) -> Path:
+    status = (
+        "blocked_pending_controlled_executor_implementation"
+        if blocked_executor_ready
+        else "review_required"
+    )
+    database_written = not side_effect_lock_clean
+    return _write_json(
+        root / "formal_database_import_blocked_executor" / "v1_5_formal_database_import_blocked_executor.json",
+        {
+            "schema": "v1_5_formal_database_import_blocked_executor_v1",
+            "overall_status": status,
+            "blocker_count": 0,
+            "review_required_count": review_required_count,
+            "blocked_executor_ready": blocked_executor_ready,
+            "execution_supported": False,
+            "real_import_execution_allowed": False,
+            "production_backend": "postgresql",
+            "production_postgresql_major": 18,
+            "connects_postgresql": False,
+            "opens_com_ports": False,
+            "controls_water_or_gas_routes": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "applies_migrations": False,
+            "database_import_attempted": False,
+            "database_written": database_written,
+            "database_import_allowed": False,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+
 def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run"
     _seed_ready_run(run_dir)
@@ -440,6 +480,53 @@ def test_formal_run_status_requires_database_import_command_contract_for_import_
     assert gate["blocks_physical_flow"] is False
     assert "does not execute import" in gate["reason"]
     assert "locked off" in gate["physical_meaning"]
+
+
+def test_formal_run_status_keeps_import_locked_when_blocked_executor_exists(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_blocked_import_executor"
+    _seed_ready_run(run_dir)
+    _seed_formal_database_dry_run(run_dir)
+    _seed_formal_database_import_preflight(run_dir)
+    _seed_formal_database_import_authorization(run_dir)
+    _seed_formal_database_import_command_contract(run_dir)
+    blocked_executor_path = _seed_formal_database_import_blocked_executor(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_database_import_blocked_executor"]
+
+    assert model["overall_status"] == "review_required"
+    assert model["current_stage"] == "formal_database_import_blocked_executor"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["formal_database_import_blocked_executor_json"] == str(
+        blocked_executor_path.resolve()
+    )
+    assert gate["status"] == "review_required"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "correctly refused real import" in gate["reason"]
+
+
+def test_formal_run_status_blocks_dirty_import_executor_side_effects(tmp_path: Path) -> None:
+    run_dir = tmp_path / "dirty_blocked_import_executor"
+    _seed_ready_run(run_dir)
+    _seed_formal_database_dry_run(run_dir)
+    _seed_formal_database_import_preflight(run_dir)
+    _seed_formal_database_import_authorization(run_dir)
+    _seed_formal_database_import_command_contract(run_dir)
+    _seed_formal_database_import_blocked_executor(run_dir, side_effect_lock_clean=False)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_database_import_blocked_executor"]
+
+    assert model["overall_status"] == "blocked"
+    assert model["database_import_allowed"] is False
+    assert gate["status"] == "blocked"
+    assert "boundary is not clean" in gate["reason"]
 
 
 def test_formal_run_status_marks_database_import_command_contract_review_only(tmp_path: Path) -> None:
@@ -634,6 +721,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     import_preflight_path = _seed_formal_database_import_preflight(run_dir)
     import_authorization_path = _seed_formal_database_import_authorization(run_dir)
     import_command_contract_path = _seed_formal_database_import_command_contract(run_dir)
+    import_blocked_executor_path = _seed_formal_database_import_blocked_executor(run_dir)
 
     rc = export_status_main(
         [
@@ -651,13 +739,15 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
             str(import_authorization_path),
             "--formal-database-import-command-contract-json",
             str(import_command_contract_path),
+            "--formal-database-import-blocked-executor-json",
+            str(import_blocked_executor_path),
         ]
     )
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
 
     assert rc == 0
-    assert payload["overall_status"] == "formal_release_ready"
+    assert payload["overall_status"] == "review_required"
     assert payload["physical_boundaries"]["opens_com_ports"] is False
     assert (output_dir / "v1_5_formal_run_status.json").exists()
     assert (output_dir / "v1_5_formal_run_status_gates.csv").exists()
@@ -668,3 +758,5 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     assert gates["formal_database_import_preflight"]["status"] == "ready"
     assert gates["formal_database_import_authorization"]["status"] == "ready"
     assert gates["formal_database_import_command_contract"]["status"] == "ready"
+    assert gates["formal_database_import_blocked_executor"]["status"] == "review_required"
+    assert exported["database_import_allowed"] is False

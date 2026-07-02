@@ -217,6 +217,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     formal_database_import_command_contract = (
         root / "src/gas_calibrator/tools/export_v1_5_formal_database_import_command_contract.py"
     )
+    formal_database_import_blocked_executor = root / "src/gas_calibrator/tools/import_v1_5_evidence_package.py"
     historical_replay = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_contract.py"
     historical_replay_evidence = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_evidence.py"
     historical_replay_missing_point = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_missing_point_audit.py"
@@ -235,6 +236,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
         formal_database_import_preflight,
         formal_database_import_authorization,
         formal_database_import_command_contract,
+        formal_database_import_blocked_executor,
         historical_replay,
         historical_replay_evidence,
         historical_replay_missing_point,
@@ -260,6 +262,10 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     )
     formal_database_import_command_contract_entry = classify_v1_5_entrypoint(
         formal_database_import_command_contract,
+        root=root,
+    )
+    formal_database_import_blocked_executor_entry = classify_v1_5_entrypoint(
+        formal_database_import_blocked_executor,
         root=root,
     )
     historical_replay_entry = classify_v1_5_entrypoint(historical_replay, root=root)
@@ -327,6 +333,16 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert (
         "offline PostgreSQL 18 database import command contract"
         in formal_database_import_command_contract_entry.notes[0]
+    )
+    assert formal_database_import_blocked_executor_entry.category == "formal_review_evidence"
+    assert formal_database_import_blocked_executor_entry.formal_status == "formal_support"
+    assert formal_database_import_blocked_executor_entry.risk_level == "offline"
+    assert formal_database_import_blocked_executor_entry.opens_com_ports is False
+    assert formal_database_import_blocked_executor_entry.controls_routes is False
+    assert formal_database_import_blocked_executor_entry.writes_coefficients is False
+    assert (
+        "offline PostgreSQL 18 blocked import executor stub"
+        in formal_database_import_blocked_executor_entry.notes[0]
     )
     assert historical_replay_entry.category == "formal_review_evidence"
     assert historical_replay_entry.formal_status == "formal_support"

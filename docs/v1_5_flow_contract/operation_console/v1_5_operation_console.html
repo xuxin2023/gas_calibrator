@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang='zh-CN'>
 <head>
   <meta charset='utf-8'>
@@ -25,7 +25,7 @@
 <body>
   <header>
     <h1>V1.5 正式校准操作台</h1>
-    <p>run_id=unknown；角色=operator；生成时间=2026-07-02T09:12:44.104499+00:00</p>
+    <p>run_id=unknown；角色=operator；生成时间=2026-07-02T09:42:51.864895+00:00</p>
   </header>
   <main>
     <section class='boundary'><strong>安全边界：</strong>本操作台仅展示证据状态；不打开串口、不控制水路/气路、不控制阀或 PACE、不写 SENCO、不清除系数、不修改分析仪 ID。</section>
@@ -36,10 +36,11 @@
 <section class='card warn'><h3>正式放行</h3><p class='status'>需复核</p><p>正式签发仍要求报告、数据库、审计和证据包闭环。</p></section>
 <section class='card warn'><h3>数据库归档</h3><p class='status'>待补齐</p><p>数据库用于索引证据链；原始帧仍以文件证据包保留。</p></section>
 <section class='card info'><h3>全流程阶段清单</h3><p class='status'>受控计划</p><p>current=load_plan_and_traceability; one_button_live_runner_ready=False</p></section></section>
+
 <section class='panel'>
   <h2>全流程阶段清单</h2>
   <p>状态：<strong>受控计划</strong>；当前阶段：load_plan_and_traceability；one_button_live_runner_ready=False</p>
-  <p>状态计数：authorization_required=5, blocked_controlled_gate=2, pass=5, waiting_for_artifacts=19</p>
+  <p>状态计数：authorization_required=5, blocked_controlled_gate=2, pass=6, waiting_for_artifacts=19</p>
   <table>
     <thead><tr><th>序号</th><th>阶段</th><th>环节</th><th>状态</th><th>原因</th></tr></thead>
     <tbody><tr><td>1</td><td>load_plan_and_traceability</td><td>LOAD_PLAN</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>

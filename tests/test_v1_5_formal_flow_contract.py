@@ -171,6 +171,9 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
         "formal_database_import_command_contract_snapshot"
     )
     assert report.step_sequence.index("formal_database_import_command_contract_snapshot") < report.step_sequence.index(
+        "formal_database_import_blocked_executor_snapshot"
+    )
+    assert report.step_sequence.index("formal_database_import_blocked_executor_snapshot") < report.step_sequence.index(
         "database_import"
     )
     assert report.step_sequence.index("final_evidence_status_refresh") < report.step_sequence.index(
@@ -180,6 +183,7 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
     assert "FORMAL_DATABASE_IMPORT_PREFLIGHT" in "\n".join(report.physical_flow)
     assert "FORMAL_DATABASE_IMPORT_AUTHORIZATION" in "\n".join(report.physical_flow)
     assert "FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT" in "\n".join(report.physical_flow)
+    assert "FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR" in "\n".join(report.physical_flow)
     assert "FORMAL_RUN_STATUS" in "\n".join(report.physical_flow)
 
 
@@ -516,6 +520,47 @@ def test_formal_flow_contract_blocks_database_import_command_contract_that_is_no
     assert "formal_database_import_command_contract_wrong_tool" in codes
     assert "formal_database_import_command_contract_must_be_offline_no_write" in codes
     assert "formal_database_import_command_contract_missing_required_flag" in codes
+
+
+def test_formal_flow_contract_blocks_database_import_blocked_executor_that_is_not_stubbed(tmp_path):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [step.step_id for step in steps].index("formal_database_import_blocked_executor_snapshot")
+    command = tuple(
+        part
+        for part in steps[index].command
+        if part
+        not in {
+            "--formal-database-import-command-contract-json",
+            "--formal-database-import-authorization-json",
+            "--formal-database-import-preflight-json",
+            "--archive-closure-json",
+            "--evidence-bundle-json",
+            "--dsn-env",
+            "--output-dir",
+            "--fail-on-blocked",
+        }
+    )
+    broken = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.export_v1_5_formal_database_import_command_contract",
+        execution_mode="offline_database_requires_configured_dsn",
+        opens_com_ports=True,
+        writes_coefficients=True,
+        command=command,
+    )
+    steps[index] = broken
+
+    report = validate_v1_5_formal_flow_contract(
+        replace(plan, steps=tuple(steps)),
+        inventory_entries=_inventory_for_plan(),
+    )
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "formal_database_import_blocked_executor_wrong_tool" in codes
+    assert "formal_database_import_blocked_executor_must_be_offline_no_write" in codes
+    assert "formal_database_import_blocked_executor_missing_required_flag" in codes
 
 
 def test_export_formal_flow_contract_writes_json_and_markdown(tmp_path):
