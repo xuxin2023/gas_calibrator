@@ -1,7 +1,7 @@
 {
   "schema": "v1_5_operation_console_v1",
   "schema_version": "v1_5_operation_console_v1",
-  "generated_at": "2026-07-01T23:29:47.335081+00:00",
+  "generated_at": "2026-07-02T02:40:20.066452+00:00",
   "run_id": "unknown",
   "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "role": "operator",
@@ -104,13 +104,13 @@
     "tone": "info",
     "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.json",
     "schema": "v1_5_full_flow_stage_manifest_v1",
-    "stage_count": 29,
+    "stage_count": 30,
     "current_manifest_stage": "load_plan_and_traceability",
     "one_button_live_runner_ready": false,
     "status_counts": {
       "authorization_required": 5,
       "blocked_controlled_gate": 2,
-      "pass": 3,
+      "pass": 4,
       "waiting_for_artifacts": 19
     },
     "detail": "current=load_plan_and_traceability; one_button_live_runner_ready=False",
@@ -487,21 +487,21 @@
         "operator_cannot_self_approve",
         "database_import_or_dry_run_visible"
       ],
-      "status": "not_attempted",
-      "status_label": "未执行",
-      "tone": "warn",
+      "status": "pass",
+      "status_label": "通过",
+      "tone": "good",
       "read_only": true,
       "device_control_enabled": false,
       "blockers": [
-        "Evidence database import: 未执行 - database import not attempted or summary not found"
+        "无阻塞；等待对应证据刷新。"
       ],
       "evidence_refs": [
         {
           "kind": "stage",
           "key": "database_import",
-          "status": "not_attempted",
+          "status": "pass",
           "title": "Evidence database import",
-          "artifact_count": 0
+          "artifact_count": 5
         }
       ]
     }

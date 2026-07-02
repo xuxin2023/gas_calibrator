@@ -26,7 +26,7 @@
 | `dedicated_pressure_runner_requires_authorization` | 2 |
 | `offline_database_requires_dsn` | 1 |
 | `offline_review_auto_candidate` | 12 |
-| `offline_review_waiting_for_run_artifacts` | 9 |
+| `offline_review_waiting_for_run_artifacts` | 10 |
 | `read_only_real_com_requires_authorization` | 1 |
 
 ## Stage Contract
@@ -57,11 +57,12 @@
 | 22 | `EVIDENCE_BUNDLE` | `formal_evidence_sidecar` | `offline_review_waiting_for_run_artifacts` | `required_before_report_and_database_import` | `gas_calibrator.tools.run_v1_5_formal_evidence_sidecar` |
 | 23 | `FORMAL_DATABASE_DRY_RUN` | `formal_database_dry_run_snapshot` | `offline_review_auto_candidate` | `required_before_database_import_authorization` | `gas_calibrator.tools.export_v1_5_formal_database_dry_run` |
 | 24 | `FORMAL_DATABASE_IMPORT_PREFLIGHT` | `formal_database_import_preflight_snapshot` | `offline_review_auto_candidate` | `required_before_database_import_execution` | `gas_calibrator.tools.export_v1_5_formal_database_import_preflight` |
-| 25 | `DATABASE_IMPORT` | `database_import` | `offline_database_requires_dsn` | `required_for_formal_archive` | `gas_calibrator.tools.import_v1_5_evidence_package` |
-| 26 | `REPORTS` | `zh_calibration_reports` | `offline_review_waiting_for_run_artifacts` | `final_deliverable` | `gas_calibrator.tools.export_v1_5_calibration_reports` |
-| 27 | `FINAL_EVIDENCE_STATUS` | `final_evidence_status_refresh` | `offline_review_waiting_for_run_artifacts` | `required_after_reports_for_archive_closure` | `gas_calibrator.tools.export_v1_5_run_evidence_status` |
-| 28 | `ALGORITHM_PROFILE_RUNNER_DRY_RUN` | `algorithm_profile_runner_dry_run_snapshot` | `offline_review_auto_candidate` | `optional_new_algorithm_runner_preflight_before_status_rollup` | `gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run` |
-| 29 | `FORMAL_RUN_STATUS` | `formal_run_status_snapshot` | `offline_review_auto_candidate` | `final_reviewer_status_overview` | `gas_calibrator.tools.export_v1_5_formal_run_status` |
+| 25 | `FORMAL_DATABASE_IMPORT_AUTHORIZATION` | `formal_database_import_authorization_snapshot` | `offline_review_waiting_for_run_artifacts` | `required_before_database_import_execution` | `gas_calibrator.tools.export_v1_5_formal_database_import_authorization` |
+| 26 | `DATABASE_IMPORT` | `database_import` | `offline_database_requires_dsn` | `required_for_formal_archive` | `gas_calibrator.tools.import_v1_5_evidence_package` |
+| 27 | `REPORTS` | `zh_calibration_reports` | `offline_review_waiting_for_run_artifacts` | `final_deliverable` | `gas_calibrator.tools.export_v1_5_calibration_reports` |
+| 28 | `FINAL_EVIDENCE_STATUS` | `final_evidence_status_refresh` | `offline_review_waiting_for_run_artifacts` | `required_after_reports_for_archive_closure` | `gas_calibrator.tools.export_v1_5_run_evidence_status` |
+| 29 | `ALGORITHM_PROFILE_RUNNER_DRY_RUN` | `algorithm_profile_runner_dry_run_snapshot` | `offline_review_auto_candidate` | `optional_new_algorithm_runner_preflight_before_status_rollup` | `gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run` |
+| 30 | `FORMAL_RUN_STATUS` | `formal_run_status_snapshot` | `offline_review_auto_candidate` | `final_reviewer_status_overview` | `gas_calibrator.tools.export_v1_5_formal_run_status` |
 
 ## Live And Write Gates
 
@@ -366,7 +367,21 @@ Expected outputs:
 - formal_database_import_preflight/v1_5_formal_database_import_preflight_checks.csv
 - formal_database_import_preflight/v1_5_formal_database_import_preflight_summary.csv
 
-### 25. `database_import`
+### 25. `formal_database_import_authorization_snapshot`
+
+Required inputs:
+- formal database import preflight sidecar
+- formal archive closure index
+- operator/reviewer/approver authorization record
+- database import authorization id
+
+Expected outputs:
+- formal_database_import_authorization/v1_5_formal_database_import_authorization.json
+- formal_database_import_authorization/V1_5_FORMAL_DATABASE_IMPORT_AUTHORIZATION.md
+- formal_database_import_authorization/v1_5_formal_database_import_authorization_checks.csv
+- formal_database_import_authorization/v1_5_formal_database_import_authorization_summary.csv
+
+### 26. `database_import`
 
 Required inputs:
 - V1.5 evidence DSN
@@ -375,7 +390,7 @@ Required inputs:
 Expected outputs:
 - database_imported=true summary
 
-### 26. `zh_calibration_reports`
+### 27. `zh_calibration_reports`
 
 Required inputs:
 - evidence_bundle.json
@@ -388,7 +403,7 @@ Expected outputs:
 - per_device_certificate_manifest.json
 - per_device_certificate_artifact_hashes.csv
 
-### 27. `final_evidence_status_refresh`
+### 28. `final_evidence_status_refresh`
 
 Required inputs:
 - evidence_bundle.json
@@ -399,7 +414,7 @@ Expected outputs:
 - v1_5_run_evidence_status.json
 - v1_5_run_evidence_status.md
 
-### 28. `algorithm_profile_runner_dry_run_snapshot`
+### 29. `algorithm_profile_runner_dry_run_snapshot`
 
 Required inputs:
 - configs/v1_5_algorithm_route_profiles.json
@@ -412,7 +427,7 @@ Expected outputs:
 - algorithm_profile_runner_dry_run/algorithm_runlist_readiness/v1_5_algorithm_runlist_readiness.json
 - algorithm_profile_runner_dry_run/algorithm_runner_integration_dry_run/v1_5_algorithm_runner_integration_dry_run.json
 
-### 29. `formal_run_status_snapshot`
+### 30. `formal_run_status_snapshot`
 
 Required inputs:
 - initialization readiness sidecar
@@ -423,6 +438,7 @@ Required inputs:
 - optional new-algorithm profile runner dry-run bundle
 - formal PostgreSQL 18 database dry-run contract
 - formal database import preflight sidecar
+- formal database import authorization sidecar
 
 Expected outputs:
 - formal_run_status/v1_5_formal_run_status.json

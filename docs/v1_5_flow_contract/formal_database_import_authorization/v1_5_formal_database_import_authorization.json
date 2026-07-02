@@ -1,0 +1,121 @@
+﻿{
+  "schema": "v1_5_formal_database_import_authorization_v1",
+  "generated_at": "2026-07-02T10:40:19",
+  "overall_status": "review_required",
+  "blocker_count": 0,
+  "review_required_count": 3,
+  "production_backend": "postgresql",
+  "production_postgresql_major": 18,
+  "formal_database_import_preflight_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+  "archive_closure_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+  "preflight_ready": false,
+  "archive_release_ready": false,
+  "manual_authorization_ready": false,
+  "operator": "V1.5-contract-refresh",
+  "reviewer": "",
+  "approver": "",
+  "authorization_id": "",
+  "connects_postgresql": false,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "writes_sn": false,
+  "writes_device_id": false,
+  "writes_coefficients": false,
+  "applies_migrations": false,
+  "database_import_attempted": false,
+  "database_written": false,
+  "database_import_allowed": false,
+  "formal_release_allowed": false,
+  "not_real_acceptance_evidence": true,
+  "required_authorizations": [
+    "formal_archive_release",
+    "database_import_authorization",
+    "operator_confirmation",
+    "reviewer_approval",
+    "approver_approval"
+  ],
+  "checks": [
+    {
+      "check": "formal_database_import_preflight_ready",
+      "status": "review_required",
+      "evidence_role": "required_database_preflight",
+      "reasons": [
+        "preflight_status=review_required",
+        "preflight_review_required_count=1",
+        "dsn_configured_not_true"
+      ],
+      "physical_meaning": "A real import authorization can only be reviewed after the PostgreSQL 18 import preflight has a DSN fingerprint, a ready dry-run contract, and no execution side effects.",
+      "next_action": "Regenerate or review the formal database import preflight before any import authorization.",
+      "details": {
+        "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+        "preflight_status": "review_required",
+        "dsn_configured": false,
+        "dry_run_contract_ready": true
+      }
+    },
+    {
+      "check": "formal_archive_release_ready",
+      "status": "review_required",
+      "evidence_role": "required_release_evidence",
+      "reasons": [
+        "archive_closure_missing"
+      ],
+      "physical_meaning": "Production database import is an archive/release action, not an early calibration-stage action.",
+      "next_action": "Complete formal archive closure and SN/device_code traceability before import authorization.",
+      "details": {
+        "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+        "archive_status": "",
+        "package_status": ""
+      }
+    },
+    {
+      "check": "manual_database_import_authorization_record",
+      "status": "review_required",
+      "evidence_role": "manual_authorization_record",
+      "reasons": [
+        "reviewer_missing",
+        "approver_missing",
+        "authorization_id_missing"
+      ],
+      "physical_meaning": "A database import needs an explicit operator/reviewer/approver authorization record; a passing preflight alone must not trigger production writes.",
+      "next_action": "Record operator, reviewer, approver, and authorization ID before a separate import command.",
+      "details": {
+        "operator": "V1.5-contract-refresh",
+        "reviewer": "",
+        "approver": "",
+        "authorization_id": ""
+      }
+    },
+    {
+      "check": "migration_execution_lock",
+      "status": "ready",
+      "evidence_role": "migration_boundary",
+      "reasons": [],
+      "physical_meaning": "This authorization review does not allow schema migrations.",
+      "next_action": "Use a separately reviewed migration procedure if schema changes are ever required.",
+      "details": {
+        "applies_migrations": false,
+        "migrations_applied": false
+      }
+    },
+    {
+      "check": "real_import_command_must_consume_authorization",
+      "status": "ready",
+      "evidence_role": "execution_boundary",
+      "reasons": [],
+      "physical_meaning": "The future real import command must consume this authorization artifact plus archive and preflight evidence.",
+      "next_action": "Keep real import disabled unless the dedicated import command verifies this artifact.",
+      "details": {
+        "database_import_attempted": false,
+        "database_written": false,
+        "real_import_command_required_inputs": [
+          "formal_database_import_authorization_json",
+          "formal_database_import_preflight_json",
+          "formal_archive_closure_index_json",
+          "evidence_bundle_json"
+        ]
+      }
+    }
+  ],
+  "next_action": "Resolve blockers/review items, then run a separate controlled PostgreSQL 18 import command that consumes this authorization artifact. This review artifact never imports data."
+}

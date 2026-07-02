@@ -167,6 +167,56 @@ def _seed_formal_database_import_preflight(
     )
 
 
+def _seed_formal_database_import_authorization(
+    root: Path,
+    *,
+    blocker_count: int = 0,
+    review_required_count: int = 0,
+    preflight_ready: bool = True,
+    archive_release_ready: bool = True,
+    manual_authorization_ready: bool = True,
+) -> Path:
+    if blocker_count:
+        status = "blocked"
+    elif review_required_count:
+        status = "review_required"
+    else:
+        status = "ready_for_manual_postgresql18_import_authorization"
+    database_import_allowed = (
+        blocker_count == 0
+        and review_required_count == 0
+        and preflight_ready
+        and archive_release_ready
+        and manual_authorization_ready
+    )
+    return _write_json(
+        root / "formal_database_import_authorization" / "v1_5_formal_database_import_authorization.json",
+        {
+            "schema": "v1_5_formal_database_import_authorization_v1",
+            "overall_status": status,
+            "blocker_count": blocker_count,
+            "review_required_count": review_required_count,
+            "production_backend": "postgresql",
+            "production_postgresql_major": 18,
+            "preflight_ready": preflight_ready,
+            "archive_release_ready": archive_release_ready,
+            "manual_authorization_ready": manual_authorization_ready,
+            "connects_postgresql": False,
+            "opens_com_ports": False,
+            "controls_water_or_gas_routes": False,
+            "writes_sn": False,
+            "writes_device_id": False,
+            "writes_coefficients": False,
+            "applies_migrations": False,
+            "database_import_attempted": False,
+            "database_written": False,
+            "database_import_allowed": database_import_allowed,
+            "formal_release_allowed": archive_release_ready,
+            "not_real_acceptance_evidence": True,
+        },
+    )
+
+
 def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run"
     _seed_ready_run(run_dir)
@@ -187,6 +237,7 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
     assert "algorithm_profile_runner_dry_run" not in gate_statuses
     assert "formal_database_dry_run" not in gate_statuses
     assert "formal_database_import_preflight" not in gate_statuses
+    assert "formal_database_import_authorization" not in gate_statuses
     assert model["physical_boundaries"] == {
         "offline_status_only": True,
         "opens_com_ports": False,
@@ -291,6 +342,59 @@ def test_formal_run_status_marks_database_import_preflight_review_only(tmp_path:
     assert gate["blocks_release"] is False
     assert gate["blocks_physical_flow"] is False
     assert "dsn_configured=False" in gate["reason"]
+
+
+def test_formal_run_status_requires_database_import_authorization_for_import_allowed(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_database_import_authorization"
+    _seed_ready_run(run_dir)
+    _seed_formal_database_dry_run(run_dir)
+    _seed_formal_database_import_preflight(run_dir)
+    authorization_path = _seed_formal_database_import_authorization(run_dir)
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_database_import_authorization"]
+
+    assert model["overall_status"] == "formal_release_ready"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is True
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["formal_database_import_authorization_json"] == str(authorization_path.resolve())
+    assert gate["status"] == "ready"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "real import remains a separate command" in gate["reason"]
+    assert "no-connect/no-import" in gate["physical_meaning"]
+
+
+def test_formal_run_status_marks_database_import_authorization_review_only(tmp_path: Path) -> None:
+    run_dir = tmp_path / "ready_run_with_database_import_authorization_review"
+    _seed_ready_run(run_dir)
+    _seed_formal_database_dry_run(run_dir)
+    _seed_formal_database_import_preflight(run_dir)
+    _seed_formal_database_import_authorization(
+        run_dir,
+        review_required_count=2,
+        archive_release_ready=False,
+        manual_authorization_ready=False,
+    )
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_database_import_authorization"]
+
+    assert model["overall_status"] == "review_required"
+    assert model["current_stage"] == "formal_database_import_authorization"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert gate["status"] == "review_required"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "archive_release_ready=False" in gate["reason"]
+    assert "manual_authorization_ready=False" in gate["reason"]
 
 
 def test_formal_run_status_marks_database_dry_run_review_only(tmp_path: Path) -> None:
@@ -424,6 +528,7 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     bundle_path = _seed_algorithm_profile_runner_dry_run(run_dir)
     database_path = _seed_formal_database_dry_run(run_dir)
     import_preflight_path = _seed_formal_database_import_preflight(run_dir)
+    import_authorization_path = _seed_formal_database_import_authorization(run_dir)
 
     rc = export_status_main(
         [
@@ -437,6 +542,8 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
             str(database_path),
             "--formal-database-import-preflight-json",
             str(import_preflight_path),
+            "--formal-database-import-authorization-json",
+            str(import_authorization_path),
         ]
     )
     captured = capsys.readouterr()
@@ -452,3 +559,4 @@ def test_formal_run_status_cli_exports_rollup(tmp_path: Path, capsys) -> None:
     assert gates["algorithm_profile_runner_dry_run"]["status"] == "ready"
     assert gates["formal_database_dry_run"]["status"] == "ready"
     assert gates["formal_database_import_preflight"]["status"] == "ready"
+    assert gates["formal_database_import_authorization"]["status"] == "ready"

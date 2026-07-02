@@ -105,6 +105,18 @@
 - blocks_physical_flow: `False`
 - physical_meaning: Checks that a production database import could be reviewed without opening PostgreSQL, applying migrations, or importing rows; this separates preflight evidence from real import execution.
 
+### formal_database_import_authorization
+
+- title: PostgreSQL 18 formal database import authorization
+- status: `review_required`
+- source_status: `review_required`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_authorization\v1_5_formal_database_import_authorization.json`
+- reason: source_status=review_required; review_required_count=3; preflight_ready=False; archive_release_ready=False; manual_authorization_ready=False; database_import_allowed=False
+- next_action: Complete archive release and manual import authorization, then run a separate controlled database import command that consumes this authorization artifact.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Separates manual database-import authorization from both preflight review and actual PostgreSQL writes; the status artifact itself remains no-connect/no-import.
+
 ### co2_open_flow_mature_queue
 
 - title: CO2 mature open-flow queue
@@ -184,6 +196,7 @@
 - `pre_gas_readiness`: missing - pre-gas readiness sidecar missing (next: Close pre-gas gaps before starting mature CO2/H2O open-flow queues.)
 - `pressure_senco9_pre_open_flow`: review_required - pressure_quick_check=missing (next: Complete pressure/SENCO9 no-write review or controlled pressure write package before gas flow.)
 - `formal_database_import_preflight`: review_required - source_status=review_required; review_required_count=1; dsn_configured=False (next: Review DSN configuration, migration lock, archive-release dependency, and explicit import authorization before running any separate production database import.)
+- `formal_database_import_authorization`: review_required - source_status=review_required; review_required_count=3; preflight_ready=False; archive_release_ready=False; manual_authorization_ready=False; database_import_allowed=False (next: Complete archive release and manual import authorization, then run a separate controlled database import command that consumes this authorization artifact.)
 - `co2_open_flow_mature_queue`: review_required - co2_open_flow=missing (next: Run or register the mature V1.5 CO2 open-flow queue evidence.)
 - `h2o_open_flow_mature_queue`: review_required - h2o_open_flow=missing (next: Run or register the mature V1.5 H2O open-flow queue evidence.)
 - `candidate_fit_review`: review_required - candidate_review=partial (next: Run no-write candidate fitting/QC review before any controlled write package.)

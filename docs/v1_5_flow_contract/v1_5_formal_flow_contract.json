@@ -35,6 +35,7 @@
     "EVIDENCE_BUNDLE",
     "FORMAL_DATABASE_DRY_RUN",
     "FORMAL_DATABASE_IMPORT_PREFLIGHT",
+    "FORMAL_DATABASE_IMPORT_AUTHORIZATION",
     "DATABASE_IMPORT",
     "REPORTS",
     "FINAL_EVIDENCE_STATUS",
@@ -66,6 +67,7 @@
     "formal_evidence_sidecar",
     "formal_database_dry_run_snapshot",
     "formal_database_import_preflight_snapshot",
+    "formal_database_import_authorization_snapshot",
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
@@ -92,6 +94,7 @@
     "POST_WRITE_REVERIFY: verify updated output before archive and report",
     "FORMAL_DATABASE_DRY_RUN: preview PostgreSQL 18 schema, SN/device_code identity, and insert contracts without connecting or importing",
     "FORMAL_DATABASE_IMPORT_PREFLIGHT: review DSN, migration lock, archive-release dependency, and import authorization without connecting",
+    "FORMAL_DATABASE_IMPORT_AUTHORIZATION: review archive release and manual import authorization without connecting",
     "ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports",
     "FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars"
   ],
@@ -216,6 +219,12 @@
       "code": "entrypoint_not_in_inventory",
       "message": "gas_calibrator.tools.export_v1_5_formal_database_import_preflight is not present in the supplied V1.5 inventory",
       "step_id": "formal_database_import_preflight_snapshot"
+    },
+    {
+      "severity": "warning",
+      "code": "entrypoint_not_in_inventory",
+      "message": "gas_calibrator.tools.export_v1_5_formal_database_import_authorization is not present in the supplied V1.5 inventory",
+      "step_id": "formal_database_import_authorization_snapshot"
     },
     {
       "severity": "warning",

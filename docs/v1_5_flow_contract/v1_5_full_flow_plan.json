@@ -2,7 +2,7 @@
   "schema": "v1_5_full_calibration_flow_plan_v0",
   "contract": "pressure_first_temperature_review_then_open_flow_components",
   "run_id": "v1_5_contract_reference",
-  "created_at": "2026-07-02T07:29:46",
+  "created_at": "2026-07-02T10:40:18",
   "config_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\configs\\default_config.json",
   "output_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "dry_run_only": true,
@@ -46,6 +46,7 @@
     "post_write_reverification",
     "formal_database_dry_run_before_database_import",
     "formal_database_import_preflight_before_database_import",
+    "formal_database_import_authorization_before_database_import",
     "evidence_bundle_database_report",
     "formal_run_status_dashboard"
   ],
@@ -1174,6 +1175,56 @@
       ]
     },
     {
+      "step_id": "formal_database_import_authorization_snapshot",
+      "title": "Review PostgreSQL 18 manual import authorization without connecting",
+      "phase": "FORMAL_DATABASE_IMPORT_AUTHORIZATION",
+      "tool_module": "gas_calibrator.tools.export_v1_5_formal_database_import_authorization",
+      "command": [
+        "python",
+        "-m",
+        "gas_calibrator.tools.export_v1_5_formal_database_import_authorization",
+        "--formal-database-import-preflight-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+        "--archive-closure-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+        "--operator",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\V1.5-contract-refresh",
+        "--authorization-id",
+        "<database_import_authorization_id>",
+        "--output-dir",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization",
+        "--fail-on-blocker"
+      ],
+      "required_inputs": [
+        "formal database import preflight sidecar",
+        "formal archive closure index",
+        "operator/reviewer/approver authorization record",
+        "database import authorization id"
+      ],
+      "expected_outputs": [
+        "formal_database_import_authorization/v1_5_formal_database_import_authorization.json",
+        "formal_database_import_authorization/V1_5_FORMAL_DATABASE_IMPORT_AUTHORIZATION.md",
+        "formal_database_import_authorization/v1_5_formal_database_import_authorization_checks.csv",
+        "formal_database_import_authorization/v1_5_formal_database_import_authorization_summary.csv"
+      ],
+      "physical_meaning": "Before any production database import command can run, confirm archive release, preflight readiness, and explicit operator/reviewer/approver authorization without opening a database connection.",
+      "execution_mode": "offline_sidecar",
+      "gate": "required_before_database_import_execution",
+      "uses_validated_v1_5_entry": true,
+      "may_reuse_v1_shared_core": false,
+      "opens_com_ports": false,
+      "controls_pressure": false,
+      "controls_gas_route": false,
+      "controls_water_route": false,
+      "writes_coefficients": false,
+      "writes_device_id": false,
+      "coefficient_epoch_event": "none",
+      "notes": [
+        "This authorization guard never connects PostgreSQL, applies migrations, or imports rows.",
+        "A ready authorization artifact must still be consumed by a separate controlled import command."
+      ]
+    },
+    {
       "step_id": "database_import",
       "title": "Import evidence bundle into V1.5 PostgreSQL registry",
       "phase": "DATABASE_IMPORT",
@@ -1364,7 +1415,9 @@
         "--formal-database-dry-run-json",
         "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json",
         "--formal-database-import-preflight-json",
-        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json"
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+        "--formal-database-import-authorization-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json"
       ],
       "required_inputs": [
         "initialization readiness sidecar",
@@ -1374,7 +1427,8 @@
         "full-flow closure readiness or archive sidecar when available",
         "optional new-algorithm profile runner dry-run bundle",
         "formal PostgreSQL 18 database dry-run contract",
-        "formal database import preflight sidecar"
+        "formal database import preflight sidecar",
+        "formal database import authorization sidecar"
       ],
       "expected_outputs": [
         "formal_run_status/v1_5_formal_run_status.json",

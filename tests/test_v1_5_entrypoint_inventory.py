@@ -213,6 +213,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     formal_status = root / "src/gas_calibrator/tools/export_v1_5_formal_run_status.py"
     formal_database_dry_run = root / "src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py"
     formal_database_import_preflight = root / "src/gas_calibrator/tools/export_v1_5_formal_database_import_preflight.py"
+    formal_database_import_authorization = root / "src/gas_calibrator/tools/export_v1_5_formal_database_import_authorization.py"
     historical_replay = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_contract.py"
     historical_replay_evidence = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_evidence.py"
     historical_replay_missing_point = root / "src/gas_calibrator/tools/export_v1_5_historical_replay_missing_point_audit.py"
@@ -229,6 +230,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
         formal_status,
         formal_database_dry_run,
         formal_database_import_preflight,
+        formal_database_import_authorization,
         historical_replay,
         historical_replay_evidence,
         historical_replay_missing_point,
@@ -248,6 +250,10 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     formal_status_entry = classify_v1_5_entrypoint(formal_status, root=root)
     formal_database_dry_run_entry = classify_v1_5_entrypoint(formal_database_dry_run, root=root)
     formal_database_import_preflight_entry = classify_v1_5_entrypoint(formal_database_import_preflight, root=root)
+    formal_database_import_authorization_entry = classify_v1_5_entrypoint(
+        formal_database_import_authorization,
+        root=root,
+    )
     historical_replay_entry = classify_v1_5_entrypoint(historical_replay, root=root)
     historical_replay_evidence_entry = classify_v1_5_entrypoint(historical_replay_evidence, root=root)
     historical_replay_missing_point_entry = classify_v1_5_entrypoint(historical_replay_missing_point, root=root)
@@ -294,6 +300,16 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert formal_database_import_preflight_entry.controls_routes is False
     assert formal_database_import_preflight_entry.writes_coefficients is False
     assert "offline PostgreSQL 18 database import preflight" in formal_database_import_preflight_entry.notes[0]
+    assert formal_database_import_authorization_entry.category == "formal_review_evidence"
+    assert formal_database_import_authorization_entry.formal_status == "formal_support"
+    assert formal_database_import_authorization_entry.risk_level == "offline"
+    assert formal_database_import_authorization_entry.opens_com_ports is False
+    assert formal_database_import_authorization_entry.controls_routes is False
+    assert formal_database_import_authorization_entry.writes_coefficients is False
+    assert (
+        "offline PostgreSQL 18 database import authorization guard"
+        in formal_database_import_authorization_entry.notes[0]
+    )
     assert historical_replay_entry.category == "formal_review_evidence"
     assert historical_replay_entry.formal_status == "formal_support"
     assert historical_replay_entry.risk_level == "offline"

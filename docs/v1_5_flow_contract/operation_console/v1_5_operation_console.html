@@ -25,7 +25,7 @@
 <body>
   <header>
     <h1>V1.5 正式校准操作台</h1>
-    <p>run_id=unknown；角色=operator；生成时间=2026-07-01T23:29:47.335081+00:00</p>
+    <p>run_id=unknown；角色=operator；生成时间=2026-07-02T02:40:20.066452+00:00</p>
   </header>
   <main>
     <section class='boundary'><strong>安全边界：</strong>本操作台仅展示证据状态；不打开串口、不控制水路/气路、不控制阀或 PACE、不写 SENCO、不清除系数、不修改分析仪 ID。</section>
@@ -40,7 +40,7 @@
 <section class='panel'>
   <h2>全流程阶段清单</h2>
   <p>状态：<strong>受控计划</strong>；当前阶段：load_plan_and_traceability；one_button_live_runner_ready=False</p>
-  <p>状态计数：authorization_required=5, blocked_controlled_gate=2, pass=3, waiting_for_artifacts=19</p>
+  <p>状态计数：authorization_required=5, blocked_controlled_gate=2, pass=4, waiting_for_artifacts=19</p>
   <table>
     <thead><tr><th>序号</th><th>阶段</th><th>环节</th><th>状态</th><th>原因</th></tr></thead>
     <tbody><tr><td>1</td><td>load_plan_and_traceability</td><td>LOAD_PLAN</td><td>等待证据</td><td>manifest_expected_outputs_missing</td></tr>
@@ -69,7 +69,7 @@
 <tr class='bad'><td>开放流通采样</td><td>缺失</td><td>展示 CO2/H2O、露点、压力、ratio/signal 和稳定门禁证据。</td><td>CO2 open-flow evidence: 缺失 - CO2 open-flow sample evidence missing；H2O open-flow evidence: 缺失 - H2O open-flow sample evidence missing</td></tr>
 <tr class='warn'><td>QC 与点位评审</td><td>待补齐</td><td>解释每个点为何进入拟合、降级或拒绝。</td><td>无阻塞；等待对应证据刷新。</td></tr>
 <tr class='warn'><td>候选系数与报告</td><td>未执行</td><td>展示候选系数、误差、复验、报告和未闭环项。</td><td>Post-run coefficient closure executor: 未执行 - post-run coefficient executor not generated；Run, technical, and formal calibration reports: 未执行 - one or more formal report artifacts missing</td></tr>
-<tr class='warn'><td>审核与归档</td><td>未执行</td><td>展示审计、数据库归档、证书和受控写入门禁。</td><td>Evidence database import: 未执行 - database import not attempted or summary not found</td></tr></tbody>
+<tr class='good'><td>审核与归档</td><td>通过</td><td>展示审计、数据库归档、证书和受控写入门禁。</td><td>无阻塞；等待对应证据刷新。</td></tr></tbody>
   </table>
 </section>
 
