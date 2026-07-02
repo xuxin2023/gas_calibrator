@@ -742,6 +742,65 @@ def _formal_database_import_command_contract_gate(path: Path, payload: Mapping[s
     )
 
 
+def _formal_database_import_blocked_executor_gate(path: Path, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    side_effect_lock_clean = (
+        payload.get("connects_postgresql") is False
+        and payload.get("opens_com_ports") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("applies_migrations") is False
+        and payload.get("database_import_attempted") is False
+        and payload.get("database_written") is False
+        and payload.get("database_import_allowed") is False
+        and payload.get("real_import_execution_allowed") is False
+    )
+    expected_block = (
+        source_status == "blocked_pending_controlled_executor_implementation"
+        and payload.get("blocked_executor_ready") is True
+        and payload.get("execution_supported") is False
+        and side_effect_lock_clean
+    )
+    if expected_block:
+        status = REVIEW_REQUIRED
+        reason = (
+            "blocked PostgreSQL 18 import executor stub consumed the command contract and correctly refused real import"
+        )
+    elif not side_effect_lock_clean:
+        status = BLOCKED
+        reason = "blocked executor boundary is not clean; PostgreSQL/COM/write side effects are not locked off"
+    elif source_status == "review_required" or int(payload.get("review_required_count") or 0):
+        status = REVIEW_REQUIRED
+        reason = (
+            f"blocked executor input review_required_count={payload.get('review_required_count')}; "
+            "regenerate command contract/input references before executor review"
+        )
+    else:
+        status = BLOCKED
+        reason = f"blocked executor source_status={source_status or 'missing'} is not the expected locked stub status"
+    return _gate(
+        gate_id="formal_database_import_blocked_executor",
+        title="PostgreSQL 18 formal database import blocked executor",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Keep database import locked. Build a separate controlled executor with double authorization "
+            "before any PostgreSQL connection, migration, or row import is allowed."
+        ),
+        physical_meaning=(
+            "Proves the future import command currently consumes reviewed inputs but remains a no-connect, "
+            "no-migration, no-write stub rather than a production import."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
 def _gap_rows(gates: Iterable[FormalRunGate]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for gate in gates:
@@ -774,6 +833,7 @@ def build_v1_5_formal_run_status(
     formal_database_import_preflight_json: str | Path | None = None,
     formal_database_import_authorization_json: str | Path | None = None,
     formal_database_import_command_contract_json: str | Path | None = None,
+    formal_database_import_blocked_executor_json: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return a top-level formal V1.5 status rollup from existing sidecars."""
 
@@ -809,6 +869,11 @@ def build_v1_5_formal_run_status(
         formal_database_import_command_contract_json,
         "v1_5_formal_database_import_command_contract.json",
     )
+    formal_database_import_blocked_executor_path = _explicit_or_latest(
+        root,
+        formal_database_import_blocked_executor_json,
+        "v1_5_formal_database_import_blocked_executor.json",
+    )
 
     init_payload = _load_json(init_path)
     pre_gas_payload = _load_json(pre_gas_path)
@@ -821,6 +886,7 @@ def build_v1_5_formal_run_status(
     formal_database_import_preflight_payload = _load_json(formal_database_import_preflight_path)
     formal_database_import_authorization_payload = _load_json(formal_database_import_authorization_path)
     formal_database_import_command_contract_payload = _load_json(formal_database_import_command_contract_path)
+    formal_database_import_blocked_executor_payload = _load_json(formal_database_import_blocked_executor_path)
 
     gates = [
         _initialization_gate(init_path, init_payload),
@@ -871,6 +937,13 @@ def build_v1_5_formal_run_status(
             _formal_database_import_command_contract_gate(
                 formal_database_import_command_contract_path,
                 formal_database_import_command_contract_payload,
+            )
+        )
+    if formal_database_import_blocked_executor_path and formal_database_import_blocked_executor_payload:
+        gates.append(
+            _formal_database_import_blocked_executor_gate(
+                formal_database_import_blocked_executor_path,
+                formal_database_import_blocked_executor_payload,
             )
         )
     gates.extend(
@@ -962,12 +1035,20 @@ def build_v1_5_formal_run_status(
     database_import_command_contract_ready = (
         database_import_command_contract_gate is None or database_import_command_contract_gate.status == READY
     )
+    database_import_blocked_executor_gate = next(
+        (gate for gate in gates if gate.gate_id == "formal_database_import_blocked_executor"),
+        None,
+    )
+    database_import_blocked_executor_ready = (
+        database_import_blocked_executor_gate is None or database_import_blocked_executor_gate.status == READY
+    )
     database_import_allowed = (
         formal_release_allowed
         and database_dry_run_ready
         and database_import_preflight_ready
         and database_import_authorization_ready
         and database_import_command_contract_ready
+        and database_import_blocked_executor_ready
     )
     if any(gate.status == BLOCKED for gate in gates):
         overall_status = "blocked"
@@ -1021,6 +1102,9 @@ def build_v1_5_formal_run_status(
             else "",
             "formal_database_import_command_contract_json": str(formal_database_import_command_contract_path)
             if formal_database_import_command_contract_path
+            else "",
+            "formal_database_import_blocked_executor_json": str(formal_database_import_blocked_executor_path)
+            if formal_database_import_blocked_executor_path
             else "",
         },
         "gates": [gate.to_json() for gate in gates],

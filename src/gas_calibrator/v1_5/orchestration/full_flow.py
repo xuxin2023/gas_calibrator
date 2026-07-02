@@ -624,6 +624,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_database_import_preflight_snapshot",
                 "formal_database_import_authorization_snapshot",
                 "formal_database_import_command_contract_snapshot",
+                "formal_database_import_blocked_executor_snapshot",
                 "database_import",
                 "final_evidence_status_refresh",
                 "algorithm_profile_runner_dry_run_snapshot",
@@ -982,6 +983,7 @@ def build_full_flow_plan(
     formal_database_import_preflight_dir = root / "formal_database_import_preflight"
     formal_database_import_authorization_dir = root / "formal_database_import_authorization"
     formal_database_import_command_contract_dir = root / "formal_database_import_command_contract"
+    formal_database_import_blocked_executor_dir = root / "formal_database_import_blocked_executor"
     algorithm_profile_path = repo_root / "configs" / "v1_5_algorithm_route_profiles.json"
     runtime_bound_cfg = getco_dir / "runtime_identity_bound_config.json"
 
@@ -2033,6 +2035,58 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="formal_database_import_blocked_executor_snapshot",
+            title="Run blocked PostgreSQL 18 import executor stub without connecting",
+            phase="FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR",
+            tool_module="gas_calibrator.tools.import_v1_5_evidence_package",
+            command=_python_module(
+                "gas_calibrator.tools.import_v1_5_evidence_package",
+                "--formal-database-import-command-contract-json",
+                formal_database_import_command_contract_dir / "v1_5_formal_database_import_command_contract.json",
+                "--formal-database-import-authorization-json",
+                formal_database_import_authorization_dir / "v1_5_formal_database_import_authorization.json",
+                "--formal-database-import-preflight-json",
+                formal_database_import_preflight_dir / "v1_5_formal_database_import_preflight.json",
+                "--archive-closure-json",
+                root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
+                "--evidence-bundle-json",
+                root / "formal_archive_closure_from_full_chain" / "evidence_bundle.json",
+                "--dsn-env",
+                "V1_5_POSTGRES_DSN",
+                "--output-dir",
+                formal_database_import_blocked_executor_dir,
+                "--fail-on-blocked",
+            ),
+            required_inputs=(
+                "formal database import command contract sidecar",
+                "formal database import authorization sidecar",
+                "formal database import preflight sidecar",
+                "formal archive closure index",
+                "formal evidence bundle",
+                "PostgreSQL DSN environment variable contract",
+            ),
+            expected_outputs=(
+                "formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor.json",
+                "formal_database_import_blocked_executor/V1_5_FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR.md",
+                "formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor_checks.csv",
+                "formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor_summary.csv",
+            ),
+            physical_meaning=(
+                "After the command contract exists, invoke the future import command only in its blocked-stub mode. "
+                "This proves the command consumes the reviewed inputs and still refuses PostgreSQL connection, "
+                "migration, row import, COM access, route control, and analyzer writes."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_database_import_execution",
+            notes=(
+                "This stub intentionally returns non-zero when --fail-on-blocked is used, proving production import remains locked.",
+                "A future real import executor must be a separate controlled package with explicit double authorization and readback/import evidence.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="database_import",
             title="Import evidence bundle into V1.5 PostgreSQL registry",
             phase="DATABASE_IMPORT",
@@ -2187,6 +2241,8 @@ def build_full_flow_plan(
                 formal_database_import_authorization_dir / "v1_5_formal_database_import_authorization.json",
                 "--formal-database-import-command-contract-json",
                 formal_database_import_command_contract_dir / "v1_5_formal_database_import_command_contract.json",
+                "--formal-database-import-blocked-executor-json",
+                formal_database_import_blocked_executor_dir / "v1_5_formal_database_import_blocked_executor.json",
             ),
             required_inputs=(
                 "initialization readiness sidecar",
@@ -2199,6 +2255,7 @@ def build_full_flow_plan(
                 "formal database import preflight sidecar",
                 "formal database import authorization sidecar",
                 "formal database import command contract sidecar",
+                "blocked database import executor sidecar",
             ),
             expected_outputs=(
                 "formal_run_status/v1_5_formal_run_status.json",
@@ -2282,6 +2339,7 @@ def build_full_flow_plan(
             "formal_database_import_preflight_before_database_import",
             "formal_database_import_authorization_before_database_import",
             "formal_database_import_command_contract_before_database_import",
+            "formal_database_import_blocked_executor_before_database_import",
             "evidence_bundle_database_report",
             "formal_run_status_dashboard",
         ),

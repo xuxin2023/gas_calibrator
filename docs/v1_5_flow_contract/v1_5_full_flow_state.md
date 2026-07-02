@@ -38,6 +38,7 @@
 | `formal_database_import_preflight_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `formal_database_import_authorization_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `formal_database_import_command_contract_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
+| `formal_database_import_blocked_executor_snapshot` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `database_import` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `zh_calibration_reports` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |
 | `final_evidence_status_refresh` | `pending_previous_stage` | `False` | waiting_for_load_plan_and_traceability |

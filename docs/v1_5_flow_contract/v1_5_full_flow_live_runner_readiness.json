@@ -1,7 +1,7 @@
 {
   "schema": "v1_5_full_flow_live_runner_readiness_v1",
   "run_id": "v1_5_contract_reference",
-  "created_at": "2026-07-02T17:12:43",
+  "created_at": "2026-07-02T17:42:50",
   "one_button_live_runner_ready": false,
   "current_automation_level": "supervised_tool_chain_with_controlled_live_gates",
   "summary": "V1.5 can generate an auditable supervised plan and offline review chain, but it is not yet a one-button unattended live runner because identity, pressure, CO2/H2O route control, and SENCO writes remain explicit controlled gates.",
@@ -51,6 +51,7 @@
         "formal_database_import_preflight_snapshot",
         "formal_database_import_authorization_snapshot",
         "formal_database_import_command_contract_snapshot",
+        "formal_database_import_blocked_executor_snapshot",
         "database_import",
         "final_evidence_status_refresh",
         "algorithm_profile_runner_dry_run_snapshot",

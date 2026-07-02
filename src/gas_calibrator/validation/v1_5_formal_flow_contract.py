@@ -40,6 +40,7 @@ REQUIRED_STEP_IDS = (
     "formal_database_import_preflight_snapshot",
     "formal_database_import_authorization_snapshot",
     "formal_database_import_command_contract_snapshot",
+    "formal_database_import_blocked_executor_snapshot",
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
@@ -70,6 +71,7 @@ REQUIRED_ORDER = (
     "formal_database_import_preflight_snapshot",
     "formal_database_import_authorization_snapshot",
     "formal_database_import_command_contract_snapshot",
+    "formal_database_import_blocked_executor_snapshot",
     "database_import",
     "zh_calibration_reports",
     "final_evidence_status_refresh",
@@ -122,6 +124,7 @@ FORMAL_PHYSICAL_FLOW = (
     "FORMAL_DATABASE_IMPORT_PREFLIGHT: review DSN, migration lock, archive-release dependency, and import authorization without connecting",
     "FORMAL_DATABASE_IMPORT_AUTHORIZATION: review archive release and manual import authorization without connecting",
     "FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT: review the future import command inputs and execution lock without connecting or importing",
+    "FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR: run the no-connect import command stub and prove PostgreSQL writes remain refused",
     "ARCHIVE_REPORT: bundle evidence, database index, and Chinese reports",
     "FORMAL_RUN_STATUS: refresh the top-level current-stage and release-readiness dashboard from offline sidecars",
 )
@@ -450,7 +453,13 @@ def validate_v1_5_formal_flow_contract(
         "formal_database_import_command_contract_snapshot",
         issues,
     )
-    _require_before(step_ids, "formal_database_import_command_contract_snapshot", "database_import", issues)
+    _require_before(
+        step_ids,
+        "formal_database_import_command_contract_snapshot",
+        "formal_database_import_blocked_executor_snapshot",
+        issues,
+    )
+    _require_before(step_ids, "formal_database_import_blocked_executor_snapshot", "database_import", issues)
     _require_before(step_ids, "formal_evidence_sidecar", "zh_calibration_reports", issues)
     _require_before(step_ids, "zh_calibration_reports", "final_evidence_status_refresh", issues)
     _require_before(step_ids, "final_evidence_status_refresh", "formal_run_status_snapshot", issues)
@@ -703,6 +712,53 @@ def validate_v1_5_formal_flow_contract(
                     message=f"Formal database import command contract command must include {flag}",
                 )
 
+        if step_id == "formal_database_import_blocked_executor_snapshot":
+            if module != "gas_calibrator.tools.import_v1_5_evidence_package":
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_database_import_blocked_executor_wrong_tool",
+                        "Formal database import blocked executor must use import_v1_5_evidence_package in no-connect stub mode",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_database_import_blocked_executor_must_be_offline_no_write",
+                        "Formal database import blocked executor must not open COM, connect PostgreSQL, control routes/pressure, or write coefficients",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_database_import_blocked_executor_must_be_offline",
+                        "Formal database import blocked executor execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--formal-database-import-command-contract-json",
+                "--formal-database-import-authorization-json",
+                "--formal-database-import-preflight-json",
+                "--archive-closure-json",
+                "--evidence-bundle-json",
+                "--dsn-env",
+                "--output-dir",
+                "--fail-on-blocked",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="formal_database_import_blocked_executor_missing_required_flag",
+                    message=f"Formal database import blocked executor command must include {flag}",
+                )
+
         if step_id == "formal_run_status_snapshot":
             if module != "gas_calibrator.tools.export_v1_5_formal_run_status":
                 issues.append(
@@ -740,6 +796,7 @@ def validate_v1_5_formal_flow_contract(
                 "--formal-database-import-preflight-json",
                 "--formal-database-import-authorization-json",
                 "--formal-database-import-command-contract-json",
+                "--formal-database-import-blocked-executor-json",
             ):
                 _require_flag(
                     command,

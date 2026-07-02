@@ -844,6 +844,37 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
         "formal_database_import_command_contract"
     )
     assert "--fail-on-blocker" in command_contract_command
+    blocked_executor_step = next(
+        step for step in plan.steps if step.step_id == "formal_database_import_blocked_executor_snapshot"
+    )
+    blocked_executor_command = list(blocked_executor_step.command)
+    assert blocked_executor_step.tool_module == "gas_calibrator.tools.import_v1_5_evidence_package"
+    assert blocked_executor_step.execution_mode == "offline_sidecar"
+    assert blocked_executor_step.opens_com_ports is False
+    assert blocked_executor_step.controls_gas_route is False
+    assert blocked_executor_step.controls_water_route is False
+    assert blocked_executor_step.writes_coefficients is False
+    assert blocked_executor_step.writes_device_id is False
+    assert _flag_value(blocked_executor_command, "--formal-database-import-command-contract-json").endswith(
+        "formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json"
+    )
+    assert _flag_value(blocked_executor_command, "--formal-database-import-authorization-json").endswith(
+        "formal_database_import_authorization\\v1_5_formal_database_import_authorization.json"
+    )
+    assert _flag_value(blocked_executor_command, "--formal-database-import-preflight-json").endswith(
+        "formal_database_import_preflight\\v1_5_formal_database_import_preflight.json"
+    )
+    assert _flag_value(blocked_executor_command, "--archive-closure-json").endswith(
+        "formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json"
+    )
+    assert _flag_value(blocked_executor_command, "--evidence-bundle-json").endswith(
+        "formal_archive_closure_from_full_chain\\evidence_bundle.json"
+    )
+    assert _flag_value(blocked_executor_command, "--dsn-env") == "V1_5_POSTGRES_DSN"
+    assert _flag_value(blocked_executor_command, "--output-dir").endswith(
+        "formal_database_import_blocked_executor"
+    )
+    assert "--fail-on-blocked" in blocked_executor_command
     status_step = next(step for step in plan.steps if step.step_id == "formal_run_status_snapshot")
     status_command = list(status_step.command)
     assert status_step.tool_module == "gas_calibrator.tools.export_v1_5_formal_run_status"
@@ -865,6 +896,9 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     )
     assert _flag_value(status_command, "--formal-database-import-command-contract-json").endswith(
         "formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json"
+    )
+    assert _flag_value(status_command, "--formal-database-import-blocked-executor-json").endswith(
+        "formal_database_import_blocked_executor\\v1_5_formal_database_import_blocked_executor.json"
     )
     assert "v1_5_formal_run_status_gates.csv" in " ".join(status_step.expected_outputs)
 

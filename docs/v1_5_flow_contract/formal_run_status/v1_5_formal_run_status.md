@@ -129,6 +129,18 @@
 - blocks_physical_flow: `False`
 - physical_meaning: Separates manual import authorization from executable command inputs and keeps migration/import execution locked off until a future controlled command re-checks the full evidence chain.
 
+### formal_database_import_blocked_executor
+
+- title: PostgreSQL 18 formal database import blocked executor
+- status: `review_required`
+- source_status: `review_required`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_blocked_executor\v1_5_formal_database_import_blocked_executor.json`
+- reason: blocked executor input review_required_count=3; regenerate command contract/input references before executor review
+- next_action: Keep database import locked. Build a separate controlled executor with double authorization before any PostgreSQL connection, migration, or row import is allowed.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Proves the future import command currently consumes reviewed inputs but remains a no-connect, no-migration, no-write stub rather than a production import.
+
 ### co2_open_flow_mature_queue
 
 - title: CO2 mature open-flow queue
@@ -210,6 +222,7 @@
 - `formal_database_import_preflight`: review_required - source_status=review_required; review_required_count=1; dsn_configured=False (next: Review DSN configuration, migration lock, archive-release dependency, and explicit import authorization before running any separate production database import.)
 - `formal_database_import_authorization`: review_required - source_status=review_required; review_required_count=3; preflight_ready=False; archive_release_ready=False; manual_authorization_ready=False; database_import_allowed=False (next: Complete archive release and manual import authorization, then run a separate controlled database import command that consumes this authorization artifact.)
 - `formal_database_import_command_contract`: review_required - source_status=review_required; review_required_count=4; authorization_ready=False; preflight_ready=False; archive_release_ready=False; evidence_bundle_ready=False; command_contract_ready=False (next: Review the no-connect import command contract. A separate controlled command must consume the contract, authorization, preflight, archive, evidence bundle, and DSN env before any production import.)
+- `formal_database_import_blocked_executor`: review_required - blocked executor input review_required_count=3; regenerate command contract/input references before executor review (next: Keep database import locked. Build a separate controlled executor with double authorization before any PostgreSQL connection, migration, or row import is allowed.)
 - `co2_open_flow_mature_queue`: review_required - co2_open_flow=missing (next: Run or register the mature V1.5 CO2 open-flow queue evidence.)
 - `h2o_open_flow_mature_queue`: review_required - h2o_open_flow=missing (next: Run or register the mature V1.5 H2O open-flow queue evidence.)
 - `candidate_fit_review`: review_required - candidate_review=partial (next: Run no-write candidate fitting/QC review before any controlled write package.)
