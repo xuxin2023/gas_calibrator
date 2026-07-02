@@ -1,6 +1,6 @@
 {
   "schema": "v1_5_run_evidence_status_v1",
-  "generated_at": "2026-07-02T10:40:19",
+  "generated_at": "2026-07-02T17:12:43",
   "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "component": "both",
   "overall_status": "incomplete",
@@ -34,17 +34,17 @@
       "dedicated_open_flow_runner_requires_authorization": 2,
       "dedicated_pressure_runner_requires_authorization": 2,
       "offline_database_requires_dsn": 1,
-      "offline_review_auto_candidate": 12,
+      "offline_review_auto_candidate": 13,
       "offline_review_waiting_for_run_artifacts": 10,
       "read_only_real_com_requires_authorization": 1
     },
     "status_counts": {
       "authorization_required": 5,
       "blocked_controlled_gate": 2,
-      "pass": 4,
+      "pass": 5,
       "waiting_for_artifacts": 19
     },
-    "stage_count": 30,
+    "stage_count": 31,
     "stage_statuses": [
       {
         "order": 1,
@@ -596,16 +596,11 @@
         "title": "Review PostgreSQL 18 manual import authorization without connecting",
         "phase": "FORMAL_DATABASE_IMPORT_AUTHORIZATION",
         "automation_state": "offline_review_waiting_for_run_artifacts",
-        "status": "waiting_for_artifacts",
-        "reason": "manifest_expected_outputs_missing",
+        "status": "pass",
+        "reason": "all_manifest_expected_outputs_present",
         "expected_output_count": 4,
-        "present_output_count": 0,
-        "missing_expected_outputs": [
-          "formal_database_import_authorization/v1_5_formal_database_import_authorization.json",
-          "formal_database_import_authorization/V1_5_FORMAL_DATABASE_IMPORT_AUTHORIZATION.md",
-          "formal_database_import_authorization/v1_5_formal_database_import_authorization_checks.csv",
-          "formal_database_import_authorization/v1_5_formal_database_import_authorization_summary.csv"
-        ],
+        "present_output_count": 4,
+        "missing_expected_outputs": [],
         "authorization_required": {
           "real_com": false,
           "pressure_control": false,
@@ -616,6 +611,30 @@
       },
       {
         "order": 26,
+        "step_id": "formal_database_import_command_contract_snapshot",
+        "title": "Review PostgreSQL 18 import command contract without connecting",
+        "phase": "FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 4,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "formal_database_import_command_contract/v1_5_formal_database_import_command_contract.json",
+          "formal_database_import_command_contract/V1_5_FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT.md",
+          "formal_database_import_command_contract/v1_5_formal_database_import_command_contract_checks.csv",
+          "formal_database_import_command_contract/v1_5_formal_database_import_command_contract_summary.csv"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 27,
         "step_id": "database_import",
         "title": "Import evidence bundle into V1.5 PostgreSQL registry",
         "phase": "DATABASE_IMPORT",
@@ -636,7 +655,7 @@
         }
       },
       {
-        "order": 27,
+        "order": 28,
         "step_id": "zh_calibration_reports",
         "title": "Generate Chinese V1.5 calibration reports",
         "phase": "REPORTS",
@@ -662,7 +681,7 @@
         }
       },
       {
-        "order": 28,
+        "order": 29,
         "step_id": "final_evidence_status_refresh",
         "title": "Refresh final V1.5 evidence status after reports and per-device certificates",
         "phase": "FINAL_EVIDENCE_STATUS",
@@ -684,7 +703,7 @@
         }
       },
       {
-        "order": 29,
+        "order": 30,
         "step_id": "algorithm_profile_runner_dry_run_snapshot",
         "title": "Generate new-algorithm profile runner dry-run bundle",
         "phase": "ALGORITHM_PROFILE_RUNNER_DRY_RUN",
@@ -703,7 +722,7 @@
         }
       },
       {
-        "order": 30,
+        "order": 31,
         "step_id": "formal_run_status_snapshot",
         "title": "Export top-level formal run status dashboard",
         "phase": "FORMAL_RUN_STATUS",
@@ -970,7 +989,7 @@
       "artifact_roles": [
         "database_import_summary"
       ],
-      "artifact_count": 5,
+      "artifact_count": 10,
       "physical_meaning": "PostgreSQL indexes traceability and audit state; raw evidence remains in hashed evidence packages."
     },
     {
@@ -1001,7 +1020,7 @@
       "physical_meaning": "Per-device certificates bind the final device identity, QC result, coefficient state, traceability, hashes, and report-release boundary."
     }
   ],
-  "artifact_count": 113,
+  "artifact_count": 118,
   "artifacts": [
     {
       "role": "candidate_review",
@@ -1239,6 +1258,41 @@
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\mature_route_contract\\v1_5_mature_route_contract_checks.csv",
       "sha256": "140ff526ca437f8d4b51e974ac9ca1db4a2539401f813d524cfdfe05bf4d3c7c",
       "size_bytes": 10146,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+      "sha256": "173696e2a619774edb0f84ccc4a09077f76c70c9c9f53cfe559c8ac90d2a9ae1",
+      "size_bytes": 5468,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\V1_5_FORMAL_DATABASE_IMPORT_AUTHORIZATION.md",
+      "sha256": "a7d9f0f95721b7b1c752229775c0b908244ff9a79c36928b2dce66503e34ee79",
+      "size_bytes": 973,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization_checks.csv",
+      "sha256": "a4df187d293e02c1d028949f797236b5331412acb6417c03a465416c52ffe78c",
+      "size_bytes": 2640,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization_summary.csv",
+      "sha256": "0b01488e6082f85c649492d0b8ad038add6cb63b280f125e53a1240dbf198a11",
+      "size_bytes": 295,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\V1_5_FORMAL_DATABASE_IMPORT_AUTHORIZATION_TEST_EVIDENCE_20260702.md",
+      "sha256": "a4b0c24494998305c24b08d8c1ecd29f5575389dd93e3cb2f1535e3d196d38cf",
+      "size_bytes": 1342,
       "source": "discovered"
     },
     {
@@ -1503,8 +1557,8 @@
     {
       "role": "evidence_file",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_flow_contract.md",
-      "sha256": "ae2da70c5193bcf4a5480171d6344500645a58d385266e08bbf062c92218a445",
-      "size_bytes": 9198,
+      "sha256": "55ddaa25ac51f3ea463bb6308f4db54aecede126f42bb66ff316b613d87a3650",
+      "size_bytes": 9647,
       "source": "discovered"
     },
     {
@@ -1524,15 +1578,15 @@
     {
       "role": "evidence_file",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_plan.md",
-      "sha256": "fb7a1918aa3b86b413951f0c77f8b3097084f4c7e5b8bc251191f7fc1e41aca7",
-      "size_bytes": 44292,
+      "sha256": "fe4ddb339445b34514d5ad04c5a51d5afe926ec73950a675b6a264c676cec21c",
+      "size_bytes": 46596,
       "source": "discovered"
     },
     {
       "role": "evidence_file",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_state.md",
-      "sha256": "2c3032706694a90cbb94304b7b58008bd4659153da0e6b2392ba03bae3dc37b5",
-      "size_bytes": 4150,
+      "sha256": "85a3084101c60436cb20a296b6cea38a2adb6a311b56ce65748a3195164d9251",
+      "size_bytes": 4284,
       "source": "discovered"
     },
     {
@@ -1580,8 +1634,8 @@
     {
       "role": "formal_run_status",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_run_status\\v1_5_formal_run_status.json",
-      "sha256": "9511f106ba5689872b389d32c3bfe6641b68e9d706d760e74cebe8935c5866cc",
-      "size_bytes": 17051,
+      "sha256": "f064b4a70fd0803edc6869a14a63798731d1ef95cb5b29931214705b0a696906",
+      "size_bytes": 18937,
       "source": "discovered"
     },
     {
@@ -1594,8 +1648,8 @@
     {
       "role": "formal_run_status_gaps",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_run_status\\v1_5_formal_run_status_gaps.csv",
-      "sha256": "0747a856da6a0678f5781f048913183b1696e57aa8557b2a101f9300caabf6b3",
-      "size_bytes": 2069,
+      "sha256": "061fa0da1ef4cad67aa820efe72ae4b5c1b9a71671591b01e51b28d08407ed1c",
+      "size_bytes": 2465,
       "source": "discovered"
     },
     {
@@ -1608,8 +1662,8 @@
     {
       "role": "formal_run_status_gates",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_run_status\\v1_5_formal_run_status_gates.csv",
-      "sha256": "89de4832a225489af4f635f4f85e23f99ec0415ddc9dde9e4bc552bd9ad02295",
-      "size_bytes": 7043,
+      "sha256": "c0970b8d3713cae34f13a94a4e4d80c2ddbfe8cf10885db0584b5ebaef27e27c",
+      "size_bytes": 7852,
       "source": "discovered"
     },
     {
@@ -1622,22 +1676,22 @@
     {
       "role": "formal_run_status_report",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_run_status\\v1_5_formal_run_status.md",
-      "sha256": "7d0a03b73c7d2ecb80e844bbb4e41817dec0272d0523b9d7cffeeb57d02abbf5",
-      "size_bytes": 11657,
+      "sha256": "0021effb34a9f55383e8ff27182061a8c98b5b18614f6ffe92b5213e04166f19",
+      "size_bytes": 13020,
       "source": "discovered"
     },
     {
       "role": "full_flow_contract",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_flow_contract.json",
-      "sha256": "f5b756c6c12bed39cc3d3fd895fcf7c086012b311c64a73eae14a23e1e5d5a72",
-      "size_bytes": 11769,
+      "sha256": "4fe674eb5968a886f191abf8287347ab174d0f0e9034348191da6d55d20574f2",
+      "size_bytes": 12314,
       "source": "explicit_or_latest"
     },
     {
       "role": "full_flow_live_runner_readiness",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_live_runner_readiness.json",
-      "sha256": "f885369eb82fda0777147b802c0822ed359850158fea89f04ef03f19d7c3c3fd",
-      "size_bytes": 10614,
+      "sha256": "4bce6077b117c5379d319ba1789c7d4d837cacc517a5fd19b3fa9143c50693b9",
+      "size_bytes": 10675,
       "source": "explicit_or_latest"
     },
     {
@@ -1650,22 +1704,22 @@
     {
       "role": "full_flow_plan",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_plan.json",
-      "sha256": "2afad956caa3592500c0b47e864a8526e42a7e43912973e455efc986aa1bf7f0",
-      "size_bytes": 74679,
+      "sha256": "62beae88ccbcc6974f7fd8d60610a867cf5d6955493b7343000589866ad667ef",
+      "size_bytes": 78504,
       "source": "explicit_or_latest"
     },
     {
       "role": "full_flow_stage_manifest",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.json",
-      "sha256": "b672a6204bb2036f8f97cf495359c1f993e2f2646d5612a3c71ab8252e9614e8",
-      "size_bytes": 104015,
+      "sha256": "ad4f609c6a1c767b7ebaa7509cc9f487f50b59ed933852ea176ee4db31dabd93",
+      "size_bytes": 109192,
       "source": "explicit_or_latest"
     },
     {
       "role": "full_flow_stage_manifest_markdown",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.md",
-      "sha256": "c7a2b869dd4e54f2d521ad5b62c14c03179ebe86e098104deba63e42b82e59ee",
-      "size_bytes": 20269,
+      "sha256": "cfe4fa44757c0f23cf58439cb0a825bf4af679467d23e2b299b9131d7aaf80fb",
+      "size_bytes": 21266,
       "source": "discovered"
     },
     {
@@ -1685,29 +1739,29 @@
     {
       "role": "json_evidence",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
-      "sha256": "e921288c24610dcc2b7697d734e2426ac4487ef36018dd9fec0136ef8b4960ae",
-      "size_bytes": 744,
+      "sha256": "051b37a7ab731f30770a919cea41dad54e7b623271e521ba1a573d248cbe6384",
+      "size_bytes": 745,
       "source": "discovered"
     },
     {
       "role": "json_evidence",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
-      "sha256": "f1477369ffb293331b86d120563753216e31d6f38d0e96852c0c5172cb9f277a",
-      "size_bytes": 5044,
+      "sha256": "8b4fcb5ea43d84e71ad572975005c864255c46255c167c2d00cd6489267f47a5",
+      "size_bytes": 5045,
       "source": "discovered"
     },
     {
       "role": "json_evidence",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
-      "sha256": "1ea358cdd7d77349065fd929ef880085e26e76571120ec94d59e4fdac1519336",
-      "size_bytes": 9929,
+      "sha256": "b786d2cb0af6096fa6a1bb654e59d6de755b0314894cee4dd6eef725b0e622b6",
+      "size_bytes": 9930,
       "source": "discovered"
     },
     {
       "role": "json_evidence",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json",
-      "sha256": "9cc1d604d32fc65c9311c2fbf23248519afda1474fa736ce3a782c3fd1bbc9e3",
-      "size_bytes": 10627,
+      "sha256": "fbbc5a8a8e2755c7411f3d07b9ce6210a3338e77fb10cee55235f3e4e39cfe9d",
+      "size_bytes": 10628,
       "source": "discovered"
     },
     {
@@ -1741,8 +1795,8 @@
     {
       "role": "json_evidence",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json",
-      "sha256": "8471b3faf85e632dadaec28d15a2b394344095c812e321a21a459583b15fd97e",
-      "size_bytes": 21642,
+      "sha256": "4516044a9a6153a04938d6c31c6d69618f329b7af985bddf9ee5dba60f6d2ee7",
+      "size_bytes": 21643,
       "source": "discovered"
     },
     {
@@ -1783,15 +1837,15 @@
     {
       "role": "json_evidence",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\operation_console\\v1_5_operation_console.json",
-      "sha256": "d6b7f3f2bc9ed2d89a158c6cfb29eee8a693c8c404bca1d3f6206780140431cd",
-      "size_bytes": 17464,
+      "sha256": "4c56adbed3ad8b09befad25f49701f9eec42490a5b2dbca8c87c2602004246d0",
+      "size_bytes": 17394,
       "source": "discovered"
     },
     {
       "role": "json_evidence",
       "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_state.json",
-      "sha256": "c3952193359ce19600e7af29417555faef41a778e58473edf3a23ac447ce0ddc",
-      "size_bytes": 47110,
+      "sha256": "e32afa43e343d1ebcd99c9f46835e88a2e5f4a7d0079211ce23e854538ccbcf9",
+      "size_bytes": 49596,
       "source": "discovered"
     }
   ],

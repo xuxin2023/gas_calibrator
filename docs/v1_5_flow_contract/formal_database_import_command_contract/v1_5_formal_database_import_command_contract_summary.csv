@@ -1,0 +1,2 @@
+﻿overall_status,blocker_count,review_required_count,authorization_ready,preflight_ready,archive_release_ready,evidence_bundle_ready,command_contract_ready,real_import_execution_allowed,connects_postgresql,applies_migrations,database_import_attempted,database_written,database_import_allowed
+review_required,0,4,False,False,False,False,False,False,False,False,False,False,False

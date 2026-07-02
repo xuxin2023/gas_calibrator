@@ -83,7 +83,10 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     assert step_ids.index("formal_database_import_preflight_snapshot") < step_ids.index(
         "formal_database_import_authorization_snapshot"
     )
-    assert step_ids.index("formal_database_import_authorization_snapshot") < step_ids.index("database_import")
+    assert step_ids.index("formal_database_import_authorization_snapshot") < step_ids.index(
+        "formal_database_import_command_contract_snapshot"
+    )
+    assert step_ids.index("formal_database_import_command_contract_snapshot") < step_ids.index("database_import")
     assert step_ids.index("zh_calibration_reports") < step_ids.index("final_evidence_status_refresh")
     assert step_ids.index("final_evidence_status_refresh") < step_ids.index(
         "algorithm_profile_runner_dry_run_snapshot"
@@ -564,6 +567,16 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert (
         out / "formal_database_import_authorization" / "V1_5_FORMAL_DATABASE_IMPORT_AUTHORIZATION.md"
     ).exists()
+    assert (
+        out
+        / "formal_database_import_command_contract"
+        / "v1_5_formal_database_import_command_contract.json"
+    ).exists()
+    assert (
+        out
+        / "formal_database_import_command_contract"
+        / "V1_5_FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT.md"
+    ).exists()
     operation_console_json = out / "operation_console" / "v1_5_operation_console.json"
     operation_console_html = out / "operation_console" / "v1_5_operation_console.html"
     assert operation_console_json.exists()
@@ -613,6 +626,13 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
             out / "formal_database_import_authorization" / "v1_5_formal_database_import_authorization.json"
         ).resolve()
     )
+    assert formal_status["linked_inputs"]["formal_database_import_command_contract_json"] == str(
+        (
+            out
+            / "formal_database_import_command_contract"
+            / "v1_5_formal_database_import_command_contract.json"
+        ).resolve()
+    )
     formal_gates = {row["gate_id"]: row for row in formal_status["gates"]}
     assert formal_gates["algorithm_profile_runner_dry_run"]["status"] == "ready"
     assert formal_gates["algorithm_profile_runner_dry_run"]["blocks_release"] is False
@@ -624,6 +644,9 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert formal_gates["formal_database_import_authorization"]["status"] == "review_required"
     assert formal_gates["formal_database_import_authorization"]["blocks_release"] is False
     assert formal_gates["formal_database_import_authorization"]["blocks_physical_flow"] is False
+    assert formal_gates["formal_database_import_command_contract"]["status"] == "review_required"
+    assert formal_gates["formal_database_import_command_contract"]["blocks_release"] is False
+    assert formal_gates["formal_database_import_command_contract"]["blocks_physical_flow"] is False
     database_dry_run = json.loads(
         (out / "formal_database_dry_run" / "v1_5_formal_database_dry_run.json").read_text(encoding="utf-8-sig")
     )
@@ -651,6 +674,19 @@ def test_full_flow_cli_writes_json_markdown_and_command_list(tmp_path):
     assert database_import_authorization["manual_authorization_ready"] is False
     assert database_import_authorization["connects_postgresql"] is False
     assert database_import_authorization["database_import_allowed"] is False
+    database_import_command_contract = json.loads(
+        (
+            out
+            / "formal_database_import_command_contract"
+            / "v1_5_formal_database_import_command_contract.json"
+        ).read_text(encoding="utf-8-sig")
+    )
+    assert database_import_command_contract["overall_status"] == "review_required"
+    assert database_import_command_contract["authorization_ready"] is False
+    assert database_import_command_contract["preflight_ready"] is False
+    assert database_import_command_contract["connects_postgresql"] is False
+    assert database_import_command_contract["real_import_execution_allowed"] is False
+    assert database_import_command_contract["database_import_allowed"] is False
     assert formal_status["linked_inputs"]["run_evidence_status_json"] == str(
         (out / "v1_5_run_evidence_status.json").resolve()
     )
@@ -773,6 +809,41 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
         "formal_database_import_authorization"
     )
     assert "--fail-on-blocker" in import_authorization_command
+    command_contract_step = next(
+        step for step in plan.steps if step.step_id == "formal_database_import_command_contract_snapshot"
+    )
+    command_contract_command = list(command_contract_step.command)
+    assert (
+        command_contract_step.tool_module
+        == "gas_calibrator.tools.export_v1_5_formal_database_import_command_contract"
+    )
+    assert command_contract_step.execution_mode == "offline_sidecar"
+    assert command_contract_step.opens_com_ports is False
+    assert command_contract_step.controls_gas_route is False
+    assert command_contract_step.controls_water_route is False
+    assert command_contract_step.writes_coefficients is False
+    assert command_contract_step.writes_device_id is False
+    assert _flag_value(command_contract_command, "--formal-database-import-authorization-json").endswith(
+        "formal_database_import_authorization\\v1_5_formal_database_import_authorization.json"
+    )
+    assert _flag_value(command_contract_command, "--formal-database-import-preflight-json").endswith(
+        "formal_database_import_preflight\\v1_5_formal_database_import_preflight.json"
+    )
+    assert _flag_value(command_contract_command, "--archive-closure-json").endswith(
+        "formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json"
+    )
+    assert _flag_value(command_contract_command, "--evidence-bundle-json").endswith(
+        "formal_archive_closure_from_full_chain\\evidence_bundle.json"
+    )
+    assert _flag_value(command_contract_command, "--dsn-env") == "V1_5_POSTGRES_DSN"
+    assert (
+        _flag_value(command_contract_command, "--requested-command-module")
+        == "gas_calibrator.tools.import_v1_5_evidence_package"
+    )
+    assert _flag_value(command_contract_command, "--output-dir").endswith(
+        "formal_database_import_command_contract"
+    )
+    assert "--fail-on-blocker" in command_contract_command
     status_step = next(step for step in plan.steps if step.step_id == "formal_run_status_snapshot")
     status_command = list(status_step.command)
     assert status_step.tool_module == "gas_calibrator.tools.export_v1_5_formal_run_status"
@@ -791,6 +862,9 @@ def test_empty_reviewer_and_approver_are_not_rendered_as_bare_flags(tmp_path):
     )
     assert _flag_value(status_command, "--formal-database-import-authorization-json").endswith(
         "formal_database_import_authorization\\v1_5_formal_database_import_authorization.json"
+    )
+    assert _flag_value(status_command, "--formal-database-import-command-contract-json").endswith(
+        "formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json"
     )
     assert "v1_5_formal_run_status_gates.csv" in " ".join(status_step.expected_outputs)
 

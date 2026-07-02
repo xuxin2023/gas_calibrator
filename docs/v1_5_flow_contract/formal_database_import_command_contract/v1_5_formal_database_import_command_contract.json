@@ -1,0 +1,144 @@
+﻿{
+  "schema": "v1_5_formal_database_import_command_contract_v1",
+  "generated_at": "2026-07-02T17:12:44",
+  "overall_status": "review_required",
+  "blocker_count": 0,
+  "review_required_count": 4,
+  "production_backend": "postgresql",
+  "production_postgresql_major": 18,
+  "formal_database_import_authorization_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+  "formal_database_import_preflight_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+  "archive_closure_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+  "evidence_bundle_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\evidence_bundle.json",
+  "dsn_env": "V1_5_POSTGRES_DSN",
+  "requested_command_module": "gas_calibrator.tools.import_v1_5_evidence_package",
+  "authorization_ready": false,
+  "preflight_ready": false,
+  "archive_release_ready": false,
+  "evidence_bundle_ready": false,
+  "command_contract_ready": false,
+  "connects_postgresql": false,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "writes_sn": false,
+  "writes_device_id": false,
+  "writes_coefficients": false,
+  "applies_migrations": false,
+  "database_import_attempted": false,
+  "database_written": false,
+  "database_import_allowed": false,
+  "real_import_execution_allowed": false,
+  "formal_release_allowed": false,
+  "not_real_acceptance_evidence": true,
+  "required_command_inputs": [
+    "formal_database_import_authorization_json",
+    "formal_database_import_preflight_json",
+    "formal_archive_closure_index_json",
+    "evidence_bundle_json",
+    "dsn_env"
+  ],
+  "checks": [
+    {
+      "check": "formal_database_import_authorization_ready",
+      "status": "review_required",
+      "evidence_role": "required_manual_authorization",
+      "reasons": [
+        "authorization_status=review_required",
+        "authorization_review_required_count=3",
+        "preflight_ready=False",
+        "archive_release_ready=False",
+        "manual_authorization_ready=False",
+        "database_import_allowed=False"
+      ],
+      "physical_meaning": "A real PostgreSQL import command can only be reviewed after manual authorization, archive release, and import preflight are all represented by no-connect evidence.",
+      "next_action": "Resolve authorization blockers/review items before preparing a real import command.",
+      "details": {
+        "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+        "authorization_status": "review_required",
+        "database_import_allowed": false
+      }
+    },
+    {
+      "check": "formal_database_import_preflight_ready",
+      "status": "review_required",
+      "evidence_role": "required_import_preflight",
+      "reasons": [
+        "preflight_status=review_required",
+        "preflight_review_required_count=1",
+        "dsn_configured_not_true"
+      ],
+      "physical_meaning": "The command contract must point to a PostgreSQL 18 import preflight with DSN presence, migration lock, and no execution side effects.",
+      "next_action": "Regenerate or review the database import preflight before command review.",
+      "details": {
+        "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+        "preflight_status": "review_required",
+        "dsn_configured": false
+      }
+    },
+    {
+      "check": "formal_archive_closure_ready",
+      "status": "review_required",
+      "evidence_role": "required_release_evidence",
+      "reasons": [
+        "archive_closure_missing"
+      ],
+      "physical_meaning": "Database import is a formal archive/release action, not a calibration-stage action.",
+      "next_action": "Complete formal archive closure and SN/device_code traceability before real import.",
+      "details": {
+        "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+        "archive_status": "",
+        "package_status": ""
+      }
+    },
+    {
+      "check": "formal_evidence_bundle_ready",
+      "status": "review_required",
+      "evidence_role": "required_import_payload",
+      "reasons": [
+        "evidence_bundle_missing"
+      ],
+      "physical_meaning": "The import command must consume the frozen evidence bundle, not scan a mutable run folder.",
+      "next_action": "Build or review the formal evidence bundle before a controlled import command.",
+      "details": {
+        "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\evidence_bundle.json",
+        "bundle_schema": ""
+      }
+    },
+    {
+      "check": "controlled_import_command_contract",
+      "status": "ready",
+      "evidence_role": "execution_contract",
+      "reasons": [],
+      "physical_meaning": "This artifact defines the future import command inputs and keeps execution locked off.",
+      "next_action": "A separate real import command must consume this contract and re-check every required input.",
+      "details": {
+        "requested_command_module": "gas_calibrator.tools.import_v1_5_evidence_package",
+        "dsn_env": "V1_5_POSTGRES_DSN",
+        "execution_requested": false,
+        "connects_postgresql": false,
+        "database_import_attempted": false,
+        "database_written": false,
+        "required_command_inputs": [
+          "formal_database_import_authorization_json",
+          "formal_database_import_preflight_json",
+          "formal_archive_closure_index_json",
+          "evidence_bundle_json",
+          "dsn_env"
+        ]
+      }
+    },
+    {
+      "check": "migration_execution_lock",
+      "status": "ready",
+      "evidence_role": "migration_boundary",
+      "reasons": [],
+      "physical_meaning": "Schema migrations remain outside this V1.5 formal import command contract.",
+      "next_action": "Use a separately reviewed migration procedure if schema changes are ever required.",
+      "details": {
+        "applies_migrations": false,
+        "migrations_applied": false
+      }
+    }
+  ],
+  "next_action": "Resolve blockers/review items. A separate controlled PostgreSQL 18 import command must consume this contract plus authorization, preflight, archive, evidence-bundle, and DSN evidence; this artifact never imports data."
+}

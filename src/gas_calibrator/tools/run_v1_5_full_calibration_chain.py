@@ -52,6 +52,10 @@ from ..validation.v1_5_formal_database_import_authorization import (
     build_v1_5_formal_database_import_authorization,
     write_v1_5_formal_database_import_authorization_outputs,
 )
+from ..validation.v1_5_formal_database_import_command_contract import (
+    build_v1_5_formal_database_import_command_contract,
+    write_v1_5_formal_database_import_command_contract_outputs,
+)
 from ..validation.v1_5_post_run_coefficient_executor import (
     build_post_run_coefficient_executor_model,
     write_post_run_coefficient_executor_outputs,
@@ -115,6 +119,7 @@ def _write_formal_run_status(
     formal_database_dry_run_json: str | Path | None = None,
     formal_database_import_preflight_json: str | Path | None = None,
     formal_database_import_authorization_json: str | Path | None = None,
+    formal_database_import_command_contract_json: str | Path | None = None,
 ) -> tuple[dict, dict[str, Path]]:
     """Write the top-level offline status dashboard for the current V1.5 flow."""
 
@@ -137,6 +142,12 @@ def _write_formal_run_status(
         or root / "formal_database_import_preflight" / "v1_5_formal_database_import_preflight.json",
         formal_database_import_authorization_json=formal_database_import_authorization_json
         or root / "formal_database_import_authorization" / "v1_5_formal_database_import_authorization.json",
+        formal_database_import_command_contract_json=(
+            formal_database_import_command_contract_json
+            or root
+            / "formal_database_import_command_contract"
+            / "v1_5_formal_database_import_command_contract.json"
+        ),
     )
     raw_paths = write_v1_5_formal_run_status_outputs(model, root / "formal_run_status")
     return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
@@ -214,6 +225,32 @@ def _write_formal_database_import_authorization(
     return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
 
 
+def _write_formal_database_import_command_contract(
+    *,
+    output_dir: str | Path,
+    formal_database_import_authorization_json: str | Path,
+    formal_database_import_preflight_json: str | Path,
+    archive_closure_json: str | Path | None = None,
+    evidence_bundle_json: str | Path | None = None,
+) -> tuple[dict, dict[str, Path]]:
+    """Write the offline PostgreSQL 18 import command contract without connecting."""
+
+    root = Path(output_dir).resolve()
+    model = build_v1_5_formal_database_import_command_contract(
+        formal_database_import_authorization_json=formal_database_import_authorization_json,
+        formal_database_import_preflight_json=formal_database_import_preflight_json,
+        archive_closure_json=archive_closure_json,
+        evidence_bundle_json=evidence_bundle_json,
+        dsn_env="V1_5_POSTGRES_DSN",
+        requested_command_module="gas_calibrator.tools.import_v1_5_evidence_package",
+    )
+    raw_paths = write_v1_5_formal_database_import_command_contract_outputs(
+        model,
+        root / "formal_database_import_command_contract",
+    )
+    return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
+
+
 def _record_formal_run_status_outputs(outputs: dict, paths: dict[str, Path]) -> None:
     outputs["formal_run_status_json"] = paths["json_path"]
     outputs["formal_run_status_markdown"] = paths["markdown_path"]
@@ -246,6 +283,13 @@ def _record_formal_database_import_authorization_outputs(outputs: dict, paths: d
     outputs["formal_database_import_authorization_markdown"] = paths["markdown"]
     outputs["formal_database_import_authorization_checks"] = paths["checks_csv"]
     outputs["formal_database_import_authorization_summary"] = paths["summary_csv"]
+
+
+def _record_formal_database_import_command_contract_outputs(outputs: dict, paths: dict[str, Path]) -> None:
+    outputs["formal_database_import_command_contract_json"] = paths["json"]
+    outputs["formal_database_import_command_contract_markdown"] = paths["markdown"]
+    outputs["formal_database_import_command_contract_checks"] = paths["checks_csv"]
+    outputs["formal_database_import_command_contract_summary"] = paths["summary_csv"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -489,6 +533,20 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
     )
     _record_formal_database_import_authorization_outputs(outputs, formal_database_import_authorization_paths)
+    _formal_database_import_command_contract_model, formal_database_import_command_contract_paths = (
+        _write_formal_database_import_command_contract(
+            output_dir=args.output_dir,
+            formal_database_import_authorization_json=formal_database_import_authorization_paths["json"],
+            formal_database_import_preflight_json=formal_database_import_preflight_paths["json"],
+            archive_closure_json=Path(args.output_dir).resolve()
+            / "formal_archive_closure_from_full_chain"
+            / "v1_5_formal_archive_closure_index.json",
+            evidence_bundle_json=Path(args.output_dir).resolve()
+            / "formal_archive_closure_from_full_chain"
+            / "evidence_bundle.json",
+        )
+    )
+    _record_formal_database_import_command_contract_outputs(outputs, formal_database_import_command_contract_paths)
     formal_status_model, formal_status_paths = _write_formal_run_status(
         output_dir=args.output_dir,
         run_evidence_status_json=status_json,
@@ -496,6 +554,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         formal_database_dry_run_json=formal_database_paths["json"],
         formal_database_import_preflight_json=formal_database_import_preflight_paths["json"],
         formal_database_import_authorization_json=formal_database_import_authorization_paths["json"],
+        formal_database_import_command_contract_json=formal_database_import_command_contract_paths["json"],
     )
     _record_formal_run_status_outputs(outputs, formal_status_paths)
     console_json, console_html = _write_operation_console(
@@ -647,6 +706,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             formal_database_dry_run_json=formal_database_paths["json"],
             formal_database_import_preflight_json=formal_database_import_preflight_paths["json"],
             formal_database_import_authorization_json=formal_database_import_authorization_paths["json"],
+            formal_database_import_command_contract_json=formal_database_import_command_contract_paths["json"],
         )
         _record_formal_run_status_outputs(outputs, formal_status_paths)
         outputs["formal_run_status_refreshed_after_closure"] = formal_status_paths["json_path"]
