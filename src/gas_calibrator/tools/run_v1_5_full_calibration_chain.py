@@ -60,6 +60,10 @@ from ..validation.v1_5_formal_database_import_blocked_executor import (
     build_v1_5_formal_database_import_blocked_executor,
     write_v1_5_formal_database_import_blocked_executor_outputs,
 )
+from ..validation.v1_5_formal_database_import_controlled_executor_design import (
+    build_v1_5_formal_database_import_controlled_executor_design,
+    write_v1_5_formal_database_import_controlled_executor_design,
+)
 from ..validation.v1_5_post_run_coefficient_executor import (
     build_post_run_coefficient_executor_model,
     write_post_run_coefficient_executor_outputs,
@@ -125,6 +129,7 @@ def _write_formal_run_status(
     formal_database_import_authorization_json: str | Path | None = None,
     formal_database_import_command_contract_json: str | Path | None = None,
     formal_database_import_blocked_executor_json: str | Path | None = None,
+    formal_database_import_controlled_executor_design_json: str | Path | None = None,
 ) -> tuple[dict, dict[str, Path]]:
     """Write the top-level offline status dashboard for the current V1.5 flow."""
 
@@ -158,6 +163,12 @@ def _write_formal_run_status(
             or root
             / "formal_database_import_blocked_executor"
             / "v1_5_formal_database_import_blocked_executor.json"
+        ),
+        formal_database_import_controlled_executor_design_json=(
+            formal_database_import_controlled_executor_design_json
+            or root
+            / "formal_database_import_controlled_executor_design"
+            / "v1_5_formal_database_import_controlled_executor_design.json"
         ),
     )
     raw_paths = write_v1_5_formal_run_status_outputs(model, root / "formal_run_status")
@@ -289,6 +300,26 @@ def _write_formal_database_import_blocked_executor(
     return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
 
 
+def _write_formal_database_import_controlled_executor_design(
+    *,
+    output_dir: str | Path,
+    formal_database_import_blocked_executor_json: str | Path,
+) -> tuple[dict, dict[str, Path]]:
+    """Write the offline PostgreSQL 18 controlled import executor design."""
+
+    root = Path(output_dir).resolve()
+    model = build_v1_5_formal_database_import_controlled_executor_design(
+        formal_database_import_blocked_executor_json=formal_database_import_blocked_executor_json,
+        dsn_env="V1_5_POSTGRES_DSN",
+    )
+    raw_paths = write_v1_5_formal_database_import_controlled_executor_design(
+        root / "formal_database_import_controlled_executor_design",
+        formal_database_import_blocked_executor_json=formal_database_import_blocked_executor_json,
+        dsn_env="V1_5_POSTGRES_DSN",
+    )
+    return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
+
+
 def _record_formal_run_status_outputs(outputs: dict, paths: dict[str, Path]) -> None:
     outputs["formal_run_status_json"] = paths["json_path"]
     outputs["formal_run_status_markdown"] = paths["markdown_path"]
@@ -335,6 +366,23 @@ def _record_formal_database_import_blocked_executor_outputs(outputs: dict, paths
     outputs["formal_database_import_blocked_executor_markdown"] = paths["markdown"]
     outputs["formal_database_import_blocked_executor_checks"] = paths["checks_csv"]
     outputs["formal_database_import_blocked_executor_summary"] = paths["summary_csv"]
+
+
+def _record_formal_database_import_controlled_executor_design_outputs(
+    outputs: dict,
+    paths: dict[str, Path],
+) -> None:
+    outputs["formal_database_import_controlled_executor_design_json"] = paths["manifest"]
+    outputs["formal_database_import_controlled_executor_design_markdown"] = paths["summary"]
+    outputs["formal_database_import_controlled_executor_design_authorization_contract"] = paths[
+        "authorization_contract"
+    ]
+    outputs["formal_database_import_controlled_executor_design_transaction_contract"] = paths[
+        "transaction_contract"
+    ]
+    outputs["formal_database_import_controlled_executor_design_readback_contract"] = paths["readback_contract"]
+    outputs["formal_database_import_controlled_executor_design_rollback_contract"] = paths["rollback_contract"]
+    outputs["formal_database_import_controlled_executor_design_boundary_gates"] = paths["boundary_gates"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -607,6 +655,17 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
     )
     _record_formal_database_import_blocked_executor_outputs(outputs, formal_database_import_blocked_executor_paths)
+    (
+        _formal_database_import_controlled_executor_design_model,
+        formal_database_import_controlled_executor_design_paths,
+    ) = _write_formal_database_import_controlled_executor_design(
+        output_dir=args.output_dir,
+        formal_database_import_blocked_executor_json=formal_database_import_blocked_executor_paths["json"],
+    )
+    _record_formal_database_import_controlled_executor_design_outputs(
+        outputs,
+        formal_database_import_controlled_executor_design_paths,
+    )
     formal_status_model, formal_status_paths = _write_formal_run_status(
         output_dir=args.output_dir,
         run_evidence_status_json=status_json,
@@ -616,6 +675,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         formal_database_import_authorization_json=formal_database_import_authorization_paths["json"],
         formal_database_import_command_contract_json=formal_database_import_command_contract_paths["json"],
         formal_database_import_blocked_executor_json=formal_database_import_blocked_executor_paths["json"],
+        formal_database_import_controlled_executor_design_json=(
+            formal_database_import_controlled_executor_design_paths["manifest"]
+        ),
     )
     _record_formal_run_status_outputs(outputs, formal_status_paths)
     console_json, console_html = _write_operation_console(
@@ -769,6 +831,9 @@ def main(argv: Iterable[str] | None = None) -> int:
             formal_database_import_authorization_json=formal_database_import_authorization_paths["json"],
             formal_database_import_command_contract_json=formal_database_import_command_contract_paths["json"],
             formal_database_import_blocked_executor_json=formal_database_import_blocked_executor_paths["json"],
+            formal_database_import_controlled_executor_design_json=(
+                formal_database_import_controlled_executor_design_paths["manifest"]
+            ),
         )
         _record_formal_run_status_outputs(outputs, formal_status_paths)
         outputs["formal_run_status_refreshed_after_closure"] = formal_status_paths["json_path"]

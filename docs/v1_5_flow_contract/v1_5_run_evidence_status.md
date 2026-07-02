@@ -25,7 +25,7 @@
 Stage status counts:
 - `authorization_required`: `5`
 - `blocked_controlled_gate`: `2`
-- `pass`: `6`
+- `pass`: `7`
 - `waiting_for_artifacts`: `19`
 
 Manifest stages:
@@ -55,7 +55,8 @@ Manifest stages:
 - `formal_database_import_preflight_snapshot`: `pass` - all_manifest_expected_outputs_present
 - `formal_database_import_authorization_snapshot`: `pass` - all_manifest_expected_outputs_present
 - `formal_database_import_command_contract_snapshot`: `pass` - all_manifest_expected_outputs_present
-- `formal_database_import_blocked_executor_snapshot`: `waiting_for_artifacts` - manifest_expected_outputs_missing
+- `formal_database_import_blocked_executor_snapshot`: `pass` - all_manifest_expected_outputs_present
+- `formal_database_import_controlled_executor_design_snapshot`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `database_import`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `zh_calibration_reports`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `final_evidence_status_refresh`: `waiting_for_artifacts` - manifest_expected_outputs_missing
@@ -124,7 +125,7 @@ Manifest stages:
 
 - `candidate_review`: `2`
 - `csv_evidence`: `32`
-- `database_import_summary`: `15`
+- `database_import_summary`: `20`
 - `evidence_file`: `42`
 - `formal_run_status`: `2`
 - `formal_run_status_gaps`: `2`

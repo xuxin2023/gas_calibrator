@@ -25,7 +25,7 @@
 | `dedicated_open_flow_runner_requires_authorization` | 2 |
 | `dedicated_pressure_runner_requires_authorization` | 2 |
 | `offline_database_requires_dsn` | 1 |
-| `offline_review_auto_candidate` | 14 |
+| `offline_review_auto_candidate` | 15 |
 | `offline_review_waiting_for_run_artifacts` | 10 |
 | `read_only_real_com_requires_authorization` | 1 |
 
@@ -60,11 +60,12 @@
 | 25 | `FORMAL_DATABASE_IMPORT_AUTHORIZATION` | `formal_database_import_authorization_snapshot` | `offline_review_waiting_for_run_artifacts` | `required_before_database_import_execution` | `gas_calibrator.tools.export_v1_5_formal_database_import_authorization` |
 | 26 | `FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT` | `formal_database_import_command_contract_snapshot` | `offline_review_auto_candidate` | `required_before_database_import_execution` | `gas_calibrator.tools.export_v1_5_formal_database_import_command_contract` |
 | 27 | `FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR` | `formal_database_import_blocked_executor_snapshot` | `offline_review_auto_candidate` | `required_before_database_import_execution` | `gas_calibrator.tools.import_v1_5_evidence_package` |
-| 28 | `DATABASE_IMPORT` | `database_import` | `offline_database_requires_dsn` | `required_for_formal_archive` | `gas_calibrator.tools.import_v1_5_evidence_package` |
-| 29 | `REPORTS` | `zh_calibration_reports` | `offline_review_waiting_for_run_artifacts` | `final_deliverable` | `gas_calibrator.tools.export_v1_5_calibration_reports` |
-| 30 | `FINAL_EVIDENCE_STATUS` | `final_evidence_status_refresh` | `offline_review_waiting_for_run_artifacts` | `required_after_reports_for_archive_closure` | `gas_calibrator.tools.export_v1_5_run_evidence_status` |
-| 31 | `ALGORITHM_PROFILE_RUNNER_DRY_RUN` | `algorithm_profile_runner_dry_run_snapshot` | `offline_review_auto_candidate` | `optional_new_algorithm_runner_preflight_before_status_rollup` | `gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run` |
-| 32 | `FORMAL_RUN_STATUS` | `formal_run_status_snapshot` | `offline_review_auto_candidate` | `final_reviewer_status_overview` | `gas_calibrator.tools.export_v1_5_formal_run_status` |
+| 28 | `FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN` | `formal_database_import_controlled_executor_design_snapshot` | `offline_review_auto_candidate` | `required_before_database_import_execution` | `gas_calibrator.tools.export_v1_5_formal_database_import_controlled_executor_design` |
+| 29 | `DATABASE_IMPORT` | `database_import` | `offline_database_requires_dsn` | `required_for_formal_archive` | `gas_calibrator.tools.import_v1_5_evidence_package` |
+| 30 | `REPORTS` | `zh_calibration_reports` | `offline_review_waiting_for_run_artifacts` | `final_deliverable` | `gas_calibrator.tools.export_v1_5_calibration_reports` |
+| 31 | `FINAL_EVIDENCE_STATUS` | `final_evidence_status_refresh` | `offline_review_waiting_for_run_artifacts` | `required_after_reports_for_archive_closure` | `gas_calibrator.tools.export_v1_5_run_evidence_status` |
+| 32 | `ALGORITHM_PROFILE_RUNNER_DRY_RUN` | `algorithm_profile_runner_dry_run_snapshot` | `offline_review_auto_candidate` | `optional_new_algorithm_runner_preflight_before_status_rollup` | `gas_calibrator.tools.export_v1_5_algorithm_profile_runner_dry_run` |
+| 33 | `FORMAL_RUN_STATUS` | `formal_run_status_snapshot` | `offline_review_auto_candidate` | `final_reviewer_status_overview` | `gas_calibrator.tools.export_v1_5_formal_run_status` |
 
 ## Live And Write Gates
 
@@ -414,7 +415,22 @@ Expected outputs:
 - formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor_checks.csv
 - formal_database_import_blocked_executor/v1_5_formal_database_import_blocked_executor_summary.csv
 
-### 28. `database_import`
+### 28. `formal_database_import_controlled_executor_design_snapshot`
+
+Required inputs:
+- blocked database import executor sidecar
+- PostgreSQL DSN environment variable contract
+
+Expected outputs:
+- formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_design.json
+- formal_database_import_controlled_executor_design/V1_5_FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN.md
+- formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_authorization_contract.csv
+- formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_transaction_contract.csv
+- formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_readback_contract.csv
+- formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_rollback_contract.csv
+- formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_boundary_gates.csv
+
+### 29. `database_import`
 
 Required inputs:
 - V1.5 evidence DSN
@@ -423,7 +439,7 @@ Required inputs:
 Expected outputs:
 - database_imported=true summary
 
-### 29. `zh_calibration_reports`
+### 30. `zh_calibration_reports`
 
 Required inputs:
 - evidence_bundle.json
@@ -436,7 +452,7 @@ Expected outputs:
 - per_device_certificate_manifest.json
 - per_device_certificate_artifact_hashes.csv
 
-### 30. `final_evidence_status_refresh`
+### 31. `final_evidence_status_refresh`
 
 Required inputs:
 - evidence_bundle.json
@@ -447,7 +463,7 @@ Expected outputs:
 - v1_5_run_evidence_status.json
 - v1_5_run_evidence_status.md
 
-### 31. `algorithm_profile_runner_dry_run_snapshot`
+### 32. `algorithm_profile_runner_dry_run_snapshot`
 
 Required inputs:
 - configs/v1_5_algorithm_route_profiles.json
@@ -460,7 +476,7 @@ Expected outputs:
 - algorithm_profile_runner_dry_run/algorithm_runlist_readiness/v1_5_algorithm_runlist_readiness.json
 - algorithm_profile_runner_dry_run/algorithm_runner_integration_dry_run/v1_5_algorithm_runner_integration_dry_run.json
 
-### 32. `formal_run_status_snapshot`
+### 33. `formal_run_status_snapshot`
 
 Required inputs:
 - initialization readiness sidecar
@@ -474,6 +490,7 @@ Required inputs:
 - formal database import authorization sidecar
 - formal database import command contract sidecar
 - blocked database import executor sidecar
+- controlled database import executor design sidecar
 
 Expected outputs:
 - formal_run_status/v1_5_formal_run_status.json

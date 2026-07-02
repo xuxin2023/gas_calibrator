@@ -141,6 +141,18 @@
 - blocks_physical_flow: `False`
 - physical_meaning: Proves the future import command currently consumes reviewed inputs but remains a no-connect, no-migration, no-write stub rather than a production import.
 
+### formal_database_import_controlled_executor_design
+
+- title: PostgreSQL 18 controlled import executor design
+- status: `ready`
+- source_status: `ready_for_controlled_import_executor_design_review`
+- source_path: `D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_controlled_executor_design\v1_5_formal_database_import_controlled_executor_design.json`
+- reason: controlled PostgreSQL 18 import executor design is ready; execution remains blocked
+- next_action: Use this design only as future implementation guidance. Do not connect PostgreSQL until a separate controlled executor adds explicit execute authorization, transaction, readback, rollback, and import evidence.
+- blocks_release: `False`
+- blocks_physical_flow: `False`
+- physical_meaning: Defines the future real-import safety contract while preserving the current no-connect, no-migration, no-write V1.5 boundary.
+
 ### co2_open_flow_mature_queue
 
 - title: CO2 mature open-flow queue

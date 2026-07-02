@@ -1,0 +1,4 @@
+﻿trigger,rollback_action,evidence_required,acceptance_policy
+validation_failure_before_commit,rollback transaction,failed_import_attempt_summary.json with reason and zero committed rows,not_imported_review_required
+readback_mismatch_before_commit,rollback transaction,readback_mismatch_rows.csv and rollback status,not_imported_review_required
+post_commit_external_discrepancy,do not auto-delete production rows; mark import under DBA/reviewer hold,post_commit_discrepancy_report.json and reviewer decision,database_release_suspended_until_review

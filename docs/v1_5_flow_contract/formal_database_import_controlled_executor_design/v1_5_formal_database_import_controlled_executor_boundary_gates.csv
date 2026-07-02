@@ -1,0 +1,5 @@
+﻿gate,status,evidence
+design_only_no_connect,pass,connects_postgresql=false; database_written=false; execution_supported=false
+blocked_executor_consumed,pass,D:\gas_calibrator\_worktrees\v1_5_fixed_wait_window_gate_1aee26d_clean\docs\v1_5_flow_contract\formal_database_import_blocked_executor\v1_5_formal_database_import_blocked_executor.json
+future_execute_still_blocked,pass,current package does not add a real --execute-controlled-import path
+postgresql18_only,pass,future executor target remains PostgreSQL major 18
