@@ -47,7 +47,7 @@ flowchart TD
 | H2O 候选评审 | `src/gas_calibrator/tools/export_v1_5_h2o_senco24_candidate_review.py` | 评审 SENCO2/4 主链路和 SENCO6 显示层修正 | H2O 干气锚点与 CO2 零气锚点不能混为一类 |
 | 控制写入 | `run_v1_5_*_controlled_write.py` | 写入 SENCOx 并读回，形成新 coefficient epoch | 高风险工具；必须单独授权；写完必须复验 |
 | 写后复验 | `src/gas_calibrator/tools/export_v1_5_post_write_reverification.py` | 用写后开放流通点证明新系数输出仍与标准/参考一致 | 写入成功不等于校准通过；复验是独立门禁 |
-| 证据包和数据库 | `prepare_v1_5_canonical_evidence_package.py`、`import_v1_5_evidence_package.py` | 保存原始帧、QC、系数、写入、复验、报告 hash 的可追溯索引 | 数据库是证据链索引，不替代原始 artifact |
+| 证据包和数据库 | `prepare_v1_5_canonical_evidence_package.py`、`export_v1_5_formal_database_*`、`import_v1_5_evidence_package.py` | 保存原始帧、QC、系数、写入、复验、报告 hash 和 PostgreSQL 18 dry-run/locked import 证据 | 数据库是证据链索引；真实 import 仍被 preflight / authorization / command contract / blocked executor / controlled executor design 锁住，不替代原始 artifact |
 | 中文报告 | `src/gas_calibrator/tools/export_v1_5_calibration_reports.py` | 从证据包生成运行报告、技术报告、正式报告 | 报告生成不打开串口、不控路、不写设备 |
 
 ## 正式顺序的关键理由

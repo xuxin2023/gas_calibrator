@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 from ..validation.v1_5_formal_flow_contract import (
+    discover_current_v1_5_inventory,
     read_json,
     render_v1_5_formal_flow_contract_markdown,
     validate_v1_5_formal_flow_contract,
@@ -30,7 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Iterable[str] | None = None) -> int:
     args = build_parser().parse_args(list(argv) if argv is not None else None)
     plan = read_json(args.plan_json)
-    inventory = read_json(args.inventory_json) if args.inventory_json else None
+    inventory = (
+        read_json(args.inventory_json)
+        if args.inventory_json
+        else discover_current_v1_5_inventory(anchor_paths=(args.plan_json, args.output_dir))
+    )
     report = validate_v1_5_formal_flow_contract(plan, inventory_entries=inventory)
 
     output_dir = Path(args.output_dir).resolve()

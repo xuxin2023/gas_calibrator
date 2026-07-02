@@ -1,11 +1,15 @@
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from gas_calibrator.tools.export_v1_5_formal_flow_contract import main as export_main
 from gas_calibrator.v1_5.orchestration.full_flow import build_full_flow_plan, write_full_flow_plan
-from gas_calibrator.validation.v1_5_formal_flow_contract import validate_v1_5_formal_flow_contract
+from gas_calibrator.validation.v1_5_formal_flow_contract import (
+    discover_current_v1_5_inventory,
+    validate_v1_5_formal_flow_contract,
+)
 
 
 pytestmark = pytest.mark.v1_5_formal_gate
@@ -18,102 +22,7 @@ def _config(tmp_path):
 
 
 def _inventory_for_plan():
-    return {
-        "entries": [
-            {
-                "path": "src/gas_calibrator/tools/prepare_v1_5_formal_run_package.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/run_v1_5_formal_initialization_runner.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_initialization_readiness.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_pre_gas_readiness.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/probe_v1_5_getco_component_snapshot.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_pressure_senco9_evaluation.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_pressure_channel_completion.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_temperature_channel_review.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/run_v1_5_formal_co2_open_flow_queue.py",
-                "category": "formal_runner",
-            },
-            {
-                "path": "src/gas_calibrator/tools/run_v1_5_formal_h2o_open_flow_queue.py",
-                "category": "formal_runner",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_fit_input_quality.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_co2_senco_pair_model_scope.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_post_write_reverification.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/run_v1_5_formal_evidence_sidecar.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_formal_database_import_preflight.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_formal_database_import_authorization.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_formal_database_import_command_contract.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/import_v1_5_evidence_package.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_calibration_reports.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_run_evidence_status.py",
-                "category": "formal_review_evidence",
-            },
-            {
-                "path": "src/gas_calibrator/tools/export_v1_5_formal_run_status.py",
-                "category": "formal_review_evidence",
-            },
-        ]
-    }
+    return discover_current_v1_5_inventory(anchor_paths=(Path.cwd(),))
 
 
 def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
@@ -123,6 +32,7 @@ def test_formal_flow_contract_passes_for_generated_plan(tmp_path):
 
     assert report.status == "pass"
     assert report.issues == ()
+    assert report.warnings == ()
     assert report.physical_boundaries["not_real_acceptance_evidence"] is True
     assert report.physical_boundaries["opens_com_ports"] is False
     assert report.formal_runner_steps == ("co2_open_flow_sampling", "h2o_open_flow_sampling")
@@ -608,16 +518,12 @@ def test_formal_flow_contract_blocks_database_import_controlled_executor_design_
 def test_export_formal_flow_contract_writes_json_and_markdown(tmp_path):
     plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
     plan_outputs = write_full_flow_plan(plan)
-    inventory_path = tmp_path / "inventory.json"
-    inventory_path.write_text(json.dumps(_inventory_for_plan(), ensure_ascii=False), encoding="utf-8")
     out = tmp_path / "contract"
 
     rc = export_main(
         [
             "--plan-json",
             str(plan_outputs["json"]),
-            "--inventory-json",
-            str(inventory_path),
             "--output-dir",
             str(out),
             "--fail-on-blocked",
@@ -627,6 +533,7 @@ def test_export_formal_flow_contract_writes_json_and_markdown(tmp_path):
     assert rc == 0
     payload = json.loads((out / "v1_5_formal_flow_contract.json").read_text(encoding="utf-8"))
     assert payload["status"] == "pass"
+    assert payload["warnings"] == []
     assert payload["physical_boundaries"]["not_real_acceptance_evidence"] is True
     text = (out / "v1_5_formal_flow_contract.md").read_text(encoding="utf-8")
     assert "POST_WRITE_REVERIFY" in text

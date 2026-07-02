@@ -223,6 +223,38 @@ def _inventory_by_module(
     return by_module
 
 
+def _repo_root_from_anchor(anchor: Path) -> Path | None:
+    for candidate in (anchor, *anchor.parents):
+        if (candidate / "src" / "gas_calibrator" / "validation" / "v1_5_entrypoint_inventory.py").exists():
+            return candidate
+    return None
+
+
+def discover_current_v1_5_inventory(*, anchor_paths: Iterable[str | Path] = ()) -> dict[str, list[dict[str, Any]]]:
+    """Build the current repo inventory for offline formal-flow contract checks.
+
+    The formal-flow contract is often exported from generated evidence folders.
+    When callers do not provide a pinned inventory JSON, use the current V1.5
+    source tree so generated reports do not retain stale missing-entrypoint
+    warnings after new formal support tools are added.
+    """
+
+    anchors = [Path(path).resolve() for path in anchor_paths if str(path or "")]
+    anchors.extend((Path.cwd().resolve(), Path(__file__).resolve()))
+    repo_root: Path | None = None
+    for anchor in anchors:
+        root = _repo_root_from_anchor(anchor if anchor.is_dir() else anchor.parent)
+        if root is not None:
+            repo_root = root
+            break
+    if repo_root is None:
+        repo_root = Path.cwd().resolve()
+
+    from .v1_5_entrypoint_inventory import discover_v1_5_entrypoints
+
+    return {"entries": [entry.to_json() for entry in discover_v1_5_entrypoints(repo_root)]}
+
+
 def _issue(severity: str, code: str, message: str, step_id: str = "") -> FlowContractIssue:
     return FlowContractIssue(severity=severity, code=code, message=message, step_id=step_id)
 
