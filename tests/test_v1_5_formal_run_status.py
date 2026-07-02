@@ -370,6 +370,8 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
         "offline_status_only": True,
         "opens_com_ports": False,
         "connects_postgresql": False,
+        "real_import_execution_allowed": False,
+        "database_written": False,
         "controls_pressure": False,
         "controls_water_or_gas_routes": False,
         "writes_coefficients": False,
@@ -789,6 +791,8 @@ def test_formal_run_status_empty_run_dir_is_offline_todo_only(tmp_path: Path) ->
     assert model["physical_boundaries"]["opens_com_ports"] is False
     assert model["physical_boundaries"]["writes_coefficients"] is False
     assert model["physical_boundaries"]["connects_postgresql"] is False
+    assert model["physical_boundaries"]["real_import_execution_allowed"] is False
+    assert model["physical_boundaries"]["database_written"] is False
 
 
 def test_formal_run_status_writes_json_markdown_and_csv(tmp_path: Path) -> None:

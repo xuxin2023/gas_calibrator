@@ -1130,6 +1130,8 @@ def build_v1_5_formal_run_status(
             "offline_status_only": True,
             "opens_com_ports": False,
             "connects_postgresql": False,
+            "real_import_execution_allowed": False,
+            "database_written": False,
             "controls_pressure": False,
             "controls_water_or_gas_routes": False,
             "writes_coefficients": False,

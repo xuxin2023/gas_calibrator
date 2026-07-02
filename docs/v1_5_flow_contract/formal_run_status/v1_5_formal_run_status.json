@@ -1,6 +1,6 @@
 {
   "schema": "v1_5_formal_run_status_v1",
-  "generated_at": "2026-07-02T18:02:48",
+  "generated_at": "2026-07-02T20:11:08",
   "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "overall_status": "review_required",
   "current_stage": "initialization_readiness",
@@ -12,6 +12,8 @@
     "offline_status_only": true,
     "opens_com_ports": false,
     "connects_postgresql": false,
+    "real_import_execution_allowed": false,
+    "database_written": false,
     "controls_pressure": false,
     "controls_water_or_gas_routes": false,
     "writes_coefficients": false,
