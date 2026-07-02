@@ -48,4 +48,3 @@ def load_latest_migration_sql() -> str:
     if not migrations:
         raise FileNotFoundError(f"No V1.5 evidence migrations under {migrations_dir()}")
     return migrations[-1].sql
-

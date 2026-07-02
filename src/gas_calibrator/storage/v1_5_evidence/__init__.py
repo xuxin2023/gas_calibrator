@@ -18,4 +18,3 @@ __all__ = [
     "query_run_summary",
     "write_bundle_json",
 ]
-

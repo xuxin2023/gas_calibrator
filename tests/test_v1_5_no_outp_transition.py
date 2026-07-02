@@ -367,7 +367,7 @@ class TestPressureRiseGateCom22:
     def test_com22_rises_pass(self):
         """COM22 gauge rises — gate passes regardless of PACE.
         Note: _pressurize_and_hold has complex internal state; a full integration
-        test is deferred. This test verifies the core _no_outp_transition + 
+        test is deferred. This test verifies the core _no_outp_transition +
         _close_atmosphere_without_output_toggle paths which are the critical invariants.
         """
         # Core protection verified: set_output and exit_atmosphere_mode NOT called
