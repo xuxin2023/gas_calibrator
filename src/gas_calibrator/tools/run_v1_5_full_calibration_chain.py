@@ -48,6 +48,10 @@ from ..validation.v1_5_formal_database_import_preflight import (
     build_v1_5_formal_database_import_preflight,
     write_v1_5_formal_database_import_preflight_outputs,
 )
+from ..validation.v1_5_formal_database_import_authorization import (
+    build_v1_5_formal_database_import_authorization,
+    write_v1_5_formal_database_import_authorization_outputs,
+)
 from ..validation.v1_5_post_run_coefficient_executor import (
     build_post_run_coefficient_executor_model,
     write_post_run_coefficient_executor_outputs,
@@ -110,6 +114,7 @@ def _write_formal_run_status(
     algorithm_profile_runner_dry_run_json: str | Path | None = None,
     formal_database_dry_run_json: str | Path | None = None,
     formal_database_import_preflight_json: str | Path | None = None,
+    formal_database_import_authorization_json: str | Path | None = None,
 ) -> tuple[dict, dict[str, Path]]:
     """Write the top-level offline status dashboard for the current V1.5 flow."""
 
@@ -130,6 +135,8 @@ def _write_formal_run_status(
         or root / "formal_database_dry_run" / "v1_5_formal_database_dry_run.json",
         formal_database_import_preflight_json=formal_database_import_preflight_json
         or root / "formal_database_import_preflight" / "v1_5_formal_database_import_preflight.json",
+        formal_database_import_authorization_json=formal_database_import_authorization_json
+        or root / "formal_database_import_authorization" / "v1_5_formal_database_import_authorization.json",
     )
     raw_paths = write_v1_5_formal_run_status_outputs(model, root / "formal_run_status")
     return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
@@ -179,6 +186,34 @@ def _write_formal_database_import_preflight(
     return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
 
 
+def _write_formal_database_import_authorization(
+    *,
+    output_dir: str | Path,
+    formal_database_import_preflight_json: str | Path,
+    archive_closure_json: str | Path | None = None,
+    operator: str = "",
+    reviewer: str = "",
+    approver: str = "",
+    authorization_id: str = "",
+) -> tuple[dict, dict[str, Path]]:
+    """Write the offline PostgreSQL 18 import authorization guard."""
+
+    root = Path(output_dir).resolve()
+    model = build_v1_5_formal_database_import_authorization(
+        formal_database_import_preflight_json=formal_database_import_preflight_json,
+        archive_closure_json=archive_closure_json,
+        operator=operator,
+        reviewer=reviewer,
+        approver=approver,
+        authorization_id=authorization_id,
+    )
+    raw_paths = write_v1_5_formal_database_import_authorization_outputs(
+        model,
+        root / "formal_database_import_authorization",
+    )
+    return model, {key: Path(value).resolve() for key, value in raw_paths.items()}
+
+
 def _record_formal_run_status_outputs(outputs: dict, paths: dict[str, Path]) -> None:
     outputs["formal_run_status_json"] = paths["json_path"]
     outputs["formal_run_status_markdown"] = paths["markdown_path"]
@@ -204,6 +239,13 @@ def _record_formal_database_import_preflight_outputs(outputs: dict, paths: dict[
     outputs["formal_database_import_preflight_markdown"] = paths["markdown"]
     outputs["formal_database_import_preflight_checks"] = paths["checks_csv"]
     outputs["formal_database_import_preflight_summary"] = paths["summary_csv"]
+
+
+def _record_formal_database_import_authorization_outputs(outputs: dict, paths: dict[str, Path]) -> None:
+    outputs["formal_database_import_authorization_json"] = paths["json"]
+    outputs["formal_database_import_authorization_markdown"] = paths["markdown"]
+    outputs["formal_database_import_authorization_checks"] = paths["checks_csv"]
+    outputs["formal_database_import_authorization_summary"] = paths["summary_csv"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -434,12 +476,26 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
     )
     _record_formal_database_import_preflight_outputs(outputs, formal_database_import_preflight_paths)
+    _formal_database_import_authorization_model, formal_database_import_authorization_paths = (
+        _write_formal_database_import_authorization(
+            output_dir=args.output_dir,
+            formal_database_import_preflight_json=formal_database_import_preflight_paths["json"],
+            archive_closure_json=Path(args.output_dir).resolve()
+            / "formal_archive_closure_from_full_chain"
+            / "v1_5_formal_archive_closure_index.json",
+            operator=args.operator,
+            reviewer=args.reviewer,
+            approver=args.approver,
+        )
+    )
+    _record_formal_database_import_authorization_outputs(outputs, formal_database_import_authorization_paths)
     formal_status_model, formal_status_paths = _write_formal_run_status(
         output_dir=args.output_dir,
         run_evidence_status_json=status_json,
         algorithm_profile_runner_dry_run_json=algorithm_profile_paths["json"],
         formal_database_dry_run_json=formal_database_paths["json"],
         formal_database_import_preflight_json=formal_database_import_preflight_paths["json"],
+        formal_database_import_authorization_json=formal_database_import_authorization_paths["json"],
     )
     _record_formal_run_status_outputs(outputs, formal_status_paths)
     console_json, console_html = _write_operation_console(
@@ -590,6 +646,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             algorithm_profile_runner_dry_run_json=algorithm_profile_paths["json"],
             formal_database_dry_run_json=formal_database_paths["json"],
             formal_database_import_preflight_json=formal_database_import_preflight_paths["json"],
+            formal_database_import_authorization_json=formal_database_import_authorization_paths["json"],
         )
         _record_formal_run_status_outputs(outputs, formal_status_paths)
         outputs["formal_run_status_refreshed_after_closure"] = formal_status_paths["json_path"]

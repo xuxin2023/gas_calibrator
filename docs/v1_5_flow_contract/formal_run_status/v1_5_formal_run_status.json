@@ -1,6 +1,6 @@
 {
   "schema": "v1_5_formal_run_status_v1",
-  "generated_at": "2026-07-02T07:29:47",
+  "generated_at": "2026-07-02T10:40:20",
   "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
   "overall_status": "review_required",
   "current_stage": "initialization_readiness",
@@ -27,7 +27,8 @@
     "archive_closure_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
     "algorithm_profile_runner_dry_run_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json",
     "formal_database_dry_run_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json",
-    "formal_database_import_preflight_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json"
+    "formal_database_import_preflight_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+    "formal_database_import_authorization_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json"
   },
   "gates": [
     {
@@ -117,6 +118,19 @@
       "reason": "source_status=review_required; review_required_count=1; dsn_configured=False",
       "next_action": "Review DSN configuration, migration lock, archive-release dependency, and explicit import authorization before running any separate production database import.",
       "physical_meaning": "Checks that a production database import could be reviewed without opening PostgreSQL, applying migrations, or importing rows; this separates preflight evidence from real import execution.",
+      "release_gate": false,
+      "blocks_release": false,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "formal_database_import_authorization",
+      "title": "PostgreSQL 18 formal database import authorization",
+      "status": "review_required",
+      "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+      "source_status": "review_required",
+      "reason": "source_status=review_required; review_required_count=3; preflight_ready=False; archive_release_ready=False; manual_authorization_ready=False; database_import_allowed=False",
+      "next_action": "Complete archive release and manual import authorization, then run a separate controlled database import command that consumes this authorization artifact.",
+      "physical_meaning": "Separates manual database-import authorization from both preflight review and actual PostgreSQL writes; the status artifact itself remains no-connect/no-import.",
       "release_gate": false,
       "blocks_release": false,
       "blocks_physical_flow": false
@@ -238,6 +252,14 @@
       "status": "review_required",
       "reason": "source_status=review_required; review_required_count=1; dsn_configured=False",
       "next_action": "Review DSN configuration, migration lock, archive-release dependency, and explicit import authorization before running any separate production database import.",
+      "blocks_release": false,
+      "blocks_physical_flow": false
+    },
+    {
+      "gate_id": "formal_database_import_authorization",
+      "status": "review_required",
+      "reason": "source_status=review_required; review_required_count=3; preflight_ready=False; archive_release_ready=False; manual_authorization_ready=False; database_import_allowed=False",
+      "next_action": "Complete archive release and manual import authorization, then run a separate controlled database import command that consumes this authorization artifact.",
       "blocks_release": false,
       "blocks_physical_flow": false
     },

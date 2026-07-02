@@ -25,7 +25,7 @@
 Stage status counts:
 - `authorization_required`: `5`
 - `blocked_controlled_gate`: `2`
-- `pass`: `3`
+- `pass`: `4`
 - `waiting_for_artifacts`: `19`
 
 Manifest stages:
@@ -52,7 +52,8 @@ Manifest stages:
 - `post_write_reverification_placeholder`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `formal_evidence_sidecar`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `formal_database_dry_run_snapshot`: `pass` - all_manifest_expected_outputs_present
-- `formal_database_import_preflight_snapshot`: `waiting_for_artifacts` - manifest_expected_outputs_missing
+- `formal_database_import_preflight_snapshot`: `pass` - all_manifest_expected_outputs_present
+- `formal_database_import_authorization_snapshot`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `database_import`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `zh_calibration_reports`: `waiting_for_artifacts` - manifest_expected_outputs_missing
 - `final_evidence_status_refresh`: `waiting_for_artifacts` - manifest_expected_outputs_missing
@@ -106,7 +107,7 @@ Manifest stages:
   - physical_meaning: After any coefficient write, independent open-flow verification points must prove the updated measurement model.
 - `evidence_bundle` Formal evidence bundle: `missing` - evidence bundle missing
   - physical_meaning: The evidence bundle freezes raw artifacts, QC, traceability, coefficient events, hashes, and report inputs for reconstruction.
-- `database_import` Evidence database import: `not_attempted` - database import not attempted or summary not found
+- `database_import` Evidence database import: `pass` - database import summary is present
   - physical_meaning: PostgreSQL indexes traceability and audit state; raw evidence remains in hashed evidence packages.
 - `reports` Run, technical, and formal calibration reports: `not_attempted` - one or more formal report artifacts missing
   - physical_meaning: Reports are the reviewer-facing summary of method, QC, traceability, uncertainty, coefficient write status, and limitations.
@@ -121,6 +122,7 @@ Manifest stages:
 
 - `candidate_review`: `2`
 - `csv_evidence`: `32`
+- `database_import_summary`: `5`
 - `evidence_file`: `42`
 - `formal_run_status`: `2`
 - `formal_run_status_gaps`: `2`

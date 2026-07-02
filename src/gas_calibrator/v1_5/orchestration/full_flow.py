@@ -622,6 +622,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_evidence_sidecar",
                 "formal_database_dry_run_snapshot",
                 "formal_database_import_preflight_snapshot",
+                "formal_database_import_authorization_snapshot",
                 "database_import",
                 "final_evidence_status_refresh",
                 "algorithm_profile_runner_dry_run_snapshot",
@@ -978,6 +979,7 @@ def build_full_flow_plan(
     algorithm_profile_runner_dir = root / "algorithm_profile_runner_dry_run"
     formal_database_dry_run_dir = root / "formal_database_dry_run"
     formal_database_import_preflight_dir = root / "formal_database_import_preflight"
+    formal_database_import_authorization_dir = root / "formal_database_import_authorization"
     algorithm_profile_path = repo_root / "configs" / "v1_5_algorithm_route_profiles.json"
     runtime_bound_cfg = getco_dir / "runtime_identity_bound_config.json"
 
@@ -1933,6 +1935,52 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="formal_database_import_authorization_snapshot",
+            title="Review PostgreSQL 18 manual import authorization without connecting",
+            phase="FORMAL_DATABASE_IMPORT_AUTHORIZATION",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_database_import_authorization",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_database_import_authorization",
+                "--formal-database-import-preflight-json",
+                formal_database_import_preflight_dir / "v1_5_formal_database_import_preflight.json",
+                "--archive-closure-json",
+                root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
+                *_maybe_arg("--operator", operator),
+                *_maybe_arg("--reviewer", reviewer),
+                *_maybe_arg("--approver", approver),
+                "--authorization-id",
+                "<database_import_authorization_id>",
+                "--output-dir",
+                formal_database_import_authorization_dir,
+                "--fail-on-blocker",
+            ),
+            required_inputs=(
+                "formal database import preflight sidecar",
+                "formal archive closure index",
+                "operator/reviewer/approver authorization record",
+                "database import authorization id",
+            ),
+            expected_outputs=(
+                "formal_database_import_authorization/v1_5_formal_database_import_authorization.json",
+                "formal_database_import_authorization/V1_5_FORMAL_DATABASE_IMPORT_AUTHORIZATION.md",
+                "formal_database_import_authorization/v1_5_formal_database_import_authorization_checks.csv",
+                "formal_database_import_authorization/v1_5_formal_database_import_authorization_summary.csv",
+            ),
+            physical_meaning=(
+                "Before any production database import command can run, confirm archive release, "
+                "preflight readiness, and explicit operator/reviewer/approver authorization without opening a database connection."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_database_import_execution",
+            notes=(
+                "This authorization guard never connects PostgreSQL, applies migrations, or imports rows.",
+                "A ready authorization artifact must still be consumed by a separate controlled import command.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="database_import",
             title="Import evidence bundle into V1.5 PostgreSQL registry",
             phase="DATABASE_IMPORT",
@@ -2083,6 +2131,8 @@ def build_full_flow_plan(
                 formal_database_dry_run_dir / "v1_5_formal_database_dry_run.json",
                 "--formal-database-import-preflight-json",
                 formal_database_import_preflight_dir / "v1_5_formal_database_import_preflight.json",
+                "--formal-database-import-authorization-json",
+                formal_database_import_authorization_dir / "v1_5_formal_database_import_authorization.json",
             ),
             required_inputs=(
                 "initialization readiness sidecar",
@@ -2093,6 +2143,7 @@ def build_full_flow_plan(
                 "optional new-algorithm profile runner dry-run bundle",
                 "formal PostgreSQL 18 database dry-run contract",
                 "formal database import preflight sidecar",
+                "formal database import authorization sidecar",
             ),
             expected_outputs=(
                 "formal_run_status/v1_5_formal_run_status.json",
@@ -2174,6 +2225,7 @@ def build_full_flow_plan(
             "post_write_reverification",
             "formal_database_dry_run_before_database_import",
             "formal_database_import_preflight_before_database_import",
+            "formal_database_import_authorization_before_database_import",
             "evidence_bundle_database_report",
             "formal_run_status_dashboard",
         ),
