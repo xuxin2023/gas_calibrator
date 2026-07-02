@@ -1083,35 +1083,18 @@ def build_v1_5_formal_run_status(
     current_gate = next((gate for gate in gates if gate.status in NON_READY_STATUSES), None)
     archive_gate = gates[-1]
     formal_release_allowed = not release_blockers and archive_gate.status == READY
-    database_gate = next((gate for gate in gates if gate.gate_id == "formal_database_dry_run"), None)
-    database_dry_run_ready = database_gate is None or database_gate.status == READY
-    database_import_preflight_gate = next(
-        (gate for gate in gates if gate.gate_id == "formal_database_import_preflight"),
-        None,
-    )
-    database_import_preflight_ready = (
-        database_import_preflight_gate is None or database_import_preflight_gate.status == READY
-    )
-    database_import_authorization_gate = next(
-        (gate for gate in gates if gate.gate_id == "formal_database_import_authorization"),
-        None,
-    )
-    database_import_authorization_ready = (
-        database_import_authorization_gate is None or database_import_authorization_gate.status == READY
-    )
-    database_import_command_contract_gate = next(
-        (gate for gate in gates if gate.gate_id == "formal_database_import_command_contract"),
-        None,
-    )
-    database_import_command_contract_ready = (
-        database_import_command_contract_gate is None or database_import_command_contract_gate.status == READY
-    )
-    database_import_blocked_executor_gate = next(
-        (gate for gate in gates if gate.gate_id == "formal_database_import_blocked_executor"),
-        None,
-    )
-    database_import_blocked_executor_ready = (
-        database_import_blocked_executor_gate is None or database_import_blocked_executor_gate.status == READY
+
+    def _database_gate_ready(gate_id: str) -> bool:
+        gate = next((candidate for candidate in gates if candidate.gate_id == gate_id), None)
+        return gate is not None and gate.status == READY
+
+    database_dry_run_ready = _database_gate_ready("formal_database_dry_run")
+    database_import_preflight_ready = _database_gate_ready("formal_database_import_preflight")
+    database_import_authorization_ready = _database_gate_ready("formal_database_import_authorization")
+    database_import_command_contract_ready = _database_gate_ready("formal_database_import_command_contract")
+    database_import_blocked_executor_ready = _database_gate_ready("formal_database_import_blocked_executor")
+    database_import_controlled_executor_design_ready = _database_gate_ready(
+        "formal_database_import_controlled_executor_design"
     )
     database_import_allowed = (
         formal_release_allowed
@@ -1120,6 +1103,7 @@ def build_v1_5_formal_run_status(
         and database_import_authorization_ready
         and database_import_command_contract_ready
         and database_import_blocked_executor_ready
+        and database_import_controlled_executor_design_ready
     )
     if any(gate.status == BLOCKED for gate in gates):
         overall_status = "blocked"
