@@ -336,6 +336,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline PostgreSQL 18 database import preflight; reviews DSN presence and import locks without connecting or importing data")
     elif lower == "export_v1_5_formal_database_import_authorization":
         notes.append("offline PostgreSQL 18 database import authorization guard; reviews archive release and manual authorization without connecting or importing data")
+    elif lower == "export_v1_5_formal_database_import_command_contract":
+        notes.append("offline PostgreSQL 18 database import command contract; reviews required real-import inputs without connecting or importing data")
     elif lower == "export_v1_5_historical_replay_contract":
         notes.append("offline historical replay contract; validates replay interpretation without opening COM or releasing archive/database evidence")
     elif lower == "export_v1_5_historical_replay_evidence":

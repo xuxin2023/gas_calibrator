@@ -642,6 +642,106 @@ def _formal_database_import_authorization_gate(path: Path, payload: Mapping[str,
     )
 
 
+def _formal_database_import_command_contract_gate(path: Path, payload: Mapping[str, Any]) -> FormalRunGate:
+    source_status = _source_status(payload)
+    blocker_count = int(payload.get("blocker_count") or 0)
+    review_required_count = int(payload.get("review_required_count") or 0)
+    backend_ok = (
+        payload.get("production_backend") == "postgresql"
+        and payload.get("production_postgresql_major") == 18
+    )
+    prereqs_ok = (
+        payload.get("authorization_ready") is True
+        and payload.get("preflight_ready") is True
+        and payload.get("archive_release_ready") is True
+        and payload.get("evidence_bundle_ready") is True
+        and payload.get("command_contract_ready") is True
+        and payload.get("database_import_allowed") is False
+        and payload.get("real_import_execution_allowed") is False
+    )
+    boundary_ok = (
+        payload.get("opens_com_ports") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("applies_migrations") is False
+        and payload.get("database_import_attempted") is False
+        and payload.get("database_written") is False
+    )
+    if (
+        source_status == "ready_for_controlled_postgresql18_import_command_review"
+        and blocker_count == 0
+        and review_required_count == 0
+        and backend_ok
+        and prereqs_ok
+        and boundary_ok
+    ):
+        status = READY
+        reason = "controlled PostgreSQL 18 import command contract is ready; this artifact still does not execute import"
+    elif source_status == "blocked" or blocker_count:
+        status = BLOCKED
+        reasons: list[str] = []
+        if source_status != "blocked":
+            reasons.append(f"source_status={source_status or 'missing'}")
+        if blocker_count:
+            reasons.append(f"blocker_count={blocker_count}")
+        if not backend_ok:
+            reasons.append(
+                f"backend={payload.get('production_backend')}/{payload.get('production_postgresql_major')}"
+            )
+        if not boundary_ok:
+            reasons.append("command_contract_boundary_not_clean")
+        reason = "; ".join(reasons) or "PostgreSQL 18 import command contract is blocked"
+    else:
+        status = REVIEW_REQUIRED
+        reasons = []
+        if source_status != "ready_for_controlled_postgresql18_import_command_review":
+            reasons.append(f"source_status={source_status or 'missing'}")
+        if review_required_count:
+            reasons.append(f"review_required_count={review_required_count}")
+        if not backend_ok:
+            reasons.append(
+                f"backend={payload.get('production_backend')}/{payload.get('production_postgresql_major')}"
+            )
+        for field in (
+            "authorization_ready",
+            "preflight_ready",
+            "archive_release_ready",
+            "evidence_bundle_ready",
+            "command_contract_ready",
+        ):
+            if payload.get(field) is not True:
+                reasons.append(f"{field}={payload.get(field)!r}")
+        if payload.get("database_import_allowed") is not False:
+            reasons.append(f"database_import_allowed={payload.get('database_import_allowed')!r}")
+        if payload.get("real_import_execution_allowed") is not False:
+            reasons.append(f"real_import_execution_allowed={payload.get('real_import_execution_allowed')!r}")
+        if not boundary_ok:
+            reasons.append("command_contract_boundary_not_clean")
+        reason = "; ".join(reasons) or "PostgreSQL 18 import command contract requires review"
+    return _gate(
+        gate_id="formal_database_import_command_contract",
+        title="PostgreSQL 18 formal database import command contract",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Review the no-connect import command contract. A separate controlled command must consume the contract, "
+            "authorization, preflight, archive, evidence bundle, and DSN env before any production import."
+        ),
+        physical_meaning=(
+            "Separates manual import authorization from executable command inputs and keeps migration/import execution "
+            "locked off until a future controlled command re-checks the full evidence chain."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
 def _gap_rows(gates: Iterable[FormalRunGate]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for gate in gates:
@@ -673,6 +773,7 @@ def build_v1_5_formal_run_status(
     formal_database_dry_run_json: str | Path | None = None,
     formal_database_import_preflight_json: str | Path | None = None,
     formal_database_import_authorization_json: str | Path | None = None,
+    formal_database_import_command_contract_json: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return a top-level formal V1.5 status rollup from existing sidecars."""
 
@@ -703,6 +804,11 @@ def build_v1_5_formal_run_status(
         formal_database_import_authorization_json,
         "v1_5_formal_database_import_authorization.json",
     )
+    formal_database_import_command_contract_path = _explicit_or_latest(
+        root,
+        formal_database_import_command_contract_json,
+        "v1_5_formal_database_import_command_contract.json",
+    )
 
     init_payload = _load_json(init_path)
     pre_gas_payload = _load_json(pre_gas_path)
@@ -714,6 +820,7 @@ def build_v1_5_formal_run_status(
     formal_database_dry_run_payload = _load_json(formal_database_dry_run_path)
     formal_database_import_preflight_payload = _load_json(formal_database_import_preflight_path)
     formal_database_import_authorization_payload = _load_json(formal_database_import_authorization_path)
+    formal_database_import_command_contract_payload = _load_json(formal_database_import_command_contract_path)
 
     gates = [
         _initialization_gate(init_path, init_payload),
@@ -757,6 +864,13 @@ def build_v1_5_formal_run_status(
             _formal_database_import_authorization_gate(
                 formal_database_import_authorization_path,
                 formal_database_import_authorization_payload,
+            )
+        )
+    if formal_database_import_command_contract_path and formal_database_import_command_contract_payload:
+        gates.append(
+            _formal_database_import_command_contract_gate(
+                formal_database_import_command_contract_path,
+                formal_database_import_command_contract_payload,
             )
         )
     gates.extend(
@@ -841,11 +955,19 @@ def build_v1_5_formal_run_status(
     database_import_authorization_ready = (
         database_import_authorization_gate is None or database_import_authorization_gate.status == READY
     )
+    database_import_command_contract_gate = next(
+        (gate for gate in gates if gate.gate_id == "formal_database_import_command_contract"),
+        None,
+    )
+    database_import_command_contract_ready = (
+        database_import_command_contract_gate is None or database_import_command_contract_gate.status == READY
+    )
     database_import_allowed = (
         formal_release_allowed
         and database_dry_run_ready
         and database_import_preflight_ready
         and database_import_authorization_ready
+        and database_import_command_contract_ready
     )
     if any(gate.status == BLOCKED for gate in gates):
         overall_status = "blocked"
@@ -896,6 +1018,9 @@ def build_v1_5_formal_run_status(
             else "",
             "formal_database_import_authorization_json": str(formal_database_import_authorization_path)
             if formal_database_import_authorization_path
+            else "",
+            "formal_database_import_command_contract_json": str(formal_database_import_command_contract_path)
+            if formal_database_import_command_contract_path
             else "",
         },
         "gates": [gate.to_json() for gate in gates],

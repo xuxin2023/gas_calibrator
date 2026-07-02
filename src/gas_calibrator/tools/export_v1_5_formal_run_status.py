@@ -51,6 +51,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help="Optional explicit PostgreSQL 18 formal database import authorization JSON.",
     )
     parser.add_argument(
+        "--formal-database-import-command-contract-json",
+        default="",
+        help="Optional explicit PostgreSQL 18 formal database import command contract JSON.",
+    )
+    parser.add_argument(
         "--fail-on-blocked",
         action="store_true",
         help="Return exit code 2 when the rollup is blocked.",
@@ -78,6 +83,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             formal_database_dry_run_json=args.formal_database_dry_run_json or None,
             formal_database_import_preflight_json=args.formal_database_import_preflight_json or None,
             formal_database_import_authorization_json=args.formal_database_import_authorization_json or None,
+            formal_database_import_command_contract_json=args.formal_database_import_command_contract_json or None,
         )
         outputs = write_v1_5_formal_run_status_outputs(model, Path(args.output_dir))
         result = {

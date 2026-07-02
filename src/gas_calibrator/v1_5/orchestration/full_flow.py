@@ -623,6 +623,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_database_dry_run_snapshot",
                 "formal_database_import_preflight_snapshot",
                 "formal_database_import_authorization_snapshot",
+                "formal_database_import_command_contract_snapshot",
                 "database_import",
                 "final_evidence_status_refresh",
                 "algorithm_profile_runner_dry_run_snapshot",
@@ -980,6 +981,7 @@ def build_full_flow_plan(
     formal_database_dry_run_dir = root / "formal_database_dry_run"
     formal_database_import_preflight_dir = root / "formal_database_import_preflight"
     formal_database_import_authorization_dir = root / "formal_database_import_authorization"
+    formal_database_import_command_contract_dir = root / "formal_database_import_command_contract"
     algorithm_profile_path = repo_root / "configs" / "v1_5_algorithm_route_profiles.json"
     runtime_bound_cfg = getco_dir / "runtime_identity_bound_config.json"
 
@@ -1981,6 +1983,56 @@ def build_full_flow_plan(
 
     steps.append(
         FullFlowStep(
+            step_id="formal_database_import_command_contract_snapshot",
+            title="Review PostgreSQL 18 import command contract without connecting",
+            phase="FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_database_import_command_contract",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_database_import_command_contract",
+                "--formal-database-import-authorization-json",
+                formal_database_import_authorization_dir / "v1_5_formal_database_import_authorization.json",
+                "--formal-database-import-preflight-json",
+                formal_database_import_preflight_dir / "v1_5_formal_database_import_preflight.json",
+                "--archive-closure-json",
+                root / "formal_archive_closure_from_full_chain" / "v1_5_formal_archive_closure_index.json",
+                "--evidence-bundle-json",
+                root / "formal_archive_closure_from_full_chain" / "evidence_bundle.json",
+                "--dsn-env",
+                "V1_5_POSTGRES_DSN",
+                "--requested-command-module",
+                "gas_calibrator.tools.import_v1_5_evidence_package",
+                "--output-dir",
+                formal_database_import_command_contract_dir,
+                "--fail-on-blocker",
+            ),
+            required_inputs=(
+                "formal database import authorization sidecar",
+                "formal database import preflight sidecar",
+                "formal archive closure index",
+                "formal evidence bundle",
+                "PostgreSQL DSN environment variable contract",
+            ),
+            expected_outputs=(
+                "formal_database_import_command_contract/v1_5_formal_database_import_command_contract.json",
+                "formal_database_import_command_contract/V1_5_FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT.md",
+                "formal_database_import_command_contract/v1_5_formal_database_import_command_contract_checks.csv",
+                "formal_database_import_command_contract/v1_5_formal_database_import_command_contract_summary.csv",
+            ),
+            physical_meaning=(
+                "After manual import authorization, review the exact future import command inputs, DSN env contract, "
+                "archive/evidence-bundle references, migration lock, and no-execution boundary without opening PostgreSQL."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_database_import_execution",
+            notes=(
+                "This command contract never connects PostgreSQL, applies migrations, or imports rows.",
+                "The actual import remains a separate controlled command that must consume this artifact and re-check all inputs.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
             step_id="database_import",
             title="Import evidence bundle into V1.5 PostgreSQL registry",
             phase="DATABASE_IMPORT",
@@ -2133,6 +2185,8 @@ def build_full_flow_plan(
                 formal_database_import_preflight_dir / "v1_5_formal_database_import_preflight.json",
                 "--formal-database-import-authorization-json",
                 formal_database_import_authorization_dir / "v1_5_formal_database_import_authorization.json",
+                "--formal-database-import-command-contract-json",
+                formal_database_import_command_contract_dir / "v1_5_formal_database_import_command_contract.json",
             ),
             required_inputs=(
                 "initialization readiness sidecar",
@@ -2144,6 +2198,7 @@ def build_full_flow_plan(
                 "formal PostgreSQL 18 database dry-run contract",
                 "formal database import preflight sidecar",
                 "formal database import authorization sidecar",
+                "formal database import command contract sidecar",
             ),
             expected_outputs=(
                 "formal_run_status/v1_5_formal_run_status.json",
@@ -2226,6 +2281,7 @@ def build_full_flow_plan(
             "formal_database_dry_run_before_database_import",
             "formal_database_import_preflight_before_database_import",
             "formal_database_import_authorization_before_database_import",
+            "formal_database_import_command_contract_before_database_import",
             "evidence_bundle_database_report",
             "formal_run_status_dashboard",
         ),

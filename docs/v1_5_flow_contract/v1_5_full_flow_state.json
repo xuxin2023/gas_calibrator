@@ -1,7 +1,7 @@
 {
   "schema": "v1_5_full_calibration_flow_state_v0",
   "run_id": "v1_5_contract_reference",
-  "created_at": "2026-07-02T10:40:18",
+  "created_at": "2026-07-02T17:12:43",
   "current_step_id": "load_plan_and_traceability",
   "current_status": "ready",
   "ready_step_ids": [
@@ -854,6 +854,44 @@
       "coefficient_epoch_event": "none"
     },
     {
+      "step_id": "formal_database_import_command_contract_snapshot",
+      "title": "Review PostgreSQL 18 import command contract without connecting",
+      "phase": "FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT",
+      "status": "pending_previous_stage",
+      "reason": "waiting_for_load_plan_and_traceability",
+      "can_execute_now": false,
+      "command": [
+        "python",
+        "-m",
+        "gas_calibrator.tools.export_v1_5_formal_database_import_command_contract",
+        "--formal-database-import-authorization-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+        "--formal-database-import-preflight-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+        "--archive-closure-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+        "--evidence-bundle-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\evidence_bundle.json",
+        "--dsn-env",
+        "V1_5_POSTGRES_DSN",
+        "--requested-command-module",
+        "gas_calibrator.tools.import_v1_5_evidence_package",
+        "--output-dir",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract",
+        "--fail-on-blocker"
+      ],
+      "requires_real_com_authorization": false,
+      "requires_pressure_authorization": false,
+      "requires_route_authorization": false,
+      "requires_write_authorization": false,
+      "has_unresolved_placeholders": false,
+      "opens_com_ports": false,
+      "controls_gas_route": false,
+      "controls_water_route": false,
+      "writes_coefficients": false,
+      "coefficient_epoch_event": "none"
+    },
+    {
       "step_id": "database_import",
       "title": "Import evidence bundle into V1.5 PostgreSQL registry",
       "phase": "DATABASE_IMPORT",
@@ -1000,7 +1038,9 @@
         "--formal-database-import-preflight-json",
         "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
         "--formal-database-import-authorization-json",
-        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json"
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+        "--formal-database-import-command-contract-json",
+        "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json"
       ],
       "requires_real_com_authorization": false,
       "requires_pressure_authorization": false,
