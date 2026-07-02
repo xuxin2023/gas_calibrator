@@ -23,6 +23,7 @@ from ..v1_5.orchestration.full_flow import (
 )
 from ..v1_5.ui.operation_console import write_operation_console
 from ..validation.v1_5_formal_flow_contract import (
+    discover_current_v1_5_inventory,
     read_json,
     render_v1_5_formal_flow_contract_markdown,
     validate_v1_5_formal_flow_contract,
@@ -553,7 +554,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     outputs = write_full_flow_plan(plan, args.output_dir)
     contract_status = "skipped"
     if not args.skip_contract_audit:
-        inventory = read_json(args.inventory_json) if args.inventory_json else None
+        inventory = (
+            read_json(args.inventory_json)
+            if args.inventory_json
+            else discover_current_v1_5_inventory(anchor_paths=(args.config, args.output_dir))
+        )
         contract = validate_v1_5_formal_flow_contract(plan, inventory_entries=inventory)
         contract_json = Path(args.output_dir).resolve() / "v1_5_formal_flow_contract.json"
         contract_md = Path(args.output_dir).resolve() / "v1_5_formal_flow_contract.md"
