@@ -1,0 +1,1544 @@
+from __future__ import annotations
+
+import time
+from pathlib import Path
+
+import pytest
+
+from gas_calibrator.tools.run_v1_5_open_flow_dynamic_pressure_diagnostic import (
+    DEFAULT_GAS_PPM,
+    DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
+    DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S,
+    DEFAULT_RICH_TELEMETRY_INTERVAL_S,
+    DEFAULT_RICH_TELEMETRY_PROFILE,
+    DynamicTrialPlan,
+    PACE_VENT_WRITE_RE,
+    annotate_control_authority,
+    annotate_fast_pressure_loop_row,
+    _collect_fast_pressure_sample,
+    _confirm_control_command_state,
+    _enable_control_output_confirmed,
+    assert_no_forbidden_writes,
+    build_arg_parser,
+    build_default_trial_plan,
+    command_is_forbidden_write,
+    configure_vent_pulse_rate,
+    open_flow_dynamic_control_runaway_reason,
+    planned_commands_for_trial,
+    maybe_refresh_direct_control_rich_telemetry,
+    maybe_apply_vent_pulse_balance,
+    maybe_reapply_direct_control,
+    open_flow_pressure_abort_reason,
+    rank_results,
+    read_pace_pressure_hpa,
+    refresh_direct_control_keepalive,
+    refresh_direct_control_minimal_keepalive,
+    resolve_0ppm_open_flow_valves,
+    row_exceeds_open_flow_source_rise,
+    row_exceeds_open_flow_pressure_safety,
+    run_offline_plan,
+    restore_vent_pulse_rate,
+    start_open_flow_atmosphere_hold,
+    stop_open_flow_atmosphere_hold_before_control,
+    summarize_samples,
+    validate_arg_combinations,
+    validate_dynamic_targets,
+)
+
+
+def _cfg() -> dict:
+    return {
+        "valves": {
+            "co2_path": 7,
+            "co2_path_group2": 16,
+            "gas_main": 11,
+            "h2o_path": 8,
+            "hold": 9,
+            "flow_switch": 10,
+            "co2_map": {"0": 1, "1000": 6},
+            "co2_map_group2": {"0": 21},
+            "relay_map": {
+                "1": {"device": "relay", "channel": 7},
+                "7": {"device": "relay", "channel": 15},
+                "8": {"device": "relay_8", "channel": 8},
+                "11": {"device": "relay_8", "channel": 3},
+                "16": {"device": "relay", "channel": 16},
+                "21": {"device": "relay", "channel": 6},
+            },
+        }
+    }
+
+
+def _samples(
+    *,
+    target: float = 1000.0,
+    pressure: float = 1000.4,
+    dewpoint: float = -39.0,
+    effort: float = 0.0,
+    count: int = 10,
+    analyzer: bool = True,
+) -> list[dict]:
+    rows: list[dict] = []
+    for idx in range(count):
+        rows.append(
+            {
+                "ts": 100.0 + idx * 0.2,
+                "pace_pressure_hpa": pressure + (0.02 if idx % 2 else 0.0),
+                "dewpoint_c": dewpoint + idx * 0.01,
+                "analyzer_co2_ppm": 0.2 if analyzer else "",
+                "analyzer_h2o_mmol": 0.01 if analyzer else "",
+                "sour_pres_eff_pct": effort,
+                "vent_status": 2,
+                "actual_open_valves": "8,11,7,1",
+                "target_hpa": target,
+            }
+        )
+    return rows
+
+
+def test_default_targets_are_0ppm_below_ambient_and_exclude_1100() -> None:
+    assert DEFAULT_GAS_PPM == 0
+    assert validate_dynamic_targets([1000, 900], ambient_hpa=1006) == (1000.0, 900.0)
+    with pytest.raises(ValueError, match="1100"):
+        validate_dynamic_targets([1100], ambient_hpa=1006)
+    with pytest.raises(ValueError, match=">= ambient"):
+        validate_dynamic_targets([1006], ambient_hpa=1006)
+
+
+def test_default_plan_is_open_flow_not_sealed_and_uses_0ppm() -> None:
+    plan = build_default_trial_plan([1000, 900], ambient_hpa=1006)
+
+    assert plan[0].trial_id == "open_flow_outp0_observe"
+    assert all(item.gas_ppm == 0 for item in plan)
+    assert all(item.open_flow_route_active is True for item in plan)
+    assert all(item.route_sealed is False for item in plan)
+    assert {item.mode_requested for item in plan} == {"OUTP0", "ACT"}
+
+
+def test_direct_control_plan_excludes_outp0_baseline() -> None:
+    plans = build_default_trial_plan([1000.0], ambient_hpa=1006.0, include_outp0_baseline=False)
+
+    assert [plan.mode_requested for plan in plans] == ["ACT"]
+    assert plans[0].target_hpa == pytest.approx(1000.0)
+
+
+def test_direct_control_atmosphere_flag_is_explicit() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args(
+        [
+            "--direct-control-only",
+            "--keep-atmosphere-hold-during-direct-control",
+            "--real-com",
+            "--i-understand-open-flow-no-write",
+            "--operator-confirm-0ppm-flow",
+            "--pace-timeout-s",
+            "0.12",
+            "--targets",
+            "1000",
+        ]
+    )
+
+    assert args.direct_control_only is True
+    assert args.keep_atmosphere_hold_during_direct_control is True
+    assert args.no_open_flow_atmosphere_hold is False
+    assert args.rich_telemetry_interval_s == pytest.approx(DEFAULT_RICH_TELEMETRY_INTERVAL_S)
+    assert args.rich_telemetry_initial_delay_s == pytest.approx(DEFAULT_RICH_TELEMETRY_INITIAL_DELAY_S)
+    assert args.pace_timeout_s == pytest.approx(0.12)
+
+
+def test_fastest_diagnostic_flags_are_explicit() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args(
+        [
+            "--include-over1",
+            "--only-over1",
+            "--set-slew-value-max",
+            "--targets",
+            "1000",
+        ]
+    )
+
+    assert args.include_over1 is True
+    assert args.only_over1 is True
+    assert args.set_slew_value_max is True
+
+
+def test_control_command_confirmation_requires_outp1_and_setpoint() -> None:
+    class FakePace:
+        def query(self, command: str) -> str:
+            return {
+                ":OUTP:STAT?": ":OUTP:STAT 1",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1001.34
+
+    confirmation = _confirm_control_command_state(FakePace(), target_hpa=1000.0)
+
+    assert confirmation["control_command_confirmed"] is True
+    assert confirmation["control_outp_state_after_command"] == 1
+    assert confirmation["control_mode_after_command"] == ":OUTP:MODE ACT"
+    assert confirmation["control_setpoint_after_command_hpa"] == pytest.approx(1000.0)
+    assert confirmation["control_pressure_after_command_hpa"] == pytest.approx(1001.34)
+    assert confirmation["pace_vent_hold_during_outp1_allowed"] is False
+
+
+def test_enable_control_output_confirmation_retries_documented_outp_stat() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.outp = 0
+            self.writes: list[str] = []
+
+        def enable_control_output(self, **kwargs) -> None:
+            self.writes.append("enable_control_output")
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+            if command == ":OUTP:STAT 1":
+                self.outp = 1
+
+        def query(self, command: str) -> str:
+            return {
+                ":OUTP:STAT?": f":OUTP:STAT {self.outp}",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1001.34
+
+    pace = FakePace()
+    confirmation = _enable_control_output_confirmed(pace, target_hpa=1000.0, timeout_s=1.0, poll_s=0.01)
+
+    assert confirmation["control_command_confirmed"] is True
+    assert ":OUTP:STAT 1" in pace.writes
+
+
+def test_non_act_mode_enable_does_not_force_active_helper() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.outp = 0
+            self.mode = "GAUG"
+            self.calls: list[str] = []
+
+        def enable_control_output(self, **kwargs) -> None:
+            self.calls.append("enable_control_output")
+            self.mode = "ACT"
+            self.outp = 1
+
+        def set_isolation_open(self, is_open: bool) -> None:
+            self.calls.append(f"set_isolation_open:{is_open}")
+
+        def wait_for_vent_idle(self, **kwargs) -> int:
+            self.calls.append("wait_for_vent_idle")
+            return 2
+
+        def set_output(self, enabled: bool) -> None:
+            self.calls.append(f"set_output:{enabled}")
+            self.outp = 1 if enabled else 0
+
+        def write(self, command: str) -> None:
+            self.calls.append(command)
+
+        def query(self, command: str) -> str:
+            return {
+                ":OUTP:STAT?": f":OUTP:STAT {self.outp}",
+                ":OUTP:MODE?": f":OUTP:MODE {self.mode}",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1000.25
+
+    pace = FakePace()
+
+    confirmation = _enable_control_output_confirmed(
+        pace,
+        target_hpa=1000.0,
+        mode_requested="GAUG",
+        timeout_s=0.5,
+        poll_s=0.01,
+    )
+
+    assert confirmation["control_command_confirmed"] is True
+    assert confirmation["control_mode_after_command"] == ":OUTP:MODE GAUG"
+    assert "enable_control_output" not in pace.calls
+    assert "set_output:True" in pace.calls
+
+
+def test_enable_control_output_confirmation_accepts_delayed_outp_after_final_retry() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.raw_outp_written = False
+            self.outp_queries_after_raw = 0
+
+        def enable_control_output(self, **kwargs) -> None:
+            pass
+
+        def write(self, command: str) -> None:
+            if command == ":OUTP:STAT 1":
+                self.raw_outp_written = True
+
+        def query(self, command: str) -> str:
+            if command == ":OUTP:STAT?":
+                if self.raw_outp_written:
+                    self.outp_queries_after_raw += 1
+                value = 1 if self.outp_queries_after_raw >= 1 else 0
+                return f":OUTP:STAT {value}"
+            return {
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1000.25
+
+    confirmation = _enable_control_output_confirmed(
+        FakePace(),
+        target_hpa=1000.0,
+        timeout_s=0.5,
+        poll_s=0.6,
+    )
+
+    assert confirmation["control_command_confirmed"] is True
+    assert confirmation["control_outp_state_after_command"] == 1
+
+
+def test_fast_pressure_sample_uses_pace_read_without_slow_queries() -> None:
+    class FakePace:
+        def read_pressure(self) -> float:
+            return 1000.25
+
+        def query(self, command: str) -> str:
+            raise AssertionError(f"slow query should not be used: {command}")
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+
+    row = _collect_fast_pressure_sample(FakePace(), plan=plan, actual_open_valves=[8, 11, 7, 1])
+
+    assert row["pace_pressure_hpa"] == pytest.approx(1000.25)
+    assert row["pace_pressure_source"] == "PACE::read_pressure"
+    assert row["phase"] == "open_flow_dynamic_pressure_fast_control"
+    assert row["actual_open_valves"] == "8,11,7,1"
+
+
+def test_fast_loop_rows_record_sparse_rich_telemetry_policy() -> None:
+    row = {"ts": 100.0}
+
+    annotate_fast_pressure_loop_row(
+        row,
+        sample_index=3,
+        sample_interval_s=0.5,
+        rich_telemetry_interval_s=7.0,
+        rich_telemetry_initial_delay_s=4.0,
+    )
+
+    assert row["fast_pressure_sample_index"] == 3
+    assert row["fast_pressure_loop_interval_s"] == pytest.approx(0.5)
+    assert row["rich_telemetry_interval_s"] == pytest.approx(7.0)
+    assert row["rich_telemetry_initial_delay_s"] == pytest.approx(4.0)
+    assert row["rich_telemetry_collected"] is False
+    assert row["rich_telemetry_profile"] == ""
+    assert row["query_load_may_disturb_control"] is False
+
+
+def test_default_rich_telemetry_profile_is_standard() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args([])
+
+    assert DEFAULT_RICH_TELEMETRY_PROFILE == "standard"
+    assert args.rich_telemetry_profile == "standard"
+
+
+def test_direct_control_rich_telemetry_waits_until_initial_delay() -> None:
+    class FakePace:
+        def query(self, command: str) -> str:
+            raise AssertionError(f"slow telemetry should wait: {command}")
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over1_max_1000",
+        label="ACT OVER1 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 101.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        FakePace(),
+        row,
+        plan=plan,
+        state={},
+        source_open_ts=100.0,
+        rich_telemetry_interval_s=1.0,
+        rich_telemetry_initial_delay_s=5.0,
+    )
+
+    assert row["rich_telemetry_collected"] is False
+
+
+def test_direct_control_rich_telemetry_interval_prevents_every_row() -> None:
+    class FakePace:
+        def query(self, command: str) -> str:
+            raise AssertionError(f"slow telemetry should stay sparse: {command}")
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over1_max_1000",
+        label="ACT OVER1 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 103.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        FakePace(),
+        row,
+        plan=plan,
+        state={"last_rich_telemetry_ts": 100.0},
+        source_open_ts=90.0,
+        rich_telemetry_interval_s=5.0,
+        rich_telemetry_initial_delay_s=1.0,
+    )
+
+    assert row["rich_telemetry_collected"] is False
+
+
+def test_direct_control_rich_telemetry_collects_when_due() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def query(self, command: str) -> str:
+            self.commands.append(command)
+            return {
+                ":OUTP:STAT?": ":OUTP:STAT 1",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -8.0",
+                ":SOUR:PRES:COMP1?": ":SOUR:PRES:COMP1 1747.0",
+                ":SOUR:PRES:COMP2?": ":SOUR:PRES:COMP2 120.0",
+                ":SOUR:PRES:RANG?": ':SOUR:PRES:RANG "3.50barg"',
+                ":SENS:PRES:RANG?": ':SENS:PRES:RANG "3.50barg"',
+                ":SOUR:PRES:SLEW?": ":SOUR:PRES:SLEW 10.0",
+                ":SENS:PRES:SLEW?": ":SENS:PRES:SLEW -20.0",
+                ":SOUR:PRES:SLEW:MODE?": ":SOUR:PRES:SLEW:MODE MAX",
+                ":SOUR:PRES:SLEW:OVER?": ":SOUR:PRES:SLEW:OVER:STAT 1",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1000.1
+
+    pace = FakePace()
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over1_max_1000",
+        label="ACT OVER1 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 110.0}
+    state: dict[str, object] = {"last_rich_telemetry_ts": 100.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        pace,
+        row,
+        plan=plan,
+        state=state,
+        source_open_ts=100.0,
+        rich_telemetry_interval_s=5.0,
+        rich_telemetry_initial_delay_s=3.0,
+    )
+
+    assert row["rich_telemetry_collected"] is True
+    assert row["rich_telemetry_reason"] == "periodic"
+    assert row["rich_telemetry_profile"] == "standard"
+    assert row["rich_telemetry_query_count"] >= 10
+    assert row["rich_telemetry_duration_ms"] >= 0.0
+    assert row["sour_pres_eff_pct"] == pytest.approx(-8.0)
+    assert ":SOUR:PRES:COMP2?" in pace.commands
+
+
+def test_minimal_rich_telemetry_avoids_comp_range_slew_queries() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def query(self, command: str) -> str:
+            self.commands.append(command)
+            assert command not in {
+                ":SOUR:PRES:COMP1?",
+                ":SOUR:PRES:COMP2?",
+                ":SOUR:PRES:RANG?",
+                ":SENS:PRES:RANG?",
+                ":SOUR:PRES:SLEW?",
+                ":SENS:PRES:SLEW?",
+                ":SOUR:PRES:SLEW:MODE?",
+                ":SOUR:PRES:SLEW:OVER?",
+            }
+            return {
+                ":OUTP:STAT?": ":OUTP:STAT 1",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -8.0",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1002.5
+
+    pace = FakePace()
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 110.0, "fast_pressure_loop_interval_s": 0.5, "pace_pressure_hpa": 1003.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        pace,
+        row,
+        plan=plan,
+        state={"last_rich_telemetry_ts": 100.0},
+        source_open_ts=100.0,
+        rich_telemetry_interval_s=5.0,
+        rich_telemetry_initial_delay_s=3.0,
+        rich_telemetry_profile="minimal",
+    )
+
+    assert row["rich_telemetry_collected"] is True
+    assert row["rich_telemetry_profile"] == "minimal"
+    assert row["sour_pres_eff_pct"] == pytest.approx(-8.0)
+    assert ":SOUR:PRES:COMP2?" not in pace.commands
+
+
+def test_minimal_keepalive_reasserts_when_output_drops_with_fewer_queries() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.outp = 0
+            self.commands: list[str] = []
+            self.writes: list[str] = []
+
+        def query(self, command: str) -> str:
+            self.commands.append(command)
+            return {
+                ":OUTP:STAT?": f":OUTP:STAT {self.outp}",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -2.0",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1002.0
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+            if command == ":OUTP:STAT 1":
+                self.outp = 1
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"pace_pressure_hpa": 1002.4}
+    state: dict[str, object] = {}
+    pace = FakePace()
+
+    refresh_direct_control_minimal_keepalive(pace, row, plan=plan, state=state)
+
+    assert row["control_output_dropout_seen"] is True
+    assert row["control_output_reasserted"] is True
+    assert ":OUTP:STAT 1" in pace.writes
+    assert ":SOUR:PRES:COMP2?" not in pace.commands
+
+
+def test_control_authority_flags_pressure_rising_despite_negative_effort() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    state: dict[str, object] = {"last_pressure_hpa": 1003.0}
+    row = {"pace_pressure_hpa": 1004.0, "sour_pres_eff_pct": -8.0}
+
+    annotate_control_authority(row, plan=plan, state=state)
+
+    assert row["pressure_above_target_while_negative_effort"] is True
+    assert row["pressure_rising_while_negative_effort"] is True
+    assert row["control_authority_state"] == "pressure_rising_despite_negative_effort"
+
+
+def test_summary_marks_vacuum_authority_limited_when_pressure_rises_under_negative_effort() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    rows = [
+        {
+            "ts": 100.0,
+            "pace_pressure_hpa": 1002.0,
+            "sour_pres_eff_pct": -5.0,
+            "pressure_above_target_while_negative_effort": True,
+        },
+        {
+            "ts": 101.0,
+            "pace_pressure_hpa": 1004.0,
+            "sour_pres_eff_pct": -7.0,
+            "pressure_above_target_while_negative_effort": True,
+            "pressure_rising_while_negative_effort": True,
+            "rich_telemetry_collected": True,
+            "rich_telemetry_query_count": 7,
+            "rich_telemetry_duration_ms": 120.0,
+        },
+    ]
+
+    result = summarize_samples(rows, plan=plan, candidate_ts=None, candidate_pressure_hpa=None)
+
+    assert result.vacuum_authority_insufficient_or_path_limited is True
+    assert result.pressure_rising_while_negative_effort_count == 1
+    assert result.rich_telemetry_query_count == 7
+    assert "vacuum_authority_insufficient_or_path_limited" in result.rejection_reasons
+
+
+def test_query_load_fraction_flags_possible_control_disturbance() -> None:
+    class SlowPace:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def query(self, command: str) -> str:
+            time.sleep(0.001)
+            self.commands.append(command)
+            return {
+                ":OUTP:STAT?": ":OUTP:STAT 1",
+                ":OUTP:MODE?": ":OUTP:MODE ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -8.0",
+                ":SOUR:PRES:COMP1?": ":SOUR:PRES:COMP1 1747.0",
+                ":SOUR:PRES:COMP2?": ":SOUR:PRES:COMP2 120.0",
+                ":SOUR:PRES:RANG?": ':SOUR:PRES:RANG "3.50barg"',
+                ":SENS:PRES:RANG?": ':SENS:PRES:RANG "3.50barg"',
+                ":SOUR:PRES:SLEW?": ":SOUR:PRES:SLEW 99999999.0",
+                ":SENS:PRES:SLEW?": ":SENS:PRES:SLEW -20.0",
+                ":SOUR:PRES:SLEW:MODE?": ":SOUR:PRES:SLEW:MODE MAX",
+                ":SOUR:PRES:SLEW:OVER?": ":SOUR:PRES:SLEW:OVER:STAT 0",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1002.0
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 110.0, "fast_pressure_loop_interval_s": 0.0001, "pace_pressure_hpa": 1002.0}
+
+    maybe_refresh_direct_control_rich_telemetry(
+        SlowPace(),
+        row,
+        plan=plan,
+        state={"last_rich_telemetry_ts": 100.0},
+        source_open_ts=100.0,
+        rich_telemetry_interval_s=5.0,
+        rich_telemetry_initial_delay_s=3.0,
+        rich_telemetry_profile="standard",
+    )
+
+    assert row["rich_telemetry_collected"] is True
+    assert row["query_load_may_disturb_control"] is True
+
+
+def test_direct_control_keepalive_reasserts_only_when_output_drops() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.outp = 0
+            self.writes: list[str] = []
+
+        def enable_control_output(self, **kwargs) -> None:
+            self.writes.append("enable_control_output")
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+            if command == ":OUTP:STAT 1":
+                self.outp = 1
+
+        def query(self, command: str) -> str:
+            return {
+                ":OUTP:STAT?": f":OUTP:STAT {self.outp}",
+                ":SOUR:PRES:LEV:IMM:AMPL?": ":SOUR:PRES:LEV:IMM:AMPL 1000.0000000",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF -0.2",
+                ":SOUR:PRES:COMP1?": ":SOUR:PRES:COMP1 3165.0",
+                ":SOUR:PRES:COMP2?": ":SOUR:PRES:COMP2 -964.0",
+                ":SOUR:PRES:RANG?": ':SOUR:PRES:RANG "3.50barg"',
+                ":SENS:PRES:RANG?": ':SENS:PRES:RANG "3.50barg"',
+                ":SOUR:PRES:SLEW?": ":SOUR:PRES:SLEW 99999999.0000000",
+                ":SENS:PRES:SLEW?": ":SENS:PRES:SLEW -20.0",
+                ":SOUR:PRES:SLEW:MODE?": ":SOUR:PRES:SLEW:MODE MAX",
+                ":SOUR:PRES:SLEW:OVER?": ":SOUR:PRES:SLEW:OVER:STAT 0",
+                ":SYST:ERR?": ":SYST:ERR 0, No error",
+            }.get(command, "")
+
+        def read_pressure(self) -> float:
+            return 1000.4
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = _collect_fast_pressure_sample(FakePace(), plan=plan, actual_open_valves=[8, 11, 7, 1])
+    state: dict[str, object] = {}
+    pace = FakePace()
+
+    refresh_direct_control_keepalive(pace, row, plan=plan, state=state)
+
+    assert row["control_keepalive_checked"] is True
+    assert row["control_output_dropout_seen"] is True
+    assert row["control_output_reasserted"] is True
+    assert row["control_output_reassert_count"] == 1
+    assert row["outp_state"] == 1
+    assert row["sour_pres_eff_pct"] == pytest.approx(-0.2)
+    assert row["sour_pres_comp2_hpa"] == pytest.approx(-964.0)
+    assert row["sour_pres_slew_hpa_per_s"] == pytest.approx(99999999.0)
+    assert row["sens_pressure_slew_hpa_per_s"] == pytest.approx(-20.0)
+    assert row["slew_mode"] == ":SOUR:PRES:SLEW:MODE MAX"
+    assert ":OUTP:STAT 1" in pace.writes
+
+
+def test_direct_control_periodic_reapply_reasserts_setpoint_and_outp1_when_due() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.setpoints: list[float] = []
+            self.writes: list[str] = []
+
+        def set_setpoint(self, target: float) -> None:
+            self.setpoints.append(float(target))
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 101.25}
+    state = {"last_periodic_reapply_ts": 100.0, "periodic_reapply_count": 0}
+    pace = FakePace()
+
+    maybe_reapply_direct_control(
+        pace,
+        row,
+        plan=plan,
+        state=state,
+        source_open_ts=100.0,
+        reapply_interval_s=1.0,
+    )
+
+    assert row["control_periodic_reapply_enabled"] is True
+    assert row["control_periodic_reapply_due"] is True
+    assert row["control_setpoint_reapplied"] is True
+    assert row["control_output_reasserted_periodic"] is True
+    assert row["control_reapply_count"] == 1
+    assert row["control_reapply_error"] == ""
+    assert pace.setpoints == [1000.0]
+    assert pace.writes == [":OUTP:STAT 1"]
+
+
+def test_direct_control_periodic_reapply_waits_for_interval() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+
+        def set_setpoint(self, target: float) -> None:
+            self.writes.append(f"setpoint:{target}")
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    row = {"ts": 100.4}
+    state = {"last_periodic_reapply_ts": 100.0, "periodic_reapply_count": 0}
+    pace = FakePace()
+
+    maybe_reapply_direct_control(
+        pace,
+        row,
+        plan=plan,
+        state=state,
+        source_open_ts=100.0,
+        reapply_interval_s=1.0,
+    )
+
+    assert row["control_periodic_reapply_enabled"] is True
+    assert row["control_periodic_reapply_due"] is False
+    assert row["control_setpoint_reapplied"] is False
+    assert row["control_reapply_count"] == 0
+    assert pace.writes == []
+
+
+def test_parser_accepts_direct_control_reapply_interval() -> None:
+    args = build_arg_parser().parse_args(
+        [
+            "--direct-control-only",
+            "--direct-control-reapply-interval-s",
+            "1.0",
+        ]
+    )
+
+    assert args.direct_control_only is True
+    assert args.direct_control_reapply_interval_s == pytest.approx(1.0)
+
+
+def test_source_first_direct_control_requires_atmosphere_hold() -> None:
+    parser = build_arg_parser()
+
+    with pytest.raises(SystemExit):
+        args = parser.parse_args(
+            [
+                "--direct-control-only",
+                "--direct-control-open-source-before-outp1",
+            ]
+        )
+        validate_arg_combinations(args, parser)
+
+
+def test_source_first_direct_control_parser_accepts_required_hold_flag() -> None:
+    args = build_arg_parser().parse_args(
+        [
+            "--direct-control-only",
+            "--keep-atmosphere-hold-during-direct-control",
+            "--direct-control-open-source-before-outp1",
+        ]
+    )
+
+    assert args.direct_control_only is True
+    assert args.keep_atmosphere_hold_during_direct_control is True
+    assert args.direct_control_open_source_before_outp1 is True
+
+
+def test_vent_pulse_control_plan_is_explicit_and_not_default() -> None:
+    default_modes = {item.mode_requested for item in build_default_trial_plan([1000], ambient_hpa=1006)}
+    pulse_plan = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        include_outp0_baseline=False,
+        vent_pulse_control_only=True,
+    )
+
+    assert "VENT_PULSE" not in default_modes
+    assert len(pulse_plan) == 1
+    assert pulse_plan[0].mode_requested == "VENT_PULSE"
+    assert pulse_plan[0].outp1_sent is False
+    assert pulse_plan[0].use_pace_vent_for_control is True
+
+
+def test_vent_pulse_control_requires_direct_control_only() -> None:
+    parser = build_arg_parser()
+
+    with pytest.raises(SystemExit):
+        args = parser.parse_args(["--vent-pulse-control-only"])
+        validate_arg_combinations(args, parser)
+
+
+def test_vent_pulse_plan_can_explicitly_allow_1100_above_ambient() -> None:
+    plan = build_default_trial_plan(
+        [1100],
+        ambient_hpa=1006,
+        allow_above_ambient=True,
+        include_outp0_baseline=False,
+        vent_pulse_control_only=True,
+    )
+
+    assert plan[0].target_hpa == pytest.approx(1100.0)
+    assert plan[0].mode_requested == "VENT_PULSE"
+
+
+def test_vent_pulse_balance_sends_vent1_and_vent0_by_pressure_band() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.calls: list[bool] = []
+
+        def vent(self, on: bool) -> None:
+            self.calls.append(bool(on))
+
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_vent_pulse_balance_1000",
+        label="vent pulse",
+        mode_requested="VENT_PULSE",
+        target_hpa=1000.0,
+        outp1_sent=False,
+        slew_mode=None,
+        overshoot_allowed=None,
+        use_pace_vent_for_control=True,
+    )
+    state: dict[str, object] = {}
+    pace = FakePace()
+    high_row = {"ts": 100.0, "pace_pressure_hpa": 1004.0}
+    close_row = {"ts": 101.2, "pace_pressure_hpa": 1000.3}
+
+    maybe_apply_vent_pulse_balance(
+        pace,
+        high_row,
+        plan=plan,
+        state=state,
+        open_above_target_hpa=2.0,
+        close_above_target_hpa=0.5,
+        min_interval_s=1.0,
+    )
+    maybe_apply_vent_pulse_balance(
+        pace,
+        close_row,
+        plan=plan,
+        state=state,
+        open_above_target_hpa=2.0,
+        close_above_target_hpa=0.5,
+        min_interval_s=1.0,
+    )
+
+    assert pace.calls == [True, False]
+    assert high_row["vent_pulse_action"] == "VENT1_open_or_reassert"
+    assert close_row["vent_pulse_action"] == "VENT0_abort_close"
+    assert close_row["vent_pulse_count"] == 2
+
+
+def test_vent_pulse_rate_configures_and_restores_manual_vent_slew() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+
+        def query(self, command: str) -> str:
+            if command == ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?":
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE 250.0"
+            if command == ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?":
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT 0"
+            if command == ":SYST:ERR?":
+                return ":SYST:ERR 0, No error"
+            raise AssertionError(command)
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+
+    pace = FakePace()
+    info = configure_vent_pulse_rate(pace, rate_hpa_per_s=80.0)
+    restore_vent_pulse_rate(pace, info)
+
+    assert info["applied"] is True
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT 0" in pace.writes
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE 80" in pace.writes
+    assert pace.writes[-2:] == [
+        ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT 0",
+        ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE 250",
+    ]
+
+
+def test_vent_pulse_rate_does_not_write_when_query_is_unsupported() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.errs = iter([':SYST:ERR -102,"Syntax error"', ":SYST:ERR 0, No error"])
+
+        def query(self, command: str) -> str:
+            if command in {":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?", ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?"}:
+                return ""
+            if command == ":SYST:ERR?":
+                return next(self.errs)
+            raise AssertionError(command)
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+
+    pace = FakePace()
+    info = configure_vent_pulse_rate(pace, rate_hpa_per_s=80.0)
+
+    assert info["applied"] is False
+    assert info["error"] == "vent_rate_query_unsupported_or_blank"
+    assert pace.writes == []
+
+
+def test_include_over1_adds_fastest_diagnostic_trial_without_changing_default() -> None:
+    default_plan = build_default_trial_plan([1000], ambient_hpa=1006)
+    fastest_plan = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        include_over1=True,
+        set_slew_value_max=True,
+    )
+
+    assert all(item.overshoot_allowed is not True for item in default_plan)
+    over1 = [item for item in fastest_plan if item.mode_requested == "ACT" and item.overshoot_allowed is True]
+    assert len(over1) == 1
+    assert over1[0].slew_mode == "MAX"
+    assert over1[0].slew_value_max is True
+    assert over1[0].diagnostic_only is True
+
+
+def test_only_over1_skips_over0_for_fastest_real_smoke() -> None:
+    plans = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        only_over1=True,
+        set_slew_value_max=True,
+        include_outp0_baseline=False,
+    )
+
+    assert len(plans) == 1
+    assert plans[0].mode_requested == "ACT"
+    assert plans[0].overshoot_allowed is True
+    assert plans[0].slew_mode == "MAX"
+    assert plans[0].slew_value_max is True
+
+
+def test_only_gaug_skips_act_for_isolated_mode_screen() -> None:
+    plans = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        only_gaug=True,
+        set_slew_value_max=True,
+        include_outp0_baseline=False,
+    )
+
+    assert len(plans) == 1
+    assert plans[0].mode_requested == "GAUG"
+    assert plans[0].overshoot_allowed is False
+    assert plans[0].slew_mode == "MAX"
+    assert plans[0].slew_value_max is True
+
+
+def test_only_outp0_baseline_skips_setpoint_control_trials() -> None:
+    plans = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        only_outp0_baseline=True,
+        include_outp0_baseline=False,
+    )
+
+    assert len(plans) == 1
+    assert plans[0].mode_requested == "OUTP0"
+    assert plans[0].target_hpa is None
+    assert plans[0].outp1_sent is False
+
+
+def test_linear_slew_diagnostic_records_rate_command() -> None:
+    plans = build_default_trial_plan(
+        [1000],
+        ambient_hpa=1006,
+        diagnostic_slew_mode="LIN",
+        lin_slew_hpa_per_s=50.0,
+        include_outp0_baseline=False,
+    )
+
+    assert len(plans) == 1
+    assert plans[0].slew_mode == "LIN"
+    assert plans[0].slew_rate_hpa_per_s == pytest.approx(50.0)
+    commands = planned_commands_for_trial(plans[0])
+    assert ":SOUR:PRES:SLEW:MODE LIN" in commands
+    assert ":SOUR:PRES:SLEW 50" in commands
+    assert commands.index(":SOUR:PRES:SLEW:MODE LIN") < commands.index(":SOUR:PRES:SLEW 50")
+
+
+def test_gaug_is_explicit_diagnostic_opt_in_not_default() -> None:
+    default_plan = build_default_trial_plan([1000], ambient_hpa=1006)
+    gaug_plan = build_default_trial_plan([1000], ambient_hpa=1006, include_gaug=True)
+
+    assert "GAUG" not in {item.mode_requested for item in default_plan}
+    assert "GAUG" in {item.mode_requested for item in gaug_plan}
+
+
+def test_planned_commands_record_telemetry_without_pace_vent_control() -> None:
+    trial = next(item for item in build_default_trial_plan([1000], ambient_hpa=1006) if item.mode_requested == "ACT")
+    commands = planned_commands_for_trial(trial)
+
+    assert ":SOUR:PRES:EFF?" in commands
+    assert ":SOUR:PRES:COMP1?" in commands
+    assert ":SOUR:PRES:COMP2?" in commands
+    assert ":SENS:PRES:INL?" in commands
+    assert ":SOUR:PRES:SLEW?" in commands
+    assert ":SENS:PRES:SLEW?" in commands
+    assert ":SOUR:PRES:RANG?" in commands
+    assert ":SENS:PRES:RANG?" in commands
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:RATE?" in commands
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT:UNIT?" in commands
+    assert not any(PACE_VENT_WRITE_RE.search(command) for command in commands)
+    assert_no_forbidden_writes(commands)
+
+
+def test_planned_fastest_commands_use_slew_mode_max_without_invalid_rate_value() -> None:
+    trial = next(
+        item
+        for item in build_default_trial_plan(
+            [1000],
+            ambient_hpa=1006,
+            include_over1=True,
+            set_slew_value_max=True,
+        )
+        if item.overshoot_allowed is True
+    )
+    commands = planned_commands_for_trial(trial)
+
+    assert ":SOUR:PRES:SLEW max" not in commands
+    assert ":SOUR:PRES:SLEW:MODE MAX" in commands
+    assert ":SOUR:PRES:SLEW:OVER 1" in commands
+    assert not any(PACE_VENT_WRITE_RE.search(command) for command in commands)
+    assert_no_forbidden_writes(commands)
+
+
+def test_outp0_baseline_does_not_write_control_profile() -> None:
+    trial = build_default_trial_plan([1000], ambient_hpa=1006)[0]
+    commands = planned_commands_for_trial(trial)
+
+    assert trial.mode_requested == "OUTP0"
+    assert not any(command.startswith(":SOUR:PRES:SLEW:MODE ") for command in commands)
+    assert not any(command.startswith(":SOUR:PRES:SLEW:OVER ") for command in commands)
+    assert not any(command.startswith(":SOUR:PRES:LEV:IMM:AMPL ") for command in commands)
+
+
+def test_pace_vent_start_or_abort_is_forbidden_for_sampling_control() -> None:
+    assert command_is_forbidden_write(":SOUR:PRES:LEV:IMM:AMPL:VENT 1") is True
+    assert command_is_forbidden_write(":SOUR:PRES:LEV:IMM:AMPL:VENT 0") is True
+    assert command_is_forbidden_write(":SOUR:PRES:LEV:IMM:AMPL:VENT?") is False
+
+
+def test_resolve_0ppm_route_opens_source_and_open_flow_path() -> None:
+    route = resolve_0ppm_open_flow_valves(_cfg(), gas_ppm=0)
+
+    assert route["gas_ppm"] == 0
+    assert route["group"] == "A"
+    assert route["source_valve"] == 1
+    assert route["path_valve"] == 7
+    assert route["path_open_logical_valves"] == [8, 11, 7]
+    assert route["open_logical_valves"] == [8, 11, 7, 1]
+
+
+def test_micro_positive_effort_can_remain_A_when_pressure_dewpoint_and_analyzer_are_good() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    result = summarize_samples(
+        _samples(target=1000.0, pressure=1000.3, dewpoint=-39.0, effort=0.1),
+        plan=plan,
+        ambient_hpa=1006.0,
+        candidate_ts=100.0,
+        candidate_pressure_hpa=1000.3,
+        outp1_ts=99.0,
+        mode_confirmed="ACT",
+    )
+
+    assert result.positive_effort_class == "micro_ok"
+    assert result.sample_can_enter_calibration_fit is True
+    assert result.candidate_row_quality_grade == "A_calibration_eligible"
+
+
+def test_tiny_target_crossing_like_999_999_does_not_block_A() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    rows = _samples(target=1000.0, pressure=1000.2, dewpoint=-39.0, effort=0.0)
+    rows[-1]["pace_pressure_hpa"] = 999.999
+
+    result = summarize_samples(
+        rows,
+        plan=plan,
+        ambient_hpa=1006.0,
+        candidate_ts=100.0,
+        candidate_pressure_hpa=1000.2,
+        outp1_ts=99.0,
+        mode_confirmed="ACT",
+    )
+
+    assert result.target_crossing_severity_hpa == pytest.approx(0.001)
+    assert "target_crossing_nontrivial" not in result.rejection_reasons
+    assert result.sample_can_enter_calibration_fit is True
+
+
+def test_candidate_hit_without_stable_hold_blocks_A() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    rows = _samples(target=1000.0, pressure=1000.2, dewpoint=-39.0, effort=0.0)
+    rows[0]["pace_pressure_hpa"] = 1000.2
+    rows[-1]["pace_pressure_hpa"] = 1003.4
+
+    result = summarize_samples(
+        rows,
+        plan=plan,
+        ambient_hpa=1006.0,
+        candidate_ts=100.0,
+        candidate_pressure_hpa=1000.2,
+        outp1_ts=99.0,
+        mode_confirmed="ACT",
+    )
+
+    assert result.candidate_detected is True
+    assert result.pressure_stable_for_calibration is False
+    assert result.sample_can_enter_calibration_fit is False
+    assert "pressure_not_stable_for_fit" in result.rejection_reasons
+
+
+def test_persistent_positive_effort_blocks_A_but_keeps_diagnostic_row() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    result = summarize_samples(
+        _samples(target=1000.0, pressure=1000.2, dewpoint=-39.0, effort=1.0),
+        plan=plan,
+        ambient_hpa=1006.0,
+        candidate_ts=100.0,
+        candidate_pressure_hpa=1000.2,
+        outp1_ts=99.0,
+        mode_confirmed="ACT",
+    )
+
+    assert result.positive_effort_class == "diagnostic_only"
+    assert result.sample_can_enter_calibration_fit is False
+    assert result.sample_can_enter_diagnostic_model is True
+    assert "positive_effort_diagnostic_only" in result.rejection_reasons
+
+
+def test_open_flow_pressure_safety_abort_uses_pace_pressure_only() -> None:
+    assert row_exceeds_open_flow_pressure_safety(
+        {"pace_pressure_hpa": DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA + 0.1},
+        DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    )
+    assert not row_exceeds_open_flow_pressure_safety(
+        {"pace_pressure_hpa": 1002.0, "com22_pressure_hpa": DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA + 5.0},
+        DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    )
+    assert not row_exceeds_open_flow_pressure_safety(
+        {"pace_pressure_hpa": 1002.0, "com22_pressure_hpa": 1003.0},
+        DEFAULT_OPEN_FLOW_MAX_SAFE_PRESSURE_HPA,
+    )
+
+
+def test_direct_control_allows_short_source_open_pressure_transient() -> None:
+    row = {"pace_pressure_hpa": 1082.4}
+
+    assert (
+        open_flow_pressure_abort_reason(
+            row,
+            max_safe_pressure_hpa=1050.0,
+            transient_limit_hpa=1150.0,
+            transient_grace_s=3.0,
+            transient_elapsed_s=0.15,
+        )
+        == ""
+    )
+    assert "open_flow_pressure_safety_abort" in open_flow_pressure_abort_reason(
+        row,
+        max_safe_pressure_hpa=1050.0,
+        transient_limit_hpa=1150.0,
+        transient_grace_s=3.0,
+        transient_elapsed_s=3.2,
+    )
+    assert "open_flow_pressure_hard_abort" in open_flow_pressure_abort_reason(
+        {"pace_pressure_hpa": 1150.1},
+        max_safe_pressure_hpa=1050.0,
+        transient_limit_hpa=1150.0,
+        transient_grace_s=3.0,
+        transient_elapsed_s=0.1,
+    )
+
+
+def test_source_open_pressure_rise_blocks_dynamic_control_entry() -> None:
+    assert row_exceeds_open_flow_source_rise(
+        {"pace_pressure_hpa": 1027.0},
+        ambient_hpa=1006.0,
+        max_rise_hpa=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
+    )
+    assert not row_exceeds_open_flow_source_rise(
+        {"pace_pressure_hpa": 1018.0},
+        ambient_hpa=1006.0,
+        max_rise_hpa=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
+    )
+    assert not row_exceeds_open_flow_source_rise(
+        {"pace_pressure_hpa": 1006.5, "com22_pressure_hpa": 1064.0},
+        ambient_hpa=1006.0,
+        max_rise_hpa=DEFAULT_OPEN_FLOW_SOURCE_MAX_RISE_HPA,
+    )
+
+
+def test_dynamic_control_runaway_allows_grace_then_aborts_against_target() -> None:
+    assert (
+        open_flow_dynamic_control_runaway_reason(
+            {"pace_pressure_hpa": 1358.0},
+            target_hpa=1000.0,
+            max_rise_hpa=20.0,
+            transient_grace_s=3.0,
+            transient_elapsed_s=1.0,
+        )
+        == ""
+    )
+    reason = open_flow_dynamic_control_runaway_reason(
+        {"pace_pressure_hpa": 1113.0},
+        target_hpa=1000.0,
+        max_rise_hpa=20.0,
+        transient_grace_s=3.0,
+        transient_elapsed_s=3.2,
+    )
+
+    assert reason == "open_flow_dynamic_control_runaway_abort:1113.000>1020.000"
+
+
+def test_open_flow_atmosphere_hold_uses_pace_hold_open_before_source() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.calls: list[tuple] = []
+            self.active = False
+
+        def enter_atmosphere_mode(self, **kwargs) -> None:
+            self.calls.append(("enter_atmosphere_mode", kwargs))
+            self.active = bool(kwargs.get("hold_open"))
+
+        def is_atmosphere_hold_active(self) -> bool:
+            return self.active
+
+    pace = FakePace()
+    result = start_open_flow_atmosphere_hold(pace, interval_s=0.2)
+
+    assert result["active"] is True
+    assert result["strategy"] == "enter_atmosphere_mode_hold_open"
+    assert pace.calls[0][0] == "enter_atmosphere_mode"
+    assert pace.calls[0][1]["hold_open"] is True
+    assert pace.calls[0][1]["hold_interval_s"] == pytest.approx(0.2)
+
+
+def test_atmosphere_hold_is_stopped_before_setpoint_control() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.calls: list[tuple] = []
+
+        def stop_atmosphere_hold(self, **kwargs) -> bool:
+            self.calls.append(("stop_atmosphere_hold", kwargs))
+            return True
+
+        def set_output(self, on: bool) -> None:
+            self.calls.append(("set_output", bool(on)))
+
+        def vent(self, on: bool) -> None:
+            self.calls.append(("vent", bool(on)))
+
+        def wait_for_vent_idle(self, **kwargs) -> int:
+            self.calls.append(("wait_for_vent_idle", kwargs))
+            return 3
+
+        def set_isolation_open(self, is_open: bool) -> None:
+            self.calls.append(("set_isolation_open", bool(is_open)))
+
+    pace = FakePace()
+    result = stop_open_flow_atmosphere_hold_before_control(pace)
+
+    assert result["stopped"] is True
+    assert result["vent_abort_sent"] is True
+    assert result["vent_idle_status"] == 3
+    assert result["output_off_sent"] is True
+    assert ("set_output", False) in pace.calls
+    assert ("vent", False) in pace.calls
+    assert any(call[0] == "wait_for_vent_idle" for call in pace.calls)
+    assert ("set_isolation_open", True) in pace.calls
+
+
+def test_atmosphere_hold_stop_can_skip_redundant_outp0_for_direct_control() -> None:
+    class FakePace:
+        def __init__(self) -> None:
+            self.calls: list[tuple] = []
+
+        def stop_atmosphere_hold(self, **kwargs) -> bool:
+            self.calls.append(("stop_atmosphere_hold", kwargs))
+            return True
+
+        def set_output(self, on: bool) -> None:
+            self.calls.append(("set_output", bool(on)))
+
+        def vent(self, on: bool) -> None:
+            self.calls.append(("vent", bool(on)))
+
+        def wait_for_vent_idle(self, **kwargs) -> int:
+            self.calls.append(("wait_for_vent_idle", kwargs))
+            return 3
+
+        def set_isolation_open(self, is_open: bool) -> None:
+            self.calls.append(("set_isolation_open", bool(is_open)))
+
+    pace = FakePace()
+    result = stop_open_flow_atmosphere_hold_before_control(pace, force_output_off=False)
+
+    assert result["stopped"] is True
+    assert result["vent_abort_sent"] is True
+    assert result["vent_idle_status"] == 3
+    assert result["output_off_sent"] is False
+    assert ("set_output", False) not in pace.calls
+    assert ("vent", False) in pace.calls
+    assert any(call[0] == "wait_for_vent_idle" for call in pace.calls)
+    assert ("set_isolation_open", True) in pace.calls
+
+
+def test_pace_pressure_reading_uses_driver_fallback_when_cont_query_is_blank() -> None:
+    class FakePace:
+        def read_pressure(self) -> float:
+            return 1003.9614868
+
+        def query(self, command: str) -> str:
+            if command == ":SENS:PRES:CONT?":
+                return ""
+            raise AssertionError(command)
+
+    value, source = read_pace_pressure_hpa(FakePace())
+
+    assert value == pytest.approx(1003.9614868)
+    assert source == "PACE::read_pressure"
+
+
+def test_pace_pressure_reading_falls_back_to_inl_query() -> None:
+    class FakePace:
+        def read_pressure(self) -> float:
+            raise RuntimeError("NO_RESPONSE")
+
+        def query(self, command: str) -> str:
+            if command == ":SENS:PRES:INL?":
+                return ":SENS:PRES:INL 1003.9614868, 0"
+            if command == ":SENS:PRES:CONT?":
+                return ""
+            return ""
+
+    value, source = read_pace_pressure_hpa(FakePace())
+
+    assert value == pytest.approx(1003.9614868)
+    assert source == "PACE::SENS:PRES:INL?"
+
+
+def test_missing_dewpoint_or_analyzer_blocks_A() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_gaug_over0_max_1000",
+        label="GAUG 1000",
+        mode_requested="GAUG",
+        target_hpa=1000.0,
+    )
+    rows = _samples(target=1000.0, pressure=1000.2, dewpoint=-39.0, effort=0.0, analyzer=False)
+    for row in rows:
+        row["dewpoint_c"] = ""
+
+    result = summarize_samples(
+        rows,
+        plan=plan,
+        ambient_hpa=1006.0,
+        candidate_ts=100.0,
+        candidate_pressure_hpa=1000.2,
+        outp1_ts=99.0,
+        mode_confirmed="GAUG",
+    )
+
+    assert result.dewpoint_evidence_missing is True
+    assert result.analyzer_evidence_missing is True
+    assert result.sample_can_enter_calibration_fit is False
+
+
+def test_below_ambient_open_flow_without_exhaust_evidence_flags_backdiffusion_risk() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_gaug_over0_max_900",
+        label="GAUG 900",
+        mode_requested="GAUG",
+        target_hpa=900.0,
+    )
+    result = summarize_samples(
+        _samples(target=900.0, pressure=900.2, dewpoint=-39.0, effort=0.0),
+        plan=plan,
+        ambient_hpa=1006.0,
+        candidate_ts=100.0,
+        candidate_pressure_hpa=900.2,
+        outp1_ts=99.0,
+        mode_confirmed="GAUG",
+    )
+
+    assert result.backdiffusion_risk is True
+    assert result.sample_can_enter_calibration_fit is False
+    assert "below_ambient_open_flow_backdiffusion_risk" in result.rejection_reasons
+
+
+def test_rank_results_prefers_A_row_and_reports_no_1100_or_vent_control() -> None:
+    plan = DynamicTrialPlan(
+        trial_id="open_flow_act_over0_max_1000",
+        label="ACT 1000",
+        mode_requested="ACT",
+        target_hpa=1000.0,
+    )
+    a_row = summarize_samples(
+        _samples(target=1000.0, pressure=1000.2, dewpoint=-39.0, effort=0.1),
+        plan=plan,
+        ambient_hpa=1006.0,
+        candidate_ts=100.0,
+        candidate_pressure_hpa=1000.2,
+        outp1_ts=99.0,
+        mode_confirmed="ACT",
+    )
+
+    ranking = rank_results([a_row])
+
+    assert ranking["best_mode_for_open_flow_dynamic_pressure"] == "ACT"
+    assert ranking["a_calibration_eligible_count"] == 1
+    assert ranking["whether_1100_excluded"] is True
+    assert ranking["whether_pace_vent_used_for_control"] is False
+    assert ranking["whether_positive_effort_micro_topoff_can_remain_A"] is True
+
+
+def test_offline_plan_writes_json_without_real_com(tmp_path: Path) -> None:
+    payload = run_offline_plan(
+        output_dir=tmp_path,
+        targets_hpa=(1000.0, 900.0),
+        ambient_hpa=1006.0,
+        gas_ppm=0,
+    )
+
+    assert payload["gas_ppm"] == 0
+    assert payload["uses_1100"] is False
+    assert "GAUG" not in {item["mode_requested"] for item in payload["trial_plan"]}
+    assert (tmp_path / "open_flow_dynamic_pressure_plan.json").exists()
