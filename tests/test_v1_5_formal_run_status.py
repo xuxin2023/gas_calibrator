@@ -356,7 +356,7 @@ def test_formal_run_status_reports_ready_release_without_touching_devices(tmp_pa
     assert model["overall_status"] == "formal_release_ready"
     assert model["current_stage"] == "complete"
     assert model["formal_release_allowed"] is True
-    assert model["database_import_allowed"] is True
+    assert model["database_import_allowed"] is False
     assert model["can_continue_physical_flow"] is True
     assert model["gaps"] == []
     assert gate_statuses["pressure_senco9_pre_open_flow"] == "ready"
@@ -389,7 +389,7 @@ def test_formal_run_status_surfaces_optional_algorithm_profile_runner_bundle(tmp
 
     assert model["overall_status"] == "formal_release_ready"
     assert model["formal_release_allowed"] is True
-    assert model["database_import_allowed"] is True
+    assert model["database_import_allowed"] is False
     assert model["can_continue_physical_flow"] is True
     assert model["linked_inputs"]["algorithm_profile_runner_dry_run_json"] == str(bundle_path.resolve())
     assert gate["status"] == "ready"
@@ -411,7 +411,7 @@ def test_formal_run_status_surfaces_database_dry_run_without_authorizing_import(
 
     assert model["overall_status"] == "formal_release_ready"
     assert model["formal_release_allowed"] is True
-    assert model["database_import_allowed"] is True
+    assert model["database_import_allowed"] is False
     assert model["can_continue_physical_flow"] is True
     assert model["linked_inputs"]["formal_database_dry_run_json"] == str(database_path.resolve())
     assert gate["status"] == "ready"
@@ -422,7 +422,7 @@ def test_formal_run_status_surfaces_database_dry_run_without_authorizing_import(
     assert "without connecting" in gate["physical_meaning"]
 
 
-def test_formal_run_status_requires_database_import_preflight_for_import_allowed(tmp_path: Path) -> None:
+def test_formal_run_status_surfaces_database_import_preflight_without_authorizing_import(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run_with_database_import_preflight"
     _seed_ready_run(run_dir)
     database_path = _seed_formal_database_dry_run(run_dir)
@@ -434,7 +434,7 @@ def test_formal_run_status_requires_database_import_preflight_for_import_allowed
 
     assert model["overall_status"] == "formal_release_ready"
     assert model["formal_release_allowed"] is True
-    assert model["database_import_allowed"] is True
+    assert model["database_import_allowed"] is False
     assert model["can_continue_physical_flow"] is True
     assert model["linked_inputs"]["formal_database_dry_run_json"] == str(database_path.resolve())
     assert model["linked_inputs"]["formal_database_import_preflight_json"] == str(import_preflight_path.resolve())
@@ -472,7 +472,7 @@ def test_formal_run_status_marks_database_import_preflight_review_only(tmp_path:
     assert "dsn_configured=False" in gate["reason"]
 
 
-def test_formal_run_status_requires_database_import_authorization_for_import_allowed(tmp_path: Path) -> None:
+def test_formal_run_status_surfaces_database_import_authorization_without_authorizing_import(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run_with_database_import_authorization"
     _seed_ready_run(run_dir)
     _seed_formal_database_dry_run(run_dir)
@@ -485,7 +485,7 @@ def test_formal_run_status_requires_database_import_authorization_for_import_all
 
     assert model["overall_status"] == "formal_release_ready"
     assert model["formal_release_allowed"] is True
-    assert model["database_import_allowed"] is True
+    assert model["database_import_allowed"] is False
     assert model["can_continue_physical_flow"] is True
     assert model["linked_inputs"]["formal_database_import_authorization_json"] == str(authorization_path.resolve())
     assert gate["status"] == "ready"
@@ -496,7 +496,7 @@ def test_formal_run_status_requires_database_import_authorization_for_import_all
     assert "no-connect/no-import" in gate["physical_meaning"]
 
 
-def test_formal_run_status_requires_database_import_command_contract_for_import_allowed(tmp_path: Path) -> None:
+def test_formal_run_status_surfaces_database_import_command_contract_without_authorizing_import(tmp_path: Path) -> None:
     run_dir = tmp_path / "ready_run_with_database_import_command_contract"
     _seed_ready_run(run_dir)
     _seed_formal_database_dry_run(run_dir)
@@ -510,11 +510,12 @@ def test_formal_run_status_requires_database_import_command_contract_for_import_
 
     assert model["overall_status"] == "formal_release_ready"
     assert model["formal_release_allowed"] is True
-    assert model["database_import_allowed"] is True
+    assert model["database_import_allowed"] is False
     assert model["can_continue_physical_flow"] is True
     assert model["linked_inputs"]["formal_database_import_command_contract_json"] == str(
         command_contract_path.resolve()
     )
+    assert "formal_database_import_controlled_executor_design" not in gates
     assert gate["status"] == "ready"
     assert gate["release_gate"] is False
     assert gate["blocks_release"] is False
@@ -577,6 +578,39 @@ def test_formal_run_status_accepts_controlled_executor_design_without_unlocking_
     assert gate["blocks_release"] is False
     assert gate["blocks_physical_flow"] is False
     assert "execution remains blocked" in gate["reason"]
+
+
+def test_formal_run_status_blocks_database_import_when_controlled_executor_design_requires_review(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "ready_run_with_controlled_import_design_review"
+    _seed_ready_run(run_dir)
+    _seed_formal_database_dry_run(run_dir)
+    _seed_formal_database_import_preflight(run_dir)
+    _seed_formal_database_import_authorization(run_dir)
+    _seed_formal_database_import_command_contract(run_dir)
+    design_path = _seed_formal_database_import_controlled_executor_design(
+        run_dir,
+        review_required_count=1,
+    )
+
+    model = build_v1_5_formal_run_status(run_dir=run_dir)
+    gates = {row["gate_id"]: row for row in model["gates"]}
+    gate = gates["formal_database_import_controlled_executor_design"]
+
+    assert model["overall_status"] == "review_required"
+    assert model["current_stage"] == "formal_database_import_controlled_executor_design"
+    assert model["formal_release_allowed"] is True
+    assert model["database_import_allowed"] is False
+    assert model["can_continue_physical_flow"] is True
+    assert model["linked_inputs"]["formal_database_import_controlled_executor_design_json"] == str(
+        design_path.resolve()
+    )
+    assert gate["status"] == "review_required"
+    assert gate["release_gate"] is False
+    assert gate["blocks_release"] is False
+    assert gate["blocks_physical_flow"] is False
+    assert "review_required_count=1" in gate["reason"]
 
 
 def test_formal_run_status_blocks_dirty_import_executor_side_effects(tmp_path: Path) -> None:
