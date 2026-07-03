@@ -166,6 +166,32 @@ def _inventory_map(payload: Mapping[str, Any]) -> dict[tuple[str, str], Mapping[
     }
 
 
+def _resolved_path_text(path: str | Path | None) -> str:
+    if not path:
+        return ""
+    return str(Path(path).resolve())
+
+
+def _packet_input_path_reasons(
+    packet_payload: Mapping[str, Any],
+    *,
+    inventory_path: Path | None,
+    active_path: Path | None,
+) -> list[str]:
+    reasons: list[str] = []
+    expected_inventory = str(packet_payload.get("reviewed_port_inventory_json") or "").strip()
+    expected_active = str(packet_payload.get("active_analyzer_list_json") or "").strip()
+    if not expected_inventory:
+        reasons.append("packet_validator_reviewed_port_inventory_json_missing")
+    elif _resolved_path_text(expected_inventory) != _resolved_path_text(inventory_path):
+        reasons.append("reviewed_port_inventory_json_mismatch_with_packet_validator")
+    if not expected_active:
+        reasons.append("packet_validator_active_analyzer_list_json_missing")
+    elif _resolved_path_text(expected_active) != _resolved_path_text(active_path):
+        reasons.append("active_analyzer_list_json_mismatch_with_packet_validator")
+    return reasons
+
+
 def _active_input_reasons(
     inventory_payload: Mapping[str, Any],
     active_payload: Mapping[str, Any],
@@ -181,9 +207,12 @@ def _active_input_reasons(
     inventory = _inventory_map(inventory_payload)
     labels: set[str] = set()
     ports: set[str] = set()
+    sn_codes: set[str] = set()
     for index, row in enumerate(active_rows, start=1):
         label = _field(row, "ga_label", "label")
         port = _field(row, "port", "com_port")
+        protocol_id = _field(row, "protocol_device_id", "device_id")
+        sn_code = _field(row, "sn_code", "device_code")
         algorithm = _field(row, "algorithm", "algorithm_profile").lower() or "legacy"
         check_required = _bool(row, "check_required")
         check_capable = _bool(row, "check_capable")
@@ -191,14 +220,21 @@ def _active_input_reasons(
             reasons.append(f"active_{index}_ga_label=missing")
         if not port.upper().startswith("COM"):
             reasons.append(f"active_{index}_port={port or 'missing'}")
+        if not protocol_id:
+            reasons.append(f"active_{index}_protocol_device_id=missing")
+        if not (len(sn_code) == 8 and sn_code.isdigit()):
+            reasons.append(f"active_{index}_sn_code={sn_code or 'missing'}")
         if (label, port) not in inventory:
             reasons.append(f"active_{index}_not_in_reviewed_port_inventory={label}/{port}")
         if label in labels:
             reasons.append(f"duplicate_active_ga_label={label}")
         if port in ports:
             reasons.append(f"duplicate_active_port={port}")
+        if sn_code in sn_codes:
+            reasons.append(f"duplicate_active_sn_code={sn_code}")
         labels.add(label)
         ports.add(port)
+        sn_codes.add(sn_code)
         if algorithm in {"new", "new_absorption", "absorption"}:
             if not check_capable or not check_required:
                 reasons.append(f"active_{index}_new_algorithm_check_must_be_required")
@@ -350,7 +386,18 @@ def build_v1_5_formal_readonly_com_execution_plan_preview(
     active_payload = _load_json(active_path)
 
     packet_reasons = _packet_reasons(packet_payload)
-    input_reasons = _active_input_reasons(inventory_payload, active_payload) if not packet_reasons else []
+    input_reasons = (
+        [
+            *_packet_input_path_reasons(
+                packet_payload,
+                inventory_path=inventory_path,
+                active_path=active_path,
+            ),
+            *_active_input_reasons(inventory_payload, active_payload),
+        ]
+        if not packet_reasons
+        else []
+    )
     command_plan = _build_command_plan(active_payload) if not packet_reasons and not input_reasons else []
     actual_command_rows = [row for row in command_plan if row.get("serial_command") is True]
     check_command_rows = [

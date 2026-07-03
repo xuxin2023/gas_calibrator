@@ -22,6 +22,8 @@ def _packet_validator_json(
     status: str = "ready_for_readonly_com_execution_packet_review",
     packet_validated: bool = True,
     opens_com_ports: bool = False,
+    reviewed_port_inventory_json: Path | None = None,
+    active_analyzer_list_json: Path | None = None,
 ) -> Path:
     return _write_json(
         tmp_path / "packet_validator" / "v1_5_formal_readonly_com_execution_packet_validator.json",
@@ -53,6 +55,12 @@ def _packet_validator_json(
             "formal_release_allowed": False,
             "database_import_allowed": False,
             "not_real_acceptance_evidence": True,
+            "reviewed_port_inventory_json": str(reviewed_port_inventory_json.resolve())
+            if reviewed_port_inventory_json
+            else "",
+            "active_analyzer_list_json": str(active_analyzer_list_json.resolve())
+            if active_analyzer_list_json
+            else "",
         },
     )
 
@@ -70,7 +78,14 @@ def _reviewed_ports_json(tmp_path: Path) -> Path:
     )
 
 
-def _active_analyzers_json(tmp_path: Path, *, old_check_required: bool = False) -> Path:
+def _active_analyzers_json(
+    tmp_path: Path,
+    *,
+    old_check_required: bool = False,
+    first_protocol_id: str = "001",
+    first_sn: str = "01260701",
+    second_sn: str = "01260702",
+) -> Path:
     return _write_json(
         tmp_path / "packet" / "active_analyzers.json",
         {
@@ -79,8 +94,8 @@ def _active_analyzers_json(tmp_path: Path, *, old_check_required: bool = False) 
                 {
                     "ga_label": "GA01",
                     "port": "COM36",
-                    "protocol_device_id": "001",
-                    "sn_code": "01260701",
+                    "protocol_device_id": first_protocol_id,
+                    "sn_code": first_sn,
                     "algorithm": "new_absorption",
                     "check_capable": True,
                     "check_required": True,
@@ -89,7 +104,7 @@ def _active_analyzers_json(tmp_path: Path, *, old_check_required: bool = False) 
                     "ga_label": "GA02",
                     "port": "COM37",
                     "protocol_device_id": "052",
-                    "sn_code": "01260702",
+                    "sn_code": second_sn,
                     "algorithm": "legacy_ratio",
                     "check_capable": False,
                     "check_required": old_check_required,
@@ -121,10 +136,16 @@ def test_plan_preview_requires_validated_packet_before_generating_read_sequence(
 
 
 def test_plan_preview_builds_future_read_order_without_opening_com(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path)
+    active = _active_analyzers_json(tmp_path)
     model = build_v1_5_formal_readonly_com_execution_plan_preview(
-        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(tmp_path),
-        reviewed_port_inventory_json=_reviewed_ports_json(tmp_path),
-        active_analyzer_list_json=_active_analyzers_json(tmp_path),
+        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(
+            tmp_path,
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=active,
+        ),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
     )
 
     assert model["overall_status"] == "ready_for_readonly_com_execution_plan_preview_review"
@@ -149,10 +170,16 @@ def test_plan_preview_builds_future_read_order_without_opening_com(tmp_path: Pat
 
 
 def test_plan_preview_rejects_old_algorithm_check_requirement(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path)
+    active = _active_analyzers_json(tmp_path, old_check_required=True)
     model = build_v1_5_formal_readonly_com_execution_plan_preview(
-        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(tmp_path),
-        reviewed_port_inventory_json=_reviewed_ports_json(tmp_path),
-        active_analyzer_list_json=_active_analyzers_json(tmp_path, old_check_required=True),
+        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(
+            tmp_path,
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=active,
+        ),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
     )
 
     assert model["overall_status"] == "review_required"
@@ -160,6 +187,92 @@ def test_plan_preview_rejects_old_algorithm_check_requirement(tmp_path: Path) ->
     assert "active_2_old_algorithm_check_must_be_skipped" in input_check["reasons"]
     assert model["command_plan"] == []
     assert model["opens_com_ports"] is False
+
+
+def test_plan_preview_rejects_active_list_missing_protocol_device_id(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path)
+    active = _active_analyzers_json(tmp_path, first_protocol_id="")
+
+    model = build_v1_5_formal_readonly_com_execution_plan_preview(
+        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(
+            tmp_path,
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=active,
+        ),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+    )
+
+    assert model["overall_status"] == "review_required"
+    input_check = next(row for row in model["checks"] if row["check"] == "detailed_plan_inputs_present")
+    assert "active_1_protocol_device_id=missing" in input_check["reasons"]
+    assert model["command_plan"] == []
+
+
+def test_plan_preview_rejects_non_numeric_or_short_sn_code(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path)
+    active = _active_analyzers_json(tmp_path, first_sn="A1260701")
+
+    model = build_v1_5_formal_readonly_com_execution_plan_preview(
+        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(
+            tmp_path,
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=active,
+        ),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+    )
+
+    assert model["overall_status"] == "review_required"
+    input_check = next(row for row in model["checks"] if row["check"] == "detailed_plan_inputs_present")
+    assert "active_1_sn_code=A1260701" in input_check["reasons"]
+    assert model["command_plan"] == []
+
+
+def test_plan_preview_rejects_duplicate_sn_code(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path)
+    active = _active_analyzers_json(tmp_path, second_sn="01260701")
+
+    model = build_v1_5_formal_readonly_com_execution_plan_preview(
+        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(
+            tmp_path,
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=active,
+        ),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+    )
+
+    assert model["overall_status"] == "review_required"
+    input_check = next(row for row in model["checks"] if row["check"] == "detailed_plan_inputs_present")
+    assert "duplicate_active_sn_code=01260701" in input_check["reasons"]
+    assert model["command_plan"] == []
+
+
+def test_plan_preview_rejects_active_list_that_differs_from_packet_validator_source(
+    tmp_path: Path,
+) -> None:
+    ports = _reviewed_ports_json(tmp_path)
+    original_active = _active_analyzers_json(tmp_path)
+    replacement_active = _write_json(
+        tmp_path / "replacement" / "active_analyzers.json",
+        json.loads(original_active.read_text(encoding="utf-8")),
+    )
+
+    model = build_v1_5_formal_readonly_com_execution_plan_preview(
+        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(
+            tmp_path,
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=original_active,
+        ),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=replacement_active,
+    )
+
+    assert model["overall_status"] == "review_required"
+    input_check = next(row for row in model["checks"] if row["check"] == "detailed_plan_inputs_present")
+    assert "active_analyzer_list_json_mismatch_with_packet_validator" in input_check["reasons"]
+    assert model["command_plan"] == []
 
 
 def test_plan_preview_reviews_dirty_packet_validator_boundary(tmp_path: Path) -> None:
@@ -180,10 +293,16 @@ def test_plan_preview_reviews_dirty_packet_validator_boundary(tmp_path: Path) ->
 
 
 def test_plan_preview_writer_outputs_json_markdown_and_csv(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path)
+    active = _active_analyzers_json(tmp_path)
     model = build_v1_5_formal_readonly_com_execution_plan_preview(
-        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(tmp_path),
-        reviewed_port_inventory_json=_reviewed_ports_json(tmp_path),
-        active_analyzer_list_json=_active_analyzers_json(tmp_path),
+        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(
+            tmp_path,
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=active,
+        ),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
     )
 
     outputs = write_v1_5_formal_readonly_com_execution_plan_preview_outputs(
@@ -221,15 +340,23 @@ def test_plan_preview_cli_rejects_live_unlock_flags_without_artifacts(tmp_path: 
 
 def test_plan_preview_cli_exports_plan_only_artifacts(tmp_path: Path) -> None:
     out = tmp_path / "out"
+    ports = _reviewed_ports_json(tmp_path)
+    active = _active_analyzers_json(tmp_path)
 
     rc = plan_preview_main(
         [
             "--formal-readonly-com-execution-packet-validator-json",
-            str(_packet_validator_json(tmp_path)),
+            str(
+                _packet_validator_json(
+                    tmp_path,
+                    reviewed_port_inventory_json=ports,
+                    active_analyzer_list_json=active,
+                )
+            ),
             "--reviewed-port-inventory-json",
-            str(_reviewed_ports_json(tmp_path)),
+            str(ports),
             "--active-analyzer-list-json",
-            str(_active_analyzers_json(tmp_path)),
+            str(active),
             "--output-dir",
             str(out),
             "--fail-on-review-required",
