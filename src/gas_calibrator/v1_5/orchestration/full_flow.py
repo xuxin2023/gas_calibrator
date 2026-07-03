@@ -644,6 +644,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_initialization_executor_dry_run_snapshot",
                 "formal_initialization_blocked_executor_snapshot",
                 "formal_initialization_controlled_executor_design_snapshot",
+                "formal_initialization_readonly_com_preflight_design_snapshot",
                 "initialization_readiness_snapshot",
                 "pre_gas_readiness_snapshot",
             ),
@@ -972,6 +973,9 @@ def build_full_flow_plan(
     formal_initialization_controlled_executor_design_dir = (
         root / "formal_initialization_controlled_executor_design"
     )
+    formal_initialization_readonly_com_preflight_design_dir = (
+        root / "formal_initialization_readonly_com_preflight_design"
+    )
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
@@ -1185,6 +1189,48 @@ def build_full_flow_plan(
             gate="required_before_initialization_executor_live_implementation",
             notes=(
                 "This design exporter does not implement --execute-controlled-initialization.",
+                "It does not open COM, write SN/device_code, write SENCO, connect PostgreSQL, control pressure, or control gas/water routes.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="formal_initialization_readonly_com_preflight_design_snapshot",
+            title="Review future read-only initialization COM preflight design",
+            phase="INITIALIZATION_READONLY_COM_PREFLIGHT_DESIGN",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_initialization_readonly_com_preflight_design",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_initialization_readonly_com_preflight_design",
+                "--formal-initialization-controlled-executor-design-json",
+                formal_initialization_controlled_executor_design_dir
+                / "v1_5_formal_initialization_controlled_executor_design.json",
+                "--output-dir",
+                formal_initialization_readonly_com_preflight_design_dir,
+            ),
+            required_inputs=("formal initialization controlled executor design JSON",),
+            expected_outputs=(
+                "formal_initialization_readonly_com_preflight_design/v1_5_formal_initialization_readonly_com_preflight_design.json",
+                "formal_initialization_readonly_com_preflight_design/V1_5_FORMAL_INITIALIZATION_READONLY_COM_PREFLIGHT_DESIGN.md",
+                "formal_initialization_readonly_com_preflight_design/v1_5_formal_initialization_readonly_com_preflight_authorization_contract.csv",
+                "formal_initialization_readonly_com_preflight_design/v1_5_formal_initialization_readonly_com_preflight_serial_contract.csv",
+                "formal_initialization_readonly_com_preflight_design/v1_5_formal_initialization_readonly_com_preflight_identity_read_contract.csv",
+                "formal_initialization_readonly_com_preflight_design/v1_5_formal_initialization_readonly_com_preflight_getco_read_contract.csv",
+                "formal_initialization_readonly_com_preflight_design/v1_5_formal_initialization_readonly_com_preflight_check_read_contract.csv",
+                "formal_initialization_readonly_com_preflight_design/v1_5_formal_initialization_readonly_com_preflight_failure_hold_contract.csv",
+                "formal_initialization_readonly_com_preflight_design/v1_5_formal_initialization_readonly_com_preflight_boundary_gates.csv",
+            ),
+            physical_meaning=(
+                "Freeze the future read-only real-COM preflight contract without touching analyzers: reviewed "
+                "1 to 6 active ports, >=1s command/retry spacing, protocol ID plus 8-digit SN/device_code, "
+                "GETCO1-9 epoch-0 snapshot, CHECK only for CHECK-capable/new-algorithm analyzers after all "
+                "active chambers are stable, old-algorithm CHECK skip, and hold policies for serial, identity, "
+                "GETCO, CHECK, or pacing failures."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_readonly_real_com_preflight_implementation",
+            notes=(
+                "This design exporter does not implement --execute-read-only-real-com.",
                 "It does not open COM, write SN/device_code, write SENCO, connect PostgreSQL, control pressure, or control gas/water routes.",
             ),
         )
@@ -2390,6 +2436,9 @@ def build_full_flow_plan(
                 "--formal-initialization-controlled-executor-design-json",
                 formal_initialization_controlled_executor_design_dir
                 / "v1_5_formal_initialization_controlled_executor_design.json",
+                "--formal-initialization-readonly-com-preflight-design-json",
+                formal_initialization_readonly_com_preflight_design_dir
+                / "v1_5_formal_initialization_readonly_com_preflight_design.json",
                 "--pre-gas-readiness-json",
                 pre_gas_readiness_dir / "v1_5_pre_gas_readiness.json",
                 "--getco-readiness-json",
@@ -2419,6 +2468,7 @@ def build_full_flow_plan(
             required_inputs=(
                 "initialization readiness sidecar",
                 "controlled initialization executor design sidecar",
+                "read-only initialization COM preflight design sidecar",
                 "identity/GETCO readiness sidecar",
                 "pre-gas readiness sidecar",
                 "v1_5_run_evidence_status.json",
@@ -2499,6 +2549,7 @@ def build_full_flow_plan(
             "formal_initialization_executor_dry_run_review",
             "formal_initialization_blocked_executor_before_live_initialization",
             "formal_initialization_controlled_executor_design_before_live_initialization",
+            "formal_initialization_readonly_com_preflight_design_before_readonly_real_com",
             "device_identity_and_GETCO_snapshot",
             "identity_GETCO_readiness_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",

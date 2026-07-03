@@ -328,6 +328,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline initialization blocked executor stub; refuses live COM, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions")
     elif lower == "export_v1_5_formal_initialization_controlled_executor_design":
         notes.append("offline initialization controlled executor design; defines future authorization, real-COM, write/readback, CHECK, and hold contract without opening COM")
+    elif lower == "export_v1_5_formal_initialization_readonly_com_preflight_design":
+        notes.append("offline initialization read-only real-COM preflight design; defines future port, pacing, identity, GETCO, CHECK, and hold contract without opening COM")
     elif "formal_archive_closure" in lower:
         notes.append("offline archive closure; does not open COM ports or control routes")
     elif lower == "export_v1_5_pre_gas_readiness":

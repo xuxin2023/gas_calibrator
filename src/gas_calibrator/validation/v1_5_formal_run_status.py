@@ -298,6 +298,61 @@ def _formal_initialization_controlled_executor_design_gate(
     )
 
 
+def _formal_initialization_readonly_com_preflight_design_gate(
+    path: Path,
+    payload: Mapping[str, Any],
+) -> FormalRunGate:
+    source_status = _source_status(payload)
+    boundary_ok = (
+        payload.get("opens_com_ports") is False
+        and payload.get("connects_postgresql") is False
+        and payload.get("controls_pressure") is False
+        and payload.get("controls_water_or_gas_routes") is False
+        and payload.get("writes_sn") is False
+        and payload.get("writes_device_id") is False
+        and payload.get("writes_coefficients") is False
+        and payload.get("database_written") is False
+        and payload.get("live_execution_allowed") is False
+        and payload.get("read_only_real_com_execution_allowed") is False
+        and payload.get("execution_supported") is False
+    )
+    if source_status == "ready_for_readonly_real_com_preflight_design_review" and boundary_ok:
+        status = READY
+        reason = "read-only real-COM preflight design is ready; real COM remains locked"
+    elif not boundary_ok:
+        status = BLOCKED
+        reason = "read-only real-COM preflight design boundary is not clean; no-COM/no-write locks are not preserved"
+    elif source_status == "review_required" or int(payload.get("review_required_count") or 0):
+        status = REVIEW_REQUIRED
+        reason = (
+            f"read-only real-COM preflight design review_required_count={payload.get('review_required_count')}; "
+            "review controlled-design linkage before future read-only COM preflight is accepted"
+        )
+    else:
+        status = REVIEW_REQUIRED
+        reason = f"read-only real-COM preflight design source_status={source_status or 'missing'} requires review"
+    return _gate(
+        gate_id="formal_initialization_readonly_com_preflight_design",
+        title="Read-only initialization COM preflight design",
+        status=status,
+        source_path=path,
+        source_status=source_status,
+        reason=reason,
+        next_action=(
+            "Use this design only as future preflight implementation guidance. Do not open COM until a "
+            "separate controlled read-only tool adds explicit authorization, port inventory, pacing, identity, "
+            "GETCO, CHECK, and hold evidence."
+        ),
+        physical_meaning=(
+            "Defines the future read-only analyzer-contact safety contract while preserving the current no-COM, "
+            "no-SN-write, no-SENCO-write V1.5 boundary."
+        ),
+        release_gate=False,
+        blocks_release=False,
+        blocks_physical_flow=False,
+    )
+
+
 def _run_stage_gate(
     *,
     gate_id: str,
@@ -929,6 +984,7 @@ def build_v1_5_formal_run_status(
     run_dir: str | Path,
     initialization_readiness_json: str | Path | None = None,
     formal_initialization_controlled_executor_design_json: str | Path | None = None,
+    formal_initialization_readonly_com_preflight_design_json: str | Path | None = None,
     pre_gas_readiness_json: str | Path | None = None,
     getco_readiness_json: str | Path | None = None,
     run_evidence_status_json: str | Path | None = None,
@@ -950,6 +1006,11 @@ def build_v1_5_formal_run_status(
         root,
         formal_initialization_controlled_executor_design_json,
         "v1_5_formal_initialization_controlled_executor_design.json",
+    )
+    formal_initialization_readonly_com_preflight_design_path = _explicit_or_latest(
+        root,
+        formal_initialization_readonly_com_preflight_design_json,
+        "v1_5_formal_initialization_readonly_com_preflight_design.json",
     )
     pre_gas_path = _explicit_or_latest(root, pre_gas_readiness_json, "v1_5_pre_gas_readiness.json")
     getco_path = _explicit_or_latest(root, getco_readiness_json, "v1_5_getco_identity_readiness.json")
@@ -996,6 +1057,9 @@ def build_v1_5_formal_run_status(
     formal_initialization_controlled_executor_design_payload = _load_json(
         formal_initialization_controlled_executor_design_path
     )
+    formal_initialization_readonly_com_preflight_design_payload = _load_json(
+        formal_initialization_readonly_com_preflight_design_path
+    )
     pre_gas_payload = _load_json(pre_gas_path)
     getco_payload = _load_json(getco_path)
     run_payload = _load_json(run_status_path)
@@ -1020,6 +1084,16 @@ def build_v1_5_formal_run_status(
             _formal_initialization_controlled_executor_design_gate(
                 formal_initialization_controlled_executor_design_path,
                 formal_initialization_controlled_executor_design_payload,
+            )
+        )
+    if (
+        formal_initialization_readonly_com_preflight_design_path
+        and formal_initialization_readonly_com_preflight_design_payload
+    ):
+        gates.append(
+            _formal_initialization_readonly_com_preflight_design_gate(
+                formal_initialization_readonly_com_preflight_design_path,
+                formal_initialization_readonly_com_preflight_design_payload,
             )
         )
     gates.extend(
@@ -1218,6 +1292,11 @@ def build_v1_5_formal_run_status(
                 formal_initialization_controlled_executor_design_path
             )
             if formal_initialization_controlled_executor_design_path
+            else "",
+            "formal_initialization_readonly_com_preflight_design_json": str(
+                formal_initialization_readonly_com_preflight_design_path
+            )
+            if formal_initialization_readonly_com_preflight_design_path
             else "",
             "pre_gas_readiness_json": str(pre_gas_path) if pre_gas_path else "",
             "getco_readiness_json": str(getco_path) if getco_path else "",
