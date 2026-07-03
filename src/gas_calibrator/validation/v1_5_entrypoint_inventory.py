@@ -334,6 +334,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline initialization read-only real-COM preflight blocked executor stub; refuses analyzer COM, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions")
     elif lower == "export_v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design":
         notes.append("offline initialization read-only real-COM preflight controlled executor design; defines future authorization, port inventory, read sequence, evidence, and hold contract without opening COM")
+    elif lower == "run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor":
+        notes.append("offline initialization read-only real-COM preflight controlled blocked executor stub; refuses analyzer COM, authorization unlocks, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions")
     elif "formal_archive_closure" in lower:
         notes.append("offline archive closure; does not open COM ports or control routes")
     elif lower == "export_v1_5_pre_gas_readiness":
@@ -494,6 +496,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
         elif lower in {
             "run_v1_5_formal_initialization_blocked_executor",
             "run_v1_5_formal_initialization_readonly_com_preflight_blocked_executor",
+            "run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"

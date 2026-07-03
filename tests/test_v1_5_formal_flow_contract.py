@@ -372,6 +372,62 @@ def test_formal_flow_contract_blocks_readonly_com_preflight_controlled_executor_
     )
 
 
+def test_formal_flow_contract_blocks_readonly_com_preflight_controlled_blocked_executor_that_is_not_offline(
+    tmp_path,
+):
+    plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
+    steps = list(plan.steps)
+    index = [
+        step.step_id for step in steps
+    ].index("formal_initialization_readonly_com_preflight_controlled_blocked_executor_snapshot")
+    command = tuple(
+        part
+        for part in steps[index].command
+        if part
+        not in {
+            "gas_calibrator.tools.run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor",
+            "--formal-initialization-readonly-com-preflight-controlled-executor-design-json",
+            "--output-dir",
+            "--fail-on-blocked",
+        }
+    ) + ("--execute-read-only-real-com",)
+    steps[index] = replace(
+        steps[index],
+        tool_module="gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        command=command,
+        execution_mode="real_com",
+        opens_com_ports=True,
+        writes_device_id=True,
+        writes_coefficients=True,
+        controls_pressure=True,
+        controls_gas_route=True,
+    )
+    tampered = replace(plan, steps=tuple(steps))
+
+    report = validate_v1_5_formal_flow_contract(tampered)
+
+    assert report.status == "blocked"
+    codes = {issue.code for issue in report.issues}
+    assert "formal_initialization_readonly_com_preflight_controlled_blocked_executor_wrong_tool" in codes
+    assert (
+        "formal_initialization_readonly_com_preflight_controlled_blocked_executor_must_be_offline_no_write"
+        in codes
+    )
+    assert (
+        "formal_initialization_readonly_com_preflight_controlled_blocked_executor_must_not_write_device_id"
+        in codes
+    )
+    assert "formal_initialization_readonly_com_preflight_controlled_blocked_executor_must_be_offline" in codes
+    assert (
+        "formal_initialization_readonly_com_preflight_controlled_blocked_executor_missing_required_flag"
+        in codes
+    )
+    assert (
+        "formal_initialization_readonly_com_preflight_controlled_blocked_executor_forbidden_unlock"
+        in codes
+    )
+
+
 def test_formal_flow_contract_blocks_identity_getco_readiness_that_is_not_offline(tmp_path):
     plan = build_full_flow_plan(config_path=_config(tmp_path), output_dir=tmp_path / "flow", run_id="demo")
     steps = list(plan.steps)

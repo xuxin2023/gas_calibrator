@@ -82,6 +82,10 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 
 `src/gas_calibrator/tools/export_v1_5_formal_initialization_readonly_com_preflight_controlled_executor_design.py` is the offline design review for a future controlled read-only COM preflight executor. It consumes the blocked preflight stub evidence and freezes the future `--execute-read-only-real-com` requirements: operator confirmation, distinct reviewer/approver, reviewed 1 to 6 active analyzers, reviewed COM/GA transport inventory, `>=1.0s` command/retry/cross-device spacing, protocol ID compatibility alias, 8-digit SN/device_code read, GETCO1-9 epoch-0 snapshot, runtime evidence, CHECK only for CHECK-capable/new-algorithm analyzers, old-algorithm CHECK skip behavior, and hold policy for serial, identity, pacing, GETCO, and CHECK failures. It still does not implement real COM execution, write SN/device_code, write SENCO, connect PostgreSQL, control pressure, or control gas/water routes.
 
+### Initialization read-only COM preflight controlled blocked executor addendum
+
+`src/gas_calibrator/tools/run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor.py` is the no-COM/no-write stub that must sit after the controlled read-only COM preflight executor design and before any future controlled analyzer contact. It consumes the reviewed controlled design sidecar, writes an evidence artifact that the controlled `--execute-read-only-real-com` path remains blocked, and rejects execute flags, real-COM flags, controlled-write flags, operator confirmation, reviewer/approver labels, authorization id, reviewed port inventory, and active-analyzer list inputs. It does not open COM, write SN/device_code, write SENCO, connect PostgreSQL, control pressure, or control gas/water routes.
+
 ## 4. 初始化层的正式过程
 
 初始化是进入气路/水路前的身份、状态和证据闭环，不是采样流程。
