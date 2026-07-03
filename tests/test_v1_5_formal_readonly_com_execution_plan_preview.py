@@ -82,6 +82,7 @@ def _active_analyzers_json(
     tmp_path: Path,
     *,
     old_check_required: bool = False,
+    old_check_capable: bool = False,
     first_protocol_id: str = "001",
     first_sn: str = "01260701",
     second_sn: str = "01260702",
@@ -106,7 +107,7 @@ def _active_analyzers_json(
                     "protocol_device_id": "052",
                     "sn_code": second_sn,
                     "algorithm": "legacy_ratio",
-                    "check_capable": False,
+                    "check_capable": old_check_capable,
                     "check_required": old_check_required,
                 },
             ],
@@ -172,6 +173,26 @@ def test_plan_preview_builds_future_read_order_without_opening_com(tmp_path: Pat
 def test_plan_preview_rejects_old_algorithm_check_requirement(tmp_path: Path) -> None:
     ports = _reviewed_ports_json(tmp_path)
     active = _active_analyzers_json(tmp_path, old_check_required=True)
+    model = build_v1_5_formal_readonly_com_execution_plan_preview(
+        formal_readonly_com_execution_packet_validator_json=_packet_validator_json(
+            tmp_path,
+            reviewed_port_inventory_json=ports,
+            active_analyzer_list_json=active,
+        ),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+    )
+
+    assert model["overall_status"] == "review_required"
+    input_check = next(row for row in model["checks"] if row["check"] == "detailed_plan_inputs_present")
+    assert "active_2_old_algorithm_check_must_be_skipped" in input_check["reasons"]
+    assert model["command_plan"] == []
+    assert model["opens_com_ports"] is False
+
+
+def test_plan_preview_rejects_old_algorithm_check_capable_flag(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path)
+    active = _active_analyzers_json(tmp_path, old_check_capable=True)
     model = build_v1_5_formal_readonly_com_execution_plan_preview(
         formal_readonly_com_execution_packet_validator_json=_packet_validator_json(
             tmp_path,

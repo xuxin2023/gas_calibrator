@@ -238,7 +238,7 @@ def _active_input_reasons(
         if algorithm in {"new", "new_absorption", "absorption"}:
             if not check_capable or not check_required:
                 reasons.append(f"active_{index}_new_algorithm_check_must_be_required")
-        elif check_required:
+        elif check_required or check_capable:
             reasons.append(f"active_{index}_old_algorithm_check_must_be_skipped")
     return reasons
 
@@ -337,9 +337,7 @@ def _build_command_plan(active_payload: Mapping[str, Any]) -> list[dict[str, Any
             note="passive runtime evidence; repair writes are outside this read-only plan",
         )
         algorithm = _field(row, "algorithm", "algorithm_profile").lower() or "legacy"
-        check_required = _bool(row, "check_required")
-        check_capable = _bool(row, "check_capable")
-        if algorithm in {"new", "new_absorption", "absorption"} or check_required or check_capable:
+        if algorithm in {"new", "new_absorption", "absorption"}:
             order = _add_plan_row(
                 plan,
                 order=order,
