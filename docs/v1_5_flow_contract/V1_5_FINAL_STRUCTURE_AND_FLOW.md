@@ -63,6 +63,10 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 | 归档报告 | evidence sidecar、hash、中文报告、数据库索引 | `src/gas_calibrator/tools/run_v1_5_formal_archive_closure.py` | 归档不改变设备状态，不能隐藏失败点。 |
 | 正式状态汇总 | 汇总当前阶段、下一步、物理流程可继续性、正式放行和数据库导入状态 | `src/gas_calibrator/tools/export_v1_5_formal_run_status.py` | 只读 rollup，不打开 COM、不连接 PostgreSQL、不控制路由、不写系数。 |
 
+### Initialization controlled executor design addendum
+
+`src/gas_calibrator/tools/export_v1_5_formal_initialization_controlled_executor_design.py` is an offline design review for the future live initialization executor. It freezes the authorization, read-only real-COM, controlled-write, readback, CHECK, and hold/rollback contract while keeping live initialization locked. It does not implement `--execute-controlled-initialization`, open COM, write SN/device_code, write SENCO, connect PostgreSQL, or control pressure/routes.
+
 ## 4. 初始化层的正式过程
 
 初始化是进入气路/水路前的身份、状态和证据闭环，不是采样流程。
