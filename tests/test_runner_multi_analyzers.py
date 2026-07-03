@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import time
 
 import pytest
@@ -6,6 +7,17 @@ import pytest
 from gas_calibrator.data.points import CalibrationPoint
 from gas_calibrator.logging_utils import RunLogger
 from gas_calibrator.workflow.runner import CalibrationRunner
+
+
+def _patch_runner_sleep(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr("gas_calibrator.workflow.runner.time.sleep", lambda seconds: sleeps.append(float(seconds)))
+    return sleeps
+
+
+@pytest.fixture(autouse=True)
+def _skip_unobserved_runner_sleep(monkeypatch):
+    monkeypatch.setattr("gas_calibrator.workflow.runner.time.sleep", lambda _seconds: None)
 
 
 class _FakeGasAnalyzer:
@@ -298,6 +310,78 @@ def test_configure_devices_accepts_startup_mode2_frame_outside_sampling_pressure
     logger.close()
 
 
+def test_configure_devices_accepts_new_algorithm_15_field_mode2_without_case_temp(tmp_path: Path) -> None:
+    cfg = {
+        "devices": {
+            "gas_analyzer": {"active_send": True, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
+            "gas_analyzers": [{"name": "ga01", "active_send": True}],
+            "pressure_controller": {"in_limits_pct": 0.02, "in_limits_time_s": 10},
+        }
+    }
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        cfg,
+        {
+            "gas_analyzer_01": _FakeGasAnalyzer(
+                {
+                    "co2_ppm": 524.739,
+                    "h2o_mmol": 0.0,
+                    "co2_ratio_f": 1.3045,
+                    "h2o_ratio_f": 0.7145,
+                    "chamber_temp_c": 30.11,
+                    "case_temp_c": None,
+                    "pressure_kpa": 100.29,
+                    "mode2_schema_version": "factory_mode2_15_no_case_temp_v1",
+                    "mode2_field_count": 15,
+                    "mode2_min_field_count": 15,
+                    "mode2_known_field_count": 13,
+                    "mode2_extra_count": 0,
+                    "mode2_tokens_json": json.dumps(
+                        [
+                            "YGAS",
+                            "001",
+                            "0524.739",
+                            "00.000",
+                            "0918.403",
+                            "-0.718",
+                            "1.3045",
+                            "1.3045",
+                            "0.7145",
+                            "0.7145",
+                            "03277",
+                            "04274",
+                            "02342",
+                            "030.11",
+                            "100.29",
+                        ],
+                        separators=(",", ":"),
+                    ),
+                    "mode2_fields_json": json.dumps(
+                        {
+                            "co2_ppm": "0524.739",
+                            "h2o_mmol": "00.000",
+                            "co2_ratio_f": "1.3045",
+                            "h2o_ratio_f": "0.7145",
+                            "chamber_temp_c": "030.11",
+                            "pressure_kpa": "100.29",
+                        },
+                        separators=(",", ":"),
+                    ),
+                    "mode2_omitted_fields_json": json.dumps(["case_temp_c"], separators=(",", ":")),
+                }
+            )
+        },
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+
+    runner._configure_devices()
+
+    assert ("active", True, False) in runner.devices["gas_analyzer_01"].calls
+    logger.close()
+
+
 def test_configure_devices_raises_when_mode2_frame_missing_startup_required_key(tmp_path: Path) -> None:
     cfg = {
         "devices": {
@@ -333,7 +417,8 @@ def test_configure_devices_raises_when_mode2_frame_missing_startup_required_key(
     logger.close()
 
 
-def test_configure_gas_analyzer_reapplies_minimal_commands_until_mode2_frame_arrives(tmp_path: Path) -> None:
+def test_configure_gas_analyzer_reapplies_minimal_commands_until_mode2_frame_arrives(tmp_path: Path, monkeypatch) -> None:
+    sleeps = _patch_runner_sleep(monkeypatch)
     cfg = {
         "devices": {
             "gas_analyzer": {"active_send": True, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
@@ -375,10 +460,12 @@ def test_configure_gas_analyzer_reapplies_minimal_commands_until_mode2_frame_arr
     assert len(mode_calls) == 2
     active_true_calls = [call for call in analyzer.calls if call[0] == "active" and call[1] is True]
     assert len(active_true_calls) == 2
+    assert any(seconds >= 1.0 for seconds in sleeps)
     logger.close()
 
 
-def test_configure_gas_analyzer_accepts_mode2_frame_after_success_ack_in_same_stream_window(tmp_path: Path) -> None:
+def test_configure_gas_analyzer_accepts_mode2_frame_after_success_ack_in_same_stream_window(tmp_path: Path, monkeypatch) -> None:
+    sleeps = _patch_runner_sleep(monkeypatch)
     cfg = {
         "devices": {
             "gas_analyzer": {"active_send": True, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
@@ -420,10 +507,12 @@ def test_configure_gas_analyzer_accepts_mode2_frame_after_success_ack_in_same_st
 
     assert analyzer.drain_calls == 1
     assert ("active", True, False) in analyzer.calls
+    assert any(seconds >= 1.0 for seconds in sleeps)
     logger.close()
 
 
-def test_configure_gas_analyzer_waits_after_success_ack_before_reapplying(tmp_path: Path) -> None:
+def test_configure_gas_analyzer_waits_after_success_ack_before_reapplying(tmp_path: Path, monkeypatch) -> None:
+    sleeps = _patch_runner_sleep(monkeypatch)
     cfg = {
         "devices": {
             "gas_analyzer": {"active_send": True, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
@@ -436,7 +525,7 @@ def test_configure_gas_analyzer_waits_after_success_ack_before_reapplying(tmp_pa
                 "ready_consecutive_frames": 1,
                 "retry_delay_s": 0.0,
                 "reapply_delay_s": 0.0,
-                "command_gap_s": 0.0,
+                "command_gap_s": 1.0,
                 "post_enable_stream_wait_s": 0.0,
                 "post_enable_stream_ack_wait_s": 0.0,
             }
@@ -466,6 +555,261 @@ def test_configure_gas_analyzer_waits_after_success_ack_before_reapplying(tmp_pa
 
     mode_calls = [call for call in analyzer.calls if call[0] == "mode"]
     assert len(mode_calls) == 1
+    assert any(seconds >= 1.0 for seconds in sleeps)
+    logger.close()
+
+
+def test_configure_gas_analyzer_read_first_skips_startup_config_commands(tmp_path: Path) -> None:
+    cfg = {
+        "devices": {
+            "gas_analyzer": {"active_send": False, "ftd_hz": 1, "average_co2": 1, "average_h2o": 1},
+            "gas_analyzers": [{"name": "ga01", "active_send": False}],
+        },
+        "workflow": {
+            "analyzer_mode2_init": {
+                "read_first_before_config": True,
+                "sniff_stream_before_config": True,
+                "read_first_attempts": 1,
+                "ready_consecutive_frames": 1,
+                "read_first_retry_delay_s": 0.0,
+            }
+        },
+    }
+    analyzer = _FakeGasAnalyzer({"co2_ppm": 500.0, "h2o_mmol": 2.0, "mode2_field_count": 16})
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {"gas_analyzer_01": analyzer}, logger, lambda *_: None, lambda *_: None)
+
+    runner._configure_gas_analyzer(
+        analyzer,
+        label="ga01",
+        mode=2,
+        active_send=False,
+        ftd_hz=1,
+        avg_co2=1,
+        avg_h2o=1,
+        avg_filter=49,
+        warning_phase="startup",
+    )
+
+    assert analyzer.calls == []
+    logger.close()
+
+
+def test_configure_gas_analyzer_read_first_can_still_apply_ftd_and_filter(tmp_path: Path, monkeypatch) -> None:
+    sleeps = _patch_runner_sleep(monkeypatch)
+    cfg = {
+        "devices": {
+            "gas_analyzer": {"active_send": True, "ftd_hz": 1, "average_co2": 1, "average_h2o": 1},
+            "gas_analyzers": [{"name": "ga01", "active_send": True}],
+        },
+        "workflow": {
+            "analyzer_mode2_init": {
+                "read_first_before_config": True,
+                "sniff_stream_before_config": True,
+                "skip_config_when_read_first_ready": False,
+                "read_first_attempts": 1,
+                "ready_consecutive_frames": 1,
+                "read_first_retry_delay_s": 0.0,
+                "reapply_attempts": 1,
+                "stream_attempts": 1,
+                "post_enable_stream_wait_s": 0.0,
+                "retry_delay_s": 0.0,
+                "command_gap_s": 1.0,
+            }
+        },
+    }
+    analyzer = _FakeGasAnalyzer({"co2_ppm": 500.0, "h2o_mmol": 2.0, "mode2_field_count": 16})
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {"gas_analyzer_01": analyzer}, logger, lambda *_: None, lambda *_: None)
+
+    runner._configure_gas_analyzer(
+        analyzer,
+        label="ga01",
+        mode=2,
+        active_send=True,
+        ftd_hz=1,
+        avg_co2=1,
+        avg_h2o=1,
+        avg_filter=49,
+        warning_phase="startup",
+    )
+
+    assert ("mode", 2, False) in analyzer.calls
+    assert ("ftd", 1) in analyzer.calls
+    assert ("avg_filter", 49, False) in analyzer.calls
+    assert ("active", True, False) in analyzer.calls
+    assert any(seconds >= 1.0 for seconds in sleeps)
+    logger.close()
+
+
+def test_configure_gas_analyzer_can_keep_active_stream_during_filter_reapply(tmp_path: Path, monkeypatch) -> None:
+    sleeps = _patch_runner_sleep(monkeypatch)
+    cfg = {
+        "devices": {
+            "gas_analyzer": {"active_send": True, "ftd_hz": 1, "average_co2": 1, "average_h2o": 1},
+            "gas_analyzers": [{"name": "ga01", "active_send": True}],
+        },
+        "workflow": {
+            "analyzer_mode2_init": {
+                "read_first_before_config": True,
+                "sniff_stream_before_config": True,
+                "skip_config_when_read_first_ready": False,
+                "quiet_active_before_config": False,
+                "read_first_attempts": 1,
+                "ready_consecutive_frames": 1,
+                "read_first_retry_delay_s": 0.0,
+                "reapply_attempts": 1,
+                "stream_attempts": 1,
+                "post_enable_stream_wait_s": 0.0,
+                "retry_delay_s": 0.0,
+                "command_gap_s": 1.0,
+            }
+        },
+    }
+    analyzer = _FakeGasAnalyzer({"co2_ppm": 500.0, "h2o_mmol": 2.0, "mode2_field_count": 16})
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {"gas_analyzer_01": analyzer}, logger, lambda *_: None, lambda *_: None)
+
+    runner._configure_gas_analyzer(
+        analyzer,
+        label="ga01",
+        mode=2,
+        active_send=True,
+        ftd_hz=1,
+        avg_co2=1,
+        avg_h2o=1,
+        avg_filter=49,
+        warning_phase="startup",
+    )
+
+    assert ("active", False, False) not in analyzer.calls
+    assert ("mode", 2, False) in analyzer.calls
+    assert ("ftd", 1) in analyzer.calls
+    assert ("avg_filter", 49, False) in analyzer.calls
+    assert ("active", True, False) in analyzer.calls
+    assert any(seconds >= 1.0 for seconds in sleeps)
+    logger.close()
+
+
+def test_configure_gas_analyzer_active_stream_read_first_skips_startup_config_commands(tmp_path: Path) -> None:
+    cfg = {
+        "devices": {
+            "gas_analyzer": {"active_send": True, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
+            "gas_analyzers": [{"name": "ga01", "active_send": True, "ftd_hz": 10}],
+        },
+        "workflow": {
+            "analyzer_mode2_init": {
+                "read_first_before_config": True,
+                "sniff_stream_before_config": True,
+                "write_config_on_read_first_fail": False,
+                "read_first_attempts": 1,
+                "ready_consecutive_frames": 1,
+                "read_first_retry_delay_s": 0.0,
+                "send_active_freq": False,
+            }
+        },
+    }
+    analyzer = _FakeStreamingBatchGasAnalyzer(
+        [["YGAS,001,500.0,2.0,1,1,1,1,1,1,1,1,25.0,25.0,101.3,OK"]]
+    )
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {"gas_analyzer_01": analyzer}, logger, lambda *_: None, lambda *_: None)
+
+    runner._configure_gas_analyzer(
+        analyzer,
+        label="ga01",
+        mode=2,
+        active_send=True,
+        ftd_hz=10,
+        avg_co2=1,
+        avg_h2o=1,
+        avg_filter=49,
+        warning_phase="startup",
+    )
+
+    assert analyzer.calls == []
+    assert analyzer.drain_calls == 1
+    logger.close()
+
+
+def test_configure_gas_analyzer_read_first_no_write_fails_without_hammering_commands(tmp_path: Path) -> None:
+    cfg = {
+        "devices": {
+            "gas_analyzer": {"active_send": False, "ftd_hz": 1, "average_co2": 1, "average_h2o": 1},
+            "gas_analyzers": [{"name": "ga01", "active_send": False}],
+        },
+        "workflow": {
+            "analyzer_mode2_init": {
+                "read_first_before_config": True,
+                "sniff_stream_before_config": True,
+                "write_config_on_read_first_fail": False,
+                "read_first_attempts": 1,
+                "ready_consecutive_frames": 1,
+                "read_first_retry_delay_s": 0.0,
+            }
+        },
+    }
+    analyzer = _FakeLegacyStreamingGasAnalyzer()
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {"gas_analyzer_01": analyzer}, logger, lambda *_: None, lambda *_: None)
+
+    with pytest.raises(RuntimeError, match="startup config writes are disabled"):
+        runner._configure_gas_analyzer(
+            analyzer,
+            label="ga01",
+            mode=2,
+            active_send=False,
+            ftd_hz=1,
+            avg_co2=1,
+            avg_h2o=1,
+            avg_filter=49,
+            warning_phase="startup",
+        )
+
+    assert analyzer.calls == []
+    logger.close()
+
+
+def test_configure_gas_analyzer_can_skip_ftd_for_fragile_serial_devices(tmp_path: Path, monkeypatch) -> None:
+    sleeps = _patch_runner_sleep(monkeypatch)
+    cfg = {
+        "devices": {
+            "gas_analyzer": {"active_send": False, "ftd_hz": 1, "average_co2": 1, "average_h2o": 1},
+            "gas_analyzers": [{"name": "ga01", "active_send": False}],
+        },
+        "workflow": {
+            "analyzer_mode2_init": {
+                "send_active_freq": False,
+                "read_first_before_config": False,
+                "reapply_attempts": 1,
+                "passive_attempts": 1,
+                "ready_consecutive_frames": 1,
+                "retry_delay_s": 0.0,
+                "command_gap_s": 1.0,
+            }
+        },
+    }
+    analyzer = _FakeGasAnalyzer({"co2_ppm": 500.0, "h2o_mmol": 2.0, "mode2_field_count": 16})
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {"gas_analyzer_01": analyzer}, logger, lambda *_: None, lambda *_: None)
+
+    runner._configure_gas_analyzer(
+        analyzer,
+        label="ga01",
+        mode=2,
+        active_send=False,
+        ftd_hz=1,
+        avg_co2=1,
+        avg_h2o=1,
+        avg_filter=49,
+        warning_phase="startup",
+    )
+
+    assert ("mode", 2, False) in analyzer.calls
+    assert ("active", False, False) in analyzer.calls
+    assert not any(call[0] == "ftd" for call in analyzer.calls)
+    assert ("avg_filter", 49, False) in analyzer.calls
+    assert any(seconds >= 1.0 for seconds in sleeps)
     logger.close()
 
 
