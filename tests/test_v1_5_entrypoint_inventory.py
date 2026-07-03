@@ -239,6 +239,9 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     readonly_com_execution_packet_validator = (
         root / "src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_packet_validator.py"
     )
+    readonly_com_execution_plan_preview = (
+        root / "src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_plan_preview.py"
+    )
     getco_readiness = root / "src/gas_calibrator/tools/export_v1_5_getco_identity_readiness.py"
     formal_status = root / "src/gas_calibrator/tools/export_v1_5_formal_run_status.py"
     formal_database_dry_run = root / "src/gas_calibrator/tools/export_v1_5_formal_database_dry_run.py"
@@ -273,6 +276,7 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
         readonly_com_execution_contract,
         readonly_com_execution_blocked_executor,
         readonly_com_execution_packet_validator,
+        readonly_com_execution_plan_preview,
         getco_readiness,
         formal_status,
         formal_database_dry_run,
@@ -328,6 +332,10 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     )
     readonly_com_execution_packet_validator_entry = classify_v1_5_entrypoint(
         readonly_com_execution_packet_validator,
+        root=root,
+    )
+    readonly_com_execution_plan_preview_entry = classify_v1_5_entrypoint(
+        readonly_com_execution_plan_preview,
         root=root,
     )
     getco_entry = classify_v1_5_entrypoint(getco_readiness, root=root)
@@ -455,6 +463,16 @@ def test_entrypoint_classifier_marks_pre_gas_readiness_as_offline_sidecar(tmp_pa
     assert (
         "offline read-only COM execution packet validator"
         in readonly_com_execution_packet_validator_entry.notes[0]
+    )
+    assert readonly_com_execution_plan_preview_entry.category == "formal_review_evidence"
+    assert readonly_com_execution_plan_preview_entry.formal_status == "formal_support"
+    assert readonly_com_execution_plan_preview_entry.risk_level == "offline"
+    assert readonly_com_execution_plan_preview_entry.opens_com_ports is False
+    assert readonly_com_execution_plan_preview_entry.controls_routes is False
+    assert readonly_com_execution_plan_preview_entry.writes_coefficients is False
+    assert (
+        "offline read-only COM execution plan preview"
+        in readonly_com_execution_plan_preview_entry.notes[0]
     )
     assert getco_entry.category == "formal_review_evidence"
     assert getco_entry.formal_status == "formal_support"
