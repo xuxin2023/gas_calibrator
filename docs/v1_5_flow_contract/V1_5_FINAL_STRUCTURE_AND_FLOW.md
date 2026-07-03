@@ -86,6 +86,10 @@ V1.5 现在已经不是“找不到入口”的状态了。正式路径可以整
 
 `src/gas_calibrator/tools/run_v1_5_formal_initialization_readonly_com_preflight_controlled_blocked_executor.py` is the no-COM/no-write stub that must sit after the controlled read-only COM preflight executor design and before any future controlled analyzer contact. It consumes the reviewed controlled design sidecar, writes an evidence artifact that the controlled `--execute-read-only-real-com` path remains blocked, and rejects execute flags, real-COM flags, controlled-write flags, operator confirmation, reviewer/approver labels, authorization id, reviewed port inventory, and active-analyzer list inputs. It does not open COM, write SN/device_code, write SENCO, connect PostgreSQL, control pressure, or control gas/water routes.
 
+### Read-only COM execution packet contract addendum
+
+`src/gas_calibrator/tools/export_v1_5_formal_readonly_com_execution_contract.py` is the offline contract layer after the controlled blocked executor. It defines the future real read-only COM execution packet fields: explicit `--execute-read-only-real-com`, authorization id, operator confirmation, reviewer, approver, reviewed port inventory, active analyzer list, 1s serial pacing, read order, old-algorithm CHECK skip behavior, and denied write/database/route actions. It does not accept those future authorization fields as unlocks, does not open COM, and does not produce real acceptance evidence.
+
 ## 4. 初始化层的正式过程
 
 初始化是进入气路/水路前的身份、状态和证据闭环，不是采样流程。
