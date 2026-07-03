@@ -31,6 +31,7 @@ REQUIRED_STEP_IDS = (
     "formal_readonly_com_execution_packet_validator_snapshot",
     "formal_readonly_com_execution_plan_preview_snapshot",
     "formal_readonly_com_minimal_executor_review_snapshot",
+    "formal_readonly_com_minimal_executor_stub_snapshot",
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
@@ -75,6 +76,7 @@ REQUIRED_ORDER = (
     "formal_readonly_com_execution_packet_validator_snapshot",
     "formal_readonly_com_execution_plan_preview_snapshot",
     "formal_readonly_com_minimal_executor_review_snapshot",
+    "formal_readonly_com_minimal_executor_stub_snapshot",
     "initialization_readiness_snapshot",
     "pre_gas_readiness_snapshot",
     "device_identity_and_getco_snapshot",
@@ -143,6 +145,7 @@ FORMAL_PHYSICAL_FLOW = (
     "FORMAL_READONLY_COM_EXECUTION_BLOCKED_EXECUTOR: prove the future real read-only COM executor remains blocked and no-COM",
     "FORMAL_READONLY_COM_EXECUTION_PACKET_VALIDATOR: validate future authorization, reviewed-port, active-analyzer, pacing, and CHECK-skip packet inputs offline",
     "FORMAL_READONLY_COM_EXECUTION_PLAN_PREVIEW: preview future identity, SN, GETCO, runtime, and CHECK read order while keeping COM locked",
+    "FORMAL_READONLY_COM_MINIMAL_EXECUTOR_STUB: write a plan-only would-execute artifact while keeping COM, writes, database, pressure, and routes locked",
     "PRE_GAS_READINESS: summarize SN/device_code, PostgreSQL 18, MODE2/1Hz, GETCO, S7/S8, S9, route, and CHECK gates before live identity",
     "PRECHECK: bind analyzer device IDs to ports and snapshot GETCO1-9",
     "IDENTITY_GETCO_READINESS: verify epoch-0 GETCO artifacts, no-write conclusion, and runtime identity-bound config before auxiliary coefficient changes",
@@ -1273,6 +1276,78 @@ def validate_v1_5_formal_flow_contract(
                             "error",
                             "formal_readonly_com_minimal_executor_review_forbidden_unlock_or_packet_input",
                             f"Formal read-only COM minimal executor review full-flow step must not include {forbidden}",
+                            step_id,
+                        )
+                    )
+
+        if step_id == "formal_readonly_com_minimal_executor_stub_snapshot":
+            if module != "gas_calibrator.tools.run_v1_5_formal_readonly_com_minimal_executor_stub":
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_readonly_com_minimal_executor_stub_wrong_tool",
+                        "Formal read-only COM minimal executor stub must use the plan-only no-COM stub",
+                        step_id,
+                    )
+                )
+            if bool(step.get("opens_com_ports")) or bool(step.get("controls_pressure")) or controls_route or writes:
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_readonly_com_minimal_executor_stub_must_be_offline_no_write",
+                        "Formal read-only COM minimal executor stub must not open COM, control pressure/routes, or write coefficients",
+                        step_id,
+                    )
+                )
+            if bool(step.get("writes_device_id")):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_readonly_com_minimal_executor_stub_must_not_write_device_id",
+                        "Formal read-only COM minimal executor stub must not write SN/device_code or protocol device ID",
+                        step_id,
+                    )
+                )
+            if not str(step.get("execution_mode") or "").startswith("offline"):
+                issues.append(
+                    _issue(
+                        "error",
+                        "formal_readonly_com_minimal_executor_stub_must_be_offline",
+                        "Formal read-only COM minimal executor stub execution_mode must be offline",
+                        step_id,
+                    )
+                )
+            for flag in (
+                "--formal-readonly-com-minimal-executor-review-json",
+                "--output-dir",
+                "--fail-on-blocked",
+            ):
+                _require_flag(
+                    command,
+                    flag,
+                    step_id=step_id,
+                    issues=issues,
+                    code="formal_readonly_com_minimal_executor_stub_missing_required_flag",
+                    message=f"Formal read-only COM minimal executor stub command must include {flag}",
+                )
+            for forbidden in (
+                "--execute",
+                "--execute-read-only-real-com",
+                "--execute-controlled-writes",
+                "--allow-real-com",
+                "--operator-confirmation-text",
+                "--authorization-id",
+                "--reviewer",
+                "--approver",
+                "--reviewed-port-inventory-json",
+                "--active-analyzer-list-json",
+            ):
+                if forbidden in command:
+                    issues.append(
+                        _issue(
+                            "error",
+                            "formal_readonly_com_minimal_executor_stub_forbidden_live_or_context_input",
+                            f"Formal read-only COM minimal executor stub full-flow step must not include {forbidden}",
                             step_id,
                         )
                     )

@@ -653,6 +653,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
                 "formal_readonly_com_execution_packet_validator_snapshot",
                 "formal_readonly_com_execution_plan_preview_snapshot",
                 "formal_readonly_com_minimal_executor_review_snapshot",
+                "formal_readonly_com_minimal_executor_stub_snapshot",
                 "initialization_readiness_snapshot",
                 "pre_gas_readiness_snapshot",
             ),
@@ -1005,6 +1006,9 @@ def build_full_flow_plan(
     )
     formal_readonly_com_minimal_executor_review_dir = (
         root / "formal_readonly_com_minimal_executor_review"
+    )
+    formal_readonly_com_minimal_executor_stub_dir = (
+        root / "formal_readonly_com_minimal_executor_stub"
     )
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
@@ -1561,6 +1565,43 @@ def build_full_flow_plan(
             notes=(
                 "The full-flow plan does not pass --execute-read-only-real-com or authorization packet fields.",
                 "This is an implementation-review contract, not a live executor and not real acceptance evidence.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="formal_readonly_com_minimal_executor_stub_snapshot",
+            title="Write plan-only minimal read-only COM executor stub without COM",
+            phase="FORMAL_READONLY_COM_MINIMAL_EXECUTOR_STUB",
+            tool_module="gas_calibrator.tools.run_v1_5_formal_readonly_com_minimal_executor_stub",
+            command=_python_module(
+                "gas_calibrator.tools.run_v1_5_formal_readonly_com_minimal_executor_stub",
+                "--formal-readonly-com-minimal-executor-review-json",
+                formal_readonly_com_minimal_executor_review_dir
+                / "v1_5_formal_readonly_com_minimal_executor_review.json",
+                "--output-dir",
+                formal_readonly_com_minimal_executor_stub_dir,
+                "--fail-on-blocked",
+            ),
+            required_inputs=("read-only COM minimal executor review sidecar",),
+            expected_outputs=(
+                "formal_readonly_com_minimal_executor_stub/v1_5_formal_readonly_com_minimal_executor_stub.json",
+                "formal_readonly_com_minimal_executor_stub/V1_5_FORMAL_READONLY_COM_MINIMAL_EXECUTOR_STUB.md",
+                "formal_readonly_com_minimal_executor_stub/v1_5_formal_readonly_com_minimal_executor_stub_checks.csv",
+                "formal_readonly_com_minimal_executor_stub/v1_5_formal_readonly_com_minimal_executor_would_execute.csv",
+                "formal_readonly_com_minimal_executor_stub/v1_5_formal_readonly_com_minimal_executor_stub_summary.csv",
+            ),
+            physical_meaning=(
+                "Create the first executor-shaped plan-only artifact after the minimal review. It may record "
+                "future authorization context as inert metadata and a would-execute trace, but still does not "
+                "open COM, read analyzers, write SN/device_code, write SENCO, connect PostgreSQL, or control routes."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_future_minimal_readonly_real_com_executor_live_unlock",
+            notes=(
+                "The full-flow plan does not pass --execute-read-only-real-com or --allow-real-com.",
+                "This stub returns a blocked status by design and is not real acceptance evidence.",
             ),
         )
     )
@@ -2791,6 +2832,9 @@ def build_full_flow_plan(
                 "--formal-readonly-com-minimal-executor-review-json",
                 formal_readonly_com_minimal_executor_review_dir
                 / "v1_5_formal_readonly_com_minimal_executor_review.json",
+                "--formal-readonly-com-minimal-executor-stub-json",
+                formal_readonly_com_minimal_executor_stub_dir
+                / "v1_5_formal_readonly_com_minimal_executor_stub.json",
                 "--pre-gas-readiness-json",
                 pre_gas_readiness_dir / "v1_5_pre_gas_readiness.json",
                 "--getco-readiness-json",
@@ -2917,6 +2961,7 @@ def build_full_flow_plan(
             "formal_readonly_com_execution_blocked_executor_before_real_readonly_com",
             "formal_readonly_com_execution_packet_validator_before_real_readonly_com",
             "formal_readonly_com_execution_plan_preview_before_real_readonly_com",
+            "formal_readonly_com_minimal_executor_stub_before_real_readonly_com",
             "device_identity_and_GETCO_snapshot",
             "identity_GETCO_readiness_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",
