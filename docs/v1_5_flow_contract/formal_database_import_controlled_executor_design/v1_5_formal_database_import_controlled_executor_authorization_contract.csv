@@ -1,0 +1,6 @@
+﻿gate,required,future_flag,contract,future_field,future_fields,future_inputs
+explicit_execute_flag,True,--execute-controlled-import,Real import must be impossible unless a future controlled executor explicitly exposes and receives this flag.,,,
+operator_confirmation_text,True,,Operator must type an exact confirmation phrase tied to run_id/archive hash.,operator_confirmation_text,,
+reviewer_approver_dual_authorization,True,,"Reviewer and approver must be present, distinct, and recorded in the import summary.",,reviewer;approver;authorization_id,
+dsn_env_only,True,,DSN value must come from environment/secret store and must not be serialized into repository artifacts.,V1_5_POSTGRES_DSN,,
+consume_frozen_contract_inputs,True,,The real executor must consume reviewed artifacts by explicit path and reject mutable run-folder discovery.,,,command_contract_json;blocked_executor_json;authorization_json;preflight_json;archive_closure_json;evidence_bundle_json

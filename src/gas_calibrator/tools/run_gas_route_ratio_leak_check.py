@@ -373,7 +373,7 @@ def _switch_route(
 
 
 def _configure_analyzer_stream(dev: GasAnalyzer, analyzer_cfg: Mapping[str, Any]) -> None:
-    command_gap_s = 0.15
+    command_gap_s = 1.0
     dev.set_comm_way_with_ack(False, require_ack=False)
     time.sleep(command_gap_s)
     dev.set_mode_with_ack(int(analyzer_cfg.get("mode", 2)), require_ack=False)

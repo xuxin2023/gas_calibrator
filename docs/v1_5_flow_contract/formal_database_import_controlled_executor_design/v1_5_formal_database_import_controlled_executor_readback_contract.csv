@@ -1,0 +1,5 @@
+﻿readback,required,query_scope,expected
+run_identity,True,run_id;archive_hash;evidence_bundle_hash,exact match to frozen archive/evidence bundle
+device_identity,True,sn_code;device_code;protocol_device_id;transport_label,SN/device_code unique primary identity and protocol ID alias preserved
+artifact_hashes,True,artifact_role;path;sha256,all formal archive artifacts indexed with matching sha256
+stage_counts,True,pressure;CO2;H2O;fit;write;reverify;reports,row counts equal import preview; no missing formal stage

@@ -1,0 +1,118 @@
+﻿{
+  "schema": "v1_5_formal_database_import_preflight_v1",
+  "generated_at": "2026-07-02T18:02:48",
+  "overall_status": "review_required",
+  "blocker_count": 0,
+  "review_required_count": 1,
+  "production_backend": "postgresql",
+  "production_postgresql_major": 18,
+  "dsn_env": "V1_5_POSTGRES_DSN",
+  "dsn_configured": false,
+  "dsn_source": "",
+  "dsn_fingerprint": "",
+  "formal_database_dry_run_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json",
+  "dry_run_contract_ready": true,
+  "connects_postgresql": false,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "writes_sn": false,
+  "writes_device_id": false,
+  "writes_coefficients": false,
+  "applies_migrations": false,
+  "database_import_attempted": false,
+  "database_written": false,
+  "database_import_allowed": false,
+  "formal_release_allowed": false,
+  "not_real_acceptance_evidence": true,
+  "primary_identity": "sn_code/device_code",
+  "protocol_device_id_role": "compatibility_alias_and_command_identity",
+  "required_authorizations": [
+    "formal_archive_release",
+    "database_import_authorization",
+    "reviewer_approval"
+  ],
+  "checks": [
+    {
+      "check": "formal_database_dry_run_contract_ready",
+      "status": "ready",
+      "evidence_role": "required_schema_and_insert_contract",
+      "reasons": [],
+      "physical_meaning": "The import preflight is only meaningful after the PostgreSQL 18 schema/insert-preview contract is ready and still no-write/no-connect.",
+      "next_action": "Regenerate or repair the formal database dry-run contract before reviewing import readiness.",
+      "details": {
+        "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json",
+        "dry_run_status": "ready_for_postgresql18_schema_dry_run_review",
+        "dry_run_blocker_count": 0
+      }
+    },
+    {
+      "check": "postgresql_dsn_configuration_preview",
+      "status": "review_required",
+      "evidence_role": "dsn_configuration_without_connection",
+      "reasons": [
+        "dsn_missing"
+      ],
+      "physical_meaning": "A production import needs a DSN, but this preflight records only presence/fingerprint.",
+      "next_action": "Provide the PostgreSQL 18 DSN only to the separately authorized import step.",
+      "details": {
+        "dsn_configured": false,
+        "dsn_source": "",
+        "dsn_env": "V1_5_POSTGRES_DSN",
+        "dsn_fingerprint": "",
+        "connects_postgresql": false
+      }
+    },
+    {
+      "check": "migration_execution_lock",
+      "status": "ready",
+      "evidence_role": "migration_boundary",
+      "reasons": [],
+      "physical_meaning": "Schema migration application must remain a separate authorized operation.",
+      "next_action": "Do not pass migration/apply flags until reviewer authorization and backup policy exist.",
+      "details": {
+        "apply_migrations": false,
+        "migrations_applied": false
+      }
+    },
+    {
+      "check": "database_import_execution_lock",
+      "status": "ready",
+      "evidence_role": "import_boundary",
+      "reasons": [],
+      "physical_meaning": "Preflight can prepare an import review, but it must not insert or update production rows.",
+      "next_action": "Use the dedicated database import command only after archive release and import authorization.",
+      "details": {
+        "database_import_attempted": false,
+        "database_written": false,
+        "database_import_allowed": false
+      }
+    },
+    {
+      "check": "identity_key_and_alias_contract",
+      "status": "ready",
+      "evidence_role": "identity_import_contract",
+      "reasons": [],
+      "physical_meaning": "Production inserts must use SN/device_code as durable identity while protocol ID remains a lookup alias.",
+      "next_action": "Keep protocol device ID as compatibility alias; do not promote it to production primary identity.",
+      "details": {
+        "primary_identity": "sn_code/device_code",
+        "protocol_device_id_role": "compatibility_alias_and_command_identity"
+      }
+    },
+    {
+      "check": "release_and_authorization_gate_required",
+      "status": "ready",
+      "evidence_role": "release_boundary",
+      "reasons": [],
+      "physical_meaning": "Database import is a release/archive action and must be downstream of formal archive closure, reviewer approval, and explicit database-import authorization.",
+      "next_action": "Keep database_import_allowed=false until formal release and import authorization are both present.",
+      "details": {
+        "requires_formal_archive_release": true,
+        "requires_database_import_authorization": true,
+        "formal_release_allowed": false,
+        "database_import_allowed": false
+      }
+    }
+  ],
+  "next_action": "Resolve review items, then run a separate explicitly authorized PostgreSQL 18 import command. This preflight never connects to PostgreSQL and never imports data."
+}

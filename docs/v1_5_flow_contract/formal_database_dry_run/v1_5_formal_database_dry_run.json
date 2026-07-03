@@ -1,0 +1,454 @@
+﻿{
+  "schema": "v1_5_formal_database_dry_run_contract_v1",
+  "generated_at": "2026-07-02T18:02:48",
+  "overall_status": "ready_for_postgresql18_schema_dry_run_review",
+  "blocker_count": 0,
+  "review_required_count": 0,
+  "production_backend": "postgresql",
+  "production_postgresql_major": 18,
+  "connects_postgresql": false,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "writes_sn": false,
+  "writes_device_id": false,
+  "writes_coefficients": false,
+  "database_written": false,
+  "database_import_allowed": false,
+  "formal_release_allowed": false,
+  "not_real_acceptance_evidence": true,
+  "primary_identity": "sn_code/device_code",
+  "protocol_device_id_role": "compatibility_alias_and_command_identity",
+  "transport_role": "COM/GA labels are run-local transport mapping only",
+  "core_storage_tables": [
+    {
+      "database_schema": "core_storage",
+      "table_name": "sensors",
+      "present": true,
+      "columns": "sensor_id;device_key;sn_code;device_code;analyzer_id;analyzer_serial;software_version;model;channel_type;metadata",
+      "unique_constraints": "uq_sensors_device_code;uq_sensors_device_key;uq_sensors_sn_code",
+      "indexes": "ix_sensors_channel_type;ix_sensors_device_code;ix_sensors_legacy_identity;ix_sensors_serial;ix_sensors_sn_code",
+      "physical_role": "canonical analyzer identity table; sn_code/device_code are production primary identity fields"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "sensor_identity_aliases",
+      "present": true,
+      "columns": "id;sensor_id;alias_type;alias_value;source_run_id;observed_at;valid_from;valid_to;metadata",
+      "unique_constraints": "uq_sensor_identity_alias_source",
+      "indexes": "ix_sensor_identity_alias_lookup;ix_sensor_identity_alias_run;ix_sensor_identity_alias_sensor",
+      "physical_role": "compatibility aliases including protocol device ID and historical analyzer serials"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "runs",
+      "present": true,
+      "columns": "id;start_time;end_time;status;config_hash;software_version;run_mode;route_mode;profile_name;profile_version;report_family;report_templates;analyzer_setup;operator;total_points;successful_points;failed_points;warnings;errors;notes",
+      "unique_constraints": "",
+      "indexes": "ix_runs_mode_profile;ix_runs_operator;ix_runs_time_window",
+      "physical_role": "formal calibration/run session metadata"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "points",
+      "present": true,
+      "columns": "id;run_id;sequence;temperature_c;humidity_rh;pressure_hpa;route_type;co2_target_ppm;co2_group;cylinder_nominal_ppm;status;stability_time_s;total_time_s;retry_count",
+      "unique_constraints": "uq_points_run_sequence",
+      "indexes": "ix_points_group_nominal;ix_points_route_status;ix_points_run_id",
+      "physical_role": "physical CO2/H2O calibration point schedule and status"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "samples",
+      "present": true,
+      "columns": "id;point_id;sensor_id;analyzer_id;analyzer_serial;sample_index;timestamp;co2_ppm;h2o_mmol;pressure_hpa;co2_ratio_f;h2o_ratio_f;co2_ratio_raw;h2o_ratio_raw;chamber_temp_c;case_temp_c;dewpoint_c",
+      "unique_constraints": "uq_samples_point_analyzer_index",
+      "indexes": "ix_samples_analyzer;ix_samples_point_id;ix_samples_sensor_id;ix_samples_timestamp",
+      "physical_role": "per-point summarized analyzer sample rows"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "measurement_frames",
+      "present": true,
+      "columns": "id;run_id;point_id;sensor_id;sample_index;sample_ts;analyzer_label;analyzer_id;analyzer_serial;frame_has_data;frame_usable;analyzer_status;mode;mode2_field_count;co2_ppm;h2o_mmol;co2_ratio_f;h2o_ratio_f;co2_ratio_raw;h2o_ratio_raw;ref_signal;co2_signal;h2o_signal;chamber_temp_c;case_temp_c;pressure_kpa;raw_payload;context_payload",
+      "unique_constraints": "uq_measurement_frames_natural_key",
+      "indexes": "ix_measurement_frames_analyzer_time;ix_measurement_frames_point_sample;ix_measurement_frames_run_time;ix_measurement_frames_sensor_id",
+      "physical_role": "raw/parsed frame-level evidence with natural key per point/analyzer/sample timestamp"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "qc_results",
+      "present": true,
+      "columns": "id;point_id;rule_name;passed;value;threshold;message",
+      "unique_constraints": "uq_qc_results_point_rule_message",
+      "indexes": "ix_qc_results_passed;ix_qc_results_point_id",
+      "physical_role": "programmatic quality gates and reject/pass reasons"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "fit_results",
+      "present": true,
+      "columns": "id;run_id;sensor_id;analyzer_id;algorithm;coefficients;rmse;r_squared;n_points",
+      "unique_constraints": "uq_fit_results_run_analyzer_algorithm",
+      "indexes": "ix_fit_results_analyzer;ix_fit_results_run_id;ix_fit_results_sensor_id",
+      "physical_role": "candidate fit outputs before controlled write review"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "coefficient_versions",
+      "present": true,
+      "columns": "id;sensor_id;analyzer_id;analyzer_serial;version;coefficients;created_at;created_by;approved;approved_by;approved_at;deployed;deployed_at;notes",
+      "unique_constraints": "uq_coefficient_versions_analyzer_version",
+      "indexes": "ix_coefficient_versions_deployed;ix_coefficient_versions_lookup;ix_coefficient_versions_sensor_id",
+      "physical_role": "versioned coefficient payloads and approval/deployment state"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "device_events",
+      "present": true,
+      "columns": "id;run_id;device_name;event_type;event_data;timestamp",
+      "unique_constraints": "",
+      "indexes": "ix_device_events_run_id;ix_device_events_timestamp",
+      "physical_role": "GETCO/SN/runtime/CHECK/writeback/archive sidecar events"
+    },
+    {
+      "database_schema": "core_storage",
+      "table_name": "alarms_incidents",
+      "present": true,
+      "columns": "id;run_id;severity;category;message;details;timestamp;resolved;resolved_at",
+      "unique_constraints": "uq_alarms_incidents_natural_key",
+      "indexes": "ix_alarms_incidents_run_id;ix_alarms_incidents_severity;ix_alarms_incidents_timestamp",
+      "physical_role": "operator/reviewer-visible warnings and failure records"
+    }
+  ],
+  "evidence_registry_tables": [
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "runs",
+      "present": true,
+      "columns": "id;run_id;run_dir;plan_id;plan_version;analyzer_id;operator_name;config_hash;package_status;package_blockers;evidence_status;metadata",
+      "unique_constraints": "run_id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "evidence package/run root and release status"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "devices",
+      "present": true,
+      "columns": "id;device_type;device_role;display_name;serial_number;metadata",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "reference devices, gas analyzers, standards, and transport devices in the evidence bundle"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "run_devices",
+      "present": true,
+      "columns": "id;run_db_id;device_id;role;metadata",
+      "unique_constraints": "run_db_id,device_id,role",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "run-to-device participation and role mapping"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "standard_gases",
+      "present": true,
+      "columns": "id;run_db_id;component;cylinder_id;certificate_value;certificate_uncertainty;valid_until;supplier;certificate_hash;metadata",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "standard gas certificates and cylinder traceability"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "reference_certificates",
+      "present": true,
+      "columns": "id;run_db_id;device_id;reference_role;certificate_id;certificate_hash;valid_until;uncertainty;unit;metadata",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "pressure/dewpoint/reference device certificates"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "calibration_points",
+      "present": true,
+      "columns": "id;run_db_id;component;point_key;point_tag;pressure_mode;target_value;sample_count;a_grade_count;b_grade_count;rejected_count;metadata",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "formal point-level summary and quality counts"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "sample_files",
+      "present": true,
+      "columns": "id;run_db_id;artifact_role;path;sha256;size_bytes;modified_at;required;metadata",
+      "unique_constraints": "run_db_id,path",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "raw CSV/JSON/MD/PDF artifact hash index"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "qc_results",
+      "present": true,
+      "columns": "id;run_db_id;scope;subject_id;rule_name;status;severity;reasons;metrics;source_artifact_id;metadata",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "formal evidence QC checks and blocker reasons"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "coefficient_snapshots",
+      "present": true,
+      "columns": "id;run_db_id;analyzer_id;snapshot_type;coefficients;coefficients_hash;source_artifact_id;metadata",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "old GETCO/SENCO/R0 snapshots before any write"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "coefficient_candidates",
+      "present": true,
+      "columns": "id;run_db_id;component;candidate_status;allowed_for_review;auto_write_allowed;blockers;coefficients;source_artifact_id;metadata",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "no-write candidate coefficient review payloads"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "coefficient_write_events",
+      "present": true,
+      "columns": "id;run_db_id;analyzer_id;event_type;status;approved_by;command_summary;old_coefficients_hash;candidate_id;readback;metadata",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "controlled write/readback/rollback evidence"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "reports",
+      "present": true,
+      "columns": "id;run_db_id;report_type;path;sha256;status;generated_at;metadata",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "formal reports and certificates"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "audit_events",
+      "present": true,
+      "columns": "id;run_db_id;event_type;actor;event_at;payload",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "operator/reviewer/approver events"
+    },
+    {
+      "database_schema": "v1_5_evidence",
+      "table_name": "evidence_integrity_checks",
+      "present": true,
+      "columns": "id;run_db_id;check_name;status;severity;details",
+      "unique_constraints": "id",
+      "indexes": "migration_001_v1_5_evidence_registry",
+      "physical_role": "hash, identity, archive, and database-release checks"
+    }
+  ],
+  "identity_contract": [
+    {
+      "field": "sn_code",
+      "required": true,
+      "format": "8 numeric digits; not 00000000",
+      "table": "core_storage.sensors",
+      "constraint": "uq_sensors_sn_code",
+      "role": "production primary identity"
+    },
+    {
+      "field": "device_code",
+      "required": true,
+      "format": "8 numeric digits; normally equals sn_code in V1.5 production",
+      "table": "core_storage.sensors",
+      "constraint": "uq_sensors_device_code",
+      "role": "production lookup identity and future QR-code payload"
+    },
+    {
+      "field": "protocol_device_id",
+      "required": true,
+      "format": "3 numeric digits",
+      "table": "core_storage.sensor_identity_aliases",
+      "constraint": "ix_sensor_identity_alias_lookup",
+      "role": "compatibility query alias and command identity only; never primary identity"
+    },
+    {
+      "field": "slot_or_ga_label",
+      "required": true,
+      "format": "GA01..GA06",
+      "table": "run_devices.metadata",
+      "constraint": "run-scoped metadata",
+      "role": "run-local analyzer slot label only"
+    },
+    {
+      "field": "com_port",
+      "required": false,
+      "format": "COMn transport endpoint",
+      "table": "run_devices.metadata",
+      "constraint": "run-scoped metadata",
+      "role": "transport mapping only; not a device identity"
+    }
+  ],
+  "planned_device_preview": [],
+  "insert_preview": [
+    {
+      "stage": "initialization_identity",
+      "source_artifact": "v1_5_formal_initialization_db_bundle.json",
+      "target_tables": "sensors;sensor_identity_aliases;runs;device_events",
+      "natural_key": "sn_code/device_code + protocol_device_id alias + run_id",
+      "write_mode": "dry_run_preview_only_until_explicit_db_import",
+      "physical_meaning": "Bind analyzer SN/device_code, protocol ID alias, GETCO epoch-0, and initialization run metadata."
+    },
+    {
+      "stage": "runtime_setup",
+      "source_artifact": "v1_5_analyzer_runtime_setup_result.json",
+      "target_tables": "sensors;sensor_identity_aliases;runs;device_events",
+      "natural_key": "sn_code + runtime setup event type + run_id",
+      "write_mode": "dry_run_preview_only_until_explicit_db_import",
+      "physical_meaning": "Record MODE2, 1Hz active upload, AVERAGE1/2 filter, SN readback, and CHECK-capable runtime evidence."
+    },
+    {
+      "stage": "pressure_temperature_pre_open_flow",
+      "source_artifact": "pressure/S9 and temperature-neutral review sidecars",
+      "target_tables": "device_events;evidence_integrity_checks;reference_certificates",
+      "natural_key": "run_id + device + event_type",
+      "write_mode": "dry_run_preview_only_until_explicit_db_import",
+      "physical_meaning": "Keep pressure SENCO9 and S7/S8 neutral review separate from CO2/H2O fit rows."
+    },
+    {
+      "stage": "open_flow_sampling",
+      "source_artifact": "CO2/H2O queue CSV/JSON evidence",
+      "target_tables": "points;samples;measurement_frames;qc_results;v1_5_evidence.calibration_points;v1_5_evidence.sample_files",
+      "natural_key": "run_id + point sequence/key + analyzer label + sample index/timestamp",
+      "write_mode": "dry_run_preview_only_until_explicit_db_import",
+      "physical_meaning": "Store point-level summaries, raw frames, sample windows, QC grades, and artifact hashes."
+    },
+    {
+      "stage": "fit_and_candidate_review",
+      "source_artifact": "candidate coefficient review sidecars",
+      "target_tables": "fit_results;v1_5_evidence.coefficient_candidates;v1_5_evidence.qc_results",
+      "natural_key": "run_id + sensor/analyzer + algorithm/profile",
+      "write_mode": "dry_run_preview_only_until_explicit_db_import",
+      "physical_meaning": "Record no-write candidate coefficients, residuals, included/rejected points, and algorithm profile."
+    },
+    {
+      "stage": "controlled_write_and_readback",
+      "source_artifact": "controlled write/readback/rollback sidecars",
+      "target_tables": "coefficient_versions;device_events;v1_5_evidence.coefficient_write_events",
+      "natural_key": "sensor_id + version or run_id + analyzer + event_type",
+      "write_mode": "requires explicit controlled write and separate database import authorization",
+      "physical_meaning": "Trace old coefficient snapshot, clear/write/readback status, rollback plan, and reviewer approval."
+    },
+    {
+      "stage": "archive_report_release",
+      "source_artifact": "archive closure index, formal reports, hash manifests",
+      "target_tables": "v1_5_evidence.reports;v1_5_evidence.audit_events;v1_5_evidence.evidence_integrity_checks",
+      "natural_key": "run_id + artifact path/hash/report type",
+      "write_mode": "dry_run_preview_only_until_archive_release_gate_passes",
+      "physical_meaning": "Index immutable evidence files, reports, release gates, and SN traceability before formal database import."
+    }
+  ],
+  "checks": [
+    {
+      "check": "postgresql18_backend_contract",
+      "status": "ready",
+      "evidence_role": "database_backend_contract",
+      "reasons": [],
+      "physical_meaning": "V1.5 production import targets PostgreSQL 18; this dry-run does not connect to it.",
+      "next_action": "Keep this as offline schema preview until a separate PostgreSQL 18 preflight/import is authorized.",
+      "details": {
+        "production_backend": "postgresql",
+        "production_postgresql_major": 18,
+        "required_postgresql_major": 18,
+        "connects_postgresql": false
+      }
+    },
+    {
+      "check": "core_storage_schema_contract",
+      "status": "ready",
+      "evidence_role": "core_storage_schema_preview",
+      "reasons": [],
+      "physical_meaning": "Core storage must preserve device identity, point/sample/frame QC, fit, coefficient, and event traceability.",
+      "next_action": "Repair storage model constraints before any production database import.",
+      "details": {
+        "table_count": 11,
+        "required_tables": [
+          "sensors",
+          "sensor_identity_aliases",
+          "runs",
+          "points",
+          "samples",
+          "measurement_frames",
+          "qc_results",
+          "fit_results",
+          "coefficient_versions",
+          "device_events",
+          "alarms_incidents"
+        ]
+      }
+    },
+    {
+      "check": "evidence_registry_schema_contract",
+      "status": "ready",
+      "evidence_role": "v1_5_evidence_registry_schema_preview",
+      "reasons": [],
+      "physical_meaning": "The V1.5 evidence registry indexes immutable files, reports, QC, candidates, writes, and release checks.",
+      "next_action": "Repair evidence-registry table contract or migration before database import.",
+      "details": {
+        "table_count": 14,
+        "schema": "v1_5_evidence"
+      }
+    },
+    {
+      "check": "sn_device_code_identity_contract",
+      "status": "ready",
+      "evidence_role": "identity_schema_contract",
+      "reasons": [],
+      "physical_meaning": "SN/device_code is the durable production identity; protocol device ID remains a compatibility alias.",
+      "next_action": "Do not import production evidence until identity uniqueness and alias lookup are explicit.",
+      "details": {
+        "identity_contract_rows": 5,
+        "planned_device_count": 0
+      }
+    },
+    {
+      "check": "planned_device_identity_preview",
+      "status": "ready",
+      "evidence_role": "planned_device_insert_preview",
+      "reasons": [],
+      "physical_meaning": "Optional 1-6 analyzer preview catches duplicate or malformed SN/device_code/protocol ID before import.",
+      "next_action": "Fix planned device identity rows before generating a production DB insert preview.",
+      "details": {
+        "planned_device_count": 0,
+        "supports_active_device_count": "1_to_6"
+      }
+    },
+    {
+      "check": "insert_preview_contract",
+      "status": "ready",
+      "evidence_role": "database_insert_preview_contract",
+      "reasons": [],
+      "physical_meaning": "Database import must preserve each physical stage from initialization through archive without inventing release evidence.",
+      "next_action": "Review insert-preview rows before wiring any production DB import command.",
+      "details": {
+        "stage_count": 7,
+        "database_written": false
+      }
+    },
+    {
+      "check": "dry_run_does_not_authorize_import_or_release",
+      "status": "ready",
+      "evidence_role": "database_release_boundary",
+      "reasons": [],
+      "physical_meaning": "This contract can approve schema shape, not formal archive release or database import.",
+      "next_action": "Use archive closure and formal run status before any real PostgreSQL import.",
+      "details": {
+        "database_import_allowed": false,
+        "formal_release_allowed": false,
+        "not_real_acceptance_evidence": true
+      }
+    }
+  ],
+  "next_action": "Review schema and insert-preview evidence. Passing this dry-run does not connect to PostgreSQL, write production data, authorize archive release, or replace initialization DB preflight."
+}

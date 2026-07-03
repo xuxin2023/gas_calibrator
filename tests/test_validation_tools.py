@@ -130,6 +130,14 @@ class _FakeGasAnalyzer:
         self.calls.append(("active", active, require_ack))
         return True
 
+    def set_active_freq(self, hz):
+        self.calls.append(("ftd", hz))
+        return True
+
+    def set_active_freq_with_ack(self, hz, require_ack=True):
+        self.calls.append(("ftd", hz, require_ack))
+        return True
+
     def set_average_filter(self, window_n):
         self.calls.append(("avg_filter", window_n))
         return True
@@ -268,7 +276,10 @@ def test_merged_sidecar_merge_keeps_gas_and_water_separate() -> None:
     water_key = run_v1_merged_calibration_sidecar._point_identity_from_row(
         {"流程阶段": "h2o", "温箱目标温度C": 20, "湿度发生器目标温度C": 20, "湿度发生器目标湿度%": 70, "目标压力hPa": 500}
     )
-    assert selected_sources[water_key] == str(older)
+    water_source = selected_sources[water_key]
+    if isinstance(water_source, dict):
+        water_source = water_source.get("source_run")
+    assert water_source == str(older)
 
 
 def test_merged_sidecar_builds_verify_subset_points_workbook(tmp_path: Path) -> None:
@@ -593,6 +604,7 @@ def test_validate_pressure_only_exports_pressure_checks(monkeypatch, tmp_path: P
     assert validate_pressure_only.main(["--config", str(cfg_path), "--output-dir", str(tmp_path / "out"), "--pressure-points", "ambient,900", "--count", "2", "--interval-s", "0", "--no-prompt"]) == 0
     run_dir = next((tmp_path / "out").glob("pressure_only_*"))
     assert (run_dir / "pressure_source_check.csv").exists()
+    assert (run_dir / "pressure_senco9_fit_evaluation" / "pressure_fit_summary.csv").exists()
 
 
 def test_verify_coefficient_roundtrip_with_same_value_write(monkeypatch, tmp_path: Path) -> None:

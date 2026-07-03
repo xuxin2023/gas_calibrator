@@ -1,0 +1,153 @@
+﻿{
+  "schema": "v1_5_formal_database_import_blocked_executor_v1",
+  "generated_at": "2026-07-02T18:02:48",
+  "overall_status": "review_required",
+  "blocker_count": 0,
+  "review_required_count": 3,
+  "blocked_executor_ready": false,
+  "contract_ready_for_future_execution_review": false,
+  "execution_supported": false,
+  "execution_requested": false,
+  "real_import_execution_allowed": false,
+  "dry_run_only": true,
+  "production_backend": "postgresql",
+  "production_postgresql_major": 18,
+  "formal_database_import_command_contract_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json",
+  "formal_database_import_authorization_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+  "formal_database_import_preflight_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+  "archive_closure_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+  "evidence_bundle_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\evidence_bundle.json",
+  "dsn_env": "V1_5_POSTGRES_DSN",
+  "dsn_value_read": false,
+  "connects_postgresql": false,
+  "opens_com_ports": false,
+  "controls_water_or_gas_routes": false,
+  "writes_sn": false,
+  "writes_device_id": false,
+  "writes_coefficients": false,
+  "applies_migrations": false,
+  "database_import_attempted": false,
+  "database_written": false,
+  "database_import_allowed": false,
+  "formal_release_allowed": false,
+  "not_real_acceptance_evidence": true,
+  "checks": [
+    {
+      "check": "formal_database_import_command_contract_consumed",
+      "status": "review_required",
+      "evidence_role": "required_command_contract",
+      "reasons": [
+        "contract_status=review_required",
+        "contract_review_required_count=4",
+        "command_contract_ready=False",
+        "authorization_ready=False",
+        "preflight_ready=False",
+        "archive_release_ready=False",
+        "evidence_bundle_ready=False"
+      ],
+      "physical_meaning": "The import command stub must consume the reviewed PostgreSQL 18 command contract before any future real import executor is considered.",
+      "next_action": "Regenerate the command contract until it is ready, then re-run this blocked executor stub.",
+      "details": {
+        "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json",
+        "source_status": "review_required",
+        "requested_command_module": "gas_calibrator.tools.import_v1_5_evidence_package"
+      }
+    },
+    {
+      "check": "formal_database_import_authorization_bound",
+      "status": "ready",
+      "evidence_role": "required_import_input",
+      "reasons": [],
+      "physical_meaning": "A future controlled import must use the same frozen inputs that were reviewed by the command contract, not discover mutable files at execution time.",
+      "next_action": "Pass the exact reviewed artifact path from the command contract.",
+      "details": {
+        "field": "formal_database_import_authorization_json",
+        "argument_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+        "contract_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json"
+      }
+    },
+    {
+      "check": "formal_database_import_preflight_bound",
+      "status": "ready",
+      "evidence_role": "required_import_input",
+      "reasons": [],
+      "physical_meaning": "A future controlled import must use the same frozen inputs that were reviewed by the command contract, not discover mutable files at execution time.",
+      "next_action": "Pass the exact reviewed artifact path from the command contract.",
+      "details": {
+        "field": "formal_database_import_preflight_json",
+        "argument_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+        "contract_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json"
+      }
+    },
+    {
+      "check": "formal_archive_closure_bound",
+      "status": "review_required",
+      "evidence_role": "required_import_input",
+      "reasons": [
+        "archive_closure_json_path_missing"
+      ],
+      "physical_meaning": "A future controlled import must use the same frozen inputs that were reviewed by the command contract, not discover mutable files at execution time.",
+      "next_action": "Pass the exact reviewed artifact path from the command contract.",
+      "details": {
+        "field": "archive_closure_json",
+        "argument_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json",
+        "contract_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\v1_5_formal_archive_closure_index.json"
+      }
+    },
+    {
+      "check": "formal_evidence_bundle_bound",
+      "status": "review_required",
+      "evidence_role": "required_import_input",
+      "reasons": [
+        "evidence_bundle_json_path_missing"
+      ],
+      "physical_meaning": "A future controlled import must use the same frozen inputs that were reviewed by the command contract, not discover mutable files at execution time.",
+      "next_action": "Pass the exact reviewed artifact path from the command contract.",
+      "details": {
+        "field": "evidence_bundle_json",
+        "argument_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\evidence_bundle.json",
+        "contract_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_archive_closure_from_full_chain\\evidence_bundle.json"
+      }
+    },
+    {
+      "check": "dsn_env_reference_recorded",
+      "status": "ready",
+      "evidence_role": "dsn_reference_only",
+      "reasons": [],
+      "physical_meaning": "This stub records the DSN environment variable name only. It does not read the DSN value and does not open PostgreSQL.",
+      "next_action": "Keep DSN secret handling outside repository artifacts and review it in the future executor.",
+      "details": {
+        "dsn_env": "V1_5_POSTGRES_DSN",
+        "dsn_value_read": false
+      }
+    },
+    {
+      "check": "execution_lock_enforced",
+      "status": "ready",
+      "evidence_role": "hard_execution_lock",
+      "reasons": [],
+      "physical_meaning": "The V1.5 import command is still a blocked stub: execution is unsupported, so no --execute path can import production data.",
+      "next_action": "Design a separate controlled executor with double authorization before any real import.",
+      "details": {
+        "execution_supported": false,
+        "execution_requested": false,
+        "real_import_execution_allowed": false
+      }
+    },
+    {
+      "check": "postgresql_side_effect_lock",
+      "status": "ready",
+      "evidence_role": "no_connect_no_write_boundary",
+      "reasons": [],
+      "physical_meaning": "This command must prove that no PostgreSQL connection, migration, or row import occurred.",
+      "next_action": "Keep this evidence as a pre-executor safety record, not a database-import result.",
+      "details": {
+        "connects_postgresql": false,
+        "applies_migrations": false,
+        "database_import_attempted": false,
+        "database_written": false
+      }
+    }
+  ],
+  "next_action": "Keep production database import locked. A later controlled executor must add explicit double authorization, read this stub/contract, connect to PostgreSQL 18 only inside that future reviewed path, and write separate readback/import evidence."
+}

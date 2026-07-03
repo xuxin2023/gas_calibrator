@@ -1,0 +1,1965 @@
+{
+  "schema": "v1_5_run_evidence_status_v1",
+  "generated_at": "2026-07-02T18:02:48",
+  "run_dir": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract",
+  "component": "both",
+  "overall_status": "incomplete",
+  "current_stage": "plan_traceability",
+  "physical_boundaries": {
+    "offline_status_only": true,
+    "opens_com_ports": false,
+    "controls_water_or_gas_routes": false,
+    "controls_valves_or_pace": false,
+    "writes_coefficients": false,
+    "not_real_acceptance_evidence": true
+  },
+  "linked_inputs": {
+    "full_flow_plan_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_plan.json",
+    "full_flow_stage_manifest_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.json",
+    "full_flow_live_runner_readiness_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_live_runner_readiness.json",
+    "contract_json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_flow_contract.json",
+    "evidence_bundle_json": ""
+  },
+  "contract_status": "pass",
+  "full_flow_stage_manifest": {
+    "status": "present",
+    "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.json",
+    "schema": "v1_5_full_flow_stage_manifest_v1",
+    "run_id": "v1_5_contract_reference",
+    "current_automation_level": "supervised_tool_chain_with_controlled_live_gates",
+    "one_button_live_runner_ready": false,
+    "current_manifest_stage": "load_plan_and_traceability",
+    "automation_summary": {
+      "blocked_controlled_write": 2,
+      "dedicated_open_flow_runner_requires_authorization": 2,
+      "dedicated_pressure_runner_requires_authorization": 2,
+      "offline_database_requires_dsn": 1,
+      "offline_review_auto_candidate": 15,
+      "offline_review_waiting_for_run_artifacts": 10,
+      "read_only_real_com_requires_authorization": 1
+    },
+    "status_counts": {
+      "authorization_required": 5,
+      "blocked_controlled_gate": 2,
+      "pass": 7,
+      "waiting_for_artifacts": 19
+    },
+    "stage_count": 33,
+    "stage_statuses": [
+      {
+        "order": 1,
+        "step_id": "load_plan_and_traceability",
+        "title": "Prepare V1.5 formal plan and certificate snapshots",
+        "phase": "LOAD_PLAN",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "formal_plan_snapshot.json",
+          "com22_pressure_reference.json",
+          "evidence_run_manifest.json"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 2,
+        "step_id": "formal_initialization_contract_plan",
+        "title": "Generate formal initialization contract and DB bundle",
+        "phase": "INITIALIZATION_CONTRACT",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 4,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "formal_initialization/v1_5_formal_initialization_plan.json",
+          "formal_initialization/v1_5_formal_initialization_contract.json",
+          "formal_initialization/v1_5_formal_initialization_db_bundle.json",
+          "formal_initialization/v1_5_formal_initialization_commands.ps1"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 3,
+        "step_id": "initialization_readiness_snapshot",
+        "title": "Export initialization readiness sidecar before live gates",
+        "phase": "INITIALIZATION_READINESS",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "formal_initialization/v1_5_initialization_readiness.json",
+          "formal_initialization/v1_5_initialization_readiness.md",
+          "formal_initialization/v1_5_initialization_database_sidecar.json"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 4,
+        "step_id": "pre_gas_readiness_snapshot",
+        "title": "Summarize pre-gas readiness gates before live identity",
+        "phase": "PRE_GAS_READINESS",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "pre_gas_readiness/v1_5_pre_gas_readiness.json",
+          "pre_gas_readiness/v1_5_pre_gas_readiness.md",
+          "pre_gas_readiness/v1_5_pre_gas_readiness_checks.csv"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 5,
+        "step_id": "device_identity_and_getco_snapshot",
+        "title": "Read device IDs and GETCO1-9 before calibration",
+        "phase": "PRECHECK",
+        "automation_state": "read_only_real_com_requires_authorization",
+        "status": "authorization_required",
+        "reason": "live_stage_requires_explicit_authorization_and_external_execution",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "old_component_coefficients_snapshot.json",
+          "getco_component_snapshot_identity.csv",
+          "runtime_identity_bound_config.json"
+        ],
+        "authorization_required": {
+          "real_com": true,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 6,
+        "step_id": "identity_getco_readiness_snapshot",
+        "title": "Validate identity-bound GETCO epoch-0 evidence",
+        "phase": "IDENTITY_GETCO_READINESS",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "identity_getco_readiness/v1_5_getco_identity_readiness.json",
+          "identity_getco_readiness/v1_5_getco_identity_readiness.md",
+          "identity_getco_readiness/v1_5_getco_identity_readiness_checks.csv"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 7,
+        "step_id": "auxiliary_senco56789_neutralization_gate",
+        "title": "Neutralize auxiliary SENCO5-9 after epoch-0 GETCO backup",
+        "phase": "AUXILIARY_COEFFICIENT_NEUTRALIZATION",
+        "automation_state": "blocked_controlled_write",
+        "status": "blocked_controlled_gate",
+        "reason": "controlled_write_or_device_id_gate_requires_explicit_review",
+        "expected_output_count": 5,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\auxiliary_senco56789_neutralization\\senco5_neutral_write_events.csv",
+          "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\auxiliary_senco56789_neutralization\\senco6_neutral_write_events.csv",
+          "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\auxiliary_senco56789_neutralization\\senco78_neutral_write_events.csv",
+          "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\auxiliary_senco56789_neutralization\\senco9_clear_write_events.csv",
+          "auxiliary_coefficient_epoch_neutralized_snapshot.json"
+        ],
+        "authorization_required": {
+          "real_com": true,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": true,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 8,
+        "step_id": "pressure_quick_check",
+        "title": "Verify analyzer pressure input against COM22 at atmosphere",
+        "phase": "PRESSURE_CHANNEL_QUICK_CHECK",
+        "automation_state": "dedicated_pressure_runner_requires_authorization",
+        "status": "authorization_required",
+        "reason": "live_stage_requires_explicit_authorization_and_external_execution",
+        "expected_output_count": 1,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "pressure quick-check CSV"
+        ],
+        "authorization_required": {
+          "real_com": true,
+          "pressure_control": true,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 9,
+        "step_id": "pressure_senco9_no_write_acquisition",
+        "title": "If pressure fails, collect SENCO9 no-write multi-pressure evidence",
+        "phase": "PRESSURE_CHANNEL_SENCO9_ACQUISITION",
+        "automation_state": "dedicated_pressure_runner_requires_authorization",
+        "status": "authorization_required",
+        "reason": "live_stage_requires_explicit_authorization_and_external_execution",
+        "expected_output_count": 4,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "pressure_transition_trace.csv",
+          "pressure_only_validation_meta.json",
+          "pressure_channel_multi_analyzer_summary.csv",
+          "pressure quick-check CSVs by analyzer"
+        ],
+        "authorization_required": {
+          "real_com": true,
+          "pressure_control": true,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 10,
+        "step_id": "pressure_senco9_no_write_review",
+        "title": "If pressure acquisition ran, evaluate SENCO9 no-write candidates",
+        "phase": "PRESSURE_CHANNEL_SENCO9_REVIEW",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 2,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "pressure_senco9_fit_evaluation workbook",
+          "pressure_fit_summary.csv"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 11,
+        "step_id": "pressure_channel_completion_audit",
+        "title": "Export pressure-channel completion package after SENCO9 write and post-write verification",
+        "phase": "PRESSURE_CHANNEL_COMPLETION",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "pressure_channel_completion/pressure_channel_completion_summary.csv",
+          "pressure_channel_completion/pressure_channel_device_readiness.csv",
+          "pressure_channel_completion/pressure_channel_completion_report.md"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 12,
+        "step_id": "temperature_channel_fast_review",
+        "title": "Review SENCO7/SENCO8 temperature input evidence",
+        "phase": "TEMPERATURE_CHANNEL_REVIEW",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 2,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "temperature_channel_review_summary.json",
+          "temperature_channel_review.md"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 13,
+        "step_id": "co2_open_flow_sampling",
+        "title": "Run V1.5 CO2 open-flow multi-temperature queue",
+        "phase": "CO2_OPEN_FLOW",
+        "automation_state": "dedicated_open_flow_runner_requires_authorization",
+        "status": "authorization_required",
+        "reason": "live_stage_requires_explicit_authorization_and_external_execution",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "CO2 point sidecars",
+          "MODE2 ratio/signal evidence",
+          "digital thermometer evidence"
+        ],
+        "authorization_required": {
+          "real_com": true,
+          "pressure_control": false,
+          "route_control": true,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 14,
+        "step_id": "h2o_open_flow_sampling",
+        "title": "Run V1.5 H2O open-flow multi-temperature queue",
+        "phase": "H2O_OPEN_FLOW",
+        "automation_state": "dedicated_open_flow_runner_requires_authorization",
+        "status": "authorization_required",
+        "reason": "live_stage_requires_explicit_authorization_and_external_execution",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "H2O point sidecars",
+          "dewpoint/H2O mmol evidence",
+          "H2O ratio/signal evidence"
+        ],
+        "authorization_required": {
+          "real_com": true,
+          "pressure_control": false,
+          "route_control": true,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 15,
+        "step_id": "factory_signal_health_review",
+        "title": "Review factory-mode optical reference and signal health",
+        "phase": "FACTORY_SIGNAL_HEALTH_REVIEW",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "factory_signal_health_summary.csv",
+          "factory_signal_health_point_flags.csv",
+          "factory_signal_health_report_zh.md"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 16,
+        "step_id": "fit_input_quality_review",
+        "title": "Audit CO2/H2O fit inputs before candidate coefficients",
+        "phase": "QC_AND_FIT_INPUT_REVIEW",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 1,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "fit_input_quality.md"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 17,
+        "step_id": "post_run_coefficient_executor",
+        "title": "Build post-run coefficient review, write, reverify, and archive gap plan",
+        "phase": "POST_RUN_COEFFICIENT_EXECUTOR",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 7,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "post_run_coefficient_executor/executor_manifest.json",
+          "post_run_coefficient_executor/executor_summary.md",
+          "post_run_coefficient_executor/device_eligibility.csv",
+          "post_run_coefficient_executor/coefficient_execution_plan.csv",
+          "post_run_coefficient_executor/controlled_write_package.csv",
+          "post_run_coefficient_executor/post_write_reverification_plan.csv",
+          "post_run_coefficient_executor/archive_gap_list.csv"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 18,
+        "step_id": "full_flow_closure_readiness",
+        "title": "Review full-flow closure readiness before controlled writes",
+        "phase": "FULL_FLOW_CLOSURE_READINESS",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 5,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "full_flow_closure_readiness/v1_5_full_flow_closure_readiness.json",
+          "full_flow_closure_readiness/v1_5_full_flow_closure_readiness.md",
+          "full_flow_closure_readiness/v1_5_full_flow_closure_gaps.csv",
+          "full_flow_closure_readiness/v1_5_full_flow_device_closure.csv",
+          "full_flow_closure_readiness/v1_5_full_flow_release_domains.csv"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 19,
+        "step_id": "co2_candidate_write_review",
+        "title": "Review CO2 SENCO1/SENCO3 and optional SENCO5 candidates",
+        "phase": "CO2_CANDIDATE_REVIEW",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 1,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "CO2 SENCO model-scope review"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 20,
+        "step_id": "controlled_component_write_placeholder",
+        "title": "Controlled component writes create new coefficient epochs",
+        "phase": "CONTROLLED_WRITE",
+        "automation_state": "blocked_controlled_write",
+        "status": "blocked_controlled_gate",
+        "reason": "controlled_write_or_device_id_gate_requires_explicit_review",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "write events",
+          "readback verification",
+          "coefficient_epoch_n snapshots"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": true,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 21,
+        "step_id": "post_write_reverification_placeholder",
+        "title": "Verify analyzer outputs after controlled coefficient writes",
+        "phase": "POST_WRITE_REVERIFY",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 3,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "post_write_reverification_summary.json",
+          "post_write_reverification_point_errors.csv",
+          "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\post_write_reverification"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 22,
+        "step_id": "formal_evidence_sidecar",
+        "title": "Build formal evidence bundle from completed run artifacts",
+        "phase": "EVIDENCE_BUNDLE",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 1,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "formal_evidence_sidecar/evidence_bundle.json"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 23,
+        "step_id": "formal_database_dry_run_snapshot",
+        "title": "Preview V1.5 PostgreSQL 18 schema and insert contract",
+        "phase": "FORMAL_DATABASE_DRY_RUN",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "pass",
+        "reason": "all_manifest_expected_outputs_present",
+        "expected_output_count": 4,
+        "present_output_count": 4,
+        "missing_expected_outputs": [],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 24,
+        "step_id": "formal_database_import_preflight_snapshot",
+        "title": "Review PostgreSQL 18 import preflight without connecting",
+        "phase": "FORMAL_DATABASE_IMPORT_PREFLIGHT",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "pass",
+        "reason": "all_manifest_expected_outputs_present",
+        "expected_output_count": 4,
+        "present_output_count": 4,
+        "missing_expected_outputs": [],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 25,
+        "step_id": "formal_database_import_authorization_snapshot",
+        "title": "Review PostgreSQL 18 manual import authorization without connecting",
+        "phase": "FORMAL_DATABASE_IMPORT_AUTHORIZATION",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "pass",
+        "reason": "all_manifest_expected_outputs_present",
+        "expected_output_count": 4,
+        "present_output_count": 4,
+        "missing_expected_outputs": [],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 26,
+        "step_id": "formal_database_import_command_contract_snapshot",
+        "title": "Review PostgreSQL 18 import command contract without connecting",
+        "phase": "FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "pass",
+        "reason": "all_manifest_expected_outputs_present",
+        "expected_output_count": 4,
+        "present_output_count": 4,
+        "missing_expected_outputs": [],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 27,
+        "step_id": "formal_database_import_blocked_executor_snapshot",
+        "title": "Run blocked PostgreSQL 18 import executor stub without connecting",
+        "phase": "FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "pass",
+        "reason": "all_manifest_expected_outputs_present",
+        "expected_output_count": 4,
+        "present_output_count": 4,
+        "missing_expected_outputs": [],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 28,
+        "step_id": "formal_database_import_controlled_executor_design_snapshot",
+        "title": "Review controlled PostgreSQL 18 import executor design without connecting",
+        "phase": "FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 7,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_design.json",
+          "formal_database_import_controlled_executor_design/V1_5_FORMAL_DATABASE_IMPORT_CONTROLLED_EXECUTOR_DESIGN.md",
+          "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_authorization_contract.csv",
+          "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_transaction_contract.csv",
+          "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_readback_contract.csv",
+          "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_rollback_contract.csv",
+          "formal_database_import_controlled_executor_design/v1_5_formal_database_import_controlled_executor_boundary_gates.csv"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 29,
+        "step_id": "database_import",
+        "title": "Import evidence bundle into V1.5 PostgreSQL registry",
+        "phase": "DATABASE_IMPORT",
+        "automation_state": "offline_database_requires_dsn",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 1,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "database_imported=true summary"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 30,
+        "step_id": "zh_calibration_reports",
+        "title": "Generate Chinese V1.5 calibration reports",
+        "phase": "REPORTS",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 6,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "run report",
+          "technical report",
+          "formal calibration report",
+          "per_device_certificates",
+          "per_device_certificate_manifest.json",
+          "per_device_certificate_artifact_hashes.csv"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 31,
+        "step_id": "final_evidence_status_refresh",
+        "title": "Refresh final V1.5 evidence status after reports and per-device certificates",
+        "phase": "FINAL_EVIDENCE_STATUS",
+        "automation_state": "offline_review_waiting_for_run_artifacts",
+        "status": "waiting_for_artifacts",
+        "reason": "manifest_expected_outputs_missing",
+        "expected_output_count": 2,
+        "present_output_count": 0,
+        "missing_expected_outputs": [
+          "v1_5_run_evidence_status.json",
+          "v1_5_run_evidence_status.md"
+        ],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 32,
+        "step_id": "algorithm_profile_runner_dry_run_snapshot",
+        "title": "Generate new-algorithm profile runner dry-run bundle",
+        "phase": "ALGORITHM_PROFILE_RUNNER_DRY_RUN",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "pass",
+        "reason": "all_manifest_expected_outputs_present",
+        "expected_output_count": 6,
+        "present_output_count": 6,
+        "missing_expected_outputs": [],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      },
+      {
+        "order": 33,
+        "step_id": "formal_run_status_snapshot",
+        "title": "Export top-level formal run status dashboard",
+        "phase": "FORMAL_RUN_STATUS",
+        "automation_state": "offline_review_auto_candidate",
+        "status": "pass",
+        "reason": "all_manifest_expected_outputs_present",
+        "expected_output_count": 4,
+        "present_output_count": 4,
+        "missing_expected_outputs": [],
+        "authorization_required": {
+          "real_com": false,
+          "pressure_control": false,
+          "route_control": false,
+          "coefficient_write": false,
+          "device_id_write": false
+        }
+      }
+    ]
+  },
+  "full_flow_live_runner_readiness": {
+    "status": "present",
+    "source_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_live_runner_readiness.json",
+    "schema": "v1_5_full_flow_live_runner_readiness_v1",
+    "one_button_live_runner_ready": false,
+    "required_authorizations": [
+      "real_com",
+      "pressure_control",
+      "route_control",
+      "coefficient_write"
+    ],
+    "blocked_domains": [
+      "identity_and_epoch0",
+      "auxiliary_coefficients",
+      "pressure_channel",
+      "temperature_channel",
+      "co2_open_flow",
+      "h2o_open_flow",
+      "candidate_fit_and_qc",
+      "controlled_write_and_reverify",
+      "archive_and_release"
+    ]
+  },
+  "stage_statuses": [
+    {
+      "stage_id": "full_flow_stage_manifest",
+      "title": "Full-flow stage manifest",
+      "status": "pass",
+      "reason": "full-flow stage manifest artifact is present",
+      "artifact_roles": [
+        "full_flow_stage_manifest"
+      ],
+      "artifact_count": 1,
+      "physical_meaning": "The stage manifest maps the complete V1.5 flow into machine-readable automation states, evidence contracts, and live/write authorization gates."
+    },
+    {
+      "stage_id": "full_flow_live_runner_readiness",
+      "title": "Full-flow live-runner readiness",
+      "status": "pass",
+      "reason": "full-flow live-runner readiness artifact is present",
+      "artifact_roles": [
+        "full_flow_live_runner_readiness"
+      ],
+      "artifact_count": 1,
+      "physical_meaning": "The readiness artifact states which V1.5 domains are offline-supervised and which still require controlled real-COM, pressure, route, or SENCO-write gates before a future one-button live runner may be trusted."
+    },
+    {
+      "stage_id": "full_flow_contract_gate",
+      "title": "Full-flow contract audit gate",
+      "status": "pass",
+      "reason": "contract_status=pass",
+      "artifact_roles": [
+        "full_flow_contract"
+      ],
+      "artifact_count": 1,
+      "physical_meaning": "Before any formal run advance, the plan must prove pressure-first, open-flow component sampling, no V2 real COM, and no auto-write boundaries."
+    },
+    {
+      "stage_id": "plan_traceability",
+      "title": "Plan and traceability snapshots",
+      "status": "missing",
+      "reason": "formal plan or pressure reference snapshot missing",
+      "artifact_roles": [
+        "formal_plan_snapshot",
+        "pressure_reference_snapshot"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "The calibration result must bind to a plan, standard/reference certificates, and config identity before sampling."
+    },
+    {
+      "stage_id": "identity_getco_epoch0",
+      "title": "Analyzer identity and GETCO epoch 0",
+      "status": "missing",
+      "reason": "GETCO snapshot or runtime identity-bound config missing",
+      "artifact_roles": [
+        "getco_snapshot",
+        "runtime_identity_bound_config"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "COM ports are transport only; analyzer device IDs and GETCO1-9 define the pre-calibration coefficient epoch."
+    },
+    {
+      "stage_id": "pressure_quick_check",
+      "title": "Pressure channel quick check or completion",
+      "status": "missing",
+      "reason": "pressure quick-check or pressure-channel completion evidence missing",
+      "artifact_roles": [
+        "pressure_channel_quick_check",
+        "pressure_channel_completion"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Analyzer pressure P is an input to CO2/H2O compensation and must be verified before component calibration."
+    },
+    {
+      "stage_id": "co2_open_flow",
+      "title": "CO2 open-flow evidence",
+      "status": "missing",
+      "reason": "CO2 open-flow sample evidence missing",
+      "artifact_roles": [
+        "raw_samples"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "CO2 fitting must be based on clean open-flow samples and factory ratio evidence, not sealed contaminated pressure points."
+    },
+    {
+      "stage_id": "co2_queue_failure_audit",
+      "title": "CO2 queue failure audit",
+      "status": "not_attempted",
+      "reason": "CO2 queue failure audit not generated",
+      "artifact_roles": [
+        "co2_queue_failure_audit"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "A finished CO2 queue must preserve why any point failed: insufficiently dry dewpoint, dewpoint rebound, analyzer startup, route readiness, or other diagnostic causes. Failed or downgraded points remain evidence, but must not silently enter formal coefficient fitting."
+    },
+    {
+      "stage_id": "h2o_open_flow",
+      "title": "H2O open-flow evidence",
+      "status": "missing",
+      "reason": "H2O open-flow sample evidence missing",
+      "artifact_roles": [
+        "raw_samples"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "H2O fitting must preserve dewpoint/reference-backed water evidence and dry-gas low-water anchors separately from CO2 zero gas."
+    },
+    {
+      "stage_id": "h2o_queue_failure_audit",
+      "title": "H2O queue failure audit",
+      "status": "not_attempted",
+      "reason": "no H2O queue failure audit artifact found",
+      "artifact_roles": [
+        "h2o_queue_failure_audit"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "A finished H2O queue must preserve why any point failed: humidity generator state, dewpoint/reference instability, H2O ratio or signal instability, route readiness, or diagnostic pressure causes. Failed or downgraded H2O points remain evidence, but must not silently enter formal H2O fitting."
+    },
+    {
+      "stage_id": "h2o_queue_exclusion",
+      "title": "H2O queue abort/exclusion evidence",
+      "status": "not_attempted",
+      "reason": "no H2O queue abort/exclusion artifact found",
+      "artifact_roles": [
+        "h2o_queue_exclusion"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Aborted H2O queue rows are retained as diagnostic evidence and must not enter formal fit, acceptance, or SENCO review."
+    },
+    {
+      "stage_id": "candidate_review",
+      "title": "Candidate coefficient review",
+      "status": "partial",
+      "reason": "present_roles=candidate_review",
+      "artifact_roles": [
+        "candidate_review",
+        "candidate_coefficient_review"
+      ],
+      "artifact_count": 2,
+      "physical_meaning": "Only stable, role-eligible samples should enter SENCO candidate fitting and reviewer approval."
+    },
+    {
+      "stage_id": "post_run_coefficient_executor",
+      "title": "Post-run coefficient closure executor",
+      "status": "not_attempted",
+      "reason": "post-run coefficient executor not generated",
+      "artifact_roles": [
+        "post_run_coefficient_executor",
+        "post_run_device_eligibility",
+        "post_run_controlled_write_package",
+        "post_run_reverification_plan",
+        "post_run_archive_gap_list"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "After CO2/H2O acquisition and fit-input review, this offline executor binds per-device eligibility, controlled write package, post-write reverification plan, and archive gap list before any SENCO write is allowed."
+    },
+    {
+      "stage_id": "full_flow_closure_readiness",
+      "title": "Full-flow closure readiness before controlled write",
+      "status": "not_attempted",
+      "reason": "full-flow closure readiness not generated",
+      "artifact_roles": [
+        "full_flow_closure_readiness",
+        "full_flow_closure_gaps",
+        "full_flow_device_closure",
+        "full_flow_release_domains"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Before controlled SENCO writes, the run must show one auditable chain from plan, raw open-flow evidence, QC decisions, candidate write package, reverification plan, archive gaps, and formal release domains. This gate is offline and does not touch COM ports or routes."
+    },
+    {
+      "stage_id": "formal_run_status",
+      "title": "Formal run status rollup",
+      "status": "pass",
+      "reason": "formal run status JSON, markdown, gate table, and gap table are indexed",
+      "artifact_roles": [
+        "formal_run_status",
+        "formal_run_status_report",
+        "formal_run_status_gates",
+        "formal_run_status_gaps"
+      ],
+      "artifact_count": 8,
+      "physical_meaning": "The top-level run status separates physical-flow continuation from formal archive, database import, and release readiness without touching analyzer state."
+    },
+    {
+      "stage_id": "controlled_write_events",
+      "title": "Controlled coefficient write events",
+      "status": "not_attempted",
+      "reason": "no controlled write artifact found",
+      "artifact_roles": [
+        "coefficient_write_event"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Any SENCO write starts a new coefficient epoch and must have command, readback, approval, and rollback evidence."
+    },
+    {
+      "stage_id": "post_write_reverification",
+      "title": "Post-write reverification",
+      "status": "not_attempted",
+      "reason": "post-write verification not attempted",
+      "artifact_roles": [
+        "post_write_reverification",
+        "post_write_reverification_review",
+        "post_write_reverification_points",
+        "post_write_reverification_device_summary"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "After any coefficient write, independent open-flow verification points must prove the updated measurement model."
+    },
+    {
+      "stage_id": "evidence_bundle",
+      "title": "Formal evidence bundle",
+      "status": "missing",
+      "reason": "evidence bundle missing",
+      "artifact_roles": [
+        "evidence_bundle"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "The evidence bundle freezes raw artifacts, QC, traceability, coefficient events, hashes, and report inputs for reconstruction."
+    },
+    {
+      "stage_id": "database_import",
+      "title": "Evidence database import",
+      "status": "pass",
+      "reason": "database import summary is present",
+      "artifact_roles": [
+        "database_import_summary"
+      ],
+      "artifact_count": 20,
+      "physical_meaning": "PostgreSQL indexes traceability and audit state; raw evidence remains in hashed evidence packages."
+    },
+    {
+      "stage_id": "reports",
+      "title": "Run, technical, and formal calibration reports",
+      "status": "not_attempted",
+      "reason": "one or more formal report artifacts missing",
+      "artifact_roles": [
+        "report_model",
+        "run_report",
+        "technical_report",
+        "formal_calibration_report"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Reports are the reviewer-facing summary of method, QC, traceability, uncertainty, coefficient write status, and limitations."
+    },
+    {
+      "stage_id": "per_device_certificates",
+      "title": "Per-device calibration and verification certificate package",
+      "status": "not_attempted",
+      "reason": "per-device certificate package not generated",
+      "artifact_roles": [
+        "per_device_certificate_manifest",
+        "per_device_certificate_artifact_hashes",
+        "per_device_calibration_certificate"
+      ],
+      "artifact_count": 0,
+      "physical_meaning": "Per-device certificates bind the final device identity, QC result, coefficient state, traceability, hashes, and report-release boundary."
+    }
+  ],
+  "artifact_count": 128,
+  "artifacts": [
+    {
+      "role": "candidate_review",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_missing_point_audit\\v1_5_historical_replay_missing_point_candidates.csv",
+      "sha256": "2af579559cddc9cd1c358e58bbb94bbaf89d0fd2f6042e0ec615813574923ed0",
+      "size_bytes": 4720,
+      "source": "discovered"
+    },
+    {
+      "role": "candidate_review",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_qc_gap_audit\\v1_5_historical_replay_qc_candidate_evidence.csv",
+      "sha256": "28e653ae77820cb0920b5962e0e1af4f3aada0e47bcf3b04cc0f8a280c6458e6",
+      "size_bytes": 3469,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_point_plan_guard\\v1_5_algorithm_formal_point_plan.csv",
+      "sha256": "c8f219a753ba921e9bce6043a913a7e69e117645632514c61950d257f6ad86b6",
+      "size_bytes": 23957,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_point_plan_guard\\v1_5_algorithm_formal_point_plan_guard_checks.csv",
+      "sha256": "4fe7b0a5e8368e3bb97615a12434b33ca503760784b36e08da229966eb86f691",
+      "size_bytes": 2435,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_checks.csv",
+      "sha256": "7c73b3a6e22341d50a9dfa9aa6558a933659cf8628b466ce05efc573155c331a",
+      "size_bytes": 1270,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+      "sha256": "56b32bb91a48e1bc78d171d2261405c08ee3bf6f6349960bca7d3d7fbf453351",
+      "size_bytes": 31839,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "sha256": "c1c90fe3c22de96d0f59cab64f478d11738c07f01c48f254cc2571426118467c",
+      "size_bytes": 11194,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_checks.csv",
+      "sha256": "7c73b3a6e22341d50a9dfa9aa6558a933659cf8628b466ce05efc573155c331a",
+      "size_bytes": 1270,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+      "sha256": "56b32bb91a48e1bc78d171d2261405c08ee3bf6f6349960bca7d3d7fbf453351",
+      "size_bytes": 31839,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "sha256": "c1c90fe3c22de96d0f59cab64f478d11738c07f01c48f254cc2571426118467c",
+      "size_bytes": 11194,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness_checks.csv",
+      "sha256": "3a5f432d4b1171644a277b91a7d0da6a9d67e8c4c408453ba5028e686d218bf5",
+      "size_bytes": 2759,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_checks.csv",
+      "sha256": "d0873f4be1bf8bcaabfa6d22d79eeab33dc41d2e86206ba21a07f2aae52b5168",
+      "size_bytes": 5016,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_plan.csv",
+      "sha256": "9a5f84eab98b1228fb658e971601c54fc99ab432bde1b5bf76bc4eeb81a327b0",
+      "size_bytes": 2182,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run_checks.csv",
+      "sha256": "a2c3849aea4b5f9e1c6c88ba303fe399ae06cc53bd14e0d85d68ac1e233c11f7",
+      "size_bytes": 4965,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_queue_handoff_preflight\\v1_5_algorithm_queue_handoff_preflight_checks.csv",
+      "sha256": "7593d6fbcb4f4c65b3e725e48f5a2531ed336f53f5acd5a8658056cfc640489a",
+      "size_bytes": 5635,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness_checks.csv",
+      "sha256": "e141df83644586b3036f3a0f448578f75537ab1f22712ee8d71485d01830ceaf",
+      "size_bytes": 2594,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_checks.csv",
+      "sha256": "2b0cf86e50e19d824e0917402d88ccf99727d5d84a4f08d3478a25ef8a70f4ce",
+      "size_bytes": 4715,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_plan.csv",
+      "sha256": "05e33e776b0b691661e5a67a9481c88f130b7d0b0c4d320581a5d10816e14352",
+      "size_bytes": 2050,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\final_acceptance_status\\dirty_zone_audit\\v1_5_dirty_zone_entries.csv",
+      "sha256": "8538c6c18ace2bfaf8e220dadc5077be4484946f40b308f3dfa2bd591331ff82",
+      "size_bytes": 71660,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_core_tables.csv",
+      "sha256": "339ec3a001d3534b913732f18b47232b043c6c69e22e62b55675847bb98d4ae3",
+      "size_bytes": 3870,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run_checks.csv",
+      "sha256": "68bb0b176da652924534098f84482929f913ac1d3954c5bbf210ea8cf358190b",
+      "size_bytes": 2564,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_evidence_registry_tables.csv",
+      "sha256": "85d7c3bd92f60e9b070bf360d28775f54a96d96c54f7b2d747ea22875e27234a",
+      "size_bytes": 3157,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_identity_contract.csv",
+      "sha256": "a5a8b39480eb0ecd3712cdb93ffe74745226e1863234e903d5402eaa87e1eae9",
+      "size_bytes": 762,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_insert_preview.csv",
+      "sha256": "9a6b152fdccab21db699bf2f1887d71a6368aea38f73e03d5f001690cbc0c839",
+      "size_bytes": 2452,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_planned_device_preview.csv",
+      "sha256": "64051814c6d1bfc065f4ea6a8378964b6c0a6c38974f6bafb613b38ddcbe383b",
+      "size_bytes": 113,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_contract\\v1_5_historical_replay_contract_checks.csv",
+      "sha256": "15ecbfdff1a0836f5b66d6e90c493d4bf23b4135fbeee2b6f92bbe57e50ec4fb",
+      "size_bytes": 9284,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_evidence\\v1_5_historical_replay_evidence_checks.csv",
+      "sha256": "943c729416dc99cdc2821ea8a38d3757b82f0ccad0e8fba03d9d07f80196c8ff",
+      "size_bytes": 3896,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_evidence\\v1_5_historical_replay_points.csv",
+      "sha256": "f8be77bd88e420589d99f90973b19c7471ed7f1a5dd3c6b6ffb827d6315b0b6e",
+      "size_bytes": 38894,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_evidence\\v1_5_historical_replay_route_summaries.csv",
+      "sha256": "ae9d3589b9d7a99e7461627085a740e647e262db5d07db3f208cccb96d4f6bb5",
+      "size_bytes": 1254,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_missing_point_audit\\v1_5_historical_replay_missing_point_audit_checks.csv",
+      "sha256": "1a1b7cc2f578c72660172a28e0bcfde67b2d4b1405d67e29293d01fa250cf03c",
+      "size_bytes": 10667,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_missing_point_audit\\v1_5_historical_replay_missing_points.csv",
+      "sha256": "8fae7e3d3e178bb80a36c6de7aea8df95d252765f4e0908c8378acba8f4bec0e",
+      "size_bytes": 2061,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_qc_gap_audit\\v1_5_historical_replay_qc_gap_audit_checks.csv",
+      "sha256": "a6841a840d741f278a7f7359ff63506a08c5a9a1697d5d2f60a12c7ed836e04d",
+      "size_bytes": 7541,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_qc_gap_audit\\v1_5_historical_replay_qc_missing_points.csv",
+      "sha256": "2fc87afb960c55a2617c911c51aa1229ad9ff764397e7c6ede3f06bacaacb8b8",
+      "size_bytes": 1171,
+      "source": "discovered"
+    },
+    {
+      "role": "csv_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\mature_route_contract\\v1_5_mature_route_contract_checks.csv",
+      "sha256": "140ff526ca437f8d4b51e974ac9ca1db4a2539401f813d524cfdfe05bf4d3c7c",
+      "size_bytes": 10146,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization.json",
+      "sha256": "74ec0f5802a424bbdbeb5388204674206bbb52ed47935477a5f280ae3131d437",
+      "size_bytes": 5468,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\V1_5_FORMAL_DATABASE_IMPORT_AUTHORIZATION.md",
+      "sha256": "a7d9f0f95721b7b1c752229775c0b908244ff9a79c36928b2dce66503e34ee79",
+      "size_bytes": 973,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization_checks.csv",
+      "sha256": "a4df187d293e02c1d028949f797236b5331412acb6417c03a465416c52ffe78c",
+      "size_bytes": 2640,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\v1_5_formal_database_import_authorization_summary.csv",
+      "sha256": "0b01488e6082f85c649492d0b8ad038add6cb63b280f125e53a1240dbf198a11",
+      "size_bytes": 295,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_authorization\\V1_5_FORMAL_DATABASE_IMPORT_AUTHORIZATION_TEST_EVIDENCE_20260702.md",
+      "sha256": "a4b0c24494998305c24b08d8c1ecd29f5575389dd93e3cb2f1535e3d196d38cf",
+      "size_bytes": 1342,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_blocked_executor\\v1_5_formal_database_import_blocked_executor.json",
+      "sha256": "9db2a863637d5ad9df59112c0176650e2d2c4d6260390b1fd08500b4266ed486",
+      "size_bytes": 9022,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_blocked_executor\\V1_5_FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR.md",
+      "sha256": "107b22debcdfd7d510aa494df806371ef84b2b74c51d94995fb5007eb1d1431a",
+      "size_bytes": 1232,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_blocked_executor\\v1_5_formal_database_import_blocked_executor_checks.csv",
+      "sha256": "ecb36ce6a643f5b009858be146c06cdf92b4a71a9732983749a08b554aea2e91",
+      "size_bytes": 4996,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_blocked_executor\\v1_5_formal_database_import_blocked_executor_summary.csv",
+      "sha256": "d6c7f359533acf844d5a3be490873f02900eb7fa7694e7bc608bee120d3bb29a",
+      "size_bytes": 303,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_blocked_executor\\V1_5_FORMAL_DATABASE_IMPORT_BLOCKED_EXECUTOR_TEST_EVIDENCE_20260702.md",
+      "sha256": "9602537f57a1d0ae7f31370ecb5c43bc725635edf89600cabfa7ff8354e01eda",
+      "size_bytes": 1601,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\v1_5_formal_database_import_command_contract.json",
+      "sha256": "804780b180412a99cb4b5898bd9facb0c70d0287358fa3f1c2b3c21b43f2225f",
+      "size_bytes": 7227,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\V1_5_FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT.md",
+      "sha256": "b070a04a8a1fbf97f640eca753b13a33594f7f22971f5ca48ad045a07b12c5de",
+      "size_bytes": 1223,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\v1_5_formal_database_import_command_contract_checks.csv",
+      "sha256": "adee68d848d1f8f986b97e77f89c006397ea10d45ef174b1e0b2eba9ba05ccc4",
+      "size_bytes": 3505,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\v1_5_formal_database_import_command_contract_summary.csv",
+      "sha256": "1fdcaf98a84ff6b34ab2044eb56e2c148124d61cf263e12d511bd208f6edee44",
+      "size_bytes": 381,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_command_contract\\V1_5_FORMAL_DATABASE_IMPORT_COMMAND_CONTRACT_TEST_EVIDENCE_20260702.md",
+      "sha256": "d04fe11f0da7a4a67c5ebd4d2c3c2eeca06f50f2fa44fe21f2f4b64b134378e0",
+      "size_bytes": 867,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight.json",
+      "sha256": "4eecdf30b18f26f7992dcbe8bac78d268a0da75fe34ff4b595d51d7a414bb652",
+      "size_bytes": 5218,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\V1_5_FORMAL_DATABASE_IMPORT_PREFLIGHT.md",
+      "sha256": "28930803e8f6d63127436d243e81a5f9778d2175533a74278dfa625ecefc151e",
+      "size_bytes": 813,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight_checks.csv",
+      "sha256": "ce57185deafaf420d4251a603555539ec0abb8501ce79ae84168fefb2db34728",
+      "size_bytes": 2561,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\v1_5_formal_database_import_preflight_summary.csv",
+      "sha256": "622dd0f692969d141f5077b46e91abaf2377cb755671549922e762fb5b799cdd",
+      "size_bytes": 271,
+      "source": "discovered"
+    },
+    {
+      "role": "database_import_summary",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_import_preflight\\V1_5_FORMAL_DATABASE_IMPORT_PREFLIGHT_TEST_EVIDENCE_20260702.md",
+      "sha256": "215b25017c83fbb7f1c03ad112c5128bb27a3daf0275ee028e289e60b9b3d48f",
+      "size_bytes": 1257,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_point_plan_guard\\V1_5_ALGORITHM_FORMAL_POINT_PLAN_GUARD.md",
+      "sha256": "bb193908c72bc25002433b7b3be8c25890baac69338147efb68c53e54149fb2d",
+      "size_bytes": 558,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_point_plan_guard\\V1_5_ALGORITHM_FORMAL_POINT_PLAN_GUARD_TEST_EVIDENCE_20260701.md",
+      "sha256": "43ebb2e03c91acce0463b04b226b8b99d4a6e85a5f65fa2efefb3d7a7463f971",
+      "size_bytes": 1084,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW.md",
+      "sha256": "51f322d6c53b9315cd130ee5cb997b643958d6ceb0c2455579c7a387b5bb3145",
+      "size_bytes": 623,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW_TEST_EVIDENCE_20260701.md",
+      "sha256": "c8c2cd3a11a970828684c91e923671020588aa515319de8474ae111c6b80578e",
+      "size_bytes": 1082,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW.md",
+      "sha256": "51f322d6c53b9315cd130ee5cb997b643958d6ceb0c2455579c7a387b5bb3145",
+      "size_bytes": 623,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\V1_5_ALGORITHM_RUNLIST_READINESS.md",
+      "sha256": "fb5b6f75395890ea0da6982d3fcb78103628d8723650329a97b046c3ba4509b8",
+      "size_bytes": 693,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\V1_5_ALGORITHM_RUNNER_INTEGRATION_DRY_RUN.md",
+      "sha256": "44846ee33d30f4fdc9b878a6f5a418bf8324ac5e0e7d372aad5dc7f7e19855a2",
+      "size_bytes": 703,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\V1_5_ALGORITHM_PROFILE_RUNNER_DRY_RUN.md",
+      "sha256": "cd781bfd8f596e99dd7cad2a04f168241f07860eaf96704384b6712c2e23e4c5",
+      "size_bytes": 1472,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\V1_5_ALGORITHM_PROFILE_RUNNER_DRY_RUN_TEST_EVIDENCE_20260701.md",
+      "sha256": "b0fc426ddf1d9476046c289fc6f092f2de4018f8056834906129fb60c6c61436",
+      "size_bytes": 1010,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_queue_handoff_preflight\\V1_5_ALGORITHM_QUEUE_HANDOFF_PREFLIGHT.md",
+      "sha256": "b6e69540355aa91ec64b5496fe5a133e407e5993ed2041368193ebc2955fdeb4",
+      "size_bytes": 896,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_queue_handoff_preflight\\V1_5_ALGORITHM_QUEUE_HANDOFF_PREFLIGHT_TEST_EVIDENCE_20260701.md",
+      "sha256": "3f6318076b0142f4bd61ca436a016a43f5ee1eec7b30c8ab76082b7d21ffe9fe",
+      "size_bytes": 2028,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runlist_readiness\\V1_5_ALGORITHM_RUNLIST_READINESS.md",
+      "sha256": "fb5b6f75395890ea0da6982d3fcb78103628d8723650329a97b046c3ba4509b8",
+      "size_bytes": 693,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runlist_readiness\\V1_5_ALGORITHM_RUNLIST_READINESS_TEST_EVIDENCE_20260701.md",
+      "sha256": "e2bd86226ca9cc8993fb6815964d3ca7fc311351a3e26a59f571dcc120c4ecec",
+      "size_bytes": 1060,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runner_integration_dry_run\\V1_5_ALGORITHM_RUNNER_INTEGRATION_DRY_RUN.md",
+      "sha256": "44846ee33d30f4fdc9b878a6f5a418bf8324ac5e0e7d372aad5dc7f7e19855a2",
+      "size_bytes": 703,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runner_integration_dry_run\\V1_5_ALGORITHM_RUNNER_INTEGRATION_DRY_RUN_TEST_EVIDENCE_20260701.md",
+      "sha256": "7adcf5711167186913d9a81bbcc0d33d49227e88422ed5817214d435370426b2",
+      "size_bytes": 1090,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\final_acceptance_status\\dirty_zone_audit\\v1_5_dirty_zone_audit.md",
+      "sha256": "8af63b9f2e790e7cc6a8508e8a81a1a3eda8cfca9d310afe1dcc63d9870703a8",
+      "size_bytes": 48357,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\final_acceptance_status\\V1_5_FORMAL_RUN_STATUS_ALGORITHM_PROFILE_RUNNER_EVIDENCE_20260701.md",
+      "sha256": "964469b3b696c0a22998d0fbd1f434be12029dde964fb67a4cb8c1a8efd31cd2",
+      "size_bytes": 1653,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\V1_5_FORMAL_DATABASE_DRY_RUN.md",
+      "sha256": "3c809dabf462787eec424a9b778b36cc22681716be4fa159dbd3b3ba93469ac5",
+      "size_bytes": 944,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\V1_5_FORMAL_DATABASE_DRY_RUN_TEST_EVIDENCE_20260702.md",
+      "sha256": "b1b8633420f64c2f4dbac6835151155281b1617c62aff2dc97d14b3b06563634",
+      "size_bytes": 3477,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_contract\\V1_5_HISTORICAL_REPLAY_CONTRACT.md",
+      "sha256": "64c5ea9ac32b558fd5a02730554f59a72f42de50e951dc7050480d149fbc4086",
+      "size_bytes": 4477,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_contract\\V1_5_HISTORICAL_REPLAY_CONTRACT_TEST_EVIDENCE_20260701.md",
+      "sha256": "865659b29e373ddb60edbd0fdfd97696a785877dad620389b3addb5864c69b1c",
+      "size_bytes": 1268,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_evidence\\V1_5_HISTORICAL_REPLAY_EVIDENCE.md",
+      "sha256": "9223bba18717361a75e80d0b3ac8e0b2da06eb08a4439f1fa3ebf335a4dd00f1",
+      "size_bytes": 2683,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_evidence\\V1_5_HISTORICAL_REPLAY_EVIDENCE_TEST_EVIDENCE_20260701.md",
+      "sha256": "e0da12f7392b1bd361b6f7aff6545f63d877b0b37a105b8349f9196f98222ffd",
+      "size_bytes": 1788,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_missing_point_audit\\V1_5_HISTORICAL_REPLAY_MISSING_POINT_AUDIT.md",
+      "sha256": "1a18251ca5ce3a34ea4946f5c9bdc52405de32d2e0e698cea841f35665c599ab",
+      "size_bytes": 6487,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_missing_point_audit\\V1_5_HISTORICAL_REPLAY_MISSING_POINT_AUDIT_TEST_EVIDENCE_20260701.md",
+      "sha256": "272d315282de2051235af51c3431f48f21529af486d2ad66db0452f01ba9b1f8",
+      "size_bytes": 1944,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_qc_gap_audit\\V1_5_HISTORICAL_REPLAY_QC_GAP_AUDIT.md",
+      "sha256": "924a9f985c2d9a13842c0022d65e4f3ba3592752c1a55d812e14141984a365b7",
+      "size_bytes": 4869,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_qc_gap_audit\\V1_5_HISTORICAL_REPLAY_QC_GAP_AUDIT_TEST_EVIDENCE_20260701.md",
+      "sha256": "f1e40922678de95eed26872b14d8c924505e2526e5c0ff011ae9673b25069b42",
+      "size_bytes": 1849,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\mature_route_contract\\V1_5_MATURE_ROUTE_CONTRACT.md",
+      "sha256": "06c7e3cfc58e90274ecd616a15820a6529dade42a3a32313b917f70d005492cf",
+      "size_bytes": 3689,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\mature_route_contract\\V1_5_MATURE_ROUTE_CONTRACT_TEST_EVIDENCE_20260701.md",
+      "sha256": "449ea7285b155453964fa3ac41f3c1624587e61ba657cce7d0b37e561005c290",
+      "size_bytes": 1804,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\V1_5_FINAL_ACCEPTANCE_PACKAGE_20260701.md",
+      "sha256": "aa386f382e8b0ad958a6914542921ef0bf1e2d246216feab2664c11b5c592188",
+      "size_bytes": 7042,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\V1_5_FINAL_STRUCTURE_AND_FLOW.md",
+      "sha256": "33bf3257d202076d0d477cf4383eceb0a9c2590845d41a131effe5d398f193b7",
+      "size_bytes": 24365,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_entrypoint_call_map.md",
+      "sha256": "95bdb2bc75734e830f15ea82735ecf12c486d92d25dffc143f7bcd6b65d6f208",
+      "size_bytes": 7575,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_flow_contract.md",
+      "sha256": "9c3338060bcfc88a84ab4e7184aaf643c2f3293e53b2cc3853df483178098f6f",
+      "size_bytes": 10576,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_automation_gap_table_20260617.md",
+      "sha256": "345f66b7edc0ecc22f04164608a2b0fc38942d689c69886a8ae40bfdc93893cf",
+      "size_bytes": 6715,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\V1_5_FULL_FLOW_ALGORITHM_PROFILE_RUNNER_DRY_RUN_EVIDENCE_20260701.md",
+      "sha256": "cc6ce087592233c4a2e1a2673f5341c61105cd56ae5b2d2c0cfa57e906f3d839",
+      "size_bytes": 2683,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_plan.md",
+      "sha256": "b1f8d94dafcf26fe9570a44992dd2a40da0962d956de4555ee89187125c3305c",
+      "size_bytes": 50911,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_state.md",
+      "sha256": "9a131e125d605186b9f400ae1f0335b8ade13d25120a4c3ac1433dbe6ce1137f",
+      "size_bytes": 4562,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_initialization_contract.md",
+      "sha256": "9d3ab83451fa0bda320a010f523b91ae892e7e4fdc684a727ad9ca2a358571e8",
+      "size_bytes": 5397,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\V1_5_INITIALIZATION_READINESS_CONTRACT.md",
+      "sha256": "be2ed307732a04e5691f9940eeee0b16e783d9c8ca9b2ae4c00602351756d883",
+      "size_bytes": 2928,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_post_acquisition_closure_runbook.md",
+      "sha256": "0d4dbdf0361f8f744238dbe476444f4266628bfc2b16301877778c5d54914fb1",
+      "size_bytes": 4914,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_post_run_coefficient_executor_contract.md",
+      "sha256": "54211a50099cf74c229203972579c32abbb4f7d7c9b8c1ee6d5fccdcd872d09d",
+      "size_bytes": 12383,
+      "source": "discovered"
+    },
+    {
+      "role": "evidence_file",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_stage_detail_and_route_optimization.md",
+      "sha256": "e9a2aff8e69182395557256becc6d14fb70519e201f19da4b0001dec619d3ab6",
+      "size_bytes": 16886,
+      "source": "discovered"
+    },
+    {
+      "role": "formal_run_status",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\final_acceptance_status\\v1_5_formal_run_status.json",
+      "sha256": "ea3357f779440d4a886c587583f25a763c06e1aee78d47d144184356ffb19143",
+      "size_bytes": 12731,
+      "source": "discovered"
+    },
+    {
+      "role": "formal_run_status",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_run_status\\v1_5_formal_run_status.json",
+      "sha256": "ca148f852d6bb56bdae998ec39774a75b26960e7a242e7ea887e3f3e708da0a1",
+      "size_bytes": 22804,
+      "source": "discovered"
+    },
+    {
+      "role": "formal_run_status_gaps",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\final_acceptance_status\\v1_5_formal_run_status_gaps.csv",
+      "sha256": "6709e57277c219dc4001d7ceb9905c54fc0e5c8619992c1111a5f8711912651f",
+      "size_bytes": 1777,
+      "source": "discovered"
+    },
+    {
+      "role": "formal_run_status_gaps",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_run_status\\v1_5_formal_run_status_gaps.csv",
+      "sha256": "2a330793813193844484afcde95ea952de2e993b44f114c291fbf8376e3efee5",
+      "size_bytes": 3277,
+      "source": "discovered"
+    },
+    {
+      "role": "formal_run_status_gates",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\final_acceptance_status\\v1_5_formal_run_status_gates.csv",
+      "sha256": "a42751f4cd48277832212a6797364ec69ee1fe404b21219da6cee9c4ff02a24e",
+      "size_bytes": 5009,
+      "source": "discovered"
+    },
+    {
+      "role": "formal_run_status_gates",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_run_status\\v1_5_formal_run_status_gates.csv",
+      "sha256": "e1d2a8e51e6d8d45b77cf645d08020cbb0cedfb9f3a5e619c90ebaef2b8cf725",
+      "size_bytes": 9529,
+      "source": "discovered"
+    },
+    {
+      "role": "formal_run_status_report",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\final_acceptance_status\\v1_5_formal_run_status.md",
+      "sha256": "c2aa581687507e06ef9e0a2e9dd0719a45879c304181885371490d3c135e1d7a",
+      "size_bytes": 9018,
+      "source": "discovered"
+    },
+    {
+      "role": "formal_run_status_report",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_run_status\\v1_5_formal_run_status.md",
+      "sha256": "9f4002a0f6fba6edcbf7ff4984fde5548bd8229e5b1849a8f2302d229cf8363e",
+      "size_bytes": 15823,
+      "source": "discovered"
+    },
+    {
+      "role": "full_flow_contract",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_formal_flow_contract.json",
+      "sha256": "f5880cf420f345ed7b435a61c2e6e4d7855688a2960351619cee21e89b7eb4fd",
+      "size_bytes": 13435,
+      "source": "explicit_or_latest"
+    },
+    {
+      "role": "full_flow_live_runner_readiness",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_live_runner_readiness.json",
+      "sha256": "77c6cce04238ac6f0a340b385f332398b59eebf942eb5cb549835d8409b526f7",
+      "size_bytes": 10807,
+      "source": "explicit_or_latest"
+    },
+    {
+      "role": "full_flow_live_runner_readiness_markdown",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_live_runner_readiness.md",
+      "sha256": "f1c99dd1c0215e9d01924b39ee29da8c42cdea433ee3cc9c66ca76c91f315755",
+      "size_bytes": 5767,
+      "source": "discovered"
+    },
+    {
+      "role": "full_flow_plan",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_plan.json",
+      "sha256": "e24c376d89c65a72c5aa1b9b62be08eb2ee7c7c4d4001019c8c127f99e4c9ea9",
+      "size_bytes": 86147,
+      "source": "explicit_or_latest"
+    },
+    {
+      "role": "full_flow_stage_manifest",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.json",
+      "sha256": "db9fcb2676623f4b79f1f2566c6a5511787ee296ff36b932898ab310721816de",
+      "size_bytes": 119942,
+      "source": "explicit_or_latest"
+    },
+    {
+      "role": "full_flow_stage_manifest_markdown",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_stage_manifest.md",
+      "sha256": "ef02b3644aa6f80d1a691002d93f0c47d2946c4f975dc03e9e224a5a81025557",
+      "size_bytes": 23679,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_point_plan_guard\\v1_5_algorithm_formal_point_plan_guard_manifest.json",
+      "sha256": "2f6acc9cefe422c4c90482118d8c41447a41d6792639d9e28ebe47bf3587b016",
+      "size_bytes": 687,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
+      "sha256": "a2c755b3a65e0284b63a3d1059ec61407bd5057caf4fd81bce64e12496efe8c9",
+      "size_bytes": 745,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
+      "sha256": "5c39083753a3cc967f5ea70c2a370fffc87fd88370b2bc7b6ec1675466050a3e",
+      "size_bytes": 745,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
+      "sha256": "9e16943887c9883d2c2771bbd265df43d42b7d5e86a1b611a66c37a22446b3d1",
+      "size_bytes": 5045,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
+      "sha256": "9663f6a0462b5b2355acd92a2af0f44465f42be10b4839789f035e5f684b4c5b",
+      "size_bytes": 9930,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\v1_5_algorithm_profile_runner_dry_run.json",
+      "sha256": "9816744cc08a8ee3bcfb60766f16a781ff0fbb676a0e73aa2e1f74a38a31837f",
+      "size_bytes": 10628,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_queue_handoff_preflight\\v1_5_algorithm_queue_handoff_preflight.json",
+      "sha256": "27b225af9fc024d14a4a46e26af74bf3cb77fe3139deb49d82bc890df16d010d",
+      "size_bytes": 8783,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
+      "sha256": "2a784c3a8d2a48d7d20632eaf39adbb419ef8609a85e6ec6fe91f649b38303a5",
+      "size_bytes": 4875,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
+      "sha256": "a72fd2e09da266bafa03894e64a6019123f602d12ceae0e5ba81b528472f90ec",
+      "size_bytes": 9488,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\final_acceptance_status\\dirty_zone_audit\\v1_5_dirty_zone_audit.json",
+      "sha256": "63eacef70d4ec8b9f9d9ff30a5931c7e2ffc55c3189533f6c4f52f33eac36fbd",
+      "size_bytes": 140113,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\formal_database_dry_run\\v1_5_formal_database_dry_run.json",
+      "sha256": "347302ae195d06b89075be190989d496c60effdbd2d7699c0192568583a16fa1",
+      "size_bytes": 21643,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_contract\\v1_5_historical_replay_contract.json",
+      "sha256": "693722af369a8bd00e46a05991c278f88f03e97253ce6ab01d1fff6fbe83ef21",
+      "size_bytes": 15736,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_evidence\\v1_5_historical_replay_evidence.json",
+      "sha256": "a905a2b9eedbd6df25836ec164e22f2c4828912201547af58586bf756ed3ae0f",
+      "size_bytes": 103139,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_missing_point_audit\\v1_5_historical_replay_missing_point_audit.json",
+      "sha256": "8596bd76bdab73330709e7319ff9ee9a4ed162d66b4027f2a002d2754f028995",
+      "size_bytes": 27088,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_qc_gap_audit\\v1_5_historical_replay_qc_gap_audit.json",
+      "sha256": "087f395c748fa2cde8cc5009e971d109d6df62549db095bcfdecb6d21a8cc70f",
+      "size_bytes": 17928,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\mature_route_contract\\v1_5_mature_route_contract.json",
+      "sha256": "7f40a81ca97d8f09c6dd0d1593d615c498823760c38f849dd8c5b6a6ac03d359",
+      "size_bytes": 13348,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\operation_console\\v1_5_operation_console.json",
+      "sha256": "95074961f6c1189ad2ac1400464db346fc03bfcbf5a8d730bd3e6c5617167353",
+      "size_bytes": 17395,
+      "source": "discovered"
+    },
+    {
+      "role": "json_evidence",
+      "path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\v1_5_full_flow_state.json",
+      "sha256": "b58225136f3e3b3e3ef14ce41609f20f5d24ee0b4880c9ca83588265e119dad1",
+      "size_bytes": 53989,
+      "source": "discovered"
+    }
+  ],
+  "traceability_checks": {},
+  "table_counts": {}
+}

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -47,10 +48,24 @@ def _table_header(rows: List[Dict[str, Any]]) -> List[str]:
     return header
 
 
+def _fs_path(path: Path) -> Path:
+    """Return a filesystem path usable for Windows paths beyond MAX_PATH."""
+
+    if os.name != "nt":
+        return path
+    resolved = path if path.is_absolute() else path.resolve()
+    text = str(resolved)
+    if text.startswith("\\\\?\\"):
+        return resolved
+    if text.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + text.lstrip("\\"))
+    return Path("\\\\?\\" + text)
+
+
 def _write_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _fs_path(path.parent).mkdir(parents=True, exist_ok=True)
     header = _table_header(rows)
-    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+    with _fs_path(path).open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=header)
         writer.writeheader()
         for row in rows:
@@ -76,7 +91,7 @@ def write_validation_report(
     """Write a validation workbook plus per-table CSV artifacts."""
 
     root = Path(output_dir).resolve()
-    root.mkdir(parents=True, exist_ok=True)
+    _fs_path(root).mkdir(parents=True, exist_ok=True)
 
     workbook_path = root / f"{prefix}.xlsx"
     metadata_path = root / f"{prefix}_meta.json"
@@ -114,8 +129,8 @@ def write_validation_report(
                 cell.font = Font(bold=True)
         _autosize_sheet(ws)
 
-    workbook.save(workbook_path)
-    metadata_path.write_text(
+    workbook.save(str(_fs_path(workbook_path)))
+    _fs_path(metadata_path).write_text(
         json.dumps(asdict(metadata), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

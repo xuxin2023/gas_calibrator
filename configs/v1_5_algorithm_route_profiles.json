@@ -1,0 +1,431 @@
+{
+  "schema_version": 1,
+  "generated_for": "V1.5 formal route algorithm profiles",
+  "default_profile_id": "legacy_ratio_production",
+  "canonical_queue_sources": {
+    "co2": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/co2_runner_queue.csv",
+    "h2o": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/h2o_runner_queue.csv"
+  },
+  "shared_route_contract": {
+    "co2_runner": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+    "h2o_runner": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
+    "pressure_sequence": "SENCO9_first",
+    "temperature_coefficients": "neutral_by_default_for_both_algorithms",
+    "analyzer_runtime": {
+      "mode": "MODE2",
+      "active_upload_hz": 1,
+      "minimum_serial_command_gap_s": 1.0
+    },
+    "route_behavior": "preserve_mature_v1_5_0620_route_timing_and_quality_gates",
+    "co2_zero_anchor_distinct_from_h2o_dry_anchor": true,
+    "h2o_dry_anchor_requires_dewpoint_pressure_temperature_bridge": true
+  },
+  "profiles": [
+    {
+      "profile_id": "legacy_ratio_production",
+      "label": "Legacy V1.5 ratio production",
+      "production_default": true,
+      "write_policy": "controlled_write_allowed_after_existing_v1_5_review",
+      "algorithm_mode": "legacy_ratio_R",
+      "fit_input": {
+        "co2": "R_CO2",
+        "h2o": "R_H2O"
+      },
+      "co2_route": {
+        "runner": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        "queue_source": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/co2_runner_queue.csv",
+        "formal_point_count": 45,
+        "temperature_plan": {
+          "-20": [0, 400, 1000],
+          "-10": [0, 400, 1000],
+          "0": [0, 400, 1000],
+          "10": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+          "20": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+          "30": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+          "40": [0, 400, 1000]
+        },
+        "anchor_policy": {
+          "co2_zero_gas_required_for_low_end_contract": true,
+          "h2o_dry_anchor_role": "not_used_as_co2_anchor"
+        },
+        "fit_targets": {
+          "primary_coefficients": ["SENCO1", "SENCO3"],
+          "final_linear_trim": "SENCO5_reviewed_separately"
+        },
+        "write_contract": {
+          "algorithm_contract": "old_ratio_temperature",
+          "main_chain_coefficients": ["SENCO1", "SENCO3"],
+          "main_chain_controlled_writer": "gas_calibrator.tools.run_v1_5_co2_senco13_controlled_write",
+          "main_chain_review_artifact": "candidate_senco_mapping_review.csv",
+          "required_review_checks": [
+            "firmware_formula_contract_confirmed",
+            "co2_senco5_senco6_linear_correction_contract"
+          ],
+          "final_linear_trim": {
+            "coefficient": "SENCO5",
+            "separate_final_affine_layer": true,
+            "must_not_fold_into_main_chain": true,
+            "controlled_writer": "gas_calibrator.tools.run_v1_5_co2_senco5_linear_controlled_write",
+            "neutral_writer": "gas_calibrator.tools.run_v1_5_co2_senco5_neutral_controlled_write",
+            "clear_command_required_for_neutralization": "CLEARSENCO5,YGAS,FFF",
+            "payload_format": "decimal_c0_c1_three_decimals"
+          }
+        }
+      },
+      "h2o_route": {
+        "runner": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
+        "queue_source": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/h2o_runner_queue.csv",
+        "formal_point_count": 13,
+        "temperature_plan": {
+          "0": ["HGEN0C_50RH"],
+          "10": ["HGEN10C_30RH", "HGEN10C_50RH", "HGEN10C_70RH"],
+          "20": ["HGEN20C_30RH", "HGEN20C_50RH", "HGEN20C_70RH"],
+          "30": ["HGEN20C_30RH", "HGEN20C_50RH", "HGEN20C_70RH", "HGEN20C_90RH"],
+          "40": ["HGEN30C_50RH", "HGEN30C_70RH"]
+        },
+        "dry_anchor_policy": {
+          "required_for_legacy_production": false,
+          "allowed_as_review_or_low_end_qc": true,
+          "must_not_be_forced_to_zero": true
+        },
+        "fit_targets": {
+          "primary_coefficients": ["SENCO2", "SENCO4"],
+          "final_linear_trim": "SENCO6_reviewed_separately_or_neutral"
+        },
+        "write_contract": {
+          "algorithm_contract": "old_ratio_temperature",
+          "firmware_slot_contract": "mature V1.5 H2O ratio-temperature SENCO2/SENCO4 slot contract",
+          "fit_input": "R_H2O_with_temperature_terms",
+          "main_chain_coefficients": ["SENCO2", "SENCO4"],
+          "main_chain_controlled_writer": "gas_calibrator.tools.run_v1_5_h2o_senco24_controlled_write",
+          "main_chain_cli_algorithm_flag": "--h2o-senco24-algorithm old_ratio_temperature",
+          "main_chain_review_artifact": "h2o_senco24_payload_preview.csv",
+          "required_review_checks": [
+            "firmware_formula_contract_confirmed",
+            "old_GETCO2_GETCO4_GETCO6_live_snapshot",
+            "senco4_pressure_or_reserved_tail_zero_gate",
+            "senco6_output_layer_separate_or_neutral"
+          ],
+          "final_linear_trim": {
+            "coefficient": "SENCO6",
+            "separate_final_affine_layer": true,
+            "must_not_fold_into_main_chain": true,
+            "controlled_writer": "gas_calibrator.tools.run_v1_5_h2o_senco6_linear_controlled_write",
+            "neutral_writer": "gas_calibrator.tools.run_v1_5_h2o_senco6_neutral_controlled_write",
+            "clear_command_required_for_neutralization": "CLEARSENCO6,YGAS,FFF",
+            "payload_format": "decimal_c0_c1_three_decimals",
+            "review_after_main_chain_reverification": true
+          }
+        }
+      }
+    },
+    {
+      "profile_id": "absorption_ratio_shadow",
+      "label": "New absorption-ratio production candidate",
+      "production_default": false,
+      "write_policy": "controlled_write_after_absorption_review_and_readback",
+      "algorithm_mode": "absorption_ratio_A",
+      "fit_input": {
+        "formula": "A=-ln(R/R0(T))/(P_kPa/100)",
+        "co2": "A_CO2_from_R_CO2_and_R0_CO2_T",
+        "h2o": "A_H2O_from_R_H2O_and_R0_H2O_T"
+      },
+      "r0_write_contract": {
+        "status": "blocked_until_controlled_sencoa_sencob_writer_exists",
+        "offline_writer_design_tool": "gas_calibrator.tools.export_v1_5_sencoa_sencob_writer_design_review",
+        "controlled_writer_preflight_tool": "gas_calibrator.tools.export_v1_5_sencoa_sencob_controlled_writer_preflight",
+        "payload_width": 4,
+        "minimum_serial_command_gap_s": 1.0,
+        "writer_implementation_status": "missing_real_writer_design_only",
+        "write_requires": [
+          "R0_CO2_T_and_R0_H2O_T_model_review",
+          "old_GETCOA_GETCOB_snapshot",
+          "controlled_SENCOA_SENCOB_writer",
+          "readback_verification",
+          "rollback_to_old_GETCOA_GETCOB",
+          "independent_CO2_and_H2O_no_write_reverification"
+        ],
+        "components": [
+          {
+            "component": "co2",
+            "coefficient_group": "SENCOA",
+            "readback_group": "GETCOA",
+            "physical_quantity": "R0_CO2(T)",
+            "r0_source": "co2_zero_gas_only",
+            "fit_input_equation": "A_CO2=-ln(R_CO2/R0_CO2(T))/(P_kPa/100)",
+            "payload_contract": "R0_CO2_temperature_polynomial_or_reviewed_table_coefficients",
+            "controlled_writer": "",
+            "controlled_writer_status": "missing_controlled_writer",
+            "readback_required": true,
+            "production_blocker": true,
+            "notes": "R0_CO2 is required before the absorption profile can be called a complete production chain."
+          },
+          {
+            "component": "h2o",
+            "coefficient_group": "SENCOB",
+            "readback_group": "GETCOB",
+            "physical_quantity": "R0_H2O(T)",
+            "r0_source": "co2_zero_gas_h2o_ratio_plus_dewpoint_pressure_evidence",
+            "fit_input_equation": "A_H2O=-ln(R_H2O/R0_H2O(T))/(P_kPa/100)",
+            "payload_contract": "R0_H2O_temperature_polynomial_or_reviewed_table_coefficients",
+            "controlled_writer": "",
+            "controlled_writer_status": "missing_controlled_writer",
+            "readback_required": true,
+            "production_blocker": true,
+            "notes": "R0_H2O must use dewpoint/pressure/T1-backed residual-water evidence and must not force dry-gas water to zero."
+          }
+        ]
+      },
+      "co2_route": {
+        "runner": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        "queue_source": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/co2_runner_queue.csv",
+        "formal_point_count": 45,
+        "production_candidate_point_count_with_supplements": 47,
+        "temperature_plan": {
+          "-20": [0, 400, 1000],
+          "-10": [0, 400, 1000],
+          "0": [0, 400, 1000],
+          "10": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+          "20": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+          "30": [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
+          "40": [0, 400, 1000]
+        },
+        "r0_policy": {
+          "r0_source": "co2_zero_gas_only",
+          "minimum_distinct_temperature_count": 3,
+          "preferred_distinct_temperature_count": 5,
+          "current_canonical_zero_temperatures": [-20, -10, 0, 10, 20, 30, 40]
+        },
+        "supplement_policy": {
+          "do_not_expand_low_temperature_to_dense_11_point_grid_by_default": true,
+          "supplemental_points_are_candidate_only": true,
+          "must_not_modify_legacy_ratio_production_queue": true,
+          "physical_process": "all_items_are_gas_points_when_run",
+          "data_role_note": "new algorithm supplemental gas points are run as normal gas points and reviewed explicitly before release",
+          "device_specific_recheck_policy": "run_full_new_algorithm_candidate_points_then_generate_diagnostic_recheck_points_from_each_device_residual_review",
+          "do_not_apply_sn01260607_conflict_points_to_other_devices": true,
+          "sn01260607_fit_evidence_20260629": {
+            "device_sn": "01260607",
+            "device_id": "001",
+            "evidence_role": "single_new_algorithm_device_fit_review",
+            "actual_point_count_used": 44,
+            "missing_canonical_points": [
+              {"temperature_c": 20, "co2_ppm": 200}
+            ],
+            "chosen_model": "old7_absorption_A_TK_zero1ppm_exclude4_physical_lowtemp_guard",
+            "kept_max_abs_rel_error_nonzero_pct": 0.5887957836239934,
+            "all_points_replay_max_abs_rel_error_nonzero_pct": 1.7567174715552938,
+            "zero_abs_max_ppm": 4.105035887489976,
+            "excluded_conflict_points": [
+              {
+                "point": "p005_Tm20_400ppm_fit",
+                "temperature_c": -20,
+                "co2_ppm": 400,
+                "reason": "low_temperature_mid_concentration_conflict"
+              },
+              {
+                "point": "p003_Tm10_1000ppm_fit",
+                "temperature_c": -10,
+                "co2_ppm": 1000,
+                "reason": "low_temperature_high_concentration_conflict"
+              },
+              {
+                "point": "p016_T20_100ppm_fit",
+                "temperature_c": 20,
+                "co2_ppm": 100,
+                "reason": "low_concentration_R0_sensitive_conflict"
+              },
+              {
+                "point": "p038_T0_400ppm_fit",
+                "temperature_c": 0,
+                "co2_ppm": 400,
+                "reason": "mid_concentration_fit_conflict"
+              }
+            ]
+          },
+          "sn01260607_observed_conflict_gas_points_for_diagnostic_recheck": [
+            {"temperature_c": -20, "co2_ppm": 400},
+            {"temperature_c": -10, "co2_ppm": 1000},
+            {"temperature_c": 20, "co2_ppm": 100},
+            {"temperature_c": 0, "co2_ppm": 400}
+          ],
+          "required_new_algorithm_supplemental_gas_points": [
+            {"temperature_c": -20, "co2_ppm": 600, "fit_role": "low_temperature_curvature_constraint"},
+            {"temperature_c": -10, "co2_ppm": 600, "fit_role": "low_temperature_curvature_constraint"}
+          ]
+        },
+        "fit_targets": {
+          "primary_coefficients": ["SENCO1", "SENCO3"],
+          "payload_state": "preview_only_until_controlled_write_review"
+        },
+        "write_contract": {
+          "algorithm_contract": "old7_absorption_A_TK_zero1ppm",
+          "firmware_slot_contract": "old seven coefficient slots remain; input variable changes from ratio R to absorption A",
+          "fit_input": "A=-ln(R/R0(T))/(P_kPa/100)",
+          "temperature_feature": "absolute_chamber_temperature_kelvin",
+          "main_chain_coefficients": ["SENCO1", "SENCO3"],
+          "main_chain_controlled_writer": "gas_calibrator.tools.run_v1_5_co2_senco13_controlled_write",
+          "main_chain_review_artifact": "candidate_senco_mapping_review.csv",
+          "required_review_checks": [
+            "firmware_formula_contract_confirmed",
+            "co2_senco5_senco6_linear_correction_contract",
+            "exclusion_fit_gate",
+            "low_temperature_coverage_guard"
+          ],
+          "candidate_write_pack_evidence": "_handoff/new_algo_001_init_20260627/formal/co2_absorption_physics_review_20260628/co2_senco13_old7_absorption_exclusion_write_pack_20260629",
+          "final_linear_trim": {
+            "coefficient": "SENCO5",
+            "separate_final_affine_layer": true,
+            "must_not_fold_into_main_chain": true,
+            "controlled_writer": "gas_calibrator.tools.run_v1_5_co2_senco5_linear_controlled_write",
+            "neutral_writer": "gas_calibrator.tools.run_v1_5_co2_senco5_neutral_controlled_write",
+            "clear_command_required_for_neutralization": "CLEARSENCO5,YGAS,FFF",
+            "payload_format": "decimal_c0_c1_three_decimals",
+            "review_after_main_chain_reverification": true
+          }
+        }
+      },
+      "h2o_route": {
+        "runner": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
+        "queue_source": "D:/gas_calibrator/_handoff/v1_5_formal_queue_migration_20260624/canonical_open_flow_points/h2o_runner_queue.csv",
+        "formal_wet_point_count": 13,
+        "production_candidate_wet_point_count_with_supplements": 14,
+        "wet_temperature_plan": {
+          "0": ["HGEN0C_50RH"],
+          "10": ["HGEN10C_30RH", "HGEN10C_50RH", "HGEN10C_70RH"],
+          "20": ["HGEN20C_30RH", "HGEN20C_50RH", "HGEN20C_70RH"],
+          "30": ["HGEN20C_30RH", "HGEN20C_50RH", "HGEN20C_70RH", "HGEN20C_90RH"],
+          "40": ["HGEN30C_50RH", "HGEN30C_70RH"]
+        },
+        "required_new_algorithm_supplemental_wet_points": [
+          {
+            "temperature_c": 40,
+            "humidity_generator": "HGEN30C",
+            "relative_humidity_pct": 30,
+            "fit_role": "high_temperature_mid_water_shape_constraint"
+          }
+        ],
+        "supplement_policy": {
+          "supplemental_wet_points_are_candidate_only": true,
+          "must_not_modify_legacy_ratio_production_queue": true,
+          "do_not_add_humidity_generator_low_humidity_points_by_default": true,
+          "device_specific_recheck_policy": "run_full_new_algorithm_candidate_points_then_generate_diagnostic_recheck_points_from_each_device_residual_review",
+          "do_not_apply_sn01260607_high_residual_points_to_other_devices": true,
+          "sn01260607_observed_high_residual_wet_points_for_diagnostic_recheck": [
+            {
+              "point": "p009_T30_HG20C_50RH_h2o",
+              "temperature_c": 30,
+              "humidity_generator": "HGEN20C",
+              "relative_humidity_pct": 50,
+              "reason": "highest_current_h2o_relative_error_mid_water_shape"
+            },
+            {
+              "point": "p012_T40_HG30C_50RH_h2o",
+              "temperature_c": 40,
+              "humidity_generator": "HGEN30C",
+              "relative_humidity_pct": 50,
+              "reason": "second_highest_current_h2o_relative_error_high_temperature_shape"
+            }
+          ]
+        },
+        "r0_policy": {
+          "r0_source": "co2_zero_gas_h2o_ratio_plus_dewpoint_pressure_evidence",
+          "minimum_distinct_temperature_count": 3,
+          "preferred_distinct_temperature_count": 5,
+          "must_not_use_co2_zero_gas_as_h2o_zero": true,
+          "must_not_force_residual_water_to_zero": true,
+          "fit_input_equation": "ln(R_H2O)=ln(R0_H2O(T))-k(T)*H2O_residual*(P_kPa/100)",
+          "offline_anchor_tool": "gas_calibrator.tools.export_v1_5_h2o_low_anchor_from_co2_zero"
+        },
+        "dry_anchor_policy": {
+          "preferred_source": "co2_zero_gas_points_reclassified_as_h2o_low_anchor",
+          "humidity_generator_low_humidity_required": false,
+          "target_ppm_h2o_dew_max": 0.5,
+          "target_dewpoint_c_max": -30.0,
+          "current_historical_anchor_temperatures": [-20, -10, 0, 10, 20, 30],
+          "recommended_future_supplement": [
+            {
+              "temperature_c": 40,
+              "route": "co2_open_flow_zero_gas_route",
+              "purpose": "close_high_temperature_R0_H2O_T_extrapolation"
+            }
+          ]
+        },
+        "sn01260607_fit_evidence_20260629": {
+          "device_sn": "01260607",
+          "device_id": "001",
+          "evidence_role": "single_new_algorithm_device_fit_review",
+          "chosen_model": "old7_absorption_A_T_full13_relative_floor_5",
+          "wet_point_count": 13,
+          "max_abs_relative_error_pct": 2.1933797150959307,
+          "mean_abs_relative_error_pct": 0.671958416922101,
+          "max_abs_error_mmol": 0.47876233841353155,
+          "temperature_source": "analyzer_chamber_T1_kelvin_feature",
+          "ratio_source": "A=-ln(R_H2O/R0_H2O(T))/(P_kPa/100)",
+          "highest_residual_points": [
+            {
+              "point": "p009_T30_HG20C_50RH_h2o",
+              "reference_h2o_mmol": 12.302177,
+              "abs_rel_error_pct": 2.1933797150959307,
+              "role": "must_keep_or_recheck_mid_water_shape"
+            },
+            {
+              "point": "p012_T40_HG30C_50RH_h2o",
+              "reference_h2o_mmol": 22.046606,
+              "abs_rel_error_pct": 2.171592028330944,
+              "role": "must_keep_or_recheck_high_temperature_mid_high_water_shape"
+            }
+          ],
+          "future_point_policy": "do_not_add_extra_humidity_generator_low_point_by_default; keep full13 wet route and recheck the two highest-residual wet points before release if margin below 2pct is required"
+        },
+        "required_extra_evidence": {
+          "dewpoint_or_reference_h2o": true,
+          "sample_pressure": true,
+          "analyzer_chamber_temperature_or_T1": true,
+          "check_monitor_after_all_active_chamber_temperature_stable": true,
+          "thermostat_chip_voltage_count": 2
+        },
+        "fit_targets": {
+          "primary_coefficients": ["SENCO2", "SENCO4"],
+          "payload_state": "preview_only_until_controlled_write_review",
+          "SENCO6": "neutral_or_reviewed_final_linear_layer_only"
+        },
+        "write_contract": {
+          "algorithm_contract": "old7_absorption_A_T_pending_firmware_scale",
+          "status": "blocked_pending_firmware_input_scale_confirmation",
+          "firmware_slot_contract": "old seven-slot H2O chain with absorption-derived input pending firmware confirmation",
+          "fit_input": "A_H2O=-ln(R_H2O/R0_H2O(T))/(P_kPa/100)",
+          "main_chain_coefficients": ["SENCO2", "SENCO4"],
+          "main_chain_controlled_writer": "gas_calibrator.tools.run_v1_5_h2o_senco24_controlled_write",
+          "main_chain_cli_algorithm_flag": "--h2o-senco24-algorithm old_ratio_temperature",
+          "main_chain_review_artifact": "h2o_senco24_payload_preview.csv",
+          "candidate_write_pack_evidence": "_handoff/new_algo_001_init_20260627/formal/h2o_calibration_physics_review_20260628/h2o_old7_absorption_rewrite_review_20260629",
+          "required_review_checks": [
+            "firmware_input_variable_and_scale_confirmed",
+            "R0_H2O_T_contract_confirmed",
+            "old_GETCO2_GETCO4_GETCO6_live_snapshot",
+            "GETCO6_neutral_or_separate_SENCO6_review",
+            "independent_H2O_reverification_before_SENCO6"
+          ],
+          "alternate_absorption_slot_contract": {
+            "algorithm_contract": "new_absorption_R0_A_k",
+            "controlled_writer_algorithm_flag": "--h2o-senco24-algorithm new_absorption",
+            "slot_contract": "SENCO2 carries lnR0(T1) b0..b4 plus reserved zero; SENCO4 carries k(T1) b0..b3 plus reserved zeros",
+            "status": "diagnostic_only_not_default_production",
+            "blocker": "previous live evidence showed this same-value rewrite does not by itself close the final H2O production chain"
+          },
+          "final_linear_trim": {
+            "coefficient": "SENCO6",
+            "separate_final_affine_layer": true,
+            "must_not_fold_into_main_chain": true,
+            "controlled_writer": "gas_calibrator.tools.run_v1_5_h2o_senco6_linear_controlled_write",
+            "neutral_writer": "gas_calibrator.tools.run_v1_5_h2o_senco6_neutral_controlled_write",
+            "clear_command_required_for_neutralization": "CLEARSENCO6,YGAS,FFF",
+            "payload_format": "decimal_c0_c1_three_decimals",
+            "review_after_main_chain_reverification": true
+          }
+        }
+      }
+    }
+  ]
+}

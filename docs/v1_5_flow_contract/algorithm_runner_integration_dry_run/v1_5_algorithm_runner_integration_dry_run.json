@@ -1,0 +1,138 @@
+﻿{
+  "schema": "v1_5_algorithm_runner_integration_dry_run_v1",
+  "generated_at": "2026-07-01T20:49:10",
+  "overall_status": "ready_for_runner_integration_dry_run_review",
+  "blocker_count": 0,
+  "review_required_count": 0,
+  "profile_id": "absorption_ratio_shadow",
+  "not_real_acceptance_evidence": true,
+  "no_write": true,
+  "opens_com_ports": false,
+  "connects_postgresql": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_device_id": false,
+  "does_not_execute_commands": true,
+  "does_not_modify_runners": true,
+  "runner_integration_status": "dry_run_preview_only_not_runner_wired",
+  "co2_runlist_count": 47,
+  "h2o_runlist_count": 14,
+  "planned_route_order": [
+    "co2",
+    "h2o"
+  ],
+  "next_action": "Review this dry-run plan before any profile-driven runner wiring. Passing it does not authorize COM, route control, coefficient writes, archive release, or database import.",
+  "runner_integration_plan": [
+    {
+      "stage_order": 1,
+      "route_kind": "co2",
+      "runner_module": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+      "queue_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+      "expected_point_count": 47,
+      "observed_point_count": 47,
+      "required_cli_flags": "--dry-run;--no-prompt",
+      "forbidden_cli_flags": "--execute-controlled-writes;--execute-real-run;--write-coefficients",
+      "command_preview": "python -m gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue --config <runtime-config-json> --queue-csv D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv --output-dir <future-output-dir>\\co2_queue_dry_run --dry-run --no-prompt",
+      "runner_integration_status": "dry_run_preview_only_not_runner_wired",
+      "opens_com_ports": false,
+      "controls_water_or_gas_routes": false,
+      "writes_coefficients": false,
+      "physical_meaning": "Use the mature V1.5 queue entrypoint with the profile-generated runlist CSV under dry-run/no-prompt conditions before any live runner wiring."
+    },
+    {
+      "stage_order": 2,
+      "route_kind": "h2o",
+      "runner_module": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
+      "queue_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "expected_point_count": 14,
+      "observed_point_count": 14,
+      "required_cli_flags": "--dry-run;--no-prompt",
+      "forbidden_cli_flags": "--execute-controlled-writes;--execute-real-run;--write-coefficients",
+      "command_preview": "python -m gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue --config <runtime-config-json> --queue-csv D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv --output-dir <future-output-dir>\\h2o_queue_dry_run --dry-run --no-prompt",
+      "runner_integration_status": "dry_run_preview_only_not_runner_wired",
+      "opens_com_ports": false,
+      "controls_water_or_gas_routes": false,
+      "writes_coefficients": false,
+      "physical_meaning": "Use the mature V1.5 queue entrypoint with the profile-generated runlist CSV under dry-run/no-prompt conditions before any live runner wiring."
+    }
+  ],
+  "checks": [
+    {
+      "check": "algorithm_runlist_readiness_gate",
+      "status": "ready",
+      "evidence_role": "algorithm_runlist_readiness",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
+      "reasons": [],
+      "physical_meaning": "Runner integration dry-run is only meaningful after the 47/14 runlist readiness gate is clean.",
+      "next_action": "Regenerate or repair runlist readiness before planning any runner integration.",
+      "details": {
+        "overall_status": "ready_for_new_algorithm_runner_integration_review",
+        "blocker_count": 0
+      }
+    },
+    {
+      "check": "co2_queue_runner_dry_run_plan",
+      "status": "ready",
+      "evidence_role": "co2_runner_integration_dry_run_plan",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+      "reasons": [],
+      "physical_meaning": "The new-algorithm CO2 47-point runlist should feed the mature CO2 queue only under dry-run review conditions.",
+      "next_action": "Do not wire CO2 runner until this dry-run plan is reviewed and the readiness gate remains clean.",
+      "details": {
+        "stage_order": 1,
+        "route_kind": "co2",
+        "runner_module": "gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue",
+        "queue_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+        "expected_point_count": 47,
+        "observed_point_count": 47,
+        "required_cli_flags": "--dry-run;--no-prompt",
+        "forbidden_cli_flags": "--execute-controlled-writes;--execute-real-run;--write-coefficients",
+        "command_preview": "python -m gas_calibrator.tools.run_v1_5_formal_co2_open_flow_queue --config <runtime-config-json> --queue-csv D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv --output-dir <future-output-dir>\\co2_queue_dry_run --dry-run --no-prompt",
+        "runner_integration_status": "dry_run_preview_only_not_runner_wired",
+        "opens_com_ports": false,
+        "controls_water_or_gas_routes": false,
+        "writes_coefficients": false,
+        "physical_meaning": "Use the mature V1.5 queue entrypoint with the profile-generated runlist CSV under dry-run/no-prompt conditions before any live runner wiring."
+      }
+    },
+    {
+      "check": "h2o_queue_runner_dry_run_plan",
+      "status": "ready",
+      "evidence_role": "h2o_runner_integration_dry_run_plan",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "reasons": [],
+      "physical_meaning": "The new-algorithm H2O 14-point runlist should feed the mature H2O queue only under dry-run review conditions.",
+      "next_action": "Do not wire H2O runner until this dry-run plan is reviewed and humidity reference bridge requirements are preserved.",
+      "details": {
+        "stage_order": 2,
+        "route_kind": "h2o",
+        "runner_module": "gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue",
+        "queue_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+        "expected_point_count": 14,
+        "observed_point_count": 14,
+        "required_cli_flags": "--dry-run;--no-prompt",
+        "forbidden_cli_flags": "--execute-controlled-writes;--execute-real-run;--write-coefficients",
+        "command_preview": "python -m gas_calibrator.tools.run_v1_5_formal_h2o_open_flow_queue --config <runtime-config-json> --queue-csv D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv --output-dir <future-output-dir>\\h2o_queue_dry_run --dry-run --no-prompt",
+        "runner_integration_status": "dry_run_preview_only_not_runner_wired",
+        "opens_com_ports": false,
+        "controls_water_or_gas_routes": false,
+        "writes_coefficients": false,
+        "physical_meaning": "Use the mature V1.5 queue entrypoint with the profile-generated runlist CSV under dry-run/no-prompt conditions before any live runner wiring."
+      }
+    },
+    {
+      "check": "integration_dry_run_boundary",
+      "status": "ready",
+      "evidence_role": "runner_integration_boundary",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv;D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "reasons": [],
+      "physical_meaning": "This integration artifact must remain a plan, not an executable production run.",
+      "next_action": "Keep formal runner wiring as a separate reviewed package after dry-run evidence is accepted.",
+      "details": {
+        "not_real_acceptance_evidence": true,
+        "does_not_modify_runners": true,
+        "does_not_execute_commands": true
+      }
+    }
+  ]
+}

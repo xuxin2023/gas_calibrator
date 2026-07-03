@@ -1,0 +1,250 @@
+{
+  "manifest": {
+    "schema": "v1_5_historical_replay_qc_gap_audit_v1",
+    "created_at": "2026-07-01T17:37:59",
+    "replay_evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\historical_replay_evidence\\v1_5_historical_replay_evidence.json",
+    "status": "review_required",
+    "blocker_count": 0,
+    "review_required_count": 1,
+    "missing_qc_point_count": 3,
+    "candidate_count": 8,
+    "direct_bindable_point_count": 2,
+    "unresolved_point_count": 1,
+    "no_write": true,
+    "opens_com_ports": false,
+    "connects_postgresql": false,
+    "controls_pressure": false,
+    "controls_water_or_gas_routes": false,
+    "writes_coefficients": false,
+    "writes_device_id": false,
+    "formal_release_allowed": false,
+    "database_import_allowed": false,
+    "not_real_acceptance_evidence": true
+  },
+  "missing_points": [
+    {
+      "family_id": "mature_0620_legacy_ratio",
+      "route_kind": "co2",
+      "point_id": "p040_Tm10_0ppm_fit",
+      "temp_c": -10.0,
+      "co2_ppm": 0.0,
+      "hgen_c": null,
+      "rh_pct": null,
+      "point_path": "D:\\gas_calibrator\\_handoff\\v1_5_formal_route_real_20260624\\current6_20260624_r10_task_direct_continuous_nowrite\\co2\\p040_Tm10_0ppm_fit",
+      "candidate_count": 3,
+      "candidate_decisions": [
+        "bindable_reject_only_not_fit",
+        "cross_run_reference_not_direct_bind",
+        "not_bindable_raw_only"
+      ],
+      "recommendation": "bind_same_run_reject_only_quality"
+    },
+    {
+      "family_id": "mature_0620_legacy_ratio",
+      "route_kind": "co2",
+      "point_id": "p041_Tm10_400ppm_fit",
+      "temp_c": -10.0,
+      "co2_ppm": 400.0,
+      "hgen_c": null,
+      "rh_pct": null,
+      "point_path": "D:\\gas_calibrator\\_handoff\\v1_5_formal_route_real_20260624\\current6_20260624_r10_task_direct_continuous_nowrite\\co2\\p041_Tm10_400ppm_fit",
+      "candidate_count": 3,
+      "candidate_decisions": [
+        "bindable_reject_only_not_fit",
+        "cross_run_reference_not_direct_bind",
+        "not_bindable_raw_only"
+      ],
+      "recommendation": "bind_same_run_reject_only_quality"
+    },
+    {
+      "family_id": "new_algorithm_shadow_run",
+      "route_kind": "co2",
+      "point_id": "p017_T20_200ppm_fit",
+      "temp_c": 20.0,
+      "co2_ppm": 200.0,
+      "hgen_c": null,
+      "rh_pct": null,
+      "point_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\p017_T20_200ppm_fit",
+      "candidate_count": 2,
+      "candidate_decisions": [
+        "cross_run_reference_not_direct_bind",
+        "not_bindable_raw_only"
+      ],
+      "recommendation": "cross_run_reference_only_find_same_run_qc_or_retry"
+    }
+  ],
+  "candidate_evidence": [
+    {
+      "point_id": "p040_Tm10_0ppm_fit",
+      "family_id": "mature_0620_legacy_ratio",
+      "route_kind": "co2",
+      "candidate_type": "same_run_queue_manifest_with_quality",
+      "bind_decision": "bindable_reject_only_not_fit",
+      "candidate_path": "D:\\gas_calibrator\\_handoff\\v1_5_formal_route_real_20260624\\current6_20260624_r10_task_direct_continuous_nowrite\\co2\\current6_20260624_r10_co2_continuous_full45_task_direct\\quality_backfill_20260625\\queue_manifest_with_quality.csv",
+      "quality_grade": "C_reject",
+      "sample_can_enter_calibration_fit": false,
+      "sample_can_enter_diagnostic_model": false,
+      "reason": "dewpoint_unstable;flush_duration_below_min;dewpoint_tail_coverage_insufficient;flush_duration_below_min;dewpoint_tail_coverage_insufficient",
+      "same_run": true,
+      "same_point_id": true,
+      "same_physical_point": true
+    },
+    {
+      "point_id": "p040_Tm10_0ppm_fit",
+      "family_id": "mature_0620_legacy_ratio",
+      "route_kind": "co2",
+      "candidate_type": "raw_sampling_evidence_without_qc",
+      "bind_decision": "not_bindable_raw_only",
+      "candidate_path": "D:\\gas_calibrator\\_handoff\\v1_5_formal_route_real_20260624\\current6_20260624_r10_task_direct_continuous_nowrite\\co2\\p040_Tm10_0ppm_fit",
+      "quality_grade": "",
+      "sample_can_enter_calibration_fit": null,
+      "sample_can_enter_diagnostic_model": null,
+      "reason": "raw_files=4;requires QC derivation before fit binding",
+      "same_run": true,
+      "same_point_id": true,
+      "same_physical_point": true
+    },
+    {
+      "point_id": "p040_Tm10_0ppm_fit",
+      "family_id": "mature_0620_legacy_ratio",
+      "route_kind": "co2",
+      "candidate_type": "frame_quality_summary",
+      "bind_decision": "cross_run_reference_not_direct_bind",
+      "candidate_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p001_Tm10_0ppm_fit\\frame_quality_summary.csv",
+      "quality_grade": "frame_quality_only",
+      "sample_can_enter_calibration_fit": null,
+      "sample_can_enter_diagnostic_model": null,
+      "reason": "frame_quality_rows=1",
+      "same_run": false,
+      "same_point_id": false,
+      "same_physical_point": true
+    },
+    {
+      "point_id": "p041_Tm10_400ppm_fit",
+      "family_id": "mature_0620_legacy_ratio",
+      "route_kind": "co2",
+      "candidate_type": "same_run_queue_manifest_with_quality",
+      "bind_decision": "bindable_reject_only_not_fit",
+      "candidate_path": "D:\\gas_calibrator\\_handoff\\v1_5_formal_route_real_20260624\\current6_20260624_r10_task_direct_continuous_nowrite\\co2\\current6_20260624_r10_co2_continuous_full45_task_direct\\quality_backfill_20260625\\queue_manifest_with_quality.csv",
+      "quality_grade": "C_reject",
+      "sample_can_enter_calibration_fit": false,
+      "sample_can_enter_diagnostic_model": false,
+      "reason": "dewpoint_unstable;dewpoint_tail_slope_too_large;dewpoint_tail_slope_too_large",
+      "same_run": true,
+      "same_point_id": true,
+      "same_physical_point": true
+    },
+    {
+      "point_id": "p041_Tm10_400ppm_fit",
+      "family_id": "mature_0620_legacy_ratio",
+      "route_kind": "co2",
+      "candidate_type": "raw_sampling_evidence_without_qc",
+      "bind_decision": "not_bindable_raw_only",
+      "candidate_path": "D:\\gas_calibrator\\_handoff\\v1_5_formal_route_real_20260624\\current6_20260624_r10_task_direct_continuous_nowrite\\co2\\p041_Tm10_400ppm_fit",
+      "quality_grade": "",
+      "sample_can_enter_calibration_fit": null,
+      "sample_can_enter_diagnostic_model": null,
+      "reason": "raw_files=4;requires QC derivation before fit binding",
+      "same_run": true,
+      "same_point_id": true,
+      "same_physical_point": true
+    },
+    {
+      "point_id": "p041_Tm10_400ppm_fit",
+      "family_id": "mature_0620_legacy_ratio",
+      "route_kind": "co2",
+      "candidate_type": "frame_quality_summary",
+      "bind_decision": "cross_run_reference_not_direct_bind",
+      "candidate_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_resume_20260628\\co2_Tm10_Tm20_COM35_r1\\p002_Tm10_400ppm_fit\\frame_quality_summary.csv",
+      "quality_grade": "frame_quality_only",
+      "sample_can_enter_calibration_fit": null,
+      "sample_can_enter_diagnostic_model": null,
+      "reason": "frame_quality_rows=1",
+      "same_run": false,
+      "same_point_id": false,
+      "same_physical_point": true
+    },
+    {
+      "point_id": "p017_T20_200ppm_fit",
+      "family_id": "new_algorithm_shadow_run",
+      "route_kind": "co2",
+      "candidate_type": "raw_sampling_evidence_without_qc",
+      "bind_decision": "not_bindable_raw_only",
+      "candidate_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\_handoff\\new_algo_001_init_20260627\\formal\\co2_open_flow_0620_mature_20260627_r1\\co2_r2\\p017_T20_200ppm_fit",
+      "quality_grade": "",
+      "sample_can_enter_calibration_fit": null,
+      "sample_can_enter_diagnostic_model": null,
+      "reason": "raw_files=4;requires QC derivation before fit binding",
+      "same_run": true,
+      "same_point_id": true,
+      "same_physical_point": true
+    },
+    {
+      "point_id": "p017_T20_200ppm_fit",
+      "family_id": "new_algorithm_shadow_run",
+      "route_kind": "co2",
+      "candidate_type": "formal_open_flow_data_quality_by_analyzer",
+      "bind_decision": "cross_run_reference_not_direct_bind",
+      "candidate_path": "D:\\gas_calibrator\\_handoff\\v1_5_formal_route_real_20260624\\current6_20260624_r10_task_direct_continuous_nowrite\\co2\\p017_T20_200ppm_fit\\formal_open_flow_data_quality_by_analyzer.csv",
+      "quality_grade": "{\"A_calibration_eligible\": 2, \"B_diagnostic_model_only\": 3, \"C_reject\": 1}",
+      "sample_can_enter_calibration_fit": true,
+      "sample_can_enter_diagnostic_model": null,
+      "reason": "eligible_rows=2;rejected_rows=4;ratio_span=0.0006000>a_tol=0.0005000;ratio_span=0.0008000>a_tol=0.0005000;ratio_span=0.0010000>tol=0.0010000",
+      "same_run": false,
+      "same_point_id": true,
+      "same_physical_point": true
+    }
+  ],
+  "checks": [
+    {
+      "check_id": "missing_qc_points_loaded",
+      "title": "Missing-QC points are loaded from replay evidence",
+      "status": "pass",
+      "reason": "the audit starts from binder-discovered missing QC points",
+      "expected": "one or more missing QC points when replay evidence is blocked on QC",
+      "observed": "[{\"co2_ppm\": 0.0, \"family_id\": \"mature_0620_legacy_ratio\", \"hgen_c\": null, \"point_id\": \"p040_Tm10_0ppm_fit\", \"point_path\": \"D:\\\\gas_calibrator\\\\_handoff\\\\v1_5_formal_route_real_20260624\\\\current6_20260624_r10_task_direct_continuous_nowrite\\\\co2\\\\p040_Tm10_0ppm_fit\", \"rh_pct\": null, \"route_kind\": \"co2\", \"temp_c\": -10.0}, {\"co2_ppm\": 400.0, \"family_id\": \"mature_0620_legacy_ratio\", \"hgen_c\": null, \"point_id\": \"p041_Tm10_400ppm_fit\", \"point_path\": \"D:\\\\gas_calibrator\\\\_handoff\\\\v1_5_formal_route_real_20260624\\\\current6_20260624_r10_task_direct_continuous_nowrite\\\\co2\\\\p041_Tm10_400ppm_fit\", \"rh_pct\": null, \"route_kind\": \"co2\", \"temp_c\": -10.0}, {\"co2_ppm\": 200.0, \"family_id\": \"new_algorithm_shadow_run\", \"hgen_c\": null, \"point_id\": \"p017_T20_200ppm_fit\", \"point_path\": \"D:\\\\gas_calibrator\\\\_worktrees\\\\v1_5_fixed_wait_window_gate_1aee26d_clean\\\\_handoff\\\\new_algo_001_init_20260627\\\\formal\\\\co2_open_flow_0620_mature_20260627_r1\\\\co2_r2\\\\p017_T20_200ppm_fit\", \"rh_pct\": null, \"route_kind\": \"co2\", \"temp_c\": 20.0}]",
+      "physical_meaning": "The audit must explain the exact replay blocker instead of scanning unrelated historical data.",
+      "blocks_qc_gap_closure": false
+    },
+    {
+      "check_id": "same_run_reject_only_bindings_identified",
+      "title": "Same-run reject-only QC candidates are separated from fit bindings",
+      "status": "pass",
+      "reason": "queue-manifest C_reject rows can close missing-QC metadata but cannot enter calibration fit",
+      "expected": "reject-only candidates stay non-fit",
+      "observed": "[{\"candidate_count\": 3, \"candidate_decisions\": [\"bindable_reject_only_not_fit\", \"cross_run_reference_not_direct_bind\", \"not_bindable_raw_only\"], \"co2_ppm\": 0.0, \"family_id\": \"mature_0620_legacy_ratio\", \"hgen_c\": null, \"point_id\": \"p040_Tm10_0ppm_fit\", \"point_path\": \"D:\\\\gas_calibrator\\\\_handoff\\\\v1_5_formal_route_real_20260624\\\\current6_20260624_r10_task_direct_continuous_nowrite\\\\co2\\\\p040_Tm10_0ppm_fit\", \"recommendation\": \"bind_same_run_reject_only_quality\", \"rh_pct\": null, \"route_kind\": \"co2\", \"temp_c\": -10.0}, {\"candidate_count\": 3, \"candidate_decisions\": [\"bindable_reject_only_not_fit\", \"cross_run_reference_not_direct_bind\", \"not_bindable_raw_only\"], \"co2_ppm\": 400.0, \"family_id\": \"mature_0620_legacy_ratio\", \"hgen_c\": null, \"point_id\": \"p041_Tm10_400ppm_fit\", \"point_path\": \"D:\\\\gas_calibrator\\\\_handoff\\\\v1_5_formal_route_real_20260624\\\\current6_20260624_r10_task_direct_continuous_nowrite\\\\co2\\\\p041_Tm10_400ppm_fit\", \"recommendation\": \"bind_same_run_reject_only_quality\", \"rh_pct\": null, \"route_kind\": \"co2\", \"temp_c\": -10.0}, {\"candidate_count\": 2, \"candidate_decisions\": [\"cross_run_reference_not_direct_bind\", \"not_bindable_raw_only\"], \"co2_ppm\": 200.0, \"family_id\": \"new_algorithm_shadow_run\", \"hgen_c\": null, \"point_id\": \"p017_T20_200ppm_fit\", \"point_path\": \"D:\\\\gas_calibrator\\\\_worktrees\\\\v1_5_fixed_wait_window_gate_1aee26d_clean\\\\_handoff\\\\new_algo_001_init_20260627\\\\formal\\\\co2_open_flow_0620_mature_20260627_r1\\\\co2_r2\\\\p017_T20_200ppm_fit\", \"recommendation\": \"cross_run_reference_only_find_same_run_qc_or_retry\", \"rh_pct\": null, \"route_kind\": \"co2\", \"temp_c\": 20.0}]",
+      "physical_meaning": "A failed or C_reject point can be traceable evidence without becoming a calibration point.",
+      "blocks_qc_gap_closure": false
+    },
+    {
+      "check_id": "cross_run_quality_not_directly_bound",
+      "title": "Cross-run quality remains reference-only",
+      "status": "pass",
+      "reason": "quality from another family/run is reported as reference and never used as direct replacement",
+      "expected": "cross_run_reference_not_direct_bind",
+      "observed": "[{\"bind_decision\": \"cross_run_reference_not_direct_bind\", \"candidate_path\": \"D:\\\\gas_calibrator\\\\_worktrees\\\\v1_5_fixed_wait_window_gate_1aee26d_clean\\\\_handoff\\\\new_algo_001_init_20260627\\\\formal\\\\co2_resume_20260628\\\\co2_Tm10_Tm20_COM35_r1\\\\p001_Tm10_0ppm_fit\\\\frame_quality_summary.csv\", \"candidate_type\": \"frame_quality_summary\", \"family_id\": \"mature_0620_legacy_ratio\", \"point_id\": \"p040_Tm10_0ppm_fit\", \"quality_grade\": \"frame_quality_only\", \"reason\": \"frame_quality_rows=1\", \"route_kind\": \"co2\", \"same_physical_point\": true, \"same_point_id\": false, \"same_run\": false, \"sample_can_enter_calibration_fit\": null, \"sample_can_enter_diagnostic_model\": null}, {\"bind_decision\": \"cross_run_reference_not_direct_bind\", \"candidate_path\": \"D:\\\\gas_calibrator\\\\_worktrees\\\\v1_5_fixed_wait_window_gate_1aee26d_clean\\\\_handoff\\\\new_algo_001_init_20260627\\\\formal\\\\co2_resume_20260628\\\\co2_Tm10_Tm20_COM35_r1\\\\p002_Tm10_400ppm_fit\\\\frame_quality_summary.csv\", \"candidate_type\": \"frame_quality_summary\", \"family_id\": \"mature_0620_legacy_ratio\", \"point_id\": \"p041_Tm10_400ppm_fit\", \"quality_grade\": \"frame_quality_only\", \"reason\": \"frame_quality_rows=1\", \"route_kind\": \"co2\", \"same_physical_point\": true, \"same_point_id\": false, \"same_run\": false, \"sample_can_enter_calibration_fit\": null, \"sample_can_enter_diagnostic_model\": null}, {\"bind_decision\": \"cross_run_reference_not_direct_bind\", \"candidate_path\": \"D:\\\\gas_calibrator\\\\_handoff\\\\v1_5_formal_route_real_20260624\\\\current6_20260624_r10_task_direct_continuous_nowrite\\\\co2\\\\p017_T20_200ppm_fit\\\\formal_open_flow_data_quality_by_analyzer.csv\", \"candidate_type\": \"formal_open_flow_data_quality_by_analyzer\", \"family_id\": \"new_algorithm_shadow_run\", \"point_id\": \"p017_T20_200ppm_fit\", \"quality_grade\": \"{\\\"A_calibration_eligible\\\": 2, \\\"B_diagnostic_model_only\\\": 3, \\\"C_reject\\\": 1}\", \"reason\": \"eligible_rows=2;rejected_rows=4;ratio_span=0.0006000>a_tol=0.0005000;ratio_span=0.0008000>a_tol=0.0005000;ratio_span=0.0010000>tol=0.0010000\", \"route_kind\": \"co2\", \"same_physical_point\": true, \"same_point_id\": true, \"same_run\": false, \"sample_can_enter_calibration_fit\": true, \"sample_can_enter_diagnostic_model\": null}]",
+      "physical_meaning": "Same physical gas point in another run can guide diagnosis, but it does not prove this device/run was stable.",
+      "blocks_qc_gap_closure": false
+    },
+    {
+      "check_id": "unresolved_gaps_remain_review_required",
+      "title": "Unresolved QC gaps remain review-required",
+      "status": "review_required",
+      "reason": "points with only raw IO or cross-run reference still need QC derivation, retry evidence, or targeted rerun",
+      "expected": "unresolved gaps are not promoted",
+      "observed": "[{\"candidate_count\": 2, \"candidate_decisions\": [\"cross_run_reference_not_direct_bind\", \"not_bindable_raw_only\"], \"co2_ppm\": 200.0, \"family_id\": \"new_algorithm_shadow_run\", \"hgen_c\": null, \"point_id\": \"p017_T20_200ppm_fit\", \"point_path\": \"D:\\\\gas_calibrator\\\\_worktrees\\\\v1_5_fixed_wait_window_gate_1aee26d_clean\\\\_handoff\\\\new_algo_001_init_20260627\\\\formal\\\\co2_open_flow_0620_mature_20260627_r1\\\\co2_r2\\\\p017_T20_200ppm_fit\", \"recommendation\": \"cross_run_reference_only_find_same_run_qc_or_retry\", \"rh_pct\": null, \"route_kind\": \"co2\", \"temp_c\": 20.0}]",
+      "physical_meaning": "This keeps replay from silently manufacturing fit-ready evidence.",
+      "blocks_qc_gap_closure": false
+    },
+    {
+      "check_id": "qc_gap_audit_is_read_only",
+      "title": "QC gap audit is read-only",
+      "status": "pass",
+      "reason": "this audit writes only JSON/CSV/Markdown artifacts",
+      "expected": "{\"connects_postgresql\": false, \"formal_release_allowed\": false, \"opens_com_ports\": false, \"writes_coefficients\": false}",
+      "observed": "{\"connects_postgresql\": false, \"formal_release_allowed\": false, \"opens_com_ports\": false, \"writes_coefficients\": false}",
+      "physical_meaning": "QC gap closure planning must not become hidden hardware control or release authorization.",
+      "blocks_qc_gap_closure": false
+    }
+  ]
+}

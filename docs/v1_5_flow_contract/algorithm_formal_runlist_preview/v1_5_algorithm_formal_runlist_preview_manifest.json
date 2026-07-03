@@ -1,0 +1,21 @@
+﻿{
+  "schema_version": 1,
+  "generated_at": "2026-07-01T19:02:47",
+  "profile_id": "absorption_ratio_shadow",
+  "status": "pass",
+  "blocker_count": 0,
+  "review_required_count": 0,
+  "no_write": true,
+  "opens_com_ports": false,
+  "connects_postgresql": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_device_id": false,
+  "runner_integration_status": "preview_only_not_runner_wired",
+  "queue_csv_schema": "v1_5_formal_queue_compatible_preview",
+  "legacy_co2_formal_point_count": 45,
+  "legacy_h2o_formal_point_count": 13,
+  "co2_runlist_count": 47,
+  "h2o_runlist_count": 14,
+  "formal_runlist_contract": "legacy=45/13;new_algorithm_runlist_preview=47/14;runner_not_modified"
+}

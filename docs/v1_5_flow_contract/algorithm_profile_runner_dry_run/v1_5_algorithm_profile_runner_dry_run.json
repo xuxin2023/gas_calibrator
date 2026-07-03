@@ -1,0 +1,125 @@
+﻿{
+  "schema": "v1_5_algorithm_profile_runner_dry_run_v1",
+  "generated_at": "2026-07-02T18:02:48",
+  "overall_status": "ready_for_profile_driven_runner_dry_run_review",
+  "blocker_count": 0,
+  "review_required_count": 0,
+  "profile_id": "absorption_ratio_shadow",
+  "not_real_acceptance_evidence": true,
+  "no_write": true,
+  "opens_com_ports": false,
+  "connects_postgresql": false,
+  "controls_water_or_gas_routes": false,
+  "writes_coefficients": false,
+  "writes_device_id": false,
+  "does_not_execute_commands": true,
+  "does_not_modify_runners": true,
+  "runner_integration_status": "profile_driven_dry_run_bundle_only_not_runner_wired",
+  "co2_runlist_count": 47,
+  "h2o_runlist_count": 14,
+  "planned_route_order": [
+    "co2",
+    "h2o"
+  ],
+  "next_action": "Review this profile-driven dry-run bundle. Passing it does not authorize COM, route control, coefficient writes, archive release, database import, or mature runner modification.",
+  "output_directories": {
+    "runlist_preview": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview",
+    "runlist_readiness": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness",
+    "runner_integration_dry_run": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run"
+  },
+  "outputs": {
+    "runlist_preview": {
+      "manifest": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
+      "co2_runlist": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+      "h2o_runlist": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+      "checks": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_checks.csv",
+      "summary": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW.md"
+    },
+    "runlist_readiness": {
+      "json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
+      "checks_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness_checks.csv",
+      "markdown": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\V1_5_ALGORITHM_RUNLIST_READINESS.md"
+    },
+    "runner_integration_dry_run": {
+      "json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
+      "plan_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_plan.csv",
+      "checks_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_checks.csv",
+      "markdown": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\V1_5_ALGORITHM_RUNNER_INTEGRATION_DRY_RUN.md"
+    }
+  },
+  "checks": [
+    {
+      "check": "formal_runlist_preview_generation",
+      "status": "ready",
+      "evidence_role": "algorithm_formal_runlist_preview",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
+      "reasons": [],
+      "physical_meaning": "The profile must first produce queue-compatible 47/14 preview CSVs without touching mature runners.",
+      "next_action": "Regenerate the profile runlist preview before any readiness or runner dry-run review.",
+      "details": {
+        "outputs": {
+          "manifest": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_manifest.json",
+          "co2_runlist": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_co2_runlist_preview.csv",
+          "h2o_runlist": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_new_algorithm_formal_h2o_runlist_preview.csv",
+          "checks": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\v1_5_algorithm_formal_runlist_preview_checks.csv",
+          "summary": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_formal_runlist_preview\\V1_5_ALGORITHM_FORMAL_RUNLIST_PREVIEW.md"
+        }
+      }
+    },
+    {
+      "check": "runlist_readiness_gate",
+      "status": "ready",
+      "evidence_role": "algorithm_runlist_readiness",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
+      "reasons": [],
+      "physical_meaning": "The new-algorithm 47/14 runlist must pass the readiness gate before runner integration review.",
+      "next_action": "Fix blocked readiness checks before planning any queue handoff.",
+      "details": {
+        "overall_status": "ready_for_new_algorithm_runner_integration_review",
+        "blocker_count": 0,
+        "outputs": {
+          "json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness.json",
+          "checks_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\v1_5_algorithm_runlist_readiness_checks.csv",
+          "markdown": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runlist_readiness\\V1_5_ALGORITHM_RUNLIST_READINESS.md"
+        }
+      }
+    },
+    {
+      "check": "runner_integration_dry_run_plan",
+      "status": "ready",
+      "evidence_role": "algorithm_runner_integration_dry_run",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
+      "reasons": [],
+      "physical_meaning": "The runner handoff remains a dry-run/no-prompt command preview, not live queue execution.",
+      "next_action": "Review the dry-run plan before any future profile-driven runner wiring package.",
+      "details": {
+        "overall_status": "ready_for_runner_integration_dry_run_review",
+        "blocker_count": 0,
+        "planned_route_order": [
+          "co2",
+          "h2o"
+        ],
+        "outputs": {
+          "json": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run.json",
+          "plan_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_plan.csv",
+          "checks_csv": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\v1_5_algorithm_runner_integration_dry_run_checks.csv",
+          "markdown": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run\\algorithm_runner_integration_dry_run\\V1_5_ALGORITHM_RUNNER_INTEGRATION_DRY_RUN.md"
+        }
+      }
+    },
+    {
+      "check": "profile_runner_dry_run_offline_boundary",
+      "status": "ready",
+      "evidence_role": "profile_runner_dry_run_boundary",
+      "evidence_path": "D:\\gas_calibrator\\_worktrees\\v1_5_fixed_wait_window_gate_1aee26d_clean\\docs\\v1_5_flow_contract\\algorithm_profile_runner_dry_run",
+      "reasons": [],
+      "physical_meaning": "The profile-driven bundle must remain offline evidence, not a hidden production runner.",
+      "next_action": "Keep live runner wiring as a separate reviewed package after this bundle is accepted.",
+      "details": {
+        "not_real_acceptance_evidence": true,
+        "does_not_execute_commands": true,
+        "does_not_modify_runners": true
+      }
+    }
+  ]
+}
