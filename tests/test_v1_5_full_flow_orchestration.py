@@ -38,6 +38,7 @@ def _pre_identity_offline_steps():
         "formal_readonly_com_execution_blocked_executor_snapshot",
         "formal_readonly_com_execution_packet_validator_snapshot",
         "formal_readonly_com_execution_plan_preview_snapshot",
+        "formal_readonly_com_minimal_executor_review_snapshot",
         "initialization_readiness_snapshot",
         "pre_gas_readiness_snapshot",
     ]
@@ -101,6 +102,11 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
     )
     assert step_ids.index(
         "formal_readonly_com_execution_plan_preview_snapshot"
+    ) < step_ids.index(
+        "formal_readonly_com_minimal_executor_review_snapshot"
+    )
+    assert step_ids.index(
+        "formal_readonly_com_minimal_executor_review_snapshot"
     ) < step_ids.index(
         "initialization_readiness_snapshot"
     )
@@ -709,6 +715,7 @@ def test_full_flow_live_runner_readiness_lists_controlled_live_gates(tmp_path):
         "formal_readonly_com_execution_blocked_executor_snapshot",
         "formal_readonly_com_execution_packet_validator_snapshot",
         "formal_readonly_com_execution_plan_preview_snapshot",
+        "formal_readonly_com_minimal_executor_review_snapshot",
         "initialization_readiness_snapshot",
         "pre_gas_readiness_snapshot",
     )

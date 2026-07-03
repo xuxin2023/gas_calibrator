@@ -344,6 +344,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("offline read-only COM execution packet validator; validates future authorization, port inventory, active analyzer list, pacing, and CHECK-skip rules without opening COM")
     elif lower == "export_v1_5_formal_readonly_com_execution_plan_preview":
         notes.append("offline read-only COM execution plan preview; renders future identity, SN, GETCO, runtime, and CHECK read order without opening COM")
+    elif lower == "export_v1_5_formal_readonly_com_minimal_executor_review":
+        notes.append("offline read-only COM minimal executor review; defines future output evidence and failure hold matrix without opening COM")
     elif "formal_archive_closure" in lower:
         notes.append("offline archive closure; does not open COM ports or control routes")
     elif lower == "export_v1_5_pre_gas_readiness":
@@ -509,6 +511,7 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
             "run_v1_5_formal_readonly_com_execution_blocked_executor",
             "export_v1_5_formal_readonly_com_execution_packet_validator",
             "export_v1_5_formal_readonly_com_execution_plan_preview",
+            "export_v1_5_formal_readonly_com_minimal_executor_review",
         }:
             category = "formal_review_evidence"
             formal_status = "formal_support"
