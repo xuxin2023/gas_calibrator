@@ -28,6 +28,16 @@ MIN_SERIAL_COMMAND_GAP_S = 1.0
 SN_PATTERN = re.compile(r"^\d{8}$")
 NEW_ALGORITHM_ALIASES = {"new", "new_absorption", "absorption", "absorption_ratio"}
 LEGACY_ALGORITHM_ALIASES = {"legacy", "legacy_ratio", "old", "ratio"}
+CONFIRMATION_TEMPLATE_ID = "v1_5_readonly_com_no_write_reviewed_ports_v1"
+STRUCTURED_CONFIRMATION_FIELDS = (
+    "read_only",
+    "no_write",
+    "reviewed_ports",
+    "no_senco_write",
+    "no_database_import",
+    "no_route_control",
+)
+LEGACY_CONFIRMATION_TOKENS = ("read-only", "no-write", "reviewed ports")
 
 
 class ReadOnlySerialClient(Protocol):
@@ -132,6 +142,14 @@ def _bool(row: Mapping[str, Any], *names: str) -> bool:
     return False
 
 
+def _mapping(row: Mapping[str, Any], *names: str) -> Mapping[str, Any]:
+    for name in names:
+        value = row.get(name)
+        if isinstance(value, Mapping):
+            return value
+    return {}
+
+
 def _resolve(path: str | Path | None) -> str:
     return str(Path(path).resolve()) if path else ""
 
@@ -217,8 +235,83 @@ def _active_input_reasons(
     return reasons
 
 
+def _structured_confirmation_reasons(payload: Mapping[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if payload.get("confirmation_template_id") != CONFIRMATION_TEMPLATE_ID:
+        reasons.append(f"confirmation_template_id={payload.get('confirmation_template_id')!r}")
+    fields = _mapping(payload, "confirmation_fields", "structured_confirmation")
+    if not fields:
+        reasons.append("confirmation_fields=missing")
+        return reasons
+    for field in STRUCTURED_CONFIRMATION_FIELDS:
+        if fields.get(field) is not True:
+            reasons.append(f"confirmation_fields_{field}={fields.get(field)!r}")
+    return reasons
+
+
+def _legacy_confirmation_reasons(payload: Mapping[str, Any]) -> list[str]:
+    confirmation = str(payload.get("operator_confirmation_text") or "").lower()
+    if not confirmation.strip():
+        return ["operator_confirmation_text=missing"]
+    reasons: list[str] = []
+    for token in LEGACY_CONFIRMATION_TOKENS:
+        if token not in confirmation:
+            reasons.append(f"operator_confirmation_missing_{token.replace('-', '_').replace(' ', '_')}")
+    return reasons
+
+
+def _authorization_shape_reasons(payload: Mapping[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if not payload:
+        return ["authorization_packet_missing"]
+    for field in ("authorization_id", "operator", "reviewer", "approver"):
+        if not str(payload.get(field) or "").strip():
+            reasons.append(f"{field}=missing")
+    if payload.get("requested_flag") != "--execute-read-only-real-com":
+        reasons.append(f"requested_flag={payload.get('requested_flag')!r}")
+    if str(payload.get("reviewer") or "").strip() == str(payload.get("approver") or "").strip():
+        reasons.append("reviewer_and_approver_must_be_distinct")
+    structured_reasons = _structured_confirmation_reasons(payload)
+    legacy_reasons = _legacy_confirmation_reasons(payload)
+    if structured_reasons and legacy_reasons:
+        reasons.append("operator_confirmation_missing_structured_template_or_legacy_text")
+        reasons.extend(structured_reasons)
+        reasons.extend(legacy_reasons)
+    try:
+        minimum_gap = float(payload.get("minimum_serial_command_gap_s") or 0.0)
+    except (TypeError, ValueError):
+        minimum_gap = 0.0
+    try:
+        retry_gap = float(payload.get("retry_gap_s") or 0.0)
+    except (TypeError, ValueError):
+        retry_gap = 0.0
+    if minimum_gap < MIN_SERIAL_COMMAND_GAP_S:
+        reasons.append(f"minimum_serial_command_gap_s={payload.get('minimum_serial_command_gap_s')!r}")
+    if retry_gap < MIN_SERIAL_COMMAND_GAP_S:
+        reasons.append(f"retry_gap_s={payload.get('retry_gap_s')!r}")
+    for field in (
+        "opens_com_ports",
+        "connects_postgresql",
+        "controls_pressure",
+        "controls_water_or_gas_routes",
+        "writes_sn",
+        "writes_device_id",
+        "writes_coefficients",
+        "database_written",
+        "formal_release_allowed",
+        "database_import_allowed",
+    ):
+        if payload.get(field) is not False:
+            reasons.append(f"authorization_boundary_{field}={payload.get(field)!r}")
+    if payload.get("not_real_acceptance_evidence") is not True:
+        reasons.append(f"not_real_acceptance_evidence={payload.get('not_real_acceptance_evidence')!r}")
+    return reasons
+
+
 def _source_reasons(
     *,
+    authorization_path: Path | None,
+    authorization_payload: Mapping[str, Any],
     packet_payload: Mapping[str, Any],
     plan_payload: Mapping[str, Any],
     stub_payload: Mapping[str, Any],
@@ -234,6 +327,12 @@ def _source_reasons(
         reasons.append(f"packet_overall_status={packet_payload.get('overall_status') or 'missing'}")
     if packet_payload.get("packet_validated_offline") is not True:
         reasons.append(f"packet_validated_offline={packet_payload.get('packet_validated_offline')!r}")
+    expected_authorization = str(packet_payload.get("authorization_packet_json") or "").strip()
+    if not expected_authorization:
+        reasons.append("packet_validator_authorization_packet_json_missing")
+    elif _resolve(expected_authorization) != _resolve(authorization_path):
+        reasons.append("authorization_packet_json_mismatch_with_packet_validator")
+    reasons.extend(_authorization_shape_reasons(authorization_payload))
     if plan_payload.get("schema") != PLAN_PREVIEW_SCHEMA:
         reasons.append(f"plan_schema={plan_payload.get('schema') or 'missing'}")
     if plan_payload.get("overall_status") != "ready_for_readonly_com_execution_plan_preview_review":
@@ -457,6 +556,8 @@ def build_v1_5_formal_readonly_com_minimal_executor(
     snapshots: list[dict[str, Any]] = []
 
     preflight_reasons = _source_reasons(
+        authorization_path=authorization_path,
+        authorization_payload=authorization_payload,
         packet_payload=packet_payload,
         plan_payload=plan_payload,
         stub_payload=stub_payload,

@@ -90,6 +90,13 @@ def _authorization_json(tmp_path: Path) -> Path:
     )
 
 
+def _alternate_authorization_json(tmp_path: Path, *, reviewer: str = "reviewer-b") -> Path:
+    payload = json.loads(_authorization_json(tmp_path).read_text(encoding="utf-8"))
+    payload["authorization_id"] = "AUTH-READONLY-ALT"
+    payload["reviewer"] = reviewer
+    return _write_json(tmp_path / "alternate_packet" / "authorization.json", payload)
+
+
 def _reviewed_ports_json(tmp_path: Path, count: int) -> Path:
     return _write_json(
         tmp_path / "packet" / "reviewed_ports.json",
@@ -288,6 +295,66 @@ def test_minimal_executor_holds_legacy_check_capable_before_opening_com(tmp_path
         row["reason"] == "active_1_old_algorithm_check_must_be_skipped"
         for row in model["hold_events"]
     )
+
+
+def test_minimal_executor_holds_authorization_mismatch_before_opening_com(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path, 1)
+    active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")
+    packet, plan = _packet_and_plan(tmp_path, count=1, active=active, ports=ports)
+    calls: list[tuple[str, str]] = []
+
+    model = build_v1_5_formal_readonly_com_minimal_executor(
+        execute_read_only_real_com=True,
+        authorization_packet_json=_alternate_authorization_json(tmp_path),
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+        formal_readonly_com_execution_packet_validator_json=packet,
+        formal_readonly_com_execution_plan_preview_json=plan,
+        formal_readonly_com_minimal_executor_stub_json=_stub_json(tmp_path),
+        client_factory=lambda port: _FakeClient(port, calls),
+        sleeper=lambda seconds: None,
+    )
+
+    assert model["overall_status"] == "readonly_com_minimal_executor_hold"
+    assert model["execution_attempted"] is False
+    assert model["opens_com_ports"] is False
+    assert calls == []
+    assert any(
+        row["reason"] == "authorization_packet_json_mismatch_with_packet_validator"
+        for row in model["hold_events"]
+    )
+
+
+def test_minimal_executor_revalidates_authorization_shape_before_opening_com(tmp_path: Path) -> None:
+    ports = _reviewed_ports_json(tmp_path, 1)
+    active = _active_analyzers_json(tmp_path, 1, algorithm="legacy_ratio")
+    packet, plan = _packet_and_plan(tmp_path, count=1, active=active, ports=ports)
+    authorization = _authorization_json(tmp_path)
+    payload = json.loads(authorization.read_text(encoding="utf-8"))
+    payload["approver"] = payload["reviewer"]
+    payload["minimum_serial_command_gap_s"] = 0.25
+    authorization.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    calls: list[tuple[str, str]] = []
+
+    model = build_v1_5_formal_readonly_com_minimal_executor(
+        execute_read_only_real_com=True,
+        authorization_packet_json=authorization,
+        reviewed_port_inventory_json=ports,
+        active_analyzer_list_json=active,
+        formal_readonly_com_execution_packet_validator_json=packet,
+        formal_readonly_com_execution_plan_preview_json=plan,
+        formal_readonly_com_minimal_executor_stub_json=_stub_json(tmp_path),
+        client_factory=lambda port: _FakeClient(port, calls),
+        sleeper=lambda seconds: None,
+    )
+
+    reasons = {row["reason"] for row in model["hold_events"]}
+    assert model["overall_status"] == "readonly_com_minimal_executor_hold"
+    assert model["execution_attempted"] is False
+    assert model["opens_com_ports"] is False
+    assert calls == []
+    assert "reviewer_and_approver_must_be_distinct" in reasons
+    assert "minimum_serial_command_gap_s=0.25" in reasons
 
 
 def test_minimal_executor_holds_non_neutral_s5_without_writing(tmp_path: Path) -> None:

@@ -37,12 +37,20 @@ Legacy/old algorithm analyzers must not receive `CHECK,YGAS,FFF`. If an active
 analyzer list marks a legacy analyzer as `check_capable=true` or
 `check_required=true`, the executor holds before opening COM.
 
+## Authorization Binding
+
+The executor requires the current `authorization_packet_json` path to match the
+authorization packet path recorded by the packet validator. It also rechecks the
+minimum authorization shape before opening COM: operator/reviewer/approver,
+distinct reviewer and approver, structured or legacy confirmation, no-write /
+no-database / no-route boundaries, and `>=1s` serial pacing.
+
 ## Focused Test Evidence
 
 ```text
 python -m pytest tests\test_v1_5_formal_readonly_com_minimal_executor.py tests\test_v1_5_entrypoint_inventory.py tests\test_v1_5_formal_run_status.py -q
-73 passed, 1 warning in 15.35s
+75 passed, 1 warning in 16.09s
 
 python -m pytest tests\test_v1_5_formal_readonly_com_execution_packet_validator.py tests\test_v1_5_formal_readonly_com_execution_plan_preview.py tests\test_v1_5_formal_readonly_com_minimal_executor_review.py tests\test_v1_5_formal_readonly_com_minimal_executor_stub.py tests\test_v1_5_formal_readonly_com_minimal_executor.py -q
-38 passed in 4.41s
+40 passed in 5.96s
 ```
