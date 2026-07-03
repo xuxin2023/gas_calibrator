@@ -46,7 +46,7 @@
       "device_id": "000",
       "mode": 2,
       "active_send": true,
-      "ftd_hz": 10,
+      "ftd_hz": 1,
       "average_filter": 49,
       "average_co2": 1,
       "average_h2o": 1
@@ -60,7 +60,7 @@
         "device_id": "001",
         "mode": 2,
         "active_send": true,
-        "ftd_hz": 10,
+        "ftd_hz": 1,
         "average_co2": 1,
         "average_h2o": 1
       },
@@ -72,7 +72,7 @@
         "device_id": "002",
         "mode": 2,
         "active_send": true,
-        "ftd_hz": 10,
+        "ftd_hz": 1,
         "average_co2": 1,
         "average_h2o": 1
       },
@@ -84,7 +84,7 @@
         "device_id": "003",
         "mode": 2,
         "active_send": true,
-        "ftd_hz": 10,
+        "ftd_hz": 1,
         "average_co2": 1,
         "average_h2o": 1
       },
@@ -96,7 +96,7 @@
         "device_id": "004",
         "mode": 2,
         "active_send": true,
-        "ftd_hz": 10,
+        "ftd_hz": 1,
         "average_co2": 1,
         "average_h2o": 1
       },
@@ -108,7 +108,7 @@
         "device_id": "005",
         "mode": 2,
         "active_send": true,
-        "ftd_hz": 10,
+        "ftd_hz": 1,
         "average_co2": 1,
         "average_h2o": 1
       },
@@ -120,7 +120,7 @@
         "device_id": "006",
         "mode": 2,
         "active_send": true,
-        "ftd_hz": 10,
+        "ftd_hz": 1,
         "average_co2": 1,
         "average_h2o": 1
       },
@@ -132,7 +132,7 @@
         "device_id": "007",
         "mode": 2,
         "active_send": true,
-        "ftd_hz": 10,
+        "ftd_hz": 1,
         "average_co2": 1,
         "average_h2o": 1
       },
@@ -144,7 +144,7 @@
         "device_id": "008",
         "mode": 2,
         "active_send": true,
-        "ftd_hz": 10,
+        "ftd_hz": 1,
         "average_co2": 1,
         "average_h2o": 1
       }
@@ -306,7 +306,7 @@
       "enabled": false,
       "mode": 2,
       "active_send": true,
-      "ftd_hz": 10,
+      "ftd_hz": 1,
       "average_filter": 49,
       "average_co2": 1,
       "average_h2o": 1,
@@ -324,7 +324,7 @@
       "passive_attempts": 4,
       "retry_delay_s": 0.2,
       "reapply_delay_s": 0.35,
-      "command_gap_s": 0.15,
+      "command_gap_s": 1.0,
       "post_enable_stream_wait_s": 2.0,
       "post_enable_stream_ack_wait_s": 8.0
     },
@@ -599,7 +599,18 @@
         "analyzer_chamber_temp_span_c": 0.08,
         "analyzer_chamber_temp_timeout_s": 5400,
         "analyzer_chamber_temp_first_valid_timeout_s": 120,
-        "analyzer_chamber_temp_poll_s": 1.0
+        "analyzer_chamber_temp_poll_s": 1.0,
+        "analyzer_check_after_chamber_temp_stable_enabled": true,
+        "analyzer_check_after_chamber_temp_stable_strict": false,
+        "analyzer_check_read_delay_s": 0.1,
+        "analyzer_check_read_timeout_s": 0.6,
+        "analyzer_check_read_retries": 0,
+        "analyzer_check_command_gap_s": 1.0,
+        "analyzer_check_overtemp_max_v": 0.5,
+        "analyzer_check_undertemp_min_v": 1.0,
+        "analyzer_check_undertemp_max_v": 2.0,
+        "analyzer_check_constant_min_v": 2.3,
+        "analyzer_check_constant_max_v": 3.1
       },
       "humidity_generator": {
         "enabled": true,

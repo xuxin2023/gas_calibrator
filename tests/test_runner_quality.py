@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import gas_calibrator.workflow.runner as runner_module
 from gas_calibrator.coefficients.model_feature_policy import AMBIENT_ONLY_MODEL_FEATURES
 from gas_calibrator.data.points import CalibrationPoint
+from gas_calibrator.devices.gas_analyzer import GasAnalyzer
 from gas_calibrator.logging_utils import RunLogger
 from gas_calibrator.workflow.runner import CalibrationRunner
 
@@ -190,6 +191,32 @@ def test_assess_mode2_frame_for_startup_accepts_protocol_ready_high_pressure_fra
     assert startup_status == "启动MODE2可用"
     assert strict_ok is False
     assert "P_kPa>150" in strict_status
+
+
+def test_mode2_quality_accepts_new_algorithm_15_field_frame(tmp_path: Path) -> None:
+    runner = _runner_with_quality(tmp_path, {"enabled": False})
+    line = (
+        "YGAS,001,0458.924,00.000,0796.271,-0.947,1.3198,1.3197,"
+        "0.7146,0.7146,03275,04325,02342,030.97,099.71"
+    )
+    parsed = GasAnalyzer._parse_mode2(line.split(","), line)
+    assert parsed is not None
+
+    startup_ok, startup_status = runner._assess_mode2_frame_for_startup(parsed)
+    strict_ok, strict_status = runner._assess_analyzer_frame(parsed)
+    contract_status, contract_reason = runner._assess_mode2_contract(parsed)
+    category = runner._classify_sensor_read_line(SimpleNamespace(), line, parsed)
+    runner.logger.close()
+
+    assert parsed["mode2_field_count"] == 15
+    assert parsed["mode2_min_field_count"] == 15
+    assert startup_ok is True
+    assert "短帧" not in startup_status
+    assert strict_ok is True
+    assert "短帧" not in strict_status
+    assert contract_status == "pass"
+    assert contract_reason == "ok"
+    assert category == "parsed"
 
 
 def test_read_sensor_parsed_accepts_temp_key_in_relaxed_runtime_mode(tmp_path: Path) -> None:
