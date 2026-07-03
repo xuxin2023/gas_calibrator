@@ -324,6 +324,8 @@ def _notes_for_name(name: str) -> list[str]:
         notes.append("canonical initialization owner; offline planner, evidence indexer, and readiness gate")
     elif lower == "export_v1_5_formal_initialization_executor_dry_run":
         notes.append("offline initialization executor dry-run review; classifies plan steps without executing COM or write commands")
+    elif lower == "run_v1_5_formal_initialization_blocked_executor":
+        notes.append("offline initialization blocked executor stub; refuses live COM, SN/device-code writes, SENCO writes, PostgreSQL, pressure, and route actions")
     elif "formal_archive_closure" in lower:
         notes.append("offline archive closure; does not open COM ports or control routes")
     elif lower == "export_v1_5_pre_gas_readiness":
@@ -477,6 +479,13 @@ def classify_v1_5_entrypoint(path: Path, *, root: Path | None = None) -> V15Entr
         elif lower == "run_v1_5_formal_initialization_runner":
             category = "full_flow_orchestration"
             formal_status = "canonical_initialization_planner"
+            risk_level = "offline"
+            opens_com_ports = False
+            controls_routes = False
+            writes_coefficients = False
+        elif lower == "run_v1_5_formal_initialization_blocked_executor":
+            category = "formal_review_evidence"
+            formal_status = "formal_support"
             risk_level = "offline"
             opens_com_ports = False
             controls_routes = False

@@ -28,6 +28,7 @@ def _pre_identity_offline_steps():
         "load_plan_and_traceability",
         "formal_initialization_contract_plan",
         "formal_initialization_executor_dry_run_snapshot",
+        "formal_initialization_blocked_executor_snapshot",
         "initialization_readiness_snapshot",
         "pre_gas_readiness_snapshot",
     ]
@@ -50,6 +51,9 @@ def test_full_flow_plan_keeps_pressure_and_temperature_before_components(tmp_pat
         "formal_initialization_executor_dry_run_snapshot"
     )
     assert step_ids.index("formal_initialization_executor_dry_run_snapshot") < step_ids.index(
+        "formal_initialization_blocked_executor_snapshot"
+    )
+    assert step_ids.index("formal_initialization_blocked_executor_snapshot") < step_ids.index(
         "initialization_readiness_snapshot"
     )
     assert step_ids.index("initialization_readiness_snapshot") < step_ids.index("pre_gas_readiness_snapshot")
@@ -122,10 +126,14 @@ def test_full_flow_initialization_contract_stage_is_offline_only(tmp_path):
 
     init_plan = next(step for step in plan.steps if step.step_id == "formal_initialization_contract_plan")
     init_executor = next(step for step in plan.steps if step.step_id == "formal_initialization_executor_dry_run_snapshot")
+    init_blocked_executor = next(
+        step for step in plan.steps if step.step_id == "formal_initialization_blocked_executor_snapshot"
+    )
     readiness = next(step for step in plan.steps if step.step_id == "initialization_readiness_snapshot")
     pre_gas = next(step for step in plan.steps if step.step_id == "pre_gas_readiness_snapshot")
     init_command = list(init_plan.command)
     init_executor_command = list(init_executor.command)
+    init_blocked_executor_command = list(init_blocked_executor.command)
     readiness_command = list(readiness.command)
     pre_gas_command = list(pre_gas.command)
 
@@ -160,6 +168,31 @@ def test_full_flow_initialization_contract_stage_is_offline_only(tmp_path):
     )
     assert "v1_5_formal_initialization_executor_dry_run.json" in " ".join(init_executor.expected_outputs)
     assert "--execute" not in init_executor_command
+
+    assert init_blocked_executor.execution_mode == "offline_sidecar"
+    assert init_blocked_executor.opens_com_ports is False
+    assert init_blocked_executor.writes_coefficients is False
+    assert init_blocked_executor.writes_device_id is False
+    assert init_blocked_executor.controls_pressure is False
+    assert init_blocked_executor.controls_gas_route is False
+    assert init_blocked_executor.controls_water_route is False
+    assert init_blocked_executor.tool_module == "gas_calibrator.tools.run_v1_5_formal_initialization_blocked_executor"
+    assert _flag_value(init_blocked_executor_command, "--formal-initialization-executor-dry-run-json").endswith(
+        "formal_initialization_executor_dry_run\\v1_5_formal_initialization_executor_dry_run.json"
+    )
+    assert _flag_value(init_blocked_executor_command, "--formal-initialization-plan-json").endswith(
+        "formal_initialization\\v1_5_formal_initialization_plan.json"
+    )
+    assert _flag_value(init_blocked_executor_command, "--output-dir") == str(
+        (tmp_path / "plan" / "formal_initialization_blocked_executor").resolve()
+    )
+    assert "--fail-on-blocked" in init_blocked_executor_command
+    assert "--execute" not in init_blocked_executor_command
+    assert "--execute-read-only-real-com" not in init_blocked_executor_command
+    assert "--execute-controlled-writes" not in init_blocked_executor_command
+    assert "v1_5_formal_initialization_blocked_executor.json" in " ".join(
+        init_blocked_executor.expected_outputs
+    )
 
     assert readiness.execution_mode == "offline_sidecar"
     assert readiness.opens_com_ports is False
@@ -321,6 +354,7 @@ def test_full_flow_live_runner_readiness_lists_controlled_live_gates(tmp_path):
     assert domains["initialization_contract"].stage_ids == (
         "formal_initialization_contract_plan",
         "formal_initialization_executor_dry_run_snapshot",
+        "formal_initialization_blocked_executor_snapshot",
         "initialization_readiness_snapshot",
         "pre_gas_readiness_snapshot",
     )
