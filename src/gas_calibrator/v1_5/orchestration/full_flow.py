@@ -641,6 +641,7 @@ def build_full_flow_live_runner_readiness(plan: FullFlowPlan) -> FullFlowLiveRun
             reason="formal initialization contract, PostgreSQL 18 sidecar, readiness snapshot, and pre-gas gap list can be generated offline before live identity gates",
             stage_ids=(
                 "formal_initialization_contract_plan",
+                "formal_initialization_executor_dry_run_snapshot",
                 "initialization_readiness_snapshot",
                 "pre_gas_readiness_snapshot",
             ),
@@ -964,6 +965,7 @@ def build_full_flow_plan(
     rid = run_id or f"v1_5_full_flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     formal_pkg = root / "formal_run_package"
     formal_initialization_dir = root / "formal_initialization"
+    formal_initialization_executor_dry_run_dir = root / "formal_initialization_executor_dry_run"
     pre_gas_readiness_dir = root / "pre_gas_readiness"
     getco_dir = root / "coefficient_epoch_0_getco_snapshot"
     getco_readiness_dir = root / "identity_getco_readiness"
@@ -1066,6 +1068,41 @@ def build_full_flow_plan(
             notes=(
                 "Do not pass --execute from the full-flow supervised planner.",
                 "The generated initialization commands remain a review artifact until a dedicated controlled tool is authorized.",
+            ),
+        )
+    )
+
+    steps.append(
+        FullFlowStep(
+            step_id="formal_initialization_executor_dry_run_snapshot",
+            title="Review formal initialization executor dry-run boundary",
+            phase="INITIALIZATION_EXECUTOR_DRY_RUN",
+            tool_module="gas_calibrator.tools.export_v1_5_formal_initialization_executor_dry_run",
+            command=_python_module(
+                "gas_calibrator.tools.export_v1_5_formal_initialization_executor_dry_run",
+                "--formal-initialization-plan-json",
+                formal_initialization_dir / "v1_5_formal_initialization_plan.json",
+                "--output-dir",
+                formal_initialization_executor_dry_run_dir,
+            ),
+            required_inputs=("formal initialization plan JSON",),
+            expected_outputs=(
+                "formal_initialization_executor_dry_run/v1_5_formal_initialization_executor_dry_run.json",
+                "formal_initialization_executor_dry_run/V1_5_FORMAL_INITIALIZATION_EXECUTOR_DRY_RUN.md",
+                "formal_initialization_executor_dry_run/v1_5_formal_initialization_executor_dry_run_steps.csv",
+                "formal_initialization_executor_dry_run/v1_5_formal_initialization_executor_dry_run_checks.csv",
+            ),
+            physical_meaning=(
+                "Classify the formal initialization plan before any executor use: offline dry-run commands, "
+                "read-only real-COM steps, and controlled-write steps stay visibly separated. This sidecar "
+                "does not pass --execute, open COM, write SN/device_code, write SENCO, connect PostgreSQL, "
+                "or control pressure/routes."
+            ),
+            execution_mode="offline_sidecar",
+            gate="required_before_initialization_executor_use",
+            notes=(
+                "This is a review sidecar for automation wiring; it is not a live initialization runner.",
+                "Future live executor work must be a separate reviewed PR with explicit unlocks and readback evidence.",
             ),
         )
     )
@@ -2372,6 +2409,7 @@ def build_full_flow_plan(
         },
         physical_order=(
             "formal_initialization_contract_readiness_and_pre_gas_sidecar",
+            "formal_initialization_executor_dry_run_review",
             "device_identity_and_GETCO_snapshot",
             "identity_GETCO_readiness_snapshot",
             "controlled_auxiliary_SENCO5_6_7_8_9_neutralization_after_GETCO_backup",
