@@ -358,6 +358,31 @@ def test_read_check_monitor_uses_check_query_and_skips_stream_noise() -> None:
     assert fake.writes == ["CHECK,YGAS,FFF\r\n"]
 
 
+def test_read_check_monitor_retry_keeps_minimum_command_gap(monkeypatch) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(
+        "gas_calibrator.devices.gas_analyzer.time.sleep",
+        lambda seconds: sleeps.append(float(seconds)),
+    )
+
+    ga = GasAnalyzer("COM1")
+
+    class _RetryCheckSerial(_FakeSerialForCoefficientRead):
+        def drain_input_nonblock(self, drain_s: float = 0.35, read_timeout_s: float = 0.05):
+            if len(self.writes) >= 2:
+                return ["<CHECK,YGAS,097,LOCK1=2.70V,LOCK2=2.68V>"]
+            return []
+
+    fake = _RetryCheckSerial([])
+    ga.ser = fake
+
+    parsed = ga.read_check_monitor(delay_s=0.0, timeout_s=0.05, retries=1, retry_gap_s=0.0)
+
+    assert parsed["ok"] is True
+    assert fake.writes == ["CHECK,YGAS,FFF\r\n", "CHECK,YGAS,FFF\r\n"]
+    assert any(seconds >= 1.0 for seconds in sleeps)
+
+
 class _FakeSerialForCoefficientRead:
     def __init__(self, lines=None, drain_batches=None) -> None:
         self.lines = list(lines or [])

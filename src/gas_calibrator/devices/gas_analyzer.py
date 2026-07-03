@@ -32,6 +32,7 @@ class GasAnalyzer:
     CHECK_MONITOR_READ_RETRY_COUNT = 0
     CHECK_MONITOR_READ_DELAY_S = 0.1
     CHECK_MONITOR_READ_TIMEOUT_S = 0.6
+    CHECK_MONITOR_COMMAND_GAP_S = 1.0
     _COEFFICIENT_TOKEN_RE = re.compile(
         r"C(?P<index>\d+)\s*:\s*(?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
     )
@@ -549,6 +550,7 @@ class GasAnalyzer:
         delay_s: Optional[float] = None,
         timeout_s: Optional[float] = None,
         retries: Optional[int] = None,
+        retry_gap_s: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Read the firmware CHECK monitor without changing analyzer runtime mode."""
 
@@ -556,6 +558,10 @@ class GasAnalyzer:
         attempts = 1 + max(0, int(retries if retries is not None else self.CHECK_MONITOR_READ_RETRY_COUNT))
         read_delay_s = float(delay_s if delay_s is not None else self.CHECK_MONITOR_READ_DELAY_S)
         read_timeout_s = float(timeout_s if timeout_s is not None else self.CHECK_MONITOR_READ_TIMEOUT_S)
+        retry_command_gap_s = max(
+            self.CHECK_MONITOR_COMMAND_GAP_S,
+            float(retry_gap_s if retry_gap_s is not None else self.CHECK_MONITOR_COMMAND_GAP_S),
+        )
         raw_lines: list[str] = []
 
         try:
@@ -606,7 +612,7 @@ class GasAnalyzer:
                         return parsed
 
             if attempt + 1 < attempts:
-                time.sleep(max(0.01, read_delay_s))
+                time.sleep(retry_command_gap_s)
 
         return {
             "ok": False,

@@ -40,16 +40,7 @@ from ..validation.dewpoint_flush_gate import (
 from .tuning import workflow_param
 
 
-FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S = 1800.0
 MIN_ANALYZER_SERIAL_COMMAND_GAP_S = 1.0
-
-
-def _cap_formal_open_flow_dewpoint_wait_s(value: Any, *, fallback: float = 300.0) -> float:
-    try:
-        resolved = float(value if value is not None else fallback)
-    except (TypeError, ValueError):
-        resolved = float(fallback)
-    return min(max(0.0, resolved), FORMAL_OPEN_FLOW_DEWPOINT_GATE_MAX_TOTAL_WAIT_S)
 
 
 def _coerce_analyzer_serial_command_gap_s(value: Any) -> float:
@@ -12275,6 +12266,7 @@ class CalibrationRunner:
                             delay_s=delay_s,
                             timeout_s=timeout_s,
                             retries=retries,
+                            retry_gap_s=command_gap_s,
                         )
                         or {}
                     )
